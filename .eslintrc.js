@@ -30,5 +30,6 @@ module.exports = {
       "named": "never",
       "asyncArrow": "always"
     }],
+    "no-var": "error"
   }
 }
