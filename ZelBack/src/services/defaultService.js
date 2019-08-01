@@ -2,10 +2,7 @@ const zelcashrpc = require('zelcashrpc')
 const fullnode = require('fullnode')
 
 async function defaultResponse(req, res) {
-  const config = new fullnode.Config(
-    self.coins[self.activecoin].config,
-    self.coins[self.activecoin].path
-  )
+  const config = new fullnode.Config()
   const rpcuser = config.rpcuser() || 'rpcuser'
   const rpcpassword = config.rpcpassword() || 'rpcpassowrd'
   const rpcport = config.rpcport() || 16124
@@ -19,9 +16,7 @@ async function defaultResponse(req, res) {
 
   const response = {
     status: 'success',
-    data: {
-      message: 'Welcome to ZelNode network!'
-    }
+    data: 'Welcome to ZelNode network!'
   }
 
   try {

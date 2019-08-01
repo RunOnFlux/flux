@@ -1,6 +1,6 @@
 {
   "name": "zelnoded",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "ZelNodeD - ZelNode Daemon. The entrace to the ZelNode network.",
   "repository": {
     "type": "git",
@@ -24,7 +24,7 @@
   "homepage": "https://github.com/zelcash/zelnoded#readme",
   "scripts": {
     "zelfrontdev": "webpack-dev-server --inline --progress --config ZelFront/build/webpack.dev.conf.js",
-    "zelfrontstart": "npm run dev",
+    "zelfrontstart": "npm run zelfrontddev",
     "zelfrontunit": "cross-env BABEL_ENV=test karma start ZelFront/test/unit/karma.conf.js --single-run",
     "zelfronte2e": "node ZelFront/test/e2e/runner.js",
     "zelfronttest": "npm run unit && npm run e2e",
