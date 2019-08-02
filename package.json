@@ -42,7 +42,6 @@
     "cors": "^2.8.5",
     "express": "^4.17.1",
     "fullnode": "file:lib/fullnode",
-    "ip": "^1.1.5",
     "mongodb": "^3.3.0-beta2",
     "morgan": "^1.9.1",
     "node-cmd": "^3.0.0",
