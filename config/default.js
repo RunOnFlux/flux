@@ -1,6 +1,6 @@
 module.exports = {
   server: {
-    localport: 16126,
-    zelnodeport: 16127
+    localport: 16127,
+    zelnodeport: 16128
   }
 }
