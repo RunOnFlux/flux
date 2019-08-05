@@ -2,8 +2,9 @@
 import axios from 'axios'
 
 const config = require('../../../config/default')
+const userconfig = require('../../../config/userconfig')
 const port = config.server.localport
-const externalip = config.server.ipaddress
+const externalip = userconfig.initial.ipaddress
 
 export default () => {
   return axios.create({
