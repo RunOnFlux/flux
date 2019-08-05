@@ -36,12 +36,7 @@ function showQuestions() {
       return showQuestions()
     }
 
-    const dataToWrite = `module.exports = {
-      initial: {
-        ipaddress: ${answers['ipaddr']},
-        zelid: ${answers['zelid']}
-      }
-    }`
+    const dataToWrite = `module.exports = { initial: { ipaddress: ${answers['ipaddr']}, zelid: ${answers['zelid']} } }`
 
     const userconfig = fs.createWriteStream(path)
 
