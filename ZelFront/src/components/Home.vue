@@ -36,7 +36,7 @@ export default {
       this.defaultResponse.message = response.data.data
     },
     getUserConfig() {
-      this.zelid = userconfig.init.zelid
+      this.zelid = userconfig.initial.zelid
     }
   }
 }
