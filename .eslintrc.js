@@ -30,6 +30,7 @@ module.exports = {
       "named": "never",
       "asyncArrow": "always"
     }],
-    "no-var": "error"
+    "no-var": "error",
+    "linebreak-style": ["error", "unix"]
   }
 }
