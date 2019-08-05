@@ -26,6 +26,7 @@ export default {
   },
   mounted() {
     this.getDefault()
+    this.getUserConfig()
     console.log(config.server.localport)
   },
   methods: {
@@ -45,5 +46,8 @@ export default {
 <style scoped>
 h1 {
   font-weight: normal;
+}
+img {
+  width: 400px;
 }
 </style>

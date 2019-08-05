@@ -36,12 +36,17 @@ function showQuestions() {
       return showQuestions()
     }
 
-    const dataToWrite = `module.exports = { initial: { ipaddress: ${answers['ipaddr']}, zelid: ${answers['zelid']} } }`
+    const dataToWrite = `module.exports = {
+      initial: {
+        ipaddress: '${answers['ipaddr']}',
+        zelid: '${answers['zelid']}'
+      }
+    }`
 
     const userconfig = fs.createWriteStream(path)
 
     userconfig.once('open', () => {
-      userconfig.write(JSON.stringify(dataToWrite))
+      userconfig.write(dataToWrite)
       userconfig.end()
     })
     console.log('Configuration successful. Values saved and can be changed in ./config/userconfig.js')
