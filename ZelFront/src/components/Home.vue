@@ -1,6 +1,6 @@
 <template>
   <div>
-    <img src="./assets/ZelNodes.svg">
+    <img src="@/assets/ZelNodes.svg">
     <h1>{{ defaultResponse.status }}</h1>
     <h1>Node owner Zel ID: {{ zelid }}</h1>
     <h1>{{ defaultResponse.message }}</h1>

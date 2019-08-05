@@ -5,7 +5,9 @@ const path = './config/userconfig.js'
 const goodchars = /^[1-9a-km-zA-HJ-NP-Z]+$/
 const alfasymbols = /(.*[a-zA-Z]){1}/i
 if (fs.existsSync(path)) {
-  process.exit()
+  console.log('Configuration file found. You can change your configuration in ./config/userconfig.js')
+  console.log('Starting ZelNode Daemon...')
+  return
 }
 
 const questions = [
@@ -33,8 +35,7 @@ function showQuestions() {
       console.log('zelID is NOT valid!')
       return showQuestions()
     }
-    console.log('Configuration successful. Values can be chaned in config/userconfig.js')
-    // todo save to device path
+
     const dataToWrite = `module.exports = {
       initial: {
         ipaddress: ${answers['ipaddr']},
@@ -48,7 +49,8 @@ function showQuestions() {
       userconfig.write(JSON.stringify(dataToWrite))
       userconfig.end()
     })
-    process.exit()
+    console.log('Configuration successful. Values saved and can be changed in ./config/userconfig.js')
+    console.log('Starting ZelNode Daemon...')
   })
 }
 showQuestions()

@@ -1,6 +1,6 @@
 {
   "name": "zelnoded",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "ZelNodeD - ZelNode Daemon. The entrace to the ZelNode network.",
   "repository": {
     "type": "git",
@@ -32,7 +32,7 @@
     "zelfrontlint": "eslint --ext .js,.vue src ZelFront/test/unit ZelFront/test/e2e/specs",
     "zelfrontbuild": "node ZelFront/build/build.js",
     "zelbackstart": "nodemon ZelBack/app.js",
-    "start": "node init.js && (npm run zelbackstart >> zelback.debug & npm run zelfrontstart >> zelfront.debug)"
+    "start": "node init.js && (npm run zelbackstart >> zelback.debug & npm run zelfrontstart &>&1 | tee zelfront.debug)"
   },
   "dependencies": {
     "axios": "^0.19.0",
