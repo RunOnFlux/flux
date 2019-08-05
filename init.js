@@ -1,11 +1,11 @@
 const inquirer = require('inquirer')
 const fs = require('fs')
-const path = './config/userconf.js'
+const path = './config/userconfig.js'
 
 const goodchars = /^[1-9a-km-zA-HJ-NP-Z]+$/
 const alfasymbols = /(.*[a-zA-Z]){1}/i
 if (fs.existsSync(path)) {
-  return
+  process.exit()
 }
 
 const questions = [
@@ -17,7 +17,7 @@ const questions = [
   {
     type: 'input',
     name: 'zelid',
-    message: "What's your zelID?"
+    message: "What's your Zel ID?"
   }
 ]
 
@@ -48,6 +48,7 @@ function showQuestions() {
       userconfig.write(JSON.stringify(dataToWrite))
       userconfig.end()
     })
+    process.exit()
   })
 }
 showQuestions()

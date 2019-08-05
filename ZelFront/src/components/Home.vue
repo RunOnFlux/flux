@@ -1,6 +1,8 @@
 <template>
-  <div class="hello">
+  <div>
+    <img src="./assets/ZelNodes.svg">
     <h1>{{ defaultResponse.status }}</h1>
+    <h1>Node owner Zel ID: {{ zelid }}</h1>
     <h1>{{ defaultResponse.message }}</h1>
   </div>
 </template>
@@ -9,6 +11,7 @@
 import DefaultService from '@/services/DefaultService'
 
 const config = require('../../../config/default')
+const userconfig = require('../../../config/userconfig')
 
 export default {
   name: 'Home',
@@ -17,7 +20,8 @@ export default {
       defaultResponse: {
         status: '',
         message: ''
-      }
+      },
+      zelid: ''
     }
   },
   mounted() {
@@ -29,6 +33,9 @@ export default {
       const response = await DefaultService.fetchDefault()
       this.defaultResponse.status = response.data.status
       this.defaultResponse.message = response.data.data
+    },
+    getUserConfig() {
+      this.zelid = userconfig.init.zelid
     }
   }
 }
@@ -36,12 +43,7 @@ export default {
 
 <!-- Add "scoped" attribute to limit CSS to this component only -->
 <style scoped>
-h1,
-h2 {
+h1 {
   font-weight: normal;
-}
-
-a {
-  color: #42b983;
 }
 </style>
