@@ -86,3 +86,8 @@ For a detailed explanation on how things work, check out the [guide](http://vuej
 npm run zelbackdev
 
 ```
+
+Signed message requirement
+- First 13 characters is timestamp
+- The length of message must be at least 40 characters
+- Message and corresponding signature must not be older than X seconds
