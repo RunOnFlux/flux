@@ -5,7 +5,7 @@
     <h1>Node owner Zel ID: {{ zelid }}</h1>
     <h1>{{ defaultResponse.message }}</h1>
 
-    <a :href="'zel:?action=sign&message=' + loginPhrase + '&icon=http%3A%2F%2Fzelid.io%2Fimg%2FzelID.svg&callback=http%3A%2F%2F' + externalip + ':' + apiPort + '%2Fzelid%2Fverifylogin%2F'">
+    <a @click="initiateLoginWS" :href="'zel:?action=sign&message=' + loginPhrase + '&icon=http%3A%2F%2Fzelid.io%2Fimg%2FzelID.svg&callback=http%3A%2F%2F' + externalip + ':' + apiPort + '%2Fzelid%2Fverifylogin%2F'">
       <img src="@/assets//zelID.svg" />
     </a>
 
@@ -39,6 +39,7 @@
 import DefaultService from '@/services/DefaultService'
 import zelIDService from '@/services/ZelIDService'
 
+const qs = require('qs')
 const config = require('../../../config/default')
 const userconfig = require('../../../config/userconfig')
 
@@ -58,7 +59,8 @@ export default {
         address: '',
         signature: '',
         message: ''
-      }
+      },
+      websocket: null
     }
   },
   mounted() {
@@ -98,6 +100,31 @@ export default {
         .catch(e => {
           console.log(e)
         })
+    },
+    initiateLoginWS() {
+      const self = this
+      const wsuri = `ws://${this.externalip}:${this.apiPort}/ws/zelid/${this.loginPhrase}`
+      const websocket = new WebSocket(wsuri)
+      this.websocket = websocket
+
+      websocket.onopen = (evt) => { self.onOpen(evt) }
+      websocket.onclose = (evt) => { self.onClose(evt) }
+      websocket.onmessage = (evt) => { self.onMessage(evt) }
+      websocket.onerror = (evt) => { self.onError(evt) }
+    },
+    onError(evt) {
+      console.log(evt)
+    },
+    onMessage(evt) {
+      const data = qs.parse(evt.data)
+      console.log(data)
+      console.log(evt)
+    },
+    onClose(evt) {
+      console.log(evt)
+    },
+    onOpen(evt) {
+      console.log(evt)
     }
   }
 }

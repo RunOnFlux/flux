@@ -202,14 +202,15 @@ function verifyLogin(req, res) {
                 // Third associate that address, signature and message with our database
                 // TODO signature hijacking? What if middleware guy knows all of this?
                 // TODO do we want to have some timelimited logins? not needed now
-                // Do we want to store sighash too? Nope we are verifying if provided signature is ok. In localStorage we are storing zelid and signature
+                // Do we want to store sighash too? Nope we are verifying if provided signature is ok. In localStorage we are storing zelid, message, signature
                 // const sighash = crypto
                 //   .createHash('sha256')
                 //   .update(signature)
                 //   .digest('hex')
                 const newLogin = {
                   zelid: address,
-                  message
+                  loginPhrase: message,
+                  signature
                 }
                 dbo.collection(config.database.local.collections.loggedUsers).insertOne(newLogin, function (err, myres) {
                   if (err) {
@@ -310,13 +311,8 @@ function activeLoginPhrases(res) {
 }
 
 function loggedUsers(res) {
-  /* const activeLoginPhrases = [
-     {
-       loginPhrase: 1565356121335e9obp7h17bykbbvub0ts488wnnmd12fe1pq88mq0v,
-       createdAt: 2019-08-09T13:08:41.335Z,
-       expireAt: 2019-08-09T13:23:41.335Z
-     }
-  ] */
+  // TODO make this protected api
+  // responds with { zelid: 1btc, message: dddasd }
   MongoClient.connect(mongoUrl, function (err, db) {
     if (err) {
       log.error('Cannot reach MongoDB')
@@ -330,7 +326,7 @@ function loggedUsers(res) {
       return res.json(errMessage)
     }
     let dbo = db.db(config.database.local.database)
-    dbo.collection(config.database.local.collections.loggedUsers).find({}, { projection: { _id: 0, zelid: 1, message: 1 } })
+    dbo.collection(config.database.local.collections.loggedUsers).find({}, { projection: { _id: 0, zelid: 1, loginPhrase: 1 } })
       .toArray(function (err, result) {
         if (err) {
           log.error('Error accessing local zelID collection')
@@ -350,12 +346,104 @@ function loggedUsers(res) {
   })
 }
 
-function verifySession(session) {
-  return true
+// function verifySession(session) {
+//   return true
+// }
+
+function wsRespondLoginPhrase(ws, req) {
+  const loginphrase = req.params.loginphrase
+  console.log(loginphrase)
+  // respond with object containing address and signature to received message
+
+  MongoClient.connect(mongoUrl, function (err, db) {
+    if (err) {
+      log.error('Cannot reach MongoDB')
+      log.error(err)
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Cannot reach MongoDB'
+        }
+      }
+      ws.send(qs.stringify(errMessage))
+      ws.close()
+    }
+    let dbo = db.db(config.database.local.database)
+    function searchDatabase() {
+      dbo.collection(config.database.local.collections.loggedUsers).find({ loginPhrase: loginphrase })
+        .toArray(function (err, result) {
+          if (err) {
+            log.error('Error looking for Login')
+            log.error(err)
+            const errMessage = {
+              status: 'error',
+              data: {
+                message: 'Error looking for Login'
+              }
+            }
+            db.close()
+            ws.send(qs.stringify(errMessage))
+            ws.close()
+          }
+
+          if (result[0] !== undefined) {
+            // user is logged, all ok
+            const message = {
+              status: 'success',
+              data: {
+                message: 'Successfully logged in',
+                zelid: result[0].zelid,
+                loginPhrase: result[0].loginPhrase,
+                signature: result[0].signature
+              }
+            }
+            ws.send(qs.stringify(message))
+            ws.close()
+            db.close()
+          } else {
+            // check if this loginPhrase is still active. If so rerun this searching process
+            dbo.collection(config.database.local.collections.activeLoginPhrases).find({ loginPhrase: loginphrase })
+              .toArray(function (err, result) {
+                if (err) {
+                  log.error('Error searching for login phrase')
+                  log.error(err)
+                  const errMessage = {
+                    status: 'error',
+                    data: {
+                      message: 'Error searching for login phrase'
+                    }
+                  }
+                  db.close()
+                  ws.send(qs.stringify(errMessage))
+                  ws.close()
+                }
+                if (result[0] !== undefined) {
+                  setTimeout(() => {
+                    searchDatabase()
+                  }, 500)
+                } else {
+                  const errMessage = {
+                    status: 'error',
+                    data: {
+                      message: 'Signed message is no longer valid. Please request a new one.'
+                    }
+                  }
+                  db.close()
+                  ws.send(qs.stringify(errMessage))
+                  ws.close()
+                }
+              })
+          }
+        })
+    }
+    searchDatabase()
+  })
 }
 
 module.exports = {
   loginPhrase: loginPhrase,
   verifyLogin: verifyLogin,
-  activeLoginPhrases: activeLoginPhrases
+  activeLoginPhrases: activeLoginPhrases,
+  loggedUsers: loggedUsers,
+  wsRespondLoginPhrase: wsRespondLoginPhrase
 }
