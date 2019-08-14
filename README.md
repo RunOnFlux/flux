@@ -91,3 +91,44 @@ Signed message requirement
 - First 13 characters is timestamp
 - The length of message must be at least 40 characters
 - Message and corresponding signature must not be older than X seconds
+
+
+### API CALLS
+get /zelid/loginphrase
+returns a loginphrase - message that should be signed by zelid (or any bitcoin address). Message expires after 15 minutes. Only within these 15 minutes it is possible to log in with this message
+
+get /
+returns getinfo from zelcashd
+
+post /zelid/verifylogin
+post a stringified object of {
+  message: loginPhrase,
+  address: zelid/bitcoin address that signed this message,
+  signature: signature of the message by that zelid
+}
+returns an object with status either error or success and data containing message explaining the outcome. Success means logged in. Error is error
+
+websocket /ws/zelid/:loginphrase
+It is possible to subscribe to listening to a response of logging with a certain loginphrase. Such response then contain signature and address. This is useful for remote logging.
+
+Protected API
+- In order to access protected API, user has to be logged into the zelnode. Every request to protected API has to contain stringified zelidauth header of folowing object\
+  {
+    zelid: zelid/bitcoin address used for logging in,
+    signature: signature of a loginPhrase message signed by this address. 
+  }
+  Note This loginPhrase must have been obtained by this zelnode and user (zelid) must be signed in to the zelnode with that loginPhrase
+
+get /zelid/loggedusers (ZelNode Owner)
+Returns an array of currently logged users into the zelnode
+{ zelid: 1btc, message: dddasd }
+
+get /zelid/activeloginphrases (ZelNode Owner)
+Return an array of currently active login phrases
+  /* const activeLoginPhrases = [
+     {
+       loginPhrase: 1565356121335e9obp7h17bykbbvub0ts488wnnmd12fe1pq88mq0v,
+       createdAt: 2019-08-09T13:08:41.335Z,
+       expireAt: 2019-08-09T13:23:41.335Z
+     }
+  ] */

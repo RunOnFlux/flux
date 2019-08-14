@@ -1,13 +1,18 @@
 <template>
   <div>
     <img src="@/assets/ZelNodes.svg">
-    <h1>{{ defaultResponse.status }}</h1>
+    <h1>{{ defaultResponse.status || 'Error connecting to zelcashd'}}</h1>
     <h1>Node owner Zel ID: {{ zelid }}</h1>
     <h1>{{ defaultResponse.message }}</h1>
 
-    <a @click="initiateLoginWS" :href="'zel:?action=sign&message=' + loginPhrase + '&icon=http%3A%2F%2Fzelid.io%2Fimg%2FzelID.svg&callback=http%3A%2F%2F' + externalip + ':' + apiPort + '%2Fzelid%2Fverifylogin%2F'">
-      <img src="@/assets//zelID.svg" />
-    </a>
+    <div>
+      <a
+        @click="initiateLoginWS"
+        :href="'zel:?action=sign&message=' + loginPhrase + '&icon=http%3A%2F%2Fzelid.io%2Fimg%2FzelID.svg&callback=http%3A%2F%2F' + externalip + ':' + apiPort + '%2Fzelid%2Fverifylogin%2F'"
+      >
+        <img src="@/assets//zelID.svg" />
+      </a>
+    </div>
 
     {{ loginForm.message }}
 
@@ -30,6 +35,8 @@
       </div>
       <div>
         <button @click="login">Login</button>
+        <button @click="loggedUsers">Logged Users</button>
+        <button @click="activeLoginPhrases">active Login Phrases</button>
       </div>
     </div>
   </div>
@@ -38,10 +45,12 @@
 <script>
 import DefaultService from '@/services/DefaultService'
 import zelIDService from '@/services/ZelIDService'
+import Vue from 'vue'
 
 const qs = require('qs')
 const config = require('../../../config/default')
 const userconfig = require('../../../config/userconfig')
+const vue = new Vue()
 
 export default {
   name: 'Home',
@@ -89,6 +98,7 @@ export default {
         })
         .catch(error => {
           console.log(error)
+          vue.$message.error(error)
         })
     },
     login() {
@@ -96,9 +106,54 @@ export default {
       zelIDService.verifyLogin(this.loginForm)
         .then(response => {
           console.log(response)
+          if (response.data.status === 'success' && response.data.data) {
+            // we are now signed. Store our values
+            const zelidauth = {
+              zelid: this.loginForm.address,
+              signature: this.loginForm.signature
+            }
+            localStorage.setItem('zelidauth', qs.stringify(zelidauth))
+            vue.$message.success(response.data.data.message)
+          } else {
+            vue.$message.error(response.data.data.message)
+          }
         })
         .catch(e => {
           console.log(e)
+          vue.$message.error(e.toString())
+        })
+    },
+    loggedUsers() {
+      const zelidauth = localStorage.getItem('zelidauth')
+      const auth = qs.parse(zelidauth)
+      console.log(auth)
+      zelIDService.loggedUsers(zelidauth)
+        .then(response => {
+          console.log(response)
+          if (response.data.status === 'error') {
+            vue.$message.error(response.data.data.message)
+          }
+        })
+        .catch(e => {
+          console.log(e)
+          vue.$message.error(e.toString())
+        })
+    },
+    activeLoginPhrases() {
+      const zelidauth = localStorage.getItem('zelidauth')
+      const auth = qs.parse(zelidauth)
+      console.log(auth)
+      zelIDService.activeLoginPhrases(zelidauth)
+        .then(response => {
+          console.log(response)
+          if (response.data.status === 'error') {
+            vue.$message.error(response.data.data.message)
+          }
+        })
+        .catch(e => {
+          console.log(e)
+          console.log(e.code)
+          vue.$message.error(e.toString())
         })
     },
     initiateLoginWS() {
@@ -117,6 +172,15 @@ export default {
     },
     onMessage(evt) {
       const data = qs.parse(evt.data)
+      if (data.status === 'success' && data.data) {
+        // we are now signed. Store our values
+        const zelidauth = {
+          zelid: data.data.zelid,
+          signature: data.data.signature
+        }
+        localStorage.setItem('zelidauth', qs.stringify(zelidauth))
+        vue.$message.success(data.data.message)
+      }
       console.log(data)
       console.log(evt)
     },

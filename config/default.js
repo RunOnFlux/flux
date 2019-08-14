@@ -19,5 +19,6 @@ module.exports = {
         zelid: 'zelid'
       }
     }
-  }
+  },
+  zelTeamZelId: '12hbuDGzfnndXP4NbrS3xdVXUcC6L7N2ag'
 }

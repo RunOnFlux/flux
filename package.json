@@ -1,6 +1,6 @@
 {
   "name": "zelnoded",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "ZelNodeD - ZelNode Daemon. The entrace to the ZelNode network.",
   "repository": {
     "type": "git",
@@ -42,6 +42,7 @@
     "body-parser": "^1.19.0",
     "config": "^3.2.2",
     "cors": "^2.8.5",
+    "element-ui": "^2.11.1",
     "express": "^4.17.1",
     "express-ws": "^4.0.0",
     "fullnode": "file:lib/fullnode",
