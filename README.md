@@ -132,3 +132,12 @@ Return an array of currently active login phrases
        expireAt: 2019-08-09T13:23:41.335Z
      }
   ] */
+
+get /zelid/logoutallusers (ZelNode Owner)
+Logs out all users
+
+get /zelid/logoutcurrentsession (User level)
+Logs out current login session
+
+get /zelid/logoutallsessions (User level)
+Logs out all login sessions - all devices (precisely all still valid logins)

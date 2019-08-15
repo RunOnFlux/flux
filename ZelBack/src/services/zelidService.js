@@ -381,63 +381,175 @@ function loggedUsers(req, res) {
   })
 }
 
-function verifyAdminSession(headers, callback) {
-  if (headers && headers.zelidauth) {
-    const auth = qs.parse(headers.zelidauth)
-    console.log(auth)
-    if (auth.zelid && auth.signature) {
-      console.log(auth.zelid)
-      console.log(auth.signature)
-      console.log(userconfig.initial.zelid)
-      if (auth.zelid === userconfig.initial.zelid) {
-        connectMongoDb(mongoUrl, function (err, db) {
-          if (err) {
-            log.error('Cannot reach MongoDB')
-            log.error(err)
-            callback(null, false)
-          }
-          const database = db.db(config.database.local.database)
-          const collection = config.database.local.collections.loggedUsers
-          const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] }
-          const projection = {}
-          findOneInDatabase(database, collection, query, projection, function (err, result) {
-            if (err) {
-              log.error('Error accessing local zelID collection')
-              log.error(err)
-              db.close()
-              callback(null, false)
-            }
-            const loggedUser = result
-            // console.log(result)
-            db.close()
-            if (loggedUser) {
-              // check if signature corresponds to message with that zelid
-              let valid = false
-              try {
-                valid = bitcoinMessage.verify(loggedUser.loginPhrase, auth.zelid, auth.signature)
-              } catch (error) {
-                callback(null, false)
-              }
-              // console.log(valid)
-              if (valid) {
-                // now we know this is indeed a logged admin
-                // console.log('here')
-                callback(null, true)
-              }
-            } else {
-              callback(null, false)
-            }
-          })
-        })
-      } else {
-        callback(null, false)
-      }
-    } else {
-      callback(null, false)
+function logoutCurrentSession(req, res) {
+  verifyUserSession(req.headers, function (error, authorized) {
+    if (error) {
+      return res.json(error)
     }
-  } else {
-    callback(null, false)
-  }
+    if (authorized === true) {
+      const auth = qs.parse(req.headers.zelidauth)
+      connectMongoDb(mongoUrl, function (err, db) {
+        if (err) {
+          log.error('Cannot reach MongoDB')
+          log.error(err)
+          const errMessage = {
+            status: 'error',
+            data: {
+              message: 'Cannot reach MongoDB'
+            }
+          }
+          return res.json(errMessage)
+        }
+        const database = db.db(config.database.local.database)
+        const collection = config.database.local.collections.loggedUsers
+        const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] }
+        const projection = {}
+        findOneAndDeleteInDatabase(database, collection, query, projection, function (err, result) {
+          db.close()
+          if (err) {
+            log.error('Error accessing local zelID collection')
+            log.error(err)
+            const errMessage = {
+              status: 'error',
+              data: {
+                message: 'Error accessing local zelID collection.'
+              }
+            }
+            return res.json(errMessage)
+          }
+          console.log(result)
+          const message = {
+            status: 'success',
+            data: {
+              message: 'Successfully logged out'
+            }
+          }
+          return res.json(message)
+        })
+      })
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.'
+        }
+      }
+      return res.json(errMessage)
+    }
+  })
+}
+
+function logoutAllSessions(req, res) {
+  verifyUserSession(req.headers, function (error, authorized) {
+    if (error) {
+      return res.json(error)
+    }
+    if (authorized === true) {
+      const auth = qs.parse(req.headers.zelidauth)
+      connectMongoDb(mongoUrl, function (err, db) {
+        if (err) {
+          log.error('Cannot reach MongoDB')
+          log.error(err)
+          const errMessage = {
+            status: 'error',
+            data: {
+              message: 'Cannot reach MongoDB'
+            }
+          }
+          return res.json(errMessage)
+        }
+        const database = db.db(config.database.local.database)
+        const collection = config.database.local.collections.loggedUsers
+        const query = { zelid: auth.zelid }
+        removeDocumentsFromCollection(database, collection, query, function (err, result) {
+          db.close()
+          if (err) {
+            log.error('Error accessing local zelID collection')
+            log.error(err)
+            const errMessage = {
+              status: 'error',
+              data: {
+                message: 'Error accessing local zelID collection.'
+              }
+            }
+            return res.json(errMessage)
+          }
+          console.log(result)
+          const message = {
+            status: 'success',
+            data: {
+              message: 'Successfully logged out all sessions'
+            }
+          }
+          return res.json(message)
+        })
+      })
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.'
+        }
+      }
+      return res.json(errMessage)
+    }
+  })
+}
+
+function logoutAllUsers(req, res) {
+  verifyAdminSession(req.headers, function (error, authorized) {
+    if (error) {
+      return res.json(error)
+    }
+    if (authorized === true) {
+      connectMongoDb(mongoUrl, function (err, db) {
+        if (err) {
+          log.error('Cannot reach MongoDB')
+          log.error(err)
+          const errMessage = {
+            status: 'error',
+            data: {
+              message: 'Cannot reach MongoDB'
+            }
+          }
+          return res.json(errMessage)
+        }
+        const database = db.db(config.database.local.database)
+        const collection = config.database.local.collections.loggedUsers
+        const query = { }
+        removeDocumentsFromCollection(database, collection, query, function (err, result) {
+          db.close()
+          if (err) {
+            log.error('Error accessing local zelID collection')
+            log.error(err)
+            const errMessage = {
+              status: 'error',
+              data: {
+                message: 'Error accessing local zelID collection.'
+              }
+            }
+            return res.json(errMessage)
+          }
+          console.log(result)
+          const message = {
+            status: 'success',
+            data: {
+              message: 'Successfully logged out all sessions'
+            }
+          }
+          return res.json(message)
+        })
+      })
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.'
+        }
+      }
+      return res.json(errMessage)
+    }
+  })
 }
 
 function wsRespondLoginPhrase(ws, req) {
@@ -533,6 +645,175 @@ function wsRespondLoginPhrase(ws, req) {
   })
 }
 
+// Verification functions
+
+function verifyAdminSession(headers, callback) {
+  if (headers && headers.zelidauth) {
+    const auth = qs.parse(headers.zelidauth)
+    console.log(auth)
+    if (auth.zelid && auth.signature) {
+      console.log(auth.zelid)
+      console.log(auth.signature)
+      console.log(userconfig.initial.zelid)
+      if (auth.zelid === userconfig.initial.zelid) {
+        connectMongoDb(mongoUrl, function (err, db) {
+          if (err) {
+            log.error('Cannot reach MongoDB')
+            log.error(err)
+            callback(null, false)
+          }
+          const database = db.db(config.database.local.database)
+          const collection = config.database.local.collections.loggedUsers
+          const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] }
+          const projection = {}
+          findOneInDatabase(database, collection, query, projection, function (err, result) {
+            if (err) {
+              log.error('Error accessing local zelID collection')
+              log.error(err)
+              db.close()
+              callback(null, false)
+            }
+            const loggedUser = result
+            // console.log(result)
+            db.close()
+            if (loggedUser) {
+              // check if signature corresponds to message with that zelid
+              let valid = false
+              try {
+                valid = bitcoinMessage.verify(loggedUser.loginPhrase, auth.zelid, auth.signature)
+              } catch (error) {
+                callback(null, false)
+              }
+              // console.log(valid)
+              if (valid) {
+                // now we know this is indeed a logged admin
+                // console.log('here')
+                callback(null, true)
+              }
+            } else {
+              callback(null, false)
+            }
+          })
+        })
+      } else {
+        callback(null, false)
+      }
+    } else {
+      callback(null, false)
+    }
+  } else {
+    callback(null, false)
+  }
+}
+
+function verifyUserSession(headers, callback) {
+  if (headers && headers.zelidauth) {
+    const auth = qs.parse(headers.zelidauth)
+    console.log(auth)
+    if (auth.zelid && auth.signature) {
+      connectMongoDb(mongoUrl, function (err, db) {
+        if (err) {
+          log.error('Cannot reach MongoDB')
+          log.error(err)
+          callback(null, false)
+        }
+        const database = db.db(config.database.local.database)
+        const collection = config.database.local.collections.loggedUsers
+        const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] }
+        const projection = {}
+        findOneInDatabase(database, collection, query, projection, function (err, result) {
+          if (err) {
+            log.error('Error accessing local zelID collection')
+            log.error(err)
+            db.close()
+            callback(null, false)
+          }
+          const loggedUser = result
+          // console.log(result)
+          db.close()
+          if (loggedUser) {
+            // check if signature corresponds to message with that zelid
+            let valid = false
+            try {
+              valid = bitcoinMessage.verify(loggedUser.loginPhrase, auth.zelid, auth.signature)
+            } catch (error) {
+              callback(null, false)
+            }
+            // console.log(valid)
+            if (valid) {
+              // now we know this is indeed a logged admin
+              // console.log('here')
+              callback(null, true)
+            }
+          } else {
+            callback(null, false)
+          }
+        })
+      })
+    } else {
+      callback(null, false)
+    }
+  } else {
+    callback(null, false)
+  }
+}
+
+function verifyZelTeamSession(headers, callback) {
+  if (headers && headers.zelidauth) {
+    const auth = qs.parse(headers.zelidauth)
+    console.log(auth)
+    if (auth.zelid && auth.signature) {
+      if (auth.zelid === config.zelTeamZelId) {
+        connectMongoDb(mongoUrl, function (err, db) {
+          if (err) {
+            log.error('Cannot reach MongoDB')
+            log.error(err)
+            callback(null, false)
+          }
+          const database = db.db(config.database.local.database)
+          const collection = config.database.local.collections.loggedUsers
+          const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] }
+          const projection = {}
+          findOneInDatabase(database, collection, query, projection, function (err, result) {
+            if (err) {
+              log.error('Error accessing local zelID collection')
+              log.error(err)
+              db.close()
+              callback(null, false)
+            }
+            const loggedUser = result
+            // console.log(result)
+            db.close()
+            if (loggedUser) {
+              // check if signature corresponds to message with that zelid
+              let valid = false
+              try {
+                valid = bitcoinMessage.verify(loggedUser.loginPhrase, auth.zelid, auth.signature)
+              } catch (error) {
+                callback(null, false)
+              }
+              // console.log(valid)
+              if (valid) {
+                // now we know this is indeed a logged admin
+                // console.log('here')
+                callback(null, true)
+              }
+            } else {
+              callback(null, false)
+            }
+          })
+        })
+      } else {
+        callback(null, false)
+      }
+    } else {
+      callback(null, false)
+    }
+  } else {
+    callback(null, false)
+  }
+}
+
 // MongoDB functions
 function connectMongoDb(url, callback) {
   MongoClient.connect(url, function (err, db) {
@@ -575,10 +856,34 @@ function insertOneToDatabase(database, collection, value, callback) {
   })
 }
 
+function findOneAndDeleteInDatabase(database, collection, query, projection, callback) {
+  database.collection(collection).findOneAndDelete(query, projection, function (err, result) {
+    if (err) {
+      callback(err)
+    } else {
+      callback(null, result)
+    }
+  })
+}
+
+function removeDocumentsFromCollection(database, collection, query, callback) {
+  // to remove all documents from collection, the query is just {}
+  database.collection(collection).remove(query, function (err, result) {
+    if (err) {
+      callback(err)
+    } else {
+      callback(null, result)
+    }
+  })
+}
+
 module.exports = {
-  loginPhrase: loginPhrase,
-  verifyLogin: verifyLogin,
-  activeLoginPhrases: activeLoginPhrases,
-  loggedUsers: loggedUsers,
-  wsRespondLoginPhrase: wsRespondLoginPhrase
+  loginPhrase,
+  verifyLogin,
+  activeLoginPhrases,
+  loggedUsers,
+  logoutCurrentSession,
+  logoutAllSessions,
+  logoutAllUsers,
+  wsRespondLoginPhrase
 }

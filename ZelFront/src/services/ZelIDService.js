@@ -24,5 +24,29 @@ export default {
         zelidauth: zelidauthHeader
       }
     })
+  },
+
+  logoutCurrentSession(zelidauthHeader) {
+    return Api().get('/zelid/logoutcurrentsession', {
+      headers: {
+        zelidauth: zelidauthHeader
+      }
+    })
+  },
+
+  logoutAllSessions(zelidauthHeader) {
+    return Api().get('/zelid/logoutallsessions', {
+      headers: {
+        zelidauth: zelidauthHeader
+      }
+    })
+  },
+
+  logoutAllUsers(zelidauthHeader) {
+    return Api().get('/zelid/logoutallusers', {
+      headers: {
+        zelidauth: zelidauthHeader
+      }
+    })
   }
 }

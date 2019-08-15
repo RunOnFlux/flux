@@ -38,6 +38,11 @@
         <button @click="loggedUsers">Logged Users</button>
         <button @click="activeLoginPhrases">active Login Phrases</button>
       </div>
+      <div>
+        <button @click="logoutCurrentSession">Logout current session</button>
+        <button @click="logoutAllSessions">Logout all sessions</button>
+        <button @click="logOutAllUsers">logout all users</button>
+      </div>
     </div>
   </div>
 </template>
@@ -132,6 +137,60 @@ export default {
           console.log(response)
           if (response.data.status === 'error') {
             vue.$message.error(response.data.data.message)
+          }
+        })
+        .catch(e => {
+          console.log(e)
+          vue.$message.error(e.toString())
+        })
+    },
+    logoutCurrentSession() {
+      const zelidauth = localStorage.getItem('zelidauth')
+      const auth = qs.parse(zelidauth)
+      console.log(auth)
+      zelIDService.logoutCurrentSession(zelidauth)
+        .then(response => {
+          console.log(response)
+          if (response.data.status === 'error') {
+            vue.$message.error(response.data.data.message)
+          } else {
+            vue.$message.success(response.data.data.message)
+          }
+        })
+        .catch(e => {
+          console.log(e)
+          vue.$message.error(e.toString())
+        })
+    },
+    logoutAllSessions() {
+      const zelidauth = localStorage.getItem('zelidauth')
+      const auth = qs.parse(zelidauth)
+      console.log(auth)
+      zelIDService.logoutAllSessions(zelidauth)
+        .then(response => {
+          console.log(response)
+          if (response.data.status === 'error') {
+            vue.$message.error(response.data.data.message)
+          } else {
+            vue.$message.success(response.data.data.message)
+          }
+        })
+        .catch(e => {
+          console.log(e)
+          vue.$message.error(e.toString())
+        })
+    },
+    logOutAllUsers() {
+      const zelidauth = localStorage.getItem('zelidauth')
+      const auth = qs.parse(zelidauth)
+      console.log(auth)
+      zelIDService.logoutAllUsers(zelidauth)
+        .then(response => {
+          console.log(response)
+          if (response.data.status === 'error') {
+            vue.$message.error(response.data.data.message)
+          } else {
+            vue.$message.success(response.data.data.message)
           }
         })
         .catch(e => {
