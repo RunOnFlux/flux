@@ -106,10 +106,10 @@ post a stringified object of {
   address: zelid/bitcoin address that signed this message,
   signature: signature of the message by that zelid
 }
-returns an object with status either error or success and data containing message explaining the outcome. Success means logged in. Error is error
+returns an object with status either error or success and data containing message explaining the outcome. Success means logged in. Error is error. Also return privilage status to api /user, admin, zelteam
 
 websocket /ws/zelid/:loginphrase
-It is possible to subscribe to listening to a response of logging with a certain loginphrase. Such response then contain signature and address. This is useful for remote logging.
+It is possible to subscribe to listening to a response of logging with a certain loginphrase. Such response then contain loginPhrase, signature, address, message and privilage. This is useful for remote logging.
 
 Protected API
 - In order to access protected API, user has to be logged into the zelnode. Every request to protected API has to contain stringified zelidauth header of folowing object\

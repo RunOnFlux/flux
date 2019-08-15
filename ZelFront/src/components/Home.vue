@@ -4,6 +4,7 @@
     <h1>{{ defaultResponse.status || 'Error connecting to zelcashd'}}</h1>
     <h1>Node owner Zel ID: {{ zelid }}</h1>
     <h1>{{ defaultResponse.message }}</h1>
+    <h1>logged privilage {{ privilage }}</h1>
 
     <div>
       <a
@@ -74,10 +75,12 @@ export default {
         signature: '',
         message: ''
       },
-      websocket: null
+      websocket: null,
+      privilage: 'none' // user, admin, zelteam
     }
   },
   mounted() {
+    this.loadSession()
     this.getDefault()
     this.getUserConfig()
     this.getZelIdLoginPhrase()
@@ -85,6 +88,22 @@ export default {
     console.log(config.server.localport)
   },
   methods: {
+    loadSession() {
+      const zelidauth = localStorage.getItem('zelidauth')
+      const auth = qs.parse(zelidauth)
+      this.privilage = 'none'
+      if (auth) {
+        if (auth.zelid) {
+          if (auth.zelid === config.zelTeamZelId) {
+            this.privilage = 'zelteam'
+          } else if (auth.zelid === userconfig.initial.zelid) {
+            this.privilage = 'admin'
+          } else if (auth.zelid.length > 24) { // very basic check that does the job needed
+            this.privilage = 'user'
+          }
+        }
+      }
+    },
     async getDefault() {
       const response = await DefaultService.fetchDefault()
       this.defaultResponse.status = response.data.status
@@ -117,6 +136,7 @@ export default {
               zelid: this.loginForm.address,
               signature: this.loginForm.signature
             }
+            this.privilage = response.data.data.privilage
             localStorage.setItem('zelidauth', qs.stringify(zelidauth))
             vue.$message.success(response.data.data.message)
           } else {
@@ -154,6 +174,8 @@ export default {
           if (response.data.status === 'error') {
             vue.$message.error(response.data.data.message)
           } else {
+            localStorage.removeItem('zelidauth')
+            this.privilage = 'none'
             vue.$message.success(response.data.data.message)
           }
         })
@@ -172,6 +194,8 @@ export default {
           if (response.data.status === 'error') {
             vue.$message.error(response.data.data.message)
           } else {
+            localStorage.removeItem('zelidauth')
+            this.privilage = 'none'
             vue.$message.success(response.data.data.message)
           }
         })
@@ -190,6 +214,8 @@ export default {
           if (response.data.status === 'error') {
             vue.$message.error(response.data.data.message)
           } else {
+            localStorage.removeItem('zelidauth')
+            this.privilage = 'none'
             vue.$message.success(response.data.data.message)
           }
         })
@@ -237,6 +263,7 @@ export default {
           zelid: data.data.zelid,
           signature: data.data.signature
         }
+        this.privilage = data.data.privilage
         localStorage.setItem('zelidauth', qs.stringify(zelidauth))
         vue.$message.success(data.data.message)
       }

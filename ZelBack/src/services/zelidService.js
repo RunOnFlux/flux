@@ -217,6 +217,12 @@ function verifyLogin(req, res) {
                 loginPhrase: message,
                 signature
               }
+              let privilage = 'user'
+              if (address === config.zelTeamZelId) {
+                privilage = 'zelteam'
+              } else if (address === userconfig.initial.zelid) {
+                privilage = 'admin'
+              }
               const collection = config.database.local.collections.loggedUsers
               const value = newLogin
               insertOneToDatabase(database, collection, value, function (err, result) {
@@ -232,13 +238,17 @@ function verifyLogin(req, res) {
                   }
                   return res.json(errMessage)
                 } else {
-                  const message = {
+                  const resMessage = {
                     status: 'success',
                     data: {
-                      message: 'Successfully logged in'
+                      message: 'Successfully logged in',
+                      zelid: address,
+                      loginPhrase: message,
+                      signature,
+                      privilage
                     }
                   }
-                  return res.json(message)
+                  return res.json(resMessage)
                 }
               })
             } else {
@@ -593,13 +603,20 @@ function wsRespondLoginPhrase(ws, req) {
 
         if (result) {
           // user is logged, all ok
+          let privilage = 'user'
+          if (result.zelid === config.zelTeamZelId) {
+            privilage = 'zelteam'
+          } else if (result.zelid === userconfig.initial.zelid) {
+            privilage = 'admin'
+          }
           const message = {
             status: 'success',
             data: {
               message: 'Successfully logged in',
               zelid: result.zelid,
               loginPhrase: result.loginPhrase,
-              signature: result.signature
+              signature: result.signature,
+              privilage
             }
           }
           ws.send(qs.stringify(message))
