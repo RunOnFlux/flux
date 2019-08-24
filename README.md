@@ -92,13 +92,18 @@ Signed message requirement
 - The length of message must be at least 40 characters
 - Message and corresponding signature must not be older than X seconds
 
-
 ### API CALLS
-get /zelid/loginphrase
-returns a loginphrase - message that should be signed by zelid (or any bitcoin address). Message expires after 15 minutes. Only within these 15 minutes it is possible to log in with this message
 
-get /
+#### zelcashd calls
+get /getinfo (Public)
 returns getinfo from zelcashd
+
+get /getzelnodestatus (Public)
+returns getzelnodestatus from zelcashd
+
+#### zelid calls
+get /zelid/loginphrase (Public)
+returns a loginphrase - message that should be signed by zelid (or any bitcoin address). Message expires after 15 minutes. Only within these 15 minutes it is possible to log in with this message
 
 post /zelid/verifylogin
 post a stringified object of {

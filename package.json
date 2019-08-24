@@ -1,6 +1,6 @@
 {
   "name": "zelnoded",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "ZelNodeD - ZelNode Daemon. The entrace to the ZelNode network.",
   "repository": {
     "type": "git",

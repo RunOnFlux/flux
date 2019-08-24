@@ -1,10 +1,13 @@
-const defaultService = require('./services/defaultService')
+const zelcashService = require('./services/zelcashService')
 const zelidService = require('./services/zelidService')
 
 module.exports = (app) => {
   // GET PUBLIC methods
-  app.get('/', (req, res) => {
-    defaultService.defaultResponse(req, res)
+  app.get('/getinfo', (req, res) => {
+    zelcashService.getInfo(req, res)
+  })
+  app.get('/getzelnodestatus', (req, res) => {
+    zelcashService.getZelnNodeStatus(req, res)
   })
   app.get('/zelid/loginphrase', (req, res) => {
     zelidService.loginPhrase(req, res)

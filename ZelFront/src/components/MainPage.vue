@@ -1,55 +1,183 @@
 <template>
-  <div>
-    <img src="@/assets/ZelNodes.svg">
-    <h1>{{ defaultResponse.status || 'Error connecting to zelcashd'}}</h1>
-    <h1>Node owner Zel ID: {{ zelid }}</h1>
-    <h1>{{ defaultResponse.message }}</h1>
-    <h1>logged privilage {{ privilage }}</h1>
-
-    <div>
-      <a
-        @click="initiateLoginWS"
-        :href="'zel:?action=sign&message=' + loginPhrase + '&icon=http%3A%2F%2Fzelid.io%2Fimg%2FzelID.svg&callback=http%3A%2F%2F' + externalip + ':' + apiPort + '%2Fzelid%2Fverifylogin%2F'"
-      >
-        <img src="@/assets//zelID.svg" />
-      </a>
+  <div class="mainDivStyle">
+    <div class="header">
+      <Header />
     </div>
+    <div
+      v-if="loginForm.message && getInfoResponse.status === 'success'"
+      class="content"
+    >
+      <div class="status">
+        <h4>
+          ZelNode owner Zel ID: {{ zelid }}
+        </h4>
+        <h4>
+          Status: {{ getZelNodeStatusResponse.zelnodeStatus }}
+        </h4>
+      </div>
 
-    {{ loginForm.message }}
+      <div class="getInfoResponse">
+        <p>
+          ZelCash version {{ getInfoResponse.message.version }}
+        </p>
+        <p>
+          Protocol version {{ getInfoResponse.message.protocolversion }}
+        </p>
+        <p>
+          Current Blockchain Height: {{ getInfoResponse.message.blocks }}
+        </p>
+        <div v-if="getInfoResponse.message.errors != ''">
+          <p>
+            Error: {{ getInfoResponse.message.errors }}
+          </p>
+        </div>
+      </div>
+      <br>
+      <!--<h4>logged privilage {{ privilage }}</h4>-->
+      <p>
+        Log in using Zel ID
+      </p>
+      <div>
+        <a
+          @click="initiateLoginWS"
+          :href="'zel:?action=sign&message=' + loginPhrase + '&icon=http%3A%2F%2Fzelid.io%2Fimg%2FzelID.svg&callback=http%3A%2F%2F' + externalip + ':' + apiPort + '%2Fzelid%2Fverifylogin%2F'"
+        >
+          <img
+            class="zelidLogin"
+            src="@/assets/img/zelID.svg"
+          />
+        </a>
+      </div>
 
-    <div class="form">
-      <div>
-        <input
-          type="text"
-          name="address"
-          placeholder="address"
-          v-model="loginForm.address"
+      <p>
+        or sign the following message with any bitcoin address.
+      </p>
+      <ElForm
+        :model="loginForm"
+        class="loginForm"
+      >
+        <ElFormItem>
+          <ElInput
+            type="text"
+            name="message"
+            placeholder="message"
+            v-model="loginForm.message"
+            disabled
+          >
+            <template slot="prepend">Message: </template>
+          </ElInput>
+        </ElFormItem>
+        <ElFormItem>
+          <ElInput
+            type="text"
+            name="address"
+            placeholder="insert bitcoin address"
+            v-model="loginForm.address"
+          >
+            <template slot="prepend">Address: </template>
+          </ElInput>
+        </ElFormItem>
+        <ElFormItem>
+          <ElInput
+            type="text"
+            name="signature"
+            placeholder="insert signature"
+            v-model="loginForm.signature"
+          >
+            <template slot="prepend">Signature: </template>
+          </ElInput>
+        </ElFormItem>
+        <ElButton
+          class="generalButton"
+          @click="login()"
         >
-      </div>
-      <div>
-        <input
-          type="text"
-          name="signature"
-          placeholder="signature"
-          v-model="loginForm.signature"
+          Login
+        </ElButton>
+      </ElForm>
+
+      <div v-if="privilage === 'admin'">
+        <ElButton
+          class="loggedUsers"
+          @click="loggedusers()"
         >
+          Logged Users
+        </ElButton>
+        <ElButton
+          class="loggedUsers"
+          @click="activeLoginPhrases()"
+        >
+          active Login Phrases
+        </ElButton>
+        <ElButton
+          class="generalButton"
+          @click="logoutCurrentSession()"
+        >
+          Logout current session
+        </ElButton>
+        <ElButton
+          class="generalButton"
+          @click="logoutAllSessions()"
+        >
+          Logout all sessions
+        </ElButton>
+        <ElButton
+          class="generalButton"
+          @click="logOutAllUsers()"
+        >
+          Logout all users
+        </ElButton>
       </div>
-      <div>
-        <button @click="login">Login</button>
-        <button @click="loggedUsers">Logged Users</button>
-        <button @click="activeLoginPhrases">active Login Phrases</button>
+      <div v-if="privilage === 'user' || privilage === 'zelteam'">
+        <ElButton
+          class="
+        generalButton"
+          @click="logoutCurrentSession()"
+        >
+          Logout current session
+        </ElButton>
+        <ElButton
+          class="generalButton"
+          @click="logoutAllSessions()"
+        >
+          Logout all sessions
+        </ElButton>
       </div>
-      <div>
-        <button @click="logoutCurrentSession">Logout current session</button>
-        <button @click="logoutAllSessions">Logout all sessions</button>
-        <button @click="logOutAllUsers">logout all users</button>
-      </div>
+    </div>
+    <div
+      v-else-if="loginForm.message === ''"
+      class="content"
+    >
+      <h4>
+        Error connecting to ZelBack
+      </h4>
+    </div>
+    <div
+      v-else-if="getInfoResponse.status === 'error'"
+      class="content"
+    >
+      <h4>
+        Error connecting to ZelCash daemon
+      </h4>
+    </div>
+    <div
+      v-else
+      class="content"
+    >
+      <h4>
+        Loading...
+      </h4>
+    </div>
+    <div class="footer">
+      <Footer />
     </div>
   </div>
 </template>
 
 <script>
-import DefaultService from '@/services/DefaultService'
+import Header from '@/components/shared/Header'
+import Footer from '@/components/shared/Footer'
+
+import ZelCashService from '@/services/ZelCashService'
 import zelIDService from '@/services/ZelIDService'
 import Vue from 'vue'
 
@@ -59,12 +187,18 @@ const userconfig = require('../../../config/userconfig')
 const vue = new Vue()
 
 export default {
-  name: 'Home',
+  name: 'MainPage',
+  components: { Header, Footer },
   data() {
     return {
-      defaultResponse: {
+      getInfoResponse: {
         status: '',
         message: ''
+      },
+      getZelNodeStatusResponse: {
+        status: '',
+        message: '',
+        zelnodeStatus: 'Checking status...'
       },
       zelid: '',
       externalip: '',
@@ -81,9 +215,10 @@ export default {
   },
   mounted() {
     this.loadSession()
-    this.getDefault()
-    this.getUserConfig()
     this.getZelIdLoginPhrase()
+    this.zelcashGetInfo()
+    this.zelcashGetZelNodeStatus()
+    this.getUserConfig()
     this.apiPort = config.server.localport
     console.log(config.server.localport)
   },
@@ -104,10 +239,24 @@ export default {
         }
       }
     },
-    async getDefault() {
-      const response = await DefaultService.fetchDefault()
-      this.defaultResponse.status = response.data.status
-      this.defaultResponse.message = response.data.data
+    async zelcashGetInfo() {
+      const response = await ZelCashService.getInfo()
+      this.getInfoResponse.status = response.data.status
+      this.getInfoResponse.message = response.data.data
+    },
+    async zelcashGetZelNodeStatus() {
+      // TODO
+      const response = await ZelCashService.getZelNodeStatus()
+      this.getZelNodeStatusResponse.status = response.data.status
+      this.getZelNodeStatusResponse.message = response.data.data
+      console.log(this.getZelNodeStatusResponse.message)
+      if (this.getZelNodeStatusResponse.message) {
+        if (this.getZelNodeStatusResponse.message.code === 4) {
+          this.getZelNodeStatusResponse.zelnodeStatus = 'ZelNode is working correctly'
+        } else {
+          this.getZelNodeStatusResponse.zelnodeStatus = `Error code: ${this.getZelNodeStatusResponse.message.code}. ZelNode not yet active. Flux is running with limited capabilities.`
+        }
+      }
     },
     getUserConfig() {
       this.zelid = userconfig.initial.zelid
@@ -279,13 +428,3 @@ export default {
   }
 }
 </script>
-
-<!-- Add "scoped" attribute to limit CSS to this component only -->
-<style scoped>
-h1 {
-  font-weight: normal;
-}
-img {
-  width: 400px;
-}
-</style>
