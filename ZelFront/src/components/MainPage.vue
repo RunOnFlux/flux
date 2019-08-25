@@ -33,141 +33,145 @@
         </div>
       </div>
       <br>
-      <!--<h4>logged privilage {{ privilage }}</h4>-->
-      <p>
-        Log in using Zel ID
-      </p>
-      <div>
-        <a
-          @click="initiateLoginWS"
-          :href="'zel:?action=sign&message=' + loginPhrase + '&icon=http%3A%2F%2Fzelid.io%2Fimg%2FzelID.svg&callback=http%3A%2F%2F' + externalip + ':' + apiPort + '%2Fzelid%2Fverifylogin%2F'"
+      <div v-if="privilage == 'none'" class="loginSection">
+        <p>
+          Log in using Zel ID
+        </p>
+        <div>
+          <a
+            @click="initiateLoginWS"
+            :href="'zel:?action=sign&message=' + loginPhrase + '&icon=http%3A%2F%2Fzelid.io%2Fimg%2FzelID.svg&callback=http%3A%2F%2F' + externalip + ':' + apiPort + '%2Fzelid%2Fverifylogin%2F'"
+          >
+            <img
+              class="zelidLogin"
+              src="@/assets/img/zelID.svg"
+            />
+          </a>
+        </div>
+
+        <p>
+          or sign the following message with any bitcoin address.
+        </p>
+        <ElForm
+          :model="loginForm"
+          class="loginForm"
         >
-          <img
-            class="zelidLogin"
-            src="@/assets/img/zelID.svg"
-          />
-        </a>
+          <ElFormItem>
+            <ElInput
+              type="text"
+              name="message"
+              placeholder="message"
+              v-model="loginForm.message"
+              disabled
+            >
+              <template slot="prepend">Message: </template>
+            </ElInput>
+          </ElFormItem>
+          <ElFormItem>
+            <ElInput
+              type="text"
+              name="address"
+              placeholder="insert bitcoin address"
+              v-model="loginForm.address"
+            >
+              <template slot="prepend">Address: </template>
+            </ElInput>
+          </ElFormItem>
+          <ElFormItem>
+            <ElInput
+              type="text"
+              name="signature"
+              placeholder="insert signature"
+              v-model="loginForm.signature"
+            >
+              <template slot="prepend">Signature: </template>
+            </ElInput>
+          </ElFormItem>
+          <ElButton
+            class="generalButton"
+            @click="login()"
+          >
+            Login
+          </ElButton>
+        </ElForm>
       </div>
 
-      <p>
-        or sign the following message with any bitcoin address.
-      </p>
-      <ElForm
-        :model="loginForm"
-        class="loginForm"
-      >
-        <ElFormItem>
-          <ElInput
-            type="text"
-            name="message"
-            placeholder="message"
-            v-model="loginForm.message"
-            disabled
+      <div v-if="privilage !== 'none'">
+        <h4>logged privilage {{ privilage }}</h4>
+        <div v-if="privilage === 'admin'">
+          <ElButton
+            class="loggedUsers"
+            @click="loggedUsers()"
           >
-            <template slot="prepend">Message: </template>
-          </ElInput>
-        </ElFormItem>
-        <ElFormItem>
-          <ElInput
-            type="text"
-            name="address"
-            placeholder="insert bitcoin address"
-            v-model="loginForm.address"
+            Logged Users
+          </ElButton>
+          <ElButton
+            class="loggedUsers"
+            @click="activeLoginPhrases()"
           >
-            <template slot="prepend">Address: </template>
-          </ElInput>
-        </ElFormItem>
-        <ElFormItem>
-          <ElInput
-            type="text"
-            name="signature"
-            placeholder="insert signature"
-            v-model="loginForm.signature"
+            active Login Phrases
+          </ElButton>
+          <ElButton
+            class="generalButton"
+            @click="logoutCurrentSession()"
           >
-            <template slot="prepend">Signature: </template>
-          </ElInput>
-        </ElFormItem>
-        <ElButton
-          class="generalButton"
-          @click="login()"
-        >
-          Login
-        </ElButton>
-      </ElForm>
-
-      <div v-if="privilage === 'admin'">
-        <ElButton
-          class="loggedUsers"
-          @click="loggedUsers()"
-        >
-          Logged Users
-        </ElButton>
-        <ElButton
-          class="loggedUsers"
-          @click="activeLoginPhrases()"
-        >
-          active Login Phrases
-        </ElButton>
-        <ElButton
-          class="generalButton"
-          @click="logoutCurrentSession()"
-        >
-          Logout current session
-        </ElButton>
-        <ElButton
-          class="generalButton"
-          @click="logoutAllSessions()"
-        >
-          Logout all sessions
-        </ElButton>
-        <ElButton
-          class="generalButton"
-          @click="logOutAllUsers()"
-        >
-          Logout all users
-        </ElButton>
-        <ElButton
-          class="generalButton"
-          @click="updateFlux()"
-        >
-          Update Flux
-        </ElButton>
-      </div>
-      <div v-if="privilage === 'user'">
-        <ElButton
-          class="
+            Logout current session
+          </ElButton>
+          <ElButton
+            class="generalButton"
+            @click="logoutAllSessions()"
+          >
+            Logout all sessions
+          </ElButton>
+          <ElButton
+            class="generalButton"
+            @click="logOutAllUsers()"
+          >
+            Logout all users
+          </ElButton>
+          <ElButton
+            class="generalButton"
+            @click="updateFlux()"
+          >
+            Update Flux
+          </ElButton>
+        </div>
+        <div v-if="privilage === 'user'">
+          <ElButton
+            class="
         generalButton"
-          @click="logoutCurrentSession()"
-        >
-          Logout current session
-        </ElButton>
-        <ElButton
-          class="generalButton"
-          @click="logoutAllSessions()"
-        >
-          Logout all sessions
-        </ElButton>
-      </div>
-      <div v-if="privilage === 'zelteam'">
-        <ElButton
-          class="
+            @click="logoutCurrentSession()"
+          >
+            Logout current session
+          </ElButton>
+          <ElButton
+            class="generalButton"
+            @click="logoutAllSessions()"
+          >
+            Logout all sessions
+          </ElButton>
+        </div>
+        <div v-if="privilage === 'zelteam'">
+          <ElButton
+            class="
         generalButton"
-          @click="logoutCurrentSession()"
-        >
-          Logout current session
-        </ElButton>
-        <ElButton
-          class="generalButton"
-          @click="logoutAllSessions()"
-        >
-          Logout all sessions
-        </ElButton>
-        <ElButton
-          class="generalButton"
-          @click="updateFlux()"
-        >
-          Update Flux
-        </ElButton>
+            @click="logoutCurrentSession()"
+          >
+            Logout current session
+          </ElButton>
+          <ElButton
+            class="generalButton"
+            @click="logoutAllSessions()"
+          >
+            Logout all sessions
+          </ElButton>
+          <ElButton
+            class="generalButton"
+            @click="updateFlux()"
+          >
+            Update Flux
+          </ElButton>
+        </div>
       </div>
     </div>
     <div
