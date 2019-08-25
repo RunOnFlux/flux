@@ -126,8 +126,14 @@
         >
           Logout all users
         </ElButton>
+        <ElButton
+          class="generalButton"
+          @click="updateFlux()"
+        >
+          Update Flux
+        </ElButton>
       </div>
-      <div v-if="privilage === 'user' || privilage === 'zelteam'">
+      <div v-if="privilage === 'user'">
         <ElButton
           class="
         generalButton"
@@ -140,6 +146,27 @@
           @click="logoutAllSessions()"
         >
           Logout all sessions
+        </ElButton>
+      </div>
+      <div v-if="privilage === 'zelteam'">
+        <ElButton
+          class="
+        generalButton"
+          @click="logoutCurrentSession()"
+        >
+          Logout current session
+        </ElButton>
+        <ElButton
+          class="generalButton"
+          @click="logoutAllSessions()"
+        >
+          Logout all sessions
+        </ElButton>
+        <ElButton
+          class="generalButton"
+          @click="updateFlux()"
+        >
+          Update Flux
         </ElButton>
       </div>
     </div>
@@ -186,6 +213,7 @@ import Footer from '@/components/shared/Footer'
 
 import ZelCashService from '@/services/ZelCashService'
 import zelIDService from '@/services/ZelIDService'
+import zelnodeService from '@/services/zelnodeService'
 import Vue from 'vue'
 
 const qs = require('qs')
@@ -391,6 +419,23 @@ export default {
       const auth = qs.parse(zelidauth)
       console.log(auth)
       zelIDService.activeLoginPhrases(zelidauth)
+        .then(response => {
+          console.log(response)
+          if (response.data.status === 'error') {
+            vue.$message.error(response.data.data.message)
+          }
+        })
+        .catch(e => {
+          console.log(e)
+          console.log(e.code)
+          vue.$message.error(e.toString())
+        })
+    },
+    updateFlux() {
+      const zelidauth = localStorage.getItem('zelidauth')
+      const auth = qs.parse(zelidauth)
+      console.log(auth)
+      zelnodeService.updateFlux(zelidauth)
         .then(response => {
           console.log(response)
           if (response.data.status === 'error') {

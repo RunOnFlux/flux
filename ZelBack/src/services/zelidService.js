@@ -780,7 +780,7 @@ function verifyZelTeamSession(headers, callback) {
     const auth = qs.parse(headers.zelidauth)
     console.log(auth)
     if (auth.zelid && auth.signature) {
-      if (auth.zelid === config.zelTeamZelId) {
+      if (auth.zelid === config.zelTeamZelId || auth.zelid === userconfig.initial.zelid) { // admin is considered zelteam.
         connectMongoDb(mongoUrl, function (err, db) {
           if (err) {
             log.error('Cannot reach MongoDB')

@@ -1,5 +1,6 @@
 const zelcashService = require('./services/zelcashService')
 const zelidService = require('./services/zelidService')
+const zelnodeService = require('./services/zelnodeService')
 
 module.exports = (app) => {
   // GET PUBLIC methods
@@ -30,6 +31,10 @@ module.exports = (app) => {
   })
   app.get('/zelid/logoutallusers', (req, res) => {
     zelidService.logoutAllUsers(req, res)
+  })
+  // GET PROTECTED API - ZelTeam
+  app.get('/zelnode/updateflux', (req, res) => {
+    zelnodeService.updateFlux(req, res)
   })
 
   // POST PUBLIC methods route

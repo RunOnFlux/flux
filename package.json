@@ -1,6 +1,6 @@
 {
   "name": "zelnoded",
-  "version": "0.7.4",
+  "version": "0.8.0",
   "description": "ZelNodeD - ZelNode Daemon. The entrace to the ZelNode network.",
   "repository": {
     "type": "git",
@@ -36,7 +36,8 @@
     "zelbackdev": "nodemon ZelBack/server.js",
     "flux": "nodemon app.js",
     "start": "npm install && node init.js && npm run zelfrontbuild && npm run flux",
-    "dev": "node init.js && (npm run zelbackdev & npm run zelfrontdev)"
+    "dev": "node init.js && (npm run zelbackdev & npm run zelfrontdev)",
+    "updateflux": "git pull && npm install && node init.js && npm run zelfrontbuild"
   },
   "dependencies": {
     "axios": "^0.19.0",
