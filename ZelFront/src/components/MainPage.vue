@@ -98,7 +98,7 @@
       <div v-if="privilage === 'admin'">
         <ElButton
           class="loggedUsers"
-          @click="loggedusers()"
+          @click="loggedUsers()"
         >
           Logged Users
         </ElButton>
