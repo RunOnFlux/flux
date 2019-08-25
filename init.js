@@ -6,7 +6,7 @@ const goodchars = /^[1-9a-km-zA-HJ-NP-Z]+$/
 const alfasymbols = /(.*[a-zA-Z]){1}/i
 if (fs.existsSync(path)) {
   console.log('Configuration file found. You can change your configuration in ./config/userconfig.js')
-  console.log('Starting ZelNode Daemon...')
+  console.log('Starting Flux...')
   return
 }
 
@@ -14,12 +14,12 @@ const questions = [
   {
     type: 'input',
     name: 'ipaddr',
-    message: "What's your IP address?"
+    message: 'What is your ZelNode IP address?'
   },
   {
     type: 'input',
     name: 'zelid',
-    message: "What's your Zel ID?"
+    message: 'What is your Zel ID?'
   }
 ]
 
@@ -50,7 +50,7 @@ function showQuestions() {
       userconfig.end()
     })
     console.log('Configuration successful. Values saved and can be changed in ./config/userconfig.js')
-    console.log('Starting ZelNode Daemon...')
+    console.log('Starting Flux...')
   })
 }
 showQuestions()

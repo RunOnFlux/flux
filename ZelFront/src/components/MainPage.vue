@@ -147,9 +147,16 @@
       v-else-if="loginForm.message === ''"
       class="content"
     >
-      <h4>
-        Error connecting to ZelBack
-      </h4>
+      <div v-if="errorMessage === ''">
+        <h4>
+          Error connecting to ZelBack
+        </h4>
+      </div>
+      <div v-else>
+        <h4>
+          {{ errorMessage }}
+        </h4>
+      </div>
     </div>
     <div
       v-else-if="getInfoResponse.status === 'error'"
@@ -210,7 +217,8 @@ export default {
         message: ''
       },
       websocket: null,
-      privilage: 'none' // user, admin, zelteam
+      privilage: 'none', // user, admin, zelteam
+      errorMessage: ''
     }
   },
   mounted() {
@@ -251,10 +259,11 @@ export default {
       this.getZelNodeStatusResponse.message = response.data.data
       console.log(this.getZelNodeStatusResponse.message)
       if (this.getZelNodeStatusResponse.message) {
-        if (this.getZelNodeStatusResponse.message.code === 4) {
+        if (this.getZelNodeStatusResponse.message.status === 4) {
           this.getZelNodeStatusResponse.zelnodeStatus = 'ZelNode is working correctly'
         } else {
-          this.getZelNodeStatusResponse.zelnodeStatus = `Error code: ${this.getZelNodeStatusResponse.message.code}. ZelNode not yet active. Flux is running with limited capabilities.`
+          const statusCode = this.getZelNodeStatusResponse.message.code || this.getZelNodeStatusResponse.message.status
+          this.getZelNodeStatusResponse.zelnodeStatus = `Error status code: ${statusCode}. ZelNode not yet active. Flux is running with limited capabilities.`
         }
       }
     },
@@ -266,8 +275,12 @@ export default {
       zelIDService.loginPhrase()
         .then(response => {
           console.log(response)
-          this.loginPhrase = response.data
-          this.loginForm.message = response.data
+          if (response.data.status === 'error') {
+            this.errorMessage = response.data.data.message
+          } else {
+            this.loginPhrase = response.data
+            this.loginForm.message = response.data
+          }
         })
         .catch(error => {
           console.log(error)
