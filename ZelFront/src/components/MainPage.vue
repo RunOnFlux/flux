@@ -33,7 +33,10 @@
         </div>
       </div>
       <br>
-      <div v-if="privilage == 'none'" class="loginSection">
+      <div
+        v-if="privilage == 'none'"
+        class="loginSection"
+      >
         <p>
           Log in using Zel ID
         </p>
@@ -220,6 +223,9 @@ import zelIDService from '@/services/ZelIDService'
 import zelnodeService from '@/services/zelnodeService'
 import Vue from 'vue'
 
+import axios from 'axios'
+
+const packageJson = require('../../../package.json')
 const qs = require('qs')
 const config = require('../../../config/default')
 const userconfig = require('../../../config/userconfig')
@@ -250,10 +256,12 @@ export default {
       },
       websocket: null,
       privilage: 'none', // user, admin, zelteam
-      errorMessage: ''
+      errorMessage: '',
+      version: packageJson.version
     }
   },
   mounted() {
+    this.getLatestFluxVersion()
     this.loadSession()
     this.getZelIdLoginPhrase()
     this.zelcashGetInfo()
@@ -439,6 +447,7 @@ export default {
       const zelidauth = localStorage.getItem('zelidauth')
       const auth = qs.parse(zelidauth)
       console.log(auth)
+      vue.$message.success('Flux is now updating in the background')
       zelnodeService.updateFlux(zelidauth)
         .then(response => {
           console.log(response)
@@ -450,6 +459,22 @@ export default {
           console.log(e)
           console.log(e.code)
           vue.$message.error(e.toString())
+        })
+    },
+    getLatestFluxVersion() {
+      const self = this
+      axios.get('https://raw.githubusercontent.com/zelcash/zelnoded/master/package.json')
+        .then((response) => {
+          console.log(response)
+          if (response.data.version !== self.version) {
+            vue.$message.warning('Flux requires an update!')
+          } else {
+            vue.$message.success('Flux is up to date')
+          }
+        })
+        .catch((error) => {
+          console.log(error)
+          vue.$message.error('Error verifying recent version')
         })
     },
     initiateLoginWS() {
