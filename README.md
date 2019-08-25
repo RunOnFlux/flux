@@ -33,8 +33,17 @@ With a frontend user interface a ZelNode user can entire access ZelNode network 
 
 This application is open source distributed under GNU AGPLv3
 
+Mongodb and zelcashd has to be running
 
-Start both solutions with 
+Production:
+
+``` bash
+
+npm start
+
+```
+
+Development: Start both solutions with
 
 ``` bash
 

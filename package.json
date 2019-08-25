@@ -1,6 +1,6 @@
 {
   "name": "zelnoded",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "ZelNodeD - ZelNode Daemon. The entrace to the ZelNode network.",
   "repository": {
     "type": "git",
@@ -24,16 +24,19 @@
   "homepage": "https://github.com/zelcash/zelnoded#readme",
   "scripts": {
     "zelfrontdev": "webpack-dev-server --host 0.0.0.0 --port 16126 --inline --progress --config ZelFront/build/webpack.dev.conf.js",
-    "zelfrontprod": "webpack-dev-server --host 0.0.0.0 --port 16126 --inline --progress --config ZelFront/build/webpack.prod.conf.js",
+    "zelfrontproddev": "webpack-dev-server --host 0.0.0.0 --port 16126 --inline --progress --config ZelFront/build/webpack.prod.conf.js",
+    "zelfrontprod": "nodemon ZelFront/server.js",
     "zelfrontstart": "npm run zelfrontprod",
     "zelfrontunit": "cross-env BABEL_ENV=test karma start ZelFront/test/unit/karma.conf.js --single-run",
     "zelfronte2e": "node ZelFront/test/e2e/runner.js",
     "zelfronttest": "npm run unit && npm run e2e",
     "zelfrontlint": "eslint --ext .js,.vue src ZelFront/test/unit ZelFront/test/e2e/specs",
     "zelfrontbuild": "node ZelFront/build/build.js",
-    "zelbackstart": "nodemon ZelBack/app.js",
-    "start": "node init.js && (npm run zelbackstart >> zelback.debug & npm run zelfrontstart &>&1 | tee zelfront.debug)",
-    "dev": "node init.js && (npm run zelbackstart & npm run zelfrontdev)"
+    "zelbackstart": "nodemon ZelBack/server.js",
+    "zelbackdev": "nodemon ZelBack/server.js",
+    "flux": "nodemon app.js",
+    "start": "npm install && npm run zelfrontbuild && node init.js && npm run flux",
+    "dev": "node init.js && (npm run zelbackdev & npm run zelfrontdev)"
   },
   "dependencies": {
     "axios": "^0.19.0",
