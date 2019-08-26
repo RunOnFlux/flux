@@ -82,7 +82,6 @@ function verifyLogin(req, res) {
       }
       return res.json(errMessage)
     }
-    console.log('2')
 
     if (address[0] !== '1') {
       const errMessage = {
@@ -345,7 +344,6 @@ function loggedUsers(req, res) {
       return res.json(error)
     }
     if (authorized === true) {
-      console.log('verified')
       connectMongoDb(mongoUrl, function (err, db) {
         if (err) {
           log.error('Cannot reach MongoDB')
@@ -427,7 +425,7 @@ function logoutCurrentSession(req, res) {
             }
             return res.json(errMessage)
           }
-          console.log(result)
+          // console.log(result)
           const message = {
             status: 'success',
             data: {
@@ -484,7 +482,7 @@ function logoutAllSessions(req, res) {
             }
             return res.json(errMessage)
           }
-          console.log(result)
+          // console.log(result)
           const message = {
             status: 'success',
             data: {
@@ -526,7 +524,7 @@ function logoutAllUsers(req, res) {
         }
         const database = db.db(config.database.local.database)
         const collection = config.database.local.collections.loggedUsers
-        const query = { }
+        const query = {}
         removeDocumentsFromCollection(database, collection, query, function (err, result) {
           db.close()
           if (err) {
@@ -540,7 +538,7 @@ function logoutAllUsers(req, res) {
             }
             return res.json(errMessage)
           }
-          console.log(result)
+          // console.log(result)
           const message = {
             status: 'success',
             data: {
@@ -564,8 +562,17 @@ function logoutAllUsers(req, res) {
 
 function wsRespondLoginPhrase(ws, req) {
   const loginphrase = req.params.loginphrase
-  console.log(loginphrase)
+  // console.log(loginphrase)
   // respond with object containing address and signature to received message
+  let connclosed = false
+  ws.onclose = (evt) => {
+    // console.log(evt)
+    connclosed = true
+  }
+  ws.onerror = (evt) => {
+    log.error(evt)
+    connclosed = true
+  }
 
   connectMongoDb(mongoUrl, function (err, db) {
     if (err) {
@@ -577,8 +584,18 @@ function wsRespondLoginPhrase(ws, req) {
           message: 'Cannot reach MongoDB'
         }
       }
-      ws.send(qs.stringify(errMessage))
-      ws.close()
+      // ws.clients.forEach(function each(client) {
+      //   if (client !== ws && client.readyState === WebSocket.OPEN) {
+      //     client.send(data);
+      //   }
+      if (!connclosed) {
+        try {
+          ws.send(qs.stringify(errMessage))
+          ws.close()
+        } catch (e) {
+          log.error(e)
+        }
+      }
     }
 
     const database = db.db(config.database.local.database)
@@ -597,8 +614,14 @@ function wsRespondLoginPhrase(ws, req) {
             }
           }
           db.close()
-          ws.send(qs.stringify(errMessage))
-          ws.close()
+          if (!connclosed) {
+            try {
+              ws.send(qs.stringify(errMessage))
+              ws.close()
+            } catch (e) {
+              log.error(e)
+            }
+          }
         }
 
         if (result) {
@@ -619,8 +642,14 @@ function wsRespondLoginPhrase(ws, req) {
               privilage
             }
           }
-          ws.send(qs.stringify(message))
-          ws.close()
+          if (!connclosed) {
+            try {
+              ws.send(qs.stringify(message))
+              ws.close()
+            } catch (e) {
+              log.error(e)
+            }
+          }
           db.close()
         } else {
           // check if this loginPhrase is still active. If so rerun this searching process
@@ -636,12 +665,20 @@ function wsRespondLoginPhrase(ws, req) {
                 }
               }
               db.close()
-              ws.send(qs.stringify(errMessage))
-              ws.close()
+              if (!connclosed) {
+                try {
+                  ws.send(qs.stringify(errMessage))
+                  ws.close()
+                } catch (e) {
+                  log.error(e)
+                }
+              }
             }
             if (result) {
               setTimeout(() => {
-                searchDatabase()
+                if (!connclosed) {
+                  searchDatabase()
+                }
               }, 500)
             } else {
               const errMessage = {
@@ -651,8 +688,14 @@ function wsRespondLoginPhrase(ws, req) {
                 }
               }
               db.close()
-              ws.send(qs.stringify(errMessage))
-              ws.close()
+              if (!connclosed) {
+                try {
+                  ws.send(qs.stringify(errMessage))
+                  ws.close()
+                } catch (e) {
+                  log.error(e)
+                }
+              }
             }
           })
         }
@@ -667,11 +710,11 @@ function wsRespondLoginPhrase(ws, req) {
 function verifyAdminSession(headers, callback) {
   if (headers && headers.zelidauth) {
     const auth = qs.parse(headers.zelidauth)
-    console.log(auth)
+    // console.log(auth)
     if (auth.zelid && auth.signature) {
-      console.log(auth.zelid)
-      console.log(auth.signature)
-      console.log(userconfig.initial.zelid)
+      // console.log(auth.zelid)
+      // console.log(auth.signature)
+      // console.log(userconfig.initial.zelid)
       if (auth.zelid === userconfig.initial.zelid) {
         connectMongoDb(mongoUrl, function (err, db) {
           if (err) {
@@ -726,7 +769,7 @@ function verifyAdminSession(headers, callback) {
 function verifyUserSession(headers, callback) {
   if (headers && headers.zelidauth) {
     const auth = qs.parse(headers.zelidauth)
-    console.log(auth)
+    // console.log(auth)
     if (auth.zelid && auth.signature) {
       connectMongoDb(mongoUrl, function (err, db) {
         if (err) {
@@ -778,7 +821,7 @@ function verifyUserSession(headers, callback) {
 function verifyZelTeamSession(headers, callback) {
   if (headers && headers.zelidauth) {
     const auth = qs.parse(headers.zelidauth)
-    console.log(auth)
+    // console.log(auth)
     if (auth.zelid && auth.signature) {
       if (auth.zelid === config.zelTeamZelId || auth.zelid === userconfig.initial.zelid) { // admin is considered zelteam.
         connectMongoDb(mongoUrl, function (err, db) {
