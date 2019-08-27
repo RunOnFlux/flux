@@ -2,7 +2,7 @@ module.exports = {
   server: {
     zelfrontport: 16126,
     localport: 16127,
-    zelnodeport: 16128
+    zelnodeport: 16128,
   },
   database: {
     url: '127.0.0.1',
@@ -11,15 +11,15 @@ module.exports = {
       database: 'zelnodelocal',
       collections: {
         loggedUsers: 'loggedusers',
-        activeLoginPhrases: 'activeloginphrases'
-      }
+        activeLoginPhrases: 'activeloginphrases',
+      },
     },
     global: {
       database: 'zelnodeglobal',
       collections: {
-        zelid: 'zelid'
-      }
-    }
+        zelid: 'zelid',
+      },
+    },
   },
-  zelTeamZelId: '12hbuDGzfnndXP4NbrS3xdVXUcC6L7N2ag'
-}
+  zelTeamZelId: '12hbuDGzfnndXP4NbrS3xdVXUcC6L7N2ag',
+};
