@@ -1,6 +1,6 @@
 {
   "name": "zelnoded",
-  "version": "0.9.9",
+  "version": "0.9.10",
   "description": "ZelNodeD - ZelNode Daemon. The entrace to the ZelNode network.",
   "repository": {
     "type": "git",
@@ -35,8 +35,8 @@
     "flux": "nodemon app.js",
     "start": "npm install && node init.js && npm run zelfrontbuild && npm run flux",
     "dev": "node init.js && (npm run zelbackdev & npm run zelfrontdev)",
-    "updateflux": "git pull && npm install && node init.js && npm run zelfrontbuild",
-    "hardupdate": "rm -rf node_modules && rm -f package-lock.json && git pull && npm install && node init.js && npm run zelfrontbuild"
+    "updateflux": "git pull && npm install && node init.js && vue-cli-service build",
+    "hardupdate": "rm -rf node_modules && rm -f package-lock.json && git pull && npm install && node init.js && vue-cli-service build"
   },
   "dependencies": {
     "axios": "^0.19.0",
