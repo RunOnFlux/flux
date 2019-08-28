@@ -267,7 +267,7 @@ export default {
     };
   },
   mounted() {
-    const isChrome = !!window.chrome && (!!window.chrome.webstore || !!window.chrome.runtime);
+    const isChrome = !!window.chrome;
     if (!isChrome) {
       vue.$message({
         message: 'Your browser does not support Flux websocket support. Logging with Zel ID is not available. For optional experience use Chrome browser.',
@@ -494,7 +494,7 @@ export default {
     },
     initiateLoginWS() {
       const self = this;
-      const wsuri = 'wss://echo.websocket.org';
+      const wsuri = `ws://${this.externalip}:${this.apiPort}/ws/zelid/${this.loginPhrase}`;
       const websocket = new WebSocket(wsuri);
       this.websocket = websocket;
 

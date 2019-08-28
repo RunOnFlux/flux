@@ -1,7 +1,4 @@
-/ZelFront/build/
-/ZelFront/config/
 /ZelFront/dist/
-/ZelFront/*.js
-/ZelFront/test/unit/coverage/
 /config/userconfig.js
 /lib/
+/tests/

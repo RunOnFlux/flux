@@ -2,6 +2,7 @@ const mongodb = require('mongodb');
 const config = require('config');
 const bitcoinMessage = require('bitcoinjs-message');
 const qs = require('qs');
+
 const userconfig = require('../../../config/userconfig');
 const log = require('../lib/log');
 
@@ -92,10 +93,10 @@ function verifyAdminSession(headers, callback) {
           const collection = config.database.local.collections.loggedUsers;
           const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
           const projection = {};
-          findOneInDatabase(database, collection, query, projection, (err2, result) => {
-            if (err2) {
+          findOneInDatabase(database, collection, query, projection, (err, result) => {
+            if (err) {
               log.error('Error accessing local zelID collection');
-              log.error(err2);
+              log.error(err);
               db.close();
               callback(null, false);
             }
@@ -147,10 +148,10 @@ function verifyUserSession(headers, callback) {
         const collection = config.database.local.collections.loggedUsers;
         const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
         const projection = {};
-        findOneInDatabase(database, collection, query, projection, (err2, result) => {
-          if (err2) {
+        findOneInDatabase(database, collection, query, projection, (err, result) => {
+          if (err) {
             log.error('Error accessing local zelID collection');
-            log.error(err2);
+            log.error(err);
             db.close();
             callback(null, false);
           }
@@ -184,7 +185,6 @@ function verifyUserSession(headers, callback) {
   }
 }
 
-// eslint-disable-next-line no-unused-vars
 function verifyZelTeamSession(headers, callback) {
   if (headers && headers.zelidauth) {
     const auth = qs.parse(headers.zelidauth);
@@ -201,10 +201,10 @@ function verifyZelTeamSession(headers, callback) {
           const collection = config.database.local.collections.loggedUsers;
           const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
           const projection = {};
-          findOneInDatabase(database, collection, query, projection, (err2, result) => {
-            if (err2) {
+          findOneInDatabase(database, collection, query, projection, (err, result) => {
+            if (err) {
               log.error('Error accessing local zelID collection');
-              log.error(err2);
+              log.error(err);
               db.close();
               callback(null, false);
             }
@@ -274,11 +274,10 @@ function loginPhrase(req, res) {
       expireAt: new Date(validTill),
     };
     const value = newLoginPhrase;
-    // eslint-disable-next-line no-unused-vars
-    return insertOneToDatabase(database, collection, value, (err2, result) => {
-      if (err2) {
+    insertOneToDatabase(database, collection, value, (err, result) => {
+      if (err) {
         log.error('Error creating new Login Phrase');
-        log.error(err2);
+        log.error(err);
         const errMessage = {
           status: 'error',
           data: {
@@ -388,7 +387,7 @@ function verifyLogin(req, res) {
     }
     // Basic checks passed. First check if message is in our activeLoginPhrases collection
 
-    return connectMongoDb(mongoUrl, (err, db) => {
+    connectMongoDb(mongoUrl, (err, db) => {
       if (err) {
         log.error('Cannot reach MongoDB');
         log.error(err);
@@ -405,10 +404,10 @@ function verifyLogin(req, res) {
       const collection = config.database.local.collections.activeLoginPhrases;
       const query = { loginPhrase: message };
       const projection = {};
-      return findOneInDatabase(database, collection, query, projection, (err2, result) => {
-        if (err2) {
+      findOneInDatabase(database, collection, query, projection, (err, result) => {
+        if (err) {
           log.error('Error verifying Login');
-          log.error(err2);
+          log.error(err);
           const errMessage = {
             status: 'error',
             data: {
@@ -455,14 +454,13 @@ function verifyLogin(req, res) {
               } else if (address === userconfig.initial.zelid) {
                 privilage = 'admin';
               }
-              const collection2 = config.database.local.collections.loggedUsers;
+              const loggedUsersCollection = config.database.local.collections.loggedUsers;
               const value = newLogin;
-              // eslint-disable-next-line no-unused-vars
-              insertOneToDatabase(database, collection2, value, (err3, result2) => {
+              insertOneToDatabase(database, loggedUsersCollection, value, (err, result) => {
                 db.close();
-                if (err3) {
+                if (err) {
                   log.error('Error Logging user');
-                  log.error(err3);
+                  log.error(err);
                   const errMessage = {
                     status: 'error',
                     data: {
@@ -503,15 +501,16 @@ function verifyLogin(req, res) {
             db.close();
             return res.json(errMessage);
           }
+        } else {
+          const errMessage = {
+            status: 'error',
+            data: {
+              message: 'Signed message is no longer valid. Please request a new one.',
+            },
+          };
+          db.close();
+          return res.json(errMessage);
         }
-        const errMessage = {
-          status: 'error',
-          data: {
-            message: 'Signed message is no longer valid. Please request a new one.',
-          },
-        };
-        db.close();
-        return res.json(errMessage);
       });
     });
   });
@@ -523,7 +522,7 @@ function activeLoginPhrases(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      return connectMongoDb(mongoUrl, (err, db) => {
+      connectMongoDb(mongoUrl, (err, db) => {
         if (err) {
           log.error('Cannot reach MongoDB');
           log.error(err);
@@ -544,11 +543,11 @@ function activeLoginPhrases(req, res) {
             _id: 0, loginPhrase: 1, createdAt: 1, expireAt: 1,
           },
         };
-        return findInDatabase(database, collection, query, projection, (err2, results) => {
+        findInDatabase(database, collection, query, projection, (err, results) => {
           db.close();
-          if (err2) {
+          if (err) {
             log.error('Error accessing local zelID collection');
-            log.error(err2);
+            log.error(err);
             const errMessage = {
               status: 'error',
               data: {
@@ -562,14 +561,15 @@ function activeLoginPhrases(req, res) {
           return res.json(results);
         });
       });
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      return res.json(errMessage);
     }
-    const errMessage = {
-      status: 'error',
-      data: {
-        message: 'Unauthorized. Access denied.',
-      },
-    };
-    return res.json(errMessage);
   });
 }
 
@@ -596,11 +596,11 @@ function loggedUsers(req, res) {
         const collection = config.database.local.collections.loggedUsers;
         const query = {};
         const projection = { projection: { _id: 0, zelid: 1, loginPhrase: 1 } };
-        return findInDatabase(database, collection, query, projection, (err2, results) => {
+        findInDatabase(database, collection, query, projection, (err, results) => {
           db.close();
-          if (err2) {
+          if (err) {
             log.error('Error accessing local zelID collection');
-            log.error(err2);
+            log.error(err);
             const errMessage = {
               status: 'error',
               data: {
@@ -612,14 +612,15 @@ function loggedUsers(req, res) {
           return res.json(results);
         });
       });
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      return res.json(errMessage);
     }
-    const errMessage = {
-      status: 'error',
-      data: {
-        message: 'Unauthorized. Access denied.',
-      },
-    };
-    return res.json(errMessage);
   });
 }
 
@@ -646,12 +647,11 @@ function logoutCurrentSession(req, res) {
         const collection = config.database.local.collections.loggedUsers;
         const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
         const projection = {};
-        // eslint-disable-next-line no-unused-vars
-        return findOneAndDeleteInDatabase(database, collection, query, projection, (err2, result) => {
+        findOneAndDeleteInDatabase(database, collection, query, projection, (err, result) => {
           db.close();
-          if (err2) {
+          if (err) {
             log.error('Error accessing local zelID collection');
-            log.error(err2);
+            log.error(err);
             const errMessage = {
               status: 'error',
               data: {
@@ -670,14 +670,15 @@ function logoutCurrentSession(req, res) {
           return res.json(message);
         });
       });
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      return res.json(errMessage);
     }
-    const errMessage = {
-      status: 'error',
-      data: {
-        message: 'Unauthorized. Access denied.',
-      },
-    };
-    return res.json(errMessage);
   });
 }
 
@@ -703,12 +704,11 @@ function logoutAllSessions(req, res) {
         const database = db.db(config.database.local.database);
         const collection = config.database.local.collections.loggedUsers;
         const query = { zelid: auth.zelid };
-        // eslint-disable-next-line no-unused-vars
-        return removeDocumentsFromCollection(database, collection, query, (err2, result) => {
+        removeDocumentsFromCollection(database, collection, query, (err, result) => {
           db.close();
-          if (err2) {
+          if (err) {
             log.error('Error accessing local zelID collection');
-            log.error(err2);
+            log.error(err);
             const errMessage = {
               status: 'error',
               data: {
@@ -727,14 +727,15 @@ function logoutAllSessions(req, res) {
           return res.json(message);
         });
       });
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      return res.json(errMessage);
     }
-    const errMessage = {
-      status: 'error',
-      data: {
-        message: 'Unauthorized. Access denied.',
-      },
-    };
-    return res.json(errMessage);
   });
 }
 
@@ -759,12 +760,11 @@ function logoutAllUsers(req, res) {
         const database = db.db(config.database.local.database);
         const collection = config.database.local.collections.loggedUsers;
         const query = {};
-        // eslint-disable-next-line no-unused-vars
-        return removeDocumentsFromCollection(database, collection, query, (err2, result) => {
+        removeDocumentsFromCollection(database, collection, query, (err, result) => {
           db.close();
-          if (err2) {
+          if (err) {
             log.error('Error accessing local zelID collection');
-            log.error(err2);
+            log.error(err);
             const errMessage = {
               status: 'error',
               data: {
@@ -783,14 +783,15 @@ function logoutAllUsers(req, res) {
           return res.json(message);
         });
       });
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      return res.json(errMessage);
     }
-    const errMessage = {
-      status: 'error',
-      data: {
-        message: 'Unauthorized. Access denied.',
-      },
-    };
-    return res.json(errMessage);
   });
 }
 
@@ -799,12 +800,10 @@ function wsRespondLoginPhrase(ws, req) {
   // console.log(loginphrase)
   // respond with object containing address and signature to received message
   let connclosed = false;
-  // eslint-disable-next-line no-param-reassign
-  ws.onclose = () => {
+  ws.onclose = (evt) => {
     // console.log(evt)
     connclosed = true;
   };
-  // eslint-disable-next-line no-param-reassign
   ws.onerror = (evt) => {
     log.error(evt);
     connclosed = true;
@@ -839,10 +838,10 @@ function wsRespondLoginPhrase(ws, req) {
     const query = { loginPhrase: loginphrase };
     const projection = {};
     function searchDatabase() {
-      findOneInDatabase(database, collection, query, projection, (err2, result) => {
-        if (err2) {
+      findOneInDatabase(database, collection, query, projection, (err, result) => {
+        if (err) {
           log.error('Error looking for Login');
-          log.error(err2);
+          log.error(err);
           const errMessage = {
             status: 'error',
             data: {
@@ -890,10 +889,10 @@ function wsRespondLoginPhrase(ws, req) {
         } else {
           // check if this loginPhrase is still active. If so rerun this searching process
           const activeLoginPhrasesCollection = config.database.local.collections.activeLoginPhrases;
-          findOneInDatabase(database, activeLoginPhrasesCollection, query, projection, (err3, result2) => {
-            if (err3) {
+          findOneInDatabase(database, activeLoginPhrasesCollection, query, projection, (err, result) => {
+            if (err) {
               log.error('Error searching for login phrase');
-              log.error(err3);
+              log.error(err);
               const errMessage = {
                 status: 'error',
                 data: {
@@ -910,7 +909,7 @@ function wsRespondLoginPhrase(ws, req) {
                 }
               }
             }
-            if (result2) {
+            if (result) {
               setTimeout(() => {
                 if (!connclosed) {
                   searchDatabase();
