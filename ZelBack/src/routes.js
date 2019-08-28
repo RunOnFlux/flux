@@ -1,49 +1,49 @@
-const zelcashService = require('./services/zelcashService')
-const zelidService = require('./services/zelidService')
-const zelnodeService = require('./services/zelnodeService')
+const zelcashService = require('./services/zelcashService');
+const zelidService = require('./services/zelidService');
+const zelnodeService = require('./services/zelnodeService');
 
 module.exports = (app) => {
   // GET PUBLIC methods
   app.get('/getinfo', (req, res) => {
-    zelcashService.getInfo(req, res)
-  })
+    zelcashService.getInfo(req, res);
+  });
   app.get('/getzelnodestatus', (req, res) => {
-    zelcashService.getZelnNodeStatus(req, res)
-  })
+    zelcashService.getZelnNodeStatus(req, res);
+  });
   app.get('/zelid/loginphrase', (req, res) => {
-    zelidService.loginPhrase(req, res)
-  })
+    zelidService.loginPhrase(req, res);
+  });
 
   // GET PROTECTED API - User level
   app.get('/zelid/logoutcurrentsession', (req, res) => {
-    zelidService.logoutCurrentSession(req, res)
-  })
+    zelidService.logoutCurrentSession(req, res);
+  });
   app.get('/zelid/logoutallsessions', (req, res) => {
-    zelidService.logoutAllSessions(req, res)
-  })
+    zelidService.logoutAllSessions(req, res);
+  });
 
   // GET PROTECTED API - ZelNode Owner
   app.get('/zelid/loggedusers', (req, res) => {
-    zelidService.loggedUsers(req, res)
-  })
+    zelidService.loggedUsers(req, res);
+  });
   app.get('/zelid/activeloginphrases', (req, res) => {
-    zelidService.activeLoginPhrases(req, res)
-  })
+    zelidService.activeLoginPhrases(req, res);
+  });
   app.get('/zelid/logoutallusers', (req, res) => {
-    zelidService.logoutAllUsers(req, res)
-  })
+    zelidService.logoutAllUsers(req, res);
+  });
   // GET PROTECTED API - ZelTeam
   app.get('/zelnode/updateflux', (req, res) => {
-    zelnodeService.updateFlux(req, res)
-  })
+    zelnodeService.updateFlux(req, res);
+  });
 
   // POST PUBLIC methods route
   app.post('/zelid/verifylogin', (req, res) => {
-    zelidService.verifyLogin(req, res)
-  })
+    zelidService.verifyLogin(req, res);
+  });
 
   // WebSockets PUBLIC
   app.ws('/ws/zelid/:loginphrase', (ws, req) => {
-    zelidService.wsRespondLoginPhrase(ws, req)
-  })
-}
+    zelidService.wsRespondLoginPhrase(ws, req);
+  });
+};

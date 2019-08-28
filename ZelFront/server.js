@@ -1,13 +1,14 @@
 // ZelFront configuration
-const path = require('path')
-const express = require('express')
-const zelfront = path.join(__dirname, '../ZelFront/dist')
+const path = require('path');
+const express = require('express');
 
-const ZelBackApp = express()
-ZelBackApp.use(express.static(zelfront))
+const zelfront = path.join(__dirname, '../ZelFront/dist');
 
-ZelBackApp.get('*', (req, res) => {
-  res.sendFile(path.join(zelfront, 'index.html'))
-})
+const ZelFrontApp = express();
+ZelFrontApp.use(express.static(zelfront));
 
-ZelBackApp.listen(16126)
+ZelFrontApp.get('*', (req, res) => {
+  res.sendFile(path.join(zelfront, 'index.html'));
+});
+
+ZelFrontApp.listen(16126);

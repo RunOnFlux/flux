@@ -181,14 +181,14 @@
       v-else-if="loginForm.message === ''"
       class="content"
     >
-      <div v-if="errorMessage === ''">
+      <div v-if="errorMessage !== ''">
         <h4>
-          Error connecting to ZelBack
+          {{ errorMessage }}
         </h4>
       </div>
       <div v-else>
         <h4>
-          {{ errorMessage }}
+          Loading...
         </h4>
       </div>
     </div>
@@ -200,14 +200,6 @@
         Error connecting to ZelCash daemon
       </h4>
     </div>
-    <div
-      v-else
-      class="content"
-    >
-      <h4>
-        Loading...
-      </h4>
-    </div>
     <div class="footer">
       <Footer />
     </div>
@@ -215,21 +207,27 @@
 </template>
 
 <script>
-import Header from '@/components/shared/Header'
-import Footer from '@/components/shared/Footer'
+import Vue from 'vue';
+import axios from 'axios';
+// eslint-disable-next-line import/no-unresolved
+import Header from '@/components/shared/Header';
+// eslint-disable-next-line import/no-unresolved
+import Footer from '@/components/shared/Footer';
 
-import ZelCashService from '@/services/ZelCashService'
-import zelIDService from '@/services/ZelIDService'
-import zelnodeService from '@/services/zelnodeService'
-import Vue from 'vue'
+// eslint-disable-next-line import/no-unresolved
+import ZelCashService from '@/services/ZelCashService';
+// eslint-disable-next-line import/no-unresolved
+import zelIDService from '@/services/ZelIDService';
+// eslint-disable-next-line import/no-unresolved
+import zelnodeService from '@/services/zelnodeService';
 
-import axios from 'axios'
 
-const packageJson = require('../../../package.json')
-const qs = require('qs')
-const config = require('../../../config/default')
-const userconfig = require('../../../config/userconfig')
-const vue = new Vue()
+const qs = require('qs');
+const packageJson = require('../../../package.json');
+const config = require('../../../config/default');
+const userconfig = require('../../../config/userconfig');
+
+const vue = new Vue();
 
 export default {
   name: 'MainPage',
@@ -238,12 +236,12 @@ export default {
     return {
       getInfoResponse: {
         status: '',
-        message: ''
+        message: '',
       },
       getZelNodeStatusResponse: {
         status: '',
         message: '',
-        zelnodeStatus: 'Checking status...'
+        zelnodeStatus: 'Checking status...',
       },
       zelid: '',
       externalip: '',
@@ -252,275 +250,276 @@ export default {
       loginForm: {
         address: '',
         signature: '',
-        message: ''
+        message: '',
       },
       websocket: null,
       privilage: 'none', // user, admin, zelteam
       errorMessage: '',
-      version: packageJson.version
-    }
+      version: packageJson.version,
+    };
   },
   mounted() {
-    const isChrome = !!window.chrome && (!!window.chrome.webstore || !!window.chrome.runtime)
+    const isChrome = !!window.chrome;
     if (!isChrome) {
       vue.$message({
         message: 'Your browser does not support Flux websocket support. Logging with Zel ID is not available. For optional experience use Chrome browser.',
         type: 'warning',
         duration: 0,
-        showClose: true
-      })
+        showClose: true,
+      });
     }
-    this.getLatestFluxVersion()
-    this.loadSession()
-    this.getZelIdLoginPhrase()
-    this.zelcashGetInfo()
-    this.zelcashGetZelNodeStatus()
-    this.getUserConfig()
-    this.apiPort = config.server.localport
-    console.log(config.server.localport)
+    this.getLatestFluxVersion();
+    this.loadSession();
+    this.getZelIdLoginPhrase();
+    this.zelcashGetInfo();
+    this.zelcashGetZelNodeStatus();
+    this.getUserConfig();
+    this.apiPort = config.server.localport;
+    console.log(config.server.localport);
   },
   methods: {
     loadSession() {
-      const zelidauth = localStorage.getItem('zelidauth')
-      const auth = qs.parse(zelidauth)
-      this.privilage = 'none'
+      const zelidauth = localStorage.getItem('zelidauth');
+      const auth = qs.parse(zelidauth);
+      this.privilage = 'none';
       if (auth) {
         if (auth.zelid) {
           if (auth.zelid === config.zelTeamZelId) {
-            this.privilage = 'zelteam'
+            this.privilage = 'zelteam';
           } else if (auth.zelid === userconfig.initial.zelid) {
-            this.privilage = 'admin'
+            this.privilage = 'admin';
           } else if (auth.zelid.length > 24) { // very basic check that does the job needed
-            this.privilage = 'user'
+            this.privilage = 'user';
           }
         }
       }
     },
     async zelcashGetInfo() {
-      const response = await ZelCashService.getInfo()
-      this.getInfoResponse.status = response.data.status
-      this.getInfoResponse.message = response.data.data
+      const response = await ZelCashService.getInfo();
+      this.getInfoResponse.status = response.data.status;
+      this.getInfoResponse.message = response.data.data;
     },
     async zelcashGetZelNodeStatus() {
       // TODO
-      const response = await ZelCashService.getZelNodeStatus()
-      this.getZelNodeStatusResponse.status = response.data.status
-      this.getZelNodeStatusResponse.message = response.data.data
-      console.log(this.getZelNodeStatusResponse.message)
+      const response = await ZelCashService.getZelNodeStatus();
+      this.getZelNodeStatusResponse.status = response.data.status;
+      this.getZelNodeStatusResponse.message = response.data.data;
+      console.log(this.getZelNodeStatusResponse.message);
       if (this.getZelNodeStatusResponse.message) {
         if (this.getZelNodeStatusResponse.message.status === 4) {
-          this.getZelNodeStatusResponse.zelnodeStatus = 'ZelNode is working correctly'
+          this.getZelNodeStatusResponse.zelnodeStatus = 'ZelNode is working correctly';
         } else {
-          const statusCode = this.getZelNodeStatusResponse.message.code || this.getZelNodeStatusResponse.message.status
-          this.getZelNodeStatusResponse.zelnodeStatus = `Error status code: ${statusCode}. ZelNode not yet active. Flux is running with limited capabilities.`
+          const statusCode = this.getZelNodeStatusResponse.message.code || this.getZelNodeStatusResponse.message.status;
+          this.getZelNodeStatusResponse.zelnodeStatus = `Error status code: ${statusCode}. ZelNode not yet active. Flux is running with limited capabilities.`;
         }
       }
     },
     getUserConfig() {
-      this.zelid = userconfig.initial.zelid
-      this.externalip = userconfig.initial.ipaddress
+      this.zelid = userconfig.initial.zelid;
+      this.externalip = userconfig.initial.ipaddress;
     },
     getZelIdLoginPhrase() {
       zelIDService.loginPhrase()
-        .then(response => {
-          console.log(response)
+        .then((response) => {
+          console.log(response);
           if (response.data.status === 'error') {
-            this.errorMessage = response.data.data.message
+            this.errorMessage = response.data.data.message;
           } else {
-            this.loginPhrase = response.data
-            this.loginForm.message = response.data
+            this.loginPhrase = response.data;
+            this.loginForm.message = response.data;
           }
         })
-        .catch(error => {
-          console.log(error)
-          vue.$message.error(error)
-        })
+        .catch((error) => {
+          console.log(error);
+          vue.$message.error(error);
+          this.errorMessage = 'Error connecting to ZelBack';
+        });
     },
     login() {
-      console.log(this.loginForm)
+      console.log(this.loginForm);
       zelIDService.verifyLogin(this.loginForm)
-        .then(response => {
-          console.log(response)
+        .then((response) => {
+          console.log(response);
           if (response.data.status === 'success' && response.data.data) {
             // we are now signed. Store our values
             const zelidauth = {
               zelid: this.loginForm.address,
-              signature: this.loginForm.signature
-            }
-            this.privilage = response.data.data.privilage
-            localStorage.setItem('zelidauth', qs.stringify(zelidauth))
-            vue.$message.success(response.data.data.message)
+              signature: this.loginForm.signature,
+            };
+            this.privilage = response.data.data.privilage;
+            localStorage.setItem('zelidauth', qs.stringify(zelidauth));
+            vue.$message.success(response.data.data.message);
           } else {
-            vue.$message.error(response.data.data.message)
+            vue.$message.error(response.data.data.message);
           }
         })
-        .catch(e => {
-          console.log(e)
-          vue.$message.error(e.toString())
-        })
+        .catch((e) => {
+          console.log(e);
+          vue.$message.error(e.toString());
+        });
     },
     loggedUsers() {
-      const zelidauth = localStorage.getItem('zelidauth')
-      const auth = qs.parse(zelidauth)
-      console.log(auth)
+      const zelidauth = localStorage.getItem('zelidauth');
+      const auth = qs.parse(zelidauth);
+      console.log(auth);
       zelIDService.loggedUsers(zelidauth)
-        .then(response => {
-          console.log(response)
+        .then((response) => {
+          console.log(response);
           if (response.data.status === 'error') {
-            vue.$message.error(response.data.data.message)
+            vue.$message.error(response.data.data.message);
           }
         })
-        .catch(e => {
-          console.log(e)
-          vue.$message.error(e.toString())
-        })
+        .catch((e) => {
+          console.log(e);
+          vue.$message.error(e.toString());
+        });
     },
     logoutCurrentSession() {
-      const zelidauth = localStorage.getItem('zelidauth')
-      const auth = qs.parse(zelidauth)
-      console.log(auth)
+      const zelidauth = localStorage.getItem('zelidauth');
+      const auth = qs.parse(zelidauth);
+      console.log(auth);
       zelIDService.logoutCurrentSession(zelidauth)
-        .then(response => {
-          console.log(response)
+        .then((response) => {
+          console.log(response);
           if (response.data.status === 'error') {
-            vue.$message.error(response.data.data.message)
+            vue.$message.error(response.data.data.message);
           } else {
-            localStorage.removeItem('zelidauth')
-            this.privilage = 'none'
-            vue.$message.success(response.data.data.message)
+            localStorage.removeItem('zelidauth');
+            this.privilage = 'none';
+            vue.$message.success(response.data.data.message);
           }
         })
-        .catch(e => {
-          console.log(e)
-          vue.$message.error(e.toString())
-        })
+        .catch((e) => {
+          console.log(e);
+          vue.$message.error(e.toString());
+        });
     },
     logoutAllSessions() {
-      const zelidauth = localStorage.getItem('zelidauth')
-      const auth = qs.parse(zelidauth)
-      console.log(auth)
+      const zelidauth = localStorage.getItem('zelidauth');
+      const auth = qs.parse(zelidauth);
+      console.log(auth);
       zelIDService.logoutAllSessions(zelidauth)
-        .then(response => {
-          console.log(response)
+        .then((response) => {
+          console.log(response);
           if (response.data.status === 'error') {
-            vue.$message.error(response.data.data.message)
+            vue.$message.error(response.data.data.message);
           } else {
-            localStorage.removeItem('zelidauth')
-            this.privilage = 'none'
-            vue.$message.success(response.data.data.message)
+            localStorage.removeItem('zelidauth');
+            this.privilage = 'none';
+            vue.$message.success(response.data.data.message);
           }
         })
-        .catch(e => {
-          console.log(e)
-          vue.$message.error(e.toString())
-        })
+        .catch((e) => {
+          console.log(e);
+          vue.$message.error(e.toString());
+        });
     },
     logOutAllUsers() {
-      const zelidauth = localStorage.getItem('zelidauth')
-      const auth = qs.parse(zelidauth)
-      console.log(auth)
+      const zelidauth = localStorage.getItem('zelidauth');
+      const auth = qs.parse(zelidauth);
+      console.log(auth);
       zelIDService.logoutAllUsers(zelidauth)
-        .then(response => {
-          console.log(response)
+        .then((response) => {
+          console.log(response);
           if (response.data.status === 'error') {
-            vue.$message.error(response.data.data.message)
+            vue.$message.error(response.data.data.message);
           } else {
-            localStorage.removeItem('zelidauth')
-            this.privilage = 'none'
-            vue.$message.success(response.data.data.message)
+            localStorage.removeItem('zelidauth');
+            this.privilage = 'none';
+            vue.$message.success(response.data.data.message);
           }
         })
-        .catch(e => {
-          console.log(e)
-          vue.$message.error(e.toString())
-        })
+        .catch((e) => {
+          console.log(e);
+          vue.$message.error(e.toString());
+        });
     },
     activeLoginPhrases() {
-      const zelidauth = localStorage.getItem('zelidauth')
-      const auth = qs.parse(zelidauth)
-      console.log(auth)
+      const zelidauth = localStorage.getItem('zelidauth');
+      const auth = qs.parse(zelidauth);
+      console.log(auth);
       zelIDService.activeLoginPhrases(zelidauth)
-        .then(response => {
-          console.log(response)
+        .then((response) => {
+          console.log(response);
           if (response.data.status === 'error') {
-            vue.$message.error(response.data.data.message)
+            vue.$message.error(response.data.data.message);
           }
         })
-        .catch(e => {
-          console.log(e)
-          console.log(e.code)
-          vue.$message.error(e.toString())
-        })
+        .catch((e) => {
+          console.log(e);
+          console.log(e.code);
+          vue.$message.error(e.toString());
+        });
     },
     updateFlux() {
-      const zelidauth = localStorage.getItem('zelidauth')
-      const auth = qs.parse(zelidauth)
-      console.log(auth)
-      vue.$message.success('Flux is now updating in the background')
+      const zelidauth = localStorage.getItem('zelidauth');
+      const auth = qs.parse(zelidauth);
+      console.log(auth);
+      vue.$message.success('Flux is now updating in the background');
       zelnodeService.updateFlux(zelidauth)
-        .then(response => {
-          console.log(response)
+        .then((response) => {
+          console.log(response);
           if (response.data.status === 'error') {
-            vue.$message.error(response.data.data.message)
+            vue.$message.error(response.data.data.message);
           }
         })
-        .catch(e => {
-          console.log(e)
-          console.log(e.code)
-          vue.$message.error(e.toString())
-        })
+        .catch((e) => {
+          console.log(e);
+          console.log(e.code);
+          vue.$message.error(e.toString());
+        });
     },
     getLatestFluxVersion() {
-      const self = this
+      const self = this;
       axios.get('https://raw.githubusercontent.com/zelcash/zelnoded/master/package.json')
         .then((response) => {
-          console.log(response)
+          console.log(response);
           if (response.data.version !== self.version) {
-            vue.$message.warning('Flux requires an update!')
+            vue.$message.warning('Flux requires an update!');
           } else {
-            vue.$message.success('Flux is up to date')
+            vue.$message.success('Flux is up to date');
           }
         })
         .catch((error) => {
-          console.log(error)
-          vue.$message.error('Error verifying recent version')
-        })
+          console.log(error);
+          vue.$message.error('Error verifying recent version');
+        });
     },
     initiateLoginWS() {
-      const self = this
-      const wsuri = `wss://echo.websocket.org`
-      const websocket = new WebSocket(wsuri)
-      this.websocket = websocket
+      const self = this;
+      const wsuri = `ws://${this.externalip}:${this.apiPort}/ws/zelid/${this.loginPhrase}`;
+      const websocket = new WebSocket(wsuri);
+      this.websocket = websocket;
 
-      websocket.onopen = (evt) => { self.onOpen(evt) }
-      websocket.onclose = (evt) => { self.onClose(evt) }
-      websocket.onmessage = (evt) => { self.onMessage(evt) }
-      websocket.onerror = (evt) => { self.onError(evt) }
+      websocket.onopen = (evt) => { self.onOpen(evt); };
+      websocket.onclose = (evt) => { self.onClose(evt); };
+      websocket.onmessage = (evt) => { self.onMessage(evt); };
+      websocket.onerror = (evt) => { self.onError(evt); };
     },
     onError(evt) {
-      console.log(evt)
+      console.log(evt);
     },
     onMessage(evt) {
-      const data = qs.parse(evt.data)
+      const data = qs.parse(evt.data);
       if (data.status === 'success' && data.data) {
         // we are now signed. Store our values
         const zelidauth = {
           zelid: data.data.zelid,
-          signature: data.data.signature
-        }
-        this.privilage = data.data.privilage
-        localStorage.setItem('zelidauth', qs.stringify(zelidauth))
-        vue.$message.success(data.data.message)
+          signature: data.data.signature,
+        };
+        this.privilage = data.data.privilage;
+        localStorage.setItem('zelidauth', qs.stringify(zelidauth));
+        vue.$message.success(data.data.message);
       }
-      console.log(data)
-      console.log(evt)
+      console.log(data);
+      console.log(evt);
     },
     onClose(evt) {
-      console.log(evt)
+      console.log(evt);
     },
     onOpen(evt) {
-      console.log(evt)
-    }
-  }
-}
+      console.log(evt);
+    },
+  },
+};
 </script>

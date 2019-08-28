@@ -18,14 +18,14 @@
 </template>
 
 <script>
-const packageJson = require('../../../../package.json')
+const packageJson = require('../../../../package.json');
 
 export default {
   name: 'Footer',
   data() {
     return {
-      version: packageJson.version
-    }
-  }
-}
+      version: packageJson.version,
+    };
+  },
+};
 </script>
