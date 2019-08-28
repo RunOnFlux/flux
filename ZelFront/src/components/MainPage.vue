@@ -181,14 +181,14 @@
       v-else-if="loginForm.message === ''"
       class="content"
     >
-      <div v-if="errorMessage === ''">
+      <div v-if="errorMessage !== ''">
         <h4>
-          Error connecting to ZelBack
+          {{ errorMessage }}
         </h4>
       </div>
       <div v-else>
         <h4>
-          {{ errorMessage }}
+          Loading...
         </h4>
       </div>
     </div>
@@ -198,14 +198,6 @@
     >
       <h4>
         Error connecting to ZelCash daemon
-      </h4>
-    </div>
-    <div
-      v-else
-      class="content"
-    >
-      <h4>
-        Loading...
       </h4>
     </div>
     <div class="footer">
@@ -340,6 +332,7 @@ export default {
         .catch((error) => {
           console.log(error);
           vue.$message.error(error);
+          this.errorMessage = 'Error connecting to ZelBack';
         });
     },
     login() {
