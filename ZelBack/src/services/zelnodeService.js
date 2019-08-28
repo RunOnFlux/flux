@@ -4,12 +4,12 @@ const cmd = require('node-cmd');
 const path = require('path');
 const bitcoinMessage = require('bitcoinjs-message');
 const qs = require('qs');
+
 const userconfig = require('../../../config/userconfig');
 const log = require('../lib/log');
 
 const { MongoClient } = mongodb;
 const mongoUrl = `mongodb://${config.database.url}:${config.database.port}/`;
-// eslint-disable-next-line no-unused-vars
 const goodchars = /^[1-9a-km-zA-HJ-NP-Z]+$/;
 
 // MongoDB functions
@@ -23,7 +23,6 @@ function connectMongoDb(url, callback) {
   });
 }
 
-// eslint-disable-next-line no-unused-vars
 function findInDatabase(database, collection, query, projection, callback) {
   database.collection(collection).find(query, projection)
     .toArray((err, results) => {
@@ -45,7 +44,6 @@ function findOneInDatabase(database, collection, query, projection, callback) {
   });
 }
 
-// eslint-disable-next-line no-unused-vars
 function insertOneToDatabase(database, collection, value, callback) {
   database.collection(collection).insertOne(value, (err, result) => {
     if (err) {
@@ -56,7 +54,6 @@ function insertOneToDatabase(database, collection, value, callback) {
   });
 }
 
-// eslint-disable-next-line no-unused-vars
 function findOneAndDeleteInDatabase(database, collection, query, projection, callback) {
   database.collection(collection).findOneAndDelete(query, projection, (err, result) => {
     if (err) {
@@ -67,7 +64,6 @@ function findOneAndDeleteInDatabase(database, collection, query, projection, cal
   });
 }
 
-// eslint-disable-next-line no-unused-vars
 function removeDocumentsFromCollection(database, collection, query, callback) {
   // to remove all documents from collection, the query is just {}
   database.collection(collection).remove(query, (err, result) => {
@@ -80,7 +76,6 @@ function removeDocumentsFromCollection(database, collection, query, callback) {
 }
 
 // Verification functions
-// eslint-disable-next-line no-unused-vars
 function verifyAdminSession(headers, callback) {
   if (headers && headers.zelidauth) {
     const auth = qs.parse(headers.zelidauth);
@@ -100,10 +95,10 @@ function verifyAdminSession(headers, callback) {
           const collection = config.database.local.collections.loggedUsers;
           const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
           const projection = {};
-          findOneInDatabase(database, collection, query, projection, (err2, result) => {
-            if (err2) {
+          findOneInDatabase(database, collection, query, projection, (err, result) => {
+            if (err) {
               log.error('Error accessing local zelID collection');
-              log.error(err2);
+              log.error(err);
               db.close();
               callback(null, false);
             }
@@ -140,7 +135,6 @@ function verifyAdminSession(headers, callback) {
   }
 }
 
-// eslint-disable-next-line no-unused-vars
 function verifyUserSession(headers, callback) {
   if (headers && headers.zelidauth) {
     const auth = qs.parse(headers.zelidauth);
@@ -156,10 +150,10 @@ function verifyUserSession(headers, callback) {
         const collection = config.database.local.collections.loggedUsers;
         const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
         const projection = {};
-        findOneInDatabase(database, collection, query, projection, (err2, result) => {
-          if (err2) {
+        findOneInDatabase(database, collection, query, projection, (err, result) => {
+          if (err) {
             log.error('Error accessing local zelID collection');
-            log.error(err2);
+            log.error(err);
             db.close();
             callback(null, false);
           }
@@ -209,10 +203,10 @@ function verifyZelTeamSession(headers, callback) {
           const collection = config.database.local.collections.loggedUsers;
           const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
           const projection = {};
-          findOneInDatabase(database, collection, query, projection, (err2, result) => {
-            if (err2) {
+          findOneInDatabase(database, collection, query, projection, (err, result) => {
+            if (err) {
               log.error('Error accessing local zelID collection');
-              log.error(err2);
+              log.error(err);
               db.close();
               callback(null, false);
             }
@@ -262,7 +256,7 @@ function updateFlux(req, res) {
           const errMessage = {
             status: 'error',
             data: {
-              message: `Error updating Flux: ${err}`,
+              message: `Error updating Flux${err}`,
             },
           };
           return res.json(errMessage);
@@ -275,14 +269,15 @@ function updateFlux(req, res) {
         };
         return res.json(message);
       });
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      return res.json(errMessage);
     }
-    const errMessage = {
-      status: 'error',
-      data: {
-        message: 'Unauthorized. Access denied.',
-      },
-    };
-    return res.json(errMessage);
   });
 }
 
