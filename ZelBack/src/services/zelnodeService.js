@@ -250,7 +250,7 @@ function updateFlux(req, res) {
     }
     if (authorized === true) {
       const zelnodedpath = path.join(__dirname, '../../../');
-      const exec = `cd ${zelnodedpath} && npm run updateflux`;
+      const exec = `cd ${zelnodedpath} && npm run hardupdateflux`;
       cmd.get(exec, (err) => {
         if (err) {
           const errMessage = {
