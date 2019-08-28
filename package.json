@@ -1,6 +1,6 @@
 {
   "name": "zelnoded",
-  "version": "0.9.16",
+  "version": "0.9.17",
   "description": "ZelNodeD - ZelNode Daemon. The entrace to the ZelNode network.",
   "repository": {
     "type": "git",
@@ -29,7 +29,7 @@
     "zelfrontdev": "vue-cli-service serve --port 16126",
     "zelfrontprod": "nodemon ZelFront/server.js",
     "zelfrontstart": "npm run zelfrontprod",
-    "zelfrontbuild": "vue-cli-service build",
+    "zelfrontbuild": "vue-cli-service build --watch",
     "zelbackstart": "nodemon ZelBack/server.js",
     "zelbackdev": "nodemon ZelBack/server.js",
     "flux": "nodemon app.js",
