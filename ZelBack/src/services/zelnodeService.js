@@ -321,5 +321,5 @@ function rebuildZelFront(req, res) {
 
 module.exports = {
   updateFlux,
-  rebuildZelFront
+  rebuildZelFront,
 };

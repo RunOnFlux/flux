@@ -189,29 +189,6 @@
         </div>
       </div>
     </div>
-    <div
-      v-else-if="loginForm.message === ''"
-      class="content"
-    >
-      <div v-if="errorMessage !== ''">
-        <h4>
-          {{ errorMessage }}
-        </h4>
-      </div>
-      <div v-else>
-        <h4>
-          Loading...
-        </h4>
-      </div>
-    </div>
-    <div
-      v-else-if="getInfoResponse.status === 'error'"
-      class="content"
-    >
-      <h4>
-        Error connecting to ZelCash daemon
-      </h4>
-    </div>
     <div class="footer">
       <Footer />
     </div>
@@ -222,15 +199,13 @@
 import Vue from 'vue';
 import axios from 'axios';
 
-// eslint-disable-next-line import/no-unresolved
-import ZelCashService from '@/services/ZelCashService';
-// eslint-disable-next-line import/no-unresolved
-import zelIDService from '@/services/ZelIDService';
-// eslint-disable-next-line import/no-unresolved
-import zelnodeService from '@/services/zelnodeService';
-
 const Header = () => import('@/components/shared/Header.vue');
 const Footer = () => import('@/components/shared/Footer.vue');
+
+import ZelCashService from '@/services/ZelCashService';
+import zelIDService from '@/services/ZelIDService';
+import zelnodeService from '@/services/zelnodeService';
+
 
 const qs = require('qs');
 const packageJson = require('../../../package.json');
@@ -240,7 +215,7 @@ const userconfig = require('../../../config/userconfig');
 const vue = new Vue();
 
 export default {
-  name: 'MainPage',
+  name: 'Home',
   components: { Header, Footer },
   data() {
     return {

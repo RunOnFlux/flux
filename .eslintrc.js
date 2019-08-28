@@ -21,10 +21,6 @@ module.exports = {
       "error",
       "never",
     ],
-    "import/no-unresolved": [ // FIXME
-      "error",
-      "never",
-    ],
   },
   parserOptions: {
     parser: 'babel-eslint',

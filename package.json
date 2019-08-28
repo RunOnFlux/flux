@@ -1,6 +1,6 @@
 {
   "name": "zelnoded",
-  "version": "0.9.25",
+  "version": "0.9.26",
   "description": "ZelNodeD - ZelNode Daemon. The entrace to the ZelNode network.",
   "repository": {
     "type": "git",
@@ -32,7 +32,7 @@
     "zelfrontbuild": "vue-cli-service build",
     "zelfrontbuildwatch": "vue-cli-service build --watch",
     "zelbackstart": "nodemon ZelBack/server.js",
-    "zelbackdev": "nodemon ZelBzelfrontbuildwatchack/server.js",
+    "zelbackdev": "nodemon ZelBack/server.js",
     "flux": "nodemon app.js",
     "start": "npm install && node init.js && (npm run zelfrontbuildwatch & npm run flux)",
     "dev": "node init.js && (npm run zelbackdev & npm run zelfrontdev)",
@@ -56,6 +56,7 @@
     "morgan": "^1.9.1",
     "node-cmd": "^3.0.0",
     "nodemon": "^1.19.1",
+    "path": "^0.12.7",
     "qs": "^6.7.0",
     "vue": "^2.6.10",
     "vue-router": "^3.0.3",
