@@ -8,4 +8,11 @@ export default {
       },
     });
   },
+  rebuildZelFront(zelidauthHeader) {
+    return Api().get('/zelnode/rebuildzelfront', {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    });
+  },
 };

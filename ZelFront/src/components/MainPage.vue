@@ -138,6 +138,12 @@
           >
             Update Flux
           </ElButton>
+          <ElButton
+            class="generalButton"
+            @click="rebuildZelFront()"
+          >
+            Rebuild ZelFront
+          </ElButton>
         </div>
         <div v-if="privilage === 'user'">
           <ElButton
@@ -173,6 +179,12 @@
             @click="updateFlux()"
           >
             Update Flux
+          </ElButton>
+          <ElButton
+            class="generalButton"
+            @click="rebuildZelFront()"
+          >
+            Rebuild ZelFront
           </ElButton>
         </div>
       </div>
@@ -457,6 +469,24 @@ export default {
       console.log(auth);
       vue.$message.success('Flux is now updating in the background');
       zelnodeService.updateFlux(zelidauth)
+        .then((response) => {
+          console.log(response);
+          if (response.data.status === 'error') {
+            vue.$message.error(response.data.data.message);
+          }
+        })
+        .catch((e) => {
+          console.log(e);
+          console.log(e.code);
+          vue.$message.error(e.toString());
+        });
+    },
+    rebuildZelFront() {
+      const zelidauth = localStorage.getItem('zelidauth');
+      const auth = qs.parse(zelidauth);
+      console.log(auth);
+      vue.$message.success('ZelFront is now rebuilding in the background');
+      zelnodeService.rebuildZelFront(zelidauth)
         .then((response) => {
           console.log(response);
           if (response.data.status === 'error') {

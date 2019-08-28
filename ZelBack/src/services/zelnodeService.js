@@ -281,6 +281,45 @@ function updateFlux(req, res) {
   });
 }
 
+function rebuildZelFront(req, res) {
+  verifyZelTeamSession(req.headers, (error, authorized) => {
+    if (error) {
+      return res.json(error);
+    }
+    if (authorized === true) {
+      const zelnodedpath = path.join(__dirname, '../../../');
+      const exec = `cd ${zelnodedpath} && npm run zelfrontbuild`;
+      cmd.get(exec, (err) => {
+        if (err) {
+          const errMessage = {
+            status: 'error',
+            data: {
+              message: `Error updating Flux${err}`,
+            },
+          };
+          return res.json(errMessage);
+        }
+        const message = {
+          status: 'success',
+          data: {
+            message: 'Flux successfully updated',
+          },
+        };
+        return res.json(message);
+      });
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      return res.json(errMessage);
+    }
+  });
+}
+
 module.exports = {
   updateFlux,
+  rebuildZelFront
 };

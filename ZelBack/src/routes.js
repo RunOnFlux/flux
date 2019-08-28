@@ -36,6 +36,9 @@ module.exports = (app) => {
   app.get('/zelnode/updateflux', (req, res) => {
     zelnodeService.updateFlux(req, res);
   });
+  app.get('/zelnode/rebuildzelfront', (req, res) => {
+    zelnodeService.rebuildZelFront(req, res);
+  });
 
   // POST PUBLIC methods route
   app.post('/zelid/verifylogin', (req, res) => {
