@@ -15,20 +15,32 @@
           <img src="@/assets/img/ZelNodes.svg">
         </div>
       </el-menu-item>
-      <el-submenu index="1">
+      <el-submenu
+        v-if="privilage === 'user' || privilage === 'admin' || privilage === 'zelteam'"
+        index="1"
+      >
         <template slot="title">ZelCash</template>
         <el-menu-item index="1-1">Get Info</el-menu-item>
       </el-submenu>
-      <el-submenu index="2">
+      <el-submenu
+        v-if="privilage === 'user' || privilage === 'admin' || privilage === 'zelteam'"
+        index="2"
+      >
         <template slot="title">ZelNode</template>
         <el-menu-item index="2-1">ZelNode Status</el-menu-item>
       </el-submenu>
-      <el-submenu index="3">
+      <el-submenu
+        v-if="privilage === 'user' || privilage === 'admin' || privilage === 'zelteam'"
+        index="3"
+      >
         <template slot="title">ZelFlux</template>
         <el-menu-item index="3-1">Flux Info</el-menu-item>
       </el-submenu>
-      <el-submenu index="10">
-        <template slot="title">Admin</template>
+      <el-submenu
+        v-if="privilage === 'admin'"
+        index="10"
+      >
+        <template slot="title">ZelAdmin</template>
         <el-menu-item index="10-1">Update Flux</el-menu-item>
         <el-menu-item index="10-2">Rebuild Flux</el-menu-item>
         <el-menu-item index="10-3">Logged Users</el-menu-item>
@@ -39,7 +51,19 @@
           <el-menu-item index="10-4-2">Logout all sessions</el-menu-item>
         </el-submenu>
       </el-submenu>
-      <el-menu-item index="4">Say Hi!</el-menu-item>
+      <el-submenu
+        v-if="privilage === 'zelteam'"
+        index="10"
+      >
+        <template slot="title">ZelAdmin</template>
+        <el-menu-item index="10-1">Update Flux</el-menu-item>
+        <el-menu-item index="10-2">Rebuild Flux</el-menu-item>
+        <el-submenu index="10-4">
+          <template slot="title">Logout options</template>
+          <el-menu-item index="10-4-1">Logout current session</el-menu-item>
+          <el-menu-item index="10-4-2">Logout all sessions</el-menu-item>
+        </el-submenu>
+      </el-submenu>
     </el-menu>
   </div>
 </template>
@@ -59,6 +83,7 @@ export default {
   methods: {
     handleSelect(key, keyPath) {
       console.log(key, keyPath);
+      console.log(key);
     },
   },
 };

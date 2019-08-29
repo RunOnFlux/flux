@@ -128,12 +128,6 @@
           >
             Rebuild ZelFront
           </ElButton>
-          <ElButton
-            class="generalButton"
-            @click="rebuildZelFront()"
-          >
-            Rebuild ZelFront
-          </ElButton>
         </div>
       </div>
     </div>
