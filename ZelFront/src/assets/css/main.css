@@ -119,7 +119,7 @@ h4 {
 .header { 
   position: absolute;
   top: 0;
-  height: 40px;
+  height: 80px;
   z-index: 10;
 }
 
@@ -133,21 +133,12 @@ h4 {
 }
 
 .content {
-  padding: 40px 0px 30px 0px;
+  padding: 80px 0px 30px 0px;
 }
 
 /* HEADER STYLE */
 
-.header-grid {
-  display: grid;
-  grid-template-columns: 200px calc(100vw - 240px);
-  grid-template-rows: 1fr;
-  margin: auto;
-  overflow: hidden;
-}
-
 .header-logo {
-  grid-area: 1 / 1 / 2 / 2;
   height: 100%;
 }
 
@@ -158,8 +149,10 @@ h4 {
 }
 
 .header-menu {
-  grid-area: 1 / 2 / 2 / 3;
-  height: 40px;
+  overflow: hidden;
+  margin: auto;
+  width: calc(100vw - 40px);
+  height: 80px;
   line-height: 40px;
 }
 
@@ -219,4 +212,13 @@ h4 {
 
 .generalButton {
 
+}
+
+/* ELEMENTS */
+.el-menu.el-menu--horizontal {
+  border: none;
+}
+
+.el-menu, .el-submenu .el-menu {
+  border: 1px solid #ffd04b;
 }
