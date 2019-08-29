@@ -5,7 +5,7 @@
       <img src="@/assets/img/ZelNodes.svg">
     </div>
     <div class="header-menu">
-      <!-- MENU -->
+      {{ privilage }}
     </div>
   </div>
 </template>
@@ -14,5 +14,8 @@
 
 export default {
   name: 'Header',
+  props: {
+    privilage: String,
+  },
 };
 </script>

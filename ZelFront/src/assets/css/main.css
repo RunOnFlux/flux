@@ -167,7 +167,7 @@ h4 {
 
 .footer-grid {
   display: grid;
-  grid-template-columns: 200px calc(100vw - 440px) 200px;
+  grid-template-columns: 100px calc(100vw - 200px) 100px;
   grid-template-rows: 1fr;
   margin: auto;
 }
@@ -183,12 +183,14 @@ h4 {
 }
 
 .footer-middle {
+  text-align: center;
   grid-area: 1 / 2 / 2 / 3;
   height: 30px;
   line-height: 30px;
 }
 
 .footer-right {
+  text-align: left;
   grid-area: 1 / 3 / 2 / 4;
   height: 30px;
   line-height: 30px;

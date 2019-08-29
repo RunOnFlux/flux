@@ -1,10 +1,10 @@
 <template>
   <div class="mainDivStyle">
     <div class="header">
-      <Header />
+      <Header :privilage="privilage" />
     </div>
     <div
-      v-if="loginForm.message && getInfoResponse.status === 'success'"
+      v-if="loginPhrase && getInfoResponse.status === 'success'"
       class="content"
     >
       <div class="status">
@@ -33,70 +33,8 @@
         </div>
       </div>
       <br>
-      <div
-        v-if="privilage == 'none'"
-        class="loginSection"
-      >
-        <p>
-          Log in using Zel ID
-        </p>
-        <div>
-          <a
-            @click="initiateLoginWS"
-            :href="'zel:?action=sign&message=' + loginPhrase + '&icon=http%3A%2F%2Fzelid.io%2Fimg%2FzelID.svg&callback=http%3A%2F%2F' + externalip + ':' + apiPort + '%2Fzelid%2Fverifylogin%2F'"
-          >
-            <img
-              class="zelidLogin"
-              src="@/assets/img/zelID.svg"
-            />
-          </a>
-        </div>
-
-        <p>
-          or sign the following message with any bitcoin address.
-        </p>
-        <ElForm
-          :model="loginForm"
-          class="loginForm"
-        >
-          <ElFormItem>
-            <ElInput
-              type="text"
-              name="message"
-              placeholder="message"
-              v-model="loginForm.message"
-              disabled
-            >
-              <template slot="prepend">Message: </template>
-            </ElInput>
-          </ElFormItem>
-          <ElFormItem>
-            <ElInput
-              type="text"
-              name="address"
-              placeholder="insert bitcoin address"
-              v-model="loginForm.address"
-            >
-              <template slot="prepend">Address: </template>
-            </ElInput>
-          </ElFormItem>
-          <ElFormItem>
-            <ElInput
-              type="text"
-              name="signature"
-              placeholder="insert signature"
-              v-model="loginForm.signature"
-            >
-              <template slot="prepend">Signature: </template>
-            </ElInput>
-          </ElFormItem>
-          <ElButton
-            class="generalButton"
-            @click="login()"
-          >
-            Login
-          </ElButton>
-        </ElForm>
+      <div v-if="privilage === 'none'">
+        <Login />
       </div>
 
       <div v-if="privilage !== 'none'">
@@ -144,11 +82,16 @@
           >
             Rebuild ZelFront
           </ElButton>
+          <ElButton
+            class="generalButton"
+            @click="sayhi()"
+          >
+            Say Hi
+          </ElButton>
         </div>
         <div v-if="privilage === 'user'">
           <ElButton
-            class="
-        generalButton"
+            class="generalButton"
             @click="logoutCurrentSession()"
           >
             Logout current session
@@ -162,8 +105,7 @@
         </div>
         <div v-if="privilage === 'zelteam'">
           <ElButton
-            class="
-        generalButton"
+            class="generalButton"
             @click="logoutCurrentSession()"
           >
             Logout current session
@@ -186,8 +128,37 @@
           >
             Rebuild ZelFront
           </ElButton>
+          <ElButton
+            class="generalButton"
+            @click="rebuildZelFront()"
+          >
+            Rebuild ZelFront
+          </ElButton>
         </div>
       </div>
+    </div>
+    <div
+      v-else-if="loginPhrase === ''"
+      class="content"
+    >
+      <div v-if="errorMessage !== ''">
+        <h4>
+          {{ errorMessage }}
+        </h4>
+      </div>
+      <div v-else>
+        <h4>
+          Loading...
+        </h4>
+      </div>
+    </div>
+    <div
+      v-else-if="getInfoResponse.status === 'error'"
+      class="content"
+    >
+      <h4>
+        Error connecting to ZelCash daemon
+      </h4>
     </div>
     <div class="footer">
       <Footer />
@@ -196,27 +167,31 @@
 </template>
 
 <script>
+import Vuex, { mapState } from 'vuex';
 import Vue from 'vue';
 import axios from 'axios';
 
-const Header = () => import('@/components/shared/Header.vue');
-const Footer = () => import('@/components/shared/Footer.vue');
-
+// eslint-disable-next-line import/no-unresolved
 import ZelCashService from '@/services/ZelCashService';
+// eslint-disable-next-line import/no-unresolved
 import zelIDService from '@/services/ZelIDService';
+// eslint-disable-next-line import/no-unresolved
 import zelnodeService from '@/services/zelnodeService';
 
+const Header = () => import('@/components/shared/Header.vue');
+const Footer = () => import('@/components/shared/Footer.vue');
+const Login = () => import('@/components/Login.vue');
 
 const qs = require('qs');
 const packageJson = require('../../../package.json');
-const config = require('../../../config/default');
-const userconfig = require('../../../config/userconfig');
 
+
+Vue.use(Vuex);
 const vue = new Vue();
 
 export default {
-  name: 'Home',
-  components: { Header, Footer },
+  name: 'MainPage',
+  components: { Header, Footer, Login },
   data() {
     return {
       getInfoResponse: {
@@ -228,56 +203,57 @@ export default {
         message: '',
         zelnodeStatus: 'Checking status...',
       },
-      zelid: '',
-      externalip: '',
-      loginPhrase: '',
-      apiPort: 16127,
-      loginForm: {
-        address: '',
-        signature: '',
-        message: '',
-      },
-      websocket: null,
-      privilage: 'none', // user, admin, zelteam
       errorMessage: '',
       version: packageJson.version,
     };
   },
+  computed: {
+    ...mapState([
+      'userconfig',
+      'config',
+      'privilage',
+      'loginPhrase',
+    ]),
+  },
   mounted() {
-    const isChrome = !!window.chrome;
-    if (!isChrome) {
-      vue.$message({
-        message: 'Your browser does not support Flux websocket support. Logging with Zel ID is not available. For optional experience use Chrome browser.',
-        type: 'warning',
-        duration: 0,
-        showClose: true,
-      });
-    }
+    this.getZelIdLoginPhrase();
     this.getLatestFluxVersion();
     this.loadSession();
-    this.getZelIdLoginPhrase();
     this.zelcashGetInfo();
     this.zelcashGetZelNodeStatus();
-    this.getUserConfig();
-    this.apiPort = config.server.localport;
-    console.log(config.server.localport);
   },
   methods: {
     loadSession() {
       const zelidauth = localStorage.getItem('zelidauth');
       const auth = qs.parse(zelidauth);
-      this.privilage = 'none';
+      this.$store.commit('setPrivilage', 'none');
       if (auth) {
         if (auth.zelid) {
-          if (auth.zelid === config.zelTeamZelId) {
-            this.privilage = 'zelteam';
-          } else if (auth.zelid === userconfig.initial.zelid) {
-            this.privilage = 'admin';
+          if (auth.zelid === this.config.zelTeamZelId) {
+            this.$store.commit('setPrivilage', 'zelteam');
+          } else if (auth.zelid === this.userconfig.zelid) {
+            this.$store.commit('setPrivilage', 'admin');
           } else if (auth.zelid.length > 24) { // very basic check that does the job needed
-            this.privilage = 'user';
+            this.$store.commit('setPrivilage', 'user');
           }
         }
       }
+    },
+    getZelIdLoginPhrase() {
+      zelIDService.loginPhrase()
+        .then((response) => {
+          console.log(response);
+          if (response.data.status === 'error') {
+            this.errorMessage = response.data.data.message;
+          } else {
+            this.$store.commit('setLoginPhrase', response.data);
+          }
+        })
+        .catch((error) => {
+          console.log(error);
+          vue.$message.error(error);
+          this.errorMessage = 'Error connecting to ZelBack';
+        });
     },
     async zelcashGetInfo() {
       const response = await ZelCashService.getInfo();
@@ -298,50 +274,6 @@ export default {
           this.getZelNodeStatusResponse.zelnodeStatus = `Error status code: ${statusCode}. ZelNode not yet active. Flux is running with limited capabilities.`;
         }
       }
-    },
-    getUserConfig() {
-      this.zelid = userconfig.initial.zelid;
-      this.externalip = userconfig.initial.ipaddress;
-    },
-    getZelIdLoginPhrase() {
-      zelIDService.loginPhrase()
-        .then((response) => {
-          console.log(response);
-          if (response.data.status === 'error') {
-            this.errorMessage = response.data.data.message;
-          } else {
-            this.loginPhrase = response.data;
-            this.loginForm.message = response.data;
-          }
-        })
-        .catch((error) => {
-          console.log(error);
-          vue.$message.error(error);
-          this.errorMessage = 'Error connecting to ZelBack';
-        });
-    },
-    login() {
-      console.log(this.loginForm);
-      zelIDService.verifyLogin(this.loginForm)
-        .then((response) => {
-          console.log(response);
-          if (response.data.status === 'success' && response.data.data) {
-            // we are now signed. Store our values
-            const zelidauth = {
-              zelid: this.loginForm.address,
-              signature: this.loginForm.signature,
-            };
-            this.privilage = response.data.data.privilage;
-            localStorage.setItem('zelidauth', qs.stringify(zelidauth));
-            vue.$message.success(response.data.data.message);
-          } else {
-            vue.$message.error(response.data.data.message);
-          }
-        })
-        .catch((e) => {
-          console.log(e);
-          vue.$message.error(e.toString());
-        });
     },
     loggedUsers() {
       const zelidauth = localStorage.getItem('zelidauth');
@@ -370,7 +302,7 @@ export default {
             vue.$message.error(response.data.data.message);
           } else {
             localStorage.removeItem('zelidauth');
-            this.privilage = 'none';
+            this.$store.commit('setPrivilage', 'none');
             vue.$message.success(response.data.data.message);
           }
         })
@@ -390,7 +322,7 @@ export default {
             vue.$message.error(response.data.data.message);
           } else {
             localStorage.removeItem('zelidauth');
-            this.privilage = 'none';
+            this.$store.commit('setPrivilage', 'none');
             vue.$message.success(response.data.data.message);
           }
         })
@@ -410,7 +342,7 @@ export default {
             vue.$message.error(response.data.data.message);
           } else {
             localStorage.removeItem('zelidauth');
-            this.privilage = 'none';
+            this.$store.commit('setPrivilage', 'none');
             vue.$message.success(response.data.data.message);
           }
         })
@@ -488,40 +420,10 @@ export default {
           vue.$message.error('Error verifying recent version');
         });
     },
-    initiateLoginWS() {
-      const self = this;
-      const wsuri = `ws://${this.externalip}:${this.apiPort}/ws/zelid/${this.loginPhrase}`;
-      const websocket = new WebSocket(wsuri);
-      this.websocket = websocket;
-
-      websocket.onopen = (evt) => { self.onOpen(evt); };
-      websocket.onclose = (evt) => { self.onClose(evt); };
-      websocket.onmessage = (evt) => { self.onMessage(evt); };
-      websocket.onerror = (evt) => { self.onError(evt); };
-    },
-    onError(evt) {
-      console.log(evt);
-    },
-    onMessage(evt) {
-      const data = qs.parse(evt.data);
-      if (data.status === 'success' && data.data) {
-        // we are now signed. Store our values
-        const zelidauth = {
-          zelid: data.data.zelid,
-          signature: data.data.signature,
-        };
-        this.privilage = data.data.privilage;
-        localStorage.setItem('zelidauth', qs.stringify(zelidauth));
-        vue.$message.success(data.data.message);
-      }
-      console.log(data);
-      console.log(evt);
-    },
-    onClose(evt) {
-      console.log(evt);
-    },
-    onOpen(evt) {
-      console.log(evt);
+    sayhi() {
+      this.$router.push({
+        name: 'Home',
+      });
     },
   },
 };
