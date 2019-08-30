@@ -9,7 +9,7 @@
     >
       <div class="status">
         <h4>
-          ZelNode owner Zel ID: {{ zelid }}
+          ZelNode owner Zel ID: {{ userconfig.zelid }}
         </h4>
         <h4>
           Status: {{ getZelNodeStatusResponse.zelnodeStatus }}
