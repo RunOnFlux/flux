@@ -67,7 +67,6 @@
 import Vuex, { mapState } from 'vuex';
 import Vue from 'vue';
 
-// eslint-disable-next-line import/no-unresolved
 import zelIDService from '@/services/ZelIDService';
 
 const qs = require('qs');

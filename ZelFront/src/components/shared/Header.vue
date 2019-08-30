@@ -44,11 +44,11 @@
         <el-menu-item index="10-1">Update Flux</el-menu-item>
         <el-menu-item index="10-2">Rebuild Flux</el-menu-item>
         <el-menu-item index="10-3">Logged Users</el-menu-item>
-        <el-menu-item index="10-3">Active Login Phrases</el-menu-item>
-        <el-submenu index="10-4">
+        <el-menu-item index="10-4">Active Login Phrases</el-menu-item>
+        <el-submenu index="10-5">
           <template slot="title">Logout options</template>
-          <el-menu-item index="10-4-1">Logout current session</el-menu-item>
-          <el-menu-item index="10-4-2">Logout all sessions</el-menu-item>
+          <el-menu-item index="10-5-1">Logout current session</el-menu-item>
+          <el-menu-item index="10-5-2">Logout all sessions</el-menu-item>
         </el-submenu>
       </el-submenu>
       <el-submenu
@@ -64,11 +64,22 @@
           <el-menu-item index="10-4-2">Logout all sessions</el-menu-item>
         </el-submenu>
       </el-submenu>
+      <el-menu-item
+        v-if="privilage === 'user' || privilage === 'admin' || privilage === 'zelteam'"
+        index="100"
+      >Log Out</el-menu-item>
     </el-menu>
   </div>
 </template>
 
 <script>
+import Vue from 'vue';
+
+import zelIDService from '@/services/ZelIDService';
+
+const qs = require('qs');
+
+const vue = new Vue();
 
 export default {
   name: 'Header',
@@ -84,6 +95,45 @@ export default {
     handleSelect(key, keyPath) {
       console.log(key, keyPath);
       console.log(key);
+      switch (key) {
+        case '0':
+          this.$store.commit('setZelCashSection', 'getinfo');
+          break;
+        case '1-1':
+          this.$store.commit('setZelCashSection', 'getinfo');
+          break;
+        case '2-1':
+          this.$store.commit('setZelNodeSection', 'getinfo');
+          break;
+        case '100':
+          this.logoutCurrentSession();
+          this.activeIndex = 0;
+          break;
+        default:
+          console.log('Menu: Unrecognised method');
+      }
+    },
+    logoutCurrentSession() {
+      const zelidauth = localStorage.getItem('zelidauth');
+      const auth = qs.parse(zelidauth);
+      localStorage.removeItem('zelidauth');
+      this.$store.commit('setPrivilage', 'none');
+      this.$store.commit('setZelCashSection', 'getinfo');
+      console.log(auth);
+      zelIDService.logoutCurrentSession(zelidauth)
+        .then((response) => {
+          console.log(response);
+          if (response.data.status === 'error') {
+            console.log(response.data.data.message);
+            // SHOULD NEVER HAPPEN. Do not show any message.
+          } else {
+            vue.$message.success(response.data.data.message);
+          }
+        })
+        .catch((e) => {
+          console.log(e);
+          vue.$message.error(e.toString());
+        });
     },
   },
 };

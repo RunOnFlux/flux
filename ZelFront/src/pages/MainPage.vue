@@ -7,30 +7,20 @@
       v-if="loginPhrase && getInfoResponse.status === 'success'"
       class="content"
     >
-      <div class="status">
-        <h4>
-          ZelNode owner Zel ID: {{ userconfig.zelid }}
-        </h4>
-        <h4>
-          Status: {{ getZelNodeStatusResponse.zelnodeStatus }}
-        </h4>
+      <div v-if="zelcashSection !== null">
+        <ZelCash />
       </div>
-
-      <div class="getInfoResponse">
-        <p>
-          ZelCash version {{ getInfoResponse.message.version }}
-        </p>
-        <p>
-          Protocol version {{ getInfoResponse.message.protocolversion }}
-        </p>
-        <p>
-          Current Blockchain Height: {{ getInfoResponse.message.blocks }}
-        </p>
-        <div v-if="getInfoResponse.message.errors != ''">
-          <p>
-            Error: {{ getInfoResponse.message.errors }}
-          </p>
-        </div>
+      <div v-if="zelnodeSection !== null">
+        <ZelNode />
+      </div>
+      <div v-if="userSection !== null">
+        <User />
+      </div>
+      <div v-if="zelteamSection !== null">
+        <ZelTeam />
+      </div>
+      <div v-if="adminSection !== null">
+        <Admin />
       </div>
       <br>
       <div v-if="privilage === 'none'">
@@ -38,7 +28,6 @@
       </div>
 
       <div v-if="privilage !== 'none'">
-        <h4>logged privilage {{ privilage }}</h4>
         <div v-if="privilage === 'admin'">
           <ElButton
             class="loggedUsers"
@@ -165,16 +154,18 @@ import Vuex, { mapState } from 'vuex';
 import Vue from 'vue';
 import axios from 'axios';
 
-// eslint-disable-next-line import/no-unresolved
 import ZelCashService from '@/services/ZelCashService';
-// eslint-disable-next-line import/no-unresolved
 import zelIDService from '@/services/ZelIDService';
-// eslint-disable-next-line import/no-unresolved
 import zelnodeService from '@/services/zelnodeService';
 
 const Header = () => import('@/components/shared/Header.vue');
 const Footer = () => import('@/components/shared/Footer.vue');
 const Login = () => import('@/components/Login.vue');
+const ZelCash = () => import('@/components/ZelCash.vue');
+const ZelNode = () => import('@/components/ZelNode.vue');
+const User = () => import('@/components/User.vue');
+const ZelTeam = () => import('@/components/ZelTeam.vue');
+const Admin = () => import('@/components/Admin.vue');
 
 const qs = require('qs');
 const packageJson = require('../../../package.json');
@@ -185,17 +176,14 @@ const vue = new Vue();
 
 export default {
   name: 'MainPage',
-  components: { Header, Footer, Login },
+  components: {
+    Header, Footer, Login, ZelCash, ZelNode, User, ZelTeam, Admin,
+  },
   data() {
     return {
       getInfoResponse: {
         status: '',
         message: '',
-      },
-      getZelNodeStatusResponse: {
-        status: '',
-        message: '',
-        zelnodeStatus: 'Checking status...',
       },
       errorMessage: '',
       version: packageJson.version,
@@ -207,14 +195,19 @@ export default {
       'config',
       'privilage',
       'loginPhrase',
+      'zelcashSection',
+      'zelnodeSection',
+      'userSection',
+      'zelteamSection',
+      'adminSection',
     ]),
   },
   mounted() {
-    this.getZelIdLoginPhrase();
-    this.getLatestFluxVersion();
     this.loadSession();
+    this.getZelIdLoginPhrase();
     this.zelcashGetInfo();
     this.zelcashGetZelNodeStatus();
+    this.getLatestFluxVersion();
   },
   methods: {
     loadSession() {
@@ -229,6 +222,8 @@ export default {
             this.$store.commit('setPrivilage', 'admin');
           } else if (auth.zelid.length > 24) { // very basic check that does the job needed
             this.$store.commit('setPrivilage', 'user');
+          } else {
+            localStorage.removeItem('zelidauth');
           }
         }
       }
@@ -253,21 +248,6 @@ export default {
       const response = await ZelCashService.getInfo();
       this.getInfoResponse.status = response.data.status;
       this.getInfoResponse.message = response.data.data;
-    },
-    async zelcashGetZelNodeStatus() {
-      // TODO
-      const response = await ZelCashService.getZelNodeStatus();
-      this.getZelNodeStatusResponse.status = response.data.status;
-      this.getZelNodeStatusResponse.message = response.data.data;
-      console.log(this.getZelNodeStatusResponse.message);
-      if (this.getZelNodeStatusResponse.message) {
-        if (this.getZelNodeStatusResponse.message.status === 4) {
-          this.getZelNodeStatusResponse.zelnodeStatus = 'ZelNode is working correctly';
-        } else {
-          const statusCode = this.getZelNodeStatusResponse.message.code || this.getZelNodeStatusResponse.message.status;
-          this.getZelNodeStatusResponse.zelnodeStatus = `Error status code: ${statusCode}. ZelNode not yet active. Flux is running with limited capabilities.`;
-        }
-      }
     },
     loggedUsers() {
       const zelidauth = localStorage.getItem('zelidauth');
