@@ -30,39 +30,33 @@
         <el-menu-item index="2-1">ZelNode Status</el-menu-item>
       </el-submenu>
       <el-submenu
-        v-if="privilage === 'user' || privilage === 'admin' || privilage === 'zelteam'"
-        index="3"
-      >
-        <template slot="title">ZelFlux</template>
-        <el-menu-item index="3-1">Flux Info</el-menu-item>
-      </el-submenu>
-      <el-submenu
-        v-if="privilage === 'admin'"
+        v-if="privilage === 'user'"
         index="10"
       >
         <template slot="title">ZelAdmin</template>
-        <el-menu-item index="10-1">Update Flux</el-menu-item>
-        <el-menu-item index="10-2">Rebuild Flux</el-menu-item>
-        <el-menu-item index="10-3">Logged Users</el-menu-item>
-        <el-menu-item index="10-4">Active Login Phrases</el-menu-item>
-        <el-submenu index="10-5">
-          <template slot="title">Logout options</template>
-          <el-menu-item index="10-5-1">Logout current session</el-menu-item>
-          <el-menu-item index="10-5-2">Logout all sessions</el-menu-item>
-        </el-submenu>
+        <el-menu-item index="10-1">Logged Sessions</el-menu-item>
+        <!--<el-menu-item index="10-4">Active Login Phrases</el-menu-item>-->
       </el-submenu>
       <el-submenu
         v-if="privilage === 'zelteam'"
-        index="10"
+        index="20"
       >
         <template slot="title">ZelAdmin</template>
-        <el-menu-item index="10-1">Update Flux</el-menu-item>
-        <el-menu-item index="10-2">Rebuild Flux</el-menu-item>
-        <el-submenu index="10-4">
-          <template slot="title">Logout options</template>
-          <el-menu-item index="10-4-1">Logout current session</el-menu-item>
-          <el-menu-item index="10-4-2">Logout all sessions</el-menu-item>
-        </el-submenu>
+        <el-menu-item index="20-1">Logged Sessions</el-menu-item>
+        <el-menu-item index="20-2">Manage Flux</el-menu-item>
+        <el-menu-item index="20-3">Manage ZelCash</el-menu-item>
+        <!--<el-menu-item index="10-4">Active Login Phrases</el-menu-item>-->
+      </el-submenu>
+      <el-submenu
+        v-if="privilage === 'admin'"
+        index="30"
+      >
+        <template slot="title">ZelAdmin</template>
+        <el-menu-item index="30-1">Logged Sessions</el-menu-item>
+        <el-menu-item index="30-2">Manage Flux</el-menu-item>
+        <el-menu-item index="30-3">Manage ZelCash</el-menu-item>
+        <el-menu-item index="30-4">Manage Users</el-menu-item>
+        <!--<el-menu-item index="10-4">Active Login Phrases</el-menu-item>-->
       </el-submenu>
       <el-menu-item
         v-if="privilage === 'user' || privilage === 'admin' || privilage === 'zelteam'"
@@ -104,6 +98,30 @@ export default {
           break;
         case '2-1':
           this.$store.commit('setZelNodeSection', 'getinfo');
+          break;
+        case '10-1':
+          this.$store.commit('setUserSection', 'loggedsessions');
+          break;
+        case '20-1':
+          this.$store.commit('setZelTeamSection', 'loggedsessions');
+          break;
+        case '20-2':
+          this.$store.commit('setZelTeamSection', 'manageflux');
+          break;
+        case '20-3':
+          this.$store.commit('setZelTeamSection', 'managezelcash');
+          break;
+        case '30-1':
+          this.$store.commit('setAdminSection', 'loggedsessions');
+          break;
+        case '30-2':
+          this.$store.commit('setAdminSection', 'manageflux');
+          break;
+        case '30-3':
+          this.$store.commit('setAdminSection', 'managezelcash');
+          break;
+        case '30-4':
+          this.$store.commit('setAdminSection', 'manageusers');
           break;
         case '100':
           this.logoutCurrentSession();

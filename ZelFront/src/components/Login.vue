@@ -91,8 +91,6 @@ export default {
     ...mapState([
       'config',
       'userconfig',
-      'privilage',
-      'loginPhrase',
     ]),
   },
   mounted() {
@@ -105,9 +103,25 @@ export default {
         showClose: true,
       });
     }
-    this.loginForm.message = this.loginPhrase;
+    this.getZelIdLoginPhrase();
   },
   methods: {
+    getZelIdLoginPhrase() {
+      zelIDService.loginPhrase()
+        .then((response) => {
+          console.log(response);
+          if (response.data.status === 'error') {
+            this.errorMessage = response.data.data.message;
+          } else {
+            this.loginForm.message = this.loginPhrase;
+          }
+        })
+        .catch((error) => {
+          console.log(error);
+          vue.$message.error(error);
+          this.errorMessage = 'Error connecting to ZelBack';
+        });
+    },
     login() {
       console.log(this.loginForm);
       zelIDService.verifyLogin(this.loginForm)

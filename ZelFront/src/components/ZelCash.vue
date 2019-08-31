@@ -57,8 +57,6 @@ export default {
     ...mapState([
       'config',
       'userconfig',
-      'privilage',
-      'loginPhrase',
       'zelcashSection',
     ]),
   },

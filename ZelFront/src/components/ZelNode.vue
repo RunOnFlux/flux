@@ -8,6 +8,21 @@
         <h4>
           Status: {{ getZelNodeStatusResponse.zelnodeStatus }}
         </h4>
+        <div v-if="getZelNodeStatusResponse.code != -1">
+          <h4>
+            ZelNode Address: {{ getZelNodeStatusResponse.message.addr }}
+          </h4>
+          <h4>
+            Network: {{ getZelNodeStatusResponse.message.netaddr }}
+          </h4>
+          <h4>
+            <ElLink
+              type="primary"
+              :href="'https://explorer.zel.cash/tx/' + getZelNodeStatusResponse.message.txhash"
+              target="_blank"
+            >Show Locked transaction</ElLink>
+          </h4>
+        </div>
       </div>
 
       <div class="getInfoResponse">
@@ -57,8 +72,6 @@ export default {
     ...mapState([
       'config',
       'userconfig',
-      'privilage',
-      'loginPhrase',
       'zelnodeSection',
     ]),
   },
@@ -108,6 +121,7 @@ export default {
           this.getZelNodeStatusResponse.zelnodeStatus = 'ZelNode is working correctly';
         } else {
           const statusCode = this.getZelNodeStatusResponse.message.code || this.getZelNodeStatusResponse.message.status;
+          this.getZelNodeStatusResponse.code = statusCode;
           this.getZelNodeStatusResponse.zelnodeStatus = `Error status code: ${statusCode}. ZelNode not yet active. Flux is running with limited capabilities.`;
         }
       }

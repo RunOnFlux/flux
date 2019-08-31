@@ -18,7 +18,6 @@ export default new Vuex.Store({
       zelTeamZelId: config.zelTeamZelId,
     },
     privilage: 'none', // user, admin, zelteam
-    loginPhrase: '',
     zelcashSection: 'getinfo',
     zelnodeSection: null,
     userSection: null,
@@ -31,9 +30,6 @@ export default new Vuex.Store({
   mutations: {
     setPrivilage(state, privilage) {
       state.privilage = privilage;
-    },
-    setLoginPhrase(state, phrase) {
-      state.loginPhrase = phrase;
     },
     setZelCashSection(state, section) {
       state.zelcashSection = section;

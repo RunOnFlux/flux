@@ -34,7 +34,6 @@ export default {
       'userconfig',
       'config',
       'privilage',
-      'loginPhrase',
     ]),
   },
   mounted() {

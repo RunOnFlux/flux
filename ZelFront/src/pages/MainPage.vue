@@ -26,99 +26,6 @@
       <div v-if="privilage === 'none'">
         <Login />
       </div>
-
-      <div v-if="privilage !== 'none'">
-        <div v-if="privilage === 'admin'">
-          <ElButton
-            class="loggedUsers"
-            @click="loggedUsers()"
-          >
-            Logged Users
-          </ElButton>
-          <ElButton
-            class="loggedUsers"
-            @click="activeLoginPhrases()"
-          >
-            active Login Phrases
-          </ElButton>
-          <ElButton
-            class="generalButton"
-            @click="logoutCurrentSession()"
-          >
-            Logout current session
-          </ElButton>
-          <ElButton
-            class="generalButton"
-            @click="logoutAllSessions()"
-          >
-            Logout all sessions
-          </ElButton>
-          <ElButton
-            class="generalButton"
-            @click="logOutAllUsers()"
-          >
-            Logout all users
-          </ElButton>
-          <ElButton
-            class="generalButton"
-            @click="updateFlux()"
-          >
-            Update Flux
-          </ElButton>
-          <ElButton
-            class="generalButton"
-            @click="rebuildZelFront()"
-          >
-            Rebuild ZelFront
-          </ElButton>
-          <ElButton
-            class="generalButton"
-            @click="sayhi()"
-          >
-            Say Hi
-          </ElButton>
-        </div>
-        <div v-if="privilage === 'user'">
-          <ElButton
-            class="generalButton"
-            @click="logoutCurrentSession()"
-          >
-            Logout current session
-          </ElButton>
-          <ElButton
-            class="generalButton"
-            @click="logoutAllSessions()"
-          >
-            Logout all sessions
-          </ElButton>
-        </div>
-        <div v-if="privilage === 'zelteam'">
-          <ElButton
-            class="generalButton"
-            @click="logoutCurrentSession()"
-          >
-            Logout current session
-          </ElButton>
-          <ElButton
-            class="generalButton"
-            @click="logoutAllSessions()"
-          >
-            Logout all sessions
-          </ElButton>
-          <ElButton
-            class="generalButton"
-            @click="updateFlux()"
-          >
-            Update Flux
-          </ElButton>
-          <ElButton
-            class="generalButton"
-            @click="rebuildZelFront()"
-          >
-            Rebuild ZelFront
-          </ElButton>
-        </div>
-      </div>
     </div>
     <div
       v-else-if="loginPhrase === ''"
@@ -156,7 +63,6 @@ import axios from 'axios';
 
 import ZelCashService from '@/services/ZelCashService';
 import zelIDService from '@/services/ZelIDService';
-import zelnodeService from '@/services/zelnodeService';
 
 const Header = () => import('@/components/shared/Header.vue');
 const Footer = () => import('@/components/shared/Footer.vue');
@@ -187,6 +93,7 @@ export default {
       },
       errorMessage: '',
       version: packageJson.version,
+      loginPhrase: '',
     };
   },
   computed: {
@@ -194,7 +101,6 @@ export default {
       'userconfig',
       'config',
       'privilage',
-      'loginPhrase',
       'zelcashSection',
       'zelnodeSection',
       'userSection',
@@ -206,11 +112,11 @@ export default {
     this.loadSession();
     this.getZelIdLoginPhrase();
     this.zelcashGetInfo();
-    this.zelcashGetZelNodeStatus();
     this.getLatestFluxVersion();
   },
   methods: {
     loadSession() {
+      // TODO check if still logged in
       const zelidauth = localStorage.getItem('zelidauth');
       const auth = qs.parse(zelidauth);
       this.$store.commit('setPrivilage', 'none');
@@ -235,7 +141,7 @@ export default {
           if (response.data.status === 'error') {
             this.errorMessage = response.data.data.message;
           } else {
-            this.$store.commit('setLoginPhrase', response.data);
+            this.loginPhrase = response.data;
           }
         })
         .catch((error) => {
@@ -249,123 +155,11 @@ export default {
       this.getInfoResponse.status = response.data.status;
       this.getInfoResponse.message = response.data.data;
     },
-    loggedUsers() {
-      const zelidauth = localStorage.getItem('zelidauth');
-      const auth = qs.parse(zelidauth);
-      console.log(auth);
-      zelIDService.loggedUsers(zelidauth)
-        .then((response) => {
-          console.log(response);
-          if (response.data.status === 'error') {
-            vue.$message.error(response.data.data.message);
-          }
-        })
-        .catch((e) => {
-          console.log(e);
-          vue.$message.error(e.toString());
-        });
-    },
-    logoutCurrentSession() {
-      const zelidauth = localStorage.getItem('zelidauth');
-      const auth = qs.parse(zelidauth);
-      console.log(auth);
-      zelIDService.logoutCurrentSession(zelidauth)
-        .then((response) => {
-          console.log(response);
-          if (response.data.status === 'error') {
-            vue.$message.error(response.data.data.message);
-          } else {
-            localStorage.removeItem('zelidauth');
-            this.$store.commit('setPrivilage', 'none');
-            vue.$message.success(response.data.data.message);
-          }
-        })
-        .catch((e) => {
-          console.log(e);
-          vue.$message.error(e.toString());
-        });
-    },
-    logoutAllSessions() {
-      const zelidauth = localStorage.getItem('zelidauth');
-      const auth = qs.parse(zelidauth);
-      console.log(auth);
-      zelIDService.logoutAllSessions(zelidauth)
-        .then((response) => {
-          console.log(response);
-          if (response.data.status === 'error') {
-            vue.$message.error(response.data.data.message);
-          } else {
-            localStorage.removeItem('zelidauth');
-            this.$store.commit('setPrivilage', 'none');
-            vue.$message.success(response.data.data.message);
-          }
-        })
-        .catch((e) => {
-          console.log(e);
-          vue.$message.error(e.toString());
-        });
-    },
-    logOutAllUsers() {
-      const zelidauth = localStorage.getItem('zelidauth');
-      const auth = qs.parse(zelidauth);
-      console.log(auth);
-      zelIDService.logoutAllUsers(zelidauth)
-        .then((response) => {
-          console.log(response);
-          if (response.data.status === 'error') {
-            vue.$message.error(response.data.data.message);
-          } else {
-            localStorage.removeItem('zelidauth');
-            this.$store.commit('setPrivilage', 'none');
-            vue.$message.success(response.data.data.message);
-          }
-        })
-        .catch((e) => {
-          console.log(e);
-          vue.$message.error(e.toString());
-        });
-    },
     activeLoginPhrases() {
       const zelidauth = localStorage.getItem('zelidauth');
       const auth = qs.parse(zelidauth);
       console.log(auth);
       zelIDService.activeLoginPhrases(zelidauth)
-        .then((response) => {
-          console.log(response);
-          if (response.data.status === 'error') {
-            vue.$message.error(response.data.data.message);
-          }
-        })
-        .catch((e) => {
-          console.log(e);
-          console.log(e.code);
-          vue.$message.error(e.toString());
-        });
-    },
-    updateFlux() {
-      const zelidauth = localStorage.getItem('zelidauth');
-      const auth = qs.parse(zelidauth);
-      console.log(auth);
-      vue.$message.success('Flux is now updating in the background');
-      zelnodeService.updateFlux(zelidauth)
-        .then((response) => {
-          console.log(response);
-          if (response.data.status === 'error') {
-            vue.$message.error(response.data.data.message);
-          }
-        })
-        .catch((e) => {
-          console.log(e);
-          console.log(e.code);
-          vue.$message.error(e.toString());
-        });
-    },
-    rebuildZelFront() {
-      const zelidauth = localStorage.getItem('zelidauth');
-      const auth = qs.parse(zelidauth);
-      console.log(auth);
-      vue.$message.success('ZelFront is now rebuilding in the background');
-      zelnodeService.rebuildZelFront(zelidauth)
         .then((response) => {
           console.log(response);
           if (response.data.status === 'error') {
@@ -393,11 +187,6 @@ export default {
           console.log(error);
           vue.$message.error('Error verifying recent version');
         });
-    },
-    sayhi() {
-      this.$router.push({
-        name: 'Home',
-      });
     },
   },
 };
