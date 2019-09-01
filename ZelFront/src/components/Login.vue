@@ -113,7 +113,7 @@ export default {
           if (response.data.status === 'error') {
             this.errorMessage = response.data.data.message;
           } else {
-            this.loginForm.message = this.loginPhrase;
+            this.loginForm.message = response.data;
           }
         })
         .catch((error) => {
