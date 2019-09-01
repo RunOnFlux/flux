@@ -83,6 +83,7 @@ export default {
         signature: '',
         message: '',
       },
+      loginphrase: null,
       websocket: null,
       errorMessage: '',
     };
@@ -113,6 +114,7 @@ export default {
           if (response.data.status === 'error') {
             this.errorMessage = response.data.data.message;
           } else {
+            this.loginPhrase = response.data;
             this.loginForm.message = response.data;
           }
         })
