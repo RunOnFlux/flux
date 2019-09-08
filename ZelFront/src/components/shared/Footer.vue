@@ -12,7 +12,7 @@
       >Your freedom empowered</ElLink>
     </div>
     <div class="footer-right">
-      Flux {{ 'v' + version}}
+      Flux {{ 'v' + fluxVersion}}
     </div>
   </div>
 </template>
@@ -22,7 +22,7 @@ import Vuex, { mapState } from 'vuex';
 import Vue from 'vue';
 import axios from 'axios';
 
-import zelnodeService from '@/services/zelnodeService';
+import ZelNodeService from '@/services/ZelNodeService';
 
 Vue.use(Vuex);
 const vue = new Vue();
@@ -35,12 +35,12 @@ export default {
   },
   computed: {
     ...mapState([
-      'version',
+      'fluxVersion',
     ]),
   },
   mounted() {
     const self = this;
-    zelnodeService.getFluxVersion()
+    ZelNodeService.getFluxVersion()
       .then((response) => {
         console.log(response);
         const version = response.data;
@@ -59,7 +59,7 @@ export default {
       axios.get('https://raw.githubusercontent.com/zelcash/zelnoded/master/package.json')
         .then((response) => {
           console.log(response);
-          if (response.data.version !== self.version) {
+          if (response.data.version !== self.fluxVersion) {
             vue.$message.warning('Flux requires an update!');
           } else {
             vue.$message.success('Flux is up to date');

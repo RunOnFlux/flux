@@ -86,7 +86,6 @@ export default {
   },
   computed: {
     ...mapState([
-      'version',
       'userconfig',
       'config',
       'privilage',

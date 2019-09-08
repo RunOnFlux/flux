@@ -23,7 +23,12 @@
       </ElButton>
     </div>
     <div v-if="zelAdminSection === 'managezelcash'">
-      todo update zelcash button
+      <ElButton
+        class="generalButton"
+        @click="updateZelCash()"
+      >
+        Update ZelCash
+      </ElButton>
     </div>
     <div v-if="zelAdminSection === 'manageusers'">
       <ElButton
@@ -42,7 +47,8 @@ import Vue from 'vue';
 import axios from 'axios';
 
 import zelIDService from '@/services/ZelIDService';
-import zelnodeService from '@/services/zelnodeService';
+import ZelNodeService from '@/services/ZelNodeService';
+import ZelCashService from '@/services/ZelCashService';
 
 const qs = require('qs');
 
@@ -57,7 +63,7 @@ export default {
   },
   computed: {
     ...mapState([
-      'version',
+      'fluxVersion',
       'config',
       'userconfig',
       'privilage',
@@ -94,7 +100,7 @@ export default {
         this.getLatestFluxVersion();
         break;
       case 'managezelcash':
-        // check version of zelcash and show update button only if needed.
+        this.checkZelCashVersion();
         break;
       case 'manageusers':
         this.loggedUsers();
@@ -111,36 +117,70 @@ export default {
       const zelidauth = localStorage.getItem('zelidauth');
       const auth = qs.parse(zelidauth);
       console.log(auth);
-      vue.$message.success('Flux is now updating in the background');
-      zelnodeService.updateFlux(zelidauth)
+      const self = this;
+      axios.get('https://raw.githubusercontent.com/zelcash/zelnoded/master/package.json')
         .then((response) => {
           console.log(response);
-          if (response.data.status === 'error') {
-            vue.$message.error(response.data.data.message);
+          if (response.data.version !== self.fluxVersion) {
+            vue.$message.success('Flux is now updating in the background');
+            ZelNodeService.updateFlux(zelidauth)
+              .then((responseB) => {
+                console.log(responseB);
+                if (responseB.data.status === 'error') {
+                  vue.$message.error(responseB.data.data.message);
+                }
+              })
+              .catch((e) => {
+                console.log(e);
+                console.log(e.code);
+                vue.$message.error(e.toString());
+              });
+          } else {
+            vue.$message.success('Flux is already up to date.');
           }
         })
-        .catch((e) => {
-          console.log(e);
-          console.log(e.code);
-          vue.$message.error(e.toString());
+        .catch((error) => {
+          console.log(error);
+          vue.$message.error('Error verifying recent version');
         });
     },
     updateZelCash() {
-      const zelidauth = localStorage.getItem('zelidauth');
-      const auth = qs.parse(zelidauth);
-      console.log(auth);
-      vue.$message.success('ZelCash is now updating in the background');
-      zelnodeService.updateZelCash(zelidauth)
-        .then((response) => {
-          console.log(response);
-          if (response.data.status === 'error') {
-            vue.$message.error(response.data.data.message);
-          }
+      ZelCashService.getInfo()
+        .then((zelcashResponse) => {
+          console.log(zelcashResponse);
+          const zelcashVersion = zelcashResponse.data.data.version;
+          axios.get('https://zelcore.io/zelflux/zelcashinfo.php')
+            .then((response) => {
+              console.log(response);
+              if (response.data.version !== zelcashVersion) {
+                const zelidauth = localStorage.getItem('zelidauth');
+                const auth = qs.parse(zelidauth);
+                console.log(auth);
+                vue.$message.success('ZelCash is now updating in the background');
+                ZelNodeService.updateZelCash(zelidauth)
+                  .then((responseUpdateZelCash) => {
+                    console.log(responseUpdateZelCash);
+                    if (responseUpdateZelCash.data.status === 'error') {
+                      vue.$message.error(responseUpdateZelCash.data.data.message);
+                    }
+                  })
+                  .catch((e) => {
+                    console.log(e);
+                    console.log(e.code);
+                    vue.$message.error(e.toString());
+                  });
+              } else {
+                vue.$message.success('ZelCash is already up to date');
+              }
+            })
+            .catch((error) => {
+              console.log(error);
+              vue.$message.error('Error verifying recent version');
+            });
         })
-        .catch((e) => {
-          console.log(e);
-          console.log(e.code);
-          vue.$message.error(e.toString());
+        .catch((error) => {
+          console.log(error);
+          vue.$message.error('Error connecting to ZelCash daemon');
         });
     },
     rebuildZelFront() {
@@ -148,7 +188,7 @@ export default {
       const auth = qs.parse(zelidauth);
       console.log(auth);
       vue.$message.success('ZelFront is now rebuilding in the background');
-      zelnodeService.rebuildZelFront(zelidauth)
+      ZelNodeService.rebuildZelFront(zelidauth)
         .then((response) => {
           console.log(response);
           if (response.data.status === 'error') {
@@ -166,7 +206,7 @@ export default {
       axios.get('https://raw.githubusercontent.com/zelcash/zelnoded/master/package.json')
         .then((response) => {
           console.log(response);
-          if (response.data.version !== self.version) {
+          if (response.data.version !== self.fluxVersion) {
             vue.$message.warning('Flux requires an update!');
           } else {
             vue.$message.success('Flux is up to date');
@@ -175,6 +215,30 @@ export default {
         .catch((error) => {
           console.log(error);
           vue.$message.error('Error verifying recent version');
+        });
+    },
+    checkZelCashVersion() {
+      ZelCashService.getInfo()
+        .then((zelcashResponse) => {
+          console.log(zelcashResponse);
+          const zelcashVersion = zelcashResponse.data.data.version;
+          axios.get('https://zelcore.io/zelflux/zelcashinfo.php')
+            .then((response) => {
+              console.log(response);
+              if (response.data.version !== zelcashVersion) {
+                vue.$message.warning('ZelCash requires an update!');
+              } else {
+                vue.$message.success('ZelCash is up to date');
+              }
+            })
+            .catch((error) => {
+              console.log(error);
+              vue.$message.error('Error verifying recent version');
+            });
+        })
+        .catch((error) => {
+          console.log(error);
+          vue.$message.error('Error connecting to ZelCash daemon');
         });
     },
     logOutAllUsers() {
