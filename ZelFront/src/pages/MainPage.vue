@@ -13,14 +13,8 @@
       <div v-if="zelnodeSection !== null">
         <ZelNode />
       </div>
-      <div v-if="userSection !== null">
-        <User />
-      </div>
-      <div v-if="zelteamSection !== null">
-        <ZelTeam />
-      </div>
-      <div v-if="adminSection !== null">
-        <Admin />
+      <div v-if="zelAdminSection !== null">
+        <ZelAdmin />
       </div>
       <br>
       <div v-if="privilage === 'none'">
@@ -69,9 +63,7 @@ const Footer = () => import('@/components/shared/Footer.vue');
 const Login = () => import('@/components/Login.vue');
 const ZelCash = () => import('@/components/ZelCash.vue');
 const ZelNode = () => import('@/components/ZelNode.vue');
-const User = () => import('@/components/User.vue');
-const ZelTeam = () => import('@/components/ZelTeam.vue');
-const Admin = () => import('@/components/Admin.vue');
+const ZelAdmin = () => import('@/components/ZelAdmin.vue');
 
 const qs = require('qs');
 const packageJson = require('../../../package.json');
@@ -83,7 +75,7 @@ const vue = new Vue();
 export default {
   name: 'MainPage',
   components: {
-    Header, Footer, Login, ZelCash, ZelNode, User, ZelTeam, Admin,
+    Header, Footer, Login, ZelCash, ZelNode, ZelAdmin,
   },
   data() {
     return {
@@ -103,9 +95,7 @@ export default {
       'privilage',
       'zelcashSection',
       'zelnodeSection',
-      'userSection',
-      'zelteamSection',
-      'adminSection',
+      'zelAdminSection',
     ]),
   },
   mounted() {

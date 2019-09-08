@@ -13,6 +13,9 @@ module.exports = (app) => {
   app.get('/zelid/loginphrase', (req, res) => {
     zelidService.loginPhrase(req, res);
   });
+  app.get('/zelnode/version', (req, res) => {
+    zelnodeService.getFluxVersion(req, res);
+  });
 
   // GET PROTECTED API - User level
   app.get('/zelid/logoutcurrentsession', (req, res) => {
@@ -33,11 +36,14 @@ module.exports = (app) => {
     zelidService.logoutAllUsers(req, res);
   });
   // GET PROTECTED API - ZelTeam
-  app.get('/zelnode/updateflux', (req, res) => {
+  app.get('/zelnode/updateflux', (req, res) => { // method shall be called only if flux version is obsolete.
     zelnodeService.updateFlux(req, res);
   });
   app.get('/zelnode/rebuildzelfront', (req, res) => {
     zelnodeService.rebuildZelFront(req, res);
+  });
+  app.get('/zelnode/updatezelcash', (req, res) => { // method shall be called only if zelcash version is obsolete
+    zelnodeService.updateZelCash(req, res);
   });
 
   // POST PUBLIC methods route

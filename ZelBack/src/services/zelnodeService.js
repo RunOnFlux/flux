@@ -5,6 +5,7 @@ const path = require('path');
 const bitcoinMessage = require('bitcoinjs-message');
 const qs = require('qs');
 
+const packageJson = require('../../../package.json');
 const userconfig = require('../../../config/userconfig');
 const log = require('../lib/log');
 
@@ -256,7 +257,7 @@ function updateFlux(req, res) {
           const errMessage = {
             status: 'error',
             data: {
-              message: `Error updating Flux${err}`,
+              message: `Error updating Flux: ${err.toString()}`,
             },
           };
           return res.json(errMessage);
@@ -294,7 +295,7 @@ function rebuildZelFront(req, res) {
           const errMessage = {
             status: 'error',
             data: {
-              message: `Error updating Flux${err}`,
+              message: `Error rebuilding Flux: ${err}`,
             },
           };
           return res.json(errMessage);
@@ -302,7 +303,7 @@ function rebuildZelFront(req, res) {
         const message = {
           status: 'success',
           data: {
-            message: 'Flux successfully updated',
+            message: 'Flux successfully rebuilt',
           },
         };
         return res.json(message);
@@ -319,7 +320,52 @@ function rebuildZelFront(req, res) {
   });
 }
 
+function updateZelCash(req, res) {
+  verifyZelTeamSession(req.headers, (error, authorized) => {
+    if (error) {
+      return res.json(error);
+    }
+    if (authorized === true) {
+      const zelnodedpath = path.join(__dirname, '../../../helpers');
+      const exec = `cd ${zelnodedpath} && sh updateZelCash.sh`;
+      cmd.get(exec, (err) => {
+        if (err) {
+          const errMessage = {
+            status: 'error',
+            data: {
+              message: `Error updating ZelCash: ${err}`,
+            },
+          };
+          return res.json(errMessage);
+        }
+        const message = {
+          status: 'success',
+          data: {
+            message: 'ZelCash successfully updated',
+          },
+        };
+        return res.json(message);
+      });
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      return res.json(errMessage);
+    }
+  });
+}
+
+function getFluxVersion(req, res) {
+  const { version } = packageJson;
+  return res.json(version);
+}
+
 module.exports = {
   updateFlux,
   rebuildZelFront,
+  updateZelCash,
+  getFluxVersion,
 };

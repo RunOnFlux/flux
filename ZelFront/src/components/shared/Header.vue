@@ -30,32 +30,14 @@
         <el-menu-item index="2-1">ZelNode Status</el-menu-item>
       </el-submenu>
       <el-submenu
-        v-if="privilage === 'user'"
+        v-if="privilage === 'user' || privilage === 'admin' || privilage === 'zelteam'"
         index="10"
       >
         <template slot="title">ZelAdmin</template>
         <el-menu-item index="10-1">Logged Sessions</el-menu-item>
-        <!--<el-menu-item index="10-4">Active Login Phrases</el-menu-item>-->
-      </el-submenu>
-      <el-submenu
-        v-if="privilage === 'zelteam'"
-        index="20"
-      >
-        <template slot="title">ZelAdmin</template>
-        <el-menu-item index="20-1">Logged Sessions</el-menu-item>
-        <el-menu-item index="20-2">Manage Flux</el-menu-item>
-        <el-menu-item index="20-3">Manage ZelCash</el-menu-item>
-        <!--<el-menu-item index="10-4">Active Login Phrases</el-menu-item>-->
-      </el-submenu>
-      <el-submenu
-        v-if="privilage === 'admin'"
-        index="30"
-      >
-        <template slot="title">ZelAdmin</template>
-        <el-menu-item index="30-1">Logged Sessions</el-menu-item>
-        <el-menu-item index="30-2">Manage Flux</el-menu-item>
-        <el-menu-item index="30-3">Manage ZelCash</el-menu-item>
-        <el-menu-item index="30-4">Manage Users</el-menu-item>
+        <el-menu-item v-if="privilage === 'zelteam' || privilage === 'admin'" index="10-2">Manage Flux</el-menu-item>
+        <el-menu-item v-if="privilage === 'zelteam' || privilage === 'admin'" index="10-3">Manage ZelCash</el-menu-item>
+        <el-menu-item v-if="privilage === 'admin'" index="10-4">Manage Users</el-menu-item>
         <!--<el-menu-item index="10-4">Active Login Phrases</el-menu-item>-->
       </el-submenu>
       <el-menu-item
@@ -100,28 +82,16 @@ export default {
           this.$store.commit('setZelNodeSection', 'getinfo');
           break;
         case '10-1':
-          this.$store.commit('setUserSection', 'loggedsessions');
+          this.$store.commit('setZelAdminSection', 'loggedsessions');
           break;
-        case '20-1':
-          this.$store.commit('setZelTeamSection', 'loggedsessions');
+        case '10-2':
+          this.$store.commit('setZelAdminSection', 'manageflux');
           break;
-        case '20-2':
-          this.$store.commit('setZelTeamSection', 'manageflux');
+        case '10-3':
+          this.$store.commit('setZelAdminSection', 'managezelcash');
           break;
-        case '20-3':
-          this.$store.commit('setZelTeamSection', 'managezelcash');
-          break;
-        case '30-1':
-          this.$store.commit('setAdminSection', 'loggedsessions');
-          break;
-        case '30-2':
-          this.$store.commit('setAdminSection', 'manageflux');
-          break;
-        case '30-3':
-          this.$store.commit('setAdminSection', 'managezelcash');
-          break;
-        case '30-4':
-          this.$store.commit('setAdminSection', 'manageusers');
+        case '10-4':
+          this.$store.commit('setZelAdminSection', 'manageusers');
           break;
         case '100':
           this.logoutCurrentSession();

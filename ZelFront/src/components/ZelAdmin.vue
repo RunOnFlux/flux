@@ -1,6 +1,6 @@
 <template>
-  <div class="adminSection">
-    <div v-if="adminSection === 'loggedsessions'">
+  <div class="zelAdminSection">
+    <div v-if="zelAdminSection === 'loggedsessions'">
       <ElButton
         class="generalButton"
         @click="logoutAllSessions()"
@@ -8,7 +8,7 @@
         Logout all sessions
       </ElButton>
     </div>
-    <div v-if="adminSection === 'manageflux'">
+    <div v-if="zelAdminSection === 'manageflux'">
       <ElButton
         class="generalButton"
         @click="updateFlux()"
@@ -22,10 +22,10 @@
         Rebuild ZelFront
       </ElButton>
     </div>
-    <div v-if="adminSection === 'managezelcash'">
+    <div v-if="zelAdminSection === 'managezelcash'">
       todo update zelcash button
     </div>
-    <div v-if="adminSection === 'manageusers'">
+    <div v-if="zelAdminSection === 'manageusers'">
       <ElButton
         class="generalButton"
         @click="logOutAllUsers()"
@@ -51,7 +51,7 @@ Vue.use(Vuex);
 const vue = new Vue();
 
 export default {
-  name: 'Admin',
+  name: 'ZelAdmin',
   data() {
     return {
       version: packageJson.version,
@@ -62,11 +62,11 @@ export default {
       'config',
       'userconfig',
       'privilage',
-      'adminSection',
+      'zelAdminSection',
     ]),
   },
   watch: {
-    adminSection(val, oldVal) {
+    zelAdminSection(val, oldVal) {
       console.log(val, oldVal);
       switch (val) {
         case 'loggedsessions':
@@ -88,22 +88,23 @@ export default {
     },
   },
   mounted() {
-    switch (this.adminSection) {
+    switch (this.zelAdminSection) {
       case 'loggedsessions':
         break;
       case 'manageflux':
         this.getLatestFluxVersion();
         break;
       case 'managezelcash':
+        // check version of zelcash and show update button only if needed.
         break;
       case 'manageusers':
         this.loggedUsers();
         break;
       case null:
-        console.log('Admin Section hidden');
+        console.log('zelAdmin Section hidden');
         break;
       default:
-        console.log('Admin Section: Unrecognised method'); // should not be seeable if all works correctly
+        console.log('zelAdmin Section: Unrecognised method'); // should not be seeable if all works correctly
     }
   },
   methods: {
@@ -113,6 +114,24 @@ export default {
       console.log(auth);
       vue.$message.success('Flux is now updating in the background');
       zelnodeService.updateFlux(zelidauth)
+        .then((response) => {
+          console.log(response);
+          if (response.data.status === 'error') {
+            vue.$message.error(response.data.data.message);
+          }
+        })
+        .catch((e) => {
+          console.log(e);
+          console.log(e.code);
+          vue.$message.error(e.toString());
+        });
+    },
+    updateZelCash() {
+      const zelidauth = localStorage.getItem('zelidauth');
+      const auth = qs.parse(zelidauth);
+      console.log(auth);
+      vue.$message.success('ZelCash is now updating in the background');
+      zelnodeService.updateZelCash(zelidauth)
         .then((response) => {
           console.log(response);
           if (response.data.status === 'error') {

@@ -15,4 +15,14 @@ export default {
       },
     });
   },
+  updateZelCash(zelidauthHeader) {
+    return Api().get('/zelnode/updatezelcash', {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    });
+  },
+  getFluxVersion() {
+    return Api().get('/zelnode/version');
+  },
 };
