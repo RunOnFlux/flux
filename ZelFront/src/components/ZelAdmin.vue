@@ -45,7 +45,6 @@ import zelIDService from '@/services/ZelIDService';
 import zelnodeService from '@/services/zelnodeService';
 
 const qs = require('qs');
-const packageJson = require('../../../package.json');
 
 Vue.use(Vuex);
 const vue = new Vue();
@@ -54,11 +53,11 @@ export default {
   name: 'ZelAdmin',
   data() {
     return {
-      version: packageJson.version,
     };
   },
   computed: {
     ...mapState([
+      'version',
       'config',
       'userconfig',
       'privilage',

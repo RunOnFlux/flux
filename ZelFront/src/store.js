@@ -21,6 +21,7 @@ export default new Vuex.Store({
     zelcashSection: 'getinfo',
     zelnodeSection: null,
     zelAdminSection: null,
+    version: '',
   },
   getters: {
 
@@ -46,6 +47,9 @@ export default new Vuex.Store({
       // we always want to reset the other sections to null state
       state.zelcashSection = null;
       state.zelnodeSection = null;
+    },
+    setFluxVersion(state, version) {
+      state.version = version;
     },
   },
   actions: {

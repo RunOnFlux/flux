@@ -18,14 +18,36 @@
 </template>
 
 <script>
-const packageJson = require('../../../../package.json');
+import Vuex, { mapState } from 'vuex';
+import Vue from 'vue';
+import zelnodeService from '@/services/zelnodeService';
+
+Vue.use(Vuex);
+const vue = new Vue();
 
 export default {
   name: 'Footer',
   data() {
     return {
-      version: packageJson.version,
     };
+  },
+  computed: {
+    ...mapState([
+      'version',
+    ]),
+  },
+  mounted() {
+    zelnodeService.getFluxVersion()
+      .then((response) => {
+        console.log(response);
+        const version = response.data;
+        this.$store.commit('setFluxVersion', version);
+      })
+      .catch((e) => {
+        console.log(e);
+        console.log(e.code);
+        vue.$message.error(e.toString());
+      });
   },
 };
 </script>

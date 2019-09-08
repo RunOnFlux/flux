@@ -66,8 +66,6 @@ const ZelNode = () => import('@/components/ZelNode.vue');
 const ZelAdmin = () => import('@/components/ZelAdmin.vue');
 
 const qs = require('qs');
-const packageJson = require('../../../package.json');
-
 
 Vue.use(Vuex);
 const vue = new Vue();
@@ -84,12 +82,12 @@ export default {
         message: '',
       },
       errorMessage: '',
-      version: packageJson.version,
       loginPhrase: '',
     };
   },
   computed: {
     ...mapState([
+      'version',
       'userconfig',
       'config',
       'privilage',
