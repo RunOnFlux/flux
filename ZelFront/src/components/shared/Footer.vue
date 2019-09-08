@@ -39,18 +39,19 @@ export default {
     ]),
   },
   mounted() {
+    const self = this;
     zelnodeService.getFluxVersion()
       .then((response) => {
         console.log(response);
         const version = response.data;
         this.$store.commit('setFluxVersion', version);
+        self.getLatestFluxVersion();
       })
       .catch((e) => {
         console.log(e);
         console.log(e.code);
         vue.$message.error(e.toString());
       });
-    this.getLatestFluxVersion();
   },
   methods: {
     getLatestFluxVersion() {
@@ -69,6 +70,6 @@ export default {
           vue.$message.error('Error verifying recent version');
         });
     },
-  }
+  },
 };
 </script>
