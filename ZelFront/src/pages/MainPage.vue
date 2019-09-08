@@ -53,7 +53,6 @@
 <script>
 import Vuex, { mapState } from 'vuex';
 import Vue from 'vue';
-import axios from 'axios';
 
 import ZelCashService from '@/services/ZelCashService';
 import zelIDService from '@/services/ZelIDService';
@@ -100,7 +99,6 @@ export default {
     this.loadSession();
     this.getZelIdLoginPhrase();
     this.zelcashGetInfo();
-    this.getLatestFluxVersion();
   },
   methods: {
     loadSession() {
@@ -158,22 +156,6 @@ export default {
           console.log(e);
           console.log(e.code);
           vue.$message.error(e.toString());
-        });
-    },
-    getLatestFluxVersion() {
-      const self = this;
-      axios.get('https://raw.githubusercontent.com/zelcash/zelnoded/master/package.json')
-        .then((response) => {
-          console.log(response);
-          if (response.data.version !== self.version) {
-            vue.$message.warning('Flux requires an update!');
-          } else {
-            vue.$message.success('Flux is up to date');
-          }
-        })
-        .catch((error) => {
-          console.log(error);
-          vue.$message.error('Error verifying recent version');
         });
     },
   },

@@ -20,6 +20,8 @@
 <script>
 import Vuex, { mapState } from 'vuex';
 import Vue from 'vue';
+import axios from 'axios';
+
 import zelnodeService from '@/services/zelnodeService';
 
 Vue.use(Vuex);
@@ -48,6 +50,25 @@ export default {
         console.log(e.code);
         vue.$message.error(e.toString());
       });
+    this.getLatestFluxVersion();
   },
+  methods: {
+    getLatestFluxVersion() {
+      const self = this;
+      axios.get('https://raw.githubusercontent.com/zelcash/zelnoded/master/package.json')
+        .then((response) => {
+          console.log(response);
+          if (response.data.version !== self.version) {
+            vue.$message.warning('Flux requires an update!');
+          } else {
+            vue.$message.success('Flux is up to date');
+          }
+        })
+        .catch((error) => {
+          console.log(error);
+          vue.$message.error('Error verifying recent version');
+        });
+    },
+  }
 };
 </script>
