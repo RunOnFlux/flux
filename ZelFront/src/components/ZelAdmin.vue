@@ -1,6 +1,40 @@
 <template>
   <div class="zelAdminSection">
     <div v-if="zelAdminSection === 'loggedsessions'">
+      <el-table
+        :data="loggedUsersTable.filter(data => !filterLoggedUsers || data.zelid.toLowerCase().includes(filterLoggedUsers.toLowerCase()) || data.loginPhrase.toLowerCase().includes(filterLoggedUsers.toLowerCase()))"
+        style="width: 100%"
+      >
+        <el-table-column
+          label="Zel ID"
+          prop="zelid"
+        >
+        </el-table-column>
+        <el-table-column
+          label="Login Phrase"
+          prop="loginPhrase"
+        >
+        </el-table-column>
+        <el-table-column align="right">
+          <template
+            slot="header"
+            slot-scope="scope"
+          >
+            <el-input
+              v-model="filterLoggedUsers"
+              size="mini"
+              placeholder="Type to search"
+            />
+          </template>
+          <template slot-scope="scope">
+            <el-button
+              size="mini"
+              type="danger"
+              @click="logoutSpecificSession(scope.$index, scope.row)"
+            >Log Out</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
       <ElButton
         class="generalButton"
         @click="logoutAllSessions()"
@@ -31,6 +65,44 @@
       </ElButton>
     </div>
     <div v-if="zelAdminSection === 'manageusers'">
+      <el-table
+        :data="loggedUsersTable.filter(data => !filterLoggedUsers || data.zelid.toLowerCase().includes(filterLoggedUsers.toLowerCase()) || data.loginPhrase.toLowerCase().includes(filterLoggedUsers.toLowerCase()))"
+        style="width: 100%"
+      >
+        <el-table-column
+          label="Zel ID"
+          prop="zelid"
+        >
+        </el-table-column>
+        <el-table-column
+          label="Login Phrase"
+          prop="loginPhrase"
+        >
+        </el-table-column>
+        <el-table-column align="right">
+          <template
+            slot="header"
+            slot-scope="scope"
+          >
+            <el-input
+              v-model="filterLoggedUsers"
+              size="mini"
+              placeholder="Type to search"
+            />
+          </template>
+          <template slot-scope="scope">
+            <i
+              v-if="scope.row.loginPhrase === currentLoginPhrase"
+              class="el-icon-warning"
+            ></i>&nbsp;
+            <el-button
+              size="mini"
+              type="danger"
+              @click="logoutSpecificSession(scope.$index, scope.row)"
+            >Log Out</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
       <ElButton
         class="generalButton"
         @click="logOutAllUsers()"
@@ -59,6 +131,8 @@ export default {
   name: 'ZelAdmin',
   data() {
     return {
+      filterLoggedUsers: '',
+      loggedUsersTable: [],
     };
   },
   computed: {
@@ -69,19 +143,31 @@ export default {
       'privilage',
       'zelAdminSection',
     ]),
+    currentLoginPhrase() {
+      const zelidauth = localStorage.getItem('zelidauth');
+      const auth = qs.parse(zelidauth);
+      console.log(auth);
+      return auth.loginPhrase;
+    },
   },
   watch: {
     zelAdminSection(val, oldVal) {
       console.log(val, oldVal);
       switch (val) {
         case 'loggedsessions':
+          this.loggedUsersTable = [];
+          this.filterLoggedUsers = '';
+          this.loggedSessions();
           break;
         case 'manageflux':
           this.getLatestFluxVersion();
           break;
         case 'managezelcash':
+          this.checkZelCashVersion();
           break;
         case 'manageusers':
+          this.loggedUsersTable = [];
+          this.filterLoggedUsers = '';
           this.loggedUsers();
           break;
         case null:
@@ -95,6 +181,7 @@ export default {
   mounted() {
     switch (this.zelAdminSection) {
       case 'loggedsessions':
+        this.loggedSessions();
         break;
       case 'manageflux':
         this.getLatestFluxVersion();
@@ -283,6 +370,23 @@ export default {
           vue.$message.error(e.toString());
         });
     },
+    loggedSessions() {
+      const zelidauth = localStorage.getItem('zelidauth');
+      const auth = qs.parse(zelidauth);
+      console.log(auth);
+      zelIDService.loggedSessions(zelidauth)
+        .then((response) => {
+          console.log(response);
+          this.loggedUsersTable = response.data;
+          if (response.data.status === 'error') {
+            vue.$message.error(response.data.data.message);
+          }
+        })
+        .catch((e) => {
+          console.log(e);
+          vue.$message.error(e.toString());
+        });
+    },
     loggedUsers() {
       const zelidauth = localStorage.getItem('zelidauth');
       const auth = qs.parse(zelidauth);
@@ -290,8 +394,48 @@ export default {
       zelIDService.loggedUsers(zelidauth)
         .then((response) => {
           console.log(response);
+          this.loggedUsersTable = response.data;
           if (response.data.status === 'error') {
             vue.$message.error(response.data.data.message);
+          }
+        })
+        .catch((e) => {
+          console.log(e);
+          vue.$message.error(e.toString());
+        });
+    },
+    logoutSpecificSession(index, row) {
+      const self = this;
+      console.log(index, row);
+      const zelidauth = localStorage.getItem('zelidauth');
+      const auth = qs.parse(zelidauth);
+      console.log(auth);
+      zelIDService.logoutSpecificSession(zelidauth, row.loginPhrase)
+        .then((response) => {
+          console.log(response);
+          if (response.data.status === 'error') {
+            vue.$message.error(response.data.data.message);
+          } else {
+            vue.$message.success(response.data.data.message);
+            if (row.loginPhrase === auth.loginPhrase) {
+              localStorage.removeItem('zelidauth');
+              this.$store.commit('setZelCashSection', 'getinfo');
+              this.$store.commit('setPrivilage', 'none');
+            } else {
+              switch (self.zelAdminSection) {
+                case 'loggedsessions':
+                  self.loggedSessions();
+                  break;
+                case 'manageusers':
+                  self.loggedUsers();
+                  break;
+                case null:
+                  console.log('zelAdmin Section hidden');
+                  break;
+                default:
+                  console.log('zelAdmin Section: Unrecognised method'); // should not be seeable if all works correctly
+              }
+            }
           }
         })
         .catch((e) => {

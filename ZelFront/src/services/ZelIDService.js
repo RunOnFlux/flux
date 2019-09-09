@@ -11,6 +11,14 @@ export default {
     return Api().post('/zelid/verifylogin', qs.stringify(loginInfo));
   },
 
+  loggedSessions(zelidauthHeader) {
+    return Api().get('/zelid/loggedsessions', {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    });
+  },
+
   loggedUsers(zelidauthHeader) {
     return Api().get('/zelid/loggedusers', {
       headers: {
@@ -33,6 +41,18 @@ export default {
         zelidauth: zelidauthHeader,
       },
     });
+  },
+
+  logoutSpecificSession(zelidauthHeader, loginPhrase) {
+    const data = {
+      loginPhrase,
+    };
+    const axiosConfig = {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    };
+    return Api().post('/zelid/logoutspecificsession', qs.stringify(data), axiosConfig);
   },
 
   logoutAllSessions(zelidauthHeader) {

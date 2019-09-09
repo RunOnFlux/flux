@@ -134,6 +134,7 @@ export default {
             const zelidauth = {
               zelid: this.loginForm.address,
               signature: this.loginForm.signature,
+              loginPhrase: this.loginForm.message,
             };
             this.$store.commit('setPrivilage', response.data.data.privilage);
             localStorage.setItem('zelidauth', qs.stringify(zelidauth));
@@ -168,6 +169,7 @@ export default {
         const zelidauth = {
           zelid: data.data.zelid,
           signature: data.data.signature,
+          loginPhrase: data.data.loginPhrase,
         };
         this.$store.commit('setPrivilage', data.data.privilage);
         localStorage.setItem('zelidauth', qs.stringify(zelidauth));

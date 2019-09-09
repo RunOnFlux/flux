@@ -18,6 +18,9 @@ module.exports = (app) => {
   });
 
   // GET PROTECTED API - User level
+  app.get('/zelid/loggedsessions', (req, res) => {
+    zelidService.loggedSessions(req, res);
+  });
   app.get('/zelid/logoutcurrentsession', (req, res) => {
     zelidService.logoutCurrentSession(req, res);
   });
@@ -35,6 +38,7 @@ module.exports = (app) => {
   app.get('/zelid/logoutallusers', (req, res) => {
     zelidService.logoutAllUsers(req, res);
   });
+
   // GET PROTECTED API - ZelTeam
   app.get('/zelnode/updateflux', (req, res) => { // method shall be called only if flux version is obsolete.
     zelnodeService.updateFlux(req, res);
@@ -49,6 +53,11 @@ module.exports = (app) => {
   // POST PUBLIC methods route
   app.post('/zelid/verifylogin', (req, res) => {
     zelidService.verifyLogin(req, res);
+  });
+
+  // POST PROTECTED API - USER LEVEL
+  app.post('/zelid/logoutspecificsession', (req, res) => { // requires the knowledge of session loginPhrase so user level is sufficient and user cannot logout another user as he does not know the loginPhrase.
+    zelidService.logoutSpecificSession(req, res);
   });
 
   // WebSockets PUBLIC

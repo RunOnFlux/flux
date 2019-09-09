@@ -624,6 +624,59 @@ function loggedUsers(req, res) {
   });
 }
 
+function loggedSessions(req, res) {
+  verifyUserSession(req.headers, (error, authorized) => {
+    if (error) {
+      return res.json(error);
+    }
+    if (authorized === true) {
+      connectMongoDb(mongoUrl, (err, db) => {
+        if (err) {
+          log.error('Cannot reach MongoDB');
+          log.error(err);
+          const errMessage = {
+            status: 'error',
+            data: {
+              message: 'Cannot reach MongoDB',
+            },
+          };
+          return res.json(errMessage);
+        }
+
+        const auth = qs.parse(req.headers.zelidauth);
+        const queryZelID = auth.zelid;
+        const database = db.db(config.database.local.database);
+        const collection = config.database.local.collections.loggedUsers;
+        const query = { zelid: queryZelID };
+        const projection = { projection: { _id: 0, zelid: 1, loginPhrase: 1 } };
+        findInDatabase(database, collection, query, projection, (err, results) => {
+          db.close();
+          if (err) {
+            log.error('Error accessing local zelID collection');
+            log.error(err);
+            const errMessage = {
+              status: 'error',
+              data: {
+                message: 'Error accessing local zelID collection.',
+              },
+            };
+            return res.json(errMessage);
+          }
+          return res.json(results);
+        });
+      });
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      return res.json(errMessage);
+    }
+  });
+}
+
 function logoutCurrentSession(req, res) {
   verifyUserSession(req.headers, (error, authorized) => {
     if (error) {
@@ -679,6 +732,81 @@ function logoutCurrentSession(req, res) {
       };
       return res.json(errMessage);
     }
+  });
+}
+
+function logoutSpecificSession(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', () => {
+    console.log(req)
+    verifyUserSession(req.headers, (error, authorized) => {
+      if (error) {
+        return res.json(error);
+      }
+      if (authorized === true) {
+        const processedBody = qs.parse(body);
+        console.log(processedBody);
+        const obtainedLoginPhrase = processedBody.loginPhrase;
+        connectMongoDb(mongoUrl, (err, db) => {
+          if (err) {
+            log.error('Cannot reach MongoDB');
+            log.error(err);
+            const errMessage = {
+              status: 'error',
+              data: {
+                message: 'Cannot reach MongoDB',
+              },
+            };
+            return res.json(errMessage);
+          }
+          const database = db.db(config.database.local.database);
+          const collection = config.database.local.collections.loggedUsers;
+          const query = { loginPhrase: obtainedLoginPhrase };
+          const projection = {};
+          findOneAndDeleteInDatabase(database, collection, query, projection, (err, result) => {
+            db.close();
+            if (err) {
+              log.error('Error accessing local zelID collection');
+              log.error(err);
+              const errMessage = {
+                status: 'error',
+                data: {
+                  message: 'Error accessing local zelID collection.',
+                },
+              };
+              return res.json(errMessage);
+            }
+            if (result.value === null) {
+              const message = {
+                status: 'warning',
+                data: {
+                  message: 'Specified user was already logged out',
+                },
+              };
+              return res.json(message);
+            }
+            const message = {
+              status: 'success',
+              data: {
+                message: 'Session successfully logged out',
+              },
+            };
+            return res.json(message);
+          });
+        });
+      } else {
+        const errMessage = {
+          status: 'error',
+          data: {
+            message: 'Unauthorized. Access denied.',
+          },
+        };
+        return res.json(errMessage);
+      }
+    });
   });
 }
 
@@ -945,7 +1073,9 @@ module.exports = {
   verifyLogin,
   activeLoginPhrases,
   loggedUsers,
+  loggedSessions,
   logoutCurrentSession,
+  logoutSpecificSession,
   logoutAllSessions,
   logoutAllUsers,
   wsRespondLoginPhrase,

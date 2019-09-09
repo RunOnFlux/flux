@@ -1,6 +1,8 @@
 # zelnoded - ZelNode Daemon
 The entrance to the ZelNode network
 
+Requires reasonably new version of Node.js (npm) and MongoDB
+
 MongoDB, Express.js, Vue.js, Node.js (MEVN) application
 
 This application communicates locally with ZelCash Daemon (zelcashd), ZelBench Daemon (zelbanchd) and with other ZelNode Daemons (zelnoded). 
@@ -39,7 +41,7 @@ Production:
 
 ``` bash
 
-npm start
+sudo npm start
 
 ```
 
@@ -135,7 +137,7 @@ Protected API
 
 get /zelid/loggedusers (ZelNode Owner)
 Returns an array of currently logged users into the zelnode
-{ zelid: 1btc, message: dddasd }
+{ zelid: 1btc, loginPhrase: dddasd }
 
 get /zelid/activeloginphrases (ZelNode Owner)
 Return an array of currently active login phrases
@@ -150,8 +152,16 @@ Return an array of currently active login phrases
 get /zelid/logoutallusers (ZelNode Owner)
 Logs out all users
 
+get /zelid/loggedsessions (User level)
+Returns an array of currently logged users into the zelnode
+{ zelid: 1btc, loginPhrase: dddasd }
+
 get /zelid/logoutcurrentsession (User level)
 Logs out current login session
+
+post /zelid/logoutspecificsession (User level)
+@param = loginPhrase ( signed message that is assigned to this specific session)
+Returns status about logging out specific session
 
 get /zelid/logoutallsessions (User level)
 Logs out all login sessions - all devices (precisely all still valid logins)
