@@ -4,11 +4,17 @@ const zelnodeService = require('./services/zelnodeService');
 
 module.exports = (app) => {
   // GET PUBLIC methods
-  app.get('/getinfo', (req, res) => {
+  app.get('/zelcash/help', (req, res) => {
+    zelcashService.help(req, res);
+  });
+  app.get('/zelcash/getinfo', (req, res) => {
     zelcashService.getInfo(req, res);
   });
-  app.get('/getzelnodestatus', (req, res) => {
+  app.get('/zelcash/getzelnodestatus', (req, res) => {
     zelcashService.getZelnNodeStatus(req, res);
+  });
+  app.get('/zelcash/listzelnodes', (req, res) => {
+    zelcashService.listZelNodes(req, res);
   });
   app.get('/zelid/loginphrase', (req, res) => {
     zelidService.loginPhrase(req, res);
@@ -29,6 +35,9 @@ module.exports = (app) => {
   });
 
   // GET PROTECTED API - ZelNode Owner
+  app.get('/zelcash/listzelnodeconf', (req, res) => {
+    zelcashService.listZelNodeConf(req, res);
+  });
   app.get('/zelid/loggedusers', (req, res) => {
     zelidService.loggedUsers(req, res);
   });

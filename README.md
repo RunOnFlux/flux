@@ -12,11 +12,11 @@ With a frontend user interface a ZelNode user can entire access ZelNode network 
 ## Application Overview
 #### Backend solution
 - Provide communication with zelcashd
+- Proividing private API part, and public API part, ZelNode team API part (limited!)
+- Listening and Handling frontend requests
+- Requests signing and authenticity verifying
 - Communication with other zelnodeds
 - managing ZelNode applications - smart spawning, distributing workload, terminating depending of application subscription 
-- Proividing private API part, and public API part, ZelNode team API part (limited!)
-- Listenning and Handling frontend requests
-- Requests signing and authenticity verifying
 - ...
 
 #### Frontend solution
@@ -106,11 +106,20 @@ Signed message requirement
 ### API CALLS
 
 #### zelcashd calls
-get /getinfo (Public)
+get /zelcash/help (Public)
+returns help from zelcashd
+
+get /zelcash/getinfo (Public)
 returns getinfo from zelcashd
 
-get /getzelnodestatus (Public)
+get /zelcash/getzelnodestatus (Public)
 returns getzelnodestatus from zelcashd
+
+get /zelcash/listzelnodes (Public)
+returns listzelnodes from zelcashd
+
+get /zelcash/listzelnodeconf (ZelNode Owner)
+returns listzelnodeconf from zelcashd
 
 #### zelid calls
 get /zelid/loginphrase (Public)
