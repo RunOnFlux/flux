@@ -4,7 +4,7 @@ const zelnodeService = require('./services/zelnodeService');
 
 module.exports = (app) => {
   // GET PUBLIC methods
-  app.get('/zelcash/help', (req, res) => {
+  app.get('/zelcash/help/:command?', (req, res) => { // accept both help/command and ?command=getinfo. If ommited, default help will be displayed. Other calls works in similar way
     zelcashService.help(req, res);
   });
   app.get('/zelcash/getinfo', (req, res) => {
@@ -16,11 +16,35 @@ module.exports = (app) => {
   app.get('/zelcash/listzelnodes', (req, res) => {
     zelcashService.listZelNodes(req, res);
   });
-  app.get('/zelcash/znsync/:option?', (req, res) => { // accept both znsync/status and znsync?option=status. STATUS is public, otherwise zelnode owner
+  app.get('/zelcash/znsync/:mode?', (req, res) => {
     zelcashService.znsync(req, res);
   });
   app.get('/zelcash/getnodebenchmarks', (req, res) => {
     zelcashService.getNodeBenchmarks(req, res);
+  });
+  app.get('/zelcash/decodezelnodebroadcast/:hexstring?', (req, res) => {
+    zelcashService.decodeZelNodeBroadcast(req, res);
+  });
+  app.get('/zelcash/getzelnodecount', (req, res) => {
+    zelcashService.getZelNodeCount(req, res);
+  });
+  app.get('/zelcash/getzelnodescores/:blocks?', (req, res) => { // defaults to 10
+    zelcashService.getZelNodeScores(req, res);
+  });
+  app.get('/zelcash/getzelnodewinners/:blocks?/:filter?', (req, res) => {
+    zelcashService.getZelNodeWinners(req, res);
+  });
+  app.get('/zelcash/relayzelnodebroadcast/:hexstring?', (req, res) => {
+    zelcashService.relayZelNodeBroadcast(req, res);
+  });
+  app.get('/zelcash/spork/:name?/:value?', (req, res) => {
+    zelcashService.spork(req, res);
+  });
+  app.get('/zelcash/zelnodecurrentwinner', (req, res) => {
+    zelcashService.zelNodeCurrentWinner(req, res);
+  });
+  app.get('/zelcash/zelnodedebug', (req, res) => {
+    zelcashService.zelNodeDebug(req, res);
   });
   app.get('/zelid/loginphrase', (req, res) => {
     zelidService.loginPhrase(req, res);
@@ -47,8 +71,17 @@ module.exports = (app) => {
   app.get('/zelcash/createzelnodekey', (req, res) => {
     zelcashService.createZelNodeKey(req, res);
   });
+  app.get('/zelcash/createzelnodebroadcast/:command?/:alias?', (req, res) => {
+    zelcashService.createZelNodeBroadcast(req, res);
+  });
   app.get('/zelcash/listzelnodeconf', (req, res) => {
     zelcashService.listZelNodeConf(req, res);
+  });
+  app.get('/zelcash/getzelnodeoutputs', (req, res) => {
+    zelcashService.listZelNodeConf(req, res);
+  });
+  app.get('/zelcash/startzelnode/:set?/:lockwallet?/:alias?', (req, res) => {
+    zelcashService.startZelNode(req, res);
   });
   app.get('/zelid/loggedusers', (req, res) => {
     zelidService.loggedUsers(req, res);
