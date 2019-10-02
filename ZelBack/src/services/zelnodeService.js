@@ -118,12 +118,51 @@ function updateZelCash(req, res) {
   });
 }
 
+function startZelCash(req, res) {
+  serviceHelper.verifyAdminSession(req.headers, (error, authorized) => {
+    if (error) {
+      return res.json(error);
+    }
+    if (authorized === true) {
+      const exec = 'zelcashd';
+      cmd.get(exec, (err, data) => {
+        if (err) {
+          const errMessage = {
+            status: 'error',
+            data: {
+              message: `Error starting ZelCash: ${err}`,
+            },
+          };
+          return res.json(errMessage);
+        }
+        console.log(data);
+        const message = {
+          status: 'success',
+          data: {
+            message: 'ZelCash successfully started',
+          },
+        };
+        return res.json(message);
+      });
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      return res.json(errMessage);
+    }
+  });
+}
+
 function getFluxVersion(req, res) {
   const { version } = packageJson;
   return res.json(version);
 }
 
 module.exports = {
+  startZelCash,
   updateFlux,
   rebuildZelFront,
   updateZelCash,

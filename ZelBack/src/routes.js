@@ -16,6 +16,12 @@ module.exports = (app) => {
   app.get('/zelcash/listzelnodes', (req, res) => {
     zelcashService.listZelNodes(req, res);
   });
+  app.get('/zelcash/znsync/:option?', (req, res) => { // accept both znsync/status and znsync?option=status. STATUS is public, otherwise zelnode owner
+    zelcashService.znsync(req, res);
+  });
+  app.get('/zelcash/getnodebenchmarks', (req, res) => {
+    zelcashService.getNodeBenchmarks(req, res);
+  });
   app.get('/zelid/loginphrase', (req, res) => {
     zelidService.loginPhrase(req, res);
   });
@@ -35,6 +41,12 @@ module.exports = (app) => {
   });
 
   // GET PROTECTED API - ZelNode Owner
+  app.get('/zelcash/stop', (req, res) => {
+    zelcashService.stop(req, res);
+  });
+  app.get('/zelcash/createzelnodekey', (req, res) => {
+    zelcashService.createZelNodeKey(req, res);
+  });
   app.get('/zelcash/listzelnodeconf', (req, res) => {
     zelcashService.listZelNodeConf(req, res);
   });
@@ -46,6 +58,9 @@ module.exports = (app) => {
   });
   app.get('/zelid/logoutallusers', (req, res) => {
     zelidService.logoutAllUsers(req, res);
+  });
+  app.get('/zelnode/startZelCash', (req, res) => {
+    zelnodeService.startZelCash(req, res);
   });
 
   // GET PROTECTED API - ZelTeam

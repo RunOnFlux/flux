@@ -14,9 +14,11 @@ const client = new zelcashrpc.Client({
   timeout: 60000,
 });
 
-const response = {
+let response = {
   status: 'error',
-  data: 'Unkown Error',
+  data: {
+    message: 'Unkown error',
+  },
 };
 
 // == Control ==
@@ -44,6 +46,34 @@ async function getInfo(req, res) {
   }
 
   return res.json(response);
+}
+
+async function stop(req, res) { // practically useless
+  serviceHelper.verifyAdminSession(req.headers, async (error, authorized) => {
+    if (error) {
+      return res.json(error);
+    }
+    if (authorized === true) {
+      try {
+        const data = await client.stop();
+        response.status = 'success';
+        response.data = data;
+      } catch (err) {
+        response.status = 'error';
+        response.data = err;
+      }
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      response = errMessage;
+    }
+
+    return res.json(response);
+  });
 }
 
 // == Zelnode ==
@@ -87,23 +117,143 @@ async function listZelNodeConf(req, res) { // practically useless
         response.status = 'error';
         response.data = err;
       }
-
-      return res.json(response);
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      response = errMessage;
     }
-    const errMessage = {
-      status: 'error',
-      data: {
-        message: 'Unauthorized. Access denied.',
-      },
-    };
-    return res.json(errMessage);
+
+    return res.json(response);
   });
+}
+
+async function createZelNodeKey(req, res) { // practically useless
+  serviceHelper.verifyAdminSession(req.headers, async (error, authorized) => {
+    if (error) {
+      return res.json(error);
+    }
+    if (authorized === false) {
+      try {
+        const data = await client.createzelnodekey();
+        response.status = 'success';
+        response.data = data;
+      } catch (err) {
+        response.status = 'error';
+        response.data = err;
+      }
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      response = errMessage;
+    }
+
+    return res.json(response);
+  });
+}
+
+async function znsync(req, res) {
+  console.log(req.params);
+  console.log(req.query);
+  let { option } = req.params; // we accept both znsync/status and znsync?option=status
+  option = option || req.query.option;
+  const param = option || 'status'; // default to status.
+  console.log(param);
+  if (param === 'status') {
+    try {
+      const data = await client.znsync(param);
+      response.status = 'success';
+      response.data = data;
+    } catch (err) {
+      response.status = 'error';
+      response.data = err;
+    }
+  } else {
+    // eslint-disable-next-line consistent-return
+    serviceHelper.verifyAdminSession(req.headers, async (error, authorized) => {
+      if (error) {
+        return res.json(error);
+      }
+      if (authorized === true) {
+        try {
+          const data = await client.znsync(param);
+          response.status = 'success';
+          response.data = data;
+        } catch (err) {
+          response.status = 'error';
+          response.data = err;
+        }
+      } else {
+        const errMessage = {
+          status: 'error',
+          data: {
+            message: 'Unauthorized. Access denied.',
+          },
+        };
+        response = errMessage;
+      }
+    });
+  }
+
+  return res.json(response);
+}
+
+async function getNodeBenchmarks(req, res) {
+  try {
+    const data = await client.getnodebenchmarks();
+    response.status = 'success';
+    response.data = data;
+  } catch (err) {
+    response.status = 'error';
+    response.data = err;
+  }
+
+  return res.json(response);
+}
+
+// == Blockchain ==
+async function getBestBlockHash(req, res) {
+  try {
+    const data = await client.getbestblockhash();
+    response.status = 'success';
+    response.data = data;
+  } catch (err) {
+    response.status = 'error';
+    response.data = err;
+  }
+
+  return res.json(response);
 }
 
 module.exports = {
   help,
   getInfo,
+  stop,
+
+  getBestBlockHash,
+
+  // createZelNodeBroadcast,
+  createZelNodeKey,
+  // decodeZelNodeBroadcast,
+  getNodeBenchmarks,
+  // getZelNodeCount,
+  // getZelNodeOutputs,
+  // getZelNodeScores,
   getZelnNodeStatus,
-  listZelNodes,
+  // getZelNodeWinners,
   listZelNodeConf,
+  listZelNodes,
+  // relayZelNodeBroadcast,
+  // spork,
+  // startZelNode,
+  // zelNodeCurrentwinner,
+  // zelNodeDebug,
+  znsync,
 };
