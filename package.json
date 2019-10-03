@@ -1,7 +1,7 @@
 {
-  "name": "zelnoded",
-  "version": "0.18.1",
-  "description": "ZelNodeD - ZelNode Daemon. The entrace to the ZelNode network.",
+  "name": "flux",
+  "version": "0.19.0",
+  "description": "Flux - ZelNode Daemon. The entrace to the ZelNode network.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/zelcash/zelnoded.git"
@@ -14,7 +14,10 @@
     "daemon",
     "masternode",
     "zelnodes",
-    "network"
+    "network",
+    "flux",
+    "zelflux",
+    "zelnoded"
   ],
   "author": "Tadeas Kmenta (tadeas.kmenta@zel.cash)",
   "license": "AGPL-3.0-or-later",

@@ -46,6 +46,48 @@ module.exports = (app) => {
   app.get('/zelcash/zelnodedebug', (req, res) => {
     zelcashService.zelNodeDebug(req, res);
   });
+  app.get('/zelcash/getbestblockhash', (req, res) => {
+    zelcashService.getBestBlockHash(req, res);
+  });
+  app.get('/zelcash/getblock/:hashheight?/:verbosity?', (req, res) => {
+    zelcashService.getBlock(req, res);
+  });
+  app.get('/zelcash/getblockchaininfo', (req, res) => {
+    zelcashService.getBlockchainInfo(req, res);
+  });
+  app.get('/zelcash/getblockcount', (req, res) => {
+    zelcashService.getBlockCount(req, res);
+  });
+  app.get('/zelcash/getblockhash/:index?', (req, res) => {
+    zelcashService.getBlockHah(req, res);
+  });
+  app.get('/zelcash/getblockheader/:hash?/:verbose?', (req, res) => {
+    zelcashService.getBlockHeader(req, res);
+  });
+  app.get('/zelcash/getchaintips', (req, res) => {
+    zelcashService.getChainTips(req, res);
+  });
+  app.get('/zelcash/getdifficulty', (req, res) => {
+    zelcashService.getDifficulty(req, res);
+  });
+  app.get('/zelcash/getmempoolinfo', (req, res) => {
+    zelcashService.getMempoolInfo(req, res);
+  });
+  app.get('/zelcash/getrawmempool/:verbose?', (req, res) => {
+    zelcashService.getRawMemPool(req, res);
+  });
+  app.get('/zelcash/gettxout/:txid?/:n?/:includemempool?', (req, res) => {
+    zelcashService.getTxOut(req, res);
+  });
+  app.get('/zelcash/gettxoutproof/:txids?/:blockhash?', (req, res) => { // comma separated list of txids so /gettxoutproof/abc,efg,asd/blockhash
+    zelcashService.getTxOutProof(req, res);
+  });
+  app.get('/zelcash/gettxoutsetinfo', (req, res) => {
+    zelcashService.getTxOutSetInfo(req, res);
+  });
+  app.get('/zelcash/verifytxoutproof/:proof?', (req, res) => {
+    zelcashService.verifyTxOutProof(req, res);
+  });
   app.get('/zelid/loginphrase', (req, res) => {
     zelidService.loginPhrase(req, res);
   });
@@ -82,6 +124,9 @@ module.exports = (app) => {
   });
   app.get('/zelcash/startzelnode/:set?/:lockwallet?/:alias?', (req, res) => {
     zelcashService.startZelNode(req, res);
+  });
+  app.get('/zelcash/verifychain/:checklevel?/:numblocks?', (req, res) => {
+    zelcashService.verifyChain(req, res);
   });
   app.get('/zelid/loggedusers', (req, res) => {
     zelidService.loggedUsers(req, res);

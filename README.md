@@ -1,11 +1,11 @@
-# zelnoded - ZelNode Daemon
+# Flux - ZelNode Daemon
 The entrance to the ZelNode network
 
 Requires reasonably new version of Node.js (npm) and MongoDB
 
 MongoDB, Express.js, Vue.js, Node.js (MEVN) application
 
-This application communicates locally with ZelCash Daemon (zelcashd), ZelBench Daemon (zelbanchd) and with other ZelNode Daemons (zelnoded). 
+This application communicates locally with ZelCash Daemon (zelcashd), ZelBench Daemon (benchmarkd) and with other ZelNode Daemons (flux). 
 
 With a frontend user interface a ZelNode user can entire access ZelNode network and ZelNode operator can manage his own ZelNode via a web interface instead of logging into node directly and with single button lunch instances, update nodes and much more. 
 
@@ -15,7 +15,7 @@ With a frontend user interface a ZelNode user can entire access ZelNode network 
 - Proividing private API part, and public API part, ZelNode team API part (limited!)
 - Listening and Handling frontend requests
 - Requests signing and authenticity verifying
-- Communication with other zelnodeds
+- Communication with other zelnode daemons (flux solution)
 - managing ZelNode applications - smart spawning, distributing workload, terminating depending of application subscription 
 - ...
 
