@@ -191,6 +191,7 @@ async function createZelNodeKey(req, res) { // practically useless
   });
 }
 
+// eslint-disable-next-line consistent-return
 async function znsync(req, res) {
   console.log(req.params);
   console.log(req.query);
@@ -209,6 +210,8 @@ async function znsync(req, res) {
       response.status = 'error';
       response.data = daemonerror;
     }
+    return res.json(response);
+  // eslint-disable-next-line no-else-return
   } else {
     // eslint-disable-next-line consistent-return
     serviceHelper.verifyAdminSession(req.headers, async (error, authorized) => {
