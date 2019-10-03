@@ -284,11 +284,17 @@ async function decodeZelNodeBroadcast(req, res) {
   console.log(req.params);
   console.log(req.query);
   let { hexstring } = req.params;
-  hexstring = hexstring || req.query.hexstring || '';
+  hexstring = hexstring || req.query.hexstring;
   try {
-    const data = await client.decodezelnodebroadcast(hexstring);
-    response.status = 'success';
-    response.data = data;
+    if (hexstring) {
+      const data = await client.decodezelnodebroadcast(hexstring);
+      response.status = 'success';
+      response.data = data;
+    } else {
+      const data = await client.decodezelnodebroadcast(); // throw error help
+      response.status = 'success';
+      response.data = data;
+    }
   } catch (err) {
     const daemonerror = {
       code: err.code,
@@ -416,11 +422,17 @@ async function getZelNodeWinners(req, res) {
 
 async function relayZelNodeBroadcast(req, res) {
   let { hexstring } = req.params;
-  hexstring = hexstring || req.query.hexstring || '';
+  hexstring = hexstring || req.query.hexstring;
   try {
-    const data = await client.relayzelnodebroadcast(hexstring);
-    response.status = 'success';
-    response.data = data;
+    if (hexstring) {
+      const data = await client.relayzelnodebroadcast(hexstring);
+      response.status = 'success';
+      response.data = data;
+    } else {
+      const data = await client.relayzelnodebroadcast(); // throw error help
+      response.status = 'success';
+      response.data = data;
+    }
   } catch (err) {
     const daemonerror = {
       code: err.code,
@@ -919,6 +931,640 @@ async function verifyTxOutProof(req, res) {
   return res.json(response);
 }
 
+// == Mining ==
+async function getBlockSubsidy(req, res) {
+  let { height } = req.params;
+  height = height || req.query.height;
+  try {
+    if (height) {
+      if (typeof height !== 'number') {
+        height = Number(height);
+      }
+      const data = await client.getBlockSubsidy(height);
+      response.status = 'success';
+      response.data = data;
+    } else {
+      const data = await client.getBlockSubsidy(); // default to current height
+      response.status = 'success';
+      response.data = data;
+    }
+  } catch (err) {
+    const daemonerror = {
+      code: err.code,
+      message: err.message,
+    };
+    response.status = 'error';
+    response.data = daemonerror;
+  }
+
+  return res.json(response);
+}
+
+async function getBlockTemplate(req, res) {
+  let { jsonrequestobject } = req.params;
+  jsonrequestobject = jsonrequestobject || req.query.jsonrequestobject;
+  try {
+    if (jsonrequestobject) {
+      if (typeof jsonrequestobject !== 'object') {
+        jsonrequestobject = JSON.parse(jsonrequestobject);
+      }
+      const data = await client.getBlockTemplate(jsonrequestobject);
+      response.status = 'success';
+      response.data = data;
+    } else {
+      const data = await client.getBlockTemplate();
+      response.status = 'success';
+      response.data = data;
+    }
+  } catch (err) {
+    const daemonerror = {
+      code: err.code,
+      message: err.message,
+    };
+    response.status = 'error';
+    response.data = daemonerror;
+  }
+
+  return res.json(response);
+}
+
+async function getLocalSolPs(req, res) {
+  try {
+    const data = await client.getLocalSolPs();
+    response.status = 'success';
+    response.data = data;
+  } catch (err) {
+    const daemonerror = {
+      code: err.code,
+      message: err.message,
+    };
+    response.status = 'error';
+    response.data = daemonerror;
+  }
+
+  return res.json(response);
+}
+
+async function getMiningInfo(req, res) {
+  try {
+    const data = await client.getMiningInfo();
+    response.status = 'success';
+    response.data = data;
+  } catch (err) {
+    const daemonerror = {
+      code: err.code,
+      message: err.message,
+    };
+    response.status = 'error';
+    response.data = daemonerror;
+  }
+
+  return res.json(response);
+}
+
+async function getNetworkHashPs(req, res) {
+  let { blocks } = req.params;
+  blocks = blocks || req.query.blocks || 120;
+  let { height } = req.params;
+  height = height || req.query.height || -1;
+
+  if (typeof blocks !== 'number') {
+    blocks = Number(blocks);
+  }
+  if (typeof height !== 'number') {
+    height = Number(height);
+  }
+  try {
+    const data = await client.getNetworkHashPs(blocks, height);
+    console.log(data);
+    response.status = 'success';
+    response.data = data;
+  } catch (err) {
+    const daemonerror = {
+      code: err.code,
+      message: err.message,
+    };
+    response.status = 'error';
+    response.data = daemonerror;
+  }
+
+  return res.json(response);
+}
+
+async function getNetworkSolPs(req, res) {
+  let { blocks } = req.params;
+  blocks = blocks || req.query.blocks || 120;
+  let { height } = req.params;
+  height = height || req.query.height || -1;
+
+  if (typeof blocks !== 'number') {
+    blocks = Number(blocks);
+  }
+  if (typeof height !== 'number') {
+    height = Number(height);
+  }
+  try {
+    const data = await client.getNetworkSolPs(blocks, height);
+    console.log(data);
+    response.status = 'success';
+    response.data = data;
+  } catch (err) {
+    const daemonerror = {
+      code: err.code,
+      message: err.message,
+    };
+    response.status = 'error';
+    response.data = daemonerror;
+  }
+
+  return res.json(response);
+}
+
+async function prioritiseTransaction(req, res) {
+  let { txid } = req.params;
+  txid = txid || req.query.txid;
+  let { prioritydelta } = req.params;
+  prioritydelta = prioritydelta || req.query.prioritydelta;
+  let { feedelta } = req.params;
+  feedelta = feedelta || req.query.feedelta;
+  serviceHelper.verifyUserSession(req.headers, async (error, authorized) => {
+    if (error) {
+      return res.json(error);
+    }
+    if (authorized === true) {
+      try {
+        if (txid && prioritydelta && feedelta) {
+          if (typeof prioritydelta !== 'number') {
+            prioritydelta = Number(prioritydelta);
+          }
+          if (typeof feedelta !== 'number') {
+            feedelta = Number(feedelta);
+          }
+          const data = await client.prioritiseTransaction(txid, prioritydelta, feedelta);
+          response.status = 'success';
+          response.data = data;
+        } else {
+          const data = await client.prioritiseTransaction();
+          response.status = 'success';
+          response.data = data;
+        }
+      } catch (err) {
+        const daemonerror = {
+          code: err.code,
+          message: err.message,
+        };
+        response.status = 'error';
+        response.data = daemonerror;
+      }
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      response = errMessage;
+    }
+
+    return res.json(response);
+  });
+}
+
+async function submitBlock(req, res) {
+  let { hexdata } = req.params;
+  hexdata = hexdata || req.query.hexdata;
+  let { jsonparametersobject } = req.params;
+  jsonparametersobject = jsonparametersobject || req.query.jsonparametersobject;
+  serviceHelper.verifyUserSession(req.headers, async (error, authorized) => {
+    if (error) {
+      return res.json(error);
+    }
+    if (authorized === true) {
+      try {
+        if (hexdata && jsonparametersobject) {
+          if (typeof jsonparametersobject !== 'object') {
+            jsonparametersobject = JSON.parse(jsonparametersobject);
+          }
+          const data = await client.submitBlock(hexdata, jsonparametersobject);
+          response.status = 'success';
+          response.data = data;
+        } else if (hexdata) {
+          const data = await client.submitBlock(hexdata);
+          response.status = 'success';
+          response.data = data;
+        } else {
+          const data = await client.submitBlock(); // throw help error
+          response.status = 'success';
+          response.data = data;
+        }
+      } catch (err) {
+        const daemonerror = {
+          code: err.code,
+          message: err.message,
+        };
+        response.status = 'error';
+        response.data = daemonerror;
+      }
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      response = errMessage;
+    }
+
+    return res.json(response);
+  });
+}
+
+// == Network ==
+async function addNode(req, res) {
+  let { node } = req.params;
+  node = node || req.query.node;
+  let { command } = req.params;
+  command = command || req.query.command;
+  serviceHelper.verifyAdminSession(req.headers, async (error, authorized) => {
+    if (error) {
+      return res.json(error);
+    }
+    if (authorized === true) {
+      try {
+        if (node && command) {
+          const data = await client.addNode(node, command);
+          response.status = 'success';
+          response.data = data;
+        } else {
+          const data = await client.addNode(); // throw help error
+          response.status = 'success';
+          response.data = data;
+        }
+      } catch (err) {
+        const daemonerror = {
+          code: err.code,
+          message: err.message,
+        };
+        response.status = 'error';
+        response.data = daemonerror;
+      }
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      response = errMessage;
+    }
+
+    return res.json(response);
+  });
+}
+
+async function clearBanned(req, res) {
+  serviceHelper.verifyAdminSession(req.headers, async (error, authorized) => {
+    if (error) {
+      return res.json(error);
+    }
+    if (authorized === true) {
+      try {
+        const data = await client.clearBanned();
+        response.status = 'success';
+        response.data = data;
+      } catch (err) {
+        const daemonerror = {
+          code: err.code,
+          message: err.message,
+        };
+        response.status = 'error';
+        response.data = daemonerror;
+      }
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      response = errMessage;
+    }
+
+    return res.json(response);
+  });
+}
+
+async function disconnectNode(req, res) {
+  let { node } = req.params;
+  node = node || req.query.node;
+  serviceHelper.verifyAdminSession(req.headers, async (error, authorized) => {
+    if (error) {
+      return res.json(error);
+    }
+    if (authorized === true) {
+      try {
+        if (node) {
+          const data = await client.disconnectNode(node);
+          response.status = 'success';
+          response.data = data;
+        } else {
+          const data = await client.disconnectNode(); // throw help error
+          response.status = 'success';
+          response.data = data;
+        }
+      } catch (err) {
+        const daemonerror = {
+          code: err.code,
+          message: err.message,
+        };
+        response.status = 'error';
+        response.data = daemonerror;
+      }
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      response = errMessage;
+    }
+
+    return res.json(response);
+  });
+}
+
+async function getAddedNodeInfo(req, res) {
+  let { dns } = req.params;
+  dns = dns || req.query.dns;
+  let { node } = req.params;
+  node = node || req.query.node;
+  serviceHelper.verifyAdminSession(req.headers, async (error, authorized) => {
+    if (error) {
+      return res.json(error);
+    }
+    if (authorized === true) {
+      try {
+        if (dns && node) {
+          if (typeof dns !== 'boolean') {
+            if (dns === 'false' || dns === 0 || dns === '0') {
+              dns = false;
+            }
+            if (dns === 'true' || dns === 1 || dns === '1') {
+              dns = true;
+            }
+          }
+          const data = await client.getAddedNodeInfo(dns, node);
+          response.status = 'success';
+          response.data = data;
+        } else if (dns) {
+          if (typeof dns !== 'boolean') {
+            if (dns === 'false' || dns === 0 || dns === '0') {
+              dns = false;
+            }
+            if (dns === 'true' || dns === 1 || dns === '1') {
+              dns = true;
+            }
+          }
+          const data = await client.getAddedNodeInfo(dns);
+          response.status = 'success';
+          response.data = data;
+        } else {
+          const data = await client.getAddedNodeInfo(); // throw help error
+          response.status = 'success';
+          response.data = data;
+        }
+      } catch (err) {
+        const daemonerror = {
+          code: err.code,
+          message: err.message,
+        };
+        response.status = 'error';
+        response.data = daemonerror;
+      }
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      response = errMessage;
+    }
+
+    return res.json(response);
+  });
+}
+
+async function getConnectionCount(req, res) {
+  try {
+    const data = await client.getConnectionCount();
+    console.log(data);
+    response.status = 'success';
+    response.data = data;
+  } catch (err) {
+    const daemonerror = {
+      code: err.code,
+      message: err.message,
+    };
+    response.status = 'error';
+    response.data = daemonerror;
+  }
+
+  return res.json(response);
+}
+
+async function getDeprecationInfo(req, res) {
+  try {
+    const data = await client.getDeprecationInfo();
+    console.log(data);
+    response.status = 'success';
+    response.data = data;
+  } catch (err) {
+    const daemonerror = {
+      code: err.code,
+      message: err.message,
+    };
+    response.status = 'error';
+    response.data = daemonerror;
+  }
+
+  return res.json(response);
+}
+
+async function getNetTotals(req, res) {
+  try {
+    const data = await client.getNetTotals();
+    console.log(data);
+    response.status = 'success';
+    response.data = data;
+  } catch (err) {
+    const daemonerror = {
+      code: err.code,
+      message: err.message,
+    };
+    response.status = 'error';
+    response.data = daemonerror;
+  }
+
+  return res.json(response);
+}
+
+async function getNetworkInfo(req, res) {
+  try {
+    const data = await client.getNetworkInfo();
+    console.log(data);
+    response.status = 'success';
+    response.data = data;
+  } catch (err) {
+    const daemonerror = {
+      code: err.code,
+      message: err.message,
+    };
+    response.status = 'error';
+    response.data = daemonerror;
+  }
+
+  return res.json(response);
+}
+
+async function getPeerInfo(req, res) {
+  try {
+    const data = await client.getPeerInfo();
+    console.log(data);
+    response.status = 'success';
+    response.data = data;
+  } catch (err) {
+    const daemonerror = {
+      code: err.code,
+      message: err.message,
+    };
+    response.status = 'error';
+    response.data = daemonerror;
+  }
+
+  return res.json(response);
+}
+
+async function listBanned(req, res) {
+  try {
+    const data = await client.listBanned();
+    console.log(data);
+    response.status = 'success';
+    response.data = data;
+  } catch (err) {
+    const daemonerror = {
+      code: err.code,
+      message: err.message,
+    };
+    response.status = 'error';
+    response.data = daemonerror;
+  }
+
+  return res.json(response);
+}
+
+async function ping(req, res) {
+  serviceHelper.verifyZelTeamSession(req.headers, async (error, authorized) => {
+    if (error) {
+      return res.json(error);
+    }
+    if (authorized === true) {
+      try {
+        const data = await client.ping();
+        console.log(data);
+        response.status = 'success';
+        response.data = data;
+      } catch (err) {
+        const daemonerror = {
+          code: err.code,
+          message: err.message,
+        };
+        response.status = 'error';
+        response.data = daemonerror;
+      }
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      response = errMessage;
+    }
+
+    return res.json(response);
+  });
+}
+
+async function setBan(req, res) {
+  let { ip } = req.params;
+  ip = ip || req.query.ip;
+  let { command } = req.params;
+  command = command || req.query.command;
+  let { bantime } = req.params;
+  bantime = bantime || req.query.bantime;
+  let { absolute } = req.params;
+  absolute = absolute || req.query.absolute;
+  serviceHelper.verifyAdminSession(req.headers, async (error, authorized) => {
+    if (error) {
+      return res.json(error);
+    }
+    if (authorized === true) {
+      try {
+        if (ip && command && bantime && absolute) {
+          if (typeof absolute !== 'boolean') {
+            if (absolute === 'false' || absolute === 0 || absolute === '0') {
+              absolute = false;
+            }
+            if (absolute === 'true' || absolute === 1 || absolute === '1') {
+              absolute = true;
+            }
+          }
+          if (typeof bantime !== 'number') {
+            bantime = Number(bantime);
+          }
+          const data = await client.setBan(ip, command, bantime, absolute);
+          response.status = 'success';
+          response.data = data;
+        } else if (ip && command && bantime) {
+          if (typeof bantime !== 'number') {
+            bantime = Number(bantime);
+          }
+          const data = await client.setBan(ip, command, bantime);
+          response.status = 'success';
+          response.data = data;
+        } else if (ip && command) {
+          const data = await client.setBan(ip, command);
+          response.status = 'success';
+          response.data = data;
+        } else {
+          const data = await client.setBan(); // throw help error
+          response.status = 'success';
+          response.data = data;
+        }
+      } catch (err) {
+        const daemonerror = {
+          code: err.code,
+          message: err.message,
+        };
+        response.status = 'error';
+        response.data = daemonerror;
+      }
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      response = errMessage;
+    }
+
+    return res.json(response);
+  });
+}
+
 module.exports = {
   // == Control ==
   help,
@@ -960,4 +1606,33 @@ module.exports = {
   getTxOutSetInfo,
   verifyChain,
   verifyTxOutProof,
+
+  // == Disclosure ==
+  // intentionally left out as of experimental feature
+  // == Generating ==
+  // intentionally left out as cpu mining is discouraged on zelnodes
+
+  // == Mining ==
+  getBlockSubsidy,
+  getBlockTemplate,
+  getLocalSolPs,
+  getMiningInfo,
+  getNetworkHashPs,
+  getNetworkSolPs,
+  prioritiseTransaction,
+  submitBlock,
+
+  // == Network ==
+  addNode,
+  clearBanned,
+  disconnectNode,
+  getAddedNodeInfo,
+  getConnectionCount,
+  getDeprecationInfo,
+  getNetTotals,
+  getNetworkInfo,
+  getPeerInfo,
+  listBanned,
+  ping,
+  setBan,
 };

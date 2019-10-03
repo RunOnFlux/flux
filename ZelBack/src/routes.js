@@ -88,6 +88,42 @@ module.exports = (app) => {
   app.get('/zelcash/verifytxoutproof/:proof?', (req, res) => {
     zelcashService.verifyTxOutProof(req, res);
   });
+  app.get('/zelcash/getblocksubsidy/:height?', (req, res) => {
+    zelcashService.getBlockSubsidy(req, res);
+  });
+  app.get('/zelcash/getblocktemplate/:jsonrequestobject?', (req, res) => {
+    zelcashService.getBlockTemplate(req, res);
+  });
+  app.get('/zelcash/getlocalsolps', (req, res) => {
+    zelcashService.getLocalSolPs(req, res);
+  });
+  app.get('/zelcash/getmininginfo', (req, res) => {
+    zelcashService.getMiningInfo(req, res);
+  });
+  app.get('/zelcash/getnetworkhashps/:blocks?/:height?', (req, res) => {
+    zelcashService.getNetworkHashPs(req, res);
+  });
+  app.get('/zelcash/getnetworksolps/:blocks?/:height?', (req, res) => {
+    zelcashService.getNetworkSolPs(req, res);
+  });
+  app.get('/zelcash/getconnectioncount', (req, res) => {
+    zelcashService.getConnectionCount(req, res);
+  });
+  app.get('/zelcash/getdeprecationinfo', (req, res) => {
+    zelcashService.getDeprecationInfo(req, res);
+  });
+  app.get('/zelcash/getnettotals', (req, res) => {
+    zelcashService.getNetTotals(req, res);
+  });
+  app.get('/zelcash/getnetworkinfo', (req, res) => {
+    zelcashService.getNetworkInfo(req, res);
+  });
+  app.get('/zelcash/getpeerinfo', (req, res) => {
+    zelcashService.getPeerInfo(req, res);
+  });
+  app.get('/zelcash/listbanned', (req, res) => {
+    zelcashService.listBanned(req, res);
+  });
   app.get('/zelid/loginphrase', (req, res) => {
     zelidService.loginPhrase(req, res);
   });
@@ -96,6 +132,12 @@ module.exports = (app) => {
   });
 
   // GET PROTECTED API - User level
+  app.get('/zelcash/prioritisetransaction/:txid?/:prioritydelta?/:feedelta?', (req, res) => {
+    zelcashService.prioritiseTransaction(req, res);
+  });
+  app.get('/zelcash/submitblock/:hexdata?/:jsonparametersobject?', (req, res) => { // TODO make it post too
+    zelcashService.submitBlock(req, res);
+  });
   app.get('/zelid/loggedsessions', (req, res) => {
     zelidService.loggedSessions(req, res);
   });
@@ -128,6 +170,21 @@ module.exports = (app) => {
   app.get('/zelcash/verifychain/:checklevel?/:numblocks?', (req, res) => {
     zelcashService.verifyChain(req, res);
   });
+  app.get('/zelcash/addnode/:node?/:command?', (req, res) => {
+    zelcashService.addNode(req, res);
+  });
+  app.get('/zelcash/clearbanned', (req, res) => {
+    zelcashService.clearBanned(req, res);
+  });
+  app.get('/zelcash/disconnectnode/:node?', (req, res) => {
+    zelcashService.disconnectNode(req, res);
+  });
+  app.get('/zelcash/getaddednodeinfo/:dns?/:node?', (req, res) => {
+    zelcashService.getAddedNodeInfo(req, res);
+  });
+  app.get('/zelcash/setban/:ip?/:command?/:bantime?/:absolute?', (req, res) => {
+    zelcashService.setBan(req, res);
+  });
   app.get('/zelid/loggedusers', (req, res) => {
     zelidService.loggedUsers(req, res);
   });
@@ -142,6 +199,9 @@ module.exports = (app) => {
   });
 
   // GET PROTECTED API - ZelTeam
+  app.get('/zelcash/ping', (req, res) => { // we do not want this to be issued by anyone.
+    zelcashService.ping(req, res);
+  });
   app.get('/zelnode/updateflux', (req, res) => { // method shall be called only if flux version is obsolete.
     zelnodeService.updateFlux(req, res);
   });
