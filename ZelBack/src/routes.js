@@ -124,6 +124,42 @@ module.exports = (app) => {
   app.get('/zelcash/listbanned', (req, res) => {
     zelcashService.listBanned(req, res);
   });
+  app.get('/zelcash/createrawtransaction/:transactions?/:addresses?/:locktime?/:expiryheight?', (req, res) => { // todo make this post too
+    zelcashService.createRawTransaction(req, res);
+  });
+  app.get('/zelcash/decoderawtransaction/:hexstring?', (req, res) => { // todo make this post too
+    zelcashService.decodeRawTransaction(req, res);
+  });
+  app.get('/zelcash/decodescript/:hex?', (req, res) => { // todo make this post too
+    zelcashService.decodeScript(req, res);
+  });
+  app.get('/zelcash/fundrawtransaction/:hexstring?', (req, res) => { // todo make this post too
+    zelcashService.fundRawTransaction(req, res);
+  });
+  app.get('/zelcash/getrawtransaction/:txid?/:verbose?', (req, res) => { // todo make this post too
+    zelcashService.getRawTransaction(req, res);
+  });
+  app.get('/zelcash/sendrawtransaction/:hexstring?/:allowhighfees?', (req, res) => { // todo make this post too
+    zelcashService.sendRawTransaction(req, res);
+  });
+  app.get('/zelcash/createmultisig/:n?/:keys?', (req, res) => { // todo make this post too
+    zelcashService.createMultiSig(req, res);
+  });
+  app.get('/zelcash/estimatefee/:nblocks?', (req, res) => {
+    zelcashService.estimateFee(req, res);
+  });
+  app.get('/zelcash/estimatepriority/:nblocks?', (req, res) => {
+    zelcashService.estimatePriority(req, res);
+  });
+  app.get('/zelcash/validateaddress/:zelcashaddress?', (req, res) => {
+    zelcashService.validateAddress(req, res);
+  });
+  app.get('/zelcash/verifymessage/:zelcashaddress?/:signature?/:message?', (req, res) => {
+    zelcashService.verifyMessage(req, res);
+  });
+  app.get('/zelcash/zvalidateaddress/:zaddr?', (req, res) => {
+    zelcashService.zValidateAddress(req, res);
+  });
   app.get('/zelid/loginphrase', (req, res) => {
     zelidService.loginPhrase(req, res);
   });
@@ -184,6 +220,9 @@ module.exports = (app) => {
   });
   app.get('/zelcash/setban/:ip?/:command?/:bantime?/:absolute?', (req, res) => {
     zelcashService.setBan(req, res);
+  });
+  app.get('/zelcash/signrawtransaction/:hexstring?/:prevtxs?/:privatekeys?/:sighashtype?/:branchid?', (req, res) => { // todo make this post too
+    zelcashService.signRawTransaction(req, res);
   });
   app.get('/zelid/loggedusers', (req, res) => {
     zelidService.loggedUsers(req, res);

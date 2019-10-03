@@ -873,13 +873,13 @@ async function verifyChain(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      if (typeof checklevel !== 'number') {
-        checklevel = Number(checklevel);
-      }
-      if (typeof numblocks !== 'number') {
-        numblocks = Number(numblocks);
-      }
       try {
+        if (typeof checklevel !== 'number') {
+          checklevel = Number(checklevel);
+        }
+        if (typeof numblocks !== 'number') {
+          numblocks = Number(numblocks);
+        }
         const data = await client.verifyChain(checklevel, numblocks);
         console.log(data);
         response.status = 'success';
@@ -1028,13 +1028,13 @@ async function getNetworkHashPs(req, res) {
   let { height } = req.params;
   height = height || req.query.height || -1;
 
-  if (typeof blocks !== 'number') {
-    blocks = Number(blocks);
-  }
-  if (typeof height !== 'number') {
-    height = Number(height);
-  }
   try {
+    if (typeof blocks !== 'number') {
+      blocks = Number(blocks);
+    }
+    if (typeof height !== 'number') {
+      height = Number(height);
+    }
     const data = await client.getNetworkHashPs(blocks, height);
     console.log(data);
     response.status = 'success';
@@ -1057,13 +1057,13 @@ async function getNetworkSolPs(req, res) {
   let { height } = req.params;
   height = height || req.query.height || -1;
 
-  if (typeof blocks !== 'number') {
-    blocks = Number(blocks);
-  }
-  if (typeof height !== 'number') {
-    height = Number(height);
-  }
   try {
+    if (typeof blocks !== 'number') {
+      blocks = Number(blocks);
+    }
+    if (typeof height !== 'number') {
+      height = Number(height);
+    }
     const data = await client.getNetworkSolPs(blocks, height);
     console.log(data);
     response.status = 'success';
@@ -1565,6 +1565,454 @@ async function setBan(req, res) {
   });
 }
 
+// == Rawtransactions ==
+async function createRawTransaction(req, res) {
+  let { transactions } = req.params;
+  transactions = transactions || req.query.transactions;
+  let { addresses } = req.params;
+  addresses = addresses || req.query.addresses;
+  let { locktime } = req.params;
+  locktime = locktime || req.query.locktime || 0;
+  const blockcount = await client.getBlockCount().catch((error) => {
+    const daemonerror = {
+      code: error.code,
+      message: error.message,
+    };
+    response.status = 'error';
+    response.data = daemonerror;
+    return res.json(response);
+  });
+  const defaultExpiryHeight = blockcount + 20;
+  let { expiryheight } = req.params;
+  expiryheight = expiryheight || req.query.expiryheight || defaultExpiryHeight;
+  console.log(expiryheight);
+
+  try {
+    if (typeof locktime !== 'number') {
+      locktime = Number(locktime);
+    }
+    if (typeof expiryheight !== 'number') {
+      expiryheight = Number(expiryheight);
+    }
+    if (typeof transactions !== 'object') {
+      transactions = JSON.parse(transactions);
+    }
+    if (typeof addresses !== 'object') {
+      addresses = JSON.parse(addresses);
+    }
+    if (transactions && addresses) {
+      const data = await client.createRawTransaction(transactions, addresses, locktime, expiryheight);
+      response.status = 'success';
+      response.data = data;
+    } else {
+      const data = await client.createRawTransaction(); // throw error with help
+      response.status = 'success';
+      response.data = data;
+    }
+  } catch (err) {
+    const daemonerror = {
+      code: err.code,
+      message: err.message,
+    };
+    response.status = 'error';
+    response.data = daemonerror;
+  }
+
+  return res.json(response);
+}
+
+async function decodeRawTransaction(req, res) {
+  let { hexstring } = req.params;
+  hexstring = hexstring || req.query.hexstring;
+
+  try {
+    if (hexstring) {
+      const data = await client.decodeRawTransaction(hexstring);
+      response.status = 'success';
+      response.data = data;
+    } else {
+      const data = await client.decodeRawTransaction(); // throw error with help
+      response.status = 'success';
+      response.data = data;
+    }
+  } catch (err) {
+    const daemonerror = {
+      code: err.code,
+      message: err.message,
+    };
+    response.status = 'error';
+    response.data = daemonerror;
+  }
+
+  return res.json(response);
+}
+
+async function decodeScript(req, res) {
+  let { hex } = req.params;
+  hex = hex || req.query.hex;
+
+  try {
+    if (hex) {
+      const data = await client.decodeScript(hex);
+      response.status = 'success';
+      response.data = data;
+    } else {
+      const data = await client.decodeScript(); // throw error with help
+      response.status = 'success';
+      response.data = data;
+    }
+  } catch (err) {
+    const daemonerror = {
+      code: err.code,
+      message: err.message,
+    };
+    response.status = 'error';
+    response.data = daemonerror;
+  }
+
+  return res.json(response);
+}
+
+async function fundRawTransaction(req, res) {
+  let { hexstring } = req.params;
+  hexstring = hexstring || req.query.hexstring;
+
+  try {
+    if (hexstring) {
+      const data = await client.fundRawTransaction(hexstring);
+      response.status = 'success';
+      response.data = data;
+    } else {
+      const data = await client.fundRawTransaction(); // throw error with help
+      response.status = 'success';
+      response.data = data;
+    }
+  } catch (err) {
+    const daemonerror = {
+      code: err.code,
+      message: err.message,
+    };
+    response.status = 'error';
+    response.data = daemonerror;
+  }
+
+  return res.json(response);
+}
+
+async function getRawTransaction(req, res) {
+  let { txid } = req.params;
+  txid = txid || req.query.txid;
+  let { verbose } = req.params;
+  verbose = verbose || req.query.verbose || 0;
+
+  try {
+    if (txid) {
+      if (typeof verbose !== 'number') {
+        verbose = Number(verbose);
+      }
+      console.log(verbose);
+      const data = await client.getRawTransaction(txid, verbose);
+      response.status = 'success';
+      response.data = data;
+    } else {
+      const data = await client.getRawTransaction(); // throw error with help
+      response.status = 'success';
+      response.data = data;
+    }
+  } catch (err) {
+    const daemonerror = {
+      code: err.code,
+      message: err.message,
+    };
+    response.status = 'error';
+    response.data = daemonerror;
+  }
+
+  return res.json(response);
+}
+
+async function sendRawTransaction(req, res) {
+  let { hexstring } = req.params;
+  hexstring = hexstring || req.query.hexstring;
+  let { allowhighfees } = req.params;
+  allowhighfees = allowhighfees || req.query.allowhighfees || false;
+
+  try {
+    if (hexstring) {
+      if (typeof allowhighfees !== 'boolean') {
+        if (allowhighfees === 'false' || allowhighfees === 0 || allowhighfees === '0') {
+          allowhighfees = false;
+        }
+        if (allowhighfees === 'true' || allowhighfees === 1 || allowhighfees === '1') {
+          allowhighfees = true;
+        }
+      }
+      const data = await client.sendRawTransaction(hexstring, allowhighfees);
+      response.status = 'success';
+      response.data = data;
+    } else {
+      const data = await client.sendRawTransaction(); // throw error with help
+      response.status = 'success';
+      response.data = data;
+    }
+  } catch (err) {
+    const daemonerror = {
+      code: err.code,
+      message: err.message,
+    };
+    response.status = 'error';
+    response.data = daemonerror;
+  }
+
+  return res.json(response);
+}
+
+async function signRawTransaction(req, res) {
+  let { hexstring } = req.params;
+  hexstring = hexstring || req.query.hexstring;
+  let { prevtxs } = req.params;
+  prevtxs = prevtxs || req.query.prevtxs;
+  let { privatekeys } = req.params;
+  privatekeys = privatekeys || req.query.privatekeys;
+  let { sighashtype } = req.params;
+  sighashtype = sighashtype || req.query.sighashtype || 'ALL';
+  let { branchid } = req.params;
+  branchid = branchid || req.query.branchid;
+  serviceHelper.verifyAdminSession(req.headers, async (error, authorized) => {
+    if (error) {
+      return res.json(error);
+    }
+    if (authorized === true) {
+      try {
+        if (hexstring) {
+          if (prevtxs) {
+            if (typeof prevtxs !== 'object') {
+              prevtxs = JSON.parse(prevtxs);
+            }
+          }
+          if (privatekeys) {
+            if (typeof privatekeys !== 'object') {
+              privatekeys = JSON.parse(privatekeys);
+            }
+          }
+          if (hexstring && prevtxs && privatekeys && branchid) {
+            const data = await client.signRawTransaction(hexstring, prevtxs, privatekeys, sighashtype, branchid);
+            response.status = 'success';
+            response.data = data;
+          } else if (hexstring && prevtxs && privatekeys) {
+            const data = await client.signRawTransaction(hexstring, prevtxs, privatekeys, sighashtype);
+            response.status = 'success';
+            response.data = data;
+          } else if (hexstring && prevtxs) {
+            const data = await client.signRawTransaction(hexstring, prevtxs);
+            response.status = 'success';
+            response.data = data;
+          } else {
+            const data = await client.signRawTransaction(hexstring);
+            response.status = 'success';
+            response.data = data;
+          }
+        } else {
+          const data = await client.signRawTransaction(); // throw error with help
+          response.status = 'success';
+          response.data = data;
+        }
+      } catch (err) {
+        const daemonerror = {
+          code: err.code,
+          message: err.message,
+        };
+        response.status = 'error';
+        response.data = daemonerror;
+      }
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      response = errMessage;
+    }
+
+    return res.json(response);
+  });
+}
+
+// == Util ==
+async function createMultiSig(req, res) {
+  let { n } = req.params;
+  n = n || req.query.n;
+  let { keys } = req.params;
+  keys = keys || req.query.keys;
+
+  try {
+    if (n && keys) {
+      if (typeof n !== 'number') {
+        n = Number(n);
+      }
+      if (typeof keys !== 'object') {
+        keys = JSON.parse(keys);
+      }
+      const data = await client.createMultiSig(n, keys);
+      response.status = 'success';
+      response.data = data;
+    } else {
+      const data = await client.createMultiSig(); // throw error with help
+      response.status = 'success';
+      response.data = data;
+    }
+  } catch (err) {
+    const daemonerror = {
+      code: err.code,
+      message: err.message,
+    };
+    response.status = 'error';
+    response.data = daemonerror;
+  }
+
+  return res.json(response);
+}
+
+async function estimateFee(req, res) {
+  let { nblocks } = req.params;
+  nblocks = nblocks || req.query.nblocks;
+
+  try {
+    if (nblocks) {
+      if (typeof nblocks !== 'number') {
+        nblocks = Number(nblocks);
+      }
+      const data = await client.estimateFee(nblocks);
+      response.status = 'success';
+      response.data = data;
+    } else {
+      const data = await client.estimateFee(); // throw error with help
+      response.status = 'success';
+      response.data = data;
+    }
+  } catch (err) {
+    const daemonerror = {
+      code: err.code,
+      message: err.message,
+    };
+    response.status = 'error';
+    response.data = daemonerror;
+  }
+
+  return res.json(response);
+}
+
+async function estimatePriority(req, res) {
+  let { nblocks } = req.params;
+  nblocks = nblocks || req.query.nblocks;
+
+  try {
+    if (nblocks) {
+      if (typeof nblocks !== 'number') {
+        nblocks = Number(nblocks);
+      }
+      const data = await client.estimatePriority(nblocks);
+      response.status = 'success';
+      response.data = data;
+    } else {
+      const data = await client.estimatePriority(); // throw error with help
+      response.status = 'success';
+      response.data = data;
+    }
+  } catch (err) {
+    const daemonerror = {
+      code: err.code,
+      message: err.message,
+    };
+    response.status = 'error';
+    response.data = daemonerror;
+  }
+
+  return res.json(response);
+}
+
+async function validateAddress(req, res) {
+  let { zelcashaddress } = req.params;
+  zelcashaddress = zelcashaddress || req.query.zelcashaddress;
+
+  try {
+    if (zelcashaddress) {
+      const data = await client.validateAddress(zelcashaddress);
+      response.status = 'success';
+      response.data = data;
+    } else {
+      const data = await client.validateAddress(); // throw error with help
+      response.status = 'success';
+      response.data = data;
+    }
+  } catch (err) {
+    const daemonerror = {
+      code: err.code,
+      message: err.message,
+    };
+    response.status = 'error';
+    response.data = daemonerror;
+  }
+
+  return res.json(response);
+}
+
+async function verifyMessage(req, res) {
+  let { zelcashaddress } = req.params;
+  zelcashaddress = zelcashaddress || req.query.zelcashaddress;
+  let { signature } = req.params;
+  signature = signature || req.query.signature;
+  let { message } = req.params;
+  message = message || req.query.message;
+  try {
+    if (zelcashaddress && signature && message) {
+      const data = await client.verifyMessage(zelcashaddress, signature, message);
+      response.status = 'success';
+      response.data = data;
+    } else {
+      const data = await client.verifyMessage(); // throw error with help
+      response.status = 'success';
+      response.data = data;
+    }
+  } catch (err) {
+    const daemonerror = {
+      code: err.code,
+      message: err.message,
+    };
+    response.status = 'error';
+    response.data = daemonerror;
+  }
+
+  return res.json(response);
+}
+
+async function zValidateAddress(req, res) {
+  let { zaddr } = req.params;
+  zaddr = zaddr || req.query.zaddr;
+
+  try {
+    if (zaddr) {
+      const data = await client.z_validateaddress(zaddr);
+      response.status = 'success';
+      response.data = data;
+    } else {
+      const data = await client.z_validateaddress(); // throw error with help
+      response.status = 'success';
+      response.data = data;
+    }
+  } catch (err) {
+    const daemonerror = {
+      code: err.code,
+      message: err.message,
+    };
+    response.status = 'error';
+    response.data = daemonerror;
+  }
+
+  return res.json(response);
+}
+
 module.exports = {
   // == Control ==
   help,
@@ -1635,4 +2083,21 @@ module.exports = {
   listBanned,
   ping,
   setBan,
+
+  // == Rawtransactions ==
+  createRawTransaction,
+  decodeRawTransaction,
+  decodeScript,
+  fundRawTransaction,
+  getRawTransaction,
+  sendRawTransaction,
+  signRawTransaction,
+
+  // == Util ==
+  createMultiSig,
+  estimateFee,
+  estimatePriority,
+  validateAddress,
+  verifyMessage,
+  zValidateAddress,
 };
