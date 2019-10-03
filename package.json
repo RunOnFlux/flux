@@ -1,6 +1,6 @@
 {
   "name": "flux",
-  "version": "0.21.1",
+  "version": "0.21.2",
   "description": "Flux - ZelNode Daemon. The entrace to the ZelNode network.",
   "repository": {
     "type": "git",
@@ -37,9 +37,9 @@
     "zelbackstart": "nodemon ZelBack/server.js",
     "zelbackdev": "nodemon ZelBack/server.js",
     "flux": "nodemon app.js",
-    "start": "npm install --production && node init.js && (npm run zelfrontbuildwatch & npm run flux)",
+    "start": "npm install && node init.js && (npm run zelfrontbuildwatch & npm run flux)",
     "dev": "node init.js && (npm run zelbackdev & npm run zelfrontdev)",
-    "updateflux": "git pull && npm install --production",
+    "updateflux": "git pull && npm install",
     "hardupdateflux": "rm -rf node_modules && rm -f package-lock.json && git reset --hard && git pull && npm run start"
   },
   "dependencies": {
