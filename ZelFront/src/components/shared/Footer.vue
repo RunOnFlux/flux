@@ -7,12 +7,12 @@
     <div class="footer-middle">
       <ElLink
         type="primary"
-        href="https://github.com/zelcash/zelnoded"
+        href="https://github.com/zelcash/flux"
         target="_blank"
-      >Your freedom empowered</ElLink>
+      >The gateway to the Zel Network</ElLink>
     </div>
     <div class="footer-right">
-      Flux {{ 'v' + fluxVersion}}
+      ZelFlux {{ 'v' + fluxVersion}}
     </div>
   </div>
 </template>
@@ -56,13 +56,13 @@ export default {
   methods: {
     getLatestFluxVersion() {
       const self = this;
-      axios.get('https://raw.githubusercontent.com/zelcash/zelnoded/master/package.json')
+      axios.get('https://raw.githubusercontent.com/zelcash/flux/master/package.json')
         .then((response) => {
           console.log(response);
           if (response.data.version !== self.fluxVersion) {
-            vue.$message.warning('Flux requires an update!');
+            vue.$message.warning('ZelFlux needs to be updated!');
           } else {
-            vue.$message.success('Flux is up to date');
+            vue.$message.success('ZelFlux is up to date');
           }
         })
         .catch((error) => {

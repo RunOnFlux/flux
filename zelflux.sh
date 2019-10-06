@@ -14,7 +14,7 @@ sudo apt install mongodb -y
 curl -sL https://deb.nodesource.com/setup_12.x | sudo -E bash -
 sudo apt-get install nodejs -y
 
-# Clone Zelnoded repo and start ZelFlux
-git clone https://github.com/zelcash/zelnoded && cd zelnoded
+# Clone ZelFlux repo and start ZelFlux
+git clone https://github.com/zelcash/flux zelflux && cd zelflux
 npm start
 

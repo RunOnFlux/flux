@@ -87,7 +87,7 @@ export default {
           console.log('ZelNode Section hidden');
           break;
         default:
-          console.log('ZelNode Section: Unrecognised method'); // should not be seeable if all works correctly
+          console.log('ZelNode Section: Unrecognized method'); // should not be visible if everything works correctly
       }
     },
   },
@@ -101,7 +101,7 @@ export default {
         console.log('ZelNode Section hidden');
         break;
       default:
-        console.log('ZelNode Section: Unrecognised method');
+        console.log('ZelNode Section: Unrecognized method');
     }
   },
   methods: {
@@ -122,7 +122,7 @@ export default {
         } else {
           const statusCode = this.getZelNodeStatusResponse.message.code || this.getZelNodeStatusResponse.message.status;
           this.getZelNodeStatusResponse.code = statusCode;
-          this.getZelNodeStatusResponse.zelnodeStatus = `Error status code: ${statusCode}. ZelNode not yet active. Flux is running with limited capabilities.`;
+          this.getZelNodeStatusResponse.zelnodeStatus = `Error status code: ${statusCode}. ZelNode not activated yet. ZelFlux is running but with limited capabilities.`;
         }
       }
     },

@@ -1,7 +1,7 @@
 <template>
   <div class="loginSection">
     <p>
-      Log in using Zel ID
+      Please log in using Zel ID
     </p>
     <div>
       <a
@@ -16,7 +16,7 @@
     </div>
 
     <p>
-      or sign the following message with any bitcoin address.
+      or sign the following message with any Bitcoin address.
     </p>
     <ElForm
       :model="loginForm"
@@ -98,7 +98,7 @@ export default {
     const isChrome = !!window.chrome;
     if (!isChrome) {
       vue.$message({
-        message: 'Your browser does not support Flux websocket support. Logging with Zel ID is not available. For optional experience use Chrome browser.',
+        message: 'Your browser does not support ZelFluxs websockets. Logging in with Zel ID is not possible. For an optimal experience, please use Chrome or Firefox',
         type: 'warning',
         duration: 0,
         showClose: true,
@@ -130,7 +130,7 @@ export default {
         .then((response) => {
           console.log(response);
           if (response.data.status === 'success' && response.data.data) {
-            // we are now signed. Store our values
+            // user is  now signed. Store their values
             const zelidauth = {
               zelid: this.loginForm.address,
               signature: this.loginForm.signature,
@@ -165,7 +165,7 @@ export default {
     onMessage(evt) {
       const data = qs.parse(evt.data);
       if (data.status === 'success' && data.data) {
-        // we are now signed. Store our values
+        // user is now signed. Store their values
         const zelidauth = {
           zelid: data.data.zelid,
           signature: data.data.signature,

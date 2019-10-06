@@ -1,48 +1,53 @@
-# Flux - ZelNode Daemon
-The entrance to the ZelNode network
+# ZelFlux - ZelNode Daemon
 
-Requires reasonably new version of Node.js (npm) and MongoDB
+![ZelNode.gif](ZelFront/src/assets/img/zelnode.gif)
 
-MongoDB, Express.js, Vue.js, Node.js (MEVN) application
+## The gateway to the Zel Network
 
-This application communicates locally with ZelCash Daemon (zelcashd), ZelBench Daemon (benchmarkd) and with other ZelNode Daemons (flux). 
+ZelFlux is the frontend UI to the entire Zel Network, it enables ZelNode operators to manage their ZelNode easily via a simple web interface. ZelFlux enables a ZelNode operator to perform all tasks such as updating and maintenance from a simple web interface, instead of having to remotely login to their ZelNode to manage it.
 
-With a frontend user interface a ZelNode user can entire access ZelNode network and ZelNode operator can manage his own ZelNode via a web interface instead of logging into node directly and with single button lunch instances, update nodes and much more. 
+ZelFlux Requires a reasonably new version of Node.js (npm) and MongoDB. It is a MongoDB, Express.js, Vue.js, Node.js (MEVN) application
+
+This application communicates locally with the ZelCash Daemon (zelcashd), ZelBench Daemon (benchmarkd) and with other ZelNode Daemons (zelflux).
 
 ## Application Overview
-#### Backend solution
+
+### Backend Solution - zelback
+
 - Provide communication with zelcashd
-- Proividing private API part, and public API part, ZelNode team API part (limited!)
-- Listening and Handling frontend requests
+- Providing private API, and public API, ZelNode team API (limited!)
+- Listen and handel frontend requests
 - Requests signing and authenticity verifying
-- Communication with other zelnode daemons (flux solution)
-- managing ZelNode applications - smart spawning, distributing workload, terminating depending of application subscription 
-- ...
+- Handel communication with other zelnode daemons (zelflux solution)
+- Manage ZelNode applications - smart spawning, distributing workload, termination depending of application subscription.
+- and more!
 
-#### Frontend solution
-- ZelNode status information
-- ZelNode network information
-- ZelCash status information
-- ZelCash network information
-- Specific application information
-- API access
-- login into private API part (frontend part)
-- login into ZelNode team API part (frontend part)
-- Private: Managing of ZelNode
-- Private: Managing of ZelCash
-- Private: Updating, status information
-- ...
+### Frontend Solution - zelfront
 
-This application is open source distributed under GNU AGPLv3
+- Display ZelNode status information
+- Display Zel Network information
+- Display ZelCash status information
+- Display ZelCash network information
+- Display Specific application information
+- Provide API access
+- Login into private API part (frontend part)
+- Login into ZelNode team API part (frontend part)
+- Private: Management of ZelNode
+- Private: Management of ZelCash
+- Private: Update, status information
+- and more!
 
-Mongodb and zelcashd has to be running
+This application is open source and distributed under the GNU AGPLv3 licence
+
+## Start ZelFlux
+
+Mongodb and zelcashd needs to be setup and running
 
 Production:
 
 ``` bash
 
 sudo npm start
-
 ```
 
 Development: Start both solutions with
@@ -51,12 +56,11 @@ Development: Start both solutions with
 
 npm run zelbackdev
 npm run zelfrontdev
-
 ```
 
-## ZelFront information
+## ZelFront Information
 
-> Frontend interface to interact with ZelNode network
+> Frontend interface to interact with the Zel network
 
 ## Build Setup
 
@@ -81,96 +85,139 @@ npm run zelfronte2e
 npm run zelfronttest
 ```
 
-For a detailed explanation on how things work, check out the [guide](http://vuejs-templates.github.io/webpack/) and [docs for vue-loader](http://vuejs.github.io/vue-loader).
+## ZelBack Information
 
-## ZelBack information
-
-> Backend interface to interact with ZelNode network
+> Backend interface to interact with the Zel Network
 > Default port is 16126
 > Communication port with other zelnodes is 16127
 
-## Build Setup
+## Continued Build Setup
 
-``` bash
+```bash
 
 # serve with hot reload at localhost:16126
 npm run zelbackdev
-
 ```
 
 Signed message requirement
+
 - First 13 characters is timestamp
 - The length of message must be at least 40 characters
 - Message and corresponding signature must not be older than X seconds
 
-### API CALLS
+### API Calls
 
-#### zelcashd calls
-get /zelcash/help (Public)
-returns help from zelcashd
+#### - zelcashd Calls
 
-get /zelcash/getinfo (Public)
-returns getinfo from zelcashd
+``` bash
+# return help from zelcashd
+get /zelcash/help # (Public)
+```
 
-get /zelcash/getzelnodestatus (Public)
-returns getzelnodestatus from zelcashd
+``` bash
+# return reinfo from zelcashd
+get /zelcash/getinfo # (Public)
+```
 
-get /zelcash/listzelnodes (Public)
-returns listzelnodes from zelcashd
+``` bash
+# return getzelnodestatus from zelcashd
+get /zelcash/getzelnodestatus # (Public)
+```
 
-get /zelcash/listzelnodeconf (ZelNode Owner)
-returns listzelnodeconf from zelcashd
+``` bash
+# return listzelnodes from zelcashd
+get /zelcash/listzelnodes #(Public)
+```
 
-#### zelid calls
-get /zelid/loginphrase (Public)
-returns a loginphrase - message that should be signed by zelid (or any bitcoin address). Message expires after 15 minutes. Only within these 15 minutes it is possible to log in with this message
+``` bash
+# return list zelnodeconf from zelcashd
+get /zelcash/listzelnodeconf #(ZelNode Owner)
+```
 
-post /zelid/verifylogin
-post a stringified object of {
-  message: loginPhrase,
-  address: zelid/bitcoin address that signed this message,
-  signature: signature of the message by that zelid
-}
-returns an object with status either error or success and data containing message explaining the outcome. Success means logged in. Error is error. Also return privilage status to api /user, admin, zelteam
+#### - zelid Calls
 
-websocket /ws/zelid/:loginphrase
-It is possible to subscribe to listening to a response of logging with a certain loginphrase. Such response then contain loginPhrase, signature, address, message and privilage. This is useful for remote logging.
+``` bash
+# return a loginphrase - message that should be signed by zelid (or any bitcoin address). Message expires after 15 minutes. Only within these 15 minutes it is possible to log in with this message
+get /zelid/loginphrase # (Public)
+```
 
-Protected API
-- In order to access protected API, user has to be logged into the zelnode. Every request to protected API has to contain stringified zelidauth header of folowing object\
-  {
-    zelid: zelid/bitcoin address used for logging in,
-    signature: signature of a loginPhrase message signed by this address. 
+``` bash
+# Return an object with a status of either error or success and the data containing message explaining the outcome. Success means logged in. Error means, well, error. It also returns the privilege status to the api according to the user, admin, zelteam.
+
+post /zelid/verifylogin # (Public)
+
+# // this posts a stringified object of {
+#  message: loginPhrase,
+#  address: zelid/bitcoin address that signed this message,
+#  signature: signature of the message by that zelid
+# }
+```
+
+``` bash
+# Subscribe to listen for notification response of user logins with a certain loginphrase. Such response contains loginPhrase, signature, address, message and privilege. This is useful for remote logging.
+websocket /ws/zelid/:loginphrase # (Public)
+```
+
+#### Protected API
+
+- In order to access protectred API, user has to be logged into their ZelNode. Every request to the protected API has to contain stringified zelidauth header of following object
+
+``` html
+ {
+  zelid: zelid/bitcoin address used for logging in,
+ signature: signature of a loginPhrase message signed by ths address.
   }
-  Note This loginPhrase must have been obtained by this zelnode and user (zelid) must be signed in to the zelnode with that loginPhrase
 
-get /zelid/loggedusers (ZelNode Owner)
-Returns an array of currently logged users into the zelnode
-{ zelid: 1btc, loginPhrase: dddasd }
+ // Note this loginPhrase must have been obtained by this ZelNode and user (zelid) must be signed in to the ZelNode with the loginPhrase
+```
 
-get /zelid/activeloginphrases (ZelNode Owner)
-Return an array of currently active login phrases
-  /* const activeLoginPhrases = [
-     {
-       loginPhrase: 1565356121335e9obp7h17bykbbvub0ts488wnnmd12fe1pq88mq0v,
-       createdAt: 2019-08-09T13:08:41.335Z,
-       expireAt: 2019-08-09T13:23:41.335Z
-     }
-  ] */
+``` bash
+# Return an array of users currently logged into the ZelNode
+get /zelid/loggeduser # (ZelNode Owner)
 
-get /zelid/logoutallusers (ZelNode Owner)
-Logs out all users
+# Example response
+# { zelid: 1btc, loginPhrase: dddasd}
+```
 
-get /zelid/loggedsessions (User level)
-Returns an array of currently logged users into the zelnode
-{ zelid: 1btc, loginPhrase: dddasd }
+``` bash
+#Return an array of currently active login phrases
+get /zelid/activeloginphrases # (ZelNode Owner)
 
-get /zelid/logoutcurrentsession (User level)
-Logs out current login session
+# Example response
+#  /* const activeLoginPhrases = [
+#     {
+#       loginPhrase: 1565356121335e9obp7h17bykbbvub0ts488wnnmd12fe1pq88mq0v,
+#       createdAt: 2019-08-09T13:08:41.335Z,
+#       expireAt: 2019-08-09T13:23:41.335Z
+#     }
+#  ] */
+```
 
-post /zelid/logoutspecificsession (User level)
-@param = loginPhrase ( signed message that is assigned to this specific session)
-Returns status about logging out specific session
+``` bash
+# Log out all users
+get /zelid/logoutallusers # (ZelNode Owner)
+```
 
-get /zelid/logoutallsessions (User level)
-Logs out all login sessions - all devices (precisely all still valid logins)
+``` bash
+# Return an array of currently logged users into the ZelNode
+get /zelid/loggedsessions # (User level)
+```
+
+``` bash
+
+#Log out current login session
+get /zelid/logoutcurrentsession # (User level)
+```
+
+``` bash
+#Return status about logging out specific sessions
+post /zelid/logoutspecificsession # (User level)
+# @param = loginPhrase # ( signed message that is assigned to this specific session)
+```
+
+``` bash
+#Log out all login sessions - all devices (precisely all still valid logins)
+get /zelid/logoutallsessions # (User level)
+```
+
+Made with ❤️ by the Zel Team

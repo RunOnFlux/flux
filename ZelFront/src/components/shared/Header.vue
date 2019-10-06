@@ -35,7 +35,7 @@
       >
         <template slot="title">ZelAdmin</template>
         <el-menu-item index="10-1">Logged Sessions</el-menu-item>
-        <el-menu-item v-if="privilage === 'zelteam' || privilage === 'admin'" index="10-2">Manage Flux</el-menu-item>
+        <el-menu-item v-if="privilage === 'zelteam' || privilage === 'admin'" index="10-2">Manage ZelFlux</el-menu-item>
         <el-menu-item v-if="privilage === 'zelteam' || privilage === 'admin'" index="10-3">Manage ZelCash</el-menu-item>
         <el-menu-item v-if="privilage === 'admin'" index="10-4">Manage Users</el-menu-item>
         <!--<el-menu-item index="10-4">Active Login Phrases</el-menu-item>-->
@@ -98,7 +98,7 @@ export default {
           this.activeIndex = 0;
           break;
         default:
-          console.log('Menu: Unrecognised method');
+          console.log('Menu: Unrecognized method');
       }
     },
     logoutCurrentSession() {

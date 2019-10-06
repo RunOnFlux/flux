@@ -17,7 +17,7 @@ function updateFlux(req, res) {
           const errMessage = {
             status: 'error',
             data: {
-              message: `Error updating Flux: ${err.toString()}`,
+              message: `Error updating ZelFlux: ${err.toString()}`,
             },
           };
           return res.json(errMessage);
@@ -25,7 +25,7 @@ function updateFlux(req, res) {
         const message = {
           status: 'success',
           data: {
-            message: 'Flux successfully updated',
+            message: 'ZelFlux successfully updated',
           },
         };
         return res.json(message);
@@ -55,7 +55,7 @@ function rebuildZelFront(req, res) {
           const errMessage = {
             status: 'error',
             data: {
-              message: `Error rebuilding Flux: ${err}`,
+              message: `Error rebuilding ZelFlux: ${err}`,
             },
           };
           return res.json(errMessage);
@@ -63,7 +63,7 @@ function rebuildZelFront(req, res) {
         const message = {
           status: 'success',
           data: {
-            message: 'Flux successfully rebuilt',
+            message: 'ZelFlux successfully rebuilt',
           },
         };
         return res.json(message);

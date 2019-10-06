@@ -4,7 +4,7 @@
       <Header />
     </div>
     <div class="content">
-      Hi
+      Hey
     </div>
     <div class="footer">
       <Footer />
