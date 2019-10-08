@@ -211,7 +211,7 @@ async function znsync(req, res) {
       response.data = daemonerror;
     }
     return res.json(response);
-  // eslint-disable-next-line no-else-return
+    // eslint-disable-next-line no-else-return
   } else {
     // eslint-disable-next-line consistent-return
     serviceHelper.verifyAdminSession(req.headers, async (error, authorized) => {
@@ -1788,21 +1788,31 @@ async function signRawTransaction(req, res) {
     if (authorized === true) {
       try {
         if (hexstring) {
-          if (prevtxs) {
-            if (typeof prevtxs !== 'object') {
-              prevtxs = JSON.parse(prevtxs);
-            }
-          }
-          if (privatekeys) {
-            if (typeof privatekeys !== 'object') {
-              privatekeys = JSON.parse(privatekeys);
-            }
-          }
           if (hexstring && prevtxs && privatekeys && branchid) {
+            if (prevtxs) {
+              if (typeof prevtxs !== 'object') {
+                prevtxs = JSON.parse(prevtxs);
+              }
+            }
+            if (privatekeys) {
+              if (typeof privatekeys !== 'object') {
+                privatekeys = JSON.parse(privatekeys);
+              }
+            }
             const data = await client.signRawTransaction(hexstring, prevtxs, privatekeys, sighashtype, branchid);
             response.status = 'success';
             response.data = data;
           } else if (hexstring && prevtxs && privatekeys) {
+            if (prevtxs) {
+              if (typeof prevtxs !== 'object') {
+                prevtxs = JSON.parse(prevtxs);
+              }
+            }
+            if (privatekeys) {
+              if (typeof privatekeys !== 'object') {
+                privatekeys = JSON.parse(privatekeys);
+              }
+            }
             const data = await client.signRawTransaction(hexstring, prevtxs, privatekeys, sighashtype);
             response.status = 'success';
             response.data = data;
@@ -2016,6 +2026,291 @@ async function zValidateAddress(req, res) {
   return res.json(response);
 }
 
+// == Wallet == Admin Privilage. Benchmark zelteam privilage
+async function addMultiSigAddress(req, res) {
+  let { n } = req.params;
+  n = n || req.query.n;
+  let { keysobject } = req.params;
+  keysobject = keysobject || req.query.keysobject;
+  serviceHelper.verifyAdminSession(req.headers, async (error, authorized) => {
+    if (error) {
+      return res.json(error);
+    }
+    if (authorized === true) {
+      try {
+        if (n && keysobject) {
+          if (typeof n !== 'number') {
+            n = Number(n);
+          }
+          if (typeof privatekeys !== 'object') {
+            keysobject = JSON.parse(keysobject);
+          }
+          const data = await client.addMultiSigAddress(n, keysobject);
+          response.status = 'success';
+          response.data = data;
+        } else {
+          const data = await client.addMultiSigAddress(); // throw error with help
+          response.status = 'success';
+          response.data = data;
+        }
+      } catch (err) {
+        const daemonerror = {
+          code: err.code,
+          message: err.message,
+        };
+        response.status = 'error';
+        response.data = daemonerror;
+      }
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      response = errMessage;
+    }
+
+    return res.json(response);
+  });
+}
+
+async function backupWallet(req, res) {
+  let { destination } = req.params;
+  destination = destination || req.query.destination;
+  serviceHelper.verifyAdminSession(req.headers, async (error, authorized) => {
+    if (error) {
+      return res.json(error);
+    }
+    if (authorized === true) {
+      try {
+        if (destination) {
+          const data = await client.backupWallet(destination);
+          response.status = 'success';
+          response.data = data;
+        } else {
+          const data = await client.backupWallet(); // throw error with help
+          response.status = 'success';
+          response.data = data;
+        }
+      } catch (err) {
+        const daemonerror = {
+          code: err.code,
+          message: err.message,
+        };
+        response.status = 'error';
+        response.data = daemonerror;
+      }
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      response = errMessage;
+    }
+
+    return res.json(response);
+  });
+}
+
+async function dumpPrivKey(req, res) {
+  let { taddr } = req.params;
+  taddr = taddr || req.query.taddr;
+  serviceHelper.verifyAdminSession(req.headers, async (error, authorized) => {
+    if (error) {
+      return res.json(error);
+    }
+    if (authorized === true) {
+      try {
+        if (taddr) {
+          const data = await client.dumpPrivKey(taddr);
+          response.status = 'success';
+          response.data = data;
+        } else {
+          const data = await client.dumpPrivKey(); // throw error with help
+          response.status = 'success';
+          response.data = data;
+        }
+      } catch (err) {
+        const daemonerror = {
+          code: err.code,
+          message: err.message,
+        };
+        response.status = 'error';
+        response.data = daemonerror;
+      }
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      response = errMessage;
+    }
+
+    return res.json(response);
+  });
+}
+
+async function getBalance(req, res) {
+  let { minconf } = req.params;
+  minconf = minconf || req.query.minconf || 1;
+  let { includewatchonly } = req.params;
+  includewatchonly = includewatchonly || req.query.includewatchonly || false;
+  serviceHelper.verifyAdminSession(req.headers, async (error, authorized) => {
+    if (error) {
+      return res.json(error);
+    }
+    if (authorized === true) {
+      try {
+        if (typeof minconf !== 'number') {
+          minconf = Number(minconf);
+        }
+        if (typeof includewatchonly !== 'boolean') {
+          if (includewatchonly === 'false' || includewatchonly === 0 || includewatchonly === '0') {
+            includewatchonly = false;
+          }
+          if (includewatchonly === 'true' || includewatchonly === 1 || includewatchonly === '1') {
+            includewatchonly = true;
+          }
+        }
+        const data = await client.getBalance('', minconf, includewatchonly);
+        response.status = 'success';
+        response.data = data;
+      } catch (err) {
+        const daemonerror = {
+          code: err.code,
+          message: err.message,
+        };
+        response.status = 'error';
+        response.data = daemonerror;
+      }
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      response = errMessage;
+    }
+
+    return res.json(response);
+  });
+}
+
+async function getNewAddress(req, res) {
+  serviceHelper.verifyAdminSession(req.headers, async (error, authorized) => {
+    if (error) {
+      return res.json(error);
+    }
+    if (authorized === true) {
+      try {
+        const data = await client.getNewAddress();
+        response.status = 'success';
+        response.data = data;
+      } catch (err) {
+        const daemonerror = {
+          code: err.code,
+          message: err.message,
+        };
+        response.status = 'error';
+        response.data = daemonerror;
+      }
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      response = errMessage;
+    }
+
+    return res.json(response);
+  });
+}
+
+async function getRawChangeAddress(req, res) {
+  serviceHelper.verifyAdminSession(req.headers, async (error, authorized) => {
+    if (error) {
+      return res.json(error);
+    }
+    if (authorized === true) {
+      try {
+        const data = await client.getRawChangeAddress();
+        response.status = 'success';
+        response.data = data;
+      } catch (err) {
+        const daemonerror = {
+          code: err.code,
+          message: err.message,
+        };
+        response.status = 'error';
+        response.data = daemonerror;
+      }
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      response = errMessage;
+    }
+
+    return res.json(response);
+  });
+}
+
+async function getReceivedByAddress(req, res) {
+  let { zelcashaddress } = req.params;
+  zelcashaddress = zelcashaddress || req.query.zelcashaddress;
+  let { minconf } = req.params;
+  minconf = minconf || req.query.minconf || 1;
+  serviceHelper.verifyAdminSession(req.headers, async (error, authorized) => {
+    if (error) {
+      return res.json(error);
+    }
+    if (authorized === true) {
+      try {
+        if (zelcashaddress) {
+          if (typeof minconf !== 'number') {
+            minconf = Number(minconf);
+          }
+          const data = await client.getReceivedByAddress(zelcashaddress, minconf);
+          response.status = 'success';
+          response.data = data;
+        } else {
+          const data = await client.getReceivedByAddress(); // throw help
+          response.status = 'success';
+          response.data = data;
+        }
+      } catch (err) {
+        const daemonerror = {
+          code: err.code,
+          message: err.message,
+        };
+        response.status = 'error';
+        response.data = daemonerror;
+      }
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      response = errMessage;
+    }
+
+    return res.json(response);
+  });
+}
+
 module.exports = {
   // == Control ==
   help,
@@ -2103,4 +2398,65 @@ module.exports = {
   validateAddress,
   verifyMessage,
   zValidateAddress,
+
+  // == Wallet ==
+  addMultiSigAddress,
+  backupWallet,
+  dumpPrivKey,
+  // encryptWallet, // == not avaialbe - EXPERIMENTAL FEATURE ==
+  // getAccount, // == not avaialbe - DEPRECATED ==
+  // getAccountAddress, // == not avaialbe - DEPRECATED ==
+  // getAddressesByAccount, // == not avaialbe - DEPRECATED ==
+  getBalance,
+  getNewAddress,
+  getRawChangeAddress,
+  // getReceivedByAccount, // == not avaialbe - DEPRECATED ==
+  getReceivedByAddress,
+  // getTransaction,
+  // getUnconfirmedBalance,
+  // getWalletInfo,
+  // importAddress,
+  // importPrivKey,
+  // importWallet,
+  // keyPoolRefill,
+  // listAccounts, // == not avaialbe - DEPRECATED ==
+  // listAddressGroupings,
+  // listLockUnspent,
+  // listReceivedByAccount, // == not avaialbe - DEPRECATED ==
+  // listreceivedByAddress,
+  // listSinceBlock,
+  // listTransactions,
+  // listUnspent,
+  // lockUnspent,
+  // move, // == not avaialbe - DEPRECATED ==
+  // sendFrom,
+  // sendMany,
+  // sendToAddress,
+  // setAccount, // == not avaialbe - DEPRECATED ==
+  // setTxFee,
+  // signMessage,
+  // zExportKey,
+  // zExportViewingKey,
+  // zGetBalance,
+  // zGetMigrationStatus,
+  // zGetNewAddress,
+  // zGetOperationResult,
+  // zGetOperationStatus,
+  // zGetTotalBalance,
+  // zImportKey,
+  // zImportViewingKey,
+  // zImportWallet,
+  // zListAddresses,
+  // zListOperationIds,
+  // zListReceivedByAddress,
+  // zListUnspent,
+  // zMergeToAddress,
+  // zSendMany,
+  // zSetMigration,
+  // zShieldCoinBase,
+  // zcBenchmark,
+  // zcRawJoinSplit,
+  // zcRawKeygen,
+  // zcRawReceive,
+  // zcSampleJoinSplit,
 };

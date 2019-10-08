@@ -224,6 +224,27 @@ module.exports = (app) => {
   app.get('/zelcash/signrawtransaction/:hexstring?/:prevtxs?/:privatekeys?/:sighashtype?/:branchid?', (req, res) => { // todo make this post too
     zelcashService.signRawTransaction(req, res);
   });
+  app.get('/zelcash/addmultisigaddress/:n?/:keysobject?', (req, res) => { // todo make this post too
+    zelcashService.addMultiSigAddress(req, res);
+  });
+  app.get('/zelcash/backupwallet/:destination?', (req, res) => {
+    zelcashService.backupWallet(req, res);
+  });
+  app.get('/zelcash/dumpprivkey/:taddr?', (req, res) => {
+    zelcashService.dumpPrivKey(req, res);
+  });
+  app.get('/zelcash/getbalance/:minconf?/:includewatchonly?', (req, res) => {
+    zelcashService.getBalance(req, res);
+  });
+  app.get('/zelcash/getnewaddress', (req, res) => {
+    zelcashService.getNewAddress(req, res);
+  });
+  app.get('/zelcash/getrawchangeaddress', (req, res) => {
+    zelcashService.getRawChangeAddress(req, res);
+  });
+  app.get('/zelcash/getreceivedbyaddress/:zelcashaddress?/:minconf?', (req, res) => {
+    zelcashService.getReceivedByAddress(req, res);
+  });
   app.get('/zelid/loggedusers', (req, res) => {
     zelidService.loggedUsers(req, res);
   });
