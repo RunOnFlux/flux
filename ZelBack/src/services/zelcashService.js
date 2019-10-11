@@ -2311,6 +2311,408 @@ async function getReceivedByAddress(req, res) {
   });
 }
 
+async function getTransaction(req, res) {
+  let { txid } = req.params;
+  txid = txid || req.query.txid;
+  let { includewatchonly } = req.params;
+  includewatchonly = includewatchonly || req.query.includewatchonly || false;
+  try {
+    if (txid) {
+      if (typeof includewatchonly !== 'boolean') {
+        if (includewatchonly === 'false' || includewatchonly === 0 || includewatchonly === '0') {
+          includewatchonly = false;
+        }
+        if (includewatchonly === 'true' || includewatchonly === 1 || includewatchonly === '1') {
+          includewatchonly = true;
+        }
+      }
+      const data = await client.getTransaction(txid, includewatchonly);
+      response.status = 'success';
+      response.data = data;
+    } else {
+      const data = await client.getTransaction(); // throw help
+      response.status = 'success';
+      response.data = data;
+    }
+  } catch (err) {
+    const daemonerror = {
+      code: err.code,
+      message: err.message,
+    };
+    response.status = 'error';
+    response.data = daemonerror;
+  }
+
+  return res.json(response);
+}
+
+async function getUnconfirmedBalance(req, res) {
+  serviceHelper.verifyAdminSession(req.headers, async (error, authorized) => {
+    if (error) {
+      return res.json(error);
+    }
+    if (authorized === true) {
+      try {
+        const data = await client.getUnconfirmedBalance();
+        response.status = 'success';
+        response.data = data;
+      } catch (err) {
+        const daemonerror = {
+          code: err.code,
+          message: err.message,
+        };
+        response.status = 'error';
+        response.data = daemonerror;
+      }
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      response = errMessage;
+    }
+
+    return res.json(response);
+  });
+}
+
+async function getWalletInfo(req, res) {
+  serviceHelper.verifyAdminSession(req.headers, async (error, authorized) => {
+    if (error) {
+      return res.json(error);
+    }
+    if (authorized === true) {
+      try {
+        const data = await client.getWalletInfo();
+        response.status = 'success';
+        response.data = data;
+      } catch (err) {
+        const daemonerror = {
+          code: err.code,
+          message: err.message,
+        };
+        response.status = 'error';
+        response.data = daemonerror;
+      }
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      response = errMessage;
+    }
+
+    return res.json(response);
+  });
+}
+
+async function importAddress(req, res) {
+  let { address } = req.params;
+  address = address || req.query.address;
+  let { label } = req.params;
+  label = label || req.query.label || '';
+  let { rescan } = req.params;
+  rescan = rescan || req.query.rescan || true;
+  serviceHelper.verifyAdminSession(req.headers, async (error, authorized) => {
+    if (error) {
+      return res.json(error);
+    }
+    if (authorized === true) {
+      try {
+        if (address) {
+          if (typeof rescan !== 'boolean') {
+            if (rescan === 'false' || rescan === 0 || rescan === '0') {
+              rescan = false;
+            }
+            if (rescan === 'true' || rescan === 1 || rescan === '1') {
+              rescan = true;
+            }
+          }
+          const data = await client.importAddress(address, label, rescan);
+          response.status = 'success';
+          response.data = data;
+        } else {
+          const data = await client.importAddress(); // throw error with help
+          response.status = 'success';
+          response.data = data;
+        }
+      } catch (err) {
+        const daemonerror = {
+          code: err.code,
+          message: err.message,
+        };
+        response.status = 'error';
+        response.data = daemonerror;
+      }
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      response = errMessage;
+    }
+
+    return res.json(response);
+  });
+}
+
+async function importPrivKey(req, res) {
+  let { zelcashprivkey } = req.params;
+  zelcashprivkey = zelcashprivkey || req.query.zelcashprivkey;
+  let { label } = req.params;
+  label = label || req.query.label || '';
+  let { rescan } = req.params;
+  rescan = rescan || req.query.rescan || true;
+  serviceHelper.verifyAdminSession(req.headers, async (error, authorized) => {
+    if (error) {
+      return res.json(error);
+    }
+    if (authorized === true) {
+      try {
+        if (zelcashprivkey) {
+          if (typeof rescan !== 'boolean') {
+            if (rescan === 'false' || rescan === 0 || rescan === '0') {
+              rescan = false;
+            }
+            if (rescan === 'true' || rescan === 1 || rescan === '1') {
+              rescan = true;
+            }
+          }
+          const data = await client.importPrivKey(zelcashprivkey, label, rescan);
+          response.status = 'success';
+          response.data = data;
+        } else {
+          const data = await client.importPrivKey(); // throw error with help
+          response.status = 'success';
+          response.data = data;
+        }
+      } catch (err) {
+        const daemonerror = {
+          code: err.code,
+          message: err.message,
+        };
+        response.status = 'error';
+        response.data = daemonerror;
+      }
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      response = errMessage;
+    }
+
+    return res.json(response);
+  });
+}
+
+async function importWallet(req, res) {
+  let { filename } = req.params;
+  filename = filename || req.query.filename;
+  serviceHelper.verifyAdminSession(req.headers, async (error, authorized) => {
+    if (error) {
+      return res.json(error);
+    }
+    if (authorized === true) {
+      try {
+        if (filename) {
+          const data = await client.importWallet(filename);
+          response.status = 'success';
+          response.data = data;
+        } else {
+          const data = await client.importWallet(); // throw error with help
+          response.status = 'success';
+          response.data = data;
+        }
+      } catch (err) {
+        const daemonerror = {
+          code: err.code,
+          message: err.message,
+        };
+        response.status = 'error';
+        response.data = daemonerror;
+      }
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      response = errMessage;
+    }
+
+    return res.json(response);
+  });
+}
+
+async function keyPoolRefill(req, res) {
+  let { newsize } = req.params;
+  newsize = newsize || req.query.newsize || 100;
+  serviceHelper.verifyAdminSession(req.headers, async (error, authorized) => {
+    if (error) {
+      return res.json(error);
+    }
+    if (authorized === true) {
+      try {
+        if (typeof newsize !== 'number') {
+          newsize = Number(newsize);
+        }
+        const data = await client.keyPoolRefill(newsize);
+        response.status = 'success';
+        response.data = data;
+      } catch (err) {
+        const daemonerror = {
+          code: err.code,
+          message: err.message,
+        };
+        response.status = 'error';
+        response.data = daemonerror;
+      }
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      response = errMessage;
+    }
+
+    return res.json(response);
+  });
+}
+
+async function listAddressGroupings(req, res) {
+  serviceHelper.verifyAdminSession(req.headers, async (error, authorized) => {
+    if (error) {
+      return res.json(error);
+    }
+    if (authorized === true) {
+      try {
+        const data = await client.listAddressGroupings();
+        response.status = 'success';
+        response.data = data;
+      } catch (err) {
+        const daemonerror = {
+          code: err.code,
+          message: err.message,
+        };
+        response.status = 'error';
+        response.data = daemonerror;
+      }
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      response = errMessage;
+    }
+
+    return res.json(response);
+  });
+}
+
+async function listLockUnspent(req, res) {
+  serviceHelper.verifyAdminSession(req.headers, async (error, authorized) => {
+    if (error) {
+      return res.json(error);
+    }
+    if (authorized === true) {
+      try {
+        const data = await client.listLockUnspent();
+        response.status = 'success';
+        response.data = data;
+      } catch (err) {
+        const daemonerror = {
+          code: err.code,
+          message: err.message,
+        };
+        response.status = 'error';
+        response.data = daemonerror;
+      }
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      response = errMessage;
+    }
+
+    return res.json(response);
+  });
+}
+
+async function listReceivedByAddress(req, res) {
+  let { minconf } = req.params;
+  minconf = minconf || req.query.minconf || 1;
+  let { includeempty } = req.params;
+  includeempty = includeempty || req.query.includeempty || false;
+  let { includewatchonly } = req.params;
+  includewatchonly = includewatchonly || req.query.includewatchonly || false;
+  serviceHelper.verifyAdminSession(req.headers, async (error, authorized) => {
+    if (error) {
+      return res.json(error);
+    }
+    if (authorized === true) {
+      try {
+        if (typeof includeempty !== 'boolean') {
+          if (includeempty === 'false' || includeempty === 0 || includeempty === '0') {
+            includeempty = false;
+          }
+          if (includeempty === 'true' || includeempty === 1 || includeempty === '1') {
+            includeempty = true;
+          }
+        }
+        if (typeof includewatchonly !== 'boolean') {
+          if (includewatchonly === 'false' || includewatchonly === 0 || includewatchonly === '0') {
+            includewatchonly = false;
+          }
+          if (includewatchonly === 'true' || includewatchonly === 1 || includewatchonly === '1') {
+            includewatchonly = true;
+          }
+        }
+        if (typeof minconf !== 'number') {
+          minconf = Number(minconf);
+        }
+        const data = await client.listReceivedByAddress(minconf, includeempty, includewatchonly);
+        response.status = 'success';
+        response.data = data;
+      } catch (err) {
+        const daemonerror = {
+          code: err.code,
+          message: err.message,
+        };
+        response.status = 'error';
+        response.data = daemonerror;
+      }
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      response = errMessage;
+    }
+
+    return res.json(response);
+  });
+}
+
+
 module.exports = {
   // == Control ==
   help,
@@ -2412,18 +2814,18 @@ module.exports = {
   getRawChangeAddress,
   // getReceivedByAccount, // == not avaialbe - DEPRECATED ==
   getReceivedByAddress,
-  // getTransaction,
-  // getUnconfirmedBalance,
-  // getWalletInfo,
-  // importAddress,
-  // importPrivKey,
-  // importWallet,
-  // keyPoolRefill,
+  getTransaction,
+  getUnconfirmedBalance,
+  getWalletInfo,
+  importAddress,
+  importPrivKey,
+  importWallet, // == does not make much sense as no uploading method ==
+  keyPoolRefill,
   // listAccounts, // == not avaialbe - DEPRECATED ==
-  // listAddressGroupings,
-  // listLockUnspent,
+  listAddressGroupings,
+  listLockUnspent,
   // listReceivedByAccount, // == not avaialbe - DEPRECATED ==
-  // listreceivedByAddress,
+  listReceivedByAddress,
   // listSinceBlock,
   // listTransactions,
   // listUnspent,
@@ -2448,7 +2850,7 @@ module.exports = {
   // zImportWallet,
   // zListAddresses,
   // zListOperationIds,
-  // zListReceivedByAddress,
+  // zlistReceivedByAddress,
   // zListUnspent,
   // zMergeToAddress,
   // zSendMany,
