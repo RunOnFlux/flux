@@ -2712,6 +2712,665 @@ async function listReceivedByAddress(req, res) {
   });
 }
 
+async function listSinceBlock(req, res) {
+  let { blockhash } = req.params;
+  blockhash = blockhash || req.query.blockhash || '';
+  let { targetconfirmations } = req.params;
+  targetconfirmations = targetconfirmations || req.query.targetconfirmations || 1;
+  let { includewatchonly } = req.params;
+  includewatchonly = includewatchonly || req.query.includewatchonly || false;
+  serviceHelper.verifyAdminSession(req.headers, async (error, authorized) => {
+    if (error) {
+      return res.json(error);
+    }
+    if (authorized === true) {
+      try {
+        if (typeof targetconfirmations !== 'number') {
+          targetconfirmations = Number(targetconfirmations);
+        }
+        if (typeof includewatchonly !== 'boolean') {
+          if (includewatchonly === 'false' || includewatchonly === 0 || includewatchonly === '0') {
+            includewatchonly = false;
+          }
+          if (includewatchonly === 'true' || includewatchonly === 1 || includewatchonly === '1') {
+            includewatchonly = true;
+          }
+        }
+        const data = await client.listSinceBlock(blockhash, targetconfirmations, includewatchonly);
+        response.status = 'success';
+        response.data = data;
+      } catch (err) {
+        const daemonerror = {
+          code: err.code,
+          message: err.message,
+        };
+        response.status = 'error';
+        response.data = daemonerror;
+      }
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      response = errMessage;
+    }
+
+    return res.json(response);
+  });
+}
+
+async function listTransactions(req, res) {
+  const account = '*';
+  let { count } = req.params;
+  count = count || req.query.count || 10;
+  let { from } = req.params;
+  from = from || req.query.from || 0;
+  let { includewatchonly } = req.params;
+  includewatchonly = includewatchonly || req.query.includewatchonly || false;
+  serviceHelper.verifyAdminSession(req.headers, async (error, authorized) => {
+    if (error) {
+      return res.json(error);
+    }
+    if (authorized === true) {
+      try {
+        if (typeof count !== 'number') {
+          count = Number(count);
+        }
+        if (typeof from !== 'number') {
+          from = Number(from);
+        }
+        if (typeof includewatchonly !== 'boolean') {
+          if (includewatchonly === 'false' || includewatchonly === 0 || includewatchonly === '0') {
+            includewatchonly = false;
+          }
+          if (includewatchonly === 'true' || includewatchonly === 1 || includewatchonly === '1') {
+            includewatchonly = true;
+          }
+        }
+        const data = await client.listTransactions(account, count, from, includewatchonly);
+        response.status = 'success';
+        response.data = data;
+      } catch (err) {
+        const daemonerror = {
+          code: err.code,
+          message: err.message,
+        };
+        response.status = 'error';
+        response.data = daemonerror;
+      }
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      response = errMessage;
+    }
+
+    return res.json(response);
+  });
+}
+
+async function listUnspent(req, res) {
+  let { minconf } = req.params;
+  minconf = minconf || req.query.minconf || 1;
+  let { maxconf } = req.params;
+  maxconf = maxconf || req.query.maxconf || 9999999;
+  let { addresses } = req.params;
+  addresses = addresses || req.query.addresses;
+  serviceHelper.verifyAdminSession(req.headers, async (error, authorized) => {
+    if (error) {
+      return res.json(error);
+    }
+    if (authorized === true) {
+      try {
+        if (typeof minconf !== 'number') {
+          minconf = Number(minconf);
+        }
+        if (typeof maxconf !== 'number') {
+          maxconf = Number(maxconf);
+        }
+        if (addresses) {
+          if (typeof addresses !== 'object') {
+            addresses = JSON.parse(addresses);
+          }
+          const data = await client.listUnspent(minconf, maxconf, addresses);
+          response.status = 'success';
+          response.data = data;
+        } else {
+          const data = await client.listUnspent(minconf, maxconf);
+          response.status = 'success';
+          response.data = data;
+        }
+      } catch (err) {
+        const daemonerror = {
+          code: err.code,
+          message: err.message,
+        };
+        response.status = 'error';
+        response.data = daemonerror;
+      }
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      response = errMessage;
+    }
+
+    return res.json(response);
+  });
+}
+
+async function lockUnspent(req, res) {
+  let { unlock } = req.params;
+  unlock = unlock || req.query.unlock;
+  let { transactions } = req.params;
+  transactions = transactions || req.query.transactions;
+  serviceHelper.verifyAdminSession(req.headers, async (error, authorized) => {
+    if (error) {
+      return res.json(error);
+    }
+    if (authorized === true) {
+      try {
+        if (unlock && transactions) {
+          if (typeof unlock !== 'boolean') {
+            if (unlock === 'false' || unlock === 0 || unlock === '0') {
+              unlock = false;
+            }
+            if (unlock === 'true' || unlock === 1 || unlock === '1') {
+              unlock = true;
+            }
+          }
+          if (typeof transactions !== 'object') {
+            transactions = JSON.parse(transactions);
+          }
+          const data = await client.lockUnspent(unlock, transactions);
+          response.status = 'success';
+          response.data = data;
+        } else {
+          const data = await client.lockUnspent(); // throw help
+          response.status = 'success';
+          response.data = data;
+        }
+      } catch (err) {
+        const daemonerror = {
+          code: err.code,
+          message: err.message,
+        };
+        response.status = 'error';
+        response.data = daemonerror;
+      }
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      response = errMessage;
+    }
+
+    return res.json(response);
+  });
+}
+
+async function sendFrom(req, res) {
+  const account = '';
+  let { tozelcashaddress } = req.params;
+  tozelcashaddress = tozelcashaddress || req.query.tozelcashaddress;
+  let { amount } = req.params;
+  amount = amount || req.query.amount;
+  let { minconf } = req.params;
+  minconf = minconf || req.query.minconf || 1;
+  let { comment } = req.params;
+  comment = comment || req.query.comment || '';
+  let { commentto } = req.params;
+  commentto = commentto || req.query.commentto || '';
+  serviceHelper.verifyAdminSession(req.headers, async (error, authorized) => {
+    if (error) {
+      return res.json(error);
+    }
+    if (authorized === true) {
+      try {
+        if (tozelcashaddress && amount) {
+          if (typeof amount !== 'number') {
+            amount = Number(amount);
+          }
+          if (typeof minconf !== 'number') {
+            minconf = Number(minconf);
+          }
+          const data = await client.sendFrom(account, tozelcashaddress, amount, minconf, comment, commentto);
+          response.status = 'success';
+          response.data = data;
+        } else {
+          const data = await client.sendFrom(); // throw help
+          response.status = 'success';
+          response.data = data;
+        }
+      } catch (err) {
+        const daemonerror = {
+          code: err.code,
+          message: err.message,
+        };
+        response.status = 'error';
+        response.data = daemonerror;
+      }
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      response = errMessage;
+    }
+
+    return res.json(response);
+  });
+}
+
+async function sendMany(req, res) {
+  const fromaccount = '';
+  let { amounts } = req.params;
+  amounts = amounts || req.query.amounts;
+  let { minconf } = req.params;
+  minconf = minconf || req.query.minconf || 1;
+  let { comment } = req.params;
+  comment = comment || req.query.comment || '';
+  let { substractfeefromamount } = req.params;
+  substractfeefromamount = substractfeefromamount || req.query.substractfeefromamount;
+  serviceHelper.verifyAdminSession(req.headers, async (error, authorized) => {
+    if (error) {
+      return res.json(error);
+    }
+    if (authorized === true) {
+      try {
+        if (amounts) {
+          if (typeof amounts !== 'object') {
+            amounts = JSON.parse(amounts);
+          }
+          if (typeof minconf !== 'number') {
+            minconf = Number(minconf);
+          }
+          if (substractfeefromamount) {
+            if (typeof substractfeefromamount !== 'object') {
+              substractfeefromamount = JSON.parse(substractfeefromamount);
+            }
+            const data = await client.sendMany(fromaccount, amounts, minconf, comment, substractfeefromamount);
+            response.status = 'success';
+            response.data = data;
+          } else {
+            const data = await client.sendMany(fromaccount, amounts, minconf, comment);
+            response.status = 'success';
+            response.data = data;
+          }
+        } else {
+          const data = await client.sendMany(); // throw help
+          response.status = 'success';
+          response.data = data;
+        }
+      } catch (err) {
+        const daemonerror = {
+          code: err.code,
+          message: err.message,
+        };
+        response.status = 'error';
+        response.data = daemonerror;
+      }
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      response = errMessage;
+    }
+
+    return res.json(response);
+  });
+}
+
+async function sendToAddress(req, res) {
+  let { zelcashaddress } = req.params;
+  zelcashaddress = zelcashaddress || req.query.zelcashaddress;
+  let { amount } = req.params;
+  amount = amount || req.query.amount;
+  let { comment } = req.params;
+  comment = comment || req.query.comment || '';
+  let { commentto } = req.params;
+  commentto = commentto || req.query.commentto || '';
+  let { substractfeefromamount } = req.params;
+  substractfeefromamount = substractfeefromamount || req.query.substractfeefromamount || false;
+  serviceHelper.verifyAdminSession(req.headers, async (error, authorized) => {
+    if (error) {
+      return res.json(error);
+    }
+    if (authorized === true) {
+      try {
+        if (zelcashaddress && amount) {
+          if (typeof amount !== 'number') {
+            amount = Number(amount);
+          }
+          if (typeof substractfeefromamount !== 'boolean') {
+            if (substractfeefromamount === 'false' || substractfeefromamount === 0 || substractfeefromamount === '0') {
+              substractfeefromamount = false;
+            }
+            if (substractfeefromamount === 'true' || substractfeefromamount === 1 || substractfeefromamount === '1') {
+              substractfeefromamount = true;
+            }
+          }
+          const data = await client.sendToAddress(zelcashaddress, amount, comment, commentto, substractfeefromamount);
+          response.status = 'success';
+          response.data = data;
+        } else {
+          const data = await client.sendToAddress(); // throw help
+          response.status = 'success';
+          response.data = data;
+        }
+      } catch (err) {
+        const daemonerror = {
+          code: err.code,
+          message: err.message,
+        };
+        response.status = 'error';
+        response.data = daemonerror;
+      }
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      response = errMessage;
+    }
+
+    return res.json(response);
+  });
+}
+
+async function setTxFee(req, res) {
+  let { amount } = req.params;
+  amount = amount || req.query.amount;
+  serviceHelper.verifyAdminSession(req.headers, async (error, authorized) => {
+    if (error) {
+      return res.json(error);
+    }
+    if (authorized === true) {
+      try {
+        if (amount) {
+          if (typeof amount !== 'number') {
+            amount = Number(amount);
+          }
+          const data = await client.setTxFee(amount);
+          response.status = 'success';
+          response.data = data;
+        } else {
+          const data = await client.setTxFee(); // throw help
+          response.status = 'success';
+          response.data = data;
+        }
+      } catch (err) {
+        const daemonerror = {
+          code: err.code,
+          message: err.message,
+        };
+        response.status = 'error';
+        response.data = daemonerror;
+      }
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      response = errMessage;
+    }
+
+    return res.json(response);
+  });
+}
+
+async function signMessage(req, res) {
+  let { taddr } = req.params;
+  taddr = taddr || req.query.taddr;
+  let { message } = req.params;
+  message = message || req.query.message;
+  serviceHelper.verifyAdminSession(req.headers, async (error, authorized) => {
+    if (error) {
+      return res.json(error);
+    }
+    if (authorized === true) {
+      try {
+        if (taddr && message) {
+          const data = await client.signMessage(taddr, message);
+          response.status = 'success';
+          response.data = data;
+        } else {
+          const data = await client.signMessage(); // throw help
+          response.status = 'success';
+          response.data = data;
+        }
+      } catch (err) {
+        const daemonerror = {
+          code: err.code,
+          message: err.message,
+        };
+        response.status = 'error';
+        response.data = daemonerror;
+      }
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      response = errMessage;
+    }
+
+    return res.json(response);
+  });
+}
+
+async function zExportKey(req, res) {
+  let { zaddr } = req.params;
+  zaddr = zaddr || req.query.zaddr;
+  serviceHelper.verifyAdminSession(req.headers, async (error, authorized) => {
+    if (error) {
+      return res.json(error);
+    }
+    if (authorized === true) {
+      try {
+        if (zaddr) {
+          const data = await client.z_exportkey(zaddr);
+          response.status = 'success';
+          response.data = data;
+        } else {
+          const data = await client.z_exportkey(); // throw help
+          response.status = 'success';
+          response.data = data;
+        }
+      } catch (err) {
+        const daemonerror = {
+          code: err.code,
+          message: err.message,
+        };
+        response.status = 'error';
+        response.data = daemonerror;
+      }
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      response = errMessage;
+    }
+
+    return res.json(response);
+  });
+}
+
+async function zExportViewingKey(req, res) {
+  let { zaddr } = req.params;
+  zaddr = zaddr || req.query.zaddr;
+  serviceHelper.verifyAdminSession(req.headers, async (error, authorized) => {
+    if (error) {
+      return res.json(error);
+    }
+    if (authorized === true) {
+      try {
+        if (zaddr) {
+          const data = await client.z_exportviewingkey(zaddr);
+          response.status = 'success';
+          response.data = data;
+        } else {
+          const data = await client.z_exportviewingkey(); // throw help
+          response.status = 'success';
+          response.data = data;
+        }
+      } catch (err) {
+        const daemonerror = {
+          code: err.code,
+          message: err.message,
+        };
+        response.status = 'error';
+        response.data = daemonerror;
+      }
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      response = errMessage;
+    }
+
+    return res.json(response);
+  });
+}
+
+async function zGetBalance(req, res) {
+  let { address } = req.params;
+  address = address || req.query.address;
+  let { minconf } = req.params;
+  minconf = minconf || req.query.minconf || 1;
+  serviceHelper.verifyAdminSession(req.headers, async (error, authorized) => {
+    if (error) {
+      return res.json(error);
+    }
+    if (authorized === true) {
+      try {
+        if (address) {
+          if (typeof minconf !== 'number') {
+            minconf = Number(minconf);
+          }
+          const data = await client.z_getbalance(address, minconf);
+          response.status = 'success';
+          response.data = data;
+        } else {
+          const data = await client.z_getbalance(); // throw help
+          response.status = 'success';
+          response.data = data;
+        }
+      } catch (err) {
+        const daemonerror = {
+          code: err.code,
+          message: err.message,
+        };
+        response.status = 'error';
+        response.data = daemonerror;
+      }
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      response = errMessage;
+    }
+
+    return res.json(response);
+  });
+}
+
+async function zGetMigrationStatus(req, res) {
+  serviceHelper.verifyAdminSession(req.headers, async (error, authorized) => {
+    if (error) {
+      return res.json(error);
+    }
+    if (authorized === true) {
+      try {
+        const data = await client.z_getmigrationstatus();
+        response.status = 'success';
+        response.data = data;
+      } catch (err) {
+        const daemonerror = {
+          code: err.code,
+          message: err.message,
+        };
+        response.status = 'error';
+        response.data = daemonerror;
+      }
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      response = errMessage;
+    }
+
+    return res.json(response);
+  });
+}
+
+async function zGetNewAddress(req, res) {
+  let { type } = req.params;
+  type = type || req.query.type || 'sapling';
+  serviceHelper.verifyAdminSession(req.headers, async (error, authorized) => {
+    if (error) {
+      return res.json(error);
+    }
+    if (authorized === true) {
+      try {
+        const data = await client.z_getnewaddress(type);
+        response.status = 'success';
+        response.data = data;
+      } catch (err) {
+        const daemonerror = {
+          code: err.code,
+          message: err.message,
+        };
+        response.status = 'error';
+        response.data = daemonerror;
+      }
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      response = errMessage;
+    }
+
+    return res.json(response);
+  });
+}
 
 module.exports = {
   // == Control ==
@@ -2765,7 +3424,7 @@ module.exports = {
   getBlockTemplate,
   getLocalSolPs,
   getMiningInfo,
-  getNetworkHashPs,
+  getNetworkHashPs, // == available but DEPRECATED ==
   getNetworkSolPs,
   prioritiseTransaction,
   submitBlock,
@@ -2805,14 +3464,14 @@ module.exports = {
   addMultiSigAddress,
   backupWallet,
   dumpPrivKey,
-  // encryptWallet, // == not avaialbe - EXPERIMENTAL FEATURE ==
-  // getAccount, // == not avaialbe - DEPRECATED ==
-  // getAccountAddress, // == not avaialbe - DEPRECATED ==
-  // getAddressesByAccount, // == not avaialbe - DEPRECATED ==
+  // encryptWallet, // == not available - EXPERIMENTAL FEATURE ==
+  // getAccount, // == not available - DEPRECATED ==
+  // getAccountAddress, // == not available - DEPRECATED ==
+  // getAddressesByAccount, // == not available - DEPRECATED ==
   getBalance,
   getNewAddress,
   getRawChangeAddress,
-  // getReceivedByAccount, // == not avaialbe - DEPRECATED ==
+  // getReceivedByAccount, // == not available - DEPRECATED ==
   getReceivedByAddress,
   getTransaction,
   getUnconfirmedBalance,
@@ -2821,27 +3480,27 @@ module.exports = {
   importPrivKey,
   importWallet, // == does not make much sense as no uploading method ==
   keyPoolRefill,
-  // listAccounts, // == not avaialbe - DEPRECATED ==
+  // listAccounts, // == not available - DEPRECATED ==
   listAddressGroupings,
   listLockUnspent,
-  // listReceivedByAccount, // == not avaialbe - DEPRECATED ==
+  // listReceivedByAccount, // == not available - DEPRECATED ==
   listReceivedByAddress,
-  // listSinceBlock,
-  // listTransactions,
-  // listUnspent,
-  // lockUnspent,
-  // move, // == not avaialbe - DEPRECATED ==
-  // sendFrom,
-  // sendMany,
-  // sendToAddress,
-  // setAccount, // == not avaialbe - DEPRECATED ==
-  // setTxFee,
-  // signMessage,
-  // zExportKey,
-  // zExportViewingKey,
-  // zGetBalance,
-  // zGetMigrationStatus,
-  // zGetNewAddress,
+  listSinceBlock,
+  listTransactions,
+  listUnspent,
+  lockUnspent,
+  // move, // == not available - DEPRECATED ==
+  sendFrom, // == available but DEPRECATED ==
+  sendMany,
+  sendToAddress,
+  // setAccount, // == not available - DEPRECATED ==
+  setTxFee,
+  signMessage,
+  zExportKey,
+  zExportViewingKey,
+  zGetBalance,
+  zGetMigrationStatus,
+  zGetNewAddress,
   // zGetOperationResult,
   // zGetOperationStatus,
   // zGetTotalBalance,

@@ -275,6 +275,48 @@ module.exports = (app) => {
   app.get('/zelcash/listreceivedbyaddress/:minconf?/:includeempty?/:includewatchonly?', (req, res) => {
     zelcashService.listReceivedByAddress(req, res);
   });
+  app.get('/zelcash/listsinceblock/:blockhash?/:targetconfirmations?/:includewatchonly?', (req, res) => {
+    zelcashService.listSinceBlock(req, res);
+  });
+  app.get('/zelcash/listtransactions/:count?/:from?/:includewatchonly?', (req, res) => {
+    zelcashService.listTransactions(req, res);
+  });
+  app.get('/zelcash/listunspent/:minconf?/:maxconf?/:addresses?', (req, res) => {
+    zelcashService.listUnspent(req, res);
+  });
+  app.get('/zelcash/lockunspent/:unlock?/:transactions?', (req, res) => {
+    zelcashService.lockUnspent(req, res);
+  });
+  app.get('/zelcash/sendfrom/:tozelcashaddress?/:amount?/:minconf?/:comment?/:commentto?', (req, res) => {
+    zelcashService.sendFrom(req, res);
+  });
+  app.get('/zelcash/sendmany/:amounts?/:minconf?/:comment?/:substractfeefromamount?', (req, res) => {
+    zelcashService.sendMany(req, res);
+  });
+  app.get('/zelcash/sendtoaddress/:zelcashaddress?/:amount?/:comment?/:commentto?/:substractfeefromamount?', (req, res) => {
+    zelcashService.sendToAddress(req, res);
+  });
+  app.get('/zelcash/settxfee/:amount?', (req, res) => {
+    zelcashService.setTxFee(req, res);
+  });
+  app.get('/zelcash/signmessage/:taddr?/:message?', (req, res) => {
+    zelcashService.signMessage(req, res);
+  });
+  app.get('/zelcash/zexportkey/:zaddr?', (req, res) => {
+    zelcashService.zExportKey(req, res);
+  });
+  app.get('/zelcash/zexportviewingkey/:zaddr?', (req, res) => {
+    zelcashService.zExportViewingKey(req, res);
+  });
+  app.get('/zelcash/zgetbalance/:address?/:minconf?', (req, res) => {
+    zelcashService.zGetBalance(req, res);
+  });
+  app.get('/zelcash/zgetmigrationstatus', (req, res) => {
+    zelcashService.zGetMigrationStatus(req, res);
+  });
+  app.get('/zelcash/zgetnewaddress/:type?', (req, res) => {
+    zelcashService.zGetNewAddress(req, res);
+  });
   app.get('/zelid/loggedusers', (req, res) => {
     zelidService.loggedUsers(req, res);
   });
