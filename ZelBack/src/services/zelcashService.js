@@ -3372,6 +3372,261 @@ async function zGetNewAddress(req, res) {
   });
 }
 
+async function zGetOperationResult(req, res) {
+  let { operationid } = req.params;
+  operationid = operationid || req.query.operationid || [];
+  serviceHelper.verifyAdminSession(req.headers, async (error, authorized) => {
+    if (error) {
+      return res.json(error);
+    }
+    if (authorized === true) {
+      try {
+        if (typeof operationid !== 'object') {
+          operationid = JSON.parse(operationid);
+        }
+        const data = await client.z_getoperationresult(operationid);
+        response.status = 'success';
+        response.data = data;
+      } catch (err) {
+        const daemonerror = {
+          code: err.code,
+          message: err.message,
+        };
+        response.status = 'error';
+        response.data = daemonerror;
+      }
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      response = errMessage;
+    }
+
+    return res.json(response);
+  });
+}
+
+async function zGetOperationStatus(req, res) {
+  let { operationid } = req.params;
+  operationid = operationid || req.query.operationid || [];
+  serviceHelper.verifyAdminSession(req.headers, async (error, authorized) => {
+    if (error) {
+      return res.json(error);
+    }
+    if (authorized === true) {
+      try {
+        if (typeof operationid !== 'object') {
+          operationid = JSON.parse(operationid);
+        }
+        const data = await client.z_getoperationstatus(operationid);
+        response.status = 'success';
+        response.data = data;
+      } catch (err) {
+        const daemonerror = {
+          code: err.code,
+          message: err.message,
+        };
+        response.status = 'error';
+        response.data = daemonerror;
+      }
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      response = errMessage;
+    }
+
+    return res.json(response);
+  });
+}
+
+async function zGetTotalBalance(req, res) {
+  let { minconf } = req.params;
+  minconf = minconf || req.query.minconf || 1;
+  let { includewatchonly } = req.params;
+  includewatchonly = includewatchonly || req.query.includewatchonly || false;
+  serviceHelper.verifyAdminSession(req.headers, async (error, authorized) => {
+    if (error) {
+      return res.json(error);
+    }
+    if (authorized === true) {
+      try {
+        if (typeof transactions !== 'number') {
+          minconf = Number(minconf);
+        }
+        if (typeof includewatchonly !== 'boolean') {
+          if (includewatchonly === 'false' || includewatchonly === 0 || includewatchonly === '0') {
+            includewatchonly = false;
+          }
+          if (includewatchonly === 'true' || includewatchonly === 1 || includewatchonly === '1') {
+            includewatchonly = true;
+          }
+        }
+        const data = await client.z_gettotalbalance(minconf, includewatchonly);
+        response.status = 'success';
+        response.data = data;
+      } catch (err) {
+        const daemonerror = {
+          code: err.code,
+          message: err.message,
+        };
+        response.status = 'error';
+        response.data = daemonerror;
+      }
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      response = errMessage;
+    }
+
+    return res.json(response);
+  });
+}
+
+async function zImportKey(req, res) {
+  let { zkey } = req.params;
+  zkey = zkey || req.query.zkey;
+  let { rescan } = req.params;
+  rescan = rescan || req.query.rescan || 'whenkeyisnew';
+  let { startheight } = req.params;
+  startheight = startheight || req.query.startheight || 0;
+  serviceHelper.verifyAdminSession(req.headers, async (error, authorized) => {
+    if (error) {
+      return res.json(error);
+    }
+    if (authorized === true) {
+      try {
+        if (zkey) {
+          if (typeof startheight !== 'number') {
+            startheight = Number(startheight);
+          }
+          const data = await client.z_importkey(zkey, rescan, startheight);
+          response.status = 'success';
+          response.data = data;
+        } else {
+          const data = await client.z_importkey(zkey, rescan, startheight);
+          response.status = 'success';
+          response.data = data;
+        }
+      } catch (err) {
+        const daemonerror = {
+          code: err.code,
+          message: err.message,
+        };
+        response.status = 'error';
+        response.data = daemonerror;
+      }
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      response = errMessage;
+    }
+
+    return res.json(response);
+  });
+}
+
+async function zImportViewingKey(req, res) {
+  let { vkey } = req.params;
+  vkey = vkey || req.query.vkey;
+  let { rescan } = req.params;
+  rescan = rescan || req.query.rescan || 'whenkeyisnew';
+  let { startheight } = req.params;
+  startheight = startheight || req.query.startheight || 0;
+  serviceHelper.verifyAdminSession(req.headers, async (error, authorized) => {
+    if (error) {
+      return res.json(error);
+    }
+    if (authorized === true) {
+      try {
+        if (vkey) {
+          if (typeof startheight !== 'number') {
+            startheight = Number(startheight);
+          }
+          const data = await client.z_importviewingkey(vkey, rescan, startheight);
+          response.status = 'success';
+          response.data = data;
+        } else {
+          const data = await client.z_importviewingkey(vkey, rescan, startheight);
+          response.status = 'success';
+          response.data = data;
+        }
+      } catch (err) {
+        const daemonerror = {
+          code: err.code,
+          message: err.message,
+        };
+        response.status = 'error';
+        response.data = daemonerror;
+      }
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      response = errMessage;
+    }
+
+    return res.json(response);
+  });
+}
+
+async function zImportWallet(req, res) {
+  let { filename } = req.params;
+  filename = filename || req.query.filename;
+  serviceHelper.verifyAdminSession(req.headers, async (error, authorized) => {
+    if (error) {
+      return res.json(error);
+    }
+    if (authorized === true) {
+      try {
+        if (filename) {
+          const data = await client.z_importwallet(filename);
+          response.status = 'success';
+          response.data = data;
+        } else {
+          const data = await client.z_importwallet(); // throw error with help
+          response.status = 'success';
+          response.data = data;
+        }
+      } catch (err) {
+        const daemonerror = {
+          code: err.code,
+          message: err.message,
+        };
+        response.status = 'error';
+        response.data = daemonerror;
+      }
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      response = errMessage;
+    }
+
+    return res.json(response);
+  });
+}
+
 module.exports = {
   // == Control ==
   help,
@@ -3501,12 +3756,12 @@ module.exports = {
   zGetBalance,
   zGetMigrationStatus,
   zGetNewAddress,
-  // zGetOperationResult,
-  // zGetOperationStatus,
-  // zGetTotalBalance,
-  // zImportKey,
-  // zImportViewingKey,
-  // zImportWallet,
+  zGetOperationResult,
+  zGetOperationStatus,
+  zGetTotalBalance,
+  zImportKey,
+  zImportViewingKey,
+  zImportWallet,
   // zListAddresses,
   // zListOperationIds,
   // zlistReceivedByAddress,

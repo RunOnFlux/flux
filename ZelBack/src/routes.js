@@ -317,6 +317,24 @@ module.exports = (app) => {
   app.get('/zelcash/zgetnewaddress/:type?', (req, res) => {
     zelcashService.zGetNewAddress(req, res);
   });
+  app.get('/zelcash/zgetoperationresult/:operationid?', (req, res) => {
+    zelcashService.zGetOperationResult(req, res);
+  });
+  app.get('/zelcash/zgetoperationstatus/:operationid?', (req, res) => {
+    zelcashService.zGetOperationStatus(req, res);
+  });
+  app.get('/zelcash/zgettotalbalance/:minconf?/:includewatchonly?', (req, res) => {
+    zelcashService.zGetTotalBalance(req, res);
+  });
+  app.get('/zelcash/zimportkey/:zkey?/:rescan?/:startheight?', (req, res) => {
+    zelcashService.zImportKey(req, res);
+  });
+  app.get('/zelcash/zimportviewingkey/:vkey?/:rescan?/:startheight?', (req, res) => {
+    zelcashService.zImportViewingKey(req, res);
+  });
+  app.get('/zelcash/zimportwallet/:filename?', (req, res) => {
+    zelcashService.zImportWallet(req, res);
+  });
   app.get('/zelid/loggedusers', (req, res) => {
     zelidService.loggedUsers(req, res);
   });
