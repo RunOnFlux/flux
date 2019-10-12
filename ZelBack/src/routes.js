@@ -335,6 +335,42 @@ module.exports = (app) => {
   app.get('/zelcash/zimportwallet/:filename?', (req, res) => {
     zelcashService.zImportWallet(req, res);
   });
+  app.get('/zelcash/zlistaddresses/:includewatchonly?', (req, res) => {
+    zelcashService.zListAddresses(req, res);
+  });
+  app.get('/zelcash/zlistoperationids', (req, res) => {
+    zelcashService.zListOperationIds(req, res);
+  });
+  app.get('/zelcash/zlistreceivedbyaddress/:address?/:minconf?', (req, res) => {
+    zelcashService.zListReceivedByAddress(req, res);
+  });
+  app.get('/zelcash/zlistunspent/:minconf?/:maxonf?/:includewatchonly?/:addresses?', (req, res) => {
+    zelcashService.zListUnspent(req, res);
+  });
+  app.get('/zelcash/zmergetoaddress/:fromaddresses?/:toaddress?/:fee?/:transparentlimit?/:shieldedlimit?/:memo?', (req, res) => {
+    zelcashService.zMergeToAddress(req, res);
+  });
+  app.get('/zelcash/zsendmany/:fromaddress?/:amounts?/:minconf?/:fee?', (req, res) => {
+    zelcashService.zSendMany(req, res);
+  });
+  app.get('/zelcash/zsetmigration/:enabled?', (req, res) => {
+    zelcashService.zSetMigration(req, res);
+  });
+  app.get('/zelcash/zshieldcoinbase/:fromaddress?/:toaddress?/:fee?/:limit?', (req, res) => {
+    zelcashService.zShieldCoinBase(req, res);
+  });
+  app.get('/zelcash/zcrawjoinsplit/:rawtx?/:inputs?/:outputs?/:vpubold?/:vpubnew?', (req, res) => {
+    zelcashService.zcRawJoinSplit(req, res);
+  });
+  app.get('/zelcash/zcrawkeygen', (req, res) => {
+    zelcashService.zcRawKeygen(req, res);
+  });
+  app.get('/zelcash/zcrawreceive/:zcsecretkey?/:encryptednote?', (req, res) => {
+    zelcashService.zcRawReceive(req, res);
+  });
+  app.get('/zelcash/zcsamplejoinsplit', (req, res) => {
+    zelcashService.zcSampleJoinSplit(req, res);
+  });
   app.get('/zelid/loggedusers', (req, res) => {
     zelidService.loggedUsers(req, res);
   });
@@ -351,6 +387,9 @@ module.exports = (app) => {
   // GET PROTECTED API - ZelTeam
   app.get('/zelcash/ping', (req, res) => { // we do not want this to be issued by anyone.
     zelcashService.ping(req, res);
+  });
+  app.get('/zelcash/zcbenchmark/:benchmarktype?/:samplecount?', (req, res) => {
+    zelcashService.zcBenchmark(req, res);
   });
   app.get('/zelnode/updateflux', (req, res) => { // method shall be called only if flux version is obsolete.
     zelnodeService.updateFlux(req, res);
