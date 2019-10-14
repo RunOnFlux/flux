@@ -165,6 +165,9 @@ export default {
         case '1-1-1':
           this.$store.commit('setZelCashSection', 'getinfo');
           break;
+        case '1-1-2':
+          this.$store.commit('setZelCashSection', 'help');
+          break;
         case '2-1':
           this.$store.commit('setZelNodeSection', 'getinfo');
           break;

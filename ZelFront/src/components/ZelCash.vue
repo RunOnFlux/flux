@@ -10,22 +10,30 @@
         </h4>
       </div>
 
-      <div class="getInfoResponse">
+      <div>
         <p>
-          ZelCash version: {{ getInfoResponse.message.version }}
+          ZelCash version: {{ callResponse.data.version }}
         </p>
         <p>
-          Protocol version: {{ getInfoResponse.message.protocolversion }}
+          Protocol version: {{ callResponse.data.protocolversion }}
         </p>
         <p>
-          Current Blockchain Height: {{ getInfoResponse.message.blocks }}
+          Current Blockchain Height: {{ callResponse.data.blocks }}
         </p>
-        <div v-if="getInfoResponse.message.errors != ''">
+        <div v-if="callResponse.data.errors != ''">
           <p>
-            Error: {{ getInfoResponse.message.errors }}
+            Error: {{ callResponse.data.errors }}
           </p>
         </div>
       </div>
+    </div>
+    <div v-if="zelcashSection === 'help'" class="helpSection">
+      {{ callResponse.data || 'Obtaining help section...' }}
+    </div>
+    <div v-if="callResponse.status === 'error'">
+      <p>
+        Error: {{ callResponse.data.message || callResponse.data }}
+      </p>
     </div>
   </div>
 </template>
@@ -42,13 +50,13 @@ export default {
   name: 'ZelCash',
   data() {
     return {
-      getInfoResponse: {
+      callResponse: { // general
         status: '',
-        message: '',
+        data: '',
       },
       getZelNodeStatusResponse: {
         status: '',
-        message: '',
+        data: '',
         zelnodeStatus: 'Checking status...',
       },
     };
@@ -63,10 +71,15 @@ export default {
   watch: {
     zelcashSection(val, oldVal) {
       console.log(val, oldVal);
+      this.callResponse.status = '';
+      this.callResponse.data = '';
       switch (val) {
         case 'getinfo':
           this.zelcashGetInfo();
           this.zelcashGetZelNodeStatus();
+          break;
+        case 'help':
+          this.zelcashHelp();
           break;
         case null:
           console.log('ZelCash Section hidden');
@@ -82,6 +95,9 @@ export default {
         this.zelcashGetInfo();
         this.zelcashGetZelNodeStatus();
         break;
+      case 'help':
+        this.zelcashHelp();
+        break;
       case null:
         console.log('ZelCash Section hidden');
         break;
@@ -92,20 +108,25 @@ export default {
   methods: {
     async zelcashGetInfo() {
       const response = await ZelCashService.getInfo();
-      this.getInfoResponse.status = response.data.status;
-      this.getInfoResponse.message = response.data.data;
+      this.callResponse.status = response.data.status;
+      this.callResponse.data = response.data.data;
+    },
+    async zelcashHelp() {
+      const response = await ZelCashService.help();
+      this.callResponse.status = response.data.status;
+      this.callResponse.data = response.data.data;
     },
     async zelcashGetZelNodeStatus() {
       // TODO more code statuses?
       const response = await ZelCashService.getZelNodeStatus();
       this.getZelNodeStatusResponse.status = response.data.status;
-      this.getZelNodeStatusResponse.message = response.data.data;
-      console.log(this.getZelNodeStatusResponse.message);
-      if (this.getZelNodeStatusResponse.message) {
-        if (this.getZelNodeStatusResponse.message.status === 4) {
+      this.getZelNodeStatusResponse.data = response.data.data;
+      console.log(this.getZelNodeStatusResponse.data);
+      if (this.getZelNodeStatusResponse.data) {
+        if (this.getZelNodeStatusResponse.data.status === 4) {
           this.getZelNodeStatusResponse.zelnodeStatus = 'ZelNode is working correctly';
         } else {
-          const statusCode = this.getZelNodeStatusResponse.message.code || this.getZelNodeStatusResponse.message.status;
+          const statusCode = this.getZelNodeStatusResponse.data.code || this.getZelNodeStatusResponse.data.status;
           this.getZelNodeStatusResponse.zelnodeStatus = `Error status code: ${statusCode}. ZelNode not yet active. Flux is running with limited capabilities.`;
         }
       }

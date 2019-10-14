@@ -124,12 +124,13 @@ h4 {
 }
 
 .footer {
-  position: absolute;
+  position: fixed;
   left: 0;
   bottom: 0;
   height: 40px;
   z-index: 10;
   width: 100%;
+  background-color: #333333;
 }
 
 .content {
@@ -221,4 +222,9 @@ h4 {
 
 .el-menu, .el-submenu .el-menu {
   border: 1px solid #ffd04b;
+}
+
+/* ZelCash styling */
+.helpSection {
+  white-space: pre-line;
 }
