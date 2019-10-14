@@ -94,6 +94,7 @@ function verifyAdminSession(headers, callback) {
           const collection = config.database.local.collections.loggedUsers;
           const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
           const projection = {};
+          // eslint-disable-next-line no-shadow
           findOneInDatabase(database, collection, query, projection, (err, result) => {
             if (err) {
               log.error('Error accessing local zelID collection');
@@ -149,6 +150,7 @@ function verifyUserSession(headers, callback) {
         const collection = config.database.local.collections.loggedUsers;
         const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
         const projection = {};
+        // eslint-disable-next-line no-shadow
         findOneInDatabase(database, collection, query, projection, (err, result) => {
           if (err) {
             log.error('Error accessing local zelID collection');
@@ -202,6 +204,7 @@ function verifyZelTeamSession(headers, callback) {
           const collection = config.database.local.collections.loggedUsers;
           const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
           const projection = {};
+          // eslint-disable-next-line no-shadow
           findOneInDatabase(database, collection, query, projection, (err, result) => {
             if (err) {
               log.error('Error accessing local zelID collection');

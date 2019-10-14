@@ -2655,6 +2655,38 @@ async function listLockUnspent(req, res) {
   });
 }
 
+async function rescanBlockchain(req, res) {
+  serviceHelper.verifyAdminSession(req.headers, async (error, authorized) => {
+    if (error) {
+      return res.json(error);
+    }
+    if (authorized === false) {
+      try {
+        const data = await client.rescanblockchain();
+        response.status = 'success';
+        response.data = data;
+      } catch (err) {
+        const daemonerror = {
+          code: err.code,
+          message: err.message,
+        };
+        response.status = 'error';
+        response.data = daemonerror;
+      }
+    } else {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      response = errMessage;
+    }
+
+    return res.json(response);
+  });
+}
+
 async function listReceivedByAddress(req, res) {
   let { minconf } = req.params;
   minconf = minconf || req.query.minconf || 1;
@@ -4348,6 +4380,7 @@ module.exports = {
   listTransactions,
   listUnspent,
   lockUnspent,
+  rescanBlockchain,
   // move, // == not available - DEPRECATED ==
   sendFrom, // == available but DEPRECATED ==
   sendMany,

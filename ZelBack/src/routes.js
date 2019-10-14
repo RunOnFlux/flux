@@ -191,6 +191,15 @@ module.exports = (app) => {
   app.get('/zelcash/stop', (req, res) => {
     zelcashService.stop(req, res);
   });
+  app.get('/zelcash/start', (req, res) => {
+    zelnodeService.startZelCash(req, res);
+  });
+  app.get('/zelcash/restart', (req, res) => {
+    zelnodeService.restartZelCash(req, res);
+  });
+  app.get('/zelcash/reindex', (req, res) => {
+    zelnodeService.reindexZelCash(req, res);
+  });
   app.get('/zelcash/createzelnodekey', (req, res) => {
     zelcashService.createZelNodeKey(req, res);
   });
@@ -287,6 +296,9 @@ module.exports = (app) => {
   app.get('/zelcash/lockunspent/:unlock?/:transactions?', (req, res) => {
     zelcashService.lockUnspent(req, res);
   });
+  app.get('/zelcash/rescanblockchain', (req, res) => {
+    zelcashService.rescanBlockchain(req, res);
+  });
   app.get('/zelcash/sendfrom/:tozelcashaddress?/:amount?/:minconf?/:comment?/:commentto?', (req, res) => {
     zelcashService.sendFrom(req, res);
   });
@@ -380,8 +392,14 @@ module.exports = (app) => {
   app.get('/zelid/logoutallusers', (req, res) => {
     zelidService.logoutAllUsers(req, res);
   });
-  app.get('/zelnode/startZelCash', (req, res) => {
+  app.get('/zelnode/startzelcash', (req, res) => {
     zelnodeService.startZelCash(req, res);
+  });
+  app.get('/zelnode/restartzelcash', (req, res) => {
+    zelnodeService.restartZelCash(req, res);
+  });
+  app.get('/zelnode/reindexzelcash', (req, res) => {
+    zelnodeService.reindexZelCash(req, res);
   });
 
   // GET PROTECTED API - ZelTeam

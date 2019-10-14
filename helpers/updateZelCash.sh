@@ -1,7 +1,6 @@
 #!/bin/bash
 
-#wallet information
-COIN_NAME='zelcash'
+#information
 COIN_DAEMON='zelcashd'
 COIN_CLI='zelcash-cli'
 #end of required details
