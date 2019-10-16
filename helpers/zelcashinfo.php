@@ -4,4 +4,3 @@
   "protocolversion": 170013,
   "walletversion": 60000
 }
-
