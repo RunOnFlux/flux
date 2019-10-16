@@ -7,12 +7,12 @@
     <div class="footer-middle">
       <ElLink
         type="primary"
-        href="https://github.com/zelcash/flux"
+        href="https://github.com/zelcash/zelflux"
         target="_blank"
       >The gateway to the Zel Network</ElLink>
     </div>
     <div class="footer-right">
-      ZelFlux {{ 'v' + fluxVersion}}
+      ZelFlux {{ 'v' + zelfluxVersion}}
     </div>
   </div>
 </template>
@@ -35,17 +35,17 @@ export default {
   },
   computed: {
     ...mapState([
-      'fluxVersion',
+      'zelfluxVersion',
     ]),
   },
   mounted() {
     const self = this;
-    ZelNodeService.getFluxVersion()
+    ZelNodeService.getZelFluxVersion()
       .then((response) => {
         console.log(response);
         const version = response.data;
-        this.$store.commit('setFluxVersion', version);
-        self.getLatestFluxVersion();
+        this.$store.commit('setZelFluxVersion', version);
+        self.getLatestZelFluxVersion();
       })
       .catch((e) => {
         console.log(e);
@@ -54,12 +54,12 @@ export default {
       });
   },
   methods: {
-    getLatestFluxVersion() {
+    getLatestZelFluxVersion() {
       const self = this;
-      axios.get('https://raw.githubusercontent.com/zelcash/flux/master/package.json')
+      axios.get('https://raw.githubusercontent.com/zelcash/zelflux/master/package.json')
         .then((response) => {
           console.log(response);
-          if (response.data.version !== self.fluxVersion) {
+          if (response.data.version !== self.zelfluxVersion) {
             vue.$message.warning('ZelFlux needs to be updated!');
           } else {
             vue.$message.success('ZelFlux is up to date');

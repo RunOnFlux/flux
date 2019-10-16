@@ -167,7 +167,7 @@ module.exports = (app) => {
     zelidService.loginPhrase(req, res);
   });
   app.get('/zelnode/version', (req, res) => {
-    zelnodeService.getFluxVersion(req, res);
+    zelnodeService.getZelFluxVersion(req, res);
   });
 
   // GET PROTECTED API - User level
@@ -409,8 +409,8 @@ module.exports = (app) => {
   app.get('/zelcash/zcbenchmark/:benchmarktype?/:samplecount?', (req, res) => {
     zelcashService.zcBenchmark(req, res);
   });
-  app.get('/zelnode/updateflux', (req, res) => { // method shall be called only if zelflux version is obsolete.
-    zelnodeService.updateFlux(req, res);
+  app.get('/zelnode/updatezelflux', (req, res) => { // method shall be called only if zelflux version is obsolete.
+    zelnodeService.updateZelFlux(req, res);
   });
   app.get('/zelnode/rebuildzelfront', (req, res) => {
     zelnodeService.rebuildZelFront(req, res);

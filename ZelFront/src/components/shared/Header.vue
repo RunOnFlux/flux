@@ -178,7 +178,7 @@ export default {
           this.$store.commit('setZelAdminSection', 'loggedsessions');
           break;
         case '10-2':
-          this.$store.commit('setZelAdminSection', 'manageflux');
+          this.$store.commit('setZelAdminSection', 'managezelflux');
           break;
         case '10-3':
           this.$store.commit('setZelAdminSection', 'managezelcash');

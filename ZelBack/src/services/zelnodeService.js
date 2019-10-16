@@ -4,7 +4,7 @@ const path = require('path');
 const packageJson = require('../../../package.json');
 const serviceHelper = require('./serviceHelper');
 
-function updateFlux(req, res) {
+function updateZelFlux(req, res) {
   // eslint-disable-next-line consistent-return
   serviceHelper.verifyZelTeamSession(req.headers, (error, authorized) => {
     if (error) {
@@ -12,7 +12,7 @@ function updateFlux(req, res) {
     }
     if (authorized === true) {
       const zelnodedpath = path.join(__dirname, '../../../');
-      const exec = `cd ${zelnodedpath} && npm run updateflux`;
+      const exec = `cd ${zelnodedpath} && npm run updatezelflux`;
       cmd.get(exec, (err) => {
         if (err) {
           const errMessage = {
@@ -238,17 +238,17 @@ function reindexZelCash(req, res) {
   });
 }
 
-function getFluxVersion(req, res) {
+function getZelFluxVersion(req, res) {
   const { version } = packageJson;
   return res.json(version);
 }
 
 module.exports = {
   startZelCash,
-  updateFlux,
+  updateZelFlux,
   rebuildZelFront,
   updateZelCash,
   restartZelCash,
   reindexZelCash,
-  getFluxVersion,
+  getZelFluxVersion,
 };
