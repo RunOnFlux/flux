@@ -20,7 +20,70 @@
         index="1"
       >
         <template slot="title">ZelCash</template>
-        <el-menu-item index="1-1">Get Info</el-menu-item>
+        <el-submenu index="1-1">
+          <template slot="title">Control</template>
+          <el-menu-item index="1-1-1">Get Info</el-menu-item>
+          <el-menu-item index="1-1-2">Help</el-menu-item>
+          <el-menu-item
+            index="1-1-3"
+            v-if="privilage === 'admin'"
+          >
+            <!-- part of Wallet as well -->
+            Rescan BlockChain
+          </el-menu-item>
+          <el-menu-item
+            index="1-1-4"
+            v-if="privilage === 'admin'"
+          >
+            Reindex BlockChain
+          </el-menu-item>
+          <el-menu-item
+            index="1-1-5"
+            v-if="privilage === 'admin'"
+          >
+            Start
+          </el-menu-item>
+          <el-menu-item
+            index="1-1-6"
+            v-if="privilage === 'admin'"
+          >
+            Stop
+          </el-menu-item>
+          <el-menu-item
+            index="1-1-7"
+            v-if="privilage === 'admin'"
+          >
+            Restart
+          </el-menu-item>
+        </el-submenu>
+        <el-submenu index="1-2">
+          <template slot="title">ZelNode</template>
+          <el-menu-item index="1-2-1">Get Info</el-menu-item>
+        </el-submenu>
+        <el-submenu index="1-3">
+          <template slot="title">BlockChain</template>
+          <el-menu-item index="1-3-1">Get Info</el-menu-item>
+        </el-submenu>
+        <el-submenu index="1-4">
+          <template slot="title">Mining</template>
+          <el-menu-item index="1-4-1">Get Info</el-menu-item>
+        </el-submenu>
+        <el-submenu index="1-5">
+          <template slot="title">Network</template>
+          <el-menu-item index="1-5-1">Get Info</el-menu-item>
+        </el-submenu>
+        <el-submenu index="1-6">
+          <template slot="title">Raw Transactions</template>
+          <el-menu-item index="1-6-1">Get Info</el-menu-item>
+        </el-submenu>
+        <el-submenu index="1-7">
+          <template slot="title">Utilities</template>
+          <el-menu-item index="1-7-1">Get Info</el-menu-item>
+        </el-submenu>
+        <el-submenu index="1-8">
+          <template slot="title">Wallet</template>
+          <el-menu-item index="1-8-1">Get Info</el-menu-item>
+        </el-submenu>
       </el-submenu>
       <el-submenu
         v-if="privilage === 'user' || privilage === 'admin' || privilage === 'zelteam'"
@@ -31,19 +94,43 @@
       </el-submenu>
       <el-submenu
         v-if="privilage === 'user' || privilage === 'admin' || privilage === 'zelteam'"
+        index="3"
+      >
+        <template slot="title">ZelApps</template>
+        <el-menu-item index="3-1">Information</el-menu-item>
+      </el-submenu>
+      <el-submenu
+        v-if="privilage === 'user' || privilage === 'admin' || privilage === 'zelteam'"
         index="10"
       >
         <template slot="title">ZelAdmin</template>
         <el-menu-item index="10-1">Logged Sessions</el-menu-item>
-        <el-menu-item v-if="privilage === 'zelteam' || privilage === 'admin'" index="10-2">Manage ZelFlux</el-menu-item>
-        <el-menu-item v-if="privilage === 'zelteam' || privilage === 'admin'" index="10-3">Manage ZelCash</el-menu-item>
-        <el-menu-item v-if="privilage === 'admin'" index="10-4">Manage Users</el-menu-item>
+        <el-menu-item
+          v-if="privilage === 'zelteam' || privilage === 'admin'"
+          index="10-2"
+        >
+          Manage ZelFlux
+        </el-menu-item>
+        <el-menu-item
+          v-if="privilage === 'zelteam' || privilage === 'admin'"
+          index="10-3"
+        >
+          Manage ZelCash
+        </el-menu-item>
+        <el-menu-item
+          v-if="privilage === 'admin'"
+          index="10-4"
+        >
+          Manage Users
+        </el-menu-item>
         <!--<el-menu-item index="10-4">Active Login Phrases</el-menu-item>-->
       </el-submenu>
       <el-menu-item
         v-if="privilage === 'user' || privilage === 'admin' || privilage === 'zelteam'"
         index="100"
-      >Log Out</el-menu-item>
+      >
+        Log Out
+      </el-menu-item>
     </el-menu>
   </div>
 </template>
@@ -75,11 +162,17 @@ export default {
         case '0':
           this.$store.commit('setZelCashSection', 'getinfo');
           break;
-        case '1-1':
+        case '1-1-1':
           this.$store.commit('setZelCashSection', 'getinfo');
+          break;
+        case '1-1-2':
+          this.$store.commit('setZelCashSection', 'help');
           break;
         case '2-1':
           this.$store.commit('setZelNodeSection', 'getinfo');
+          break;
+        case '3-1':
+          vue.$message.info('ZelApps coming soon!');
           break;
         case '10-1':
           this.$store.commit('setZelAdminSection', 'loggedsessions');
@@ -98,6 +191,7 @@ export default {
           this.activeIndex = 0;
           break;
         default:
+          vue.$message.info('Feature coming soon!');
           console.log('Menu: Unrecognized method');
       }
     },

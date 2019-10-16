@@ -24,7 +24,6 @@ export default new Vuex.Store({
     fluxVersion: '',
   },
   getters: {
-
   },
   mutations: {
     setPrivilage(state, privilage) {

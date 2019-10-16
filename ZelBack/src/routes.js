@@ -157,6 +157,9 @@ module.exports = (app) => {
   app.get('/zelcash/verifymessage/:zelcashaddress?/:signature?/:message?', (req, res) => {
     zelcashService.verifyMessage(req, res);
   });
+  app.get('/zelcash/gettransaction/:txid?/:includewatchonly?', (req, res) => {
+    zelcashService.getTransaction(req, res);
+  });
   app.get('/zelcash/zvalidateaddress/:zaddr?', (req, res) => {
     zelcashService.zValidateAddress(req, res);
   });
@@ -187,6 +190,15 @@ module.exports = (app) => {
   // GET PROTECTED API - ZelNode Owner
   app.get('/zelcash/stop', (req, res) => {
     zelcashService.stop(req, res);
+  });
+  app.get('/zelcash/start', (req, res) => {
+    zelnodeService.startZelCash(req, res);
+  });
+  app.get('/zelcash/restart', (req, res) => {
+    zelnodeService.restartZelCash(req, res);
+  });
+  app.get('/zelcash/reindex', (req, res) => {
+    zelnodeService.reindexZelCash(req, res);
   });
   app.get('/zelcash/createzelnodekey', (req, res) => {
     zelcashService.createZelNodeKey(req, res);
@@ -224,6 +236,153 @@ module.exports = (app) => {
   app.get('/zelcash/signrawtransaction/:hexstring?/:prevtxs?/:privatekeys?/:sighashtype?/:branchid?', (req, res) => { // todo make this post too
     zelcashService.signRawTransaction(req, res);
   });
+  app.get('/zelcash/addmultisigaddress/:n?/:keysobject?', (req, res) => { // todo make this post too
+    zelcashService.addMultiSigAddress(req, res);
+  });
+  app.get('/zelcash/backupwallet/:destination?', (req, res) => {
+    zelcashService.backupWallet(req, res);
+  });
+  app.get('/zelcash/dumpprivkey/:taddr?', (req, res) => {
+    zelcashService.dumpPrivKey(req, res);
+  });
+  app.get('/zelcash/getbalance/:minconf?/:includewatchonly?', (req, res) => {
+    zelcashService.getBalance(req, res);
+  });
+  app.get('/zelcash/getnewaddress', (req, res) => {
+    zelcashService.getNewAddress(req, res);
+  });
+  app.get('/zelcash/getrawchangeaddress', (req, res) => {
+    zelcashService.getRawChangeAddress(req, res);
+  });
+  app.get('/zelcash/getreceivedbyaddress/:zelcashaddress?/:minconf?', (req, res) => {
+    zelcashService.getReceivedByAddress(req, res);
+  });
+  app.get('/zelcash/getunconfirmedbalance', (req, res) => {
+    zelcashService.getUnconfirmedBalance(req, res);
+  });
+  app.get('/zelcash/getwalletinfo', (req, res) => {
+    zelcashService.getWalletInfo(req, res);
+  });
+  app.get('/zelcash/importaddress/:address?/:label?/:rescan?', (req, res) => {
+    zelcashService.importAddress(req, res);
+  });
+  app.get('/zelcash/importprivkey/:zelcashprivkey?/:label?/:rescan?', (req, res) => {
+    zelcashService.importPrivKey(req, res);
+  });
+  app.get('/zelcash/importwallet/:filename?', (req, res) => {
+    zelcashService.importWallet(req, res);
+  });
+  app.get('/zelcash/keypoolrefill/:newsize?', (req, res) => {
+    zelcashService.keyPoolRefill(req, res);
+  });
+  app.get('/zelcash/listaddressgroupings', (req, res) => {
+    zelcashService.listAddressGroupings(req, res);
+  });
+  app.get('/zelcash/listlockunspent', (req, res) => {
+    zelcashService.listLockUnspent(req, res);
+  });
+  app.get('/zelcash/listreceivedbyaddress/:minconf?/:includeempty?/:includewatchonly?', (req, res) => {
+    zelcashService.listReceivedByAddress(req, res);
+  });
+  app.get('/zelcash/listsinceblock/:blockhash?/:targetconfirmations?/:includewatchonly?', (req, res) => {
+    zelcashService.listSinceBlock(req, res);
+  });
+  app.get('/zelcash/listtransactions/:count?/:from?/:includewatchonly?', (req, res) => {
+    zelcashService.listTransactions(req, res);
+  });
+  app.get('/zelcash/listunspent/:minconf?/:maxconf?/:addresses?', (req, res) => {
+    zelcashService.listUnspent(req, res);
+  });
+  app.get('/zelcash/lockunspent/:unlock?/:transactions?', (req, res) => {
+    zelcashService.lockUnspent(req, res);
+  });
+  app.get('/zelcash/rescanblockchain', (req, res) => {
+    zelcashService.rescanBlockchain(req, res);
+  });
+  app.get('/zelcash/sendfrom/:tozelcashaddress?/:amount?/:minconf?/:comment?/:commentto?', (req, res) => {
+    zelcashService.sendFrom(req, res);
+  });
+  app.get('/zelcash/sendmany/:amounts?/:minconf?/:comment?/:substractfeefromamount?', (req, res) => {
+    zelcashService.sendMany(req, res);
+  });
+  app.get('/zelcash/sendtoaddress/:zelcashaddress?/:amount?/:comment?/:commentto?/:substractfeefromamount?', (req, res) => {
+    zelcashService.sendToAddress(req, res);
+  });
+  app.get('/zelcash/settxfee/:amount?', (req, res) => {
+    zelcashService.setTxFee(req, res);
+  });
+  app.get('/zelcash/signmessage/:taddr?/:message?', (req, res) => {
+    zelcashService.signMessage(req, res);
+  });
+  app.get('/zelcash/zexportkey/:zaddr?', (req, res) => {
+    zelcashService.zExportKey(req, res);
+  });
+  app.get('/zelcash/zexportviewingkey/:zaddr?', (req, res) => {
+    zelcashService.zExportViewingKey(req, res);
+  });
+  app.get('/zelcash/zgetbalance/:address?/:minconf?', (req, res) => {
+    zelcashService.zGetBalance(req, res);
+  });
+  app.get('/zelcash/zgetmigrationstatus', (req, res) => {
+    zelcashService.zGetMigrationStatus(req, res);
+  });
+  app.get('/zelcash/zgetnewaddress/:type?', (req, res) => {
+    zelcashService.zGetNewAddress(req, res);
+  });
+  app.get('/zelcash/zgetoperationresult/:operationid?', (req, res) => {
+    zelcashService.zGetOperationResult(req, res);
+  });
+  app.get('/zelcash/zgetoperationstatus/:operationid?', (req, res) => {
+    zelcashService.zGetOperationStatus(req, res);
+  });
+  app.get('/zelcash/zgettotalbalance/:minconf?/:includewatchonly?', (req, res) => {
+    zelcashService.zGetTotalBalance(req, res);
+  });
+  app.get('/zelcash/zimportkey/:zkey?/:rescan?/:startheight?', (req, res) => {
+    zelcashService.zImportKey(req, res);
+  });
+  app.get('/zelcash/zimportviewingkey/:vkey?/:rescan?/:startheight?', (req, res) => {
+    zelcashService.zImportViewingKey(req, res);
+  });
+  app.get('/zelcash/zimportwallet/:filename?', (req, res) => {
+    zelcashService.zImportWallet(req, res);
+  });
+  app.get('/zelcash/zlistaddresses/:includewatchonly?', (req, res) => {
+    zelcashService.zListAddresses(req, res);
+  });
+  app.get('/zelcash/zlistoperationids', (req, res) => {
+    zelcashService.zListOperationIds(req, res);
+  });
+  app.get('/zelcash/zlistreceivedbyaddress/:address?/:minconf?', (req, res) => {
+    zelcashService.zListReceivedByAddress(req, res);
+  });
+  app.get('/zelcash/zlistunspent/:minconf?/:maxonf?/:includewatchonly?/:addresses?', (req, res) => {
+    zelcashService.zListUnspent(req, res);
+  });
+  app.get('/zelcash/zmergetoaddress/:fromaddresses?/:toaddress?/:fee?/:transparentlimit?/:shieldedlimit?/:memo?', (req, res) => {
+    zelcashService.zMergeToAddress(req, res);
+  });
+  app.get('/zelcash/zsendmany/:fromaddress?/:amounts?/:minconf?/:fee?', (req, res) => {
+    zelcashService.zSendMany(req, res);
+  });
+  app.get('/zelcash/zsetmigration/:enabled?', (req, res) => {
+    zelcashService.zSetMigration(req, res);
+  });
+  app.get('/zelcash/zshieldcoinbase/:fromaddress?/:toaddress?/:fee?/:limit?', (req, res) => {
+    zelcashService.zShieldCoinBase(req, res);
+  });
+  app.get('/zelcash/zcrawjoinsplit/:rawtx?/:inputs?/:outputs?/:vpubold?/:vpubnew?', (req, res) => {
+    zelcashService.zcRawJoinSplit(req, res);
+  });
+  app.get('/zelcash/zcrawkeygen', (req, res) => {
+    zelcashService.zcRawKeygen(req, res);
+  });
+  app.get('/zelcash/zcrawreceive/:zcsecretkey?/:encryptednote?', (req, res) => {
+    zelcashService.zcRawReceive(req, res);
+  });
+  app.get('/zelcash/zcsamplejoinsplit', (req, res) => {
+    zelcashService.zcSampleJoinSplit(req, res);
+  });
   app.get('/zelid/loggedusers', (req, res) => {
     zelidService.loggedUsers(req, res);
   });
@@ -233,13 +392,22 @@ module.exports = (app) => {
   app.get('/zelid/logoutallusers', (req, res) => {
     zelidService.logoutAllUsers(req, res);
   });
-  app.get('/zelnode/startZelCash', (req, res) => {
+  app.get('/zelnode/startzelcash', (req, res) => {
     zelnodeService.startZelCash(req, res);
+  });
+  app.get('/zelnode/restartzelcash', (req, res) => {
+    zelnodeService.restartZelCash(req, res);
+  });
+  app.get('/zelnode/reindexzelcash', (req, res) => {
+    zelnodeService.reindexZelCash(req, res);
   });
 
   // GET PROTECTED API - ZelTeam
   app.get('/zelcash/ping', (req, res) => { // we do not want this to be issued by anyone.
     zelcashService.ping(req, res);
+  });
+  app.get('/zelcash/zcbenchmark/:benchmarktype?/:samplecount?', (req, res) => {
+    zelcashService.zcBenchmark(req, res);
   });
   app.get('/zelnode/updateflux', (req, res) => { // method shall be called only if zelflux version is obsolete.
     zelnodeService.updateFlux(req, res);
