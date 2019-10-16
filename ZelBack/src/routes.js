@@ -79,7 +79,7 @@ module.exports = (app) => {
   app.get('/zelcash/gettxout/:txid?/:n?/:includemempool?', (req, res) => {
     zelcashService.getTxOut(req, res);
   });
-  app.get('/zelcash/gettxoutproof/:txids?/:blockhash?', (req, res) => { // comma separated list of txids so /gettxoutproof/abc,efg,asd/blockhash
+  app.get('/zelcash/gettxoutproof/:txids?/:blockhash?', (req, res) => { // comma separated list of txids. For example: /gettxoutproof/abc,efg,asd/blockhash
     zelcashService.getTxOutProof(req, res);
   });
   app.get('/zelcash/gettxoutsetinfo', (req, res) => {
@@ -174,7 +174,7 @@ module.exports = (app) => {
   app.get('/zelcash/prioritisetransaction/:txid?/:prioritydelta?/:feedelta?', (req, res) => {
     zelcashService.prioritiseTransaction(req, res);
   });
-  app.get('/zelcash/submitblock/:hexdata?/:jsonparametersobject?', (req, res) => { // TODO make it post too
+  app.get('/zelcash/submitblock/:hexdata?/:jsonparametersobject?', (req, res) => { // todo make it post too
     zelcashService.submitBlock(req, res);
   });
   app.get('/zelid/loggedsessions', (req, res) => {
@@ -409,7 +409,7 @@ module.exports = (app) => {
   app.get('/zelcash/zcbenchmark/:benchmarktype?/:samplecount?', (req, res) => {
     zelcashService.zcBenchmark(req, res);
   });
-  app.get('/zelnode/updateflux', (req, res) => { // method shall be called only if flux version is obsolete.
+  app.get('/zelnode/updateflux', (req, res) => { // method shall be called only if zelflux version is obsolete.
     zelnodeService.updateFlux(req, res);
   });
   app.get('/zelnode/rebuildzelfront', (req, res) => {
@@ -425,7 +425,7 @@ module.exports = (app) => {
   });
 
   // POST PROTECTED API - USER LEVEL
-  app.post('/zelid/logoutspecificsession', (req, res) => { // requires the knowledge of session loginPhrase so user level is sufficient and user cannot logout another user as he does not know the loginPhrase.
+  app.post('/zelid/logoutspecificsession', (req, res) => { // requires the knowledge of a session loginPhrase so users level is sufficient and user cannot logout another user as he does not know the loginPhrase.
     zelidService.logoutSpecificSession(req, res);
   });
 

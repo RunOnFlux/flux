@@ -17,7 +17,7 @@ const client = new zelcashrpc.Client({
 let response = {
   status: 'error',
   data: {
-    message: 'Unkown error',
+    message: 'Unknown error',
   },
 };
 
@@ -581,7 +581,7 @@ async function getBlock(req, res) {
   let { hashheight } = req.params;
   hashheight = hashheight || req.query.hashheight;
   let { verbosity } = req.params;
-  verbosity = verbosity || req.query.verbosity || 2; // defaults to json object. CORRECT ZCASH verbosity is number, error says its not boolean
+  verbosity = verbosity || req.query.verbosity || 2; // defaults to json object. CORRECT ZELCASH verbosity is number, error says its not boolean
   try {
     if (typeof verbosity !== 'number') {
       verbosity = Number(verbosity);
@@ -782,7 +782,7 @@ async function getTxOut(req, res) {
   let { n } = req.params;
   n = n || req.query.n;
   let { includemempool } = req.params;
-  includemempool = includemempool || req.query.includemempool || true; // we default to true
+  includemempool = includemempool || req.query.includemempool || true;
   try {
     if (txid && n) {
       if (typeof includemempool !== 'boolean') {

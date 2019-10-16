@@ -109,7 +109,7 @@
           v-if="privilage === 'zelteam' || privilage === 'admin'"
           index="10-2"
         >
-          Manage Flux
+          Manage ZelFlux
         </el-menu-item>
         <el-menu-item
           v-if="privilage === 'zelteam' || privilage === 'admin'"
@@ -192,7 +192,7 @@ export default {
           break;
         default:
           vue.$message.info('Feature coming soon!');
-          console.log('Menu: Unrecognised method');
+          console.log('Menu: Unrecognized method');
       }
     },
     logoutCurrentSession() {

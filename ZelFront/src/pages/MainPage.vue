@@ -41,7 +41,7 @@
       class="content"
     >
       <h4>
-        Error connecting to ZelCash daemon
+        Error connecting to the ZelCash daemon
       </h4>
     </div>
     <div class="footer">
@@ -111,7 +111,7 @@ export default {
             this.$store.commit('setPrivilage', 'zelteam');
           } else if (auth.zelid === this.userconfig.zelid) {
             this.$store.commit('setPrivilage', 'admin');
-          } else if (auth.zelid.length > 24) { // very basic check that does the job needed
+          } else if (auth.zelid.length > 24) { // very basic check that does the job
             this.$store.commit('setPrivilage', 'user');
           } else {
             localStorage.removeItem('zelidauth');

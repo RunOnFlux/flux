@@ -85,7 +85,7 @@ export default {
           console.log('ZelCash Section hidden');
           break;
         default:
-          console.log('ZelCash Section: Unrecognised method'); // should not be seeable if all works correctly
+          console.log('ZelCash Section: Unrecognized method'); // should not be seeable if all works correctly
       }
     },
   },
@@ -102,7 +102,7 @@ export default {
         console.log('ZelCash Section hidden');
         break;
       default:
-        console.log('ZelCash Section: Unrecognised method');
+        console.log('ZelCash Section: Unrecognized method');
     }
   },
   methods: {
@@ -126,8 +126,8 @@ export default {
         if (this.getZelNodeStatusResponse.data.status === 4) {
           this.getZelNodeStatusResponse.zelnodeStatus = 'ZelNode is working correctly';
         } else {
-          const statusCode = this.getZelNodeStatusResponse.data.code || this.getZelNodeStatusResponse.data.status;
-          this.getZelNodeStatusResponse.zelnodeStatus = `Error status code: ${statusCode}. ZelNode not yet active. Flux is running with limited capabilities.`;
+          const statusCode = this.getZelNodeStatusResponse.message.code || this.getZelNodeStatusResponse.message.status;
+          this.getZelNodeStatusResponse.zelnodeStatus = `Error status code: ${statusCode}. ZelNode is not activated. ZelFlux is running with limited capabilities.`;
         }
       }
     },

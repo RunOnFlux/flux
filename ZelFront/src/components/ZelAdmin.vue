@@ -47,7 +47,7 @@
         class="generalButton"
         @click="updateFlux()"
       >
-        Update Flux
+        Update ZelFlux
       </ElButton>
       <ElButton
         class="generalButton"
@@ -174,7 +174,7 @@ export default {
           console.log('Admin Section hidden');
           break;
         default:
-          console.log('Admin Section: Unrecognised method'); // should not be seeable if all works correctly
+          console.log('Admin Section: Unrecognized method'); // should not be seeable if all works correctly
       }
     },
   },
@@ -196,7 +196,7 @@ export default {
         console.log('zelAdmin Section hidden');
         break;
       default:
-        console.log('zelAdmin Section: Unrecognised method'); // should not be seeable if all works correctly
+        console.log('zelAdmin Section: Unrecognized method'); // should not be seeable if all works correctly
     }
   },
   methods: {
@@ -205,11 +205,11 @@ export default {
       const auth = qs.parse(zelidauth);
       console.log(auth);
       const self = this;
-      axios.get('https://raw.githubusercontent.com/zelcash/zelnoded/master/package.json')
+      axios.get('https://raw.githubusercontent.com/zelcash/flux/master/package.json')
         .then((response) => {
           console.log(response);
           if (response.data.version !== self.fluxVersion) {
-            vue.$message.success('Flux is now updating in the background');
+            vue.$message.success('ZelFlux is now updating in the background');
             ZelNodeService.updateFlux(zelidauth)
               .then((responseB) => {
                 console.log(responseB);
@@ -223,7 +223,7 @@ export default {
                 vue.$message.error(e.toString());
               });
           } else {
-            vue.$message.success('Flux is already up to date.');
+            vue.$message.success('ZelFlux is already up to date.');
           }
         })
         .catch((error) => {
@@ -290,13 +290,13 @@ export default {
     },
     getLatestFluxVersion() {
       const self = this;
-      axios.get('https://raw.githubusercontent.com/zelcash/zelnoded/master/package.json')
+      axios.get('https://raw.githubusercontent.com/zelcash/flux/master/package.json')
         .then((response) => {
           console.log(response);
           if (response.data.version !== self.fluxVersion) {
-            vue.$message.warning('Flux requires an update!');
+            vue.$message.warning('ZelFlux requires an update!');
           } else {
-            vue.$message.success('Flux is up to date');
+            vue.$message.success('ZelFlux is up to date');
           }
         })
         .catch((error) => {
@@ -433,7 +433,7 @@ export default {
                   console.log('zelAdmin Section hidden');
                   break;
                 default:
-                  console.log('zelAdmin Section: Unrecognised method'); // should not be seeable if all works correctly
+                  console.log('zelAdmin Section: Unrecognized method'); // should not be seeable if all works correctly
               }
             }
           }

@@ -1,10 +1,10 @@
 {
   "name": "flux",
-  "version": "0.24.1",
-  "description": "Flux - ZelNode Daemon. The entrace to the ZelNode network.",
+  "version": "0.24.2",
+  "description": "ZelFlux - ZelNode Daemon. The entrace to the Zel network.",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/zelcash/zelnoded.git"
+    "url": "git+https://github.com/zelcash/flux.git"
   },
   "keywords": [
     "zel",
@@ -17,14 +17,15 @@
     "network",
     "flux",
     "zelflux",
+    "zelnetwork",
     "zelnoded"
   ],
   "author": "Tadeas Kmenta (tadeas.kmenta@zel.cash)",
   "license": "AGPL-3.0-or-later",
   "bugs": {
-    "url": "https://github.com/zelcash/zelnoded/issues"
+    "url": "https://github.com/zelcash/flux/issues"
   },
-  "homepage": "https://github.com/zelcash/zelnoded#readme",
+  "homepage": "https://github.com/zelcash/flux#readme",
   "scripts": {
     "lint": "vue-cli-service lint",
     "test:e2e": "vue-cli-service test:e2e",
