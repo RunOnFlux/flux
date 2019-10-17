@@ -42,10 +42,10 @@
         Logout all sessions
       </ElButton>
     </div>
-    <div v-if="zelAdminSection === 'manageflux'">
+    <div v-if="zelAdminSection === 'managezelflux'">
       <ElButton
         class="generalButton"
-        @click="updateFlux()"
+        @click="updateZelFlux()"
       >
         Update ZelFlux
       </ElButton>
@@ -137,7 +137,7 @@ export default {
   },
   computed: {
     ...mapState([
-      'fluxVersion',
+      'zelfluxVersion',
       'config',
       'userconfig',
       'privilage',
@@ -159,8 +159,8 @@ export default {
           this.filterLoggedUsers = '';
           this.loggedSessions();
           break;
-        case 'manageflux':
-          this.getLatestFluxVersion();
+        case 'managezelflux':
+          this.getLatestZelFluxVersion();
           break;
         case 'managezelcash':
           this.checkZelCashVersion();
@@ -183,8 +183,8 @@ export default {
       case 'loggedsessions':
         this.loggedSessions();
         break;
-      case 'manageflux':
-        this.getLatestFluxVersion();
+      case 'managezelflux':
+        this.getLatestZelFluxVersion();
         break;
       case 'managezelcash':
         this.checkZelCashVersion();
@@ -200,17 +200,17 @@ export default {
     }
   },
   methods: {
-    updateFlux() {
+    updateZelFlux() {
       const zelidauth = localStorage.getItem('zelidauth');
       const auth = qs.parse(zelidauth);
       console.log(auth);
       const self = this;
-      axios.get('https://raw.githubusercontent.com/zelcash/flux/master/package.json')
+      axios.get('https://raw.githubusercontent.com/zelcash/zelflux/master/package.json')
         .then((response) => {
           console.log(response);
-          if (response.data.version !== self.fluxVersion) {
+          if (response.data.version !== self.zelfluxVersion) {
             vue.$message.success('ZelFlux is now updating in the background');
-            ZelNodeService.updateFlux(zelidauth)
+            ZelNodeService.updateZelFlux(zelidauth)
               .then((responseB) => {
                 console.log(responseB);
                 if (responseB.data.status === 'error') {
@@ -288,12 +288,12 @@ export default {
           vue.$message.error(e.toString());
         });
     },
-    getLatestFluxVersion() {
+    getLatestZelFluxVersion() {
       const self = this;
-      axios.get('https://raw.githubusercontent.com/zelcash/flux/master/package.json')
+      axios.get('https://raw.githubusercontent.com/zelcash/zelflux/master/package.json')
         .then((response) => {
           console.log(response);
-          if (response.data.version !== self.fluxVersion) {
+          if (response.data.version !== self.zelfluxVersion) {
             vue.$message.warning('ZelFlux requires an update!');
           } else {
             vue.$message.success('ZelFlux is up to date');

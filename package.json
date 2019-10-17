@@ -1,10 +1,10 @@
 {
-  "name": "flux",
-  "version": "0.24.4",
+  "name": "zelflux",
+  "version": "0.25.0",
   "description": "ZelFlux - ZelNode Daemon. The entrace to the Zel network.",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/zelcash/flux.git"
+    "url": "git+https://github.com/zelcash/zelflux.git"
   },
   "keywords": [
     "zel",
@@ -15,17 +15,17 @@
     "masternode",
     "zelnodes",
     "network",
-    "flux",
     "zelflux",
+    "flux",
     "zelnetwork",
     "zelnoded"
   ],
   "author": "Tadeas Kmenta (tadeas.kmenta@zel.cash)",
   "license": "AGPL-3.0-or-later",
   "bugs": {
-    "url": "https://github.com/zelcash/flux/issues"
+    "url": "https://github.com/zelcash/zelflux/issues"
   },
-  "homepage": "https://github.com/zelcash/flux#readme",
+  "homepage": "https://github.com/zelcash/zelflux#readme",
   "scripts": {
     "lint": "vue-cli-service lint",
     "test:e2e": "vue-cli-service test:e2e",
@@ -37,11 +37,11 @@
     "zelfrontbuildwatch": "vue-cli-service build --watch",
     "zelbackstart": "nodemon ZelBack/server.js",
     "zelbackdev": "nodemon ZelBack/server.js",
-    "flux": "nodemon app.js",
-    "start": "npm install && node init.js && (npm run zelfrontbuildwatch & npm run flux)",
+    "zelflux": "nodemon app.js",
+    "start": "npm install && node init.js && (npm run zelfrontbuildwatch & npm run zelflux)",
     "dev": "node init.js && (npm run zelbackdev & npm run zelfrontdev)",
-    "updateflux": "git pull && npm install",
-    "hardupdateflux": "rm -rf node_modules && rm -f package-lock.json && git reset --hard && git pull && npm run start"
+    "updatezelflux": "git pull && npm install",
+    "hardupdatezelflux": "rm -rf node_modules && rm -f package-lock.json && git reset --hard && git pull && npm run start"
   },
   "dependencies": {
     "axios": "^0.19.0",

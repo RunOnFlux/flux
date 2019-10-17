@@ -1,8 +1,8 @@
 import Api from '@/services/Api';
 
 export default {
-  updateFlux(zelidauthHeader) {
-    return Api().get('/zelnode/updateflux', {
+  updateZelFlux(zelidauthHeader) {
+    return Api().get('/zelnode/updatezelflux', {
       headers: {
         zelidauth: zelidauthHeader,
       },
@@ -22,7 +22,7 @@ export default {
       },
     });
   },
-  getFluxVersion() {
+  getZelFluxVersion() {
     return Api().get('/zelnode/version');
   },
 };

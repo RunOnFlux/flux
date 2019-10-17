@@ -21,7 +21,7 @@ export default new Vuex.Store({
     zelcashSection: 'getinfo',
     zelnodeSection: null,
     zelAdminSection: null,
-    fluxVersion: '',
+    zelfluxVersion: '',
   },
   getters: {
   },
@@ -47,8 +47,8 @@ export default new Vuex.Store({
       state.zelcashSection = null;
       state.zelnodeSection = null;
     },
-    setFluxVersion(state, version) {
-      state.fluxVersion = version;
+    setZelFluxVersion(state, version) {
+      state.zelfluxVersion = version;
     },
   },
   actions: {
