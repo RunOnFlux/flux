@@ -10,15 +10,15 @@
         </h4>
         <div v-if="getZelNodeStatusResponse.code != -1">
           <h4>
-            ZelNode Address: {{ getZelNodeStatusResponse.message.addr }}
+            ZelNode Address: {{ getZelNodeStatusResponse.data.addr }}
           </h4>
           <h4>
-            Network: {{ getZelNodeStatusResponse.message.netaddr }}
+            Network: {{ getZelNodeStatusResponse.data.netaddr }}
           </h4>
           <h4>
             <ElLink
               type="primary"
-              :href="'https://explorer.zel.cash/tx/' + getZelNodeStatusResponse.message.txhash"
+              :href="'https://explorer.zel.cash/tx/' + getZelNodeStatusResponse.data.txhash"
               target="_blank"
             >Show Locked transaction</ElLink>
           </h4>
@@ -27,17 +27,17 @@
 
       <div class="getInfoResponse">
         <p>
-          ZelCash version: {{ getInfoResponse.message.version }}
+          ZelCash version: {{ getInfoResponse.data.version }}
         </p>
         <p>
-          Protocol version: {{ getInfoResponse.message.protocolversion }}
+          Protocol version: {{ getInfoResponse.data.protocolversion }}
         </p>
         <p>
-          Current Blockchain Height: {{ getInfoResponse.message.blocks }}
+          Current Blockchain Height: {{ getInfoResponse.data.blocks }}
         </p>
-        <div v-if="getInfoResponse.message.errors != ''">
+        <div v-if="getInfoResponse.data.errors != ''">
           <p>
-            Error: {{ getInfoResponse.message.errors }}
+            Error: {{ getInfoResponse.data.errors }}
           </p>
         </div>
       </div>
@@ -59,11 +59,11 @@ export default {
     return {
       getInfoResponse: {
         status: '',
-        message: '',
+        data: '',
       },
       getZelNodeStatusResponse: {
         status: '',
-        message: '',
+        data: '',
         zelnodeStatus: 'Checking status...',
       },
     };
@@ -108,19 +108,19 @@ export default {
     async zelcashGetInfo() {
       const response = await ZelCashService.getInfo();
       this.getInfoResponse.status = response.data.status;
-      this.getInfoResponse.message = response.data.data;
+      this.getInfoResponse.data = response.data.data;
     },
     async zelcashGetZelNodeStatus() {
       // TODO more code statuses?
       const response = await ZelCashService.getZelNodeStatus();
       this.getZelNodeStatusResponse.status = response.data.status;
-      this.getZelNodeStatusResponse.message = response.data.data;
-      console.log(this.getZelNodeStatusResponse.message);
-      if (this.getZelNodeStatusResponse.message) {
-        if (this.getZelNodeStatusResponse.message.status === 4) {
+      this.getZelNodeStatusResponse.data = response.data.data;
+      console.log(this.getZelNodeStatusResponse.data);
+      if (this.getZelNodeStatusResponse.data) {
+        if (this.getZelNodeStatusResponse.data.status === 4) {
           this.getZelNodeStatusResponse.zelnodeStatus = 'ZelNode is working correctly';
         } else {
-          const statusCode = this.getZelNodeStatusResponse.message.code || this.getZelNodeStatusResponse.message.status;
+          const statusCode = this.getZelNodeStatusResponse.data.code || this.getZelNodeStatusResponse.data.status;
           this.getZelNodeStatusResponse.code = statusCode;
           this.getZelNodeStatusResponse.zelnodeStatus = `Error status code: ${statusCode}. ZelNode not activated yet. ZelFlux is running but with limited capabilities.`;
         }

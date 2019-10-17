@@ -126,7 +126,7 @@ export default {
         if (this.getZelNodeStatusResponse.data.status === 4) {
           this.getZelNodeStatusResponse.zelnodeStatus = 'ZelNode is working correctly';
         } else {
-          const statusCode = this.getZelNodeStatusResponse.message.code || this.getZelNodeStatusResponse.message.status;
+          const statusCode = this.getZelNodeStatusResponse.data.code || this.getZelNodeStatusResponse.data.status;
           this.getZelNodeStatusResponse.zelnodeStatus = `Error status code: ${statusCode}. ZelNode is not activated. ZelFlux is running with limited capabilities.`;
         }
       }
