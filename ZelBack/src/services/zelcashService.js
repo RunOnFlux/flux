@@ -14,6 +14,36 @@ const client = new zelcashrpc.Client({
   timeout: 60000,
 });
 
+function ensureBoolean(parameter) {
+  if (typeof parameter !== 'boolean') {
+    if (parameter === 'false' || parameter === 0 || parameter === '0') {
+      // eslint-disable-next-line no-param-reassign
+      parameter = false;
+    }
+    if (parameter === 'true' || parameter === 1 || parameter === '1') {
+      // eslint-disable-next-line no-param-reassign
+      parameter = true;
+    }
+  }
+  return parameter;
+}
+
+function ensureNumber(parameter) {
+  if (typeof parameter !== 'number') {
+    // eslint-disable-next-line no-param-reassign
+    parameter = Number(parameter);
+  }
+  return parameter;
+}
+
+function ensureObject(parameter) {
+  if (typeof parameter !== 'object') {
+    // eslint-disable-next-line no-param-reassign
+    parameter = JSON.parse(parameter);
+  }
+  return parameter;
+}
+
 let response = {
   status: 'error',
   data: {
@@ -21,41 +51,54 @@ let response = {
   },
 };
 
-// == Control ==
-async function help(req, res) {
-  console.log(req.params);
-  console.log(req.query);
-  let { command } = req.params; // we accept both help/command and help?command=getinfo
-  command = command || req.query.command || '';
+const errUnauthorizedMessage = {
+  status: 'error',
+  data: {
+    message: 'Unauthorized. Access denied.',
+  },
+};
+
+async function executeCall(rpc, params) {
+  const callResponse = {
+    status: 'error',
+    data: {
+      message: 'Unknown error',
+    },
+  };
+  const rpcparameters = params || [];
   try {
-    const data = await client.help(command);
-    response.status = 'success';
-    response.data = data;
+    const data = await client[rpc](...rpcparameters);
+    callResponse.status = 'success';
+    callResponse.data = data;
   } catch (err) {
     const daemonerror = {
       code: err.code,
       message: err.message,
     };
-    response.status = 'error';
-    response.data = daemonerror;
+    callResponse.status = 'error';
+    callResponse.data = daemonerror;
   }
+
+  return callResponse;
+}
+
+// == Control ==
+async function help(req, res) {
+  let { command } = req.params; // we accept both help/command and help?command=getinfo
+  command = command || req.query.command || '';
+
+  const rpccall = 'help';
+  const rpcparameters = [command];
+
+  response = await executeCall(rpccall, rpcparameters);
 
   return res.json(response);
 }
 
 async function getInfo(req, res) {
-  try {
-    const data = await client.getInfo();
-    response.status = 'success';
-    response.data = data;
-  } catch (err) {
-    const daemonerror = {
-      code: err.code,
-      message: err.message,
-    };
-    response.status = 'error';
-    response.data = daemonerror;
-  }
+  const rpccall = 'getInfo';
+
+  response = await executeCall(rpccall);
 
   return res.json(response);
 }
@@ -66,26 +109,11 @@ async function stop(req, res) { // practically useless
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        const data = await client.stop();
-        response.status = 'success';
-        response.data = data;
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
-      }
+      const rpccall = 'stop';
+
+      response = await executeCall(rpccall);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -94,18 +122,9 @@ async function stop(req, res) { // practically useless
 
 // == Zelnode ==
 async function getZelnNodeStatus(req, res) {
-  try {
-    const data = await client.getzelnodestatus();
-    response.status = 'success';
-    response.data = data;
-  } catch (err) {
-    const daemonerror = {
-      code: err.code,
-      message: err.message,
-    };
-    response.status = 'error';
-    response.data = daemonerror;
-  }
+  const rpccall = 'getzelnodestatus';
+
+  response = await executeCall(rpccall);
 
   return res.json(response);
 }
@@ -133,26 +152,11 @@ async function listZelNodeConf(req, res) { // practically useless
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        const data = await client.listzelnodeconf();
-        response.status = 'success';
-        response.data = data;
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
-      }
+      const rpccall = 'listzelnodeconf';
+
+      response = await executeCall(rpccall);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -165,26 +169,11 @@ async function createZelNodeKey(req, res) { // practically useless
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        const data = await client.createzelnodekey();
-        response.status = 'success';
-        response.data = data;
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
-      }
+      const rpccall = 'createzelnodekey';
+
+      response = await executeCall(rpccall);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -198,47 +187,24 @@ async function znsync(req, res) {
   let { mode } = req.params; // we accept both znsync/status and znsync?mode=status
   mode = mode || req.query.mode || 'status'; // default to status
   if (mode === 'status') {
-    try {
-      const data = await client.znsync(mode);
-      response.status = 'success';
-      response.data = data;
-    } catch (err) {
-      const daemonerror = {
-        code: err.code,
-        message: err.message,
-      };
-      response.status = 'error';
-      response.data = daemonerror;
-    }
+    const rpccall = 'znsync';
+    const rpcparameters = [mode];
+
+    response = await executeCall(rpccall, rpcparameters);
     return res.json(response);
     // eslint-disable-next-line no-else-return
   } else {
-    // eslint-disable-next-line consistent-return
     serviceHelper.verifyAdminSession(req.headers, async (error, authorized) => {
       if (error) {
         return res.json(error);
       }
       if (authorized === true) {
-        try {
-          const data = await client.znsync(mode);
-          response.status = 'success';
-          response.data = data;
-        } catch (err) {
-          const daemonerror = {
-            code: err.code,
-            message: err.message,
-          };
-          response.status = 'error';
-          response.data = daemonerror;
-        }
+        const rpccall = 'znsync';
+        const rpcparameters = [mode];
+
+        response = await executeCall(rpccall, rpcparameters);
       } else {
-        const errMessage = {
-          status: 'error',
-          data: {
-            message: 'Unauthorized. Access denied.',
-          },
-        };
-        response = errMessage;
+        response = errUnauthorizedMessage;
       }
 
       return res.json(response);
@@ -251,32 +217,18 @@ async function createZelNodeBroadcast(req, res) {
   command = command || req.query.command || '';
   let { alias } = req.params;
   alias = alias || req.query.alias || '';
-  // eslint-disable-next-line consistent-return
+
   serviceHelper.verifyAdminSession(req.headers, async (error, authorized) => {
     if (error) {
       return res.json(error);
     }
-    if (authorized === true) {
-      try {
-        const data = await client.createzelnodebroadcast(command, alias);
-        response.status = 'success';
-        response.data = data;
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
-      }
+    if (authorized === false) {
+      const rpccall = 'createzelnodebroadcast';
+      const rpcparameters = [command, alias];
+
+      response = await executeCall(rpccall, rpcparameters);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -288,58 +240,30 @@ async function decodeZelNodeBroadcast(req, res) {
   console.log(req.query);
   let { hexstring } = req.params;
   hexstring = hexstring || req.query.hexstring;
-  try {
-    if (hexstring) {
-      const data = await client.decodezelnodebroadcast(hexstring);
-      response.status = 'success';
-      response.data = data;
-    } else {
-      const data = await client.decodezelnodebroadcast(); // throw error help
-      response.status = 'success';
-      response.data = data;
-    }
-  } catch (err) {
-    const daemonerror = {
-      code: err.code,
-      message: err.message,
-    };
-    response.status = 'error';
-    response.data = daemonerror;
+
+  const rpccall = 'decodezelnodebroadcast';
+  const rpcparameters = [];
+  if (hexstring) {
+    rpcparameters.push(hexstring);
   }
+
+  response = await executeCall(rpccall, rpcparameters);
 
   return res.json(response);
 }
 
 async function getNodeBenchmarks(req, res) {
-  try {
-    const data = await client.getnodebenchmarks();
-    response.status = 'success';
-    response.data = data;
-  } catch (err) {
-    const daemonerror = {
-      code: err.code,
-      message: err.message,
-    };
-    response.status = 'error';
-    response.data = daemonerror;
-  }
+  const rpccall = 'getnodebenchmarks';
+
+  response = await executeCall(rpccall);
 
   return res.json(response);
 }
 
 async function getZelNodeCount(req, res) {
-  try {
-    const data = await client.getzelnodecount();
-    response.status = 'success';
-    response.data = data;
-  } catch (err) {
-    const daemonerror = {
-      code: err.code,
-      message: err.message,
-    };
-    response.status = 'error';
-    response.data = daemonerror;
-  }
+  const rpccall = 'getzelnodecount';
+
+  response = await executeCall(rpccall);
 
   return res.json(response);
 }
@@ -351,26 +275,11 @@ async function getZelNodeOutputs(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        const data = await client.getzelnodeoutputs();
-        response.status = 'success';
-        response.data = data;
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
-      }
+      const rpccall = 'getzelnodeoutputs';
+
+      response = await executeCall(rpccall);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -380,18 +289,12 @@ async function getZelNodeOutputs(req, res) {
 async function getZelNodeScores(req, res) {
   let { blocks } = req.params;
   blocks = blocks || req.query.blocks || '10'; // defaults to 10 as default zelcash value
-  try {
-    const data = await client.getzelnodescores(blocks);
-    response.status = 'success';
-    response.data = data;
-  } catch (err) {
-    const daemonerror = {
-      code: err.code,
-      message: err.message,
-    };
-    response.status = 'error';
-    response.data = daemonerror;
-  }
+
+  const rpccall = 'getzelnodescores';
+  const rpcparameters = [];
+  rpcparameters.push(blocks);
+
+  response = await executeCall(rpccall, rpcparameters);
 
   return res.json(response);
 }
@@ -401,24 +304,16 @@ async function getZelNodeWinners(req, res) {
   blocks = blocks || req.query.blocks || '10'; // defaults to 10 as default zelcash value
   let { filter } = req.params;
   filter = filter || req.query.filter;
-  try {
-    if (filter) {
-      const data = await client.getzelnodewinners(blocks, filter);
-      response.status = 'success';
-      response.data = data;
-    } else {
-      const data = await client.getzelnodewinners(blocks);
-      response.status = 'success';
-      response.data = data;
-    }
-  } catch (err) {
-    const daemonerror = {
-      code: err.code,
-      message: err.message,
-    };
-    response.status = 'error';
-    response.data = daemonerror;
+
+  const rpccall = 'getzelnodewinners';
+  const rpcparameters = [];
+  rpcparameters.push(blocks);
+  if (filter) {
+    rpcparameters.push(filter);
   }
+  console.log(rpcparameters);
+
+  response = await executeCall(rpccall, rpcparameters);
 
   return res.json(response);
 }
@@ -426,24 +321,14 @@ async function getZelNodeWinners(req, res) {
 async function relayZelNodeBroadcast(req, res) {
   let { hexstring } = req.params;
   hexstring = hexstring || req.query.hexstring;
-  try {
-    if (hexstring) {
-      const data = await client.relayzelnodebroadcast(hexstring);
-      response.status = 'success';
-      response.data = data;
-    } else {
-      const data = await client.relayzelnodebroadcast(); // throw error help
-      response.status = 'success';
-      response.data = data;
-    }
-  } catch (err) {
-    const daemonerror = {
-      code: err.code,
-      message: err.message,
-    };
-    response.status = 'error';
-    response.data = daemonerror;
+
+  const rpccall = 'relayzelnodebroadcast';
+  const rpcparameters = [];
+  if (hexstring) {
+    rpcparameters.push(hexstring);
   }
+
+  response = await executeCall(rpccall, rpcparameters);
 
   return res.json(response);
 }
@@ -453,27 +338,16 @@ async function spork(req, res) {
   name = name || req.query.name || 'show'; // name, show, active
   let { value } = req.params;
   value = value || req.query.value;
-  try {
-    if (value) {
-      if (typeof value !== 'number') {
-        value = Number(value);
-      }
-      const data = await client.spork(name, value);
-      response.status = 'success';
-      response.data = data;
-    } else {
-      const data = await client.spork(name);
-      response.status = 'success';
-      response.data = data;
-    }
-  } catch (err) {
-    const daemonerror = {
-      code: err.code,
-      message: err.message,
-    };
-    response.status = 'error';
-    response.data = daemonerror;
+
+  const rpccall = 'spork';
+  const rpcparameters = [];
+  rpcparameters.push(name);
+  if (value) {
+    value = ensureNumber(value);
+    rpcparameters.push(value);
   }
+
+  response = await executeCall(rpccall, rpcparameters);
 
   return res.json(response);
 }
@@ -492,34 +366,17 @@ async function startZelNode(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        if (alias) {
-          const data = await client.startzelnode(set, lockwallet, alias);
-          response.status = 'success';
-          response.data = data;
-        } else {
-          console.log(set);
-          console.log(lockwallet);
-          const data = await client.startzelnode(set, lockwallet);
-          response.status = 'success';
-          response.data = data;
-        }
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
+      const rpccall = 'startzelnode';
+      const rpcparameters = [];
+      rpcparameters.push(set);
+      rpcparameters.push(lockwallet);
+      if (alias) {
+        rpcparameters.push(alias);
       }
+
+      response = await executeCall(rpccall, rpcparameters);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -527,52 +384,25 @@ async function startZelNode(req, res) {
 }
 
 async function zelNodeCurrentWinner(req, res) {
-  try {
-    const data = await client.zelnodecurrentwinner();
-    response.status = 'success';
-    response.data = data;
-  } catch (err) {
-    const daemonerror = {
-      code: err.code,
-      message: err.message,
-    };
-    response.status = 'error';
-    response.data = daemonerror;
-  }
+  const rpccall = 'zelnodecurrentwinner';
+
+  response = await executeCall(rpccall);
 
   return res.json(response);
 }
 
 async function zelNodeDebug(req, res) {
-  try {
-    const data = await client.zelnodedebug();
-    response.status = 'success';
-    response.data = data;
-  } catch (err) {
-    const daemonerror = {
-      code: err.code,
-      message: err.message,
-    };
-    response.status = 'error';
-    response.data = daemonerror;
-  }
+  const rpccall = 'zelnodedebug';
+
+  response = await executeCall(rpccall);
 
   return res.json(response);
 }
 // == Blockchain ==
 async function getBestBlockHash(req, res) {
-  try {
-    const data = await client.getBestBlockHash();
-    response.status = 'success';
-    response.data = data;
-  } catch (err) {
-    const daemonerror = {
-      code: err.code,
-      message: err.message,
-    };
-    response.status = 'error';
-    response.data = daemonerror;
-  }
+  const rpccall = 'getBestBlockHash';
+
+  response = await executeCall(rpccall);
 
   return res.json(response);
 }
@@ -582,55 +412,28 @@ async function getBlock(req, res) {
   hashheight = hashheight || req.query.hashheight;
   let { verbosity } = req.params;
   verbosity = verbosity || req.query.verbosity || 2; // defaults to json object. CORRECT ZELCASH verbosity is number, error says its not boolean
-  try {
-    if (typeof verbosity !== 'number') {
-      verbosity = Number(verbosity);
-    }
-    const data = await client.getBlock(hashheight, verbosity);
-    response.status = 'success';
-    response.data = data;
-  } catch (err) {
-    const daemonerror = {
-      code: err.code,
-      message: err.message,
-    };
-    response.status = 'error';
-    response.data = daemonerror;
-  }
+  verbosity = ensureNumber(verbosity);
+
+  const rpccall = 'getBlock';
+  const rpcparameters = [hashheight, verbosity];
+
+  response = await executeCall(rpccall, rpcparameters);
 
   return res.json(response);
 }
 
 async function getBlockchainInfo(req, res) {
-  try {
-    const data = await client.getBlockchainInfo();
-    response.status = 'success';
-    response.data = data;
-  } catch (err) {
-    const daemonerror = {
-      code: err.code,
-      message: err.message,
-    };
-    response.status = 'error';
-    response.data = daemonerror;
-  }
+  const rpccall = 'getBlockchainInfo';
+
+  response = await executeCall(rpccall);
 
   return res.json(response);
 }
 
 async function getBlockCount(req, res) {
-  try {
-    const data = await client.getBlockCount();
-    response.status = 'success';
-    response.data = data;
-  } catch (err) {
-    const daemonerror = {
-      code: err.code,
-      message: err.message,
-    };
-    response.status = 'error';
-    response.data = daemonerror;
-  }
+  const rpccall = 'getBlockCount';
+
+  response = await executeCall(rpccall);
 
   return res.json(response);
 }
@@ -638,27 +441,15 @@ async function getBlockCount(req, res) {
 async function getBlockHah(req, res) {
   let { index } = req.params;
   index = index || req.query.index; // no default value, show help
-  try {
-    if (index) {
-      if (typeof index !== 'number') {
-        index = Number(index);
-      }
-      const data = await client.getBlockHash(index);
-      response.status = 'success';
-      response.data = data;
-    } else {
-      const data = await client.getBlockHash(); // errors to help
-      response.status = 'success';
-      response.data = data;
-    }
-  } catch (err) {
-    const daemonerror = {
-      code: err.code,
-      message: err.message,
-    };
-    response.status = 'error';
-    response.data = daemonerror;
+
+  const rpccall = 'getBlockHah';
+  const rpcparameters = [];
+  if (index) {
+    index = ensureNumber(index);
+    rpcparameters.push(index);
   }
+
+  response = await executeCall(rpccall, rpcparameters);
 
   return res.json(response);
 }
@@ -668,83 +459,40 @@ async function getBlockHeader(req, res) {
   hash = hash || req.query.hash;
   let { verbose } = req.params;
   verbose = verbose || req.query.verbose || true;
-  try {
-    if (hash) {
-      if (typeof verbose !== 'boolean') {
-        if (verbose === 'false' || verbose === 0 || verbose === '0') {
-          verbose = false;
-        }
-        if (verbose === 'true' || verbose === 1 || verbose === '1') {
-          verbose = true;
-        }
-      }
-      const data = await client.getBlockHeader(hash, verbose);
-      response.status = 'success';
-      response.data = data;
-    } else {
-      const data = await client.getBlockHeader(); // errors to help
-      response.status = 'success';
-      response.data = data;
-    }
-  } catch (err) {
-    const daemonerror = {
-      code: err.code,
-      message: err.message,
-    };
-    response.status = 'error';
-    response.data = daemonerror;
+
+  const rpccall = 'getBlockHeader';
+  const rpcparameters = [];
+  if (hash) {
+    verbose = ensureBoolean(verbose);
+    rpcparameters.push(hash);
+    rpcparameters.push(verbose);
   }
+
+  response = await executeCall(rpccall, rpcparameters);
 
   return res.json(response);
 }
 
 async function getChainTips(req, res) {
-  try {
-    const data = await client.getChainTips();
-    response.status = 'success';
-    response.data = data;
-  } catch (err) {
-    const daemonerror = {
-      code: err.code,
-      message: err.message,
-    };
-    response.status = 'error';
-    response.data = daemonerror;
-  }
+  const rpccall = 'getChainTips';
+
+  response = await executeCall(rpccall);
 
   return res.json(response);
 }
 
 async function getDifficulty(req, res) {
-  try {
-    const data = await client.getDifficulty();
-    response.status = 'success';
-    response.data = data;
-  } catch (err) {
-    const daemonerror = {
-      code: err.code,
-      message: err.message,
-    };
-    response.status = 'error';
-    response.data = daemonerror;
-  }
+  const rpccall = 'getDifficulty';
+
+  response = await executeCall(rpccall);
 
   return res.json(response);
 }
 
 async function getMempoolInfo(req, res) {
-  try {
-    const data = await client.getMempoolInfo();
-    response.status = 'success';
-    response.data = data;
-  } catch (err) {
-    const daemonerror = {
-      code: err.code,
-      message: err.message,
-    };
-    response.status = 'error';
-    response.data = daemonerror;
-  }
+  const rpccall = 'getMempoolInfo';
+
+  response = await executeCall(rpccall);
 
   return res.json(response);
 }
@@ -752,26 +500,13 @@ async function getMempoolInfo(req, res) {
 async function getRawMemPool(req, res) {
   let { verbose } = req.params;
   verbose = verbose || req.query.verbose || false;
-  try {
-    if (typeof verbose !== 'boolean') {
-      if (verbose === 'false' || verbose === 0 || verbose === '0') {
-        verbose = false;
-      }
-      if (verbose === 'true' || verbose === 1 || verbose === '1') {
-        verbose = true;
-      }
-    }
-    const data = await client.getRawMemPool(verbose);
-    response.status = 'success';
-    response.data = data;
-  } catch (err) {
-    const daemonerror = {
-      code: err.code,
-      message: err.message,
-    };
-    response.status = 'error';
-    response.data = daemonerror;
-  }
+
+  verbose = ensureBoolean(verbose);
+
+  const rpccall = 'getRawMemPool';
+  const rpcparameters = [verbose];
+
+  response = await executeCall(rpccall, rpcparameters);
 
   return res.json(response);
 }
@@ -783,35 +518,18 @@ async function getTxOut(req, res) {
   n = n || req.query.n;
   let { includemempool } = req.params;
   includemempool = includemempool || req.query.includemempool || true;
-  try {
-    if (txid && n) {
-      if (typeof includemempool !== 'boolean') {
-        if (includemempool === 'false' || includemempool === 0 || includemempool === '0') {
-          includemempool = false;
-        }
-        if (includemempool === 'true' || includemempool === 1 || includemempool === '1') {
-          includemempool = true;
-        }
-      }
-      if (typeof n !== 'number') {
-        n = Number(n);
-      }
-      const data = await client.getTxOut(txid, n, includemempool);
-      response.status = 'success';
-      response.data = data;
-    } else {
-      const data = await client.getTxOut(); // throw help error
-      response.status = 'success';
-      response.data = data;
-    }
-  } catch (err) {
-    const daemonerror = {
-      code: err.code,
-      message: err.message,
-    };
-    response.status = 'error';
-    response.data = daemonerror;
+
+  const rpccall = 'getTxOut';
+  const rpcparameters = [];
+  if (txid && n) {
+    includemempool = ensureBoolean(includemempool);
+    n = ensureNumber(n);
+    rpcparameters.push(txid);
+    rpcparameters.push(n);
+    rpcparameters.push(includemempool);
   }
+
+  response = await executeCall(rpccall, rpcparameters);
 
   return res.json(response);
 }
@@ -822,45 +540,25 @@ async function getTxOutProof(req, res) {
   let { blockhash } = req.params;
   blockhash = blockhash || req.query.blockhash;
   const txidsarray = txids.split(',');
-  try {
-    if (txids && blockhash) {
-      const data = await client.getTxOutProof(txidsarray, blockhash);
-      response.status = 'success';
-      response.data = data;
-    } else if (txids) {
-      const data = await client.getTxOutProof(txidsarray);
-      response.status = 'success';
-      response.data = data;
-    } else {
-      const data = await client.getTxOutProof(); // throw help error
-      response.status = 'success';
-      response.data = data;
-    }
-  } catch (err) {
-    const daemonerror = {
-      code: err.code,
-      message: err.message,
-    };
-    response.status = 'error';
-    response.data = daemonerror;
+
+  const rpccall = 'getTxOutProof';
+  const rpcparameters = [];
+  if (txids && blockhash) {
+    rpcparameters.push(txidsarray);
+    rpcparameters.push(blockhash);
+  } else if (txids) {
+    rpcparameters.push(txidsarray);
   }
+
+  response = await executeCall(rpccall, rpcparameters);
 
   return res.json(response);
 }
 
 async function getTxOutSetInfo(req, res) {
-  try {
-    const data = await client.getTxOutSetInfo();
-    response.status = 'success';
-    response.data = data;
-  } catch (err) {
-    const daemonerror = {
-      code: err.code,
-      message: err.message,
-    };
-    response.status = 'error';
-    response.data = daemonerror;
-  }
+  const rpccall = 'getTxOutSetInfo';
+
+  response = await executeCall(rpccall);
 
   return res.json(response);
 }
@@ -876,33 +574,14 @@ async function verifyChain(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        if (typeof checklevel !== 'number') {
-          checklevel = Number(checklevel);
-        }
-        if (typeof numblocks !== 'number') {
-          numblocks = Number(numblocks);
-        }
-        const data = await client.verifyChain(checklevel, numblocks);
-        console.log(data);
-        response.status = 'success';
-        response.data = data;
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
-      }
+      checklevel = ensureNumber(checklevel);
+      numblocks = ensureNumber(numblocks);
+      const rpccall = 'verifyChain';
+      const rpcparameters = [checklevel, numblocks];
+
+      response = await executeCall(rpccall, rpcparameters);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -912,24 +591,14 @@ async function verifyChain(req, res) {
 async function verifyTxOutProof(req, res) {
   let { proof } = req.params;
   proof = proof || req.query.proof;
-  try {
-    if (proof) {
-      const data = await client.verifyTxOutProof(proof);
-      response.status = 'success';
-      response.data = data;
-    } else {
-      const data = await client.verifyTxOutProof(); // errors to help
-      response.status = 'success';
-      response.data = data;
-    }
-  } catch (err) {
-    const daemonerror = {
-      code: err.code,
-      message: err.message,
-    };
-    response.status = 'error';
-    response.data = daemonerror;
+
+  const rpccall = 'verifyTxOutProof';
+  const rpcparameters = [];
+  if (proof) {
+    rpcparameters.push(proof);
   }
+
+  response = await executeCall(rpccall, rpcparameters);
 
   return res.json(response);
 }
@@ -938,27 +607,15 @@ async function verifyTxOutProof(req, res) {
 async function getBlockSubsidy(req, res) {
   let { height } = req.params;
   height = height || req.query.height;
-  try {
-    if (height) {
-      if (typeof height !== 'number') {
-        height = Number(height);
-      }
-      const data = await client.getBlockSubsidy(height);
-      response.status = 'success';
-      response.data = data;
-    } else {
-      const data = await client.getBlockSubsidy(); // default to current height
-      response.status = 'success';
-      response.data = data;
-    }
-  } catch (err) {
-    const daemonerror = {
-      code: err.code,
-      message: err.message,
-    };
-    response.status = 'error';
-    response.data = daemonerror;
+
+  const rpccall = 'getBlockSubsidy';
+  const rpcparameters = [];
+  if (height) {
+    height = ensureNumber(height);
+    rpcparameters.push(height);
   }
+
+  response = await executeCall(rpccall, rpcparameters);
 
   return res.json(response);
 }
@@ -966,61 +623,32 @@ async function getBlockSubsidy(req, res) {
 async function getBlockTemplate(req, res) {
   let { jsonrequestobject } = req.params;
   jsonrequestobject = jsonrequestobject || req.query.jsonrequestobject;
-  try {
-    if (jsonrequestobject) {
-      if (typeof jsonrequestobject !== 'object') {
-        jsonrequestobject = JSON.parse(jsonrequestobject);
-      }
-      const data = await client.getBlockTemplate(jsonrequestobject);
-      response.status = 'success';
-      response.data = data;
-    } else {
-      const data = await client.getBlockTemplate();
-      response.status = 'success';
-      response.data = data;
-    }
-  } catch (err) {
-    const daemonerror = {
-      code: err.code,
-      message: err.message,
-    };
-    response.status = 'error';
-    response.data = daemonerror;
+
+  const rpccall = 'getBlockTemplate';
+  const rpcparameters = [];
+  if (jsonrequestobject) {
+    jsonrequestobject = ensureObject(jsonrequestobject);
+    rpcparameters.push(jsonrequestobject);
   }
+
+  response = await executeCall(rpccall, rpcparameters);
 
   return res.json(response);
 }
 
 async function getLocalSolPs(req, res) {
-  try {
-    const data = await client.getLocalSolPs();
-    response.status = 'success';
-    response.data = data;
-  } catch (err) {
-    const daemonerror = {
-      code: err.code,
-      message: err.message,
-    };
-    response.status = 'error';
-    response.data = daemonerror;
-  }
+  const rpccall = 'getLocalSolPs';
+
+  response = await executeCall(rpccall);
 
   return res.json(response);
 }
 
 async function getMiningInfo(req, res) {
-  try {
-    const data = await client.getMiningInfo();
-    response.status = 'success';
-    response.data = data;
-  } catch (err) {
-    const daemonerror = {
-      code: err.code,
-      message: err.message,
-    };
-    response.status = 'error';
-    response.data = daemonerror;
-  }
+  const rpccall = 'getMiningInfo';
+
+  response = await executeCall(rpccall);
+
 
   return res.json(response);
 }
@@ -1031,25 +659,13 @@ async function getNetworkHashPs(req, res) {
   let { height } = req.params;
   height = height || req.query.height || -1;
 
-  try {
-    if (typeof blocks !== 'number') {
-      blocks = Number(blocks);
-    }
-    if (typeof height !== 'number') {
-      height = Number(height);
-    }
-    const data = await client.getNetworkHashPs(blocks, height);
-    console.log(data);
-    response.status = 'success';
-    response.data = data;
-  } catch (err) {
-    const daemonerror = {
-      code: err.code,
-      message: err.message,
-    };
-    response.status = 'error';
-    response.data = daemonerror;
-  }
+  blocks = ensureNumber(blocks);
+  height = ensureNumber(height);
+
+  const rpccall = 'getNetworkHashPs';
+  const rpcparameters = [blocks, height];
+
+  response = await executeCall(rpccall, rpcparameters);
 
   return res.json(response);
 }
@@ -1060,25 +676,12 @@ async function getNetworkSolPs(req, res) {
   let { height } = req.params;
   height = height || req.query.height || -1;
 
-  try {
-    if (typeof blocks !== 'number') {
-      blocks = Number(blocks);
-    }
-    if (typeof height !== 'number') {
-      height = Number(height);
-    }
-    const data = await client.getNetworkSolPs(blocks, height);
-    console.log(data);
-    response.status = 'success';
-    response.data = data;
-  } catch (err) {
-    const daemonerror = {
-      code: err.code,
-      message: err.message,
-    };
-    response.status = 'error';
-    response.data = daemonerror;
-  }
+  blocks = ensureNumber(blocks);
+  height = ensureNumber(height);
+  const rpccall = 'getNetworkSolPs';
+  const rpcparameters = [blocks, height];
+
+  response = await executeCall(rpccall, rpcparameters);
 
   return res.json(response);
 }
@@ -1095,38 +698,17 @@ async function prioritiseTransaction(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        if (txid && prioritydelta && feedelta) {
-          if (typeof prioritydelta !== 'number') {
-            prioritydelta = Number(prioritydelta);
-          }
-          if (typeof feedelta !== 'number') {
-            feedelta = Number(feedelta);
-          }
-          const data = await client.prioritiseTransaction(txid, prioritydelta, feedelta);
-          response.status = 'success';
-          response.data = data;
-        } else {
-          const data = await client.prioritiseTransaction();
-          response.status = 'success';
-          response.data = data;
-        }
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
+      const rpccall = 'prioritiseTransaction';
+      let rpcparameters = [];
+      if (txid && prioritydelta && feedelta) {
+        prioritydelta = ensureNumber(prioritydelta);
+        feedelta = ensureNumber(feedelta);
+        rpcparameters = [txid, prioritydelta, feedelta];
       }
+
+      response = await executeCall(rpccall, rpcparameters);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -1143,39 +725,18 @@ async function submitBlock(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        if (hexdata && jsonparametersobject) {
-          if (typeof jsonparametersobject !== 'object') {
-            jsonparametersobject = JSON.parse(jsonparametersobject);
-          }
-          const data = await client.submitBlock(hexdata, jsonparametersobject);
-          response.status = 'success';
-          response.data = data;
-        } else if (hexdata) {
-          const data = await client.submitBlock(hexdata);
-          response.status = 'success';
-          response.data = data;
-        } else {
-          const data = await client.submitBlock(); // throw help error
-          response.status = 'success';
-          response.data = data;
-        }
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
+      const rpccall = 'submitBlock';
+      let rpcparameters = [];
+      if (hexdata && jsonparametersobject) {
+        jsonparametersobject = ensureObject(jsonparametersobject);
+        rpcparameters = [hexdata, jsonparametersobject];
+      } else if (hexdata) {
+        rpcparameters = [hexdata];
       }
+
+      response = await executeCall(rpccall, rpcparameters);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -1193,32 +754,15 @@ async function addNode(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        if (node && command) {
-          const data = await client.addNode(node, command);
-          response.status = 'success';
-          response.data = data;
-        } else {
-          const data = await client.addNode(); // throw help error
-          response.status = 'success';
-          response.data = data;
-        }
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
+      const rpccall = 'addNode';
+      let rpcparameters = [];
+      if (node && command) {
+        rpcparameters = [node, command];
       }
+
+      response = await executeCall(rpccall, rpcparameters);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -1231,26 +775,11 @@ async function clearBanned(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        const data = await client.clearBanned();
-        response.status = 'success';
-        response.data = data;
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
-      }
+      const rpccall = 'clearBanned';
+
+      response = await executeCall(rpccall);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -1265,32 +794,15 @@ async function disconnectNode(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        if (node) {
-          const data = await client.disconnectNode(node);
-          response.status = 'success';
-          response.data = data;
-        } else {
-          const data = await client.disconnectNode(); // throw help error
-          response.status = 'success';
-          response.data = data;
-        }
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
+      const rpccall = 'disconnectNode';
+      let rpcparameters = [];
+      if (node) {
+        rpcparameters = [node];
       }
+
+      response = await executeCall(rpccall, rpcparameters);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -1307,52 +819,19 @@ async function getAddedNodeInfo(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        if (dns && node) {
-          if (typeof dns !== 'boolean') {
-            if (dns === 'false' || dns === 0 || dns === '0') {
-              dns = false;
-            }
-            if (dns === 'true' || dns === 1 || dns === '1') {
-              dns = true;
-            }
-          }
-          const data = await client.getAddedNodeInfo(dns, node);
-          response.status = 'success';
-          response.data = data;
-        } else if (dns) {
-          if (typeof dns !== 'boolean') {
-            if (dns === 'false' || dns === 0 || dns === '0') {
-              dns = false;
-            }
-            if (dns === 'true' || dns === 1 || dns === '1') {
-              dns = true;
-            }
-          }
-          const data = await client.getAddedNodeInfo(dns);
-          response.status = 'success';
-          response.data = data;
-        } else {
-          const data = await client.getAddedNodeInfo(); // throw help error
-          response.status = 'success';
-          response.data = data;
+      const rpccall = 'getAddedNodeInfo';
+      const rpcparameters = [];
+      if (dns) {
+        dns = ensureBoolean(dns);
+        rpcparameters.push(dns);
+        if (node) {
+          rpcparameters.push(node);
         }
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
       }
+
+      response = await executeCall(rpccall, rpcparameters);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -1360,109 +839,49 @@ async function getAddedNodeInfo(req, res) {
 }
 
 async function getConnectionCount(req, res) {
-  try {
-    const data = await client.getConnectionCount();
-    console.log(data);
-    response.status = 'success';
-    response.data = data;
-  } catch (err) {
-    const daemonerror = {
-      code: err.code,
-      message: err.message,
-    };
-    response.status = 'error';
-    response.data = daemonerror;
-  }
+  const rpccall = 'getConnectionCount';
+
+  response = await executeCall(rpccall);
 
   return res.json(response);
 }
 
 async function getDeprecationInfo(req, res) {
-  try {
-    const data = await client.getDeprecationInfo();
-    console.log(data);
-    response.status = 'success';
-    response.data = data;
-  } catch (err) {
-    const daemonerror = {
-      code: err.code,
-      message: err.message,
-    };
-    response.status = 'error';
-    response.data = daemonerror;
-  }
+  const rpccall = 'getDeprecationInfo';
+
+  response = await executeCall(rpccall);
 
   return res.json(response);
 }
 
 async function getNetTotals(req, res) {
-  try {
-    const data = await client.getNetTotals();
-    console.log(data);
-    response.status = 'success';
-    response.data = data;
-  } catch (err) {
-    const daemonerror = {
-      code: err.code,
-      message: err.message,
-    };
-    response.status = 'error';
-    response.data = daemonerror;
-  }
+  const rpccall = 'getNetTotals';
+
+  response = await executeCall(rpccall);
 
   return res.json(response);
 }
 
 async function getNetworkInfo(req, res) {
-  try {
-    const data = await client.getNetworkInfo();
-    console.log(data);
-    response.status = 'success';
-    response.data = data;
-  } catch (err) {
-    const daemonerror = {
-      code: err.code,
-      message: err.message,
-    };
-    response.status = 'error';
-    response.data = daemonerror;
-  }
+  const rpccall = 'getNetworkInfo';
+
+  response = await executeCall(rpccall);
 
   return res.json(response);
 }
 
 async function getPeerInfo(req, res) {
-  try {
-    const data = await client.getPeerInfo();
-    console.log(data);
-    response.status = 'success';
-    response.data = data;
-  } catch (err) {
-    const daemonerror = {
-      code: err.code,
-      message: err.message,
-    };
-    response.status = 'error';
-    response.data = daemonerror;
-  }
+  const rpccall = 'getPeerInfo';
+
+  response = await executeCall(rpccall);
 
   return res.json(response);
 }
 
 async function listBanned(req, res) {
-  try {
-    const data = await client.listBanned();
-    console.log(data);
-    response.status = 'success';
-    response.data = data;
-  } catch (err) {
-    const daemonerror = {
-      code: err.code,
-      message: err.message,
-    };
-    response.status = 'error';
-    response.data = daemonerror;
-  }
+  const rpccall = 'listBanned';
+
+  response = await executeCall(rpccall);
 
   return res.json(response);
 }
@@ -1473,27 +892,11 @@ async function ping(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        const data = await client.ping();
-        console.log(data);
-        response.status = 'success';
-        response.data = data;
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
-      }
+      const rpccall = 'ping';
+
+      response = await executeCall(rpccall);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -1514,54 +917,24 @@ async function setBan(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        if (ip && command && bantime && absolute) {
-          if (typeof absolute !== 'boolean') {
-            if (absolute === 'false' || absolute === 0 || absolute === '0') {
-              absolute = false;
-            }
-            if (absolute === 'true' || absolute === 1 || absolute === '1') {
-              absolute = true;
-            }
+      const rpccall = 'setBan';
+      const rpcparameters = [];
+      if (ip && command) {
+        rpcparameters.push(ip);
+        rpcparameters.push(command);
+        if (bantime) {
+          bantime = ensureNumber(bantime);
+          rpcparameters.push(bantime);
+          if (absolute) {
+            absolute = ensureBoolean(absolute);
+            rpcparameters.push(absolute);
           }
-          if (typeof bantime !== 'number') {
-            bantime = Number(bantime);
-          }
-          const data = await client.setBan(ip, command, bantime, absolute);
-          response.status = 'success';
-          response.data = data;
-        } else if (ip && command && bantime) {
-          if (typeof bantime !== 'number') {
-            bantime = Number(bantime);
-          }
-          const data = await client.setBan(ip, command, bantime);
-          response.status = 'success';
-          response.data = data;
-        } else if (ip && command) {
-          const data = await client.setBan(ip, command);
-          response.status = 'success';
-          response.data = data;
-        } else {
-          const data = await client.setBan(); // throw help error
-          response.status = 'success';
-          response.data = data;
         }
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
       }
+
+      response = await executeCall(rpccall, rpcparameters);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -1590,36 +963,16 @@ async function createRawTransaction(req, res) {
   expiryheight = expiryheight || req.query.expiryheight || defaultExpiryHeight;
   console.log(expiryheight);
 
-  try {
-    if (typeof locktime !== 'number') {
-      locktime = Number(locktime);
-    }
-    if (typeof expiryheight !== 'number') {
-      expiryheight = Number(expiryheight);
-    }
-    if (typeof transactions !== 'object') {
-      transactions = JSON.parse(transactions);
-    }
-    if (typeof addresses !== 'object') {
-      addresses = JSON.parse(addresses);
-    }
-    if (transactions && addresses) {
-      const data = await client.createRawTransaction(transactions, addresses, locktime, expiryheight);
-      response.status = 'success';
-      response.data = data;
-    } else {
-      const data = await client.createRawTransaction(); // throw error with help
-      response.status = 'success';
-      response.data = data;
-    }
-  } catch (err) {
-    const daemonerror = {
-      code: err.code,
-      message: err.message,
-    };
-    response.status = 'error';
-    response.data = daemonerror;
+  locktime = ensureNumber(locktime);
+  expiryheight = ensureNumber(expiryheight);
+  const rpccall = 'createRawTransaction';
+  let rpcparameters = [];
+  if (transactions && addresses) {
+    transactions = ensureObject(transactions);
+    addresses = ensureObject(addresses);
+    rpcparameters = [transactions, addresses, locktime, expiryheight];
   }
+  response = await executeCall(rpccall, rpcparameters);
 
   return res.json(response);
 }
@@ -1628,24 +981,12 @@ async function decodeRawTransaction(req, res) {
   let { hexstring } = req.params;
   hexstring = hexstring || req.query.hexstring;
 
-  try {
-    if (hexstring) {
-      const data = await client.decodeRawTransaction(hexstring);
-      response.status = 'success';
-      response.data = data;
-    } else {
-      const data = await client.decodeRawTransaction(); // throw error with help
-      response.status = 'success';
-      response.data = data;
-    }
-  } catch (err) {
-    const daemonerror = {
-      code: err.code,
-      message: err.message,
-    };
-    response.status = 'error';
-    response.data = daemonerror;
+  const rpccall = 'decodeRawTransaction';
+  let rpcparameters = [];
+  if (hexstring) {
+    rpcparameters = [hexstring];
   }
+  response = await executeCall(rpccall, rpcparameters);
 
   return res.json(response);
 }
@@ -1654,24 +995,12 @@ async function decodeScript(req, res) {
   let { hex } = req.params;
   hex = hex || req.query.hex;
 
-  try {
-    if (hex) {
-      const data = await client.decodeScript(hex);
-      response.status = 'success';
-      response.data = data;
-    } else {
-      const data = await client.decodeScript(); // throw error with help
-      response.status = 'success';
-      response.data = data;
-    }
-  } catch (err) {
-    const daemonerror = {
-      code: err.code,
-      message: err.message,
-    };
-    response.status = 'error';
-    response.data = daemonerror;
+  const rpccall = 'decodeScript';
+  let rpcparameters = [];
+  if (hex) {
+    rpcparameters = [hex];
   }
+  response = await executeCall(rpccall, rpcparameters);
 
   return res.json(response);
 }
@@ -1680,24 +1009,12 @@ async function fundRawTransaction(req, res) {
   let { hexstring } = req.params;
   hexstring = hexstring || req.query.hexstring;
 
-  try {
-    if (hexstring) {
-      const data = await client.fundRawTransaction(hexstring);
-      response.status = 'success';
-      response.data = data;
-    } else {
-      const data = await client.fundRawTransaction(); // throw error with help
-      response.status = 'success';
-      response.data = data;
-    }
-  } catch (err) {
-    const daemonerror = {
-      code: err.code,
-      message: err.message,
-    };
-    response.status = 'error';
-    response.data = daemonerror;
+  const rpccall = 'fundRawTransaction';
+  let rpcparameters = [];
+  if (hexstring) {
+    rpcparameters = [hexstring];
   }
+  response = await executeCall(rpccall, rpcparameters);
 
   return res.json(response);
 }
@@ -1708,28 +1025,13 @@ async function getRawTransaction(req, res) {
   let { verbose } = req.params;
   verbose = verbose || req.query.verbose || 0;
 
-  try {
-    if (txid) {
-      if (typeof verbose !== 'number') {
-        verbose = Number(verbose);
-      }
-      console.log(verbose);
-      const data = await client.getRawTransaction(txid, verbose);
-      response.status = 'success';
-      response.data = data;
-    } else {
-      const data = await client.getRawTransaction(); // throw error with help
-      response.status = 'success';
-      response.data = data;
-    }
-  } catch (err) {
-    const daemonerror = {
-      code: err.code,
-      message: err.message,
-    };
-    response.status = 'error';
-    response.data = daemonerror;
+  const rpccall = 'getRawTransaction';
+  let rpcparameters = [];
+  if (txid) {
+    verbose = ensureNumber(verbose);
+    rpcparameters = [txid, verbose];
   }
+  response = await executeCall(rpccall, rpcparameters);
 
   return res.json(response);
 }
@@ -1740,32 +1042,13 @@ async function sendRawTransaction(req, res) {
   let { allowhighfees } = req.params;
   allowhighfees = allowhighfees || req.query.allowhighfees || false;
 
-  try {
-    if (hexstring) {
-      if (typeof allowhighfees !== 'boolean') {
-        if (allowhighfees === 'false' || allowhighfees === 0 || allowhighfees === '0') {
-          allowhighfees = false;
-        }
-        if (allowhighfees === 'true' || allowhighfees === 1 || allowhighfees === '1') {
-          allowhighfees = true;
-        }
-      }
-      const data = await client.sendRawTransaction(hexstring, allowhighfees);
-      response.status = 'success';
-      response.data = data;
-    } else {
-      const data = await client.sendRawTransaction(); // throw error with help
-      response.status = 'success';
-      response.data = data;
-    }
-  } catch (err) {
-    const daemonerror = {
-      code: err.code,
-      message: err.message,
-    };
-    response.status = 'error';
-    response.data = daemonerror;
+  const rpccall = 'sendRawTransaction';
+  let rpcparameters = [];
+  if (hexstring) {
+    allowhighfees = ensureBoolean(allowhighfees);
+    rpcparameters = [hexstring, allowhighfees];
   }
+  response = await executeCall(rpccall, rpcparameters);
 
   return res.json(response);
 }
@@ -1786,66 +1069,26 @@ async function signRawTransaction(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        if (hexstring) {
-          if (hexstring && prevtxs && privatekeys && branchid) {
-            if (prevtxs) {
-              if (typeof prevtxs !== 'object') {
-                prevtxs = JSON.parse(prevtxs);
-              }
+      const rpccall = 'signRawTransaction';
+      const rpcparameters = [];
+      if (hexstring) {
+        rpcparameters.push(hexstring);
+        if (prevtxs) {
+          prevtxs = ensureObject(prevtxs);
+          rpcparameters.push(prevtxs);
+          if (privatekeys) {
+            privatekeys = ensureObject(privatekeys);
+            rpcparameters.push(privatekeys);
+            rpcparameters.push(sighashtype);
+            if (branchid) {
+              rpcparameters.push(branchid);
             }
-            if (privatekeys) {
-              if (typeof privatekeys !== 'object') {
-                privatekeys = JSON.parse(privatekeys);
-              }
-            }
-            const data = await client.signRawTransaction(hexstring, prevtxs, privatekeys, sighashtype, branchid);
-            response.status = 'success';
-            response.data = data;
-          } else if (hexstring && prevtxs && privatekeys) {
-            if (prevtxs) {
-              if (typeof prevtxs !== 'object') {
-                prevtxs = JSON.parse(prevtxs);
-              }
-            }
-            if (privatekeys) {
-              if (typeof privatekeys !== 'object') {
-                privatekeys = JSON.parse(privatekeys);
-              }
-            }
-            const data = await client.signRawTransaction(hexstring, prevtxs, privatekeys, sighashtype);
-            response.status = 'success';
-            response.data = data;
-          } else if (hexstring && prevtxs) {
-            const data = await client.signRawTransaction(hexstring, prevtxs);
-            response.status = 'success';
-            response.data = data;
-          } else {
-            const data = await client.signRawTransaction(hexstring);
-            response.status = 'success';
-            response.data = data;
           }
-        } else {
-          const data = await client.signRawTransaction(); // throw error with help
-          response.status = 'success';
-          response.data = data;
         }
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
       }
+      response = await executeCall(rpccall, rpcparameters);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -1859,30 +1102,14 @@ async function createMultiSig(req, res) {
   let { keys } = req.params;
   keys = keys || req.query.keys;
 
-  try {
-    if (n && keys) {
-      if (typeof n !== 'number') {
-        n = Number(n);
-      }
-      if (typeof keys !== 'object') {
-        keys = JSON.parse(keys);
-      }
-      const data = await client.createMultiSig(n, keys);
-      response.status = 'success';
-      response.data = data;
-    } else {
-      const data = await client.createMultiSig(); // throw error with help
-      response.status = 'success';
-      response.data = data;
-    }
-  } catch (err) {
-    const daemonerror = {
-      code: err.code,
-      message: err.message,
-    };
-    response.status = 'error';
-    response.data = daemonerror;
+  const rpccall = 'createMultiSig';
+  let rpcparameters = [];
+  if (n && keys) {
+    n = ensureNumber(n);
+    keys = ensureObject(keys);
+    rpcparameters = [n, keys];
   }
+  response = await executeCall(rpccall, rpcparameters);
 
   return res.json(response);
 }
@@ -1891,27 +1118,13 @@ async function estimateFee(req, res) {
   let { nblocks } = req.params;
   nblocks = nblocks || req.query.nblocks;
 
-  try {
-    if (nblocks) {
-      if (typeof nblocks !== 'number') {
-        nblocks = Number(nblocks);
-      }
-      const data = await client.estimateFee(nblocks);
-      response.status = 'success';
-      response.data = data;
-    } else {
-      const data = await client.estimateFee(); // throw error with help
-      response.status = 'success';
-      response.data = data;
-    }
-  } catch (err) {
-    const daemonerror = {
-      code: err.code,
-      message: err.message,
-    };
-    response.status = 'error';
-    response.data = daemonerror;
+  const rpccall = 'estimateFee';
+  let rpcparameters = [];
+  if (nblocks) {
+    nblocks = ensureNumber(nblocks);
+    rpcparameters = [nblocks];
   }
+  response = await executeCall(rpccall, rpcparameters);
 
   return res.json(response);
 }
@@ -1920,27 +1133,13 @@ async function estimatePriority(req, res) {
   let { nblocks } = req.params;
   nblocks = nblocks || req.query.nblocks;
 
-  try {
-    if (nblocks) {
-      if (typeof nblocks !== 'number') {
-        nblocks = Number(nblocks);
-      }
-      const data = await client.estimatePriority(nblocks);
-      response.status = 'success';
-      response.data = data;
-    } else {
-      const data = await client.estimatePriority(); // throw error with help
-      response.status = 'success';
-      response.data = data;
-    }
-  } catch (err) {
-    const daemonerror = {
-      code: err.code,
-      message: err.message,
-    };
-    response.status = 'error';
-    response.data = daemonerror;
+  const rpccall = 'estimatePriority';
+  let rpcparameters = [];
+  if (nblocks) {
+    nblocks = ensureNumber(nblocks);
+    rpcparameters = [nblocks];
   }
+  response = await executeCall(rpccall, rpcparameters);
 
   return res.json(response);
 }
@@ -1949,24 +1148,12 @@ async function validateAddress(req, res) {
   let { zelcashaddress } = req.params;
   zelcashaddress = zelcashaddress || req.query.zelcashaddress;
 
-  try {
-    if (zelcashaddress) {
-      const data = await client.validateAddress(zelcashaddress);
-      response.status = 'success';
-      response.data = data;
-    } else {
-      const data = await client.validateAddress(); // throw error with help
-      response.status = 'success';
-      response.data = data;
-    }
-  } catch (err) {
-    const daemonerror = {
-      code: err.code,
-      message: err.message,
-    };
-    response.status = 'error';
-    response.data = daemonerror;
+  const rpccall = 'validateAddress';
+  let rpcparameters = [];
+  if (zelcashaddress) {
+    rpcparameters = [zelcashaddress];
   }
+  response = await executeCall(rpccall, rpcparameters);
 
   return res.json(response);
 }
@@ -1978,24 +1165,13 @@ async function verifyMessage(req, res) {
   signature = signature || req.query.signature;
   let { message } = req.params;
   message = message || req.query.message;
-  try {
-    if (zelcashaddress && signature && message) {
-      const data = await client.verifyMessage(zelcashaddress, signature, message);
-      response.status = 'success';
-      response.data = data;
-    } else {
-      const data = await client.verifyMessage(); // throw error with help
-      response.status = 'success';
-      response.data = data;
-    }
-  } catch (err) {
-    const daemonerror = {
-      code: err.code,
-      message: err.message,
-    };
-    response.status = 'error';
-    response.data = daemonerror;
+
+  const rpccall = 'verifyMessage';
+  let rpcparameters = [];
+  if (zelcashaddress && signature && message) {
+    rpcparameters = [zelcashaddress, signature, message];
   }
+  response = await executeCall(rpccall, rpcparameters);
 
   return res.json(response);
 }
@@ -2004,24 +1180,12 @@ async function zValidateAddress(req, res) {
   let { zaddr } = req.params;
   zaddr = zaddr || req.query.zaddr;
 
-  try {
-    if (zaddr) {
-      const data = await client.z_validateaddress(zaddr);
-      response.status = 'success';
-      response.data = data;
-    } else {
-      const data = await client.z_validateaddress(); // throw error with help
-      response.status = 'success';
-      response.data = data;
-    }
-  } catch (err) {
-    const daemonerror = {
-      code: err.code,
-      message: err.message,
-    };
-    response.status = 'error';
-    response.data = daemonerror;
+  const rpccall = 'z_validateaddress';
+  let rpcparameters = [];
+  if (zaddr) {
+    rpcparameters = [zaddr];
   }
+  response = await executeCall(rpccall, rpcparameters);
 
   return res.json(response);
 }
@@ -2037,38 +1201,16 @@ async function addMultiSigAddress(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        if (n && keysobject) {
-          if (typeof n !== 'number') {
-            n = Number(n);
-          }
-          if (typeof privatekeys !== 'object') {
-            keysobject = JSON.parse(keysobject);
-          }
-          const data = await client.addMultiSigAddress(n, keysobject);
-          response.status = 'success';
-          response.data = data;
-        } else {
-          const data = await client.addMultiSigAddress(); // throw error with help
-          response.status = 'success';
-          response.data = data;
-        }
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
+      const rpccall = 'addMultiSigAddress';
+      let rpcparameters = [];
+      if (n && keysobject) {
+        n = ensureNumber(n);
+        keysobject = ensureObject(keysobject);
+        rpcparameters = [n, keysobject];
       }
+      response = await executeCall(rpccall, rpcparameters);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -2083,32 +1225,14 @@ async function backupWallet(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        if (destination) {
-          const data = await client.backupWallet(destination);
-          response.status = 'success';
-          response.data = data;
-        } else {
-          const data = await client.backupWallet(); // throw error with help
-          response.status = 'success';
-          response.data = data;
-        }
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
+      const rpccall = 'backupWallet';
+      let rpcparameters = [];
+      if (destination) {
+        rpcparameters = [destination];
       }
+      response = await executeCall(rpccall, rpcparameters);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -2123,32 +1247,14 @@ async function dumpPrivKey(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        if (taddr) {
-          const data = await client.dumpPrivKey(taddr);
-          response.status = 'success';
-          response.data = data;
-        } else {
-          const data = await client.dumpPrivKey(); // throw error with help
-          response.status = 'success';
-          response.data = data;
-        }
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
+      const rpccall = 'dumpPrivKey';
+      let rpcparameters = [];
+      if (taddr) {
+        rpcparameters = [taddr];
       }
+      response = await executeCall(rpccall, rpcparameters);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -2165,37 +1271,13 @@ async function getBalance(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        if (typeof minconf !== 'number') {
-          minconf = Number(minconf);
-        }
-        if (typeof includewatchonly !== 'boolean') {
-          if (includewatchonly === 'false' || includewatchonly === 0 || includewatchonly === '0') {
-            includewatchonly = false;
-          }
-          if (includewatchonly === 'true' || includewatchonly === 1 || includewatchonly === '1') {
-            includewatchonly = true;
-          }
-        }
-        const data = await client.getBalance('', minconf, includewatchonly);
-        response.status = 'success';
-        response.data = data;
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
-      }
+      const rpccall = 'getBalance';
+      minconf = ensureNumber(minconf);
+      includewatchonly = ensureBoolean(includewatchonly);
+      const rpcparameters = ['', minconf, includewatchonly];
+      response = await executeCall(rpccall, rpcparameters);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -2208,26 +1290,10 @@ async function getNewAddress(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        const data = await client.getNewAddress();
-        response.status = 'success';
-        response.data = data;
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
-      }
+      const rpccall = 'getNewAddress';
+      response = await executeCall(rpccall);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -2240,26 +1306,10 @@ async function getRawChangeAddress(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        const data = await client.getRawChangeAddress();
-        response.status = 'success';
-        response.data = data;
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
-      }
+      const rpccall = 'getRawChangeAddress';
+      response = await executeCall(rpccall);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -2276,35 +1326,15 @@ async function getReceivedByAddress(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        if (zelcashaddress) {
-          if (typeof minconf !== 'number') {
-            minconf = Number(minconf);
-          }
-          const data = await client.getReceivedByAddress(zelcashaddress, minconf);
-          response.status = 'success';
-          response.data = data;
-        } else {
-          const data = await client.getReceivedByAddress(); // throw help
-          response.status = 'success';
-          response.data = data;
-        }
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
+      const rpccall = 'getReceivedByAddress';
+      let rpcparameters = [];
+      if (zelcashaddress) {
+        minconf = ensureNumber(minconf);
+        rpcparameters = [zelcashaddress, minconf];
       }
+      response = await executeCall(rpccall, rpcparameters);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -2316,32 +1346,14 @@ async function getTransaction(req, res) {
   txid = txid || req.query.txid;
   let { includewatchonly } = req.params;
   includewatchonly = includewatchonly || req.query.includewatchonly || false;
-  try {
-    if (txid) {
-      if (typeof includewatchonly !== 'boolean') {
-        if (includewatchonly === 'false' || includewatchonly === 0 || includewatchonly === '0') {
-          includewatchonly = false;
-        }
-        if (includewatchonly === 'true' || includewatchonly === 1 || includewatchonly === '1') {
-          includewatchonly = true;
-        }
-      }
-      const data = await client.getTransaction(txid, includewatchonly);
-      response.status = 'success';
-      response.data = data;
-    } else {
-      const data = await client.getTransaction(); // throw help
-      response.status = 'success';
-      response.data = data;
-    }
-  } catch (err) {
-    const daemonerror = {
-      code: err.code,
-      message: err.message,
-    };
-    response.status = 'error';
-    response.data = daemonerror;
+
+  const rpccall = 'getTransaction';
+  let rpcparameters = [];
+  if (txid) {
+    includewatchonly = ensureBoolean(includewatchonly);
+    rpcparameters = [txid, includewatchonly];
   }
+  response = await executeCall(rpccall, rpcparameters);
 
   return res.json(response);
 }
@@ -2352,26 +1364,10 @@ async function getUnconfirmedBalance(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        const data = await client.getUnconfirmedBalance();
-        response.status = 'success';
-        response.data = data;
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
-      }
+      const rpccall = 'getUnconfirmedBalance';
+      response = await executeCall(rpccall);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -2384,26 +1380,10 @@ async function getWalletInfo(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        const data = await client.getWalletInfo();
-        response.status = 'success';
-        response.data = data;
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
-      }
+      const rpccall = 'getWalletInfo';
+      response = await executeCall(rpccall);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -2422,40 +1402,15 @@ async function importAddress(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        if (address) {
-          if (typeof rescan !== 'boolean') {
-            if (rescan === 'false' || rescan === 0 || rescan === '0') {
-              rescan = false;
-            }
-            if (rescan === 'true' || rescan === 1 || rescan === '1') {
-              rescan = true;
-            }
-          }
-          const data = await client.importAddress(address, label, rescan);
-          response.status = 'success';
-          response.data = data;
-        } else {
-          const data = await client.importAddress(); // throw error with help
-          response.status = 'success';
-          response.data = data;
-        }
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
+      const rpccall = 'importAddress';
+      let rpcparameters = [];
+      if (address) {
+        rescan = ensureBoolean(rescan);
+        rpcparameters = [address, label, rescan];
       }
+      response = await executeCall(rpccall, rpcparameters);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -2474,40 +1429,15 @@ async function importPrivKey(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        if (zelcashprivkey) {
-          if (typeof rescan !== 'boolean') {
-            if (rescan === 'false' || rescan === 0 || rescan === '0') {
-              rescan = false;
-            }
-            if (rescan === 'true' || rescan === 1 || rescan === '1') {
-              rescan = true;
-            }
-          }
-          const data = await client.importPrivKey(zelcashprivkey, label, rescan);
-          response.status = 'success';
-          response.data = data;
-        } else {
-          const data = await client.importPrivKey(); // throw error with help
-          response.status = 'success';
-          response.data = data;
-        }
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
+      const rpccall = 'importPrivKey';
+      let rpcparameters = [];
+      if (zelcashprivkey) {
+        rescan = ensureBoolean(rescan);
+        rpcparameters = [zelcashprivkey, label, rescan];
       }
+      response = await executeCall(rpccall, rpcparameters);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -2522,32 +1452,14 @@ async function importWallet(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        if (filename) {
-          const data = await client.importWallet(filename);
-          response.status = 'success';
-          response.data = data;
-        } else {
-          const data = await client.importWallet(); // throw error with help
-          response.status = 'success';
-          response.data = data;
-        }
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
+      const rpccall = 'importWallet';
+      let rpcparameters = [];
+      if (filename) {
+        rpcparameters = [filename];
       }
+      response = await executeCall(rpccall, rpcparameters);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -2562,29 +1474,12 @@ async function keyPoolRefill(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        if (typeof newsize !== 'number') {
-          newsize = Number(newsize);
-        }
-        const data = await client.keyPoolRefill(newsize);
-        response.status = 'success';
-        response.data = data;
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
-      }
+      const rpccall = 'keyPoolRefill';
+      newsize = ensureNumber(newsize);
+      const rpcparameters = [newsize];
+      response = await executeCall(rpccall, rpcparameters);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -2597,26 +1492,10 @@ async function listAddressGroupings(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        const data = await client.listAddressGroupings();
-        response.status = 'success';
-        response.data = data;
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
-      }
+      const rpccall = 'listAddressGroupings';
+      response = await executeCall(rpccall);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -2629,26 +1508,10 @@ async function listLockUnspent(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        const data = await client.listLockUnspent();
-        response.status = 'success';
-        response.data = data;
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
-      }
+      const rpccall = 'listLockUnspent';
+      response = await executeCall(rpccall);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -2661,26 +1524,10 @@ async function rescanBlockchain(req, res) {
       return res.json(error);
     }
     if (authorized === false) {
-      try {
-        const data = await client.rescanblockchain();
-        response.status = 'success';
-        response.data = data;
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
-      }
+      const rpccall = 'rescanblockchain';
+      response = await executeCall(rpccall);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -2699,45 +1546,14 @@ async function listReceivedByAddress(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        if (typeof includeempty !== 'boolean') {
-          if (includeempty === 'false' || includeempty === 0 || includeempty === '0') {
-            includeempty = false;
-          }
-          if (includeempty === 'true' || includeempty === 1 || includeempty === '1') {
-            includeempty = true;
-          }
-        }
-        if (typeof includewatchonly !== 'boolean') {
-          if (includewatchonly === 'false' || includewatchonly === 0 || includewatchonly === '0') {
-            includewatchonly = false;
-          }
-          if (includewatchonly === 'true' || includewatchonly === 1 || includewatchonly === '1') {
-            includewatchonly = true;
-          }
-        }
-        if (typeof minconf !== 'number') {
-          minconf = Number(minconf);
-        }
-        const data = await client.listReceivedByAddress(minconf, includeempty, includewatchonly);
-        response.status = 'success';
-        response.data = data;
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
-      }
+      minconf = ensureNumber(minconf);
+      includeempty = ensureBoolean(includeempty);
+      includewatchonly = ensureBoolean(includewatchonly);
+      const rpccall = 'listReceivedByAddress';
+      const rpcparameters = [minconf, includeempty, includewatchonly];
+      response = await executeCall(rpccall, rpcparameters);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -2756,37 +1572,13 @@ async function listSinceBlock(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        if (typeof targetconfirmations !== 'number') {
-          targetconfirmations = Number(targetconfirmations);
-        }
-        if (typeof includewatchonly !== 'boolean') {
-          if (includewatchonly === 'false' || includewatchonly === 0 || includewatchonly === '0') {
-            includewatchonly = false;
-          }
-          if (includewatchonly === 'true' || includewatchonly === 1 || includewatchonly === '1') {
-            includewatchonly = true;
-          }
-        }
-        const data = await client.listSinceBlock(blockhash, targetconfirmations, includewatchonly);
-        response.status = 'success';
-        response.data = data;
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
-      }
+      targetconfirmations = ensureNumber(targetconfirmations);
+      includewatchonly = ensureBoolean(includewatchonly);
+      const rpccall = 'listSinceBlock';
+      const rpcparameters = [blockhash, targetconfirmations, includewatchonly];
+      response = await executeCall(rpccall, rpcparameters);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -2806,40 +1598,14 @@ async function listTransactions(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        if (typeof count !== 'number') {
-          count = Number(count);
-        }
-        if (typeof from !== 'number') {
-          from = Number(from);
-        }
-        if (typeof includewatchonly !== 'boolean') {
-          if (includewatchonly === 'false' || includewatchonly === 0 || includewatchonly === '0') {
-            includewatchonly = false;
-          }
-          if (includewatchonly === 'true' || includewatchonly === 1 || includewatchonly === '1') {
-            includewatchonly = true;
-          }
-        }
-        const data = await client.listTransactions(account, count, from, includewatchonly);
-        response.status = 'success';
-        response.data = data;
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
-      }
+      count = ensureNumber(count);
+      from = ensureNumber(from);
+      includewatchonly = ensureBoolean(includewatchonly);
+      const rpccall = 'listTransactions';
+      const rpcparameters = [account, count, from, includewatchonly];
+      response = await executeCall(rpccall, rpcparameters);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -2858,41 +1624,18 @@ async function listUnspent(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        if (typeof minconf !== 'number') {
-          minconf = Number(minconf);
-        }
-        if (typeof maxconf !== 'number') {
-          maxconf = Number(maxconf);
-        }
-        if (addresses) {
-          if (typeof addresses !== 'object') {
-            addresses = JSON.parse(addresses);
-          }
-          const data = await client.listUnspent(minconf, maxconf, addresses);
-          response.status = 'success';
-          response.data = data;
-        } else {
-          const data = await client.listUnspent(minconf, maxconf);
-          response.status = 'success';
-          response.data = data;
-        }
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
+      minconf = ensureNumber(minconf);
+      maxconf = ensureNumber(maxconf);
+      const rpccall = 'listUnspent';
+      const rpcparameters = [minconf, maxconf];
+      if (addresses) {
+        addresses = ensureObject(addresses);
+        rpcparameters.push(addresses);
       }
+
+      response = await executeCall(rpccall, rpcparameters);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -2909,43 +1652,17 @@ async function lockUnspent(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        if (unlock && transactions) {
-          if (typeof unlock !== 'boolean') {
-            if (unlock === 'false' || unlock === 0 || unlock === '0') {
-              unlock = false;
-            }
-            if (unlock === 'true' || unlock === 1 || unlock === '1') {
-              unlock = true;
-            }
-          }
-          if (typeof transactions !== 'object') {
-            transactions = JSON.parse(transactions);
-          }
-          const data = await client.lockUnspent(unlock, transactions);
-          response.status = 'success';
-          response.data = data;
-        } else {
-          const data = await client.lockUnspent(); // throw help
-          response.status = 'success';
-          response.data = data;
-        }
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
+      const rpccall = 'lockUnspent';
+      let rpcparameters = [];
+      if (unlock && transactions) {
+        unlock = ensureBoolean(unlock);
+        transactions = ensureObject(transactions);
+        rpcparameters = [unlock, transactions];
       }
+
+      response = await executeCall(rpccall, rpcparameters);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -2969,38 +1686,17 @@ async function sendFrom(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        if (tozelcashaddress && amount) {
-          if (typeof amount !== 'number') {
-            amount = Number(amount);
-          }
-          if (typeof minconf !== 'number') {
-            minconf = Number(minconf);
-          }
-          const data = await client.sendFrom(account, tozelcashaddress, amount, minconf, comment, commentto);
-          response.status = 'success';
-          response.data = data;
-        } else {
-          const data = await client.sendFrom(); // throw help
-          response.status = 'success';
-          response.data = data;
-        }
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
+      const rpccall = 'sendFrom';
+      let rpcparameters = [];
+      if (tozelcashaddress && amount) {
+        amount = ensureNumber(amount);
+        minconf = ensureNumber(minconf);
+        rpcparameters = [account, tozelcashaddress, amount, minconf, comment, commentto];
       }
+
+      response = await executeCall(rpccall, rpcparameters);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -3022,47 +1718,21 @@ async function sendMany(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        if (amounts) {
-          if (typeof amounts !== 'object') {
-            amounts = JSON.parse(amounts);
-          }
-          if (typeof minconf !== 'number') {
-            minconf = Number(minconf);
-          }
-          if (substractfeefromamount) {
-            if (typeof substractfeefromamount !== 'object') {
-              substractfeefromamount = JSON.parse(substractfeefromamount);
-            }
-            const data = await client.sendMany(fromaccount, amounts, minconf, comment, substractfeefromamount);
-            response.status = 'success';
-            response.data = data;
-          } else {
-            const data = await client.sendMany(fromaccount, amounts, minconf, comment);
-            response.status = 'success';
-            response.data = data;
-          }
-        } else {
-          const data = await client.sendMany(); // throw help
-          response.status = 'success';
-          response.data = data;
+      const rpccall = 'sendMany';
+      let rpcparameters = [];
+      if (amounts) {
+        amounts = ensureObject(amounts);
+        minconf = ensureNumber(minconf);
+        rpcparameters = [fromaccount, amounts, minconf, comment];
+        if (substractfeefromamount) {
+          substractfeefromamount = ensureObject(substractfeefromamount);
+          rpcparameters.push(substractfeefromamount);
         }
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
       }
+
+      response = await executeCall(rpccall, rpcparameters);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -3085,43 +1755,17 @@ async function sendToAddress(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        if (zelcashaddress && amount) {
-          if (typeof amount !== 'number') {
-            amount = Number(amount);
-          }
-          if (typeof substractfeefromamount !== 'boolean') {
-            if (substractfeefromamount === 'false' || substractfeefromamount === 0 || substractfeefromamount === '0') {
-              substractfeefromamount = false;
-            }
-            if (substractfeefromamount === 'true' || substractfeefromamount === 1 || substractfeefromamount === '1') {
-              substractfeefromamount = true;
-            }
-          }
-          const data = await client.sendToAddress(zelcashaddress, amount, comment, commentto, substractfeefromamount);
-          response.status = 'success';
-          response.data = data;
-        } else {
-          const data = await client.sendToAddress(); // throw help
-          response.status = 'success';
-          response.data = data;
-        }
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
+      const rpccall = 'sendToAddress';
+      let rpcparameters = [];
+      if (zelcashaddress && amount) {
+        amount = ensureNumber(amount);
+        substractfeefromamount = ensureBoolean(substractfeefromamount);
+        rpcparameters = [zelcashaddress, amount, comment, commentto, substractfeefromamount];
       }
+
+      response = await executeCall(rpccall, rpcparameters);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -3136,35 +1780,16 @@ async function setTxFee(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        if (amount) {
-          if (typeof amount !== 'number') {
-            amount = Number(amount);
-          }
-          const data = await client.setTxFee(amount);
-          response.status = 'success';
-          response.data = data;
-        } else {
-          const data = await client.setTxFee(); // throw help
-          response.status = 'success';
-          response.data = data;
-        }
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
+      const rpccall = 'setTxFee';
+      let rpcparameters = [];
+      if (amount) {
+        amount = ensureNumber(amount);
+        rpcparameters = [amount];
       }
+
+      response = await executeCall(rpccall, rpcparameters);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -3181,32 +1806,15 @@ async function signMessage(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        if (taddr && message) {
-          const data = await client.signMessage(taddr, message);
-          response.status = 'success';
-          response.data = data;
-        } else {
-          const data = await client.signMessage(); // throw help
-          response.status = 'success';
-          response.data = data;
-        }
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
+      const rpccall = 'signMessage';
+      let rpcparameters = [];
+      if (taddr && message) {
+        rpcparameters = [taddr, message];
       }
+
+      response = await executeCall(rpccall, rpcparameters);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -3221,32 +1829,15 @@ async function zExportKey(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        if (zaddr) {
-          const data = await client.z_exportkey(zaddr);
-          response.status = 'success';
-          response.data = data;
-        } else {
-          const data = await client.z_exportkey(); // throw help
-          response.status = 'success';
-          response.data = data;
-        }
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
+      const rpccall = 'z_exportkey';
+      let rpcparameters = [];
+      if (zaddr) {
+        rpcparameters = [zaddr];
       }
+
+      response = await executeCall(rpccall, rpcparameters);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -3261,32 +1852,15 @@ async function zExportViewingKey(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        if (zaddr) {
-          const data = await client.z_exportviewingkey(zaddr);
-          response.status = 'success';
-          response.data = data;
-        } else {
-          const data = await client.z_exportviewingkey(); // throw help
-          response.status = 'success';
-          response.data = data;
-        }
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
+      const rpccall = 'z_exportviewingkey';
+      let rpcparameters = [];
+      if (zaddr) {
+        rpcparameters = [zaddr];
       }
+
+      response = await executeCall(rpccall, rpcparameters);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -3303,35 +1877,16 @@ async function zGetBalance(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        if (address) {
-          if (typeof minconf !== 'number') {
-            minconf = Number(minconf);
-          }
-          const data = await client.z_getbalance(address, minconf);
-          response.status = 'success';
-          response.data = data;
-        } else {
-          const data = await client.z_getbalance(); // throw help
-          response.status = 'success';
-          response.data = data;
-        }
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
+      const rpccall = 'z_getbalance';
+      let rpcparameters = [];
+      if (address) {
+        minconf = ensureNumber(minconf);
+        rpcparameters = [address, minconf];
       }
+
+      response = await executeCall(rpccall, rpcparameters);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -3344,26 +1899,11 @@ async function zGetMigrationStatus(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        const data = await client.z_getmigrationstatus();
-        response.status = 'success';
-        response.data = data;
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
-      }
+      const rpccall = 'z_getmigrationstatus';
+
+      response = await executeCall(rpccall);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -3378,26 +1918,12 @@ async function zGetNewAddress(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        const data = await client.z_getnewaddress(type);
-        response.status = 'success';
-        response.data = data;
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
-      }
+      const rpccall = 'z_getnewaddress';
+      const rpcparameters = [type];
+
+      response = await executeCall(rpccall, rpcparameters);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -3412,29 +1938,13 @@ async function zGetOperationResult(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        if (typeof operationid !== 'object') {
-          operationid = JSON.parse(operationid);
-        }
-        const data = await client.z_getoperationresult(operationid);
-        response.status = 'success';
-        response.data = data;
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
-      }
+      operationid = ensureObject(operationid);
+      const rpccall = 'z_getoperationresult';
+      const rpcparameters = [operationid];
+
+      response = await executeCall(rpccall, rpcparameters);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -3449,29 +1959,13 @@ async function zGetOperationStatus(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        if (typeof operationid !== 'object') {
-          operationid = JSON.parse(operationid);
-        }
-        const data = await client.z_getoperationstatus(operationid);
-        response.status = 'success';
-        response.data = data;
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
-      }
+      operationid = ensureObject(operationid);
+      const rpccall = 'z_getoperationstatus';
+      const rpcparameters = [operationid];
+
+      response = await executeCall(rpccall, rpcparameters);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -3488,37 +1982,14 @@ async function zGetTotalBalance(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        if (typeof transactions !== 'number') {
-          minconf = Number(minconf);
-        }
-        if (typeof includewatchonly !== 'boolean') {
-          if (includewatchonly === 'false' || includewatchonly === 0 || includewatchonly === '0') {
-            includewatchonly = false;
-          }
-          if (includewatchonly === 'true' || includewatchonly === 1 || includewatchonly === '1') {
-            includewatchonly = true;
-          }
-        }
-        const data = await client.z_gettotalbalance(minconf, includewatchonly);
-        response.status = 'success';
-        response.data = data;
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
-      }
+      minconf = ensureNumber(minconf);
+      includewatchonly = ensureBoolean(includewatchonly);
+      const rpccall = 'z_gettotalbalance';
+      const rpcparameters = [minconf, includewatchonly];
+
+      response = await executeCall(rpccall, rpcparameters);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -3537,35 +2008,16 @@ async function zImportKey(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        if (zkey) {
-          if (typeof startheight !== 'number') {
-            startheight = Number(startheight);
-          }
-          const data = await client.z_importkey(zkey, rescan, startheight);
-          response.status = 'success';
-          response.data = data;
-        } else {
-          const data = await client.z_importkey(zkey, rescan, startheight);
-          response.status = 'success';
-          response.data = data;
-        }
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
+      const rpccall = 'z_importkey';
+      let rpcparameters = [];
+      if (zkey) {
+        startheight = ensureNumber(startheight);
+        rpcparameters = [zkey, rescan, startheight];
       }
+
+      response = await executeCall(rpccall, rpcparameters);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -3584,35 +2036,16 @@ async function zImportViewingKey(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        if (vkey) {
-          if (typeof startheight !== 'number') {
-            startheight = Number(startheight);
-          }
-          const data = await client.z_importviewingkey(vkey, rescan, startheight);
-          response.status = 'success';
-          response.data = data;
-        } else {
-          const data = await client.z_importviewingkey(vkey, rescan, startheight);
-          response.status = 'success';
-          response.data = data;
-        }
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
+      const rpccall = 'z_importkey';
+      let rpcparameters = [];
+      if (vkey) {
+        startheight = ensureNumber(startheight);
+        rpcparameters = [vkey, rescan, startheight];
       }
+
+      response = await executeCall(rpccall, rpcparameters);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -3627,32 +2060,15 @@ async function zImportWallet(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        if (filename) {
-          const data = await client.z_importwallet(filename);
-          response.status = 'success';
-          response.data = data;
-        } else {
-          const data = await client.z_importwallet(); // throw error with help
-          response.status = 'success';
-          response.data = data;
-        }
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
+      const rpccall = 'z_importwallet';
+      let rpcparameters = [];
+      if (filename) {
+        rpcparameters = [filename];
       }
+
+      response = await executeCall(rpccall, rpcparameters);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -3667,34 +2083,13 @@ async function zListAddresses(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        if (typeof includewatchonly !== 'boolean') {
-          if (includewatchonly === 'false' || includewatchonly === 0 || includewatchonly === '0') {
-            includewatchonly = false;
-          }
-          if (includewatchonly === 'true' || includewatchonly === 1 || includewatchonly === '1') {
-            includewatchonly = true;
-          }
-        }
-        const data = await client.z_listaddresses(includewatchonly);
-        response.status = 'success';
-        response.data = data;
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
-      }
+      includewatchonly = ensureBoolean(includewatchonly);
+      const rpccall = 'z_listaddresses';
+      const rpcparameters = [includewatchonly];
+
+      response = await executeCall(rpccall, rpcparameters);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -3707,26 +2102,11 @@ async function zListOperationIds(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        const data = await client.z_listoperationids();
-        response.status = 'success';
-        response.data = data;
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
-      }
+      const rpccall = 'z_listoperationids';
+
+      response = await executeCall(rpccall);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -3743,35 +2123,16 @@ async function zListReceivedByAddress(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        if (address) {
-          if (typeof minconf !== 'number') {
-            minconf = Number(minconf);
-          }
-          const data = await client.z_listreceivedbyaddress(address, minconf);
-          response.status = 'success';
-          response.data = data;
-        } else {
-          const data = await client.z_listreceivedbyaddress();
-          response.status = 'success';
-          response.data = data;
-        }
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
+      const rpccall = 'z_listreceivedbyaddress';
+      let rpcparameters = [];
+      if (address) {
+        minconf = ensureNumber(minconf);
+        rpcparameters = [address, minconf];
       }
+
+      response = await executeCall(rpccall, rpcparameters);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -3792,49 +2153,19 @@ async function zListUnspent(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        if (typeof minconf !== 'number') {
-          minconf = Number(minconf);
-        }
-        if (typeof maxconf !== 'number') {
-          maxconf = Number(maxconf);
-        }
-        if (typeof includewatchonly !== 'boolean') {
-          if (includewatchonly === 'false' || includewatchonly === 0 || includewatchonly === '0') {
-            includewatchonly = false;
-          }
-          if (includewatchonly === 'true' || includewatchonly === 1 || includewatchonly === '1') {
-            includewatchonly = true;
-          }
-        }
-        if (addresses) {
-          if (typeof addresses !== 'object') {
-            addresses = JSON.parse(addresses);
-          }
-          const data = await client.z_listunspent(minconf, maxconf, includewatchonly, addresses);
-          response.status = 'success';
-          response.data = data;
-        } else {
-          const data = await client.z_listunspent(minconf, maxconf, includewatchonly);
-          response.status = 'success';
-          response.data = data;
-        }
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
+      const rpccall = 'z_listunspent';
+      minconf = ensureNumber(minconf);
+      maxconf = ensureNumber(maxconf);
+      includewatchonly = ensureBoolean(includewatchonly);
+      const rpcparameters = [minconf, maxconf, includewatchonly];
+      if (addresses) {
+        addresses = ensureObject(addresses);
+        rpcparameters.push(addresses);
       }
+
+      response = await executeCall(rpccall, rpcparameters);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -3859,44 +2190,18 @@ async function zMergeToAddress(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        if (typeof fee !== 'number') {
-          fee = Number(fee);
-        }
-        if (typeof transparentlimit !== 'number') {
-          transparentlimit = Number(transparentlimit);
-        }
-        if (typeof shieldedlimit !== 'number') {
-          shieldedlimit = Number(shieldedlimit);
-        }
-        if (fromaddresses && toaddress) {
-          if (typeof fromaddresses !== 'object') {
-            fromaddresses = JSON.parse(fromaddresses);
-          }
-          const data = await client.z_mergetoaddress(fromaddresses, toaddress, fee, transparentlimit, shieldedlimit, memo);
-          response.status = 'success';
-          response.data = data;
-        } else {
-          const data = await client.z_mergetoaddress(); // throw help
-          response.status = 'success';
-          response.data = data;
-        }
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
+      const rpccall = 'z_mergetoaddress';
+      let rpcparameters = [];
+      if (fromaddresses && toaddress) {
+        fromaddresses = ensureObject(fromaddresses);
+        fee = ensureNumber(fee);
+        transparentlimit = ensureNumber(transparentlimit);
+        shieldedlimit = ensureNumber(shieldedlimit);
+        rpcparameters = [fromaddresses, toaddress, fee, transparentlimit, shieldedlimit, memo];
       }
+      response = await executeCall(rpccall, rpcparameters);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -3917,41 +2222,17 @@ async function zSendMany(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        if (fromaddress && amounts) {
-          if (typeof amounts !== 'object') {
-            amounts = JSON.parse(amounts);
-          }
-          if (typeof minconf !== 'number') {
-            minconf = Number(minconf);
-          }
-          if (typeof fee !== 'number') {
-            fee = Number(fee);
-          }
-          const data = await client.z_sendmany(fromaddress, amounts, minconf, fee);
-          response.status = 'success';
-          response.data = data;
-        } else {
-          const data = await client.z_sendmany(); // throw help
-          response.status = 'success';
-          response.data = data;
-        }
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
+      const rpccall = 'z_sendmany';
+      let rpcparameters = [];
+      if (fromaddress && amounts) {
+        amounts = ensureObject(amounts);
+        minconf = ensureNumber(minconf);
+        fee = ensureNumber(fee);
+        rpcparameters = [fromaddress, amounts, minconf, fee];
       }
+      response = await executeCall(rpccall, rpcparameters);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -3966,40 +2247,15 @@ async function zSetMigration(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        if (enabled) {
-          if (typeof enabled !== 'boolean') {
-            if (enabled === 'false' || enabled === 0 || enabled === '0') {
-              enabled = false;
-            }
-            if (enabled === 'true' || enabled === 1 || enabled === '1') {
-              enabled = true;
-            }
-          }
-          const data = await client.z_setmigration(enabled);
-          response.status = 'success';
-          response.data = data;
-        } else {
-          const data = await client.z_setmigration();
-          response.status = 'success';
-          response.data = data;
-        }
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
+      const rpccall = 'z_setmigration';
+      let rpcparameters = [];
+      if (enabled) {
+        enabled = ensureBoolean(enabled);
+        rpcparameters = [enabled];
       }
+      response = await executeCall(rpccall, rpcparameters);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -4020,38 +2276,16 @@ async function zShieldCoinBase(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        if (fromaddress && toaddress) {
-          if (typeof fee !== 'number') {
-            fee = Number(fee);
-          }
-          if (typeof limit !== 'number') {
-            limit = Number(limit);
-          }
-          const data = await client.z_shieldcoinbase(fromaddress, toaddress, fee, limit);
-          response.status = 'success';
-          response.data = data;
-        } else {
-          const data = await client.z_shieldcoinbase(); // throw help
-          response.status = 'success';
-          response.data = data;
-        }
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
+      const rpccall = 'z_shieldcoinbase';
+      let rpcparameters = [];
+      if (fromaddress && toaddress) {
+        fee = ensureNumber(fee);
+        limit = ensureNumber(limit);
+        rpcparameters = [fromaddress, toaddress, fee, limit];
       }
+      response = await executeCall(rpccall, rpcparameters);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -4068,35 +2302,15 @@ async function zcBenchmark(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        if (benchmarktype && samplecount) {
-          if (typeof samplecount !== 'number') {
-            samplecount = Number(samplecount);
-          }
-          const data = await client.zcbenchmark(benchmarktype, samplecount);
-          response.status = 'success';
-          response.data = data;
-        } else {
-          const data = await client.zcbenchmark(); // throw help
-          response.status = 'success';
-          response.data = data;
-        }
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
+      const rpccall = 'zcbenchmark';
+      let rpcparameters = [];
+      if (benchmarktype && samplecount) {
+        samplecount = ensureNumber(samplecount);
+        rpcparameters = [benchmarktype, samplecount];
       }
+      response = await executeCall(rpccall, rpcparameters);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -4119,38 +2333,16 @@ async function zcRawJoinSplit(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        if (rawtx && inputs && outputs && vpubold && vpubnew) {
-          if (typeof inputs !== 'object') {
-            inputs = JSON.parse(inputs);
-          }
-          if (typeof outputs !== 'object') {
-            outputs = JSON.parse(outputs);
-          }
-          const data = await client.zcrawjoinsplit(rawtx, inputs, outputs, vpubold, vpubnew);
-          response.status = 'success';
-          response.data = data;
-        } else {
-          const data = await client.zcrawjoinsplit(); // throw help
-          response.status = 'success';
-          response.data = data;
-        }
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
+      const rpccall = 'zcrawjoinsplit';
+      let rpcparameters = [];
+      if (rawtx && inputs && outputs && vpubold && vpubnew) {
+        inputs = ensureObject(inputs);
+        outputs = ensureObject(outputs);
+        rpcparameters = [rawtx, inputs, outputs, vpubold, vpubnew];
       }
+      response = await executeCall(rpccall, rpcparameters);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -4163,26 +2355,10 @@ async function zcRawKeygen(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        const data = await client.zcrawkeygen();
-        response.status = 'success';
-        response.data = data;
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
-      }
+      const rpccall = 'zcrawkeygen';
+      response = await executeCall(rpccall);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -4199,32 +2375,14 @@ async function zcRawReceive(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        if (zcsecretkey && encryptednote) {
-          const data = await client.zcrawreceive(zcsecretkey, encryptednote);
-          response.status = 'success';
-          response.data = data;
-        } else {
-          const data = await client.zcrawreceive(); // throw help
-          response.status = 'success';
-          response.data = data;
-        }
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
+      const rpccall = 'zcrawreceive';
+      let rpcparameters = [];
+      if (zcsecretkey && encryptednote) {
+        rpcparameters = [zcsecretkey, encryptednote];
       }
+      response = await executeCall(rpccall, rpcparameters);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);
@@ -4237,26 +2395,10 @@ async function zcSampleJoinSplit(req, res) {
       return res.json(error);
     }
     if (authorized === true) {
-      try {
-        const data = await client.zcsamplejoinsplit();
-        response.status = 'success';
-        response.data = data;
-      } catch (err) {
-        const daemonerror = {
-          code: err.code,
-          message: err.message,
-        };
-        response.status = 'error';
-        response.data = daemonerror;
-      }
+      const rpccall = 'zcsamplejoinsplit';
+      response = await executeCall(rpccall);
     } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      response = errMessage;
+      response = errUnauthorizedMessage;
     }
 
     return res.json(response);

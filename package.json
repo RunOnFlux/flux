@@ -1,6 +1,6 @@
 {
   "name": "flux",
-  "version": "0.24.2",
+  "version": "0.24.3",
   "description": "ZelFlux - ZelNode Daemon. The entrace to the Zel network.",
   "repository": {
     "type": "git",
