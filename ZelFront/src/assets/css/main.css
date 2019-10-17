@@ -161,7 +161,7 @@ h4 {
 
 .footer-grid {
   display: grid;
-  grid-template-columns: 100px calc(100vw - 200px) 100px;
+  grid-template-columns: 120px calc(100vw - 240px) 120px;
   grid-template-rows: 1fr;
   margin: auto;
 }
