@@ -1425,10 +1425,14 @@ async function listLockUnspent(req, res) {
 }
 
 async function rescanBlockchain(req, res) {
+  let { startheight } = req.params;
+  startheight = startheight || req.query.startheight || 0;
   const authorized = await verifyPrivilege('admin', req, res);
   if (authorized === true) {
+    startheight = ensureNumber(startheight);
     const rpccall = 'rescanblockchain';
-    response = await executeCall(rpccall);
+    const rpcparameters = [startheight];
+    response = await executeCall(rpccall, rpcparameters);
   } else {
     response = errUnauthorizedMessage;
   }

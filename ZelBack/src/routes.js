@@ -296,7 +296,7 @@ module.exports = (app) => {
   app.get('/zelcash/lockunspent/:unlock?/:transactions?', (req, res) => {
     zelcashService.lockUnspent(req, res);
   });
-  app.get('/zelcash/rescanblockchain', (req, res) => {
+  app.get('/zelcash/rescanblockchain/:startheight?', (req, res) => {
     zelcashService.rescanBlockchain(req, res);
   });
   app.get('/zelcash/sendfrom/:tozelcashaddress?/:amount?/:minconf?/:comment?/:commentto?', (req, res) => {
