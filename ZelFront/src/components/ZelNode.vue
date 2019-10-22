@@ -1,6 +1,6 @@
 <template>
-  <div class="zelnodeSection">
-    <div v-if="zelnodeSection === 'getinfo'">
+  <div class="zelnodesection">
+    <div v-if="zelNodeSection === 'getinfo'">
       <div class="status">
         <h4>
           ZelNode owner Zel ID: {{ userconfig.zelid }}
@@ -72,11 +72,11 @@ export default {
     ...mapState([
       'config',
       'userconfig',
-      'zelnodeSection',
+      'zelNodeSection',
     ]),
   },
   watch: {
-    zelnodeSection(val, oldVal) {
+    zelNodeSection(val, oldVal) {
       console.log(val, oldVal);
       switch (val) {
         case 'getinfo':
@@ -92,7 +92,7 @@ export default {
     },
   },
   mounted() {
-    switch (this.zelnodeSection) {
+    switch (this.zelNodeSection) {
       case 'getinfo':
         this.zelcashGetInfo();
         this.zelcashGetZelNodeStatus();

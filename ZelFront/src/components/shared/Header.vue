@@ -172,7 +172,7 @@ export default {
           this.$store.commit('setZelNodeSection', 'getinfo');
           break;
         case '3-1':
-          vue.$message.info('ZelApps coming soon!');
+          this.$store.commit('setZelAppsSection', 'information');
           break;
         case '10-1':
           this.$store.commit('setZelAdminSection', 'loggedsessions');

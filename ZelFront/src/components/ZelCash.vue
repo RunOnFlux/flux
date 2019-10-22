@@ -1,6 +1,6 @@
 <template>
-  <div class="zelcashSection">
-    <div v-if="zelcashSection === 'getinfo'">
+  <div class="zelcashsection">
+    <div v-if="zelCashSection === 'getinfo'">
       <div class="status">
         <h4>
           ZelNode owner Zel ID: {{ userconfig.zelid }}
@@ -27,7 +27,7 @@
         </div>
       </div>
     </div>
-    <div v-if="zelcashSection === 'help'" class="helpSection">
+    <div v-if="zelCashSection === 'help'" class="helpSection">
       {{ callResponse.data || 'Obtaining help section...' }}
     </div>
     <div v-if="callResponse.status === 'error'">
@@ -65,11 +65,11 @@ export default {
     ...mapState([
       'config',
       'userconfig',
-      'zelcashSection',
+      'zelCashSection',
     ]),
   },
   watch: {
-    zelcashSection(val, oldVal) {
+    zelCashSection(val, oldVal) {
       console.log(val, oldVal);
       this.callResponse.status = '';
       this.callResponse.data = '';
@@ -90,7 +90,7 @@ export default {
     },
   },
   mounted() {
-    switch (this.zelcashSection) {
+    switch (this.zelCashSection) {
       case 'getinfo':
         this.zelcashGetInfo();
         this.zelcashGetZelNodeStatus();

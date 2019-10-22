@@ -1,5 +1,5 @@
 <template>
-  <div class="zelAdminSection">
+  <div class="zeladminsection">
     <div v-if="zelAdminSection === 'loggedsessions'">
       <el-table
         :data="loggedUsersTable.filter(data => !filterLoggedUsers || data.zelid.toLowerCase().includes(filterLoggedUsers.toLowerCase()) || data.loginPhrase.toLowerCase().includes(filterLoggedUsers.toLowerCase()))"

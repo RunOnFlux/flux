@@ -154,7 +154,7 @@ module.exports = (app) => {
   app.get('/zelcash/validateaddress/:zelcashaddress?', (req, res) => {
     zelcashService.validateAddress(req, res);
   });
-  app.get('/zelcash/verifymessage/:zelcashaddress?/:signature?/:message?', (req, res) => {
+  app.get('/zelcash/verifymessage/:zelcashaddress?/:signature?/:message?', (req, res) => { // todo make this post too
     zelcashService.verifyMessage(req, res);
   });
   app.get('/zelcash/gettransaction/:txid?/:includewatchonly?', (req, res) => {
@@ -299,19 +299,19 @@ module.exports = (app) => {
   app.get('/zelcash/rescanblockchain/:startheight?', (req, res) => {
     zelcashService.rescanBlockchain(req, res);
   });
-  app.get('/zelcash/sendfrom/:tozelcashaddress?/:amount?/:minconf?/:comment?/:commentto?', (req, res) => {
+  app.get('/zelcash/sendfrom/:tozelcashaddress?/:amount?/:minconf?/:comment?/:commentto?', (req, res) => { // todo make this post too
     zelcashService.sendFrom(req, res);
   });
-  app.get('/zelcash/sendmany/:amounts?/:minconf?/:comment?/:substractfeefromamount?', (req, res) => {
+  app.get('/zelcash/sendmany/:amounts?/:minconf?/:comment?/:substractfeefromamount?', (req, res) => { // todo make this post too
     zelcashService.sendMany(req, res);
   });
-  app.get('/zelcash/sendtoaddress/:zelcashaddress?/:amount?/:comment?/:commentto?/:substractfeefromamount?', (req, res) => {
+  app.get('/zelcash/sendtoaddress/:zelcashaddress?/:amount?/:comment?/:commentto?/:substractfeefromamount?', (req, res) => { // todo make this post too
     zelcashService.sendToAddress(req, res);
   });
   app.get('/zelcash/settxfee/:amount?', (req, res) => {
     zelcashService.setTxFee(req, res);
   });
-  app.get('/zelcash/signmessage/:taddr?/:message?', (req, res) => {
+  app.get('/zelcash/signmessage/:taddr?/:message?', (req, res) => { // todo make this post too
     zelcashService.signMessage(req, res);
   });
   app.get('/zelcash/zexportkey/:zaddr?', (req, res) => {
@@ -362,7 +362,7 @@ module.exports = (app) => {
   app.get('/zelcash/zmergetoaddress/:fromaddresses?/:toaddress?/:fee?/:transparentlimit?/:shieldedlimit?/:memo?', (req, res) => {
     zelcashService.zMergeToAddress(req, res);
   });
-  app.get('/zelcash/zsendmany/:fromaddress?/:amounts?/:minconf?/:fee?', (req, res) => {
+  app.get('/zelcash/zsendmany/:fromaddress?/:amounts?/:minconf?/:fee?', (req, res) => { // todo make this post too
     zelcashService.zSendMany(req, res);
   });
   app.get('/zelcash/zsetmigration/:enabled?', (req, res) => {
@@ -371,13 +371,13 @@ module.exports = (app) => {
   app.get('/zelcash/zshieldcoinbase/:fromaddress?/:toaddress?/:fee?/:limit?', (req, res) => {
     zelcashService.zShieldCoinBase(req, res);
   });
-  app.get('/zelcash/zcrawjoinsplit/:rawtx?/:inputs?/:outputs?/:vpubold?/:vpubnew?', (req, res) => {
+  app.get('/zelcash/zcrawjoinsplit/:rawtx?/:inputs?/:outputs?/:vpubold?/:vpubnew?', (req, res) => { // todo make this post too
     zelcashService.zcRawJoinSplit(req, res);
   });
   app.get('/zelcash/zcrawkeygen', (req, res) => {
     zelcashService.zcRawKeygen(req, res);
   });
-  app.get('/zelcash/zcrawreceive/:zcsecretkey?/:encryptednote?', (req, res) => {
+  app.get('/zelcash/zcrawreceive/:zcsecretkey?/:encryptednote?', (req, res) => { // todo make this post too
     zelcashService.zcRawReceive(req, res);
   });
   app.get('/zelcash/zcsamplejoinsplit', (req, res) => {

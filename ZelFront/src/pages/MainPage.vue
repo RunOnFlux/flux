@@ -7,14 +7,17 @@
       v-if="loginPhrase && getInfoResponse.status === 'success'"
       class="content"
     >
-      <div v-if="zelcashSection !== null">
+      <div v-if="zelCashSection !== null">
         <ZelCash />
       </div>
-      <div v-if="zelnodeSection !== null">
+      <div v-if="zelNodeSection !== null">
         <ZelNode />
       </div>
       <div v-if="zelAdminSection !== null">
         <ZelAdmin />
+      </div>
+      <div v-if="zelAppsSection !== null">
+        <ZelApps />
       </div>
       <br>
       <div v-if="privilage === 'none'">
@@ -26,9 +29,9 @@
       class="content"
     >
       <div v-if="errorMessage !== ''">
-        <h4>
+        <h3>
           {{ errorMessage }}
-        </h4>
+        </h3>
       </div>
       <div v-else>
         <h4>
@@ -40,8 +43,23 @@
       v-else-if="getInfoResponse.status === 'error'"
       class="content"
     >
+      <div v-if="privilage === 'none'">
+        <Login />
+      </div>
+      <br>
+      <h3>
+        Error connecting to the ZelCash Daemon
+        <p v-if="privilage ==='admin'">
+          Please try to restart your ZelCash Daemon in ZelCash section.
+        </p>
+      </h3>
+    </div>
+    <div
+      v-else
+      class="content"
+    >
       <h4>
-        Error connecting to the ZelCash daemon
+        Loading...
       </h4>
     </div>
     <div class="footer">
@@ -63,6 +81,7 @@ const Login = () => import('@/components/Login.vue');
 const ZelCash = () => import('@/components/ZelCash.vue');
 const ZelNode = () => import('@/components/ZelNode.vue');
 const ZelAdmin = () => import('@/components/ZelAdmin.vue');
+const ZelApps = () => import('@/components/ZelApps.vue');
 
 const qs = require('qs');
 
@@ -72,7 +91,7 @@ const vue = new Vue();
 export default {
   name: 'MainPage',
   components: {
-    Header, Footer, Login, ZelCash, ZelNode, ZelAdmin,
+    Header, Footer, Login, ZelCash, ZelNode, ZelAdmin, ZelApps,
   },
   data() {
     return {
@@ -89,9 +108,10 @@ export default {
       'userconfig',
       'config',
       'privilage',
-      'zelcashSection',
-      'zelnodeSection',
+      'zelCashSection',
+      'zelNodeSection',
       'zelAdminSection',
+      'zelAppsSection',
     ]),
   },
   mounted() {

@@ -18,9 +18,10 @@ export default new Vuex.Store({
       zelTeamZelId: config.zelTeamZelId,
     },
     privilage: 'none', // user, admin, zelteam
-    zelcashSection: 'getinfo',
-    zelnodeSection: null,
+    zelCashSection: 'getinfo',
+    zelNodeSection: null,
     zelAdminSection: null,
+    zelAppsSection: null,
     zelfluxVersion: '',
   },
   getters: {
@@ -30,22 +31,32 @@ export default new Vuex.Store({
       state.privilage = privilage;
     },
     setZelCashSection(state, section) {
-      state.zelcashSection = section;
+      state.zelCashSection = section;
       // we always want to reset the other sections to null state
-      state.zelnodeSection = null;
+      state.zelNodeSection = null;
       state.zelAdminSection = null;
+      state.zelAppsSection = null;
     },
     setZelNodeSection(state, section) {
-      state.zelnodeSection = section;
+      state.zelNodeSection = section;
       // we always want to reset the other sections to null state
-      state.zelcashSection = null;
+      state.zelCashSection = null;
       state.zelAdminSection = null;
+      state.zelAppsSection = null;
     },
     setZelAdminSection(state, section) {
       state.zelAdminSection = section;
       // we always want to reset the other sections to null state
-      state.zelcashSection = null;
-      state.zelnodeSection = null;
+      state.zelCashSection = null;
+      state.zelNodeSection = null;
+      state.zelAppsSection = null;
+    },
+    setZelAppsSection(state, section) {
+      state.zelAppsSection = section;
+      // we always want to reset the other sections to null state
+      state.zelCashSection = null;
+      state.zelNodeSection = null;
+      state.zelAdminSection = null;
     },
     setZelFluxVersion(state, version) {
       state.zelfluxVersion = version;
