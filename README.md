@@ -41,7 +41,63 @@ This application is open source and distributed under the GNU AGPLv3 licence
 
 ## Start ZelFlux
 
-Mongodb and zelcashd needs to be setup and running
+Zelcashd needs to be setup and running.
+
+Setup Mongodb on Ubuntu 16.04 (LTS):
+
+```bash
+echo "deb [ arch=amd64 ] https://repo.mongodb.org/apt/ubuntu xenial/mongodb-org/4.2 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-4.2.list
+
+sudo apt-get update
+
+sudo apt-get install -y mongodb-org
+
+sudo service mongod start
+```
+
+Setup Mongodb on Ubuntu 18.04 (LTS):
+
+```bash
+echo "deb [ arch=amd64 ] https://repo.mongodb.org/apt/ubuntu bionic/mongodb-org/4.2 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-4.2.list
+
+sudo apt-get update
+
+sudo apt-get install -y mongodb-org
+
+sudo service mongod start
+```
+
+Install Node Version Manager (NVM) and NodeJS 11 on Ubuntu 16.04/18.04:
+
+```bash
+apt-get install curl
+
+curl -o- https://raw.githubusercontent.com/creationix/nvm/v0.34.0/install.sh | bash
+
+bash install_nvm.sh
+
+source ~/.profile
+
+nvm install 11
+
+nvm use 11
+```
+
+Clone ZelFlux repo:
+
+```bash
+apt-get install git
+
+git clone https://github.com/zelcash/zelflux
+```
+
+Install ZelFlux dependancies:
+
+```bash
+cd zelflux
+
+npm install
+```
 
 Production:
 
