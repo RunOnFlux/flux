@@ -46,6 +46,8 @@ ZelFlux needs Zelcashd to be ruuning, to setup Zelcashd follow [these instructio
 Setup Mongodb on Ubuntu 16.04 (LTS):
 
 ```bash
+wget -qO - https://www.mongodb.org/static/pgp/server-4.2.asc | sudo apt-key add -
+
 echo "deb [ arch=amd64 ] https://repo.mongodb.org/apt/ubuntu xenial/mongodb-org/4.2 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-4.2.list
 
 sudo apt-get update
@@ -58,6 +60,8 @@ sudo service mongod start
 Setup Mongodb on Ubuntu 18.04 (LTS):
 
 ```bash
+wget -qO - https://www.mongodb.org/static/pgp/server-4.2.asc | sudo apt-key add -
+
 echo "deb [ arch=amd64 ] https://repo.mongodb.org/apt/ubuntu bionic/mongodb-org/4.2 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-4.2.list
 
 sudo apt-get update
