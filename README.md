@@ -67,6 +67,39 @@ sudo apt-get install -y mongodb-org
 sudo service mongod start
 ```
 
+Setup Mongodb on Red Hat or CentOS:
+
+```bash
+yum install nano
+
+nano /etc/yum.repos.d/mongodb-org-4.2.repo
+
+# Paste below into the mongodb-org-4.2.repo file
+
+[mongodb-org-4.2]
+name=MongoDB Repository
+baseurl=https://repo.mongodb.org/yum/redhat/$releasever/mongodb-org/4.2/x86_64/
+gpgcheck=1
+enabled=1
+gpgkey=https://www.mongodb.org/static/pgp/server-4.2.asc
+
+# exit nano
+
+sudo yum install -y mongodb-org
+
+# Start Mongodb on startup for CentOS 7
+systemctl enable mongod.service
+
+# Start Mongodb on startup for CentOS 5/6
+chkconfig mongod on
+
+# Start Mongodb on CentOS 7
+systemctl start mongod.service
+
+# Start Mongodb on CentOS 5/6
+service mongod start
+```
+
 Install Node Version Manager (NVM) and NodeJS 11 on Ubuntu 16.04/18.04:
 
 ```bash
@@ -83,7 +116,21 @@ nvm install 11
 nvm use 11
 ```
 
-Clone ZelFlux repo:
+Install Node Version Manager (NVM) and NodeJS 11 on Redhat/CentOS:
+
+```bash
+yum install curl
+
+curl -o- https://raw.githubusercontent.com/creationix/nvm/v0.34.0/install.sh | bash
+
+source ~/.bashrc
+
+nvm install 11
+
+nvm use 11
+```
+
+Clone ZelFlux repo (Ubuntu):
 
 ```bash
 apt-get install git
@@ -91,7 +138,15 @@ apt-get install git
 git clone https://github.com/zelcash/zelflux
 ```
 
-Install ZelFlux dependancies:
+Clone ZelFlux repo (Redhat/CentOS):
+
+```bash
+yum install git
+
+git clone https://github.com/zelcash/zelflux
+```
+
+Install ZelFlux dependancies (Ubuntu/CentOS/Redhat):
 
 ```bash
 cd zelflux
