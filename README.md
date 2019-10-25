@@ -41,7 +41,7 @@ This application is open source and distributed under the GNU AGPLv3 licence
 
 ## Start ZelFlux
 
-Zelcashd needs to be setup and running.
+ZelFlux needs Zelcashd to be ruuning, to setup Zelcashd follow [these instructions.](https://github.com/zelcash/ZelNodeInstallv3)
 
 Setup Mongodb on Ubuntu 16.04 (LTS):
 
