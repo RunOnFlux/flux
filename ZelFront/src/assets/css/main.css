@@ -133,8 +133,18 @@ h4 {
   background-color: #333333;
 }
 
-.content {
-  padding: 120px 0px 30px 0px;
+/* desktop */
+@media screen and (min-width: 805px) {
+  .content {
+    padding: 120px 0px 30px 0px;
+  }
+}
+
+/* mobile */
+@media screen and (max-width: 805px) {
+  .content {
+    padding: 90px 0px 30px 0px;
+  }
 }
 
 /* HEADER STYLE */
@@ -150,11 +160,10 @@ h4 {
 }
 
 .header-menu {
-  overflow: hidden;
-  margin: auto;
-  width: calc(100vw - 40px);
-  height: 80px;
-  line-height: 40px;
+  overflow: visible;
+  display: grid;
+  grid-template-columns: 1fr 76px;
+  width: 100vw;
 }
 
 /* FOOTER STYLE */
@@ -211,10 +220,6 @@ h4 {
   width: 600px;
 }
 
-.generalButton {
-
-}
-
 /* ELEMENTS */
 .el-menu.el-menu--horizontal {
   border: none;
@@ -224,7 +229,57 @@ h4 {
   border: 1px solid #ffd04b;
 }
 
+.el-menu--collapse>.el-menu-item .el-submenu__icon-arrow,.el-menu--collapse>.el-submenu>.el-submenu__title .el-submenu__icon-arrow {
+  position: absolute;
+  right: 20px;
+  vertical-align:middle;
+  display: inline-block;
+}
+
+.el-menu--collapse .el-submenu.is-opened>.el-submenu__title .el-submenu__icon-arrow{
+  -webkit-transform: rotateZ(180deg);
+  transform: rotateZ(180deg)
+}
+
 /* ZelCash styling */
 .helpSection {
   white-space: pre-line;
+}
+
+/* Burger menu */
+.container {
+  display: inline-block;
+  cursor: pointer;
+  padding-top: 20px;
+}
+
+.bar1, .bar2, .bar3 {
+  width: 35px;
+  height: 5px;
+  background-color: #ffffff;
+  margin: 6px 0;
+  transition: 0.4s;
+}
+
+.change .bar1 {
+  -webkit-transform: rotate(-45deg) translate(-9px, 6px);
+  transform: rotate(-45deg) translate(-9px, 6px);
+}
+
+.change .bar2 {opacity: 0;}
+
+.change .bar3 {
+  -webkit-transform: rotate(45deg) translate(-8px, -8px);
+  transform: rotate(45deg) translate(-8px, -8px);
+}
+
+/* vertical menu */
+.mobilemenu {
+  width: 190px;
+}
+
+.hidden {
+  height: 55px;
+  overflow: hidden;
+  border: 1px solid #333;
 }

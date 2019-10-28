@@ -1,10 +1,13 @@
+/* eslint-disable vue/no-parsing-error */
 <template>
   <div class="header-menu">
     <el-menu
       :default-active="activeIndex"
-      class="el-menu-demo"
-      mode="horizontal"
+      :collapse="isMobile"
+      :mode="windowWidth < 805 ? 'vertical' : 'horizontal'"
       @select="handleSelect"
+      unique-opened="true"
+      :class="{ mobilemenu: isMobile, hidden: !showMenu }"
       background-color="#333333"
       text-color="#fff"
       active-text-color="#ffd04b"
@@ -18,9 +21,13 @@
       <el-submenu
         v-if="privilage === 'user' || privilage === 'admin' || privilage === 'zelteam'"
         index="1"
+        popper-append-to-body="true"
       >
         <template slot="title">ZelCash</template>
-        <el-submenu index="1-1">
+        <el-submenu
+          popper-append-to-body="true"
+          index="1-1"
+        >
           <template slot="title">Control</template>
           <el-menu-item index="1-1-1">Get Info</el-menu-item>
           <el-menu-item index="1-1-2">Help</el-menu-item>
@@ -56,31 +63,52 @@
             Restart
           </el-menu-item>
         </el-submenu>
-        <el-submenu index="1-2">
+        <el-submenu
+          popper-append-to-body="true"
+          index="1-2"
+        >
           <template slot="title">ZelNode</template>
           <el-menu-item index="1-2-1">Get Info</el-menu-item>
         </el-submenu>
-        <el-submenu index="1-3">
+        <el-submenu
+          popper-append-to-body="true"
+          index="1-3"
+        >
           <template slot="title">BlockChain</template>
           <el-menu-item index="1-3-1">Get Info</el-menu-item>
         </el-submenu>
-        <el-submenu index="1-4">
+        <el-submenu
+          popper-append-to-body="true"
+          index="1-4"
+        >
           <template slot="title">Mining</template>
           <el-menu-item index="1-4-1">Get Info</el-menu-item>
         </el-submenu>
-        <el-submenu index="1-5">
+        <el-submenu
+          popper-append-to-body="true"
+          index="1-5"
+        >
           <template slot="title">Network</template>
           <el-menu-item index="1-5-1">Get Info</el-menu-item>
         </el-submenu>
-        <el-submenu index="1-6">
+        <el-submenu
+          popper-append-to-body="true"
+          index="1-6"
+        >
           <template slot="title">Raw Transactions</template>
           <el-menu-item index="1-6-1">Get Info</el-menu-item>
         </el-submenu>
-        <el-submenu index="1-7">
+        <el-submenu
+          popper-append-to-body="true"
+          index="1-7"
+        >
           <template slot="title">Utilities</template>
           <el-menu-item index="1-7-1">Get Info</el-menu-item>
         </el-submenu>
-        <el-submenu index="1-8">
+        <el-submenu
+          popper-append-to-body="true"
+          index="1-8"
+        >
           <template slot="title">Wallet</template>
           <el-menu-item index="1-8-1">Get Info</el-menu-item>
         </el-submenu>
@@ -88,6 +116,7 @@
       <el-submenu
         v-if="privilage === 'user' || privilage === 'admin' || privilage === 'zelteam'"
         index="2"
+        popper-append-to-body="true"
       >
         <template slot="title">ZelNode</template>
         <el-menu-item index="2-1">ZelNode Status</el-menu-item>
@@ -95,6 +124,7 @@
       <el-submenu
         v-if="privilage === 'user' || privilage === 'admin' || privilage === 'zelteam'"
         index="3"
+        popper-append-to-body="true"
       >
         <template slot="title">ZelApps</template>
         <el-menu-item index="3-1">Information</el-menu-item>
@@ -102,6 +132,7 @@
       <el-submenu
         v-if="privilage === 'user' || privilage === 'admin' || privilage === 'zelteam'"
         index="10"
+        popper-append-to-body="true"
       >
         <template slot="title">ZelAdmin</template>
         <el-menu-item index="10-1">Logged Sessions</el-menu-item>
@@ -132,6 +163,16 @@
         Log Out
       </el-menu-item>
     </el-menu>
+    <div
+      v-if="windowWidth < 805"
+      class="container"
+      :class="{ change: showMenu }"
+      @click="showMenu = !showMenu"
+    >
+      <div class="bar1"></div>
+      <div class="bar2"></div>
+      <div class="bar3"></div>
+    </div>
   </div>
 </template>
 
@@ -152,10 +193,30 @@ export default {
   data() {
     return {
       activeIndex: '0',
+      windowWidth: window.innerWidth,
+      showMenu: false,
     };
   },
+  computed: {
+    isMobile() {
+      if (this.windowWidth < 805) {
+        return true;
+      }
+      return false;
+    },
+  },
+  beforeDestroy() {
+    window.removeEventListener('resize', this.handleResize);
+  },
+  mounted() {
+    window.addEventListener('resize', this.handleResize);
+  },
   methods: {
+    handleResize() {
+      this.windowWidth = window.innerWidth;
+    },
     handleSelect(key, keyPath) {
+      this.showMenu = false;
       console.log(key, keyPath);
       console.log(key);
       switch (key) {
@@ -188,7 +249,7 @@ export default {
           break;
         case '100':
           this.logoutCurrentSession();
-          this.activeIndex = 0;
+          this.activeIndex = '0';
           break;
         default:
           vue.$message.info('Feature coming soon!');
