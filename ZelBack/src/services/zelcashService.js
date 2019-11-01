@@ -119,6 +119,11 @@ async function executeCall(rpc, params) {
   return callResponse;
 }
 
+function getConfigValue(parameter) {
+  const value = config.get(parameter);
+  return value;
+}
+
 // == Control ==
 async function help(req, res) {
   let { command } = req.params; // we accept both help/command and help?command=getinfo
@@ -129,7 +134,7 @@ async function help(req, res) {
 
   response = await executeCall(rpccall, rpcparameters);
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function getInfo(req, res) {
@@ -137,7 +142,7 @@ async function getInfo(req, res) {
 
   response = await executeCall(rpccall);
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function stop(req, res) { // practically useless
@@ -150,7 +155,7 @@ async function stop(req, res) { // practically useless
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 // == Zelnode ==
@@ -159,37 +164,40 @@ async function getZelnNodeStatus(req, res) {
 
   response = await executeCall(rpccall);
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function listZelNodes(req, res) {
-  try {
-    const data = await client.listzelnodes();
-    response.status = 'success';
-    response.data = data;
-  } catch (err) {
-    const daemonerror = {
-      code: err.code,
-      message: err.message,
-    };
-    response.status = 'error';
-    response.data = daemonerror;
+  let { filter } = req.params;
+  filter = filter || req.query.filter;
+  const rpccall = 'listzelnodes';
+  const rpcparameters = [];
+  if (filter) {
+    rpcparameters.push(filter);
   }
 
-  return res.json(response);
+  response = await executeCall(rpccall, rpcparameters);
+
+  return res ? res.json(response) : response;
 }
 
 async function listZelNodeConf(req, res) { // practically useless
   const authorized = await verifyPrivilege('admin', req, res);
+  let { filter } = req.params;
+  filter = filter || req.query.filter;
   if (authorized === true) {
     const rpccall = 'listzelnodeconf';
+    const rpcparameters = [];
+    if (filter) {
+      rpcparameters.push(filter);
+    }
 
-    response = await executeCall(rpccall);
+    response = await executeCall(rpccall, rpcparameters);
   } else {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function createZelNodeKey(req, res) { // practically useless
@@ -202,7 +210,7 @@ async function createZelNodeKey(req, res) { // practically useless
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 // eslint-disable-next-line consistent-return
@@ -216,7 +224,7 @@ async function znsync(req, res) {
     const rpcparameters = [mode];
 
     response = await executeCall(rpccall, rpcparameters);
-    return res.json(response);
+    return res ? res.json(response) : response;
     // eslint-disable-next-line no-else-return
   } else {
     const authorized = await verifyPrivilege('admin', req, res);
@@ -229,7 +237,7 @@ async function znsync(req, res) {
       response = errUnauthorizedMessage;
     }
 
-    return res.json(response);
+    return res ? res.json(response) : response;
   }
 }
 
@@ -249,7 +257,7 @@ async function createZelNodeBroadcast(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function decodeZelNodeBroadcast(req, res) {
@@ -266,7 +274,7 @@ async function decodeZelNodeBroadcast(req, res) {
 
   response = await executeCall(rpccall, rpcparameters);
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function getNodeBenchmarks(req, res) {
@@ -274,7 +282,7 @@ async function getNodeBenchmarks(req, res) {
 
   response = await executeCall(rpccall);
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function getZelNodeCount(req, res) {
@@ -282,7 +290,7 @@ async function getZelNodeCount(req, res) {
 
   response = await executeCall(rpccall);
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function getZelNodeOutputs(req, res) {
@@ -295,7 +303,7 @@ async function getZelNodeOutputs(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function getZelNodeScores(req, res) {
@@ -308,7 +316,7 @@ async function getZelNodeScores(req, res) {
 
   response = await executeCall(rpccall, rpcparameters);
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function getZelNodeWinners(req, res) {
@@ -327,7 +335,7 @@ async function getZelNodeWinners(req, res) {
 
   response = await executeCall(rpccall, rpcparameters);
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function relayZelNodeBroadcast(req, res) {
@@ -342,7 +350,7 @@ async function relayZelNodeBroadcast(req, res) {
 
   response = await executeCall(rpccall, rpcparameters);
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function spork(req, res) {
@@ -361,7 +369,7 @@ async function spork(req, res) {
 
   response = await executeCall(rpccall, rpcparameters);
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function startZelNode(req, res) {
@@ -387,7 +395,7 @@ async function startZelNode(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function zelNodeCurrentWinner(req, res) {
@@ -395,7 +403,7 @@ async function zelNodeCurrentWinner(req, res) {
 
   response = await executeCall(rpccall);
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function zelNodeDebug(req, res) {
@@ -403,7 +411,7 @@ async function zelNodeDebug(req, res) {
 
   response = await executeCall(rpccall);
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 // == Blockchain ==
 async function getBestBlockHash(req, res) {
@@ -411,7 +419,7 @@ async function getBestBlockHash(req, res) {
 
   response = await executeCall(rpccall);
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function getBlock(req, res) {
@@ -426,7 +434,7 @@ async function getBlock(req, res) {
 
   response = await executeCall(rpccall, rpcparameters);
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function getBlockchainInfo(req, res) {
@@ -434,7 +442,7 @@ async function getBlockchainInfo(req, res) {
 
   response = await executeCall(rpccall);
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function getBlockCount(req, res) {
@@ -442,7 +450,7 @@ async function getBlockCount(req, res) {
 
   response = await executeCall(rpccall);
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function getBlockHah(req, res) {
@@ -458,7 +466,7 @@ async function getBlockHah(req, res) {
 
   response = await executeCall(rpccall, rpcparameters);
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function getBlockHeader(req, res) {
@@ -477,7 +485,7 @@ async function getBlockHeader(req, res) {
 
   response = await executeCall(rpccall, rpcparameters);
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function getChainTips(req, res) {
@@ -485,7 +493,7 @@ async function getChainTips(req, res) {
 
   response = await executeCall(rpccall);
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function getDifficulty(req, res) {
@@ -493,7 +501,7 @@ async function getDifficulty(req, res) {
 
   response = await executeCall(rpccall);
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function getMempoolInfo(req, res) {
@@ -501,7 +509,7 @@ async function getMempoolInfo(req, res) {
 
   response = await executeCall(rpccall);
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function getRawMemPool(req, res) {
@@ -515,7 +523,7 @@ async function getRawMemPool(req, res) {
 
   response = await executeCall(rpccall, rpcparameters);
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function getTxOut(req, res) {
@@ -538,7 +546,7 @@ async function getTxOut(req, res) {
 
   response = await executeCall(rpccall, rpcparameters);
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function getTxOutProof(req, res) {
@@ -559,7 +567,7 @@ async function getTxOutProof(req, res) {
 
   response = await executeCall(rpccall, rpcparameters);
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function getTxOutSetInfo(req, res) {
@@ -567,7 +575,7 @@ async function getTxOutSetInfo(req, res) {
 
   response = await executeCall(rpccall);
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function verifyChain(req, res) {
@@ -587,7 +595,7 @@ async function verifyChain(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function verifyTxOutProof(req, res) {
@@ -602,7 +610,7 @@ async function verifyTxOutProof(req, res) {
 
   response = await executeCall(rpccall, rpcparameters);
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 // == Mining ==
@@ -619,7 +627,7 @@ async function getBlockSubsidy(req, res) {
 
   response = await executeCall(rpccall, rpcparameters);
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function getBlockTemplate(req, res) {
@@ -635,7 +643,7 @@ async function getBlockTemplate(req, res) {
 
   response = await executeCall(rpccall, rpcparameters);
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function getLocalSolPs(req, res) {
@@ -643,7 +651,7 @@ async function getLocalSolPs(req, res) {
 
   response = await executeCall(rpccall);
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function getMiningInfo(req, res) {
@@ -652,7 +660,7 @@ async function getMiningInfo(req, res) {
   response = await executeCall(rpccall);
 
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function getNetworkHashPs(req, res) {
@@ -669,7 +677,7 @@ async function getNetworkHashPs(req, res) {
 
   response = await executeCall(rpccall, rpcparameters);
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function getNetworkSolPs(req, res) {
@@ -685,7 +693,7 @@ async function getNetworkSolPs(req, res) {
 
   response = await executeCall(rpccall, rpcparameters);
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function prioritiseTransaction(req, res) {
@@ -710,7 +718,7 @@ async function prioritiseTransaction(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function submitBlock(req, res) {
@@ -734,7 +742,7 @@ async function submitBlock(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 // == Network ==
@@ -756,7 +764,7 @@ async function addNode(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function clearBanned(req, res) {
@@ -769,7 +777,7 @@ async function clearBanned(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function disconnectNode(req, res) {
@@ -788,7 +796,7 @@ async function disconnectNode(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function getAddedNodeInfo(req, res) {
@@ -813,7 +821,7 @@ async function getAddedNodeInfo(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function getConnectionCount(req, res) {
@@ -821,7 +829,7 @@ async function getConnectionCount(req, res) {
 
   response = await executeCall(rpccall);
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function getDeprecationInfo(req, res) {
@@ -829,7 +837,7 @@ async function getDeprecationInfo(req, res) {
 
   response = await executeCall(rpccall);
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function getNetTotals(req, res) {
@@ -837,7 +845,7 @@ async function getNetTotals(req, res) {
 
   response = await executeCall(rpccall);
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function getNetworkInfo(req, res) {
@@ -845,7 +853,7 @@ async function getNetworkInfo(req, res) {
 
   response = await executeCall(rpccall);
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function getPeerInfo(req, res) {
@@ -853,7 +861,7 @@ async function getPeerInfo(req, res) {
 
   response = await executeCall(rpccall);
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function listBanned(req, res) {
@@ -861,7 +869,7 @@ async function listBanned(req, res) {
 
   response = await executeCall(rpccall);
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function ping(req, res) {
@@ -874,7 +882,7 @@ async function ping(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function setBan(req, res) {
@@ -908,7 +916,7 @@ async function setBan(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 // == Rawtransactions ==
@@ -926,7 +934,7 @@ async function createRawTransaction(req, res) {
     };
     response.status = 'error';
     response.data = daemonerror;
-    return res.json(response);
+    return res ? res.json(response) : response;
   });
   const defaultExpiryHeight = blockcount + 20;
   let { expiryheight } = req.params;
@@ -944,7 +952,7 @@ async function createRawTransaction(req, res) {
   }
   response = await executeCall(rpccall, rpcparameters);
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function decodeRawTransaction(req, res) {
@@ -958,7 +966,7 @@ async function decodeRawTransaction(req, res) {
   }
   response = await executeCall(rpccall, rpcparameters);
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function decodeScript(req, res) {
@@ -972,7 +980,7 @@ async function decodeScript(req, res) {
   }
   response = await executeCall(rpccall, rpcparameters);
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function fundRawTransaction(req, res) {
@@ -986,7 +994,7 @@ async function fundRawTransaction(req, res) {
   }
   response = await executeCall(rpccall, rpcparameters);
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function getRawTransaction(req, res) {
@@ -1003,7 +1011,7 @@ async function getRawTransaction(req, res) {
   }
   response = await executeCall(rpccall, rpcparameters);
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function sendRawTransaction(req, res) {
@@ -1020,7 +1028,7 @@ async function sendRawTransaction(req, res) {
   }
   response = await executeCall(rpccall, rpcparameters);
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function signRawTransaction(req, res) {
@@ -1058,7 +1066,7 @@ async function signRawTransaction(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 // == Util ==
@@ -1077,7 +1085,7 @@ async function createMultiSig(req, res) {
   }
   response = await executeCall(rpccall, rpcparameters);
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function estimateFee(req, res) {
@@ -1092,7 +1100,7 @@ async function estimateFee(req, res) {
   }
   response = await executeCall(rpccall, rpcparameters);
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function estimatePriority(req, res) {
@@ -1107,7 +1115,7 @@ async function estimatePriority(req, res) {
   }
   response = await executeCall(rpccall, rpcparameters);
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function validateAddress(req, res) {
@@ -1121,7 +1129,7 @@ async function validateAddress(req, res) {
   }
   response = await executeCall(rpccall, rpcparameters);
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function verifyMessage(req, res) {
@@ -1139,7 +1147,7 @@ async function verifyMessage(req, res) {
   }
   response = await executeCall(rpccall, rpcparameters);
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function zValidateAddress(req, res) {
@@ -1153,7 +1161,7 @@ async function zValidateAddress(req, res) {
   }
   response = await executeCall(rpccall, rpcparameters);
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 // == Wallet == Admin Privilage. Benchmark zelteam privilage
@@ -1176,7 +1184,7 @@ async function addMultiSigAddress(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function backupWallet(req, res) {
@@ -1194,7 +1202,7 @@ async function backupWallet(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function dumpPrivKey(req, res) {
@@ -1212,7 +1220,7 @@ async function dumpPrivKey(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function getBalance(req, res) {
@@ -1231,7 +1239,7 @@ async function getBalance(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function getNewAddress(req, res) {
@@ -1243,7 +1251,7 @@ async function getNewAddress(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function getRawChangeAddress(req, res) {
@@ -1255,7 +1263,7 @@ async function getRawChangeAddress(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function getReceivedByAddress(req, res) {
@@ -1276,7 +1284,7 @@ async function getReceivedByAddress(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function getTransaction(req, res) {
@@ -1293,7 +1301,7 @@ async function getTransaction(req, res) {
   }
   response = await executeCall(rpccall, rpcparameters);
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function getUnconfirmedBalance(req, res) {
@@ -1305,7 +1313,7 @@ async function getUnconfirmedBalance(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function getWalletInfo(req, res) {
@@ -1317,7 +1325,7 @@ async function getWalletInfo(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function importAddress(req, res) {
@@ -1340,7 +1348,7 @@ async function importAddress(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function importPrivKey(req, res) {
@@ -1363,7 +1371,7 @@ async function importPrivKey(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function importWallet(req, res) {
@@ -1381,7 +1389,7 @@ async function importWallet(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function keyPoolRefill(req, res) {
@@ -1397,7 +1405,7 @@ async function keyPoolRefill(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function listAddressGroupings(req, res) {
@@ -1409,7 +1417,7 @@ async function listAddressGroupings(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function listLockUnspent(req, res) {
@@ -1421,7 +1429,7 @@ async function listLockUnspent(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function rescanBlockchain(req, res) {
@@ -1437,7 +1445,7 @@ async function rescanBlockchain(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function listReceivedByAddress(req, res) {
@@ -1459,7 +1467,7 @@ async function listReceivedByAddress(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function listSinceBlock(req, res) {
@@ -1480,7 +1488,7 @@ async function listSinceBlock(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function listTransactions(req, res) {
@@ -1503,7 +1511,7 @@ async function listTransactions(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function listUnspent(req, res) {
@@ -1529,7 +1537,7 @@ async function listUnspent(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function lockUnspent(req, res) {
@@ -1552,7 +1560,7 @@ async function lockUnspent(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function sendFrom(req, res) {
@@ -1582,7 +1590,7 @@ async function sendFrom(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function sendMany(req, res) {
@@ -1614,7 +1622,7 @@ async function sendMany(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function sendToAddress(req, res) {
@@ -1643,7 +1651,7 @@ async function sendToAddress(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function setTxFee(req, res) {
@@ -1663,7 +1671,7 @@ async function setTxFee(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function signMessage(req, res) {
@@ -1684,7 +1692,7 @@ async function signMessage(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function zExportKey(req, res) {
@@ -1703,7 +1711,7 @@ async function zExportKey(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function zExportViewingKey(req, res) {
@@ -1722,7 +1730,7 @@ async function zExportViewingKey(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function zGetBalance(req, res) {
@@ -1744,7 +1752,7 @@ async function zGetBalance(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function zGetMigrationStatus(req, res) {
@@ -1757,7 +1765,7 @@ async function zGetMigrationStatus(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function zGetNewAddress(req, res) {
@@ -1773,7 +1781,7 @@ async function zGetNewAddress(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function zGetOperationResult(req, res) {
@@ -1790,7 +1798,7 @@ async function zGetOperationResult(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function zGetOperationStatus(req, res) {
@@ -1807,7 +1815,7 @@ async function zGetOperationStatus(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function zGetTotalBalance(req, res) {
@@ -1827,7 +1835,7 @@ async function zGetTotalBalance(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function zImportKey(req, res) {
@@ -1851,7 +1859,7 @@ async function zImportKey(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function zImportViewingKey(req, res) {
@@ -1875,7 +1883,7 @@ async function zImportViewingKey(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function zImportWallet(req, res) {
@@ -1894,7 +1902,7 @@ async function zImportWallet(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function zListAddresses(req, res) {
@@ -1911,7 +1919,7 @@ async function zListAddresses(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function zListOperationIds(req, res) {
@@ -1924,7 +1932,7 @@ async function zListOperationIds(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function zListReceivedByAddress(req, res) {
@@ -1946,7 +1954,7 @@ async function zListReceivedByAddress(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function zListUnspent(req, res) {
@@ -1975,7 +1983,7 @@ async function zListUnspent(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function zMergeToAddress(req, res) {
@@ -2007,7 +2015,7 @@ async function zMergeToAddress(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function zSendMany(req, res) {
@@ -2034,7 +2042,7 @@ async function zSendMany(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function zSetMigration(req, res) {
@@ -2054,7 +2062,7 @@ async function zSetMigration(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function zShieldCoinBase(req, res) {
@@ -2080,7 +2088,7 @@ async function zShieldCoinBase(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function zcBenchmark(req, res) {
@@ -2101,7 +2109,7 @@ async function zcBenchmark(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function zcRawJoinSplit(req, res) {
@@ -2129,7 +2137,7 @@ async function zcRawJoinSplit(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function zcRawKeygen(req, res) {
@@ -2141,7 +2149,7 @@ async function zcRawKeygen(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function zcRawReceive(req, res) {
@@ -2161,7 +2169,7 @@ async function zcRawReceive(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 async function zcSampleJoinSplit(req, res) {
@@ -2173,10 +2181,11 @@ async function zcSampleJoinSplit(req, res) {
     response = errUnauthorizedMessage;
   }
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 module.exports = {
+  getConfigValue,
   // == Control ==
   help,
   getInfo,

@@ -98,7 +98,7 @@ export default {
     const isChrome = !!window.chrome;
     if (!isChrome) {
       vue.$message({
-        message: 'Your browser does not support ZelFluxs websockets. Logging in with Zel ID is not possible. For an optimal experience, please use Chrome or Firefox',
+        message: 'Your browser does not support ZelFluxs websockets. Logging in with Zel ID is not possible. For an optimal experience, please use Chrome or Edge',
         type: 'warning',
         duration: 0,
         showClose: true,

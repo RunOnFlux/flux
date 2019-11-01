@@ -1,15 +1,16 @@
 const express = require('express');
-const enableWs = require('express-ws');
+const eWS = require('express-ws');
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const morgan = require('morgan');
 
-const app = express();
-enableWs(app);
+const expressWs = eWS(express());
+const { app } = expressWs;
+
 app.use(morgan('combined'));
 app.use(bodyParser.json());
 app.use(cors());
 
-require('../routes')(app);
+require('../routes')(app, expressWs);
 
 module.exports = app;

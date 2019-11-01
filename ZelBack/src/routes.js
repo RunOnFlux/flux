@@ -1,8 +1,9 @@
 const zelcashService = require('./services/zelcashService');
 const zelidService = require('./services/zelidService');
 const zelnodeService = require('./services/zelnodeService');
+const zelfluxCommunication = require('./services/zelfluxCommunication');
 
-module.exports = (app) => {
+module.exports = (app, expressWs) => {
   // GET PUBLIC methods
   app.get('/zelcash/help/:command?', (req, res) => { // accept both help/command and ?command=getinfo. If ommited, default help will be displayed. Other calls works in similar way
     zelcashService.help(req, res);
@@ -13,7 +14,7 @@ module.exports = (app) => {
   app.get('/zelcash/getzelnodestatus', (req, res) => {
     zelcashService.getZelnNodeStatus(req, res);
   });
-  app.get('/zelcash/listzelnodes', (req, res) => {
+  app.get('/zelcash/listzelnodes/:filter?', (req, res) => {
     zelcashService.listZelNodes(req, res);
   });
   app.get('/zelcash/znsync/:mode?', (req, res) => {
@@ -206,7 +207,7 @@ module.exports = (app) => {
   app.get('/zelcash/createzelnodebroadcast/:command?/:alias?', (req, res) => {
     zelcashService.createZelNodeBroadcast(req, res);
   });
-  app.get('/zelcash/listzelnodeconf', (req, res) => {
+  app.get('/zelcash/listzelnodeconf/:filter?', (req, res) => {
     zelcashService.listZelNodeConf(req, res);
   });
   app.get('/zelcash/getzelnodeoutputs', (req, res) => {
@@ -432,5 +433,10 @@ module.exports = (app) => {
   // WebSockets PUBLIC
   app.ws('/ws/zelid/:loginphrase', (ws, req) => {
     zelidService.wsRespondLoginPhrase(ws, req);
+  });
+
+  // communication between multiple zelflux solution is on this:
+  app.ws('/ws/zelflux', (ws, req) => {
+    zelfluxCommunication.handleIncomingConnection(ws, req, expressWs.getWss('/ws/zelflux'));
   });
 };
