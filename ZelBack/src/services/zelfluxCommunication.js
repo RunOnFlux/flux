@@ -1,8 +1,9 @@
-const qs = require('qs');
 const WebSocket = require('ws');
+const bitcoinjs = require('bitcoinjs-lib');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const zelcashServices = require('./zelcashService');
+const config = require('../../../config/default');
 
 const outgoingConnections = [];
 
@@ -30,12 +31,22 @@ async function getFluxMessageSignature(message, privKey) {
   return signature;
 }
 
+async function getZelNodePublicKey() {
+  // eslint-disable-next-line no-param-reassign
+  const privKey = await getZelNodePrivateKey();
+  const keyPair = bitcoinjs.ECPair.fromWIF(privKey);
+  const pubKey = keyPair.publicKey.toString('hex');
+  return pubKey;
+}
+
 // return boolean
 async function verifyFluxBroadcast(data, obtainedZelNodeList, currentTimeStamp) {
-  const { pubKey } = data;
-  const { timestamp } = data; // ms
-  const { signature } = data;
-  const message = qs.stringify(data.data);
+  // eslint-disable-next-line no-param-reassign
+  const dataObj = typeof data === 'object' ? data : JSON.parse(data);
+  const { pubKey } = dataObj;
+  const { timestamp } = dataObj; // ms
+  const { signature } = dataObj;
+  const message = typeof dataObj.data === 'string' ? dataObj.data : JSON.stringify(dataObj.data);
   // is timestamp valid ?
   // eslint-disable-next-line no-param-reassign
   currentTimeStamp = currentTimeStamp || Date.now(); // ms
@@ -75,24 +86,27 @@ async function verifyFluxBroadcast(data, obtainedZelNodeList, currentTimeStamp) 
 
 function handleIncomingConnection(ws, req, expressWS) {
   const clientsSet = expressWS.clients;
-  // const clientsValues = clientsSet .values();
+  // const clientsValues = clientsSet.values();
   // console.log(clientsValues);
   // console.log(clientsSet .size);
-  // for (let i = 0; i < clientsSet .size; i += 1) {
+  // for (let i = 0; i < clientsSet.size; i += 1) {
   //   console.log(clientsValues.next().value);
   // }
-  // clientsSet .forEach((client) => {
+  // clientsSet.forEach((client) => {
   //   client.send('hello');
   // });
   // const { data } = req.params;
   // console.log(req);
   // console.log(ws);
   // verify data integrity, if not signed, close connection
-  ws.on('message', (msg) => {
-    if (msg === 'this is a test') {
-      ws.send('test ok');
+  ws.on('message', async (msg) => {
+    const messageOK = await verifyFluxBroadcast(msg);
+    if (messageOK === true) {
+      ws.send('Message received ok');
+    } else {
+      // we dont like this message. Lets close the connection
+      ws.close(1008); // close as of policy violation
     }
-    console.log(msg);
   });
   ws.on('open', (msg) => {
     console.log(msg);
@@ -109,12 +123,79 @@ function handleIncomingConnection(ws, req, expressWS) {
   });
 }
 
-
-async function getRandomConnection() {
-
+function sendToAllPeers(data) {
+  outgoingConnections.forEach((client) => {
+    client.send(data);
+  });
 }
 
-async function initiateConnection() {
+async function serialiseAndSignZelFluxBroadcast(dataToBroadcast) {
+  const timestamp = Date.now();
+  const pubKey = await getZelNodePublicKey;
+  const message = typeof dataToBroadcast === 'string' ? dataToBroadcast : JSON.stringify(dataToBroadcast);
+  const signature = await getFluxMessageSignature(message);
+  const type = 'message';
+  const dataObj = {
+    type,
+    timestamp,
+    pubKey,
+    signature,
+    data: dataToBroadcast,
+  };
+  const dataString = JSON.stringify(dataObj);
+  return dataString;
+}
+
+async function broadcastMessage(dataToBroadcast) {
+  const serialisedData = await serialiseAndSignZelFluxBroadcast(dataToBroadcast);
+  sendToAllPeers(serialisedData);
+}
+
+async function getRandomConnection() {
+  const zelnodeList = await zelnodelist();
+  const zlLength = zelnodeList.length;
+  const randomNode = Math.floor((Math.random() * zlLength)); // we do not really need a 'random'
+  const fullip = zelnodeList[randomNode].ipaddress;
+  const ip = fullip.split(':16125').join('');
+  // const ip = '157.230.249.150';
+  console.log(ip);
+  return ip;
+}
+
+async function initiateAndHandleConnection(ip) {
+  const wsuri = `ws://${ip}:${config.server.apiport}/ws/zelflux/`;
+  const websocket = new WebSocket(wsuri);
+  console.log(websocket);
+
+  websocket.on('open', () => {
+    console.log('here');
+    outgoingConnections.push(websocket);
+    broadcastMessage('this is a test');
+    console.log(outgoingConnections);
+  });
+
+  websocket.onclose = (evt) => {
+    console.log(evt);
+    console.log(evt.data);
+    const ocIndex = outgoingConnections.indexOf(websocket);
+    if (ocIndex > -1) {
+      outgoingConnections.splice(ocIndex, 1);
+    }
+    console.log(outgoingConnections);
+  };
+
+  websocket.onmessage = (evt) => {
+    console.log(evt.data);
+  };
+
+  websocket.onerror = (evt) => {
+    console.log(evt.data);
+    const ocIndex = outgoingConnections.indexOf(websocket);
+    if (ocIndex > -1) {
+      outgoingConnections.splice(ocIndex, 1);
+    }
+    console.log(outgoingConnections);
+  };
 }
 
 async function fluxDisovery() {
@@ -125,13 +206,18 @@ async function fluxDisovery() {
   const requiredNumberOfConnections = numberOfZelNodes / 50; // 2%
   if (outgoingConnections.length < minPeers || outgoingConnections.length < requiredNumberOfConnections) {
     log.info('Initiating connection');
+    // run initiation connection funciton if the condition drops below requirement
+    const ip = await getRandomConnection();
+    initiateAndHandleConnection(ip);
   }
 }
-
 
 module.exports = {
   getFluxMessageSignature,
   verifyFluxBroadcast,
   handleIncomingConnection,
   fluxDisovery,
+  broadcastMessage,
+  serialiseAndSignZelFluxBroadcast,
+  initiateAndHandleConnection,
 };

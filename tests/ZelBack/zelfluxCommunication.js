@@ -16,7 +16,8 @@ describe('getFluxMessageSignature', () => {
   });
 
   it('correctly verifies zelflux broadcast', async () => {
-    const timeStamp = new Date();
+    const timeStamp = Date.now();
+    const type = 'message';
     const privKey = '5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh';
     const pubKey = '0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab';
     const badPubKey = '074eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab';
@@ -24,10 +25,11 @@ describe('getFluxMessageSignature', () => {
       zelapp: 'testapp',
       data: 'test'
     }
-    const message = qs.stringify(data);
+    const message = JSON.stringify(data);
     const signature = await communication.getFluxMessageSignature(message, privKey);
     console.log(signature);
     const dataToSend = {
+      type,
       pubKey,
       timestamp: timeStamp,
       data,
@@ -36,6 +38,7 @@ describe('getFluxMessageSignature', () => {
     const validRequest = await communication.verifyFluxBroadcast(dataToSend, zelnodeList);
     expect(validRequest).to.equal(true);
     const dataToSend2 = {
+      type,
       pubKey,
       timestamp: timeStamp - 5000,
       data,
@@ -44,6 +47,7 @@ describe('getFluxMessageSignature', () => {
     const invalidRequest = await communication.verifyFluxBroadcast(dataToSend2, zelnodeList);
     expect(invalidRequest).to.equal(false);
     const dataToSend3 = {
+      type,
       pubKey: badPubKey,
       timestamp: timeStamp,
       data,
@@ -52,6 +56,7 @@ describe('getFluxMessageSignature', () => {
     const invalidRequest2 = await communication.verifyFluxBroadcast(dataToSend3, zelnodeList);
     expect(invalidRequest2).to.equal(false);
     const dataToSend4 = {
+      type,
       pubKey,
       timestamp: timeStamp,
       data,
@@ -61,13 +66,15 @@ describe('getFluxMessageSignature', () => {
     expect(invalidRequest3).to.equal(false);
   });
 
-  it('establishes websocket connection', async () => {
-    const self = this;
-    const wsuri = `ws://127.0.0.1:16127/ws/zelflux/`;
+  it('establishes websocket connection and sends correct data', async () => {
+    const data = 'this is a test';
+    const messageToSend = await communication.serialiseAndSignZelFluxBroadcast(data);
+    console.log(messageToSend);
+    const wsuri = `ws://157.230.249.150:16127/ws/zelflux/`;
     const websocket = new WebSocket(wsuri);
 
     websocket.on('open', (msg) => {
-      websocket.send('this is a test');
+      websocket.send(messageToSend);
     });
     websocket.on('message', (msg) => {
       console.log(msg);

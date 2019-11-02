@@ -1,8 +1,7 @@
 module.exports = {
   server: {
     zelfrontport: 16126,
-    localport: 16127,
-    zelnodeport: 16128,
+    apiport: 16127,
   },
   database: {
     url: '127.0.0.1',

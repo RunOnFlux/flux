@@ -14,7 +14,7 @@ export default new Vuex.Store({
       externalip: userconfig.initial.ipaddress,
     },
     config: {
-      apiPort: config.server.localport,
+      apiPort: config.server.apiport,
       zelTeamZelId: config.zelTeamZelId,
     },
     privilage: 'none', // user, admin, zelteam

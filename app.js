@@ -5,8 +5,8 @@ const express = require('express');
 const app = require('./ZelBack/src/lib/server.js');
 const log = require('./ZelBack/src/lib/log');
 
-app.listen(config.server.localport, () => {
-  log.info(`ZelBack running on port ${config.server.localport}!`);
+app.listen(config.server.apiport, () => {
+  log.info(`ZelBack running on port ${config.server.apiport}!`);
 });
 
 // ZelFront configuration
