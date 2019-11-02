@@ -78,8 +78,8 @@ describe('getFluxMessageSignature', () => {
     });
     websocket.on('message', (msg) => {
       console.log(msg);
-      expect(msg).to.equal('test ok');
-      websocket.close();
+      expect(msg).to.equal('Message received ok');
+      websocket.close(1000);
     });
   });
 });

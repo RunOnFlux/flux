@@ -131,7 +131,7 @@ function sendToAllPeers(data) {
 
 async function serialiseAndSignZelFluxBroadcast(dataToBroadcast) {
   const timestamp = Date.now();
-  const pubKey = await getZelNodePublicKey;
+  const pubKey = await getZelNodePublicKey();
   const message = typeof dataToBroadcast === 'string' ? dataToBroadcast : JSON.stringify(dataToBroadcast);
   const signature = await getFluxMessageSignature(message);
   const type = 'message';

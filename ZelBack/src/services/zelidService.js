@@ -776,7 +776,7 @@ function wsRespondLoginPhrase(ws, req) {
           if (!connclosed) {
             try {
               ws.send(qs.stringify(message));
-              ws.close();
+              ws.close(1000);
             } catch (e) {
               log.error(e);
             }
