@@ -35,7 +35,7 @@ describe('getFluxMessageSignature', () => {
       data,
       signature
     }
-    const validRequest = await communication.verifyFluxBroadcast(dataToSend, zelnodeList);
+    const validRequest = await communication.verifyOriginalFluxBroadcast(dataToSend, zelnodeList);
     expect(validRequest).to.equal(true);
     const dataToSend2 = {
       type,
@@ -44,7 +44,7 @@ describe('getFluxMessageSignature', () => {
       data,
       signature
     }
-    const invalidRequest = await communication.verifyFluxBroadcast(dataToSend2, zelnodeList);
+    const invalidRequest = await communication.verifyOriginalFluxBroadcast(dataToSend2, zelnodeList);
     expect(invalidRequest).to.equal(false);
     const dataToSend3 = {
       type,
@@ -53,7 +53,7 @@ describe('getFluxMessageSignature', () => {
       data,
       signature
     }
-    const invalidRequest2 = await communication.verifyFluxBroadcast(dataToSend3, zelnodeList);
+    const invalidRequest2 = await communication.verifyOriginalFluxBroadcast(dataToSend3, zelnodeList);
     expect(invalidRequest2).to.equal(false);
     const dataToSend4 = {
       type,
@@ -62,12 +62,12 @@ describe('getFluxMessageSignature', () => {
       data,
       signature: 'abc'
     }
-    const invalidRequest3 = await communication.verifyFluxBroadcast(dataToSend4, zelnodeList);
+    const invalidRequest3 = await communication.verifyOriginalFluxBroadcast(dataToSend4, zelnodeList);
     expect(invalidRequest3).to.equal(false);
   });
 
   it('establishes websocket connection and sends correct data', async () => {
-    const data = 'this is a test';
+    const data = 'Hello ZelFlux';
     const messageToSend = await communication.serialiseAndSignZelFluxBroadcast(data);
     console.log(messageToSend);
     const wsuri = `ws://157.230.249.150:16127/ws/zelflux/`;
@@ -78,7 +78,7 @@ describe('getFluxMessageSignature', () => {
     });
     websocket.on('message', (msg) => {
       console.log(msg);
-      expect(msg).to.equal('Message received ok');
+      expect(msg).to.equal('ZelFlux says Hi!');
       websocket.close(1000);
     });
   });

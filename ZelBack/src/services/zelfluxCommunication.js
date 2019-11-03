@@ -7,6 +7,56 @@ const config = require('../../../config/default');
 
 const outgoingConnections = [];
 
+// TODO create constants
+let response = {
+  status: 'error',
+  data: {
+    message: 'Unknown error',
+  },
+};
+
+const errUnauthorizedMessage = {
+  status: 'error',
+  data: {
+    message: 'Unauthorized. Access denied.',
+  },
+};
+
+async function verifyPrivilege(privilege, req, res) { // move to helper
+  let isAuthorized;
+  switch (privilege) {
+    case 'admin':
+      // eslint-disable-next-line consistent-return
+      serviceHelper.verifyAdminSession(req.headers, async (error, authorized) => {
+        if (error) {
+          return res.json(error);
+        }
+        isAuthorized = authorized;
+      });
+      return isAuthorized;
+    case 'zelteam':
+      // eslint-disable-next-line consistent-return
+      await serviceHelper.verifyZelTeamSession(req.headers, async (error, authorized) => {
+        if (error) {
+          return res.json(error);
+        }
+        isAuthorized = authorized;
+      });
+      return isAuthorized;
+    case 'user':
+      // eslint-disable-next-line consistent-return
+      await serviceHelper.verifyUserSession(req.headers, async (error, authorized) => {
+        if (error) {
+          return res.json(error);
+        }
+        isAuthorized = authorized;
+      });
+      return isAuthorized;
+    default:
+      return false;
+  }
+}
+
 async function zelnodelist(filter) {
   let zelnodeList = null;
   const request = {
@@ -50,7 +100,7 @@ async function verifyFluxBroadcast(data, obtainedZelNodeList, currentTimeStamp) 
   // is timestamp valid ?
   // eslint-disable-next-line no-param-reassign
   currentTimeStamp = currentTimeStamp || Date.now(); // ms
-  if (currentTimeStamp > (timestamp + 5000)) { // bigger than 5 secs
+  if (currentTimeStamp < timestamp) { // message was broadcasted in the past
     return false;
   }
 
@@ -84,8 +134,55 @@ async function verifyFluxBroadcast(data, obtainedZelNodeList, currentTimeStamp) 
   return false;
 }
 
+// extends verifyFluxBroadcast by not allowing request older than 5 secs.
+async function verifyOriginalFluxBroadcast(data, obtainedZelNodeList, currentTimeStamp) {
+  // eslint-disable-next-line no-param-reassign
+  const dataObj = typeof data === 'object' ? data : JSON.parse(data);
+  const { timestamp } = dataObj; // ms
+  // eslint-disable-next-line no-param-reassign
+  currentTimeStamp = currentTimeStamp || Date.now(); // ms
+  if (currentTimeStamp > (timestamp + 5000)) { // bigger than 5 secs
+    return false;
+  }
+  const verified = await verifyFluxBroadcast(data, obtainedZelNodeList, currentTimeStamp);
+  return verified;
+}
+
+async function verifyTimestampInFluxBroadcast(data, currentTimeStamp) {
+  // eslint-disable-next-line no-param-reassign
+  const dataObj = typeof data === 'object' ? data : JSON.parse(data);
+  const { timestamp } = dataObj; // ms
+  // eslint-disable-next-line no-param-reassign
+  currentTimeStamp = currentTimeStamp || Date.now(); // ms
+  if (currentTimeStamp < (timestamp + 5000)) { // bigger than 5 secs
+    return true;
+  }
+  return false;
+}
+
+function sendToAllPeers(data) {
+  let removals = [];
+  console.log(data);
+  outgoingConnections.forEach((client) => {
+    try {
+      client.send(data);
+    } catch (e) {
+      log.error(e);
+      removals.push(client);
+    }
+  });
+
+  for (let i = 0; i < removals.length; i += 1) {
+    const ocIndex = outgoingConnections.indexOf(removals[i]);
+    outgoingConnections.splice(ocIndex, 1);
+  }
+  removals = [];
+}
+
+// eslint-disable-next-line no-unused-vars
 function handleIncomingConnection(ws, req, expressWS) {
-  const clientsSet = expressWS.clients;
+  const currentTimeStamp = Date.now(); // ms
+  // const clientsSet = expressWS.clients;
   // const clientsValues = clientsSet.values();
   // console.log(clientsValues);
   // console.log(clientsSet .size);
@@ -100,12 +197,33 @@ function handleIncomingConnection(ws, req, expressWS) {
   // console.log(ws);
   // verify data integrity, if not signed, close connection
   ws.on('message', async (msg) => {
-    const messageOK = await verifyFluxBroadcast(msg);
-    if (messageOK === true) {
-      ws.send('Message received ok');
+    const messageOK = await verifyFluxBroadcast(msg, undefined, currentTimeStamp);
+    const timestampOK = await verifyTimestampInFluxBroadcast(msg, currentTimeStamp);
+    if (messageOK === true && timestampOK === true) {
+      try {
+        ws.send('ZelFlux says Hi!');
+      } catch (e) {
+        log.error(e);
+      }
+      try {
+        sendToAllPeers(msg);
+      } catch (e) {
+        log.error(e);
+      }
+      // try rebroadcasting to all outgoing peers
+    } else if (messageOK === true) {
+      try {
+        ws.send('ZelFlux says Hi but your message is outdated!');
+      } catch (e) {
+        log.error(e);
+      }
     } else {
-      // we dont like this message. Lets close the connection
-      ws.close(1008); // close as of policy violation
+      // we dont like this peer as it sent wrong message. Lets close the connection
+      try {
+        ws.close(1008); // close as of policy violation?
+      } catch (e) {
+        log.error(e);
+      }
     }
   });
   ws.on('open', (msg) => {
@@ -118,14 +236,8 @@ function handleIncomingConnection(ws, req, expressWS) {
     console.log(msg);
   });
   ws.on('close', (msg) => {
-    console.log(clientsSet);
+    // console.log(clientsSet);
     console.log(msg);
-  });
-}
-
-function sendToAllPeers(data) {
-  outgoingConnections.forEach((client) => {
-    client.send(data);
   });
 }
 
@@ -151,13 +263,42 @@ async function broadcastMessage(dataToBroadcast) {
   sendToAllPeers(serialisedData);
 }
 
+async function broadcastMessageFromUser(req, res) {
+  let { data } = req.params;
+  data = data || req.query.data;
+  if (data === undefined || data === null) {
+    const errMessage = {
+      status: 'error',
+      data: {
+        message: 'No message to broadcast attached.',
+      },
+    };
+    return res.json(errMessage);
+  }
+  const authorized = await verifyPrivilege('zelteam', req, res);
+
+  if (authorized === false) { // TODO true
+    broadcastMessage(data);
+    const message = {
+      status: 'success',
+      data: {
+        message: 'Message successfully broadcasted to ZelFlux network',
+      },
+    };
+    response = message;
+  } else {
+    response = errUnauthorizedMessage;
+  }
+  return res.json(response);
+}
+
 async function getRandomConnection() {
   const zelnodeList = await zelnodelist();
   const zlLength = zelnodeList.length;
   const randomNode = Math.floor((Math.random() * zlLength)); // we do not really need a 'random'
   const fullip = zelnodeList[randomNode].ipaddress;
   const ip = fullip.split(':16125').join('');
-  // const ip = '157.230.249.150';
+  // ip = '157.230.249.150';
   console.log(ip);
   return ip;
 }
@@ -165,23 +306,20 @@ async function getRandomConnection() {
 async function initiateAndHandleConnection(ip) {
   const wsuri = `ws://${ip}:${config.server.apiport}/ws/zelflux/`;
   const websocket = new WebSocket(wsuri);
-  console.log(websocket);
 
   websocket.on('open', () => {
-    console.log('here');
     outgoingConnections.push(websocket);
-    broadcastMessage('this is a test');
-    console.log(outgoingConnections);
+    broadcastMessage('Hello ZelFlux');
+    console.log(`#connectionsOut: ${outgoingConnections.length}`);
   });
 
   websocket.onclose = (evt) => {
-    console.log(evt);
     console.log(evt.data);
     const ocIndex = outgoingConnections.indexOf(websocket);
     if (ocIndex > -1) {
       outgoingConnections.splice(ocIndex, 1);
     }
-    console.log(outgoingConnections);
+    console.log(`#connectionsOut: ${outgoingConnections.length}`);
   };
 
   websocket.onmessage = (evt) => {
@@ -194,7 +332,7 @@ async function initiateAndHandleConnection(ip) {
     if (ocIndex > -1) {
       outgoingConnections.splice(ocIndex, 1);
     }
-    console.log(outgoingConnections);
+    console.log(`#connectionsOut: ${outgoingConnections.length}`);
   };
 }
 
@@ -214,10 +352,12 @@ async function fluxDisovery() {
 
 module.exports = {
   getFluxMessageSignature,
+  verifyOriginalFluxBroadcast,
   verifyFluxBroadcast,
   handleIncomingConnection,
   fluxDisovery,
   broadcastMessage,
+  broadcastMessageFromUser,
   serialiseAndSignZelFluxBroadcast,
   initiateAndHandleConnection,
 };

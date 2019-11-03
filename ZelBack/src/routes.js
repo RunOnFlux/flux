@@ -439,4 +439,9 @@ module.exports = (app, expressWs) => {
   app.ws('/ws/zelflux', (ws, req) => {
     zelfluxCommunication.handleIncomingConnection(ws, req, expressWs.getWss('/ws/zelflux'));
   });
+
+  // WIP message broadcasting, will be moved under privilage and done as post too
+  app.get('/zelflux/broadcastmessage/:data?', (req, res) => {
+    zelfluxCommunication.broadcastMessageFromUser(req, res);
+  });
 };
