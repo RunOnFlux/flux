@@ -198,6 +198,7 @@ function handleIncomingConnection(ws, req, expressWS) {
   // console.log(ws);
   // verify data integrity, if not signed, close connection
   ws.on('message', async (msg) => {
+    console.log(msg);
     const messageOK = await verifyFluxBroadcast(msg, undefined, currentTimeStamp);
     const timestampOK = await verifyTimestampInFluxBroadcast(msg, currentTimeStamp);
     if (messageOK === true && timestampOK === true) {
@@ -206,12 +207,12 @@ function handleIncomingConnection(ws, req, expressWS) {
       } catch (e) {
         log.error(e);
       }
+      // try rebroadcasting to all outgoing peers
       // try {
       //   sendToAllPeers(msg);
       // } catch (e) {
       //   log.error(e);
       // }
-      // try rebroadcasting to all outgoing peers
     } else if (messageOK === true) {
       try {
         ws.send('ZelFlux says Hi but your message is outdated!');
@@ -346,7 +347,7 @@ async function initiateAndHandleConnection(ip) {
   };
 
   websocket.onmessage = (evt) => {
-    console.log(evt.data);
+    // console.log(evt.data);
   };
 
   websocket.onerror = (evt) => {
