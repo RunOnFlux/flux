@@ -40,7 +40,7 @@ describe('getFluxMessageSignature', () => {
     const dataToSend2 = {
       type,
       pubKey,
-      timestamp: timeStamp - 5000,
+      timestamp: timeStamp - 500000,
       data,
       signature
     }

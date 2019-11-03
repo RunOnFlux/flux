@@ -8,8 +8,7 @@ const communication = require('./ZelBack/src/services/zelfluxCommunication');
 
 app.listen(config.server.apiport, () => {
   log.info(`ZelBack running on port ${config.server.apiport}!`);
-  communication.fluxDisovery();
-  log.info('Flux Discovery started');
+  communication.startFluxFunctions();
 });
 
 // ZelFront configuration

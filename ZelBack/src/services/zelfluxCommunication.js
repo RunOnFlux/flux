@@ -371,7 +371,7 @@ async function fluxDisovery() {
     // connect another peer
     setTimeout(() => {
       fluxDisovery();
-    }, 2000);
+    }, 1000);
   } else {
     // do new connections every 30 seconds
     setTimeout(() => {
@@ -396,6 +396,19 @@ function connectedPeers(req, res) {
   res.json(response);
 }
 
+function keepConnectionsAlive() {
+  const data = 'HearthBeat';
+  setInterval(() => {
+    broadcastMessage(data);
+  }, 30000);
+}
+
+function startFluxFunctions() {
+  fluxDisovery();
+  log.info('Flux Discovery started');
+  keepConnectionsAlive();
+}
+
 module.exports = {
   getFluxMessageSignature,
   verifyOriginalFluxBroadcast,
@@ -407,4 +420,5 @@ module.exports = {
   serialiseAndSignZelFluxBroadcast,
   initiateAndHandleConnection,
   connectedPeers,
+  startFluxFunctions,
 };
