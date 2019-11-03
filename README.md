@@ -14,28 +14,28 @@ This application communicates locally with the ZelCash Daemon (zelcashd), ZelBen
 
 ### Backend Solution - zelback
 
--   Provide communication with zelcashd
--   Providing private API, and public API, ZelNode team API (limited!)
--   Listen and handel frontend requests
--   Requests signing and authenticity verifying
--   Handel communication with other zelnode daemons (zelflux solution)
--   Manage ZelNode applications - smart spawning, distributing workload, termination depending of application subscription.
--   and more!
+- Provide communication with zelcashd
+- Providing private API, and public API, ZelNode team API (limited!)
+- Listen and handel frontend requests
+- Requests signing and authenticity verifying
+- Handel communication with other zelnode daemons (zelflux solution)
+- Manage ZelNode applications - smart spawning, distributing workload, termination depending of application subscription.
+- and more!
 
 ### Frontend Solution - zelfront
 
--   Display ZelNode status information
--   Display Zel Network information
--   Display ZelCash status information
--   Display ZelCash network information
--   Display Specific application information
--   Provide API access
--   Login into private API part (frontend part)
--   Login into ZelNode team API part (frontend part)
--   Private: Management of ZelNode
--   Private: Management of ZelCash
--   Private: Update, status information
--   and more!
+- Display ZelNode status information
+- Display Zel Network information
+- Display ZelCash status information
+- Display ZelCash network information
+- Display Specific application information
+- Provide API access
+- Login into private API part (frontend part)
+- Login into ZelNode team API part (frontend part)
+- Private: Management of ZelNode
+- Private: Management of ZelCash
+- Private: Update, status information
+- and more!
 
 This application is open source and distributed under the GNU AGPLv3 licence
 
@@ -104,32 +104,32 @@ systemctl start mongod.service
 service mongod start
 ```
 
-Install Node Version Manager (NVM) and NodeJS 11 on Ubuntu 16.04/18.04:
+Install Node Version Manager (NVM) and NodeJS 12 on Ubuntu 16.04/18.04:
 
 ```bash
 apt-get install curl
 
-curl -o- https://raw.githubusercontent.com/creationix/nvm/v0.34.0/install.sh | bash
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.35.0/install.sh | bash
 
 source ~/.profile
 
-nvm install 11
+nvm install 12
 
-nvm use 11
+nvm use 12
 ```
 
-Install Node Version Manager (NVM) and NodeJS 11 on Redhat/CentOS:
+Install Node Version Manager (NVM) and NodeJS 12 on Redhat/CentOS:
 
 ```bash
 yum install curl
 
-curl -o- https://raw.githubusercontent.com/creationix/nvm/v0.34.0/install.sh | bash
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.35.0/install.sh | bash
 
 source ~/.bashrc
 
-nvm install 11
+nvm install 12
 
-nvm use 11
+nvm use 12
 ```
 
 Clone ZelFlux repo (Ubuntu):
@@ -210,9 +210,9 @@ npm run zelbackdev
 
 Signed message requirement
 
--   First 13 characters is timestamp
--   The length of message must be at least 40 characters
--   Message and corresponding signature must not be older than X seconds
+- First 13 characters is timestamp
+- The length of message must be at least 40 characters
+- Message and corresponding signature must not be older than X seconds
 
 ### API Calls
 
@@ -269,7 +269,7 @@ websocket /ws/zelid/:loginphrase # (Public)
 
 #### Protected API
 
--   In order to access protectred API, user has to be logged into their ZelNode. Every request to the protected API has to contain stringified zelidauth header of following object
+- In order to access protectred API, user has to be logged into their ZelNode. Every request to the protected API has to contain stringified zelidauth header of following object
 
 ```html
  {
