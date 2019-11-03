@@ -4,6 +4,7 @@ const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const zelcashServices = require('./zelcashService');
 const config = require('../../../config/default');
+console.log(require('bitgo-utxo-lib'));
 
 const outgoingConnections = [];
 
