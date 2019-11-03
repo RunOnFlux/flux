@@ -444,4 +444,8 @@ module.exports = (app, expressWs) => {
   app.get('/zelflux/broadcastmessage/:data?', (req, res) => {
     zelfluxCommunication.broadcastMessageFromUser(req, res);
   });
+
+  app.get('/zelflux/connectedpeers', (req, res) => {
+    zelfluxCommunication.connectedPeers(req, res);
+  });
 };

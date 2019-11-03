@@ -358,7 +358,7 @@ async function initiateAndHandleConnection(ip) {
 }
 
 async function fluxDisovery() {
-  const minPeers = 2; // todo to 10;
+  const minPeers = 4; // todo to 10;
   const zl = await zelnodelist();
   const numberOfZelNodes = zl.length;
   const requiredNumberOfConnections = numberOfZelNodes / 50; // 2%
@@ -371,13 +371,29 @@ async function fluxDisovery() {
     // connect another peer
     setTimeout(() => {
       fluxDisovery();
-    }, 20000); // do 2 seconds
+    }, 2000);
   } else {
     // do new connections every 30 seconds
     setTimeout(() => {
       fluxDisovery();
     }, 30000);
   }
+}
+
+function connectedPeers(req, res) {
+  const connections = [];
+  outgoingConnections.forEach((client) => {
+    // eslint-disable-next-line no-underscore-dangle
+    connections.push(client._socket.remoteAddress);
+  });
+  const message = {
+    status: 'success',
+    data: {
+      message: connections,
+    },
+  };
+  response = message;
+  res.json(response);
 }
 
 module.exports = {
@@ -390,4 +406,5 @@ module.exports = {
   broadcastMessageFromUser,
   serialiseAndSignZelFluxBroadcast,
   initiateAndHandleConnection,
+  connectedPeers,
 };
