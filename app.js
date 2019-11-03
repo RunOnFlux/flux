@@ -4,9 +4,12 @@ const path = require('path');
 const express = require('express');
 const app = require('./ZelBack/src/lib/server.js');
 const log = require('./ZelBack/src/lib/log');
+const communication = require('./ZelBack/src/services/zelfluxCommunication');
 
 app.listen(config.server.apiport, () => {
   log.info(`ZelBack running on port ${config.server.apiport}!`);
+  communication.fluxDisovery();
+  log.info('Flux Discovery started');
 });
 
 // ZelFront configuration
