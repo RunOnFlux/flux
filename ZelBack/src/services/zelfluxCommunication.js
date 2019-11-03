@@ -100,7 +100,7 @@ async function verifyFluxBroadcast(data, obtainedZelNodeList, currentTimeStamp) 
   // is timestamp valid ?
   // eslint-disable-next-line no-param-reassign
   currentTimeStamp = currentTimeStamp || Date.now(); // ms
-  if (currentTimeStamp < timestamp) { // message was broadcasted in the past
+  if (currentTimeStamp < (timestamp - 1000)) { // message was broadcasted in the past. Allow 1 sec clock sync
     return false;
   }
 
@@ -298,8 +298,20 @@ async function getRandomConnection() {
   const randomNode = Math.floor((Math.random() * zlLength)); // we do not really need a 'random'
   const fullip = zelnodeList[randomNode].ipaddress;
   const ip = fullip.split(':16125').join('');
-  // ip = '157.230.249.150';
-  console.log(ip);
+
+  // TODO checks for ipv4, ipv6, tor
+  if (ip.includes('[') || ip.includes('onion')) {
+    return null;
+  }
+
+  // eslint-disable-next-line no-underscore-dangle
+  const clientExists = outgoingConnections.find(client => client._socket.remoteAddress === ip);
+  if (clientExists) {
+    return null;
+  }
+
+  log.info(`Adding ZelFlux peer: ${ip}`);
+
   return ip;
 }
 
@@ -314,22 +326,31 @@ async function initiateAndHandleConnection(ip) {
   });
 
   websocket.onclose = (evt) => {
-    console.log(evt.data);
+    const { url } = websocket;
+    let conIP = url.split('/')[2];
+    conIP = conIP.split(':16127').join('');
     const ocIndex = outgoingConnections.indexOf(websocket);
     if (ocIndex > -1) {
+      // eslint-disable-next-line no-underscore-dangle
+      log.info(`Connection to ${conIP} closed with code ${evt.code}`);
       outgoingConnections.splice(ocIndex, 1);
     }
     console.log(`#connectionsOut: ${outgoingConnections.length}`);
   };
 
   websocket.onmessage = (evt) => {
-    console.log(evt.data);
+    console.log(evt.msg);
   };
 
   websocket.onerror = (evt) => {
-    console.log(evt.data);
+    console.log(evt.code);
+    const { url } = websocket;
+    let conIP = url.split('/')[2];
+    conIP = conIP.split(':16127').join('');
     const ocIndex = outgoingConnections.indexOf(websocket);
     if (ocIndex > -1) {
+      // eslint-disable-next-line no-underscore-dangle
+      log.info(`Connection to ${conIP} errord with code ${evt.code}`);
       outgoingConnections.splice(ocIndex, 1);
     }
     console.log(`#connectionsOut: ${outgoingConnections.length}`);
@@ -337,16 +358,25 @@ async function initiateAndHandleConnection(ip) {
 }
 
 async function fluxDisovery() {
-  log.info('Flux Discovery started');
-  const minPeers = 10;
+  const minPeers = 2; // todo to 10;
   const zl = await zelnodelist();
   const numberOfZelNodes = zl.length;
   const requiredNumberOfConnections = numberOfZelNodes / 50; // 2%
-  if (outgoingConnections.length < minPeers || outgoingConnections.length < requiredNumberOfConnections) {
-    log.info('Initiating connection');
-    // run initiation connection funciton if the condition drops below requirement
+  const minCon = Math.min(minPeers, requiredNumberOfConnections); // TODO correctly max
+  if (outgoingConnections.length < minCon) {
     const ip = await getRandomConnection();
-    initiateAndHandleConnection(ip);
+    if (ip) {
+      initiateAndHandleConnection(ip);
+    }
+    // connect another peer
+    setTimeout(() => {
+      fluxDisovery();
+    }, 20000); // do 2 seconds
+  } else {
+    // do new connections every 30 seconds
+    setTimeout(() => {
+      fluxDisovery();
+    }, 30000);
   }
 }
 

@@ -1,6 +1,6 @@
 {
   "name": "zelflux",
-  "version": "0.30.2",
+  "version": "0.30.3",
   "description": "ZelFlux - ZelNode Daemon. The entrace to the Zel network.",
   "repository": {
     "type": "git",
@@ -69,7 +69,7 @@
     "vuex": "^3.1.1",
     "ws": "^7.2.0",
     "zelcashrpc": "file:lib/zelcashrpc",
-    "zeltrezjs": "^2.7.2"    
+    "zeltrezjs": "^2.7.2"
   },
   "devDependencies": {
     "@vue/cli-plugin-babel": "^3.11.0",

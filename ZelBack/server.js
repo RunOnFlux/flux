@@ -7,4 +7,5 @@ const communication = require('./src/services/zelfluxCommunication');
 app.listen(config.server.apiport, () => {
   log.info(`ZelBack listening on port ${config.server.apiport}!`);
   communication.fluxDisovery();
+  log.info('Flux Discovery started');
 });
