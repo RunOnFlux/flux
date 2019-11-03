@@ -206,11 +206,11 @@ function handleIncomingConnection(ws, req, expressWS) {
       } catch (e) {
         log.error(e);
       }
-      try {
-        sendToAllPeers(msg);
-      } catch (e) {
-        log.error(e);
-      }
+      // try {
+      //   sendToAllPeers(msg);
+      // } catch (e) {
+      //   log.error(e);
+      // }
       // try rebroadcasting to all outgoing peers
     } else if (messageOK === true) {
       try {
@@ -346,7 +346,7 @@ async function initiateAndHandleConnection(ip) {
   };
 
   websocket.onmessage = (evt) => {
-    console.log(evt.msg);
+    console.log(evt.data);
   };
 
   websocket.onerror = (evt) => {
