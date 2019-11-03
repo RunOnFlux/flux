@@ -100,7 +100,7 @@ async function verifyFluxBroadcast(data, obtainedZelNodeList, currentTimeStamp) 
   // is timestamp valid ?
   // eslint-disable-next-line no-param-reassign
   currentTimeStamp = currentTimeStamp || Date.now(); // ms
-  if (currentTimeStamp < (timestamp - 1000)) { // message was broadcasted in the past. Allow 1 sec clock sync
+  if (currentTimeStamp < (timestamp - 120000)) { // message was broadcasted in the past. Allow 120 sec clock sync
     return false;
   }
 
@@ -141,7 +141,7 @@ async function verifyOriginalFluxBroadcast(data, obtainedZelNodeList, currentTim
   const { timestamp } = dataObj; // ms
   // eslint-disable-next-line no-param-reassign
   currentTimeStamp = currentTimeStamp || Date.now(); // ms
-  if (currentTimeStamp > (timestamp + 5000)) { // bigger than 5 secs
+  if (currentTimeStamp > (timestamp + 300000)) { // bigger than 5 mins
     return false;
   }
   const verified = await verifyFluxBroadcast(data, obtainedZelNodeList, currentTimeStamp);
@@ -154,7 +154,7 @@ async function verifyTimestampInFluxBroadcast(data, currentTimeStamp) {
   const { timestamp } = dataObj; // ms
   // eslint-disable-next-line no-param-reassign
   currentTimeStamp = currentTimeStamp || Date.now(); // ms
-  if (currentTimeStamp < (timestamp + 5000)) { // bigger than 5 secs
+  if (currentTimeStamp < (timestamp + 300000)) { // bigger than 5 secs
     return true;
   }
   return false;
