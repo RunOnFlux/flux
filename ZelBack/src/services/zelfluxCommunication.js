@@ -4,6 +4,7 @@ const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const zelcashServices = require('./zelcashService');
 const config = require('../../../config/default');
+const userconfig = require('../../../config/userconfig');
 
 const outgoingConnections = [];
 
@@ -162,7 +163,7 @@ async function verifyTimestampInFluxBroadcast(data, currentTimeStamp) {
 
 function sendToAllPeers(data) {
   let removals = [];
-  console.log(data);
+  // console.log(data);
   outgoingConnections.forEach((client) => {
     try {
       client.send(data);
@@ -227,6 +228,7 @@ function handleIncomingConnection(ws, req, expressWS) {
     }
   });
   ws.on('open', (msg) => {
+    console.log('conn open');
     console.log(msg);
   });
   ws.on('connection', (msg) => {
@@ -293,14 +295,19 @@ async function broadcastMessageFromUser(req, res) {
 }
 
 async function getRandomConnection() {
-  const zelnodeList = await zelnodelist();
+  // const zelnodeList = await zelnodelist();
+  // const zlLength = zelnodeList.length;
+  // const randomNode = Math.floor((Math.random() * zlLength)); // we do not really need a 'random'
+  // const fullip = zelnodeList[randomNode].ipaddress;
+  // const ip = fullip.split(':16125').join('');
+
+  const zelnodeList = ['157.230.249.150', '94.177.240.7', '89.40.115.8', '94.177.241.10', '54.37.234.130', '194.182.83.182'];
   const zlLength = zelnodeList.length;
   const randomNode = Math.floor((Math.random() * zlLength)); // we do not really need a 'random'
-  const fullip = zelnodeList[randomNode].ipaddress;
-  const ip = fullip.split(':16125').join('');
+  const ip = zelnodeList[randomNode];
 
   // TODO checks for ipv4, ipv6, tor
-  if (ip.includes('[') || ip.includes('onion')) {
+  if (ip.includes('[') || ip.includes('onion') || ip === userconfig.initial.ipaddress) {
     return null;
   }
 
