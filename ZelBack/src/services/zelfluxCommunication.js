@@ -101,7 +101,7 @@ async function verifyFluxBroadcast(data, obtainedZelNodeList, currentTimeStamp) 
   // is timestamp valid ?
   // eslint-disable-next-line no-param-reassign
   currentTimeStamp = currentTimeStamp || Date.now(); // ms
-  if (currentTimeStamp < (timestamp - 120000)) { // message was broadcasted in the past. Allow 120 sec clock sync
+  if (currentTimeStamp < (timestamp - 120000)) { // message was broadcasted in the future. Allow 120 sec clock sync
     return false;
   }
 
@@ -182,7 +182,6 @@ function sendToAllPeers(data) {
 
 // eslint-disable-next-line no-unused-vars
 function handleIncomingConnection(ws, req, expressWS) {
-  const currentTimeStamp = Date.now(); // ms
   // const clientsSet = expressWS.clients;
   // const clientsValues = clientsSet.values();
   // console.log(clientsValues);
@@ -198,6 +197,7 @@ function handleIncomingConnection(ws, req, expressWS) {
   // console.log(ws);
   // verify data integrity, if not signed, close connection
   ws.on('message', async (msg) => {
+    const currentTimeStamp = Date.now(); // ms
     console.log(msg);
     const messageOK = await verifyFluxBroadcast(msg, undefined, currentTimeStamp);
     const timestampOK = await verifyTimestampInFluxBroadcast(msg, currentTimeStamp);
@@ -347,7 +347,7 @@ async function initiateAndHandleConnection(ip) {
   };
 
   websocket.onmessage = (evt) => {
-    // console.log(evt.data);
+    console.log(evt.data);
   };
 
   websocket.onerror = (evt) => {
