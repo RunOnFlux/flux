@@ -67,10 +67,11 @@ describe('getFluxMessageSignature', () => {
   });
 
   it('establishes websocket connection and sends correct data', async () => {
-    const data = 'Hello ZelFlux';
-    const messageToSend = await communication.serialiseAndSignZelFluxBroadcast(data);
+    const data = 'Hello ZelFlux testsuite!';
+    const privKey = '5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh';
+    const messageToSend = await communication.serialiseAndSignZelFluxBroadcast(data, privKey);
     console.log(messageToSend);
-    const wsuri = `ws://157.230.249.150:16127/ws/zelflux/`;
+    const wsuri = `ws://127.0.0.1:16127/ws/zelflux/`;
     const websocket = new WebSocket(wsuri);
 
     websocket.on('open', (msg) => {
@@ -78,7 +79,8 @@ describe('getFluxMessageSignature', () => {
     });
     websocket.on('message', (msg) => {
       console.log(msg);
-      expect(msg).to.equal('ZelFlux says Hi!');
+      const msgZelFlux = msg.split(' ')[0];
+      expect(msgZelFlux).to.equal('ZelFlux');
       websocket.close(1000);
     });
   });

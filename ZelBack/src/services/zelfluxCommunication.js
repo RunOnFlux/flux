@@ -70,21 +70,21 @@ async function zelnodelist(filter) {
   return zelnodeList.data || [];
 }
 
-async function getZelNodePrivateKey() {
-  const privKey = zelcashServices.getConfigValue('zelnodeprivkey');
+async function getZelNodePrivateKey(privatekey) {
+  const privKey = privatekey || zelcashServices.getConfigValue('zelnodeprivkey');
   return privKey;
 }
 
-async function getFluxMessageSignature(message, privKey) {
+async function getFluxMessageSignature(message, privatekey) {
   // eslint-disable-next-line no-param-reassign
-  privKey = privKey || await getZelNodePrivateKey();
+  const privKey = await getZelNodePrivateKey(privatekey);
   const signature = await serviceHelper.signMessage(message, privKey);
   return signature;
 }
 
-async function getZelNodePublicKey() {
+async function getZelNodePublicKey(privatekey) {
   // eslint-disable-next-line no-param-reassign
-  const privKey = await getZelNodePrivateKey();
+  const privKey = await getZelNodePrivateKey(privatekey);
   const keyPair = bitcoinjs.ECPair.fromWIF(privKey);
   const pubKey = keyPair.publicKey.toString('hex');
   return pubKey;
@@ -203,7 +203,7 @@ function handleIncomingConnection(ws, req, expressWS) {
     const timestampOK = await verifyTimestampInFluxBroadcast(msg, currentTimeStamp);
     if (messageOK === true && timestampOK === true) {
       try {
-        ws.send('ZelFlux says Hi!');
+        ws.send(`ZelFlux ${userconfig.initial.ipaddress} says message received!`);
       } catch (e) {
         log.error(e);
       }
@@ -215,7 +215,7 @@ function handleIncomingConnection(ws, req, expressWS) {
       // }
     } else if (messageOK === true) {
       try {
-        ws.send('ZelFlux says Hi but your message is outdated!');
+        ws.send(`ZelFlux ${userconfig.initial.ipaddress} says message received but your message is outdated!`);
       } catch (e) {
         log.error(e);
       }
@@ -244,11 +244,11 @@ function handleIncomingConnection(ws, req, expressWS) {
   });
 }
 
-async function serialiseAndSignZelFluxBroadcast(dataToBroadcast) {
+async function serialiseAndSignZelFluxBroadcast(dataToBroadcast, privatekey) {
   const timestamp = Date.now();
-  const pubKey = await getZelNodePublicKey();
+  const pubKey = await getZelNodePublicKey(privatekey);
   const message = typeof dataToBroadcast === 'string' ? dataToBroadcast : JSON.stringify(dataToBroadcast);
-  const signature = await getFluxMessageSignature(message);
+  const signature = await getFluxMessageSignature(message, privatekey);
   const type = 'message';
   const dataObj = {
     type,
@@ -296,19 +296,19 @@ async function broadcastMessageFromUser(req, res) {
 }
 
 async function getRandomConnection() {
-  // const zelnodeList = await zelnodelist();
-  // const zlLength = zelnodeList.length;
-  // const randomNode = Math.floor((Math.random() * zlLength)); // we do not really need a 'random'
-  // const fullip = zelnodeList[randomNode].ipaddress;
-  // const ip = fullip.split(':16125').join('');
-
-  const zelnodeList = ['157.230.249.150', '94.177.240.7', '89.40.115.8', '94.177.241.10', '54.37.234.130', '194.182.83.182'];
+  const zelnodeList = await zelnodelist();
   const zlLength = zelnodeList.length;
   const randomNode = Math.floor((Math.random() * zlLength)); // we do not really need a 'random'
-  const ip = zelnodeList[randomNode];
+  const fullip = zelnodeList[randomNode].ipaddress;
+  const ip = fullip.split(':16125').join('');
+
+  // const zelnodeList = ['157.230.249.150', '94.177.240.7', '89.40.115.8', '94.177.241.10', '54.37.234.130', '194.182.83.182'];
+  // const zlLength = zelnodeList.length;
+  // const randomNode = Math.floor((Math.random() * zlLength)); // we do not really need a 'random'
+  // const ip = zelnodeList[randomNode];
 
   // TODO checks for ipv4, ipv6, tor
-  if (ip.includes('[') || ip.includes('onion') || ip === userconfig.initial.ipaddress) {
+  if (ip.includes('onion') || ip === userconfig.initial.ipaddress) {
     return null;
   }
 
@@ -347,6 +347,7 @@ async function initiateAndHandleConnection(ip) {
   };
 
   websocket.onmessage = (evt) => {
+    // incoming messages from outgoing connections
     console.log(evt.data);
   };
 
@@ -366,7 +367,7 @@ async function initiateAndHandleConnection(ip) {
 }
 
 async function fluxDisovery() {
-  const minPeers = 4; // todo to 10;
+  const minPeers = 5; // todo to 10;
   const zl = await zelnodelist();
   const numberOfZelNodes = zl.length;
   const requiredNumberOfConnections = numberOfZelNodes / 50; // 2%
