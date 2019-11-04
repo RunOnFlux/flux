@@ -23,6 +23,6 @@ export default {
     });
   },
   getZelFluxVersion() {
-    return Api().get('/zelnode/version');
+    return Api().get('/zelflux/version');
   },
 };

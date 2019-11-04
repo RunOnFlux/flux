@@ -167,7 +167,7 @@ module.exports = (app, expressWs) => {
   app.get('/zelid/loginphrase', (req, res) => {
     zelidService.loginPhrase(req, res);
   });
-  app.get('/zelnode/version', (req, res) => {
+  app.get('/zelflux/version', (req, res) => {
     zelnodeService.getZelFluxVersion(req, res);
   });
 
@@ -447,5 +447,13 @@ module.exports = (app, expressWs) => {
 
   app.get('/zelflux/connectedpeers', (req, res) => {
     zelfluxCommunication.connectedPeers(req, res);
+  });
+
+  app.get('/zelflux/addpeer/:ip?', (req, res) => {
+    zelfluxCommunication.addpeer(req, res);
+  });
+
+  app.get('/zelflux/incomingconnections', (req, res) => {
+    zelfluxCommunication.incomingConnections(req, res, expressWs.getWss('/ws/zelflux'));
   });
 };

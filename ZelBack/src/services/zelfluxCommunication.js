@@ -418,6 +418,52 @@ function startFluxFunctions() {
   keepConnectionsAlive();
 }
 
+async function addpeer(req, res) {
+  let { ip } = req.params;
+  ip = ip || req.query.ip;
+  if (ip === undefined || ip === null) {
+    const errMessage = {
+      status: 'error',
+      data: {
+        message: 'No IP address specified.',
+      },
+    };
+    return res.json(errMessage);
+  }
+  const authorized = await verifyPrivilege('zelteam', req, res);
+
+  if (authorized === false) { // TODO true
+    initiateAndHandleConnection(ip);
+    const message = {
+      status: 'success',
+      data: {
+        message: `Outgoing connection to ${ip} initiated`,
+      },
+    };
+    response = message;
+  } else {
+    response = errUnauthorizedMessage;
+  }
+  return res.json(response);
+}
+
+function incomingConnections(req, res, expressWS) {
+  const clientsSet = expressWS.clients;
+  const connections = [];
+  clientsSet.forEach((client) => {
+    // eslint-disable-next-line no-underscore-dangle
+    connections.push(client._socket.remoteAddress);
+  });
+  const message = {
+    status: 'success',
+    data: {
+      message: connections,
+    },
+  };
+  response = message;
+  res.json(response);
+}
+
 module.exports = {
   getFluxMessageSignature,
   verifyOriginalFluxBroadcast,
@@ -430,4 +476,6 @@ module.exports = {
   initiateAndHandleConnection,
   connectedPeers,
   startFluxFunctions,
+  addpeer,
+  incomingConnections,
 };
