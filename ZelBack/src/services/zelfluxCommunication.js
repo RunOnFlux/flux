@@ -377,12 +377,6 @@ function keepConnectionsAlive() {
   }, 30000);
 }
 
-function startFluxFunctions() {
-  fluxDisovery();
-  log.info('Flux Discovery started');
-  keepConnectionsAlive();
-}
-
 async function addPeer(req, res) {
   let { ip } = req.params;
   ip = ip || req.query.ip;
@@ -469,6 +463,37 @@ async function closeConnection(ip) {
   return message;
 }
 
+async function closeIncomingConnection(ip, expressWs) {
+  const clientsSet = expressWs.clients;
+  let message = {
+    status: 'error',
+    data: {
+      message: `Unkown error while closing ${ip}`,
+    },
+  };
+  // eslint-disable-next-line no-underscore-dangle
+  const wsObj = await clientsSet.find(ws => ws._socket.remoteAddress === ip);
+  if (wsObj) {
+    wsObj.close(1000);
+    // eslint-disable-next-line no-underscore-dangle
+    log.info(`Connection from ${ip} closed`);
+    message = {
+      status: 'success',
+      data: {
+        message: `Incoming connection from ${ip} closed`,
+      },
+    };
+  } else {
+    message = {
+      status: 'success',
+      data: {
+        message: `Connection from ${ip} does not exists.`,
+      },
+    };
+  }
+  return message;
+}
+
 async function removePeer(req, res) {
   let { ip } = req.params;
   ip = ip || req.query.ip;
@@ -492,6 +517,35 @@ async function removePeer(req, res) {
   return res.json(response);
 }
 
+async function removeIncomingPeer(req, res, expressWs) {
+  let { ip } = req.params;
+  ip = ip || req.query.ip;
+  if (ip === undefined || ip === null) {
+    const errMessage = {
+      status: 'error',
+      data: {
+        message: 'No IP address specified.',
+      },
+    };
+    return res.json(errMessage);
+  }
+  const authorized = await serviceHelper.verifyPrivilege('zelteam', req, res);
+
+  if (authorized === false) { // TODO true
+    const closeResponse = await closeIncomingConnection(ip, expressWs);
+    response = closeResponse;
+  } else {
+    response = errUnauthorizedMessage;
+  }
+  return res.json(response);
+}
+
+function startFluxFunctions() {
+  fluxDisovery();
+  log.info('Flux Discovery started');
+  keepConnectionsAlive();
+}
+
 module.exports = {
   getFluxMessageSignature,
   verifyOriginalFluxBroadcast,
@@ -507,4 +561,5 @@ module.exports = {
   addPeer,
   incomingConnections,
   removePeer,
+  removeIncomingPeer,
 };
