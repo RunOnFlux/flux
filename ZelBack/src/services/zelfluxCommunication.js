@@ -23,41 +23,6 @@ const errUnauthorizedMessage = {
   },
 };
 
-async function verifyPrivilege(privilege, req, res) { // move to helper
-  let isAuthorized;
-  switch (privilege) {
-    case 'admin':
-      // eslint-disable-next-line consistent-return
-      serviceHelper.verifyAdminSession(req.headers, async (error, authorized) => {
-        if (error) {
-          return res.json(error);
-        }
-        isAuthorized = authorized;
-      });
-      return isAuthorized;
-    case 'zelteam':
-      // eslint-disable-next-line consistent-return
-      await serviceHelper.verifyZelTeamSession(req.headers, async (error, authorized) => {
-        if (error) {
-          return res.json(error);
-        }
-        isAuthorized = authorized;
-      });
-      return isAuthorized;
-    case 'user':
-      // eslint-disable-next-line consistent-return
-      await serviceHelper.verifyUserSession(req.headers, async (error, authorized) => {
-        if (error) {
-          return res.json(error);
-        }
-        isAuthorized = authorized;
-      });
-      return isAuthorized;
-    default:
-      return false;
-  }
-}
-
 async function zelnodelist(filter) {
   let zelnodeList = null;
   const request = {
@@ -278,7 +243,7 @@ async function broadcastMessageFromUser(req, res) {
     };
     return res.json(errMessage);
   }
-  const authorized = await verifyPrivilege('zelteam', req, res);
+  const authorized = await serviceHelper.verifyPrivilege('zelteam', req, res);
 
   if (authorized === false) { // TODO true
     broadcastMessage(data);
@@ -430,7 +395,7 @@ async function addpeer(req, res) {
     };
     return res.json(errMessage);
   }
-  const authorized = await verifyPrivilege('zelteam', req, res);
+  const authorized = await serviceHelper.verifyPrivilege('zelteam', req, res);
 
   if (authorized === false) { // TODO true
     initiateAndHandleConnection(ip);

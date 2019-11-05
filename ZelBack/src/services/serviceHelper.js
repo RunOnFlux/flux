@@ -248,6 +248,42 @@ function verifyZelTeamSession(headers, callback) {
   }
 }
 
+async function verifyPrivilege(privilege, req, res) { // move to helper
+  let isAuthorized;
+  switch (privilege) {
+    case 'admin':
+      // eslint-disable-next-line consistent-return
+      await verifyAdminSession(req.headers, async (error, authorized) => {
+        if (error) {
+          return res.json(error);
+        }
+        isAuthorized = authorized;
+      });
+      return isAuthorized;
+    case 'zelteam':
+      // eslint-disable-next-line consistent-return
+      await verifyZelTeamSession(req.headers, async (error, authorized) => {
+        if (error) {
+          return res.json(error);
+        }
+        isAuthorized = authorized;
+      });
+      return isAuthorized;
+    case 'user':
+      // eslint-disable-next-line consistent-return
+      await verifyUserSession(req.headers, async (error, authorized) => {
+        if (error) {
+          return res.json(error);
+        }
+        isAuthorized = authorized;
+      });
+      return isAuthorized;
+    default:
+      return false;
+  }
+}
+
+
 function verifyMessage(message, address, signature) {
   let isValid = false;
   try {
@@ -300,6 +336,7 @@ module.exports = {
   verifyAdminSession,
   verifyUserSession,
   verifyZelTeamSession,
+  verifyPrivilege,
   signMessage,
   verifyMessage,
 };
