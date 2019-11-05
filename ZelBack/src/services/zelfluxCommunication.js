@@ -212,8 +212,9 @@ function handleIncomingConnection(ws, req, expressWS) {
       try {
         const msgObj = ensureObject(msg);
         if (msgObj.data.type === 'HearthBeat' && msgObj.data.message === 'ping') { // we know that data exists
-          msgObj.data.message = 'pong';
-          const pongResponse = serialiseAndSignZelFluxBroadcast(msgObj);
+          const newMessage = msgObj.data;
+          newMessage.message = 'pong';
+          const pongResponse = await serialiseAndSignZelFluxBroadcast(newMessage);
           ws.send(pongResponse);
         } else {
           ws.send(`ZelFlux ${userconfig.initial.ipaddress} says message received!`);
@@ -329,7 +330,7 @@ async function initiateAndHandleConnection(ip) {
     const peer = {
       // eslint-disable-next-line no-underscore-dangle
       ip: websocket._socket.remoteAddress,
-      ping: null,
+      rtt: null,
     };
     // eslint-disable-next-line no-underscore-dangle
     outgoingPeers.push(peer);
@@ -369,15 +370,21 @@ async function initiateAndHandleConnection(ip) {
       const msgObj = ensureObject(evt.data);
       if (msgObj.data.type === 'HearthBeat' && msgObj.data.message === 'pong') {
         const newerTimeStamp = Date.now(); // ms, get a bit newer time that has passed verification of broadcast
-        const ping = newerTimeStamp - msgObj.data.timestamp;
+        const rtt = newerTimeStamp - msgObj.data.timestamp;
+        console.log(rtt);
+        console.log(newerTimeStamp);
+        console.log(msgObj.data.timestamp);
+        console.log(outgoingPeers);
+        console.log(websocket.url);
         const { url } = websocket;
         let conIP = url.split('/')[2];
         conIP = conIP.split(':16127').join('');
         const foundPeer = outgoingPeers.find(peer => peer.ip === conIP);
         if (foundPeer) {
+          console.log('here');
           const peerIndex = outgoingPeers.indexOf(foundPeer);
           if (peerIndex > -1) {
-            outgoingPeers[peerIndex].ping = ping;
+            outgoingPeers[peerIndex].rtt = rtt;
           }
         }
       }
@@ -460,17 +467,17 @@ function connectedPeersInfo(req, res) {
 }
 
 function keepConnectionsAlive() {
-  const time = Date.now();
-  const type = 'HearthBeat';
-  const message = 'ping';
-  const data = {
-    time,
-    type,
-    message,
-  };
   setInterval(() => {
+    const timestamp = Date.now();
+    const type = 'HearthBeat';
+    const message = 'ping';
+    const data = {
+      timestamp,
+      type,
+      message,
+    };
     broadcastMessage(data);
-  }, 6000);
+  }, 30000);
 }
 
 async function addPeer(req, res) {
