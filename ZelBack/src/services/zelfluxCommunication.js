@@ -383,7 +383,7 @@ function startFluxFunctions() {
   keepConnectionsAlive();
 }
 
-async function addpeer(req, res) {
+async function addPeer(req, res) {
   let { ip } = req.params;
   ip = ip || req.query.ip;
   if (ip === undefined || ip === null) {
@@ -429,6 +429,69 @@ function incomingConnections(req, res, expressWS) {
   res.json(response);
 }
 
+async function closeConnection(ip) {
+  let message = {
+    status: 'error',
+    data: {
+      message: `Unkown error while closing ${ip}`,
+    },
+  };
+  const wsObj = await outgoingConnections.find(ws => ws.url.includes(ip));
+  if (wsObj) {
+    const ocIndex = await outgoingConnections.indexOf(wsObj);
+    if (ocIndex > -1) {
+      wsObj.close(1000);
+      // eslint-disable-next-line no-underscore-dangle
+      log.info(`Connection to ${ip} closed`);
+      outgoingConnections.splice(ocIndex, 1);
+      message = {
+        status: 'success',
+        data: {
+          message: `Outgoing connection to ${ip} closed`,
+        },
+      };
+    } else {
+      message = {
+        status: 'error',
+        data: {
+          message: `Unable to close connection ${ip}. Try again later.`,
+        },
+      };
+    }
+  } else {
+    message = {
+      status: 'success',
+      data: {
+        message: `Connection to ${ip} does not exists.`,
+      },
+    };
+  }
+  return message;
+}
+
+async function removePeer(req, res) {
+  let { ip } = req.params;
+  ip = ip || req.query.ip;
+  if (ip === undefined || ip === null) {
+    const errMessage = {
+      status: 'error',
+      data: {
+        message: 'No IP address specified.',
+      },
+    };
+    return res.json(errMessage);
+  }
+  const authorized = await serviceHelper.verifyPrivilege('zelteam', req, res);
+
+  if (authorized === false) { // TODO true
+    const closeResponse = await closeConnection(ip);
+    response = closeResponse;
+  } else {
+    response = errUnauthorizedMessage;
+  }
+  return res.json(response);
+}
+
 module.exports = {
   getFluxMessageSignature,
   verifyOriginalFluxBroadcast,
@@ -441,6 +504,7 @@ module.exports = {
   initiateAndHandleConnection,
   connectedPeers,
   startFluxFunctions,
-  addpeer,
+  addPeer,
   incomingConnections,
+  removePeer,
 };

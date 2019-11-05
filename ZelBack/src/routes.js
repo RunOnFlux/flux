@@ -450,7 +450,11 @@ module.exports = (app, expressWs) => {
   });
 
   app.get('/zelflux/addpeer/:ip?', (req, res) => {
-    zelfluxCommunication.addpeer(req, res);
+    zelfluxCommunication.addPeer(req, res);
+  });
+
+  app.get('/zelflux/removepeer/:ip?', (req, res) => {
+    zelfluxCommunication.removePeer(req, res);
   });
 
   app.get('/zelflux/incomingconnections', (req, res) => {
