@@ -107,7 +107,7 @@ service mongod start
 Install Node Version Manager (NVM) and NodeJS 12 on Ubuntu 16.04/18.04:
 
 ```bash
-apt-get install curl
+sudo apt-get install curl
 
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.35.0/install.sh | bash
 
@@ -135,7 +135,7 @@ nvm use 12
 Clone ZelFlux repo (Ubuntu):
 
 ```bash
-apt-get install git
+sudo apt-get install git
 
 git clone https://github.com/zelcash/zelflux
 ```
@@ -148,6 +148,13 @@ yum install git
 git clone https://github.com/zelcash/zelflux
 ```
 
+Allow Inbound Connections on UFW firewall (ONLY if ufw enabled):
+
+```bash
+sudo ufw allow 16126/tcp
+sudo ufw allow 16127/tcp
+```
+
 Install ZelFlux dependancies (Ubuntu/CentOS/Redhat):
 
 ```bash
@@ -156,18 +163,22 @@ cd zelflux
 npm install
 ```
 
-Production:
+To run this as Production:
 
 ```bash
-sudo npm start
+npm start
 ```
 
-Development: Start both solutions with
+To run this as Development: Start both solutions with
 
 ```bash
 npm run zelbackdev
 npm run zelfrontdev
 ```
+
+THE SETUP ENDS HERE...
+The following information below provided for brief usage guidelines and/or examples only.
+
 
 ## ZelFront Information
 
