@@ -213,7 +213,6 @@ async function createZelNodeKey(req, res) { // practically useless
   return res ? res.json(response) : response;
 }
 
-// eslint-disable-next-line consistent-return
 async function znsync(req, res) {
   console.log(req.params);
   console.log(req.query);
@@ -224,8 +223,6 @@ async function znsync(req, res) {
     const rpcparameters = [mode];
 
     response = await executeCall(rpccall, rpcparameters);
-    return res ? res.json(response) : response;
-    // eslint-disable-next-line no-else-return
   } else {
     const authorized = await verifyPrivilege('admin', req, res);
     if (authorized === true) {
@@ -236,9 +233,8 @@ async function znsync(req, res) {
     } else {
       response = errUnauthorizedMessage;
     }
-
-    return res ? res.json(response) : response;
   }
+  return res ? res.json(response) : response;
 }
 
 async function createZelNodeBroadcast(req, res) {

@@ -1,3 +1,7 @@
+/* eslint-disable no-param-reassign */
+/* eslint-disable no-shadow */
+/* eslint-disable consistent-return */
+/* eslint-disable no-unused-vars */
 const config = require('config');
 const bitcoinMessage = require('bitcoinjs-message');
 const qs = require('qs');
@@ -509,7 +513,7 @@ function logoutSpecificSession(req, res) {
     body += data;
   });
   req.on('end', () => {
-    console.log(req)
+    console.log(req);
     serviceHelper.verifyUserSession(req.headers, (error, authorized) => {
       if (error) {
         return res.json(error);
