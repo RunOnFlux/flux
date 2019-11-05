@@ -74,9 +74,9 @@ sudo service mongod start
 Setup Mongodb on Red Hat or CentOS:
 
 ```bash
-yum install nano
+sudo yum install nano
 
-nano /etc/yum.repos.d/mongodb-org-4.2.repo
+sudo nano /etc/yum.repos.d/mongodb-org-4.2.repo
 
 # Paste below into the mongodb-org-4.2.repo file
 
@@ -92,16 +92,16 @@ gpgkey=https://www.mongodb.org/static/pgp/server-4.2.asc
 sudo yum install -y mongodb-org
 
 # Start Mongodb on startup for CentOS 7
-systemctl enable mongod.service
+sudo systemctl enable mongod.service
 
 # Start Mongodb on startup for CentOS 5/6
-chkconfig mongod on
+sudo chkconfig mongod on
 
 # Start Mongodb on CentOS 7
-systemctl start mongod.service
+sudo systemctl start mongod.service
 
 # Start Mongodb on CentOS 5/6
-service mongod start
+sudo service mongod start
 ```
 
 Install Node Version Manager (NVM) and NodeJS 12 on Ubuntu 16.04/18.04:
@@ -121,7 +121,7 @@ nvm use 12
 Install Node Version Manager (NVM) and NodeJS 12 on Redhat/CentOS:
 
 ```bash
-yum install curl
+sudo yum install curl
 
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.35.0/install.sh | bash
 
@@ -143,7 +143,7 @@ git clone https://github.com/zelcash/zelflux
 Clone ZelFlux repo (Redhat/CentOS):
 
 ```bash
-yum install git
+sudo yum install git
 
 git clone https://github.com/zelcash/zelflux
 ```
