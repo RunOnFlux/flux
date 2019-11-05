@@ -449,6 +449,10 @@ module.exports = (app, expressWs) => {
     zelfluxCommunication.connectedPeers(req, res);
   });
 
+  app.get('/zelflux/connectedpeersinfo', (req, res) => {
+    zelfluxCommunication.connectedPeersInfo(req, res);
+  });
+
   app.get('/zelflux/addpeer/:ip?', (req, res) => {
     zelfluxCommunication.addPeer(req, res);
   });

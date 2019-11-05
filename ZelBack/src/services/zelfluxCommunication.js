@@ -6,7 +6,8 @@ const zelcashServices = require('./zelcashService');
 const config = require('../../../config/default');
 const userconfig = require('../../../config/userconfig');
 
-const outgoingConnections = [];
+const outgoingConnections = []; // websocket list
+const outgoingPeers = []; // array of objects containing ip and rtt latency
 
 // TODO create constants
 let response = {
@@ -22,6 +23,16 @@ const errUnauthorizedMessage = {
     message: 'Unauthorized. Access denied.',
   },
 };
+
+function ensureObject(data) {
+  const dataObj = typeof data === 'object' ? data : JSON.parse(data);
+  return dataObj;
+}
+
+function ensureString(data) {
+  const dataString = typeof data === 'string' ? data : JSON.stringify(data);
+  return dataString;
+}
 
 async function zelnodelist(filter) {
   let zelnodeList = null;
@@ -58,11 +69,11 @@ async function getZelNodePublicKey(privatekey) {
 // return boolean
 async function verifyFluxBroadcast(data, obtainedZelNodeList, currentTimeStamp) {
   // eslint-disable-next-line no-param-reassign
-  const dataObj = typeof data === 'object' ? data : JSON.parse(data);
+  const dataObj = ensureObject(data);
   const { pubKey } = dataObj;
   const { timestamp } = dataObj; // ms
   const { signature } = dataObj;
-  const message = typeof dataObj.data === 'string' ? dataObj.data : JSON.stringify(dataObj.data);
+  const message = ensureString(dataObj.data);
   // is timestamp valid ?
   // eslint-disable-next-line no-param-reassign
   currentTimeStamp = currentTimeStamp || Date.now(); // ms
@@ -103,7 +114,7 @@ async function verifyFluxBroadcast(data, obtainedZelNodeList, currentTimeStamp) 
 // extends verifyFluxBroadcast by not allowing request older than 5 secs.
 async function verifyOriginalFluxBroadcast(data, obtainedZelNodeList, currentTimeStamp) {
   // eslint-disable-next-line no-param-reassign
-  const dataObj = typeof data === 'object' ? data : JSON.parse(data);
+  const dataObj = ensureObject(data);
   const { timestamp } = dataObj; // ms
   // eslint-disable-next-line no-param-reassign
   currentTimeStamp = currentTimeStamp || Date.now(); // ms
@@ -116,7 +127,7 @@ async function verifyOriginalFluxBroadcast(data, obtainedZelNodeList, currentTim
 
 async function verifyTimestampInFluxBroadcast(data, currentTimeStamp) {
   // eslint-disable-next-line no-param-reassign
-  const dataObj = typeof data === 'object' ? data : JSON.parse(data);
+  const dataObj = ensureObject(data);
   const { timestamp } = dataObj; // ms
   // eslint-disable-next-line no-param-reassign
   currentTimeStamp = currentTimeStamp || Date.now(); // ms
@@ -128,6 +139,7 @@ async function verifyTimestampInFluxBroadcast(data, currentTimeStamp) {
 
 function sendToAllPeers(data) {
   let removals = [];
+  let ipremovals = [];
   // console.log(data);
   outgoingConnections.forEach((client) => {
     try {
@@ -135,14 +147,44 @@ function sendToAllPeers(data) {
     } catch (e) {
       log.error(e);
       removals.push(client);
+      // eslint-disable-next-line no-underscore-dangle
+      const ip = client._socket.remoteAddress;
+      const foundPeer = outgoingPeers.find(peer => peer.ip === ip);
+      ipremovals.push(foundPeer);
     }
   });
 
+  for (let i = 0; i < ipremovals.length; i += 1) {
+    const peerIndex = outgoingPeers.indexOf(ipremovals[i]);
+    if (peerIndex > -1) {
+      outgoingPeers.splice(peerIndex, 1);
+    }
+  }
   for (let i = 0; i < removals.length; i += 1) {
     const ocIndex = outgoingConnections.indexOf(removals[i]);
-    outgoingConnections.splice(ocIndex, 1);
+    if (ocIndex > -1) {
+      outgoingConnections.splice(ocIndex, 1);
+    }
   }
   removals = [];
+  ipremovals = [];
+}
+
+async function serialiseAndSignZelFluxBroadcast(dataToBroadcast, privatekey) {
+  const timestamp = Date.now();
+  const pubKey = await getZelNodePublicKey(privatekey);
+  const message = ensureString(dataToBroadcast);
+  const signature = await getFluxMessageSignature(message, privatekey);
+  const type = 'message';
+  const dataObj = {
+    type,
+    timestamp,
+    pubKey,
+    signature,
+    data: dataToBroadcast,
+  };
+  const dataString = JSON.stringify(dataObj);
+  return dataString;
 }
 
 // eslint-disable-next-line no-unused-vars
@@ -168,7 +210,14 @@ function handleIncomingConnection(ws, req, expressWS) {
     const timestampOK = await verifyTimestampInFluxBroadcast(msg, currentTimeStamp);
     if (messageOK === true && timestampOK === true) {
       try {
-        ws.send(`ZelFlux ${userconfig.initial.ipaddress} says message received!`);
+        const msgObj = ensureObject(msg);
+        if (msgObj.data.type === 'HearthBeat' && msgObj.data.message === 'ping') { // we know that data exists
+          msgObj.data.message = 'pong';
+          const pongResponse = serialiseAndSignZelFluxBroadcast(msgObj);
+          ws.send(pongResponse);
+        } else {
+          ws.send(`ZelFlux ${userconfig.initial.ipaddress} says message received!`);
+        }
       } catch (e) {
         log.error(e);
       }
@@ -207,23 +256,6 @@ function handleIncomingConnection(ws, req, expressWS) {
     // console.log(clientsSet);
     console.log(msg);
   });
-}
-
-async function serialiseAndSignZelFluxBroadcast(dataToBroadcast, privatekey) {
-  const timestamp = Date.now();
-  const pubKey = await getZelNodePublicKey(privatekey);
-  const message = typeof dataToBroadcast === 'string' ? dataToBroadcast : JSON.stringify(dataToBroadcast);
-  const signature = await getFluxMessageSignature(message, privatekey);
-  const type = 'message';
-  const dataObj = {
-    type,
-    timestamp,
-    pubKey,
-    signature,
-    data: dataToBroadcast,
-  };
-  const dataString = JSON.stringify(dataObj);
-  return dataString;
 }
 
 async function broadcastMessage(dataToBroadcast) {
@@ -294,6 +326,13 @@ async function initiateAndHandleConnection(ip) {
 
   websocket.on('open', () => {
     outgoingConnections.push(websocket);
+    const peer = {
+      // eslint-disable-next-line no-underscore-dangle
+      ip: websocket._socket.remoteAddress,
+      ping: null,
+    };
+    // eslint-disable-next-line no-underscore-dangle
+    outgoingPeers.push(peer);
     broadcastMessage('Hello ZelFlux');
     console.log(`#connectionsOut: ${outgoingConnections.length}`);
   });
@@ -308,12 +347,41 @@ async function initiateAndHandleConnection(ip) {
       log.info(`Connection to ${conIP} closed with code ${evt.code}`);
       outgoingConnections.splice(ocIndex, 1);
     }
+    const foundPeer = outgoingPeers.find(peer => peer.ip === conIP);
+    if (foundPeer) {
+      const peerIndex = outgoingPeers.indexOf(foundPeer);
+      if (peerIndex > -1) {
+        // eslint-disable-next-line no-underscore-dangle
+        outgoingPeers.splice(peerIndex, 1);
+        log.info(`Connection ${conIP} removed from outgoingPeers`);
+      }
+    }
     console.log(`#connectionsOut: ${outgoingConnections.length}`);
   };
 
-  websocket.onmessage = (evt) => {
+  websocket.onmessage = async (evt) => {
     // incoming messages from outgoing connections
     console.log(evt.data);
+    // verify data integrity TODO
+    const currentTimeStamp = Date.now(); // ms
+    const messageOK = await verifyOriginalFluxBroadcast(evt.data, undefined, currentTimeStamp);
+    if (messageOK === true) {
+      const msgObj = ensureObject(evt.data);
+      if (msgObj.data.type === 'HearthBeat' && msgObj.data.message === 'pong') {
+        const newerTimeStamp = Date.now(); // ms, get a bit newer time that has passed verification of broadcast
+        const ping = newerTimeStamp - msgObj.data.timestamp;
+        const { url } = websocket;
+        let conIP = url.split('/')[2];
+        conIP = conIP.split(':16127').join('');
+        const foundPeer = outgoingPeers.find(peer => peer.ip === conIP);
+        if (foundPeer) {
+          const peerIndex = outgoingPeers.indexOf(foundPeer);
+          if (peerIndex > -1) {
+            outgoingPeers[peerIndex].ping = ping;
+          }
+        }
+      }
+    } // else we do not react to this message;
   };
 
   websocket.onerror = (evt) => {
@@ -326,6 +394,15 @@ async function initiateAndHandleConnection(ip) {
       // eslint-disable-next-line no-underscore-dangle
       log.info(`Connection to ${conIP} errord with code ${evt.code}`);
       outgoingConnections.splice(ocIndex, 1);
+    }
+    const foundPeer = outgoingPeers.find(peer => peer.ip === conIP);
+    if (foundPeer) {
+      const peerIndex = outgoingPeers.indexOf(foundPeer);
+      if (peerIndex > -1) {
+        // eslint-disable-next-line no-underscore-dangle
+        outgoingPeers.splice(peerIndex, 1);
+        log.info(`Connection ${conIP} removed from outgoingPeers`);
+      }
     }
     console.log(`#connectionsOut: ${outgoingConnections.length}`);
   };
@@ -370,11 +447,30 @@ function connectedPeers(req, res) {
   res.json(response);
 }
 
+function connectedPeersInfo(req, res) {
+  const connections = outgoingPeers;
+  const message = {
+    status: 'success',
+    data: {
+      message: connections,
+    },
+  };
+  response = message;
+  res.json(response);
+}
+
 function keepConnectionsAlive() {
-  const data = 'HearthBeat';
+  const time = Date.now();
+  const type = 'HearthBeat';
+  const message = 'ping';
+  const data = {
+    time,
+    type,
+    message,
+  };
   setInterval(() => {
     broadcastMessage(data);
-  }, 30000);
+  }, 6000);
 }
 
 async function addPeer(req, res) {
@@ -445,11 +541,17 @@ async function closeConnection(ip) {
   const wsObj = await outgoingConnections.find(client => client._socket.remoteAddress === ip);
   if (wsObj) {
     const ocIndex = await outgoingConnections.indexOf(wsObj);
+    const foundPeer = await outgoingPeers.find(peer => peer.ip === ip);
     if (ocIndex > -1) {
       wsObj.close(1000);
-      // eslint-disable-next-line no-underscore-dangle
       log.info(`Connection to ${ip} closed`);
       outgoingConnections.splice(ocIndex, 1);
+      if (foundPeer) {
+        const peerIndex = outgoingPeers.indexOf(foundPeer);
+        if (peerIndex > -1) {
+          outgoingPeers.splice(peerIndex, 1);
+        }
+      }
       message = {
         status: 'success',
         data: {
@@ -552,6 +654,36 @@ async function removeIncomingPeer(req, res, expressWs) {
   return res.json(response);
 }
 
+// async function getPing(req, res) {
+//   let { ip } = req.params;
+//   ip = ip || req.query.ip;
+//   if (ip === undefined || ip === null) {
+//     const errMessage = {
+//       status: 'error',
+//       data: {
+//         message: 'No IP address specified.',
+//       },
+//     };
+//     return res.json(errMessage);
+//   }
+
+//   // eslint-disable-next-line no-underscore-dangle
+//   const wsObj = await outgoingConnections.find(client => client._socket.remoteAddress === ip);
+//   if (!wsObj) {
+//     const errMessage = {
+//       status: 'error',
+//       data: {
+//         message: `Peer ${ip} is not connected`,
+//       },
+//     };
+//     return res.json(errMessage);
+//   }
+
+//   // const closeResponse = await closeIncomingConnection(ip, expressWs);
+//   // response = closeResponse;
+//   return res.json(response);
+// }
+
 function startFluxFunctions() {
   fluxDisovery();
   log.info('Flux Discovery started');
@@ -574,4 +706,6 @@ module.exports = {
   incomingConnections,
   removePeer,
   removeIncomingPeer,
+  connectedPeersInfo,
+  // getPing,
 };
