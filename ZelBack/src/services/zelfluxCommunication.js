@@ -389,6 +389,17 @@ async function addPeer(req, res) {
     };
     return res.json(errMessage);
   }
+  // eslint-disable-next-line no-underscore-dangle
+  const wsObj = await outgoingConnections.find(client => client._socket.remoteAddress === ip);
+  if (wsObj) {
+    const errMessage = {
+      status: 'error',
+      data: {
+        message: `Already connected to ${ip}`,
+      },
+    };
+    return res.json(errMessage);
+  }
   const authorized = await serviceHelper.verifyPrivilege('zelteam', req, res);
 
   if (authorized === false) { // TODO true
@@ -430,7 +441,8 @@ async function closeConnection(ip) {
       message: `Unkown error while closing ${ip}`,
     },
   };
-  const wsObj = await outgoingConnections.find(ws => ws.url.includes(ip));
+  // eslint-disable-next-line no-underscore-dangle
+  const wsObj = await outgoingConnections.find(client => client._socket.remoteAddress === ip);
   if (wsObj) {
     const ocIndex = await outgoingConnections.indexOf(wsObj);
     if (ocIndex > -1) {
