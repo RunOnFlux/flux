@@ -1,7 +1,3 @@
-/* eslint-disable no-param-reassign */
-/* eslint-disable no-shadow */
-/* eslint-disable consistent-return */
-/* eslint-disable no-unused-vars */
 const config = require('config');
 const bitcoinMessage = require('bitcoinjs-message');
 const qs = require('qs');
@@ -13,7 +9,7 @@ const serviceHelper = require('./serviceHelper');
 const mongoUrl = `mongodb://${config.database.url}:${config.database.port}/`;
 const goodchars = /^[1-9a-km-zA-HJ-NP-Z]+$/;
 
-function loginPhrase(req, res) {
+async function loginPhrase(req, res) {
   const timestamp = new Date().getTime();
   const validTill = timestamp + (15 * 60 * 1000); // 15 minutes
   const phrase = timestamp + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
@@ -25,52 +21,28 @@ function loginPhrase(req, res) {
        expireAt: 2019-08-09T13:23:41.335Z
      }
 ] */
-  serviceHelper.connectMongoDb(mongoUrl, (err, db) => {
-    if (err) {
-      log.error('Cannot reach MongoDB');
-      log.error(err);
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Cannot reach MongoDB',
-        },
-      };
-      return res.json(errMessage);
-    }
-    const database = db.db(config.database.local.database);
-    const collection = config.database.local.collections.activeLoginPhrases;
-    database.collection(collection).createIndex({ createdAt: 1 }, { expireAfterSeconds: 900 });
-    const newLoginPhrase = {
-      loginPhrase: phrase,
-      createdAt: new Date(timestamp),
-      expireAt: new Date(validTill),
-    };
-    const value = newLoginPhrase;
-    serviceHelper.insertOneToDatabase(database, collection, value, (err, result) => {
-      if (err) {
-        log.error('Error creating new Login Phrase');
-        log.error(err);
-        const errMessage = {
-          status: 'error',
-          data: {
-            message: 'Error creating new Login Phrase',
-          },
-        };
-        return res.json(errMessage);
-      }
-      db.close();
-      return res.json(phrase);
-    });
-  });
+  const db = await serviceHelper.connectMongoDb(mongoUrl);
+  const database = db.db(config.database.local.database);
+  const collection = config.database.local.collections.activeLoginPhrases;
+  database.collection(collection).createIndex({ createdAt: 1 }, { expireAfterSeconds: 900 });
+  const newLoginPhrase = {
+    loginPhrase: phrase,
+    createdAt: new Date(timestamp),
+    expireAt: new Date(validTill),
+  };
+  const value = newLoginPhrase;
+  const result = await serviceHelper.insertOneToDatabase(database, collection, value);
+  db.close();
+  return res.json(phrase);
 }
 
-function verifyLogin(req, res) {
+async function verifyLogin(req, res) {
   // Phase 2 - check that request is valid
   let body = '';
   req.on('data', (data) => {
     body += data;
   });
-  req.on('end', () => {
+  req.on('end', async () => {
     const processedBody = qs.parse(body);
     const { address } = processedBody;
     const { signature } = processedBody;
@@ -159,474 +131,237 @@ function verifyLogin(req, res) {
     }
     // Basic checks passed. First check if message is in our activeLoginPhrases collection
 
-    serviceHelper.connectMongoDb(mongoUrl, (err, db) => {
-      if (err) {
-        log.error('Cannot reach MongoDB');
-        log.error(err);
+    const db = await serviceHelper.connectMongoDb(mongoUrl);
+    const database = db.db(config.database.local.database);
+    const collection = config.database.local.collections.activeLoginPhrases;
+    const query = { loginPhrase: message };
+    const projection = {};
+    const result = await serviceHelper.findOneInDatabase(database, collection, query, projection);
+
+    if (result) {
+      // It is present in our database
+      if (result.loginPhrase.substring(0, 13) < timestamp) {
+        // Second verify that this address signed this message
+        let valid = false;
+        try {
+          valid = bitcoinMessage.verify(message, address, signature);
+        } catch (error) {
+          const errMessage = {
+            status: 'error',
+            data: {
+              message: 'Invalid signature',
+            },
+          };
+          return res.json(errMessage);
+        }
+        if (valid) {
+          // Third associate that address, signature and message with our database
+          // TODO signature hijacking? What if middleware guy knows all of this?
+          // TODO do we want to have some timelimited logins? not needed now
+          // Do we want to store sighash too? Nope we are verifying if provided signature is ok. In localStorage we are storing zelid, message, signature
+          // const sighash = crypto
+          //   .createHash('sha256')
+          //   .update(signature)
+          //   .digest('hex')
+          const newLogin = {
+            zelid: address,
+            loginPhrase: message,
+            signature,
+          };
+          let privilage = 'user';
+          if (address === config.zelTeamZelId) {
+            privilage = 'zelteam';
+          } else if (address === userconfig.initial.zelid) {
+            privilage = 'admin';
+          }
+          const loggedUsersCollection = config.database.local.collections.loggedUsers;
+          const value = newLogin;
+          const result = await serviceHelper.insertOneToDatabase(database, loggedUsersCollection, value);
+          db.close();
+          const resMessage = {
+            status: 'success',
+            data: {
+              message: 'Successfully logged in',
+              zelid: address,
+              loginPhrase: message,
+              signature,
+              privilage,
+            },
+          };
+          return res.json(resMessage);
+        } else {
+          const errMessage = {
+            status: 'error',
+            data: {
+              message: 'Invalid signature.',
+            },
+          };
+          db.close();
+          return res.json(errMessage);
+        }
+      } else {
         const errMessage = {
           status: 'error',
           data: {
-            message: 'Cannot reach MongoDB',
+            message: 'Signed message is no longer valid. Please request a new one.',
           },
         };
         db.close();
         return res.json(errMessage);
       }
-      const database = db.db(config.database.local.database);
-      const collection = config.database.local.collections.activeLoginPhrases;
-      const query = { loginPhrase: message };
-      const projection = {};
-      serviceHelper.findOneInDatabase(database, collection, query, projection, (err, result) => {
-        if (err) {
-          log.error('Error verifying Login');
-          log.error(err);
-          const errMessage = {
-            status: 'error',
-            data: {
-              message: 'Error verifying Login',
-            },
-          };
-          db.close();
-          return res.json(errMessage);
-        }
-
-        if (result) {
-          // It is present in our database
-          if (result.loginPhrase.substring(0, 13) < timestamp) {
-            // Second verify that this address signed this message
-            let valid = false;
-            try {
-              valid = bitcoinMessage.verify(message, address, signature);
-            } catch (error) {
-              const errMessage = {
-                status: 'error',
-                data: {
-                  message: 'Invalid signature',
-                },
-              };
-              return res.json(errMessage);
-            }
-            if (valid) {
-              // Third associate that address, signature and message with our database
-              // TODO signature hijacking? What if middleware guy knows all of this?
-              // TODO do we want to have some timelimited logins? not needed now
-              // Do we want to store sighash too? Nope we are verifying if provided signature is ok. In localStorage we are storing zelid, message, signature
-              // const sighash = crypto
-              //   .createHash('sha256')
-              //   .update(signature)
-              //   .digest('hex')
-              const newLogin = {
-                zelid: address,
-                loginPhrase: message,
-                signature,
-              };
-              let privilage = 'user';
-              if (address === config.zelTeamZelId) {
-                privilage = 'zelteam';
-              } else if (address === userconfig.initial.zelid) {
-                privilage = 'admin';
-              }
-              const loggedUsersCollection = config.database.local.collections.loggedUsers;
-              const value = newLogin;
-              serviceHelper.insertOneToDatabase(database, loggedUsersCollection, value, (err, result) => {
-                db.close();
-                if (err) {
-                  log.error('Error Logging user');
-                  log.error(err);
-                  const errMessage = {
-                    status: 'error',
-                    data: {
-                      message: 'Unable to login',
-                    },
-                  };
-                  return res.json(errMessage);
-                }
-                const resMessage = {
-                  status: 'success',
-                  data: {
-                    message: 'Successfully logged in',
-                    zelid: address,
-                    loginPhrase: message,
-                    signature,
-                    privilage,
-                  },
-                };
-                return res.json(resMessage);
-              });
-            } else {
-              const errMessage = {
-                status: 'error',
-                data: {
-                  message: 'Invalid signature.',
-                },
-              };
-              db.close();
-              return res.json(errMessage);
-            }
-          } else {
-            const errMessage = {
-              status: 'error',
-              data: {
-                message: 'Signed message is no longer valid. Please request a new one.',
-              },
-            };
-            db.close();
-            return res.json(errMessage);
-          }
-        } else {
-          const errMessage = {
-            status: 'error',
-            data: {
-              message: 'Signed message is no longer valid. Please request a new one.',
-            },
-          };
-          db.close();
-          return res.json(errMessage);
-        }
-      });
-    });
-  });
-}
-
-function activeLoginPhrases(req, res) {
-  serviceHelper.verifyAdminSession(req.headers, (error, authorized) => {
-    if (error) {
-      return res.json(error);
-    }
-    if (authorized === true) {
-      serviceHelper.connectMongoDb(mongoUrl, (err, db) => {
-        if (err) {
-          log.error('Cannot reach MongoDB');
-          log.error(err);
-          const errMessage = {
-            status: 'error',
-            data: {
-              message: 'Cannot reach MongoDB',
-            },
-          };
-          return res.json(errMessage);
-        }
-
-        const database = db.db(config.database.local.database);
-        const collection = config.database.local.collections.activeLoginPhrases;
-        const query = {};
-        const projection = {
-          projection: {
-            _id: 0, loginPhrase: 1, createdAt: 1, expireAt: 1,
-          },
-        };
-        serviceHelper.findInDatabase(database, collection, query, projection, (err, results) => {
-          db.close();
-          if (err) {
-            log.error('Error accessing local zelID collection');
-            log.error(err);
-            const errMessage = {
-              status: 'error',
-              data: {
-                message: 'Error accessing local zelID collection.',
-              },
-            };
-            db.close();
-            return res.status(500).json(errMessage);
-          }
-          db.close();
-          return res.json(results);
-        });
-      });
     } else {
       const errMessage = {
         status: 'error',
         data: {
-          message: 'Unauthorized. Access denied.',
+          message: 'Signed message is no longer valid. Please request a new one.',
         },
       };
+      db.close();
       return res.json(errMessage);
     }
   });
 }
 
-function loggedUsers(req, res) {
-  serviceHelper.verifyAdminSession(req.headers, (error, authorized) => {
-    if (error) {
-      return res.json(error);
-    }
-    if (authorized === true) {
-      serviceHelper.connectMongoDb(mongoUrl, (err, db) => {
-        if (err) {
-          log.error('Cannot reach MongoDB');
-          log.error(err);
-          const errMessage = {
-            status: 'error',
-            data: {
-              message: 'Cannot reach MongoDB',
-            },
-          };
-          return res.json(errMessage);
-        }
+async function activeLoginPhrases(req, res) {
+  const authorized = await serviceHelper.verifyAdminSession(req.headers);
+  if (authorized === true) {
+    const db = await serviceHelper.connectMongoDb(mongoUrl);
 
-        const database = db.db(config.database.local.database);
-        const collection = config.database.local.collections.loggedUsers;
-        const query = {};
-        const projection = { projection: { _id: 0, zelid: 1, loginPhrase: 1 } };
-        serviceHelper.findInDatabase(database, collection, query, projection, (err, results) => {
-          db.close();
-          if (err) {
-            log.error('Error accessing local zelID collection');
-            log.error(err);
-            const errMessage = {
-              status: 'error',
-              data: {
-                message: 'Error accessing local zelID collection.',
-              },
-            };
-            return res.json(errMessage);
-          }
-          return res.json(results);
-        });
-      });
-    } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      return res.json(errMessage);
-    }
-  });
+    const database = db.db(config.database.local.database);
+    const collection = config.database.local.collections.activeLoginPhrases;
+    const query = {};
+    const projection = {
+      projection: {
+        _id: 0, loginPhrase: 1, createdAt: 1, expireAt: 1,
+      },
+    };
+    const results = await serviceHelper.findInDatabase(database, collection, query, projection);
+    db.close();
+    return res.json(results);
+  } else {
+    const errMessage = {
+      status: 'error',
+      data: {
+        message: 'Unauthorized. Access denied.',
+      },
+    };
+    return res.json(errMessage);
+  }
 }
 
-function loggedSessions(req, res) {
-  serviceHelper.verifyUserSession(req.headers, (error, authorized) => {
-    if (error) {
-      return res.json(error);
-    }
-    if (authorized === true) {
-      serviceHelper.connectMongoDb(mongoUrl, (err, db) => {
-        if (err) {
-          log.error('Cannot reach MongoDB');
-          log.error(err);
-          const errMessage = {
-            status: 'error',
-            data: {
-              message: 'Cannot reach MongoDB',
-            },
-          };
-          return res.json(errMessage);
-        }
+async function loggedUsers(req, res) {
+  const authorized = await serviceHelper.verifyAdminSession(req.headers);
+  if (authorized === true) {
+    const db = await serviceHelper.connectMongoDb(mongoUrl);
 
-        const auth = qs.parse(req.headers.zelidauth);
-        const queryZelID = auth.zelid;
-        const database = db.db(config.database.local.database);
-        const collection = config.database.local.collections.loggedUsers;
-        const query = { zelid: queryZelID };
-        const projection = { projection: { _id: 0, zelid: 1, loginPhrase: 1 } };
-        serviceHelper.findInDatabase(database, collection, query, projection, (err, results) => {
-          db.close();
-          if (err) {
-            log.error('Error accessing local zelID collection');
-            log.error(err);
-            const errMessage = {
-              status: 'error',
-              data: {
-                message: 'Error accessing local zelID collection.',
-              },
-            };
-            return res.json(errMessage);
-          }
-          return res.json(results);
-        });
-      });
-    } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      return res.json(errMessage);
-    }
-  });
+    const database = db.db(config.database.local.database);
+    const collection = config.database.local.collections.loggedUsers;
+    const query = {};
+    const projection = { projection: { _id: 0, zelid: 1, loginPhrase: 1 } };
+    const results = await serviceHelper.findInDatabase(database, collection, query, projection);
+    db.close();
+    return res.json(results);
+  } else {
+    const errMessage = {
+      status: 'error',
+      data: {
+        message: 'Unauthorized. Access denied.',
+      },
+    };
+    return res.json(errMessage);
+  }
 }
 
-function logoutCurrentSession(req, res) {
-  serviceHelper.verifyUserSession(req.headers, (error, authorized) => {
-    if (error) {
-      return res.json(error);
-    }
-    if (authorized === true) {
-      const auth = qs.parse(req.headers.zelidauth);
-      serviceHelper.connectMongoDb(mongoUrl, (err, db) => {
-        if (err) {
-          log.error('Cannot reach MongoDB');
-          log.error(err);
-          const errMessage = {
-            status: 'error',
-            data: {
-              message: 'Cannot reach MongoDB',
-            },
-          };
-          return res.json(errMessage);
-        }
-        const database = db.db(config.database.local.database);
-        const collection = config.database.local.collections.loggedUsers;
-        const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
-        const projection = {};
-        serviceHelper.findOneAndDeleteInDatabase(database, collection, query, projection, (err, result) => {
-          db.close();
-          if (err) {
-            log.error('Error accessing local zelID collection');
-            log.error(err);
-            const errMessage = {
-              status: 'error',
-              data: {
-                message: 'Error accessing local zelID collection.',
-              },
-            };
-            return res.json(errMessage);
-          }
-          // console.log(result)
-          const message = {
-            status: 'success',
-            data: {
-              message: 'Successfully logged out',
-            },
-          };
-          return res.json(message);
-        });
-      });
-    } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      return res.json(errMessage);
-    }
-  });
+async function loggedSessions(req, res) {
+  const authorized = await serviceHelper.verifyUserSession(req.headers);
+  if (authorized === true) {
+    const db = await serviceHelper.connectMongoDb(mongoUrl);
+
+    const auth = qs.parse(req.headers.zelidauth);
+    const queryZelID = auth.zelid;
+    const database = db.db(config.database.local.database);
+    const collection = config.database.local.collections.loggedUsers;
+    const query = { zelid: queryZelID };
+    const projection = { projection: { _id: 0, zelid: 1, loginPhrase: 1 } };
+    const results = await serviceHelper.findInDatabase(database, collection, query, projection);
+    db.close();
+    return res.json(results);
+  } else {
+    const errMessage = {
+      status: 'error',
+      data: {
+        message: 'Unauthorized. Access denied.',
+      },
+    };
+    return res.json(errMessage);
+  }
 }
 
-function logoutSpecificSession(req, res) {
+async function logoutCurrentSession(req, res) {
+  const authorized = await serviceHelper.verifyUserSession(req.headers);
+  if (authorized === true) {
+    const auth = qs.parse(req.headers.zelidauth);
+    const db = await serviceHelper.connectMongoDb(mongoUrl);
+    const database = db.db(config.database.local.database);
+    const collection = config.database.local.collections.loggedUsers;
+    const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
+    const projection = {};
+    const results = await serviceHelper.findOneAndDeleteInDatabase(database, collection, query, projection);
+    db.close();
+    // console.log(results)
+    const message = {
+      status: 'success',
+      data: {
+        message: 'Successfully logged out',
+      },
+    };
+    return res.json(message);
+  } else {
+    const errMessage = {
+      status: 'error',
+      data: {
+        message: 'Unauthorized. Access denied.',
+      },
+    };
+    return res.json(errMessage);
+  }
+}
+
+async function logoutSpecificSession(req, res) {
   let body = '';
   req.on('data', (data) => {
     body += data;
   });
-  req.on('end', () => {
+  req.on('end', async () => {
     console.log(req);
-    serviceHelper.verifyUserSession(req.headers, (error, authorized) => {
-      if (error) {
-        return res.json(error);
-      }
-      if (authorized === true) {
-        const processedBody = qs.parse(body);
-        console.log(processedBody);
-        const obtainedLoginPhrase = processedBody.loginPhrase;
-        serviceHelper.connectMongoDb(mongoUrl, (err, db) => {
-          if (err) {
-            log.error('Cannot reach MongoDB');
-            log.error(err);
-            const errMessage = {
-              status: 'error',
-              data: {
-                message: 'Cannot reach MongoDB',
-              },
-            };
-            return res.json(errMessage);
-          }
-          const database = db.db(config.database.local.database);
-          const collection = config.database.local.collections.loggedUsers;
-          const query = { loginPhrase: obtainedLoginPhrase };
-          const projection = {};
-          serviceHelper.findOneAndDeleteInDatabase(database, collection, query, projection, (err, result) => {
-            db.close();
-            if (err) {
-              log.error('Error accessing local zelID collection');
-              log.error(err);
-              const errMessage = {
-                status: 'error',
-                data: {
-                  message: 'Error accessing local zelID collection.',
-                },
-              };
-              return res.json(errMessage);
-            }
-            if (result.value === null) {
-              const message = {
-                status: 'warning',
-                data: {
-                  message: 'Specified user was already logged out',
-                },
-              };
-              return res.json(message);
-            }
-            const message = {
-              status: 'success',
-              data: {
-                message: 'Session successfully logged out',
-              },
-            };
-            return res.json(message);
-          });
-        });
-      } else {
-        const errMessage = {
-          status: 'error',
+    const authorized = await serviceHelper.verifyUserSession(req.headers);
+    if (authorized === true) {
+      const processedBody = qs.parse(body);
+      console.log(processedBody);
+      const obtainedLoginPhrase = processedBody.loginPhrase;
+      const db = await serviceHelper.connectMongoDb(mongoUrl);
+      const database = db.db(config.database.local.database);
+      const collection = config.database.local.collections.loggedUsers;
+      const query = { loginPhrase: obtainedLoginPhrase };
+      const projection = {};
+      const result = await serviceHelper.findOneAndDeleteInDatabase(database, collection, query, projection);
+      db.close();
+      if (result.value === null) {
+        const message = {
+          status: 'warning',
           data: {
-            message: 'Unauthorized. Access denied.',
+            message: 'Specified user was already logged out',
           },
         };
-        return res.json(errMessage);
+        return res.json(message);
       }
-    });
-  });
-}
-
-function logoutAllSessions(req, res) {
-  serviceHelper.verifyUserSession(req.headers, (error, authorized) => {
-    if (error) {
-      return res.json(error);
-    }
-    if (authorized === true) {
-      const auth = qs.parse(req.headers.zelidauth);
-      serviceHelper.connectMongoDb(mongoUrl, (err, db) => {
-        if (err) {
-          log.error('Cannot reach MongoDB');
-          log.error(err);
-          const errMessage = {
-            status: 'error',
-            data: {
-              message: 'Cannot reach MongoDB',
-            },
-          };
-          return res.json(errMessage);
-        }
-        const database = db.db(config.database.local.database);
-        const collection = config.database.local.collections.loggedUsers;
-        const query = { zelid: auth.zelid };
-        serviceHelper.removeDocumentsFromCollection(database, collection, query, (err, result) => {
-          db.close();
-          if (err) {
-            log.error('Error accessing local zelID collection');
-            log.error(err);
-            const errMessage = {
-              status: 'error',
-              data: {
-                message: 'Error accessing local zelID collection.',
-              },
-            };
-            return res.json(errMessage);
-          }
-          // console.log(result)
-          const message = {
-            status: 'success',
-            data: {
-              message: 'Successfully logged out all sessions',
-            },
-          };
-          return res.json(message);
-        });
-      });
+      const message = {
+        status: 'success',
+        data: {
+          message: 'Session successfully logged out',
+        },
+      };
+      return res.json(message);
     } else {
       const errMessage = {
         status: 'error',
@@ -639,63 +374,64 @@ function logoutAllSessions(req, res) {
   });
 }
 
-function logoutAllUsers(req, res) {
-  serviceHelper.verifyAdminSession(req.headers, (error, authorized) => {
-    if (error) {
-      return res.json(error);
-    }
-    if (authorized === true) {
-      serviceHelper.connectMongoDb(mongoUrl, (err, db) => {
-        if (err) {
-          log.error('Cannot reach MongoDB');
-          log.error(err);
-          const errMessage = {
-            status: 'error',
-            data: {
-              message: 'Cannot reach MongoDB',
-            },
-          };
-          return res.json(errMessage);
-        }
-        const database = db.db(config.database.local.database);
-        const collection = config.database.local.collections.loggedUsers;
-        const query = {};
-        serviceHelper.removeDocumentsFromCollection(database, collection, query, (err, result) => {
-          db.close();
-          if (err) {
-            log.error('Error accessing local zelID collection');
-            log.error(err);
-            const errMessage = {
-              status: 'error',
-              data: {
-                message: 'Error accessing local zelID collection.',
-              },
-            };
-            return res.json(errMessage);
-          }
-          // console.log(result)
-          const message = {
-            status: 'success',
-            data: {
-              message: 'Successfully logged out all sessions',
-            },
-          };
-          return res.json(message);
-        });
-      });
-    } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      return res.json(errMessage);
-    }
-  });
+async function logoutAllSessions(req, res) {
+  const authorized = await serviceHelper.verifyUserSession(req.headers);
+  if (authorized === true) {
+    const auth = qs.parse(req.headers.zelidauth);
+    const db = await serviceHelper.connectMongoDb(mongoUrl);
+    const database = db.db(config.database.local.database);
+    const collection = config.database.local.collections.loggedUsers;
+    const query = { zelid: auth.zelid };
+    const result = await serviceHelper.removeDocumentsFromCollection(database, collection, query);
+    db.close();
+    // console.log(result)
+    const message = {
+      status: 'success',
+      data: {
+        message: 'Successfully logged out all sessions',
+      },
+    };
+    return res.json(message);
+  } else {
+    const errMessage = {
+      status: 'error',
+      data: {
+        message: 'Unauthorized. Access denied.',
+      },
+    };
+    return res.json(errMessage);
+  }
 }
 
-function wsRespondLoginPhrase(ws, req) {
+async function logoutAllUsers(req, res) {
+  const authorized = await serviceHelper.verifyAdminSession(req.headers);
+  if (authorized === true) {
+    const db = await serviceHelper.connectMongoDb(mongoUrl);
+    const database = db.db(config.database.local.database);
+    const collection = config.database.local.collections.loggedUsers;
+    const query = {};
+    const result = await serviceHelper.removeDocumentsFromCollection(database, collection, query);
+    db.close();
+    // console.log(result)
+    const message = {
+      status: 'success',
+      data: {
+        message: 'Successfully logged out all sessions',
+      },
+    };
+    return res.json(message);
+  } else {
+    const errMessage = {
+      status: 'error',
+      data: {
+        message: 'Unauthorized. Access denied.',
+      },
+    };
+    return res.json(errMessage);
+  }
+}
+
+async function wsRespondLoginPhrase(ws, req) {
   const { loginphrase } = req.params;
   // console.log(loginphrase)
   // respond with object containing address and signature to received message
@@ -709,135 +445,72 @@ function wsRespondLoginPhrase(ws, req) {
     connclosed = true;
   };
 
-  serviceHelper.connectMongoDb(mongoUrl, (err, db) => {
-    if (err) {
-      log.error('Cannot reach MongoDB');
-      log.error(err);
-      const errMessage = {
-        status: 'error',
+  const db = await serviceHelper.connectMongoDb(mongoUrl);
+
+  const database = db.db(config.database.local.database);
+  const collection = config.database.local.collections.loggedUsers;
+  const query = { loginPhrase: loginphrase };
+  const projection = {};
+  async function searchDatabase() {
+    const result = await serviceHelper.findOneInDatabase(database, collection, query, projection);
+
+    if (result) {
+      // user is logged, all ok
+      let privilage = 'user';
+      if (result.zelid === config.zelTeamZelId) {
+        privilage = 'zelteam';
+      } else if (result.zelid === userconfig.initial.zelid) {
+        privilage = 'admin';
+      }
+      const message = {
+        status: 'success',
         data: {
-          message: 'Cannot reach MongoDB',
+          message: 'Successfully logged in',
+          zelid: result.zelid,
+          loginPhrase: result.loginPhrase,
+          signature: result.signature,
+          privilage,
         },
       };
-      // ws.clients.forEach(function each(client) {
-      //   if (client !== ws && client.readyState === WebSocket.OPEN) {
-      //     client.send(data);
-      //   }
       if (!connclosed) {
         try {
-          ws.send(qs.stringify(errMessage));
-          ws.close();
+          ws.send(qs.stringify(message));
+          ws.close(1000);
         } catch (e) {
           log.error(e);
         }
       }
-    }
-
-    const database = db.db(config.database.local.database);
-    const collection = config.database.local.collections.loggedUsers;
-    const query = { loginPhrase: loginphrase };
-    const projection = {};
-    function searchDatabase() {
-      serviceHelper.findOneInDatabase(database, collection, query, projection, (err, result) => {
-        if (err) {
-          log.error('Error looking for Login');
-          log.error(err);
-          const errMessage = {
-            status: 'error',
-            data: {
-              message: 'Error looking for Login',
-            },
-          };
-          db.close();
+      db.close();
+    } else {
+      // check if this loginPhrase is still active. If so rerun this searching process
+      const activeLoginPhrasesCollection = config.database.local.collections.activeLoginPhrases;
+      const result = await serviceHelper.findOneInDatabase(database, activeLoginPhrasesCollection, query, projection);
+      if (result) {
+        setTimeout(() => {
           if (!connclosed) {
-            try {
-              ws.send(qs.stringify(errMessage));
-              ws.close();
-            } catch (e) {
-              log.error(e);
-            }
+            searchDatabase();
+          }
+        }, 500);
+      } else {
+        const errMessage = {
+          status: 'error',
+          data: {
+            message: 'Signed message is no longer valid. Please request a new one.',
+          },
+        };
+        db.close();
+        if (!connclosed) {
+          try {
+            ws.send(qs.stringify(errMessage));
+            ws.close();
+          } catch (e) {
+            log.error(e);
           }
         }
-
-        if (result) {
-          // user is logged, all ok
-          let privilage = 'user';
-          if (result.zelid === config.zelTeamZelId) {
-            privilage = 'zelteam';
-          } else if (result.zelid === userconfig.initial.zelid) {
-            privilage = 'admin';
-          }
-          const message = {
-            status: 'success',
-            data: {
-              message: 'Successfully logged in',
-              zelid: result.zelid,
-              loginPhrase: result.loginPhrase,
-              signature: result.signature,
-              privilage,
-            },
-          };
-          if (!connclosed) {
-            try {
-              ws.send(qs.stringify(message));
-              ws.close(1000);
-            } catch (e) {
-              log.error(e);
-            }
-          }
-          db.close();
-        } else {
-          // check if this loginPhrase is still active. If so rerun this searching process
-          const activeLoginPhrasesCollection = config.database.local.collections.activeLoginPhrases;
-          serviceHelper.findOneInDatabase(database, activeLoginPhrasesCollection, query, projection, (err, result) => {
-            if (err) {
-              log.error('Error searching for login phrase');
-              log.error(err);
-              const errMessage = {
-                status: 'error',
-                data: {
-                  message: 'Error searching for login phrase',
-                },
-              };
-              db.close();
-              if (!connclosed) {
-                try {
-                  ws.send(qs.stringify(errMessage));
-                  ws.close();
-                } catch (e) {
-                  log.error(e);
-                }
-              }
-            }
-            if (result) {
-              setTimeout(() => {
-                if (!connclosed) {
-                  searchDatabase();
-                }
-              }, 500);
-            } else {
-              const errMessage = {
-                status: 'error',
-                data: {
-                  message: 'Signed message is no longer valid. Please request a new one.',
-                },
-              };
-              db.close();
-              if (!connclosed) {
-                try {
-                  ws.send(qs.stringify(errMessage));
-                  ws.close();
-                } catch (e) {
-                  log.error(e);
-                }
-              }
-            }
-          });
-        }
-      });
+      }
     }
-    searchDatabase();
-  });
+  }
+  searchDatabase();
 }
 
 module.exports = {

@@ -445,6 +445,10 @@ module.exports = (app, expressWs) => {
     zelfluxCommunication.broadcastMessageFromUser(req, res);
   });
 
+  app.post('/zelflux/broadcastmessage', (req, res) => {
+    zelfluxCommunication.broadcastMessageFromUserPost(req, res);
+  });
+
   app.get('/zelflux/connectedpeers', (req, res) => {
     zelfluxCommunication.connectedPeers(req, res);
   });

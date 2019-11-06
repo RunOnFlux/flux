@@ -42,6 +42,8 @@
         </div>
       </div>
     </div>
+    <div v-if="zelNodeSection === 'network'">
+    </div>
   </div>
 </template>
 
@@ -50,8 +52,10 @@ import Vuex, { mapState } from 'vuex';
 import Vue from 'vue';
 
 import ZelCashService from '@/services/ZelCashService';
+import ZelFluxService from '@/services/ZelFluxService';
 
 Vue.use(Vuex);
+const vue = new Vue();
 
 export default {
   name: 'ZelNode',
@@ -83,6 +87,13 @@ export default {
           this.zelcashGetInfo();
           this.zelcashGetZelNodeStatus();
           break;
+        case 'network':
+          this.zelfluxConnectedPeersInfo();
+          this.zelfluxIncomingConnections();
+          break;
+        case 'messages':
+          this.broadcastMessage();
+          break;
         case null:
           console.log('ZelNode Section hidden');
           break;
@@ -96,6 +107,13 @@ export default {
       case 'getinfo':
         this.zelcashGetInfo();
         this.zelcashGetZelNodeStatus();
+        break;
+      case 'network':
+        this.zelfluxConnectedPeersInfo();
+        this.zelfluxIncomingConnections();
+        break;
+      case 'messages':
+        this.broadcastMessage();
         break;
       case null:
         console.log('ZelNode Section hidden');
@@ -125,6 +143,30 @@ export default {
           this.getZelNodeStatusResponse.zelnodeStatus = `Error status code: ${statusCode}. ZelNode not activated yet. ZelFlux is running but with limited capabilities.`;
         }
       }
+    },
+    async broadcastMessage() {
+      const zelidauth = localStorage.getItem('zelidauth');
+      ZelFluxService.broadcastMessage(zelidauth, 'abcde')
+        .then((response) => {
+          console.log(response);
+          if (response.data.status === 'error') {
+            vue.$message.error(response.data.data.message);
+          } else {
+            vue.$message.success(response.data.data.message);
+          }
+        })
+        .catch((e) => {
+          console.log(e);
+          vue.$message.error(e.toString());
+        });
+    },
+    async zelfluxConnectedPeersInfo() {
+      const responsePeers = await ZelFluxService.connectedPeersInfo();
+      console.log(responsePeers);
+    },
+    async zelfluxIncomingConnections() {
+      const response = await ZelFluxService.incomingConnections();
+      console.log(response);
     },
   },
 };

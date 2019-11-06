@@ -293,6 +293,42 @@ async function broadcastMessageFromUser(req, res) {
   return res.json(response);
 }
 
+async function broadcastMessageFromUserPost(req, res) {
+  console.log(req.headers);
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = JSON.parse(body);
+    if (processedBody === undefined || processedBody === null || processedBody === '') {
+      const errMessage = {
+        status: 'error',
+        data: {
+          message: 'No message to broadcast attached.',
+        },
+      };
+      response = errMessage;
+    } else {
+      const authorized = await serviceHelper.verifyPrivilege('zelteam', req, res);
+      console.log(authorized);
+      if (authorized === true) {
+        broadcastMessage(processedBody);
+        const message = {
+          status: 'success',
+          data: {
+            message: 'Message successfully broadcasted to ZelFlux network',
+          },
+        };
+        response = message;
+      } else {
+        response = errUnauthorizedMessage;
+      }
+    }
+    return res.json(response);
+  });
+}
+
 async function getRandomConnection() {
   const zelnodeList = await zelnodelist();
   const zlLength = zelnodeList.length;
@@ -661,40 +697,10 @@ async function removeIncomingPeer(req, res, expressWs) {
   return res.json(response);
 }
 
-// async function getPing(req, res) {
-//   let { ip } = req.params;
-//   ip = ip || req.query.ip;
-//   if (ip === undefined || ip === null) {
-//     const errMessage = {
-//       status: 'error',
-//       data: {
-//         message: 'No IP address specified.',
-//       },
-//     };
-//     return res.json(errMessage);
-//   }
-
-//   // eslint-disable-next-line no-underscore-dangle
-//   const wsObj = await outgoingConnections.find(client => client._socket.remoteAddress === ip);
-//   if (!wsObj) {
-//     const errMessage = {
-//       status: 'error',
-//       data: {
-//         message: `Peer ${ip} is not connected`,
-//       },
-//     };
-//     return res.json(errMessage);
-//   }
-
-//   // const closeResponse = await closeIncomingConnection(ip, expressWs);
-//   // response = closeResponse;
-//   return res.json(response);
-// }
-
 function startFluxFunctions() {
-  fluxDisovery();
-  log.info('Flux Discovery started');
-  keepConnectionsAlive();
+  // fluxDisovery();
+  // log.info('Flux Discovery started');
+  // keepConnectionsAlive();
 }
 
 module.exports = {
@@ -705,6 +711,7 @@ module.exports = {
   fluxDisovery,
   broadcastMessage,
   broadcastMessageFromUser,
+  broadcastMessageFromUserPost,
   serialiseAndSignZelFluxBroadcast,
   initiateAndHandleConnection,
   connectedPeers,
@@ -714,5 +721,4 @@ module.exports = {
   removePeer,
   removeIncomingPeer,
   connectedPeersInfo,
-  // getPing,
 };

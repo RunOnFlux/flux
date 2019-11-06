@@ -118,8 +118,10 @@
         index="2"
         popper-append-to-body="true"
       >
-        <template slot="title">ZelNode</template>
+        <template slot="title">ZelFlux</template>
         <el-menu-item index="2-1">ZelNode Status</el-menu-item>
+        <el-menu-item index="2-2">ZelFlux Network</el-menu-item>
+        <el-menu-item index="2-3">ZelFlux Messages</el-menu-item>
       </el-submenu>
       <el-submenu
         v-if="privilage === 'user' || privilage === 'admin' || privilage === 'zelteam'"
@@ -231,6 +233,12 @@ export default {
           break;
         case '2-1':
           this.$store.commit('setZelNodeSection', 'getinfo');
+          break;
+        case '2-2':
+          this.$store.commit('setZelNodeSection', 'network');
+          break;
+        case '2-3':
+          this.$store.commit('setZelNodeSection', 'messages');
           break;
         case '3-1':
           this.$store.commit('setZelAppsSection', 'information');
