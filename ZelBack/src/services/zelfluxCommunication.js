@@ -211,7 +211,7 @@ function handleIncomingConnection(ws, req, expressWS) {
     if (messageOK === true && timestampOK === true) {
       try {
         const msgObj = ensureObject(msg);
-        if (msgObj.data.type === 'HearthBeat' && msgObj.data.message === 'ping') { // we know that data exists
+        if (msgObj.data.type === 'HeartBeat' && msgObj.data.message === 'ping') { // we know that data exists
           const newMessage = msgObj.data;
           newMessage.message = 'pong';
           const pongResponse = await serialiseAndSignZelFluxBroadcast(newMessage);
@@ -404,7 +404,7 @@ async function initiateAndHandleConnection(ip) {
     const messageOK = await verifyOriginalFluxBroadcast(evt.data, undefined, currentTimeStamp);
     if (messageOK === true) {
       const msgObj = ensureObject(evt.data);
-      if (msgObj.data.type === 'HearthBeat' && msgObj.data.message === 'pong') {
+      if (msgObj.data.type === 'HeartBeat' && msgObj.data.message === 'pong') {
         const newerTimeStamp = Date.now(); // ms, get a bit newer time that has passed verification of broadcast
         const rtt = newerTimeStamp - msgObj.data.timestamp;
         console.log(rtt);
@@ -505,7 +505,7 @@ function connectedPeersInfo(req, res) {
 function keepConnectionsAlive() {
   setInterval(() => {
     const timestamp = Date.now();
-    const type = 'HearthBeat';
+    const type = 'HeartBeat';
     const message = 'ping';
     const data = {
       timestamp,
