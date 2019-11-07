@@ -29,37 +29,6 @@ const errUnauthorizedMessage = {
   },
 };
 
-// TODO move to helpers
-function ensureBoolean(parameter) {
-  if (typeof parameter !== 'boolean') {
-    if (parameter === 'false' || parameter === 0 || parameter === '0') {
-      // eslint-disable-next-line no-param-reassign
-      parameter = false;
-    }
-    if (parameter === 'true' || parameter === 1 || parameter === '1') {
-      // eslint-disable-next-line no-param-reassign
-      parameter = true;
-    }
-  }
-  return parameter;
-}
-
-function ensureNumber(parameter) {
-  if (typeof parameter !== 'number') {
-    // eslint-disable-next-line no-param-reassign
-    parameter = Number(parameter);
-  }
-  return parameter;
-}
-
-function ensureObject(parameter) {
-  if (typeof parameter !== 'object') {
-    // eslint-disable-next-line no-param-reassign
-    parameter = JSON.parse(parameter);
-  }
-  return parameter;
-}
-
 async function executeCall(rpc, params) {
   const callResponse = {
     status: 'error',
@@ -324,7 +293,7 @@ async function spork(req, res) {
   const rpcparameters = [];
   rpcparameters.push(name);
   if (value) {
-    value = ensureNumber(value);
+    value = serviceHelper.ensureNumber(value);
     rpcparameters.push(value);
   }
 
@@ -388,7 +357,7 @@ async function getBlock(req, res) {
   hashheight = hashheight || req.query.hashheight;
   let { verbosity } = req.params;
   verbosity = verbosity || req.query.verbosity || 2; // defaults to json object. CORRECT ZELCASH verbosity is number, error says its not boolean
-  verbosity = ensureNumber(verbosity);
+  verbosity = serviceHelper.ensureNumber(verbosity);
 
   const rpccall = 'getBlock';
   const rpcparameters = [hashheight, verbosity];
@@ -421,7 +390,7 @@ async function getBlockHah(req, res) {
   const rpccall = 'getBlockHah';
   const rpcparameters = [];
   if (index) {
-    index = ensureNumber(index);
+    index = serviceHelper.ensureNumber(index);
     rpcparameters.push(index);
   }
 
@@ -439,7 +408,7 @@ async function getBlockHeader(req, res) {
   const rpccall = 'getBlockHeader';
   const rpcparameters = [];
   if (hash) {
-    verbose = ensureBoolean(verbose);
+    verbose = serviceHelper.ensureBoolean(verbose);
     rpcparameters.push(hash);
     rpcparameters.push(verbose);
   }
@@ -477,7 +446,7 @@ async function getRawMemPool(req, res) {
   let { verbose } = req.params;
   verbose = verbose || req.query.verbose || false;
 
-  verbose = ensureBoolean(verbose);
+  verbose = serviceHelper.ensureBoolean(verbose);
 
   const rpccall = 'getRawMemPool';
   const rpcparameters = [verbose];
@@ -498,8 +467,8 @@ async function getTxOut(req, res) {
   const rpccall = 'getTxOut';
   const rpcparameters = [];
   if (txid && n) {
-    includemempool = ensureBoolean(includemempool);
-    n = ensureNumber(n);
+    includemempool = serviceHelper.ensureBoolean(includemempool);
+    n = serviceHelper.ensureNumber(n);
     rpcparameters.push(txid);
     rpcparameters.push(n);
     rpcparameters.push(includemempool);
@@ -546,8 +515,8 @@ async function verifyChain(req, res) {
   numblocks = numblocks || req.query.numblocks || 288;
   const authorized = await serviceHelper.verifyPrivilege('admin', req, res);
   if (authorized === true) {
-    checklevel = ensureNumber(checklevel);
-    numblocks = ensureNumber(numblocks);
+    checklevel = serviceHelper.ensureNumber(checklevel);
+    numblocks = serviceHelper.ensureNumber(numblocks);
     const rpccall = 'verifyChain';
     const rpcparameters = [checklevel, numblocks];
 
@@ -582,7 +551,7 @@ async function getBlockSubsidy(req, res) {
   const rpccall = 'getBlockSubsidy';
   const rpcparameters = [];
   if (height) {
-    height = ensureNumber(height);
+    height = serviceHelper.ensureNumber(height);
     rpcparameters.push(height);
   }
 
@@ -598,7 +567,7 @@ async function getBlockTemplate(req, res) {
   const rpccall = 'getBlockTemplate';
   const rpcparameters = [];
   if (jsonrequestobject) {
-    jsonrequestobject = ensureObject(jsonrequestobject);
+    jsonrequestobject = serviceHelper.ensureObject(jsonrequestobject);
     rpcparameters.push(jsonrequestobject);
   }
 
@@ -630,8 +599,8 @@ async function getNetworkHashPs(req, res) {
   let { height } = req.params;
   height = height || req.query.height || -1;
 
-  blocks = ensureNumber(blocks);
-  height = ensureNumber(height);
+  blocks = serviceHelper.ensureNumber(blocks);
+  height = serviceHelper.ensureNumber(height);
 
   const rpccall = 'getNetworkHashPs';
   const rpcparameters = [blocks, height];
@@ -647,8 +616,8 @@ async function getNetworkSolPs(req, res) {
   let { height } = req.params;
   height = height || req.query.height || -1;
 
-  blocks = ensureNumber(blocks);
-  height = ensureNumber(height);
+  blocks = serviceHelper.ensureNumber(blocks);
+  height = serviceHelper.ensureNumber(height);
   const rpccall = 'getNetworkSolPs';
   const rpcparameters = [blocks, height];
 
@@ -669,8 +638,8 @@ async function prioritiseTransaction(req, res) {
     const rpccall = 'prioritiseTransaction';
     let rpcparameters = [];
     if (txid && prioritydelta && feedelta) {
-      prioritydelta = ensureNumber(prioritydelta);
-      feedelta = ensureNumber(feedelta);
+      prioritydelta = serviceHelper.ensureNumber(prioritydelta);
+      feedelta = serviceHelper.ensureNumber(feedelta);
       rpcparameters = [txid, prioritydelta, feedelta];
     }
 
@@ -692,7 +661,7 @@ async function submitBlock(req, res) {
     const rpccall = 'submitBlock';
     let rpcparameters = [];
     if (hexdata && jsonparametersobject) {
-      jsonparametersobject = ensureObject(jsonparametersobject);
+      jsonparametersobject = serviceHelper.ensureObject(jsonparametersobject);
       rpcparameters = [hexdata, jsonparametersobject];
     } else if (hexdata) {
       rpcparameters = [hexdata];
@@ -770,7 +739,7 @@ async function getAddedNodeInfo(req, res) {
     const rpccall = 'getAddedNodeInfo';
     const rpcparameters = [];
     if (dns) {
-      dns = ensureBoolean(dns);
+      dns = serviceHelper.ensureBoolean(dns);
       rpcparameters.push(dns);
       if (node) {
         rpcparameters.push(node);
@@ -863,10 +832,10 @@ async function setBan(req, res) {
       rpcparameters.push(ip);
       rpcparameters.push(command);
       if (bantime) {
-        bantime = ensureNumber(bantime);
+        bantime = serviceHelper.ensureNumber(bantime);
         rpcparameters.push(bantime);
         if (absolute) {
-          absolute = ensureBoolean(absolute);
+          absolute = serviceHelper.ensureBoolean(absolute);
           rpcparameters.push(absolute);
         }
       }
@@ -902,13 +871,13 @@ async function createRawTransaction(req, res) {
   expiryheight = expiryheight || req.query.expiryheight || defaultExpiryHeight;
   console.log(expiryheight);
 
-  locktime = ensureNumber(locktime);
-  expiryheight = ensureNumber(expiryheight);
+  locktime = serviceHelper.ensureNumber(locktime);
+  expiryheight = serviceHelper.ensureNumber(expiryheight);
   const rpccall = 'createRawTransaction';
   let rpcparameters = [];
   if (transactions && addresses) {
-    transactions = ensureObject(transactions);
-    addresses = ensureObject(addresses);
+    transactions = serviceHelper.ensureObject(transactions);
+    addresses = serviceHelper.ensureObject(addresses);
     rpcparameters = [transactions, addresses, locktime, expiryheight];
   }
   response = await executeCall(rpccall, rpcparameters);
@@ -967,7 +936,7 @@ async function getRawTransaction(req, res) {
   const rpccall = 'getRawTransaction';
   let rpcparameters = [];
   if (txid) {
-    verbose = ensureNumber(verbose);
+    verbose = serviceHelper.ensureNumber(verbose);
     rpcparameters = [txid, verbose];
   }
   response = await executeCall(rpccall, rpcparameters);
@@ -984,7 +953,7 @@ async function sendRawTransaction(req, res) {
   const rpccall = 'sendRawTransaction';
   let rpcparameters = [];
   if (hexstring) {
-    allowhighfees = ensureBoolean(allowhighfees);
+    allowhighfees = serviceHelper.ensureBoolean(allowhighfees);
     rpcparameters = [hexstring, allowhighfees];
   }
   response = await executeCall(rpccall, rpcparameters);
@@ -1010,10 +979,10 @@ async function signRawTransaction(req, res) {
     if (hexstring) {
       rpcparameters.push(hexstring);
       if (prevtxs) {
-        prevtxs = ensureObject(prevtxs);
+        prevtxs = serviceHelper.ensureObject(prevtxs);
         rpcparameters.push(prevtxs);
         if (privatekeys) {
-          privatekeys = ensureObject(privatekeys);
+          privatekeys = serviceHelper.ensureObject(privatekeys);
           rpcparameters.push(privatekeys);
           rpcparameters.push(sighashtype);
           if (branchid) {
@@ -1040,8 +1009,8 @@ async function createMultiSig(req, res) {
   const rpccall = 'createMultiSig';
   let rpcparameters = [];
   if (n && keys) {
-    n = ensureNumber(n);
-    keys = ensureObject(keys);
+    n = serviceHelper.ensureNumber(n);
+    keys = serviceHelper.ensureObject(keys);
     rpcparameters = [n, keys];
   }
   response = await executeCall(rpccall, rpcparameters);
@@ -1056,7 +1025,7 @@ async function estimateFee(req, res) {
   const rpccall = 'estimateFee';
   let rpcparameters = [];
   if (nblocks) {
-    nblocks = ensureNumber(nblocks);
+    nblocks = serviceHelper.ensureNumber(nblocks);
     rpcparameters = [nblocks];
   }
   response = await executeCall(rpccall, rpcparameters);
@@ -1071,7 +1040,7 @@ async function estimatePriority(req, res) {
   const rpccall = 'estimatePriority';
   let rpcparameters = [];
   if (nblocks) {
-    nblocks = ensureNumber(nblocks);
+    nblocks = serviceHelper.ensureNumber(nblocks);
     rpcparameters = [nblocks];
   }
   response = await executeCall(rpccall, rpcparameters);
@@ -1136,8 +1105,8 @@ async function addMultiSigAddress(req, res) {
     const rpccall = 'addMultiSigAddress';
     let rpcparameters = [];
     if (n && keysobject) {
-      n = ensureNumber(n);
-      keysobject = ensureObject(keysobject);
+      n = serviceHelper.ensureNumber(n);
+      keysobject = serviceHelper.ensureObject(keysobject);
       rpcparameters = [n, keysobject];
     }
     response = await executeCall(rpccall, rpcparameters);
@@ -1192,8 +1161,8 @@ async function getBalance(req, res) {
   const authorized = await serviceHelper.verifyPrivilege('admin', req, res);
   if (authorized === true) {
     const rpccall = 'getBalance';
-    minconf = ensureNumber(minconf);
-    includewatchonly = ensureBoolean(includewatchonly);
+    minconf = serviceHelper.ensureNumber(minconf);
+    includewatchonly = serviceHelper.ensureBoolean(includewatchonly);
     const rpcparameters = ['', minconf, includewatchonly];
     response = await executeCall(rpccall, rpcparameters);
   } else {
@@ -1237,7 +1206,7 @@ async function getReceivedByAddress(req, res) {
     const rpccall = 'getReceivedByAddress';
     let rpcparameters = [];
     if (zelcashaddress) {
-      minconf = ensureNumber(minconf);
+      minconf = serviceHelper.ensureNumber(minconf);
       rpcparameters = [zelcashaddress, minconf];
     }
     response = await executeCall(rpccall, rpcparameters);
@@ -1257,7 +1226,7 @@ async function getTransaction(req, res) {
   const rpccall = 'getTransaction';
   let rpcparameters = [];
   if (txid) {
-    includewatchonly = ensureBoolean(includewatchonly);
+    includewatchonly = serviceHelper.ensureBoolean(includewatchonly);
     rpcparameters = [txid, includewatchonly];
   }
   response = await executeCall(rpccall, rpcparameters);
@@ -1301,7 +1270,7 @@ async function importAddress(req, res) {
     const rpccall = 'importAddress';
     let rpcparameters = [];
     if (address) {
-      rescan = ensureBoolean(rescan);
+      rescan = serviceHelper.ensureBoolean(rescan);
       rpcparameters = [address, label, rescan];
     }
     response = await executeCall(rpccall, rpcparameters);
@@ -1324,7 +1293,7 @@ async function importPrivKey(req, res) {
     const rpccall = 'importPrivKey';
     let rpcparameters = [];
     if (zelcashprivkey) {
-      rescan = ensureBoolean(rescan);
+      rescan = serviceHelper.ensureBoolean(rescan);
       rpcparameters = [zelcashprivkey, label, rescan];
     }
     response = await executeCall(rpccall, rpcparameters);
@@ -1359,7 +1328,7 @@ async function keyPoolRefill(req, res) {
   const authorized = await serviceHelper.verifyPrivilege('admin', req, res);
   if (authorized === true) {
     const rpccall = 'keyPoolRefill';
-    newsize = ensureNumber(newsize);
+    newsize = serviceHelper.ensureNumber(newsize);
     const rpcparameters = [newsize];
     response = await executeCall(rpccall, rpcparameters);
   } else {
@@ -1398,7 +1367,7 @@ async function rescanBlockchain(req, res) {
   startheight = startheight || req.query.startheight || 0;
   const authorized = await serviceHelper.verifyPrivilege('admin', req, res);
   if (authorized === true) {
-    startheight = ensureNumber(startheight);
+    startheight = serviceHelper.ensureNumber(startheight);
     const rpccall = 'rescanblockchain';
     const rpcparameters = [startheight];
     response = await executeCall(rpccall, rpcparameters);
@@ -1418,9 +1387,9 @@ async function listReceivedByAddress(req, res) {
   includewatchonly = includewatchonly || req.query.includewatchonly || false;
   const authorized = await serviceHelper.verifyPrivilege('admin', req, res);
   if (authorized === true) {
-    minconf = ensureNumber(minconf);
-    includeempty = ensureBoolean(includeempty);
-    includewatchonly = ensureBoolean(includewatchonly);
+    minconf = serviceHelper.ensureNumber(minconf);
+    includeempty = serviceHelper.ensureBoolean(includeempty);
+    includewatchonly = serviceHelper.ensureBoolean(includewatchonly);
     const rpccall = 'listReceivedByAddress';
     const rpcparameters = [minconf, includeempty, includewatchonly];
     response = await executeCall(rpccall, rpcparameters);
@@ -1440,8 +1409,8 @@ async function listSinceBlock(req, res) {
   includewatchonly = includewatchonly || req.query.includewatchonly || false;
   const authorized = await serviceHelper.verifyPrivilege('admin', req, res);
   if (authorized === true) {
-    targetconfirmations = ensureNumber(targetconfirmations);
-    includewatchonly = ensureBoolean(includewatchonly);
+    targetconfirmations = serviceHelper.ensureNumber(targetconfirmations);
+    includewatchonly = serviceHelper.ensureBoolean(includewatchonly);
     const rpccall = 'listSinceBlock';
     const rpcparameters = [blockhash, targetconfirmations, includewatchonly];
     response = await executeCall(rpccall, rpcparameters);
@@ -1462,9 +1431,9 @@ async function listTransactions(req, res) {
   includewatchonly = includewatchonly || req.query.includewatchonly || false;
   const authorized = await serviceHelper.verifyPrivilege('admin', req, res);
   if (authorized === true) {
-    count = ensureNumber(count);
-    from = ensureNumber(from);
-    includewatchonly = ensureBoolean(includewatchonly);
+    count = serviceHelper.ensureNumber(count);
+    from = serviceHelper.ensureNumber(from);
+    includewatchonly = serviceHelper.ensureBoolean(includewatchonly);
     const rpccall = 'listTransactions';
     const rpcparameters = [account, count, from, includewatchonly];
     response = await executeCall(rpccall, rpcparameters);
@@ -1484,12 +1453,12 @@ async function listUnspent(req, res) {
   addresses = addresses || req.query.addresses;
   const authorized = await serviceHelper.verifyPrivilege('admin', req, res);
   if (authorized === true) {
-    minconf = ensureNumber(minconf);
-    maxconf = ensureNumber(maxconf);
+    minconf = serviceHelper.ensureNumber(minconf);
+    maxconf = serviceHelper.ensureNumber(maxconf);
     const rpccall = 'listUnspent';
     const rpcparameters = [minconf, maxconf];
     if (addresses) {
-      addresses = ensureObject(addresses);
+      addresses = serviceHelper.ensureObject(addresses);
       rpcparameters.push(addresses);
     }
 
@@ -1511,8 +1480,8 @@ async function lockUnspent(req, res) {
     const rpccall = 'lockUnspent';
     let rpcparameters = [];
     if (unlock && transactions) {
-      unlock = ensureBoolean(unlock);
-      transactions = ensureObject(transactions);
+      unlock = serviceHelper.ensureBoolean(unlock);
+      transactions = serviceHelper.ensureObject(transactions);
       rpcparameters = [unlock, transactions];
     }
 
@@ -1541,8 +1510,8 @@ async function sendFrom(req, res) {
     const rpccall = 'sendFrom';
     let rpcparameters = [];
     if (tozelcashaddress && amount) {
-      amount = ensureNumber(amount);
-      minconf = ensureNumber(minconf);
+      amount = serviceHelper.ensureNumber(amount);
+      minconf = serviceHelper.ensureNumber(minconf);
       rpcparameters = [account, tozelcashaddress, amount, minconf, comment, commentto];
     }
 
@@ -1569,11 +1538,11 @@ async function sendMany(req, res) {
     const rpccall = 'sendMany';
     let rpcparameters = [];
     if (amounts) {
-      amounts = ensureObject(amounts);
-      minconf = ensureNumber(minconf);
+      amounts = serviceHelper.ensureObject(amounts);
+      minconf = serviceHelper.ensureNumber(minconf);
       rpcparameters = [fromaccount, amounts, minconf, comment];
       if (substractfeefromamount) {
-        substractfeefromamount = ensureObject(substractfeefromamount);
+        substractfeefromamount = serviceHelper.ensureObject(substractfeefromamount);
         rpcparameters.push(substractfeefromamount);
       }
     }
@@ -1602,8 +1571,8 @@ async function sendToAddress(req, res) {
     const rpccall = 'sendToAddress';
     let rpcparameters = [];
     if (zelcashaddress && amount) {
-      amount = ensureNumber(amount);
-      substractfeefromamount = ensureBoolean(substractfeefromamount);
+      amount = serviceHelper.ensureNumber(amount);
+      substractfeefromamount = serviceHelper.ensureBoolean(substractfeefromamount);
       rpcparameters = [zelcashaddress, amount, comment, commentto, substractfeefromamount];
     }
 
@@ -1623,7 +1592,7 @@ async function setTxFee(req, res) {
     const rpccall = 'setTxFee';
     let rpcparameters = [];
     if (amount) {
-      amount = ensureNumber(amount);
+      amount = serviceHelper.ensureNumber(amount);
       rpcparameters = [amount];
     }
 
@@ -1704,7 +1673,7 @@ async function zGetBalance(req, res) {
     const rpccall = 'z_getbalance';
     let rpcparameters = [];
     if (address) {
-      minconf = ensureNumber(minconf);
+      minconf = serviceHelper.ensureNumber(minconf);
       rpcparameters = [address, minconf];
     }
 
@@ -1750,7 +1719,7 @@ async function zGetOperationResult(req, res) {
   operationid = operationid || req.query.operationid || [];
   const authorized = await serviceHelper.verifyPrivilege('admin', req, res);
   if (authorized === true) {
-    operationid = ensureObject(operationid);
+    operationid = serviceHelper.ensureObject(operationid);
     const rpccall = 'z_getoperationresult';
     const rpcparameters = [operationid];
 
@@ -1767,7 +1736,7 @@ async function zGetOperationStatus(req, res) {
   operationid = operationid || req.query.operationid || [];
   const authorized = await serviceHelper.verifyPrivilege('admin', req, res);
   if (authorized === true) {
-    operationid = ensureObject(operationid);
+    operationid = serviceHelper.ensureObject(operationid);
     const rpccall = 'z_getoperationstatus';
     const rpcparameters = [operationid];
 
@@ -1786,8 +1755,8 @@ async function zGetTotalBalance(req, res) {
   includewatchonly = includewatchonly || req.query.includewatchonly || false;
   const authorized = await serviceHelper.verifyPrivilege('admin', req, res);
   if (authorized === true) {
-    minconf = ensureNumber(minconf);
-    includewatchonly = ensureBoolean(includewatchonly);
+    minconf = serviceHelper.ensureNumber(minconf);
+    includewatchonly = serviceHelper.ensureBoolean(includewatchonly);
     const rpccall = 'z_gettotalbalance';
     const rpcparameters = [minconf, includewatchonly];
 
@@ -1811,7 +1780,7 @@ async function zImportKey(req, res) {
     const rpccall = 'z_importkey';
     let rpcparameters = [];
     if (zkey) {
-      startheight = ensureNumber(startheight);
+      startheight = serviceHelper.ensureNumber(startheight);
       rpcparameters = [zkey, rescan, startheight];
     }
 
@@ -1835,7 +1804,7 @@ async function zImportViewingKey(req, res) {
     const rpccall = 'z_importkey';
     let rpcparameters = [];
     if (vkey) {
-      startheight = ensureNumber(startheight);
+      startheight = serviceHelper.ensureNumber(startheight);
       rpcparameters = [vkey, rescan, startheight];
     }
 
@@ -1871,7 +1840,7 @@ async function zListAddresses(req, res) {
   includewatchonly = includewatchonly || req.query.includewatchonly || false;
   const authorized = await serviceHelper.verifyPrivilege('admin', req, res);
   if (authorized === true) {
-    includewatchonly = ensureBoolean(includewatchonly);
+    includewatchonly = serviceHelper.ensureBoolean(includewatchonly);
     const rpccall = 'z_listaddresses';
     const rpcparameters = [includewatchonly];
 
@@ -1906,7 +1875,7 @@ async function zListReceivedByAddress(req, res) {
     const rpccall = 'z_listreceivedbyaddress';
     let rpcparameters = [];
     if (address) {
-      minconf = ensureNumber(minconf);
+      minconf = serviceHelper.ensureNumber(minconf);
       rpcparameters = [address, minconf];
     }
 
@@ -1930,12 +1899,12 @@ async function zListUnspent(req, res) {
   const authorized = await serviceHelper.verifyPrivilege('admin', req, res);
   if (authorized === true) {
     const rpccall = 'z_listunspent';
-    minconf = ensureNumber(minconf);
-    maxconf = ensureNumber(maxconf);
-    includewatchonly = ensureBoolean(includewatchonly);
+    minconf = serviceHelper.ensureNumber(minconf);
+    maxconf = serviceHelper.ensureNumber(maxconf);
+    includewatchonly = serviceHelper.ensureBoolean(includewatchonly);
     const rpcparameters = [minconf, maxconf, includewatchonly];
     if (addresses) {
-      addresses = ensureObject(addresses);
+      addresses = serviceHelper.ensureObject(addresses);
       rpcparameters.push(addresses);
     }
 
@@ -1965,10 +1934,10 @@ async function zMergeToAddress(req, res) {
     const rpccall = 'z_mergetoaddress';
     let rpcparameters = [];
     if (fromaddresses && toaddress) {
-      fromaddresses = ensureObject(fromaddresses);
-      fee = ensureNumber(fee);
-      transparentlimit = ensureNumber(transparentlimit);
-      shieldedlimit = ensureNumber(shieldedlimit);
+      fromaddresses = serviceHelper.ensureObject(fromaddresses);
+      fee = serviceHelper.ensureNumber(fee);
+      transparentlimit = serviceHelper.ensureNumber(transparentlimit);
+      shieldedlimit = serviceHelper.ensureNumber(shieldedlimit);
       rpcparameters = [fromaddresses, toaddress, fee, transparentlimit, shieldedlimit, memo];
     }
     response = await executeCall(rpccall, rpcparameters);
@@ -1993,9 +1962,9 @@ async function zSendMany(req, res) {
     const rpccall = 'z_sendmany';
     let rpcparameters = [];
     if (fromaddress && amounts) {
-      amounts = ensureObject(amounts);
-      minconf = ensureNumber(minconf);
-      fee = ensureNumber(fee);
+      amounts = serviceHelper.ensureObject(amounts);
+      minconf = serviceHelper.ensureNumber(minconf);
+      fee = serviceHelper.ensureNumber(fee);
       rpcparameters = [fromaddress, amounts, minconf, fee];
     }
     response = await executeCall(rpccall, rpcparameters);
@@ -2015,7 +1984,7 @@ async function zSetMigration(req, res) {
     const rpccall = 'z_setmigration';
     let rpcparameters = [];
     if (enabled) {
-      enabled = ensureBoolean(enabled);
+      enabled = serviceHelper.ensureBoolean(enabled);
       rpcparameters = [enabled];
     }
     response = await executeCall(rpccall, rpcparameters);
@@ -2040,8 +2009,8 @@ async function zShieldCoinBase(req, res) {
     const rpccall = 'z_shieldcoinbase';
     let rpcparameters = [];
     if (fromaddress && toaddress) {
-      fee = ensureNumber(fee);
-      limit = ensureNumber(limit);
+      fee = serviceHelper.ensureNumber(fee);
+      limit = serviceHelper.ensureNumber(limit);
       rpcparameters = [fromaddress, toaddress, fee, limit];
     }
     response = await executeCall(rpccall, rpcparameters);
@@ -2062,7 +2031,7 @@ async function zcBenchmark(req, res) {
     const rpccall = 'zcbenchmark';
     let rpcparameters = [];
     if (benchmarktype && samplecount) {
-      samplecount = ensureNumber(samplecount);
+      samplecount = serviceHelper.ensureNumber(samplecount);
       rpcparameters = [benchmarktype, samplecount];
     }
     response = await executeCall(rpccall, rpcparameters);
@@ -2089,8 +2058,8 @@ async function zcRawJoinSplit(req, res) {
     const rpccall = 'zcrawjoinsplit';
     let rpcparameters = [];
     if (rawtx && inputs && outputs && vpubold && vpubnew) {
-      inputs = ensureObject(inputs);
-      outputs = ensureObject(outputs);
+      inputs = serviceHelper.ensureObject(inputs);
+      outputs = serviceHelper.ensureObject(outputs);
       rpcparameters = [rawtx, inputs, outputs, vpubold, vpubnew];
     }
     response = await executeCall(rpccall, rpcparameters);

@@ -24,16 +24,6 @@ const errUnauthorizedMessage = {
   },
 };
 
-function ensureObject(data) {
-  const dataObj = typeof data === 'object' ? data : JSON.parse(data);
-  return dataObj;
-}
-
-function ensureString(data) {
-  const dataString = typeof data === 'string' ? data : JSON.stringify(data);
-  return dataString;
-}
-
 async function zelnodelist(filter) {
   let zelnodeList = null;
   const request = {
@@ -69,11 +59,11 @@ async function getZelNodePublicKey(privatekey) {
 // return boolean
 async function verifyFluxBroadcast(data, obtainedZelNodeList, currentTimeStamp) {
   // eslint-disable-next-line no-param-reassign
-  const dataObj = ensureObject(data);
+  const dataObj = serviceHelper.ensureObject(data);
   const { pubKey } = dataObj;
   const { timestamp } = dataObj; // ms
   const { signature } = dataObj;
-  const message = ensureString(dataObj.data);
+  const message = serviceHelper.ensureString(dataObj.data);
   // is timestamp valid ?
   // eslint-disable-next-line no-param-reassign
   currentTimeStamp = currentTimeStamp || Date.now(); // ms
@@ -114,7 +104,7 @@ async function verifyFluxBroadcast(data, obtainedZelNodeList, currentTimeStamp) 
 // extends verifyFluxBroadcast by not allowing request older than 5 secs.
 async function verifyOriginalFluxBroadcast(data, obtainedZelNodeList, currentTimeStamp) {
   // eslint-disable-next-line no-param-reassign
-  const dataObj = ensureObject(data);
+  const dataObj = serviceHelper.ensureObject(data);
   const { timestamp } = dataObj; // ms
   // eslint-disable-next-line no-param-reassign
   currentTimeStamp = currentTimeStamp || Date.now(); // ms
@@ -127,7 +117,7 @@ async function verifyOriginalFluxBroadcast(data, obtainedZelNodeList, currentTim
 
 async function verifyTimestampInFluxBroadcast(data, currentTimeStamp) {
   // eslint-disable-next-line no-param-reassign
-  const dataObj = ensureObject(data);
+  const dataObj = serviceHelper.ensureObject(data);
   const { timestamp } = dataObj; // ms
   // eslint-disable-next-line no-param-reassign
   currentTimeStamp = currentTimeStamp || Date.now(); // ms
@@ -173,7 +163,7 @@ function sendToAllPeers(data) {
 async function serialiseAndSignZelFluxBroadcast(dataToBroadcast, privatekey) {
   const timestamp = Date.now();
   const pubKey = await getZelNodePublicKey(privatekey);
-  const message = ensureString(dataToBroadcast);
+  const message = serviceHelper.ensureString(dataToBroadcast);
   const signature = await getFluxMessageSignature(message, privatekey);
   const type = 'message';
   const dataObj = {
@@ -210,7 +200,7 @@ function handleIncomingConnection(ws, req, expressWS) {
     const timestampOK = await verifyTimestampInFluxBroadcast(msg, currentTimeStamp);
     if (messageOK === true && timestampOK === true) {
       try {
-        const msgObj = ensureObject(msg);
+        const msgObj = serviceHelper.ensureObject(msg);
         if (msgObj.data.type === 'HeartBeat' && msgObj.data.message === 'ping') { // we know that data exists
           const newMessage = msgObj.data;
           newMessage.message = 'pong';
@@ -403,7 +393,7 @@ async function initiateAndHandleConnection(ip) {
     const currentTimeStamp = Date.now(); // ms
     const messageOK = await verifyOriginalFluxBroadcast(evt.data, undefined, currentTimeStamp);
     if (messageOK === true) {
-      const msgObj = ensureObject(evt.data);
+      const msgObj = serviceHelper.ensureObject(evt.data);
       if (msgObj.data.type === 'HeartBeat' && msgObj.data.message === 'pong') {
         const newerTimeStamp = Date.now(); // ms, get a bit newer time that has passed verification of broadcast
         const rtt = newerTimeStamp - msgObj.data.timestamp;
@@ -698,9 +688,9 @@ async function removeIncomingPeer(req, res, expressWs) {
 }
 
 function startFluxFunctions() {
-  // fluxDisovery();
-  // log.info('Flux Discovery started');
-  // keepConnectionsAlive();
+  fluxDisovery();
+  log.info('Flux Discovery started');
+  keepConnectionsAlive();
 }
 
 module.exports = {

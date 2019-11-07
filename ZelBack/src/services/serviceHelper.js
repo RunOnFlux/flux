@@ -12,11 +12,34 @@ const log = require('../lib/log');
 const { MongoClient } = mongodb;
 const mongoUrl = `mongodb://${config.database.url}:${config.database.port}/`;
 
+
+function ensureBoolean(parameter) {
+  let param;
+  if (parameter === 'false' || parameter === 0 || parameter === '0' || parameter === false) {
+    param = false;
+  }
+  if (parameter === 'true' || parameter === 1 || parameter === '1' || parameter === true) {
+    param = true;
+  }
+  return param;
+}
+
+function ensureNumber(parameter) {
+  return typeof parameter === 'number' ? parameter : Number(parameter);
+}
+
+function ensureObject(parameter) {
+  return typeof parameter === 'object' ? parameter : JSON.parse(parameter);
+}
+
+function ensureString(parameter) {
+  return typeof parameter === 'string' ? parameter : JSON.stringify(parameter);
+}
+
 // MongoDB functions
 async function connectMongoDb(url) {
-  // eslint-disable-next-line no-param-reassign
-  url = url || mongoUrl;
-  const db = await MongoClient.connect(url);
+  const connectUrl = url || mongoUrl;
+  const db = await MongoClient.connect(connectUrl);
   return db;
 }
 
@@ -47,7 +70,6 @@ async function removeDocumentsFromCollection(database, collection, query) {
 }
 
 // Verification functions
-// eslint-disable-next-line consistent-return
 async function verifyAdminSession(headers) {
   if (headers && headers.zelidauth) {
     const auth = qs.parse(headers.zelidauth);
@@ -62,7 +84,6 @@ async function verifyAdminSession(headers) {
         const collection = config.database.local.collections.loggedUsers;
         const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
         const projection = {};
-        // eslint-disable-next-line no-shadow
         const result = await findOneInDatabase(database, collection, query, projection);
         const loggedUser = result;
         // console.log(result)
@@ -78,7 +99,6 @@ async function verifyAdminSession(headers) {
           // console.log(valid)
           if (valid) {
             // now we know this is indeed a logged admin
-            console.log('here2');
             return true;
           }
         } else {
@@ -90,12 +110,10 @@ async function verifyAdminSession(headers) {
     } else {
       return false;
     }
-  } else {
-    return false;
   }
+  return false;
 }
 
-// eslint-disable-next-line consistent-return
 async function verifyUserSession(headers) {
   if (headers && headers.zelidauth) {
     const auth = qs.parse(headers.zelidauth);
@@ -106,7 +124,6 @@ async function verifyUserSession(headers) {
       const collection = config.database.local.collections.loggedUsers;
       const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
       const projection = {};
-      // eslint-disable-next-line no-shadow
       const result = await findOneInDatabase(database, collection, query, projection);
       const loggedUser = result;
       // console.log(result)
@@ -130,16 +147,13 @@ async function verifyUserSession(headers) {
     } else {
       return false;
     }
-  } else {
-    return false;
   }
+  return false;
 }
 
-// eslint-disable-next-line consistent-return
 async function verifyZelTeamSession(headers) {
   if (headers && headers.zelidauth) {
     const auth = qs.parse(headers.zelidauth);
-    console.log(auth);
     if (auth.zelid && auth.signature) {
       if (auth.zelid === config.zelTeamZelId || auth.zelid === userconfig.initial.zelid) { // admin is considered as zelTeam
         const db = await connectMongoDb(mongoUrl);
@@ -147,10 +161,8 @@ async function verifyZelTeamSession(headers) {
         const collection = config.database.local.collections.loggedUsers;
         const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
         const projection = {};
-        // eslint-disable-next-line no-shadow
         const result = await findOneInDatabase(database, collection, query, projection);
         const loggedUser = result;
-        console.log(result);
         db.close();
         if (loggedUser) {
           // check if signature corresponds to message with that zelid
@@ -160,7 +172,6 @@ async function verifyZelTeamSession(headers) {
           } catch (error) {
             return false;
           }
-          console.log(valid);
           if (valid) {
             // now we know this is indeed a logged admin
             return true;
@@ -174,13 +185,11 @@ async function verifyZelTeamSession(headers) {
     } else {
       return false;
     }
-  } else {
-    return false;
   }
+  return false;
 }
 
 async function verifyPrivilege(privilege, req) {
-  console.log('here');
   let authorized;
   switch (privilege) {
     case 'admin':
@@ -202,6 +211,7 @@ async function verifyPrivilege(privilege, req) {
 
 function verifyMessage(message, address, signature) {
   let isValid = false;
+  let signingAddress = address;
   try {
     if (!address || !message || !signature) {
       throw new Error('Missing parameters for message verification');
@@ -213,10 +223,9 @@ function verifyMessage(message, address, signature) {
       // const publicKeyBuffer = Buffer.from(address, 'hex');
       // const publicKey = bitcoinjs.ECPair.fromPublicKeyBuffer(publicKeyBuffer);
       // const sigAddress = bitcoinjs.payments.p2pkh({ pubkey: publicKeyBuffer }).address);
-      // eslint-disable-next-line no-param-reassign
-      address = sigAddress;
+      signingAddress = sigAddress;
     }
-    isValid = bitcoinMessage.verify(message, address, signature);
+    isValid = bitcoinMessage.verify(message, signingAddress, signature);
   } catch (e) {
     log.error(e);
     isValid = e;
@@ -243,6 +252,10 @@ function signMessage(message, pk) {
 }
 
 module.exports = {
+  ensureBoolean,
+  ensureNumber,
+  ensureObject,
+  ensureString,
   connectMongoDb,
   findInDatabase,
   findOneInDatabase,

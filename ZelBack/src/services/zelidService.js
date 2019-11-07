@@ -176,7 +176,7 @@ async function verifyLogin(req, res) {
           }
           const loggedUsersCollection = config.database.local.collections.loggedUsers;
           const value = newLogin;
-          const result = await serviceHelper.insertOneToDatabase(database, loggedUsersCollection, value);
+          const resultB = await serviceHelper.insertOneToDatabase(database, loggedUsersCollection, value);
           db.close();
           const resMessage = {
             status: 'success',
@@ -436,12 +436,14 @@ async function wsRespondLoginPhrase(ws, req) {
   // console.log(loginphrase)
   // respond with object containing address and signature to received message
   let connclosed = false;
+  // eslint-disable-next-line no-param-reassign
   ws.onclose = (evt) => {
-    // console.log(evt)
+    console.log(evt.code);
     connclosed = true;
   };
+  // eslint-disable-next-line no-param-reassign
   ws.onerror = (evt) => {
-    log.error(evt);
+    log.error(evt.code);
     connclosed = true;
   };
 
@@ -484,8 +486,8 @@ async function wsRespondLoginPhrase(ws, req) {
     } else {
       // check if this loginPhrase is still active. If so rerun this searching process
       const activeLoginPhrasesCollection = config.database.local.collections.activeLoginPhrases;
-      const result = await serviceHelper.findOneInDatabase(database, activeLoginPhrasesCollection, query, projection);
-      if (result) {
+      const resultB = await serviceHelper.findOneInDatabase(database, activeLoginPhrasesCollection, query, projection);
+      if (resultB) {
         setTimeout(() => {
           if (!connclosed) {
             searchDatabase();
