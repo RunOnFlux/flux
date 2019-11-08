@@ -1,3 +1,4 @@
+/* eslint-disable no-underscore-dangle */
 const WebSocket = require('ws');
 const bitcoinjs = require('bitcoinjs-lib');
 const log = require('../lib/log');
@@ -9,18 +10,10 @@ const userconfig = require('../../../config/userconfig');
 const outgoingConnections = []; // websocket list
 const outgoingPeers = []; // array of objects containing ip and rtt latency
 
-// TODO create constants
 let response = {
   status: 'error',
   data: {
     message: 'Unknown error',
-  },
-};
-
-const errUnauthorizedMessage = {
-  status: 'error',
-  data: {
-    message: 'Unauthorized. Access denied.',
   },
 };
 
@@ -42,23 +35,24 @@ async function getZelNodePrivateKey(privatekey) {
 }
 
 async function getFluxMessageSignature(message, privatekey) {
-  // eslint-disable-next-line no-param-reassign
   const privKey = await getZelNodePrivateKey(privatekey);
   const signature = await serviceHelper.signMessage(message, privKey);
   return signature;
 }
 
 async function getZelNodePublicKey(privatekey) {
-  // eslint-disable-next-line no-param-reassign
-  const privKey = await getZelNodePrivateKey(privatekey);
-  const keyPair = bitcoinjs.ECPair.fromWIF(privKey);
-  const pubKey = keyPair.publicKey.toString('hex');
-  return pubKey;
+  try {
+    const privKey = await getZelNodePrivateKey(privatekey).catch((error) => { console.log(error); throw error; });
+    const keyPair = bitcoinjs.ECPair.fromWIF(privKey).catch((error) => { console.log(error); throw error; });
+    const pubKey = keyPair.publicKey.toString('hex');
+    return pubKey;
+  } catch (error) {
+    return error;
+  }
 }
 
 // return boolean
 async function verifyFluxBroadcast(data, obtainedZelNodeList, currentTimeStamp) {
-  // eslint-disable-next-line no-param-reassign
   const dataObj = serviceHelper.ensureObject(data);
   const { pubKey } = dataObj;
   const { timestamp } = dataObj; // ms
@@ -137,7 +131,6 @@ function sendToAllPeers(data) {
     } catch (e) {
       log.error(e);
       removals.push(client);
-      // eslint-disable-next-line no-underscore-dangle
       const ip = client._socket.remoteAddress;
       const foundPeer = outgoingPeers.find(peer => peer.ip === ip);
       ipremovals.push(foundPeer);
@@ -258,17 +251,12 @@ async function broadcastMessageFromUser(req, res) {
   let { data } = req.params;
   data = data || req.query.data;
   if (data === undefined || data === null) {
-    const errMessage = {
-      status: 'error',
-      data: {
-        message: 'No message to broadcast attached.',
-      },
-    };
+    const errMessage = serviceHelper.createErrorMessage('No message to broadcast attached.');
     return res.json(errMessage);
   }
-  const authorized = await serviceHelper.verifyPrivilege('zelteam', req, res);
+  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
 
-  if (authorized === false) { // TODO true
+  if (authorized === true) {
     broadcastMessage(data);
     const message = {
       status: 'success',
@@ -278,7 +266,7 @@ async function broadcastMessageFromUser(req, res) {
     };
     response = message;
   } else {
-    response = errUnauthorizedMessage;
+    response = serviceHelper.errUnauthorizedMessage();
   }
   return res.json(response);
 }
@@ -292,15 +280,10 @@ async function broadcastMessageFromUserPost(req, res) {
   req.on('end', async () => {
     const processedBody = JSON.parse(body);
     if (processedBody === undefined || processedBody === null || processedBody === '') {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'No message to broadcast attached.',
-        },
-      };
+      const errMessage = serviceHelper.createErrorMessage('No message to broadcast attached.');
       response = errMessage;
     } else {
-      const authorized = await serviceHelper.verifyPrivilege('zelteam', req, res);
+      const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
       console.log(authorized);
       if (authorized === true) {
         broadcastMessage(processedBody);
@@ -312,7 +295,7 @@ async function broadcastMessageFromUserPost(req, res) {
         };
         response = message;
       } else {
-        response = errUnauthorizedMessage;
+        response = serviceHelper.errUnauthorizedMessage();
       }
     }
     return res.json(response);
@@ -336,7 +319,6 @@ async function getRandomConnection() {
     return null;
   }
 
-  // eslint-disable-next-line no-underscore-dangle
   const clientExists = outgoingConnections.find(client => client._socket.remoteAddress === ip);
   if (clientExists) {
     return null;
@@ -354,11 +336,9 @@ async function initiateAndHandleConnection(ip) {
   websocket.on('open', () => {
     outgoingConnections.push(websocket);
     const peer = {
-      // eslint-disable-next-line no-underscore-dangle
       ip: websocket._socket.remoteAddress,
       rtt: null,
     };
-    // eslint-disable-next-line no-underscore-dangle
     outgoingPeers.push(peer);
     broadcastMessage('Hello ZelFlux');
     console.log(`#connectionsOut: ${outgoingConnections.length}`);
@@ -370,7 +350,6 @@ async function initiateAndHandleConnection(ip) {
     conIP = conIP.split(':16127').join('');
     const ocIndex = outgoingConnections.indexOf(websocket);
     if (ocIndex > -1) {
-      // eslint-disable-next-line no-underscore-dangle
       log.info(`Connection to ${conIP} closed with code ${evt.code}`);
       outgoingConnections.splice(ocIndex, 1);
     }
@@ -378,7 +357,6 @@ async function initiateAndHandleConnection(ip) {
     if (foundPeer) {
       const peerIndex = outgoingPeers.indexOf(foundPeer);
       if (peerIndex > -1) {
-        // eslint-disable-next-line no-underscore-dangle
         outgoingPeers.splice(peerIndex, 1);
         log.info(`Connection ${conIP} removed from outgoingPeers`);
       }
@@ -389,7 +367,6 @@ async function initiateAndHandleConnection(ip) {
   websocket.onmessage = async (evt) => {
     // incoming messages from outgoing connections
     console.log(evt.data);
-    // verify data integrity TODO
     const currentTimeStamp = Date.now(); // ms
     const messageOK = await verifyOriginalFluxBroadcast(evt.data, undefined, currentTimeStamp);
     if (messageOK === true) {
@@ -424,7 +401,6 @@ async function initiateAndHandleConnection(ip) {
     conIP = conIP.split(':16127').join('');
     const ocIndex = outgoingConnections.indexOf(websocket);
     if (ocIndex > -1) {
-      // eslint-disable-next-line no-underscore-dangle
       log.info(`Connection to ${conIP} errord with code ${evt.code}`);
       outgoingConnections.splice(ocIndex, 1);
     }
@@ -432,7 +408,6 @@ async function initiateAndHandleConnection(ip) {
     if (foundPeer) {
       const peerIndex = outgoingPeers.indexOf(foundPeer);
       if (peerIndex > -1) {
-        // eslint-disable-next-line no-underscore-dangle
         outgoingPeers.splice(peerIndex, 1);
         log.info(`Connection ${conIP} removed from outgoingPeers`);
       }
@@ -467,7 +442,6 @@ async function fluxDisovery() {
 function connectedPeers(req, res) {
   const connections = [];
   outgoingConnections.forEach((client) => {
-    // eslint-disable-next-line no-underscore-dangle
     connections.push(client._socket.remoteAddress);
   });
   const message = {
@@ -510,28 +484,17 @@ async function addPeer(req, res) {
   let { ip } = req.params;
   ip = ip || req.query.ip;
   if (ip === undefined || ip === null) {
-    const errMessage = {
-      status: 'error',
-      data: {
-        message: 'No IP address specified.',
-      },
-    };
+    const errMessage = serviceHelper.createErrorMessage('No IP address specified.');
     return res.json(errMessage);
   }
-  // eslint-disable-next-line no-underscore-dangle
   const wsObj = await outgoingConnections.find(client => client._socket.remoteAddress === ip);
   if (wsObj) {
-    const errMessage = {
-      status: 'error',
-      data: {
-        message: `Already connected to ${ip}`,
-      },
-    };
+    const errMessage = serviceHelper.createErrorMessage(`Already connected to ${ip}`);
     return res.json(errMessage);
   }
-  const authorized = await serviceHelper.verifyPrivilege('zelteam', req, res);
+  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
 
-  if (authorized === false) { // TODO true
+  if (authorized === true) {
     initiateAndHandleConnection(ip);
     const message = {
       status: 'success',
@@ -541,7 +504,7 @@ async function addPeer(req, res) {
     };
     response = message;
   } else {
-    response = errUnauthorizedMessage;
+    response = serviceHelper.errUnauthorizedMessage();
   }
   return res.json(response);
 }
@@ -550,7 +513,6 @@ function incomingConnections(req, res, expressWS) {
   const clientsSet = expressWS.clients;
   const connections = [];
   clientsSet.forEach((client) => {
-    // eslint-disable-next-line no-underscore-dangle
     connections.push(client._socket.remoteAddress);
   });
   const message = {
@@ -570,7 +532,6 @@ async function closeConnection(ip) {
       message: `Unkown error while closing ${ip}`,
     },
   };
-  // eslint-disable-next-line no-underscore-dangle
   const wsObj = await outgoingConnections.find(client => client._socket.remoteAddress === ip);
   if (wsObj) {
     const ocIndex = await outgoingConnections.indexOf(wsObj);
@@ -618,11 +579,9 @@ async function closeIncomingConnection(ip, expressWs) {
       message: `Unkown error while closing ${ip}`,
     },
   };
-  // eslint-disable-next-line no-underscore-dangle
   const wsObj = await clientsSet.find(ws => ws._socket.remoteAddress === ip);
   if (wsObj) {
     wsObj.close(1000);
-    // eslint-disable-next-line no-underscore-dangle
     log.info(`Connection from ${ip} closed`);
     message = {
       status: 'success',
@@ -645,21 +604,16 @@ async function removePeer(req, res) {
   let { ip } = req.params;
   ip = ip || req.query.ip;
   if (ip === undefined || ip === null) {
-    const errMessage = {
-      status: 'error',
-      data: {
-        message: 'No IP address specified.',
-      },
-    };
+    const errMessage = serviceHelper.createErrorMessage('No IP address specified.');
     return res.json(errMessage);
   }
-  const authorized = await serviceHelper.verifyPrivilege('zelteam', req, res);
+  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
 
-  if (authorized === false) { // TODO true
+  if (authorized === true) {
     const closeResponse = await closeConnection(ip);
     response = closeResponse;
   } else {
-    response = errUnauthorizedMessage;
+    response = serviceHelper.errUnauthorizedMessage();
   }
   return res.json(response);
 }
@@ -668,21 +622,16 @@ async function removeIncomingPeer(req, res, expressWs) {
   let { ip } = req.params;
   ip = ip || req.query.ip;
   if (ip === undefined || ip === null) {
-    const errMessage = {
-      status: 'error',
-      data: {
-        message: 'No IP address specified.',
-      },
-    };
+    const errMessage = serviceHelper.createErrorMessage('No IP address specified.');
     return res.json(errMessage);
   }
-  const authorized = await serviceHelper.verifyPrivilege('zelteam', req, res);
+  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
 
-  if (authorized === false) { // TODO true
+  if (authorized === true) {
     const closeResponse = await closeIncomingConnection(ip, expressWs);
     response = closeResponse;
   } else {
-    response = errUnauthorizedMessage;
+    response = serviceHelper.errUnauthorizedMessage();
   }
   return res.json(response);
 }

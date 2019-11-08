@@ -49,9 +49,23 @@
       <br>
       <h3>
         Error connecting to the ZelCash Daemon
-        <p v-if="privilage ==='admin'">
-          Please try to restart your ZelCash Daemon in ZelCash section.
-        </p>
+        <div v-if="privilage ==='admin'">
+          <p>
+            Please try to restart your ZelCash Daemon in ZelCash section.
+          </p>
+          <div v-if="zelCashSection !== null">
+            <ZelCash />
+          </div>
+          <div v-if="zelNodeSection !== null">
+            <ZelNode />
+          </div>
+          <div v-if="zelAdminSection !== null">
+            <ZelAdmin />
+          </div>
+          <div v-if="zelAppsSection !== null">
+            <ZelApps />
+          </div>
+        </div>
       </h3>
     </div>
     <div
@@ -144,7 +158,11 @@ export default {
         .then((response) => {
           console.log(response);
           if (response.data.status === 'error') {
-            this.errorMessage = response.data.data.message;
+            if (response.data.data.name === 'MongoNetworkError') {
+              this.errorMessage = 'Failed to connect to MongoDB.';
+            } else {
+              this.errorMessage = response.data.data.message;
+            }
           } else {
             this.loginPhrase = response.data;
           }

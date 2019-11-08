@@ -20,4 +20,11 @@ export default {
       },
     });
   },
+  restart(zelidauthHeader) {
+    return Api().get('/zelcash/restart', {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    });
+  },
 };

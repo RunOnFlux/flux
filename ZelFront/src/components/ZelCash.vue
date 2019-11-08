@@ -27,7 +27,10 @@
         </div>
       </div>
     </div>
-    <div v-if="zelCashSection === 'help'" class="helpSection">
+    <div
+      v-if="zelCashSection === 'help'"
+      class="helpSection"
+    >
       {{ callResponse.data || 'Obtaining help section...' }}
     </div>
     <div v-if="callResponse.status === 'error'">
@@ -81,6 +84,9 @@ export default {
         case 'help':
           this.zelcashHelp();
           break;
+        case 'restart':
+          this.restartZelCashDaemon();
+          break;
         case null:
           console.log('ZelCash Section hidden');
           break;
@@ -97,6 +103,9 @@ export default {
         break;
       case 'help':
         this.zelcashHelp();
+        break;
+      case 'restart':
+        this.restartZelCashDaemon();
         break;
       case null:
         console.log('ZelCash Section hidden');
@@ -115,6 +124,12 @@ export default {
       const response = await ZelCashService.help();
       this.callResponse.status = response.data.status;
       this.callResponse.data = response.data.data;
+    },
+    async restartZelCashDaemon() {
+      const zelidauth = localStorage.getItem('zelidauth');
+      console.log('trying restart');
+      const response = await ZelCashService.restart(zelidauth);
+      console.log(response);
     },
     async zelcashGetZelNodeStatus() {
       // TODO more code statuses?

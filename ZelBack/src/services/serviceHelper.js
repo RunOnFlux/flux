@@ -12,6 +12,29 @@ const log = require('../lib/log');
 const { MongoClient } = mongodb;
 const mongoUrl = `mongodb://${config.database.url}:${config.database.port}/`;
 
+function createErrorMessage(message, name, code) {
+  const errMessage = {
+    status: 'error',
+    data: {
+      code,
+      name,
+      message,
+    },
+  };
+  return errMessage;
+}
+
+function errUnauthorizedMessage() {
+  const errMessage = {
+    status: 'error',
+    data: {
+      code: 401,
+      name: 'Unauthorized',
+      message: 'Unauthorized. Access denied.',
+    },
+  };
+  return errMessage;
+}
 
 function ensureBoolean(parameter) {
   let param;
@@ -193,13 +216,13 @@ async function verifyPrivilege(privilege, req) {
   let authorized;
   switch (privilege) {
     case 'admin':
-      authorized = await verifyAdminSession(req.headers);
+      authorized = await verifyAdminSession(req.headers).catch((error) => { throw error; });
       break;
     case 'zelteam':
-      authorized = await verifyZelTeamSession(req.headers);
+      authorized = await verifyZelTeamSession(req.headers).catch((error) => { throw error; });
       break;
     case 'user':
-      authorized = await verifyUserSession(req.headers);
+      authorized = await verifyUserSession(req.headers).catch((error) => { throw error; });
       break;
     default:
       authorized = false;
@@ -214,7 +237,7 @@ function verifyMessage(message, address, signature) {
   let signingAddress = address;
   try {
     if (!address || !message || !signature) {
-      throw new Error('Missing parameters for message verification');
+      throw new Error({ message: 'Missing parameters for message verification' });
     }
 
     if (address.length > 36) {
@@ -268,4 +291,6 @@ module.exports = {
   verifyPrivilege,
   signMessage,
   verifyMessage,
+  createErrorMessage,
+  errUnauthorizedMessage,
 };

@@ -12,12 +12,7 @@ async function updateZelFlux(req, res) {
     const exec = `cd ${zelnodedpath} && npm run updatezelflux`;
     cmd.get(exec, (err) => {
       if (err) {
-        const errMessage = {
-          status: 'error',
-          data: {
-            message: `Error updating ZelFlux: ${err.toString()}`,
-          },
-        };
+        const errMessage = serviceHelper.createErrorMessage(`Error updating ZelFlux: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
       }
       const message = {
@@ -29,12 +24,7 @@ async function updateZelFlux(req, res) {
       return res.json(message);
     });
   } else {
-    const errMessage = {
-      status: 'error',
-      data: {
-        message: 'Unauthorized. Access denied.',
-      },
-    };
+    const errMessage = serviceHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
 }
@@ -47,12 +37,7 @@ async function rebuildZelFront(req, res) {
     const exec = `cd ${zelnodedpath} && npm run zelfrontbuild`;
     cmd.get(exec, (err) => {
       if (err) {
-        const errMessage = {
-          status: 'error',
-          data: {
-            message: `Error rebuilding ZelFlux: ${err}`,
-          },
-        };
+        const errMessage = serviceHelper.createErrorMessage(`Error rebuilding ZelFlux: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
       }
       const message = {
@@ -64,12 +49,7 @@ async function rebuildZelFront(req, res) {
       return res.json(message);
     });
   } else {
-    const errMessage = {
-      status: 'error',
-      data: {
-        message: 'Unauthorized. Access denied.',
-      },
-    };
+    const errMessage = serviceHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
 }
@@ -82,12 +62,7 @@ async function updateZelCash(req, res) {
     const exec = `cd ${zelnodedpath} && sh updateZelCash.sh`;
     cmd.get(exec, (err) => {
       if (err) {
-        const errMessage = {
-          status: 'error',
-          data: {
-            message: `Error updating ZelCash: ${err}`,
-          },
-        };
+        const errMessage = serviceHelper.createErrorMessage(`Error updating ZelCash: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
       }
       const message = {
@@ -99,12 +74,7 @@ async function updateZelCash(req, res) {
       return res.json(message);
     });
   } else {
-    const errMessage = {
-      status: 'error',
-      data: {
-        message: 'Unauthorized. Access denied.',
-      },
-    };
+    const errMessage = serviceHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
 }
@@ -116,12 +86,7 @@ async function startZelCash(req, res) {
     const exec = 'zelcashd';
     cmd.get(exec, (err, data) => {
       if (err) {
-        const errMessage = {
-          status: 'error',
-          data: {
-            message: `Error starting ZelCash: ${err}`,
-          },
-        };
+        const errMessage = serviceHelper.createErrorMessage(`Error starting ZelCash: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
       }
       console.log(data);
@@ -134,12 +99,7 @@ async function startZelCash(req, res) {
       return res.json(message);
     });
   } else {
-    const errMessage = {
-      status: 'error',
-      data: {
-        message: 'Unauthorized. Access denied.',
-      },
-    };
+    const errMessage = serviceHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
 }
@@ -152,29 +112,20 @@ async function restartZelCash(req, res) {
     const exec = `cd ${zelnodedpath} && sh restartZelCash.sh`;
     cmd.get(exec, (err) => {
       if (err) {
-        const errMessage = {
-          status: 'error',
-          data: {
-            message: `Error updating ZelCash: ${err}`,
-          },
-        };
+        const errMessage = serviceHelper.createErrorMessage(`Error restarting ZelCash: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
       }
       const message = {
         status: 'success',
         data: {
-          message: 'ZelCash successfully updated',
+          message: 'ZelCash successfully restarted',
         },
       };
       return res.json(message);
     });
   } else {
-    const errMessage = {
-      status: 'error',
-      data: {
-        message: 'Unauthorized. Access denied.',
-      },
-    };
+    const errMessage = serviceHelper.errUnauthorizedMessage();
+    console.log(errMessage);
     return res.json(errMessage);
   }
 }
@@ -187,29 +138,19 @@ async function reindexZelCash(req, res) {
     const exec = `cd ${zelnodedpath} && sh reindexZelCash.sh`;
     cmd.get(exec, (err) => {
       if (err) {
-        const errMessage = {
-          status: 'error',
-          data: {
-            message: `Error updating ZelCash: ${err}`,
-          },
-        };
+        const errMessage = serviceHelper.createErrorMessage(`Error reindexing ZelCash: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
       }
       const message = {
         status: 'success',
         data: {
-          message: 'ZelCash successfully updated',
+          message: 'ZelCash successfully reindexing',
         },
       };
       return res.json(message);
     });
   } else {
-    const errMessage = {
-      status: 'error',
-      data: {
-        message: 'Unauthorized. Access denied.',
-      },
-    };
+    const errMessage = serviceHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
 }
