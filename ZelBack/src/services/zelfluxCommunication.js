@@ -521,6 +521,25 @@ function incomingConnections(req, res, expressWS) {
   res.json(response);
 }
 
+function incomingConnectionsInfo(req, res, expressWS) {
+  const clientsSet = expressWS.clients;
+  const connections = [];
+  clientsSet.forEach((client) => {
+    const conn = {
+      ip: client._socket.remoteAddress,
+      rtt: null, // TODO RTT
+    };
+    connections.push(conn);
+  });
+  const message = {
+    status: 'success',
+    data: connections,
+  };
+  response = message;
+  res.json(response);
+}
+
+
 async function closeConnection(ip) {
   let message = {
     status: 'error',
@@ -653,6 +672,7 @@ module.exports = {
   startFluxFunctions,
   addPeer,
   incomingConnections,
+  incomingConnectionsInfo,
   removePeer,
   removeIncomingPeer,
   connectedPeersInfo,

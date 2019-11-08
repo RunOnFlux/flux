@@ -22,6 +22,9 @@ export default {
   incomingConnections() {
     return Api().get('/zelflux/incomingconnections');
   },
+  incomingConnectionsInfo() {
+    return Api().get('/zelflux/incomingconnectionsinfo');
+  },
   addPeer(zelidauthHeader, ip) {
     return Api().get(`/zelflux/addpeer/${ip}`, {
       headers: {

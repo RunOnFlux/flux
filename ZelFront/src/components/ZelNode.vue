@@ -280,7 +280,7 @@ export default {
     },
     async zelfluxConnectedPeersInfo() {
       const response = await ZelFluxService.connectedPeersInfo();
-      console.log(response)
+      console.log(response);
       if (response.data.status === 'success') {
         this.connectedPeers = response.data.data;
       } else {
@@ -290,8 +290,8 @@ export default {
         });
       }
     },
-    async zelfluxIncomingConnections() {
-      const response = await ZelFluxService.incomingConnections();
+    async zelfluxIncomingConnectionsInfo() {
+      const response = await ZelFluxService.incomingConnectionsInfo();
       if (response.data.status === 'success') {
         this.incomingConnections = response.data.data;
       } else {
@@ -307,9 +307,6 @@ export default {
       const zelidauth = localStorage.getItem('zelidauth');
       ZelFluxService.removePeer(zelidauth, row.ip)
         .then((response) => {
-          if (response.data.status === 'success') {
-            this.incomingConnections = response.data.data;
-          }
           vue.$message({
             type: response.data.status,
             message: response.data.data.message || response.data.data,
@@ -329,15 +326,12 @@ export default {
       const zelidauth = localStorage.getItem('zelidauth');
       ZelFluxService.removeIncomingPeer(zelidauth, row.ip)
         .then((response) => {
-          if (response.data.status === 'success') {
-            this.incomingConnections = response.data.data;
-          }
           vue.$message({
             type: response.data.status,
             message: response.data.data.message || response.data.data,
           });
           setTimeout(() => {
-            self.zelfluxIncomingConnections();
+            self.zelfluxIncomingConnectionsInfo();
           }, 2000);
         })
         .catch((e) => {
@@ -352,9 +346,6 @@ export default {
       ZelFluxService.addPeer(zelidauth, self.connectPeerIP)
         .then((response) => {
           console.log(response);
-          if (response.data.status === 'success') {
-            this.incomingConnections = response.data.data;
-          }
           vue.$message({
             type: response.data.status,
             message: response.data.data.message || response.data.data,

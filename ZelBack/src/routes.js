@@ -465,8 +465,12 @@ module.exports = (app, expressWs) => {
     zelfluxCommunication.removePeer(req, res);
   });
 
-  app.get('/zelflux/incomingconnections', (req, res) => {
+  app.get('/zelflux/incomingconnectionsinfo', (req, res) => {
     zelfluxCommunication.incomingConnections(req, res, expressWs.getWss('/ws/zelflux'));
+  });
+
+  app.get('/zelflux/incomingconnectionsinfo', (req, res) => {
+    zelfluxCommunication.incomingConnectionsInfo(req, res, expressWs.getWss('/ws/zelflux'));
   });
 
   app.get('/zelflux/removeincomingpeer', (req, res) => {
