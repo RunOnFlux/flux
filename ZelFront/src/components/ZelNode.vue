@@ -188,17 +188,11 @@ export default {
       'userconfig',
       'zelNodeSection',
     ]),
-    connectedPeersFilter() { // TODO FIXME filtering causes ton of issues?
-      // if (this.connectedPeers.length > 0) {
-      //   return this.connectedPeers.filter(data => data.ip.toLowerCase().includes(this.filterConnectedPeer.toLowerCase()) || data.rtt > this.filterConnectedPeer);
-      // }
-      return this.connectedPeers;
+    connectedPeersFilter() {
+      return this.connectedPeers.filter(data => !this.filterConnectedPeer || data.ip.toLowerCase().includes(this.filterConnectedPeer.toLowerCase()) || data.rtt > this.filterConnectedPeer);
     },
     incomingConnectionsFilter() {
-      // if (this.incomingConnections.length > 0) {
-      //   return this.incomingConnections.filter(data => data.ip.toLowerCase().includes(this.filterConnectedPeer.toLowerCase()));
-      // }
-      return this.incomingConnections;
+      return this.incomingConnections.filter(data => !this.filterConnectedPeer || data.ip.toLowerCase().includes(this.filterConnectedPeer.toLowerCase()));
     },
   },
   watch: {
@@ -206,10 +200,12 @@ export default {
       console.log(val, oldVal);
       switch (val) {
         case 'getinfo':
+          console.log('herere')
           this.zelcashGetInfo();
           this.zelcashGetZelNodeStatus();
           break;
         case 'network':
+          console.log('here');
           this.zelfluxConnectedPeersInfo();
           this.zelfluxIncomingConnections();
           break;
@@ -284,6 +280,7 @@ export default {
     },
     async zelfluxConnectedPeersInfo() {
       const response = await ZelFluxService.connectedPeersInfo();
+      console.log(response)
       if (response.data.status === 'success') {
         this.connectedPeers = response.data.data;
       } else {
@@ -317,7 +314,9 @@ export default {
             type: response.data.status,
             message: response.data.data.message || response.data.data,
           });
-          self.zelfluxConnectedPeersInfo();
+          setTimeout(() => {
+            self.zelfluxConnectedPeersInfo();
+          }, 2000);
         })
         .catch((e) => {
           console.log(e);
@@ -337,7 +336,9 @@ export default {
             type: response.data.status,
             message: response.data.data.message || response.data.data,
           });
-          self.zelfluxConnectedPeersInfo();
+          setTimeout(() => {
+            self.zelfluxIncomingConnections();
+          }, 2000);
         })
         .catch((e) => {
           console.log(e);
@@ -358,7 +359,9 @@ export default {
             type: response.data.status,
             message: response.data.data.message || response.data.data,
           });
-          self.zelfluxConnectedPeersInfo();
+          setTimeout(() => {
+            self.zelfluxConnectedPeersInfo();
+          }, 2000);
         })
         .catch((e) => {
           console.log(e);

@@ -42,8 +42,8 @@ async function getFluxMessageSignature(message, privatekey) {
 
 async function getZelNodePublicKey(privatekey) {
   try {
-    const privKey = await getZelNodePrivateKey(privatekey).catch((error) => { console.log(error); throw error; });
-    const keyPair = bitcoinjs.ECPair.fromWIF(privKey).catch((error) => { console.log(error); throw error; });
+    const privKey = await getZelNodePrivateKey(privatekey);
+    const keyPair = bitcoinjs.ECPair.fromWIF(privKey);
     const pubKey = keyPair.publicKey.toString('hex');
     return pubKey;
   } catch (error) {
@@ -446,9 +446,7 @@ function connectedPeers(req, res) {
   });
   const message = {
     status: 'success',
-    data: {
-      message: connections,
-    },
+    data: connections,
   };
   response = message;
   res.json(response);
@@ -458,9 +456,7 @@ function connectedPeersInfo(req, res) {
   const connections = outgoingPeers;
   const message = {
     status: 'success',
-    data: {
-      message: connections,
-    },
+    data: connections,
   };
   response = message;
   res.json(response);
@@ -519,9 +515,7 @@ function incomingConnections(req, res, expressWS) {
   });
   const message = {
     status: 'success',
-    data: {
-      message: connections,
-    },
+    data: connections,
   };
   response = message;
   res.json(response);
