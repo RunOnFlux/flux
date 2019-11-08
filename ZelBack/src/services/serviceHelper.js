@@ -12,6 +12,18 @@ const log = require('../lib/log');
 const { MongoClient } = mongodb;
 const mongoUrl = `mongodb://${config.database.url}:${config.database.port}/`;
 
+function createSuccessMessage(message, name, code) {
+  const successMessage = {
+    status: 'success',
+    data: {
+      code,
+      name,
+      message,
+    },
+  };
+  return successMessage;
+}
+
 function createErrorMessage(message, name, code) {
   const errMessage = {
     status: 'error',
@@ -291,6 +303,7 @@ module.exports = {
   verifyPrivilege,
   signMessage,
   verifyMessage,
+  createSuccessMessage,
   createErrorMessage,
   errUnauthorizedMessage,
 };

@@ -311,12 +311,7 @@ async function logoutCurrentSession(req, res) {
     });
     db.close();
     // console.log(results)
-    const message = {
-      status: 'success',
-      data: {
-        message: 'Successfully logged out',
-      },
-    };
+    const message = serviceHelper.createSuccessMessage('Successfully logged out');
     res.json(message);
   } else {
     const errMessage = serviceHelper.errUnauthorizedMessage();
@@ -367,12 +362,7 @@ async function logoutSpecificSession(req, res) {
         };
         return res.json(message);
       }
-      const message = {
-        status: 'success',
-        data: {
-          message: 'Session successfully logged out',
-        },
-      };
+      const message = serviceHelper.createSuccessMessage('Session successfully logged out');
       return res.json(message);
     }
     const errMessage = serviceHelper.errUnauthorizedMessage();
@@ -406,12 +396,7 @@ async function logoutAllSessions(req, res) {
     });
     db.close();
     // console.log(result)
-    const message = {
-      status: 'success',
-      data: {
-        message: 'Successfully logged out all sessions',
-      },
-    };
+    const message = serviceHelper.createSuccessMessage('Successfully logged out all sessions');
     return res.json(message);
   }
   const errMessage = serviceHelper.errUnauthorizedMessage();
@@ -437,13 +422,7 @@ async function logoutAllUsers(req, res) {
       throw error;
     });
     db.close();
-    // console.log(result)
-    const message = {
-      status: 'success',
-      data: {
-        message: 'Successfully logged out all sessions',
-      },
-    };
+    const message = serviceHelper.createSuccessMessage('Successfully logged out all sessions');
     return res.json(message);
   }
   const errMessage = serviceHelper.errUnauthorizedMessage();

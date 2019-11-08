@@ -15,12 +15,7 @@ async function updateZelFlux(req, res) {
         const errMessage = serviceHelper.createErrorMessage(`Error updating ZelFlux: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
       }
-      const message = {
-        status: 'success',
-        data: {
-          message: 'ZelFlux successfully updated',
-        },
-      };
+      const message = serviceHelper.createSuccessMessage('ZelFlux successfully updated');
       return res.json(message);
     });
   } else {
@@ -40,12 +35,7 @@ async function rebuildZelFront(req, res) {
         const errMessage = serviceHelper.createErrorMessage(`Error rebuilding ZelFlux: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
       }
-      const message = {
-        status: 'success',
-        data: {
-          message: 'ZelFlux successfully rebuilt',
-        },
-      };
+      const message = serviceHelper.createSuccessMessage('ZelFlux successfully rebuilt');
       return res.json(message);
     });
   } else {
@@ -65,12 +55,7 @@ async function updateZelCash(req, res) {
         const errMessage = serviceHelper.createErrorMessage(`Error updating ZelCash: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
       }
-      const message = {
-        status: 'success',
-        data: {
-          message: 'ZelCash successfully updated',
-        },
-      };
+      const message = serviceHelper.createSuccessMessage('ZelCash successfully updated');
       return res.json(message);
     });
   } else {
@@ -90,12 +75,7 @@ async function startZelCash(req, res) {
         return res.json(errMessage);
       }
       console.log(data);
-      const message = {
-        status: 'success',
-        data: {
-          message: 'ZelCash successfully started',
-        },
-      };
+      const message = serviceHelper.createSuccessMessage('ZelCash successfully started');
       return res.json(message);
     });
   } else {
@@ -115,12 +95,7 @@ async function restartZelCash(req, res) {
         const errMessage = serviceHelper.createErrorMessage(`Error restarting ZelCash: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
       }
-      const message = {
-        status: 'success',
-        data: {
-          message: 'ZelCash successfully restarted',
-        },
-      };
+      const message = serviceHelper.createSuccessMessage('ZelCash successfully restarted');
       return res.json(message);
     });
   } else {
@@ -141,12 +116,7 @@ async function reindexZelCash(req, res) {
         const errMessage = serviceHelper.createErrorMessage(`Error reindexing ZelCash: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
       }
-      const message = {
-        status: 'success',
-        data: {
-          message: 'ZelCash successfully reindexing',
-        },
-      };
+      const message = serviceHelper.createSuccessMessage('ZelCash successfully reindexing');
       return res.json(message);
     });
   } else {
