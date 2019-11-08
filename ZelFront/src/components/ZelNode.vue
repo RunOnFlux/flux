@@ -78,7 +78,7 @@
                 <el-button
                   size="mini"
                   type="danger"
-                  @click="DisconnectPeer(scope.$index, scope.row)"
+                  @click="disconnectPeer(scope.$index, scope.row)"
                 >Disconnect</el-button>
               </template>
             </el-table-column>
@@ -141,7 +141,7 @@
                 <el-button
                   size="mini"
                   type="danger"
-                  @click="DisconnectIncoming(scope.$index, scope.row)"
+                  @click="disconnectIncoming(scope.$index, scope.row)"
                 >Disconnect</el-button>
               </template>
             </el-table-column>
