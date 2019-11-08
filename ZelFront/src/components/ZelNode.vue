@@ -56,11 +56,13 @@
             <el-table-column
               label="IP address"
               prop="ip"
+              sortable
             >
             </el-table-column>
             <el-table-column
               label="Round Trip Time"
               prop="rtt"
+              sortable
             >
             </el-table-column>
             <el-table-column align="right">
@@ -119,11 +121,13 @@
             <el-table-column
               label="IP address"
               prop="ip"
+              sortable
             >
             </el-table-column>
             <el-table-column
               label="Round Trip Time"
               prop="rtt"
+              sortable
             >
             </el-table-column>
             <el-table-column align="right">
@@ -189,7 +193,7 @@ export default {
       'zelNodeSection',
     ]),
     connectedPeersFilter() {
-      return this.connectedPeers.filter(data => !this.filterConnectedPeer || data.ip.toLowerCase().includes(this.filterConnectedPeer.toLowerCase()) || data.rtt > this.filterConnectedPeer);
+      return this.connectedPeers.filter(data => !this.filterConnectedPeer || data.ip.toLowerCase().includes(this.filterConnectedPeer.toLowerCase()));
     },
     incomingConnectionsFilter() {
       return this.incomingConnections.filter(data => !this.filterConnectedPeer || data.ip.toLowerCase().includes(this.filterConnectedPeer.toLowerCase()));
@@ -207,7 +211,7 @@ export default {
         case 'network':
           console.log('here');
           this.zelfluxConnectedPeersInfo();
-          this.zelfluxIncomingConnections();
+          this.zelfluxIncomingConnectionsInfo();
           break;
         case 'messages':
           this.broadcastMessage();
@@ -228,7 +232,7 @@ export default {
         break;
       case 'network':
         this.zelfluxConnectedPeersInfo();
-        this.zelfluxIncomingConnections();
+        this.zelfluxIncomingConnectionsInfo();
         break;
       case 'messages':
         this.broadcastMessage();

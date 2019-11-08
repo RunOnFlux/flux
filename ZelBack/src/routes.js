@@ -473,7 +473,7 @@ module.exports = (app, expressWs) => {
     zelfluxCommunication.incomingConnectionsInfo(req, res, expressWs.getWss('/ws/zelflux'));
   });
 
-  app.get('/zelflux/removeincomingpeer', (req, res) => {
+  app.get('/zelflux/removeincomingpeer/:ip?', (req, res) => {
     zelfluxCommunication.removeIncomingPeer(req, res, expressWs.getWss('/ws/zelflux'));
   });
 };
