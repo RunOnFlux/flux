@@ -204,12 +204,10 @@ export default {
       console.log(val, oldVal);
       switch (val) {
         case 'getinfo':
-          console.log('herere')
           this.zelcashGetInfo();
           this.zelcashGetZelNodeStatus();
           break;
         case 'network':
-          console.log('here');
           this.zelfluxConnectedPeersInfo();
           this.zelfluxIncomingConnectionsInfo();
           break;
@@ -346,7 +344,6 @@ export default {
     connectPeer() {
       const self = this;
       const zelidauth = localStorage.getItem('zelidauth');
-      console.log('here');
       ZelFluxService.addPeer(zelidauth, self.connectPeerIP)
         .then((response) => {
           console.log(response);

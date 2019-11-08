@@ -284,7 +284,6 @@ async function broadcastMessageFromUserPost(req, res) {
       response = errMessage;
     } else {
       const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
-      console.log(authorized);
       if (authorized === true) {
         broadcastMessage(processedBody);
         const message = {
@@ -374,17 +373,11 @@ async function initiateAndHandleConnection(ip) {
       if (msgObj.data.type === 'HeartBeat' && msgObj.data.message === 'pong') {
         const newerTimeStamp = Date.now(); // ms, get a bit newer time that has passed verification of broadcast
         const rtt = newerTimeStamp - msgObj.data.timestamp;
-        console.log(rtt);
-        console.log(newerTimeStamp);
-        console.log(msgObj.data.timestamp);
-        console.log(outgoingPeers);
-        console.log(websocket.url);
         const { url } = websocket;
         let conIP = url.split('/')[2];
         conIP = conIP.split(':16127').join('');
         const foundPeer = outgoingPeers.find(peer => peer.ip === conIP);
         if (foundPeer) {
-          console.log('here');
           const peerIndex = outgoingPeers.indexOf(foundPeer);
           if (peerIndex > -1) {
             outgoingPeers[peerIndex].rtt = rtt;
@@ -586,15 +579,20 @@ async function closeConnection(ip) {
   return message;
 }
 
-async function closeIncomingConnection(ip, expressWs) {
-  const clientsSet = expressWs.clients;
+async function closeIncomingConnection(ip, expressWS) {
+  const clientsSet = expressWS.clients;
   let message = {
     status: 'error',
     data: {
       message: `Unkown error while closing ${ip}`,
     },
   };
-  const wsObj = await clientsSet.find(ws => ws._socket.remoteAddress === ip);
+  let wsObj = null;
+  clientsSet.forEach((client) => {
+    if (client._socket.remoteAddress === ip) {
+      wsObj = client;
+    }
+  });
   if (wsObj) {
     wsObj.close(1000);
     log.info(`Connection from ${ip} closed`);
@@ -633,7 +631,7 @@ async function removePeer(req, res) {
   return res.json(response);
 }
 
-async function removeIncomingPeer(req, res, expressWs) {
+async function removeIncomingPeer(req, res, expressWS) {
   let { ip } = req.params;
   ip = ip || req.query.ip;
   if (ip === undefined || ip === null) {
@@ -643,7 +641,7 @@ async function removeIncomingPeer(req, res, expressWs) {
   const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
 
   if (authorized === true) {
-    const closeResponse = await closeIncomingConnection(ip, expressWs);
+    const closeResponse = await closeIncomingConnection(ip, expressWS);
     response = closeResponse;
   } else {
     response = serviceHelper.errUnauthorizedMessage();
