@@ -6,7 +6,6 @@ const serviceHelper = require('./serviceHelper');
 
 // eslint-disable-next-line consistent-return
 async function updateZelFlux(req, res) {
-  // eslint-disable-next-line consistent-return
   const authorized = await serviceHelper.verifyZelTeamSession(req.headers);
   if (authorized === true) {
     const zelnodedpath = path.join(__dirname, '../../../');
@@ -42,7 +41,6 @@ async function updateZelFlux(req, res) {
 
 // eslint-disable-next-line consistent-return
 async function rebuildZelFront(req, res) {
-  // eslint-disable-next-line consistent-return
   const authorized = await serviceHelper.verifyZelTeamSession(req.headers);
   if (authorized === true) {
     const zelnodedpath = path.join(__dirname, '../../../');

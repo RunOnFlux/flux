@@ -21,7 +21,13 @@ async function loginPhrase(req, res) {
        expireAt: 2019-08-09T13:23:41.335Z
      }
 ] */
-  const db = await serviceHelper.connectMongoDb(mongoUrl);
+  const db = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
+    console.log(error.message);
+    console.log(error.name);
+    res.json(error);
+    log.error(error);
+    throw error;
+  });
   const database = db.db(config.database.local.database);
   const collection = config.database.local.collections.activeLoginPhrases;
   database.collection(collection).createIndex({ createdAt: 1 }, { expireAfterSeconds: 900 });
@@ -31,9 +37,9 @@ async function loginPhrase(req, res) {
     expireAt: new Date(validTill),
   };
   const value = newLoginPhrase;
-  const result = await serviceHelper.insertOneToDatabase(database, collection, value);
+  await serviceHelper.insertOneToDatabase(database, collection, value);
   db.close();
-  return res.json(phrase);
+  res.json(phrase);
 }
 
 async function verifyLogin(req, res) {
@@ -176,7 +182,7 @@ async function verifyLogin(req, res) {
           }
           const loggedUsersCollection = config.database.local.collections.loggedUsers;
           const value = newLogin;
-          const resultB = await serviceHelper.insertOneToDatabase(database, loggedUsersCollection, value);
+          await serviceHelper.insertOneToDatabase(database, loggedUsersCollection, value);
           db.close();
           const resMessage = {
             status: 'success',
@@ -189,27 +195,16 @@ async function verifyLogin(req, res) {
             },
           };
           return res.json(resMessage);
-        } else {
-          const errMessage = {
-            status: 'error',
-            data: {
-              message: 'Invalid signature.',
-            },
-          };
-          db.close();
-          return res.json(errMessage);
         }
-      } else {
         const errMessage = {
           status: 'error',
           data: {
-            message: 'Signed message is no longer valid. Please request a new one.',
+            message: 'Invalid signature.',
           },
         };
         db.close();
         return res.json(errMessage);
       }
-    } else {
       const errMessage = {
         status: 'error',
         data: {
@@ -219,6 +214,14 @@ async function verifyLogin(req, res) {
       db.close();
       return res.json(errMessage);
     }
+    const errMessage = {
+      status: 'error',
+      data: {
+        message: 'Signed message is no longer valid. Please request a new one.',
+      },
+    };
+    db.close();
+    return res.json(errMessage);
   });
 }
 
@@ -237,7 +240,7 @@ async function activeLoginPhrases(req, res) {
     };
     const results = await serviceHelper.findInDatabase(database, collection, query, projection);
     db.close();
-    return res.json(results);
+    res.json(results);
   } else {
     const errMessage = {
       status: 'error',
@@ -245,7 +248,7 @@ async function activeLoginPhrases(req, res) {
         message: 'Unauthorized. Access denied.',
       },
     };
-    return res.json(errMessage);
+    res.json(errMessage);
   }
 }
 
@@ -260,7 +263,7 @@ async function loggedUsers(req, res) {
     const projection = { projection: { _id: 0, zelid: 1, loginPhrase: 1 } };
     const results = await serviceHelper.findInDatabase(database, collection, query, projection);
     db.close();
-    return res.json(results);
+    res.json(results);
   } else {
     const errMessage = {
       status: 'error',
@@ -268,7 +271,7 @@ async function loggedUsers(req, res) {
         message: 'Unauthorized. Access denied.',
       },
     };
-    return res.json(errMessage);
+    res.json(errMessage);
   }
 }
 
@@ -285,7 +288,7 @@ async function loggedSessions(req, res) {
     const projection = { projection: { _id: 0, zelid: 1, loginPhrase: 1 } };
     const results = await serviceHelper.findInDatabase(database, collection, query, projection);
     db.close();
-    return res.json(results);
+    res.json(results);
   } else {
     const errMessage = {
       status: 'error',
@@ -293,7 +296,7 @@ async function loggedSessions(req, res) {
         message: 'Unauthorized. Access denied.',
       },
     };
-    return res.json(errMessage);
+    res.json(errMessage);
   }
 }
 
@@ -306,7 +309,7 @@ async function logoutCurrentSession(req, res) {
     const collection = config.database.local.collections.loggedUsers;
     const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
     const projection = {};
-    const results = await serviceHelper.findOneAndDeleteInDatabase(database, collection, query, projection);
+    await serviceHelper.findOneAndDeleteInDatabase(database, collection, query, projection);
     db.close();
     // console.log(results)
     const message = {
@@ -315,7 +318,7 @@ async function logoutCurrentSession(req, res) {
         message: 'Successfully logged out',
       },
     };
-    return res.json(message);
+    res.json(message);
   } else {
     const errMessage = {
       status: 'error',
@@ -323,7 +326,7 @@ async function logoutCurrentSession(req, res) {
         message: 'Unauthorized. Access denied.',
       },
     };
-    return res.json(errMessage);
+    res.json(errMessage);
   }
 }
 
@@ -362,15 +365,14 @@ async function logoutSpecificSession(req, res) {
         },
       };
       return res.json(message);
-    } else {
-      const errMessage = {
-        status: 'error',
-        data: {
-          message: 'Unauthorized. Access denied.',
-        },
-      };
-      return res.json(errMessage);
     }
+    const errMessage = {
+      status: 'error',
+      data: {
+        message: 'Unauthorized. Access denied.',
+      },
+    };
+    return res.json(errMessage);
   });
 }
 
@@ -382,7 +384,7 @@ async function logoutAllSessions(req, res) {
     const database = db.db(config.database.local.database);
     const collection = config.database.local.collections.loggedUsers;
     const query = { zelid: auth.zelid };
-    const result = await serviceHelper.removeDocumentsFromCollection(database, collection, query);
+    await serviceHelper.removeDocumentsFromCollection(database, collection, query);
     db.close();
     // console.log(result)
     const message = {
@@ -392,15 +394,14 @@ async function logoutAllSessions(req, res) {
       },
     };
     return res.json(message);
-  } else {
-    const errMessage = {
-      status: 'error',
-      data: {
-        message: 'Unauthorized. Access denied.',
-      },
-    };
-    return res.json(errMessage);
   }
+  const errMessage = {
+    status: 'error',
+    data: {
+      message: 'Unauthorized. Access denied.',
+    },
+  };
+  return res.json(errMessage);
 }
 
 async function logoutAllUsers(req, res) {
@@ -410,7 +411,7 @@ async function logoutAllUsers(req, res) {
     const database = db.db(config.database.local.database);
     const collection = config.database.local.collections.loggedUsers;
     const query = {};
-    const result = await serviceHelper.removeDocumentsFromCollection(database, collection, query);
+    await serviceHelper.removeDocumentsFromCollection(database, collection, query);
     db.close();
     // console.log(result)
     const message = {
@@ -420,15 +421,14 @@ async function logoutAllUsers(req, res) {
       },
     };
     return res.json(message);
-  } else {
-    const errMessage = {
-      status: 'error',
-      data: {
-        message: 'Unauthorized. Access denied.',
-      },
-    };
-    return res.json(errMessage);
   }
+  const errMessage = {
+    status: 'error',
+    data: {
+      message: 'Unauthorized. Access denied.',
+    },
+  };
+  return res.json(errMessage);
 }
 
 async function wsRespondLoginPhrase(ws, req) {

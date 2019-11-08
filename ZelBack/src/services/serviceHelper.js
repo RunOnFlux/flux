@@ -39,33 +39,33 @@ function ensureString(parameter) {
 // MongoDB functions
 async function connectMongoDb(url) {
   const connectUrl = url || mongoUrl;
-  const db = await MongoClient.connect(connectUrl);
+  const db = await MongoClient.connect(connectUrl).catch((error) => { throw error; });
   return db;
 }
 
 async function findInDatabase(database, collection, query, projection) {
-  const results = await database.collection(collection).find(query, projection).toArray();
+  const results = await database.collection(collection).find(query, projection).toArray().catch((error) => { throw error; });
   return results;
 }
 
 async function findOneInDatabase(database, collection, query, projection) {
-  const result = await database.collection(collection).findOne(query, projection);
+  const result = await database.collection(collection).findOne(query, projection).catch((error) => { throw error; });
   return result;
 }
 
 async function insertOneToDatabase(database, collection, value) {
-  const result = await database.collection(collection).insertOne(value);
+  const result = await database.collection(collection).insertOne(value).catch((error) => { throw error; });
   return result;
 }
 
 async function findOneAndDeleteInDatabase(database, collection, query, projection) {
-  const result = await database.collection(collection).findOneAndDelete(query, projection);
+  const result = await database.collection(collection).findOneAndDelete(query, projection).catch((error) => { throw error; });
   return result;
 }
 
 async function removeDocumentsFromCollection(database, collection, query) {
   // to remove all documents from collection, the query is just {}
-  const result = await database.collection(collection).remove(query);
+  const result = await database.collection(collection).remove(query).catch((error) => { throw error; });
   return result;
 }
 
@@ -79,12 +79,12 @@ async function verifyAdminSession(headers) {
       console.log(auth.signature);
       console.log(userconfig.initial.zelid);
       if (auth.zelid === userconfig.initial.zelid) {
-        const db = await connectMongoDb(mongoUrl);
+        const db = await connectMongoDb(mongoUrl).catch((error) => { throw error; });
         const database = db.db(config.database.local.database);
         const collection = config.database.local.collections.loggedUsers;
         const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
         const projection = {};
-        const result = await findOneInDatabase(database, collection, query, projection);
+        const result = await findOneInDatabase(database, collection, query, projection).catch((error) => { throw error; });
         const loggedUser = result;
         // console.log(result)
         db.close();
@@ -119,12 +119,12 @@ async function verifyUserSession(headers) {
     const auth = qs.parse(headers.zelidauth);
     console.log(auth);
     if (auth.zelid && auth.signature) {
-      const db = await connectMongoDb(mongoUrl);
+      const db = await connectMongoDb(mongoUrl).catch((error) => { throw error; });
       const database = db.db(config.database.local.database);
       const collection = config.database.local.collections.loggedUsers;
       const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
       const projection = {};
-      const result = await findOneInDatabase(database, collection, query, projection);
+      const result = await findOneInDatabase(database, collection, query, projection).catch((error) => { throw error; });
       const loggedUser = result;
       // console.log(result)
       db.close();
@@ -156,12 +156,12 @@ async function verifyZelTeamSession(headers) {
     const auth = qs.parse(headers.zelidauth);
     if (auth.zelid && auth.signature) {
       if (auth.zelid === config.zelTeamZelId || auth.zelid === userconfig.initial.zelid) { // admin is considered as zelTeam
-        const db = await connectMongoDb(mongoUrl);
+        const db = await connectMongoDb(mongoUrl).catch((error) => { throw error; });
         const database = db.db(config.database.local.database);
         const collection = config.database.local.collections.loggedUsers;
         const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
         const projection = {};
-        const result = await findOneInDatabase(database, collection, query, projection);
+        const result = await findOneInDatabase(database, collection, query, projection).catch((error) => { throw error; });
         const loggedUser = result;
         db.close();
         if (loggedUser) {
