@@ -43,6 +43,111 @@
       </div>
     </div>
     <div v-if="zelNodeSection === 'network'">
+      <el-tabs v-model="activeName">
+        <el-tab-pane
+          label="Outgoing"
+          name="outgoing"
+        >
+          <el-table
+            :data="connectedPeersFilter"
+            empty-text="No outgoing connections"
+            style="width: 100%"
+          >
+            <el-table-column
+              label="IP address"
+              prop="ip"
+            >
+            </el-table-column>
+            <el-table-column
+              label="Round Trip Time"
+              prop="rtt"
+            >
+            </el-table-column>
+            <el-table-column align="right">
+              <template
+                slot="header"
+                slot-scope="scope"
+              >
+                <el-input
+                  v-model="filterConnectedPeer"
+                  size="mini"
+                  placeholder="Type to search"
+                />
+              </template>
+              <template slot-scope="scope">
+                <el-button
+                  size="mini"
+                  type="danger"
+                  @click="DisconnectPeer(scope.$index, scope.row)"
+                >Disconnect</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+          <br>
+          <hr>
+          <br>
+          Force a connection to a peer
+          <br>
+          <ElForm class="loginForm">
+            <ElFormItem>
+              <ElInput
+                type="text"
+                placeholder="insert IP address"
+                v-model="connectPeerIP"
+              >
+                <template slot="prepend">IP: </template>
+              </ElInput>
+            </ElFormItem>
+
+            <ElButton
+              class="generalButton"
+              @click="connectPeer()"
+            >
+              Connect to Peer
+            </ElButton>
+          </ElForm>
+        </el-tab-pane>
+        <el-tab-pane
+          label="Incoming"
+          name="incoming"
+        >
+          <el-table
+            :data="incomingConnectionsFilter"
+            empty-text="No incoming connections"
+            style="width: 100%"
+          >
+            <el-table-column
+              label="IP address"
+              prop="ip"
+            >
+            </el-table-column>
+            <el-table-column
+              label="Round Trip Time"
+              prop="rtt"
+            >
+            </el-table-column>
+            <el-table-column align="right">
+              <template
+                slot="header"
+                slot-scope="scope"
+              >
+                <el-input
+                  v-model="filterConnectedPeer"
+                  size="mini"
+                  placeholder="Type to search"
+                />
+              </template>
+              <template slot-scope="scope">
+                <el-button
+                  size="mini"
+                  type="danger"
+                  @click="DisconnectIncoming(scope.$index, scope.row)"
+                >Disconnect</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-tab-pane>
+      </el-tabs>
     </div>
   </div>
 </template>
@@ -70,6 +175,11 @@ export default {
         data: '',
         zelnodeStatus: 'Checking status...',
       },
+      activeName: 'outgoing',
+      connectedPeers: [],
+      incomingConnections: [],
+      filterConnectedPeer: '',
+      connectPeerIP: '',
     };
   },
   computed: {
@@ -78,6 +188,18 @@ export default {
       'userconfig',
       'zelNodeSection',
     ]),
+    connectedPeersFilter() { // TODO FIXME filtering causes ton of issues?
+      // if (this.connectedPeers.length > 0) {
+      //   return this.connectedPeers.filter(data => data.ip.toLowerCase().includes(this.filterConnectedPeer.toLowerCase()) || data.rtt > this.filterConnectedPeer);
+      // }
+      return this.connectedPeers;
+    },
+    incomingConnectionsFilter() {
+      // if (this.incomingConnections.length > 0) {
+      //   return this.incomingConnections.filter(data => data.ip.toLowerCase().includes(this.filterConnectedPeer.toLowerCase()));
+      // }
+      return this.incomingConnections;
+    },
   },
   watch: {
     zelNodeSection(val, oldVal) {
@@ -161,12 +283,87 @@ export default {
         });
     },
     async zelfluxConnectedPeersInfo() {
-      const responsePeers = await ZelFluxService.connectedPeersInfo();
-      console.log(responsePeers);
+      const response = await ZelFluxService.connectedPeersInfo();
+      if (response.data.status === 'success') {
+        this.connectedPeers = response.data.data;
+      } else {
+        vue.$message({
+          type: response.data.status,
+          message: response.data.data.message || response.data.data,
+        });
+      }
     },
     async zelfluxIncomingConnections() {
       const response = await ZelFluxService.incomingConnections();
-      console.log(response);
+      if (response.data.status === 'success') {
+        this.incomingConnections = response.data.data;
+      } else {
+        vue.$message({
+          type: response.data.status,
+          message: response.data.data.message || response.data.data,
+        });
+      }
+    },
+    disconnectPeer(index, row) {
+      const self = this;
+      console.log(index, row);
+      const zelidauth = localStorage.getItem('zelidauth');
+      ZelFluxService.removePeer(zelidauth, row.ip)
+        .then((response) => {
+          if (response.data.status === 'success') {
+            this.incomingConnections = response.data.data;
+          }
+          vue.$message({
+            type: response.data.status,
+            message: response.data.data.message || response.data.data,
+          });
+          self.zelfluxConnectedPeersInfo();
+        })
+        .catch((e) => {
+          console.log(e);
+          vue.$message.error(e.toString());
+        });
+    },
+    disconnectIncoming(index, row) {
+      const self = this;
+      console.log(index, row);
+      const zelidauth = localStorage.getItem('zelidauth');
+      ZelFluxService.removeIncomingPeer(zelidauth, row.ip)
+        .then((response) => {
+          if (response.data.status === 'success') {
+            this.incomingConnections = response.data.data;
+          }
+          vue.$message({
+            type: response.data.status,
+            message: response.data.data.message || response.data.data,
+          });
+          self.zelfluxConnectedPeersInfo();
+        })
+        .catch((e) => {
+          console.log(e);
+          vue.$message.error(e.toString());
+        });
+    },
+    connectPeer() {
+      const self = this;
+      const zelidauth = localStorage.getItem('zelidauth');
+      console.log('here');
+      ZelFluxService.addPeer(zelidauth, self.connectPeerIP)
+        .then((response) => {
+          console.log(response);
+          if (response.data.status === 'success') {
+            this.incomingConnections = response.data.data;
+          }
+          vue.$message({
+            type: response.data.status,
+            message: response.data.data.message || response.data.data,
+          });
+          self.zelfluxConnectedPeersInfo();
+        })
+        .catch((e) => {
+          console.log(e);
+          vue.$message.error(e.toString());
+        });
     },
   },
 };

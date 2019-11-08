@@ -503,9 +503,11 @@ async function addPeer(req, res) {
       },
     };
     response = message;
+    console.log(response);
   } else {
     response = serviceHelper.errUnauthorizedMessage();
   }
+  console.log(response);
   return res.json(response);
 }
 

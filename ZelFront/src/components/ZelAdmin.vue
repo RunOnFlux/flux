@@ -27,6 +27,10 @@
             />
           </template>
           <template slot-scope="scope">
+            <i
+              v-if="scope.row.loginPhrase === currentLoginPhrase"
+              class="el-icon-warning"
+            ></i>&nbsp;
             <el-button
               size="mini"
               type="danger"

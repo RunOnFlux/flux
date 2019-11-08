@@ -33,6 +33,17 @@
     >
       {{ callResponse.data || 'Obtaining help section...' }}
     </div>
+    <div
+      v-if="zelCashSection === 'restart'"
+      class="restartSection"
+    >
+      <ElButton
+        class="generalButton"
+        @click="restartZelCashDaemon()"
+      >
+        Restart ZelCash
+      </ElButton>
+    </div>
     <div v-if="callResponse.status === 'error'">
       <p>
         Error: {{ callResponse.data.message || callResponse.data }}
@@ -48,6 +59,7 @@ import Vue from 'vue';
 import ZelCashService from '@/services/ZelCashService';
 
 Vue.use(Vuex);
+const vue = new Vue();
 
 export default {
   name: 'ZelCash',
@@ -85,7 +97,6 @@ export default {
           this.zelcashHelp();
           break;
         case 'restart':
-          this.restartZelCashDaemon();
           break;
         case null:
           console.log('ZelCash Section hidden');
@@ -105,7 +116,6 @@ export default {
         this.zelcashHelp();
         break;
       case 'restart':
-        this.restartZelCashDaemon();
         break;
       case null:
         console.log('ZelCash Section hidden');
@@ -127,9 +137,11 @@ export default {
     },
     async restartZelCashDaemon() {
       const zelidauth = localStorage.getItem('zelidauth');
-      console.log('trying restart');
       const response = await ZelCashService.restart(zelidauth);
-      console.log(response);
+      vue.$message({
+        type: response.data.status,
+        message: response.data.data.message || response.data.data,
+      });
     },
     async zelcashGetZelNodeStatus() {
       // TODO more code statuses?

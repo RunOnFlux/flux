@@ -240,6 +240,24 @@ h4 {
   transform: rotateZ(180deg)
 }
 
+
+.el-tabs__item {
+  color: #fff;
+}
+
+.el-tabs__item:hover {
+  color: #ffd04b;
+}
+
+.el-tabs__item.is-top.is-active {
+  color: #ffd04b;
+}
+
+.el-tabs__active-bar{
+  background-color:#ffd04b;
+}
+
+
 /* ZelCash styling */
 .helpSection {
   white-space: pre-line;
