@@ -10,6 +10,9 @@ const userconfig = require('../../../config/userconfig');
 const outgoingConnections = []; // websocket list
 const outgoingPeers = []; // array of objects containing ip and rtt latency
 
+const incomingConnections = []; // websocket list
+const incomingPeers = []; // array of objects containing ip and rtt latency
+
 let response = {
   status: 'error',
   data: {
@@ -153,6 +156,38 @@ function sendToAllPeers(data) {
   ipremovals = [];
 }
 
+function sendToAllIncomingConnections(data) {
+  let removals = [];
+  let ipremovals = [];
+  // console.log(data);
+  incomingConnections.forEach((client) => {
+    try {
+      client.send(data);
+    } catch (e) {
+      log.error(e);
+      removals.push(client);
+      const ip = client._socket.remoteAddress;
+      const foundPeer = incomingPeers.find(peer => peer.ip === ip);
+      ipremovals.push(foundPeer);
+    }
+  });
+
+  for (let i = 0; i < ipremovals.length; i += 1) {
+    const peerIndex = incomingPeers.indexOf(ipremovals[i]);
+    if (peerIndex > -1) {
+      incomingPeers.splice(peerIndex, 1);
+    }
+  }
+  for (let i = 0; i < removals.length; i += 1) {
+    const ocIndex = incomingConnections.indexOf(removals[i]);
+    if (ocIndex > -1) {
+      incomingConnections.splice(ocIndex, 1);
+    }
+  }
+  removals = [];
+  ipremovals = [];
+}
+
 async function serialiseAndSignZelFluxBroadcast(dataToBroadcast, privatekey) {
   const timestamp = Date.now();
   const pubKey = await getZelNodePublicKey(privatekey);
@@ -172,19 +207,13 @@ async function serialiseAndSignZelFluxBroadcast(dataToBroadcast, privatekey) {
 
 // eslint-disable-next-line no-unused-vars
 function handleIncomingConnection(ws, req, expressWS) {
-  // const clientsSet = expressWS.clients;
-  // const clientsValues = clientsSet.values();
-  // console.log(clientsValues);
-  // console.log(clientsSet .size);
-  // for (let i = 0; i < clientsSet.size; i += 1) {
-  //   console.log(clientsValues.next().value);
-  // }
-  // clientsSet.forEach((client) => {
-  //   client.send('hello');
-  // });
-  // const { data } = req.params;
-  // console.log(req);
-  // console.log(ws);
+  // now we are in connections state. push the websocket to our incomingconnections
+  incomingConnections.push(ws);
+  const peer = {
+    ip: ws._socket.remoteAddress,
+    rtt: null,
+  };
+  incomingPeers.push(peer);
   // verify data integrity, if not signed, close connection
   ws.on('message', async (msg) => {
     const currentTimeStamp = Date.now(); // ms
@@ -199,6 +228,17 @@ function handleIncomingConnection(ws, req, expressWS) {
           newMessage.message = 'pong';
           const pongResponse = await serialiseAndSignZelFluxBroadcast(newMessage);
           ws.send(pongResponse);
+        } else if (msgObj.data.type === 'HeartBeat' && msgObj.data.message === 'pong') { // we know that data exists. This is measuring rtt from incoming conn
+          const newerTimeStamp = Date.now(); // ms, get a bit newer time that has passed verification of broadcast
+          const rtt = newerTimeStamp - msgObj.data.timestamp;
+          const ip = ws._socket.remoteAddress;
+          const foundPeer = incomingPeers.find(mypeer => mypeer.ip === ip);
+          if (foundPeer) {
+            const peerIndex = incomingPeers.indexOf(foundPeer);
+            if (peerIndex > -1) {
+              incomingPeers[peerIndex].rtt = rtt;
+            }
+          }
         } else {
           ws.send(`ZelFlux ${userconfig.initial.ipaddress} says message received!`);
         }
@@ -226,25 +266,47 @@ function handleIncomingConnection(ws, req, expressWS) {
       }
     }
   });
-  ws.on('open', (msg) => {
-    console.log('conn open');
-    console.log(msg);
+  ws.on('error', async (msg) => {
+    console.log(ws._socket.remoteAddress);
+    const ip = ws._socket.remoteAddress;
+    const ocIndex = await incomingConnections.indexOf(ws);
+    const foundPeer = await incomingPeers.find(mypeer => mypeer.ip === ip);
+    if (ocIndex > -1) {
+      incomingConnections.splice(ocIndex, 1);
+    }
+    if (foundPeer) {
+      const peerIndex = incomingPeers.indexOf(foundPeer);
+      if (peerIndex > -1) {
+        incomingPeers.splice(peerIndex, 1);
+      }
+    }
+    log.error(`Incoming connection errored with: ${msg}`);
   });
-  ws.on('connection', (msg) => {
-    console.log(msg);
-  });
-  ws.on('error', (msg) => {
-    console.log(msg);
-  });
-  ws.on('close', (msg) => {
-    // console.log(clientsSet);
-    console.log(msg);
+  ws.on('close', async (msg) => {
+    const ip = ws._socket.remoteAddress;
+    const ocIndex = await incomingConnections.indexOf(ws);
+    const foundPeer = await incomingPeers.find(mypeer => mypeer.ip === ip);
+    if (ocIndex > -1) {
+      incomingConnections.splice(ocIndex, 1);
+    }
+    if (foundPeer) {
+      const peerIndex = incomingPeers.indexOf(foundPeer);
+      if (peerIndex > -1) {
+        incomingPeers.splice(peerIndex, 1);
+      }
+    }
+    log.info(`Incoming connection closed with: ${msg}`);
   });
 }
 
 async function broadcastMessage(dataToBroadcast) {
   const serialisedData = await serialiseAndSignZelFluxBroadcast(dataToBroadcast);
   sendToAllPeers(serialisedData);
+}
+
+async function broadcastMessageToIncoming(dataToBroadcast) {
+  const serialisedData = await serialiseAndSignZelFluxBroadcast(dataToBroadcast);
+  sendToAllIncomingConnections(serialisedData);
 }
 
 async function broadcastMessageFromUser(req, res) {
@@ -383,6 +445,15 @@ async function initiateAndHandleConnection(ip) {
             outgoingPeers[peerIndex].rtt = rtt;
           }
         }
+      } else if (msgObj.data.type === 'HeartBeat' && msgObj.data.message === 'ping') {
+        const newMessage = msgObj.data;
+        newMessage.message = 'pong';
+        const pongResponse = await serialiseAndSignZelFluxBroadcast(newMessage);
+        try {
+          websocket.send(pongResponse);
+        } catch (error) {
+          console.log(error.code);
+        }
       }
     } // else we do not react to this message;
   };
@@ -469,6 +540,20 @@ function keepConnectionsAlive() {
   }, 30000);
 }
 
+function keepIncomingConnectionsAlive() {
+  setInterval(() => {
+    const timestamp = Date.now();
+    const type = 'HeartBeat';
+    const message = 'ping';
+    const data = {
+      timestamp,
+      type,
+      message,
+    };
+    broadcastMessageToIncoming(data);
+  }, 30000);
+}
+
 async function addPeer(req, res) {
   let { ip } = req.params;
   ip = ip || req.query.ip;
@@ -500,7 +585,7 @@ async function addPeer(req, res) {
   return res.json(response);
 }
 
-function incomingConnections(req, res, expressWS) {
+function getIncomingConnections(req, res, expressWS) {
   const clientsSet = expressWS.clients;
   const connections = [];
   clientsSet.forEach((client) => {
@@ -514,16 +599,8 @@ function incomingConnections(req, res, expressWS) {
   res.json(response);
 }
 
-function incomingConnectionsInfo(req, res, expressWS) {
-  const clientsSet = expressWS.clients;
-  const connections = [];
-  clientsSet.forEach((client) => {
-    const conn = {
-      ip: client._socket.remoteAddress,
-      rtt: null, // TODO RTT
-    };
-    connections.push(conn);
-  });
+function getIncomingConnectionsInfo(req, res) {
+  const connections = incomingPeers;
   const message = {
     status: 'success',
     data: connections,
@@ -594,14 +671,32 @@ async function closeIncomingConnection(ip, expressWS) {
     }
   });
   if (wsObj) {
-    wsObj.close(1000);
-    log.info(`Connection from ${ip} closed`);
-    message = {
-      status: 'success',
-      data: {
-        message: `Incoming connection from ${ip} closed`,
-      },
-    };
+    const ocIndex = await incomingConnections.indexOf(wsObj);
+    const foundPeer = await incomingPeers.find(peer => peer.ip === ip);
+    if (ocIndex > -1) {
+      wsObj.close(1000);
+      log.info(`Connection from ${ip} closed`);
+      incomingConnections.splice(ocIndex, 1);
+      if (foundPeer) {
+        const peerIndex = incomingPeers.indexOf(foundPeer);
+        if (peerIndex > -1) {
+          incomingPeers.splice(peerIndex, 1);
+        }
+      }
+      message = {
+        status: 'success',
+        data: {
+          message: `Incoming connection to ${ip} closed`,
+        },
+      };
+    } else {
+      message = {
+        status: 'error',
+        data: {
+          message: `Unable to close incoming connection ${ip}. Try again later.`,
+        },
+      };
+    }
   } else {
     message = {
       status: 'success',
@@ -653,6 +748,7 @@ function startFluxFunctions() {
   fluxDisovery();
   log.info('Flux Discovery started');
   keepConnectionsAlive();
+  keepIncomingConnectionsAlive();
 }
 
 module.exports = {
@@ -662,6 +758,7 @@ module.exports = {
   handleIncomingConnection,
   fluxDisovery,
   broadcastMessage,
+  broadcastMessageToIncoming,
   broadcastMessageFromUser,
   broadcastMessageFromUserPost,
   serialiseAndSignZelFluxBroadcast,
@@ -669,8 +766,8 @@ module.exports = {
   connectedPeers,
   startFluxFunctions,
   addPeer,
-  incomingConnections,
-  incomingConnectionsInfo,
+  getIncomingConnections,
+  getIncomingConnectionsInfo,
   removePeer,
   removeIncomingPeer,
   connectedPeersInfo,

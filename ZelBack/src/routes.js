@@ -466,11 +466,11 @@ module.exports = (app, expressWs) => {
   });
 
   app.get('/zelflux/incomingconnections', (req, res) => {
-    zelfluxCommunication.incomingConnections(req, res, expressWs.getWss('/ws/zelflux'));
+    zelfluxCommunication.getIncomingConnections(req, res, expressWs.getWss('/ws/zelflux'));
   });
 
   app.get('/zelflux/incomingconnectionsinfo', (req, res) => {
-    zelfluxCommunication.incomingConnectionsInfo(req, res, expressWs.getWss('/ws/zelflux'));
+    zelfluxCommunication.getIncomingConnectionsInfo(req, res, expressWs.getWss('/ws/zelflux'));
   });
 
   app.get('/zelflux/removeincomingpeer/:ip?', (req, res) => {
