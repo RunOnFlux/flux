@@ -13,12 +13,7 @@ const outgoingPeers = []; // array of objects containing ip and rtt latency
 const incomingConnections = []; // websocket list
 const incomingPeers = []; // array of objects containing ip and rtt latency
 
-let response = {
-  status: 'error',
-  data: {
-    message: 'Unknown error',
-  },
-};
+let response = serviceHelper.createErrorMessage();
 
 async function zelnodelist(filter) {
   let zelnodeList = null;
@@ -320,12 +315,7 @@ async function broadcastMessageFromUser(req, res) {
 
   if (authorized === true) {
     broadcastMessage(data);
-    const message = {
-      status: 'success',
-      data: {
-        message: 'Message successfully broadcasted to ZelFlux network',
-      },
-    };
+    const message = serviceHelper.createSuccessMessage('Message successfully broadcasted to ZelFlux network');
     response = message;
   } else {
     response = serviceHelper.errUnauthorizedMessage();
@@ -348,12 +338,7 @@ async function broadcastMessageFromUserPost(req, res) {
       const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
       if (authorized === true) {
         broadcastMessage(processedBody);
-        const message = {
-          status: 'success',
-          data: {
-            message: 'Message successfully broadcasted to ZelFlux network',
-          },
-        };
+        const message = serviceHelper.createSuccessMessage('Message successfully broadcasted to ZelFlux network');
         response = message;
       } else {
         response = serviceHelper.errUnauthorizedMessage();
@@ -508,20 +493,14 @@ function connectedPeers(req, res) {
   outgoingConnections.forEach((client) => {
     connections.push(client._socket.remoteAddress);
   });
-  const message = {
-    status: 'success',
-    data: connections,
-  };
+  const message = serviceHelper.createDataMessage(connections);
   response = message;
   res.json(response);
 }
 
 function connectedPeersInfo(req, res) {
   const connections = outgoingPeers;
-  const message = {
-    status: 'success',
-    data: connections,
-  };
+  const message = serviceHelper.createDataMessage(connections);
   response = message;
   res.json(response);
 }
@@ -570,12 +549,7 @@ async function addPeer(req, res) {
 
   if (authorized === true) {
     initiateAndHandleConnection(ip);
-    const message = {
-      status: 'success',
-      data: {
-        message: `Outgoing connection to ${ip} initiated`,
-      },
-    };
+    const message = serviceHelper.createSuccessMessage(`Outgoing connection to ${ip} initiated`);
     response = message;
     console.log(response);
   } else {
@@ -591,32 +565,21 @@ function getIncomingConnections(req, res, expressWS) {
   clientsSet.forEach((client) => {
     connections.push(client._socket.remoteAddress);
   });
-  const message = {
-    status: 'success',
-    data: connections,
-  };
+  const message = serviceHelper.createDataMessage(connections);
   response = message;
   res.json(response);
 }
 
 function getIncomingConnectionsInfo(req, res) {
   const connections = incomingPeers;
-  const message = {
-    status: 'success',
-    data: connections,
-  };
+  const message = serviceHelper.createDataMessage(connections);
   response = message;
   res.json(response);
 }
 
 
 async function closeConnection(ip) {
-  let message = {
-    status: 'error',
-    data: {
-      message: `Unkown error while closing ${ip}`,
-    },
-  };
+  let message = serviceHelper.createErrorMessage(`Unkown error while closing ${ip}`);
   const wsObj = await outgoingConnections.find(client => client._socket.remoteAddress === ip);
   if (wsObj) {
     const ocIndex = await outgoingConnections.indexOf(wsObj);
@@ -631,39 +594,19 @@ async function closeConnection(ip) {
           outgoingPeers.splice(peerIndex, 1);
         }
       }
-      message = {
-        status: 'success',
-        data: {
-          message: `Outgoing connection to ${ip} closed`,
-        },
-      };
+      message = serviceHelper.createSuccessMessage(`Outgoing connection to ${ip} closed`);
     } else {
-      message = {
-        status: 'error',
-        data: {
-          message: `Unable to close connection ${ip}. Try again later.`,
-        },
-      };
+      message = serviceHelper.createErrorMessage(`Unable to close connection ${ip}. Try again later.`);
     }
   } else {
-    message = {
-      status: 'success',
-      data: {
-        message: `Connection to ${ip} does not exists.`,
-      },
-    };
+    message = serviceHelper.createWarningMessage(`Connection to ${ip} does not exists.`);
   }
   return message;
 }
 
 async function closeIncomingConnection(ip, expressWS) {
   const clientsSet = expressWS.clients;
-  let message = {
-    status: 'error',
-    data: {
-      message: `Unkown error while closing ${ip}`,
-    },
-  };
+  let message = serviceHelper.createErrorMessage(`Unkown error while closing incoming ${ip}`);
   let wsObj = null;
   clientsSet.forEach((client) => {
     if (client._socket.remoteAddress === ip) {
@@ -683,27 +626,12 @@ async function closeIncomingConnection(ip, expressWS) {
           incomingPeers.splice(peerIndex, 1);
         }
       }
-      message = {
-        status: 'success',
-        data: {
-          message: `Incoming connection to ${ip} closed`,
-        },
-      };
+      message = serviceHelper.createSuccessMessage(`Incoming connection to ${ip} closed`);
     } else {
-      message = {
-        status: 'error',
-        data: {
-          message: `Unable to close incoming connection ${ip}. Try again later.`,
-        },
-      };
+      message = serviceHelper.createErrorMessage(`Unable to close incoming connection ${ip}. Try again later.`);
     }
   } else {
-    message = {
-      status: 'success',
-      data: {
-        message: `Connection from ${ip} does not exists.`,
-      },
-    };
+    message = serviceHelper.createWarningMessage(`Connection from ${ip} does not exists.`);
   }
   return message;
 }

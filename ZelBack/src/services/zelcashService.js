@@ -14,31 +14,14 @@ const client = new zelcashrpc.Client({
   timeout: 60000,
 });
 
-let response = {
-  status: 'error',
-  data: {
-    code: undefined,
-    name: undefined,
-    message: 'Unknown error',
-  },
-};
+let response = serviceHelper.createErrorMessage();
 
 async function executeCall(rpc, params) {
-  let callResponse = {
-    status: 'error',
-    data: {
-      code: undefined,
-      name: undefined,
-      message: 'Unknown error',
-    },
-  };
+  let callResponse = serviceHelper.createErrorMessage();
   const rpcparameters = params || [];
   try {
     const data = await client[rpc](...rpcparameters);
-    const successResponse = {
-      status: 'success',
-      data,
-    };
+    const successResponse = serviceHelper.createDataMessage(data);
     callResponse = successResponse;
   } catch (error) {
     const daemonError = serviceHelper.createErrorMessage(error.message, error.name, error.code);

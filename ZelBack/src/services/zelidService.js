@@ -153,16 +153,14 @@ async function verifyLogin(req, res) {
             throw error;
           });
           db.close();
-          const resMessage = {
-            status: 'success',
-            data: {
-              message: 'Successfully logged in',
-              zelid: address,
-              loginPhrase: message,
-              signature,
-              privilage,
-            },
+          const resData = {
+            message: 'Successfully logged in',
+            zelid: address,
+            loginPhrase: message,
+            signature,
+            privilage,
           };
+          const resMessage = serviceHelper.createDataMessage(resData);
           return res.json(resMessage);
         }
         const errMessage = serviceHelper.createErrorMessage('Invalid signature');
@@ -354,12 +352,7 @@ async function logoutSpecificSession(req, res) {
       });
       db.close();
       if (result.value === null) {
-        const message = {
-          status: 'warning',
-          data: {
-            message: 'Specified user was already logged out',
-          },
-        };
+        const message = serviceHelper.createWarningMessage('Specified user was already logged out');
         return res.json(message);
       }
       const message = serviceHelper.createSuccessMessage('Session successfully logged out');
@@ -474,16 +467,14 @@ async function wsRespondLoginPhrase(ws, req) {
       } else if (result.zelid === userconfig.initial.zelid) {
         privilage = 'admin';
       }
-      const message = {
-        status: 'success',
-        data: {
-          message: 'Successfully logged in',
-          zelid: result.zelid,
-          loginPhrase: result.loginPhrase,
-          signature: result.signature,
-          privilage,
-        },
+      const resData = {
+        message: 'Successfully logged in',
+        zelid: result.zelid,
+        loginPhrase: result.loginPhrase,
+        signature: result.signature,
+        privilage,
       };
+      const message = serviceHelper.createDataMessage(resData);
       if (!connclosed) {
         try {
           ws.send(qs.stringify(message));

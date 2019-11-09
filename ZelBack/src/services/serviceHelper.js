@@ -12,6 +12,14 @@ const log = require('../lib/log');
 const { MongoClient } = mongodb;
 const mongoUrl = `mongodb://${config.database.url}:${config.database.port}/`;
 
+function createDataMessage(data) {
+  const successMessage = {
+    status: 'success',
+    data,
+  };
+  return successMessage;
+}
+
 function createSuccessMessage(message, name, code) {
   const successMessage = {
     status: 'success',
@@ -24,13 +32,25 @@ function createSuccessMessage(message, name, code) {
   return successMessage;
 }
 
+function createWarningMessage(message, name, code) {
+  const warningMessage = {
+    status: 'warning',
+    data: {
+      code,
+      name,
+      message,
+    },
+  };
+  return warningMessage;
+}
+
 function createErrorMessage(message, name, code) {
   const errMessage = {
     status: 'error',
     data: {
       code,
       name,
-      message,
+      message: message || 'Unknown error',
     },
   };
   return errMessage;
@@ -303,7 +323,9 @@ module.exports = {
   verifyPrivilege,
   signMessage,
   verifyMessage,
+  createDataMessage,
   createSuccessMessage,
+  createWarningMessage,
   createErrorMessage,
   errUnauthorizedMessage,
 };
