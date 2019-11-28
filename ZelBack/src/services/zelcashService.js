@@ -873,6 +873,27 @@ async function decodeRawTransaction(req, res) {
   return res ? res.json(response) : response;
 }
 
+async function decodeRawTransactionPost(req, res) {
+  console.log(req.headers);
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = JSON.parse(body);
+    const { hexstring } = processedBody;
+
+    const rpccall = 'decodeRawTransaction';
+    let rpcparameters = [];
+    if (hexstring) {
+      rpcparameters = [hexstring];
+    }
+    response = await executeCall(rpccall, rpcparameters);
+
+    return res.json(response);
+  });
+}
+
 async function decodeScript(req, res) {
   let { hex } = req.params;
   hex = hex || req.query.hex;
@@ -2204,6 +2225,7 @@ module.exports = {
   // == Rawtransactions ==
   createRawTransaction,
   decodeRawTransaction,
+  decodeRawTransactionPost,
   decodeScript,
   fundRawTransaction,
   getRawTransaction,

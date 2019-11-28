@@ -128,7 +128,7 @@ module.exports = (app, expressWs) => {
   app.get('/zelcash/createrawtransaction/:transactions?/:addresses?/:locktime?/:expiryheight?', (req, res) => { // todo make this post too
     zelcashService.createRawTransaction(req, res);
   });
-  app.get('/zelcash/decoderawtransaction/:hexstring?', (req, res) => { // todo make this post too
+  app.get('/zelcash/decoderawtransaction/:hexstring?', (req, res) => {
     zelcashService.decodeRawTransaction(req, res);
   });
   app.get('/zelcash/decodescript/:hex?', (req, res) => { // todo make this post too
@@ -460,6 +460,10 @@ module.exports = (app, expressWs) => {
   // POST PUBLIC methods route
   app.post('/zelid/verifylogin', (req, res) => {
     zelidService.verifyLogin(req, res);
+  });
+
+  app.post('/zelcash/decoderawtransaction', (req, res) => {
+    zelcashService.decodeRawTransactionPost(req, res);
   });
 
   // POST PROTECTED API - USER LEVEL
