@@ -84,7 +84,16 @@ function ensureNumber(parameter) {
 }
 
 function ensureObject(parameter) {
-  return typeof parameter === 'object' ? parameter : JSON.parse(parameter);
+  if (typeof parameter === 'object') {
+    return parameter;
+  }
+  let param = parameter;
+  try {
+    param = JSON.parse(parameter);
+  } catch (e) {
+    param = qs.parse(parameter);
+  }
+  return param;
 }
 
 function ensureString(parameter) {

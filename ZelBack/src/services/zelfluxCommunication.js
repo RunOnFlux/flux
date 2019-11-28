@@ -330,7 +330,7 @@ async function broadcastMessageToOutgoingFromUserPost(req, res) {
     body += data;
   });
   req.on('end', async () => {
-    const processedBody = JSON.parse(body);
+    const processedBody = serviceHelper.ensureObject(body);
     if (processedBody === undefined || processedBody === null || processedBody === '') {
       const errMessage = serviceHelper.createErrorMessage('No message to broadcast attached.');
       response = errMessage;
@@ -374,7 +374,7 @@ async function broadcastMessageToIncomingFromUserPost(req, res) {
     body += data;
   });
   req.on('end', async () => {
-    const processedBody = JSON.parse(body);
+    const processedBody = serviceHelper.ensureObject(body);
     if (processedBody === undefined || processedBody === null || processedBody === '') {
       const errMessage = serviceHelper.createErrorMessage('No message to broadcast attached.');
       response = errMessage;
@@ -419,7 +419,7 @@ async function broadcastMessageFromUserPost(req, res) {
     body += data;
   });
   req.on('end', async () => {
-    const processedBody = JSON.parse(body);
+    const processedBody = serviceHelper.ensureObject(body);
     if (processedBody === undefined || processedBody === null || processedBody === '') {
       const errMessage = serviceHelper.createErrorMessage('No message to broadcast attached.');
       response = errMessage;

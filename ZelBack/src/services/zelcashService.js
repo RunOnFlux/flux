@@ -880,7 +880,7 @@ async function decodeRawTransactionPost(req, res) {
     body += data;
   });
   req.on('end', async () => {
-    const processedBody = JSON.parse(body);
+    const processedBody = serviceHelper.ensureObject(body);
     const { hexstring } = processedBody;
 
     const rpccall = 'decodeRawTransaction';
@@ -1001,7 +1001,7 @@ async function signRawTransactionPost(req, res) {
     body += data;
   });
   req.on('end', async () => {
-    const processedBody = JSON.parse(body);
+    const processedBody = serviceHelper.ensureObject(body);
     const { hexstring } = processedBody;
     let { prevtxs } = processedBody;
     let { privatekeys } = processedBody;
