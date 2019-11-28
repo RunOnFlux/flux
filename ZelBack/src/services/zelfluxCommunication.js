@@ -210,7 +210,7 @@ function handleIncomingConnection(ws, req, expressWS) {
   };
   incomingPeers.push(peer);
   // verify data integrity, if not signed, close connection
-  ws.on('message', async (msg) => {
+  ws.on('message', async (msg) => { // TODO move to message handling infcoming connection function
     const currentTimeStamp = Date.now(); // ms
     console.log(msg);
     const messageOK = await verifyFluxBroadcast(msg, undefined, currentTimeStamp);
@@ -294,7 +294,7 @@ function handleIncomingConnection(ws, req, expressWS) {
   });
 }
 
-async function broadcastMessage(dataToBroadcast) {
+async function broadcastMessageToOutgoing(dataToBroadcast) {
   const serialisedData = await serialiseAndSignZelFluxBroadcast(dataToBroadcast);
   sendToAllPeers(serialisedData);
 }
@@ -302,6 +302,94 @@ async function broadcastMessage(dataToBroadcast) {
 async function broadcastMessageToIncoming(dataToBroadcast) {
   const serialisedData = await serialiseAndSignZelFluxBroadcast(dataToBroadcast);
   sendToAllIncomingConnections(serialisedData);
+}
+
+async function broadcastMessageToOutgoingFromUser(req, res) {
+  let { data } = req.params;
+  data = data || req.query.data;
+  if (data === undefined || data === null) {
+    const errMessage = serviceHelper.createErrorMessage('No message to broadcast attached.');
+    return res.json(errMessage);
+  }
+  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+
+  if (authorized === true) {
+    broadcastMessageToOutgoing(data);
+    const message = serviceHelper.createSuccessMessage('Message successfully broadcasted to ZelFlux network');
+    response = message;
+  } else {
+    response = serviceHelper.errUnauthorizedMessage();
+  }
+  return res.json(response);
+}
+
+async function broadcastMessageToOutgoingFromUserPost(req, res) {
+  console.log(req.headers);
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = JSON.parse(body);
+    if (processedBody === undefined || processedBody === null || processedBody === '') {
+      const errMessage = serviceHelper.createErrorMessage('No message to broadcast attached.');
+      response = errMessage;
+    } else {
+      const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+      if (authorized === true) {
+        broadcastMessageToOutgoing(processedBody);
+        const message = serviceHelper.createSuccessMessage('Message successfully broadcasted to ZelFlux network');
+        response = message;
+      } else {
+        response = serviceHelper.errUnauthorizedMessage();
+      }
+    }
+    return res.json(response);
+  });
+}
+
+async function broadcastMessageToIncomingFromUser(req, res) {
+  let { data } = req.params;
+  data = data || req.query.data;
+  if (data === undefined || data === null) {
+    const errMessage = serviceHelper.createErrorMessage('No message to broadcast attached.');
+    return res.json(errMessage);
+  }
+  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+
+  if (authorized === true) {
+    broadcastMessageToIncoming(data);
+    const message = serviceHelper.createSuccessMessage('Message successfully broadcasted to ZelFlux network');
+    response = message;
+  } else {
+    response = serviceHelper.errUnauthorizedMessage();
+  }
+  return res.json(response);
+}
+
+async function broadcastMessageToIncomingFromUserPost(req, res) {
+  console.log(req.headers);
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = JSON.parse(body);
+    if (processedBody === undefined || processedBody === null || processedBody === '') {
+      const errMessage = serviceHelper.createErrorMessage('No message to broadcast attached.');
+      response = errMessage;
+    } else {
+      const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+      if (authorized === true) {
+        broadcastMessageToIncoming(processedBody);
+        const message = serviceHelper.createSuccessMessage('Message successfully broadcasted to ZelFlux network');
+        response = message;
+      } else {
+        response = serviceHelper.errUnauthorizedMessage();
+      }
+    }
+    return res.json(response);
+  });
 }
 
 async function broadcastMessageFromUser(req, res) {
@@ -314,7 +402,8 @@ async function broadcastMessageFromUser(req, res) {
   const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
 
   if (authorized === true) {
-    broadcastMessage(data);
+    broadcastMessageToOutgoing(data);
+    broadcastMessageToIncoming(data);
     const message = serviceHelper.createSuccessMessage('Message successfully broadcasted to ZelFlux network');
     response = message;
   } else {
@@ -337,7 +426,8 @@ async function broadcastMessageFromUserPost(req, res) {
     } else {
       const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
       if (authorized === true) {
-        broadcastMessage(processedBody);
+        broadcastMessageToOutgoing(processedBody);
+        broadcastMessageToIncoming(processedBody);
         const message = serviceHelper.createSuccessMessage('Message successfully broadcasted to ZelFlux network');
         response = message;
       } else {
@@ -386,7 +476,7 @@ async function initiateAndHandleConnection(ip) {
       rtt: null,
     };
     outgoingPeers.push(peer);
-    broadcastMessage('Hello ZelFlux');
+    broadcastMessageToOutgoing('Hello ZelFlux');
     console.log(`#connectionsOut: ${outgoingConnections.length}`);
   });
 
@@ -410,7 +500,7 @@ async function initiateAndHandleConnection(ip) {
     console.log(`#connectionsOut: ${outgoingConnections.length}`);
   };
 
-  websocket.onmessage = async (evt) => {
+  websocket.onmessage = async (evt) => { // TODO message handling outgoing connections function
     // incoming messages from outgoing connections
     console.log(evt.data);
     const currentTimeStamp = Date.now(); // ms
@@ -515,7 +605,7 @@ function keepConnectionsAlive() {
       type,
       message,
     };
-    broadcastMessage(data);
+    broadcastMessageToOutgoing(data);
   }, 30000);
 }
 
@@ -685,8 +775,12 @@ module.exports = {
   verifyFluxBroadcast,
   handleIncomingConnection,
   fluxDisovery,
-  broadcastMessage,
+  broadcastMessageToOutgoing,
   broadcastMessageToIncoming,
+  broadcastMessageToOutgoingFromUser,
+  broadcastMessageToOutgoingFromUserPost,
+  broadcastMessageToIncomingFromUser,
+  broadcastMessageToIncomingFromUserPost,
   broadcastMessageFromUser,
   broadcastMessageFromUserPost,
   serialiseAndSignZelFluxBroadcast,

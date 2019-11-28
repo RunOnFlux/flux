@@ -164,11 +164,25 @@ module.exports = (app, expressWs) => {
   app.get('/zelcash/zvalidateaddress/:zaddr?', (req, res) => {
     zelcashService.zValidateAddress(req, res);
   });
+
   app.get('/zelid/loginphrase', (req, res) => {
     zelidService.loginPhrase(req, res);
   });
+
   app.get('/zelflux/version', (req, res) => {
     zelnodeService.getZelFluxVersion(req, res);
+  });
+  app.get('/zelflux/connectedpeers', (req, res) => {
+    zelfluxCommunication.connectedPeers(req, res);
+  });
+  app.get('/zelflux/connectedpeersinfo', (req, res) => {
+    zelfluxCommunication.connectedPeersInfo(req, res);
+  });
+  app.get('/zelflux/incomingconnections', (req, res) => {
+    zelfluxCommunication.getIncomingConnections(req, res, expressWs.getWss('/ws/zelflux'));
+  });
+  app.get('/zelflux/incomingconnectionsinfo', (req, res) => {
+    zelfluxCommunication.getIncomingConnectionsInfo(req, res, expressWs.getWss('/ws/zelflux'));
   });
 
   // GET PROTECTED API - User level
@@ -178,6 +192,7 @@ module.exports = (app, expressWs) => {
   app.get('/zelcash/submitblock/:hexdata?/:jsonparametersobject?', (req, res) => { // todo make it post too
     zelcashService.submitBlock(req, res);
   });
+
   app.get('/zelid/loggedsessions', (req, res) => {
     zelidService.loggedSessions(req, res);
   });
@@ -234,7 +249,7 @@ module.exports = (app, expressWs) => {
   app.get('/zelcash/setban/:ip?/:command?/:bantime?/:absolute?', (req, res) => {
     zelcashService.setBan(req, res);
   });
-  app.get('/zelcash/signrawtransaction/:hexstring?/:prevtxs?/:privatekeys?/:sighashtype?/:branchid?', (req, res) => { // todo make this post too
+  app.get('/zelcash/signrawtransaction/:hexstring?/:prevtxs?/:privatekeys?/:sighashtype?/:branchid?', (req, res) => {
     zelcashService.signRawTransaction(req, res);
   });
   app.get('/zelcash/addmultisigaddress/:n?/:keysobject?', (req, res) => { // todo make this post too
@@ -384,6 +399,7 @@ module.exports = (app, expressWs) => {
   app.get('/zelcash/zcsamplejoinsplit', (req, res) => {
     zelcashService.zcSampleJoinSplit(req, res);
   });
+
   app.get('/zelid/loggedusers', (req, res) => {
     zelidService.loggedUsers(req, res);
   });
@@ -393,6 +409,7 @@ module.exports = (app, expressWs) => {
   app.get('/zelid/logoutallusers', (req, res) => {
     zelidService.logoutAllUsers(req, res);
   });
+
   app.get('/zelnode/startzelcash', (req, res) => {
     zelnodeService.startZelCash(req, res);
   });
@@ -410,6 +427,7 @@ module.exports = (app, expressWs) => {
   app.get('/zelcash/zcbenchmark/:benchmarktype?/:samplecount?', (req, res) => {
     zelcashService.zcBenchmark(req, res);
   });
+
   app.get('/zelnode/updatezelflux', (req, res) => { // method shall be called only if zelflux version is obsolete.
     zelnodeService.updateZelFlux(req, res);
   });
@@ -418,6 +436,25 @@ module.exports = (app, expressWs) => {
   });
   app.get('/zelnode/updatezelcash', (req, res) => { // method shall be called only if zelcash version is obsolete
     zelnodeService.updateZelCash(req, res);
+  });
+
+  app.get('/zelflux/broadcastmessage/:data?', (req, res) => {
+    zelfluxCommunication.broadcastMessageFromUser(req, res);
+  });
+  app.get('/zelflux/broadcastmessagetooutgoing/:data?', (req, res) => {
+    zelfluxCommunication.broadcastMessageToOutgoingFromUser(req, res);
+  });
+  app.get('/zelflux/broadcastmessagetoincoming/:data?', (req, res) => {
+    zelfluxCommunication.broadcastMessageToIncomingFromUser(req, res);
+  });
+  app.get('/zelflux/addpeer/:ip?', (req, res) => {
+    zelfluxCommunication.addPeer(req, res);
+  });
+  app.get('/zelflux/removepeer/:ip?', (req, res) => {
+    zelfluxCommunication.removePeer(req, res);
+  });
+  app.get('/zelflux/removeincomingpeer/:ip?', (req, res) => {
+    zelfluxCommunication.removeIncomingPeer(req, res, expressWs.getWss('/ws/zelflux'));
   });
 
   // POST PUBLIC methods route
@@ -430,6 +467,22 @@ module.exports = (app, expressWs) => {
     zelidService.logoutSpecificSession(req, res);
   });
 
+  // POST PROTECTED API - ZelNode owner level
+  app.post('/zelcash/signrawtransaction', (req, res) => {
+    zelcashService.signRawTransactionPost(req, res);
+  });
+
+  // POST PROTECTED API - ZelTeam
+  app.post('/zelflux/broadcastmessage', (req, res) => {
+    zelfluxCommunication.broadcastMessageFromUserPost(req, res);
+  });
+  app.post('/zelflux/broadcastmessagetooutgoing', (req, res) => {
+    zelfluxCommunication.broadcastMessageToOutgoingFromUserPost(req, res);
+  });
+  app.post('/zelflux/broadcastmessagetoincoming', (req, res) => {
+    zelfluxCommunication.broadcastMessageToIncomingFromUserPost(req, res);
+  });
+
   // WebSockets PUBLIC
   app.ws('/ws/zelid/:loginphrase', (ws, req) => {
     zelidService.wsRespondLoginPhrase(ws, req);
@@ -438,42 +491,5 @@ module.exports = (app, expressWs) => {
   // communication between multiple zelflux solution is on this:
   app.ws('/ws/zelflux', (ws, req) => {
     zelfluxCommunication.handleIncomingConnection(ws, req, expressWs.getWss('/ws/zelflux'));
-  });
-
-  // WIP message broadcasting, will be moved under privilage and done as post too
-  app.get('/zelflux/broadcastmessage/:data?', (req, res) => {
-    zelfluxCommunication.broadcastMessageFromUser(req, res);
-  });
-
-  app.post('/zelflux/broadcastmessage', (req, res) => {
-    zelfluxCommunication.broadcastMessageFromUserPost(req, res);
-  });
-
-  app.get('/zelflux/connectedpeers', (req, res) => {
-    zelfluxCommunication.connectedPeers(req, res);
-  });
-
-  app.get('/zelflux/connectedpeersinfo', (req, res) => {
-    zelfluxCommunication.connectedPeersInfo(req, res);
-  });
-
-  app.get('/zelflux/addpeer/:ip?', (req, res) => {
-    zelfluxCommunication.addPeer(req, res);
-  });
-
-  app.get('/zelflux/removepeer/:ip?', (req, res) => {
-    zelfluxCommunication.removePeer(req, res);
-  });
-
-  app.get('/zelflux/incomingconnections', (req, res) => {
-    zelfluxCommunication.getIncomingConnections(req, res, expressWs.getWss('/ws/zelflux'));
-  });
-
-  app.get('/zelflux/incomingconnectionsinfo', (req, res) => {
-    zelfluxCommunication.getIncomingConnectionsInfo(req, res, expressWs.getWss('/ws/zelflux'));
-  });
-
-  app.get('/zelflux/removeincomingpeer/:ip?', (req, res) => {
-    zelfluxCommunication.removeIncomingPeer(req, res, expressWs.getWss('/ws/zelflux'));
   });
 };

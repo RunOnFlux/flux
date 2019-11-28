@@ -973,6 +973,47 @@ async function signRawTransaction(req, res) {
   return res ? res.json(response) : response;
 }
 
+async function signRawTransactionPost(req, res) {
+  console.log(req.headers);
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = JSON.parse(body);
+    const { hexstring } = processedBody;
+    let { prevtxs } = processedBody;
+    let { privatekeys } = processedBody;
+    let { sighashtype } = processedBody;
+    sighashtype = sighashtype || 'ALL';
+    const { branchid } = processedBody;
+    const authorized = await serviceHelper.verifyPrivilege('admin', req);
+    if (authorized === true) {
+      const rpccall = 'signRawTransaction';
+      const rpcparameters = [];
+      if (hexstring) {
+        rpcparameters.push(hexstring);
+        if (prevtxs) {
+          prevtxs = serviceHelper.ensureObject(prevtxs);
+          rpcparameters.push(prevtxs);
+          if (privatekeys) {
+            privatekeys = serviceHelper.ensureObject(privatekeys);
+            rpcparameters.push(privatekeys);
+            rpcparameters.push(sighashtype);
+            if (branchid) {
+              rpcparameters.push(branchid);
+            }
+          }
+        }
+      }
+      response = await executeCall(rpccall, rpcparameters);
+    } else {
+      response = serviceHelper.errUnauthorizedMessage();
+    }
+    return res.json(response);
+  });
+}
+
 // == Util ==
 async function createMultiSig(req, res) {
   let { n } = req.params;
@@ -2168,6 +2209,7 @@ module.exports = {
   getRawTransaction,
   sendRawTransaction,
   signRawTransaction,
+  signRawTransactionPost,
 
   // == Util ==
   createMultiSig,
