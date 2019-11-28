@@ -859,6 +859,42 @@ async function createRawTransaction(req, res) {
   return res ? res.json(response) : response;
 }
 
+async function createRawTransactionPost(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    let { transactions } = processedBody;
+    let { addresses } = processedBody;
+    let { locktime } = processedBody;
+    locktime = locktime || 0;
+    const blockcount = await client.getBlockCount().catch((error) => {
+      const daemonError = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+      response = daemonError;
+      return res.json(response);
+    });
+    const defaultExpiryHeight = blockcount + 20;
+    let { expiryheight } = processedBody;
+    expiryheight = expiryheight || defaultExpiryHeight;
+    console.log(expiryheight);
+
+    locktime = serviceHelper.ensureNumber(locktime);
+    expiryheight = serviceHelper.ensureNumber(expiryheight);
+    const rpccall = 'createRawTransaction';
+    let rpcparameters = [];
+    if (transactions && addresses) {
+      transactions = serviceHelper.ensureObject(transactions);
+      addresses = serviceHelper.ensureObject(addresses);
+      rpcparameters = [transactions, addresses, locktime, expiryheight];
+    }
+    response = await executeCall(rpccall, rpcparameters);
+
+    return res.json(response);
+  });
+}
+
 async function decodeRawTransaction(req, res) {
   let { hexstring } = req.params;
   hexstring = hexstring || req.query.hexstring;
@@ -2224,6 +2260,7 @@ module.exports = {
 
   // == Rawtransactions ==
   createRawTransaction,
+  createRawTransactionPost,
   decodeRawTransaction,
   decodeRawTransactionPost,
   decodeScript,

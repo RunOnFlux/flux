@@ -125,7 +125,7 @@ module.exports = (app, expressWs) => {
   app.get('/zelcash/listbanned', (req, res) => {
     zelcashService.listBanned(req, res);
   });
-  app.get('/zelcash/createrawtransaction/:transactions?/:addresses?/:locktime?/:expiryheight?', (req, res) => { // todo make this post too
+  app.get('/zelcash/createrawtransaction/:transactions?/:addresses?/:locktime?/:expiryheight?', (req, res) => {
     zelcashService.createRawTransaction(req, res);
   });
   app.get('/zelcash/decoderawtransaction/:hexstring?', (req, res) => {
@@ -464,6 +464,9 @@ module.exports = (app, expressWs) => {
 
   app.post('/zelcash/decoderawtransaction', (req, res) => {
     zelcashService.decodeRawTransactionPost(req, res);
+  });
+  app.get('/zelcash/createrawtransaction', (req, res) => {
+    zelcashService.createRawTransactionPost(req, res);
   });
 
   // POST PROTECTED API - USER LEVEL

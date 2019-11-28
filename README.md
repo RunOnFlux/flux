@@ -2,6 +2,10 @@
 
 ![ZelNode.gif](ZelFront/src/assets/img/zelnode.gif)
 
+## API Documentation
+
+[API documentation](https://zelcash.github.io/zelfluxdocs/)
+
 ## The gateway to the Zel Network
 
 ZelFlux is the frontend UI to the entire Zel Network, it enables ZelNode operators to manage their ZelNode easily via a simple web interface. ZelFlux enables a ZelNode operator to perform all tasks such as updating and maintenance from a simple web interface, instead of having to remotely login to their ZelNode to manage it.
@@ -224,119 +228,5 @@ Signed message requirement
 - First 13 characters is timestamp
 - The length of message must be at least 40 characters
 - Message and corresponding signature must not be older than X seconds
-
-### API Calls
-
-#### - zelcashd Calls
-
-```bash
-# return help from zelcashd
-get /zelcash/help # (Public)
-```
-
-```bash
-# return reinfo from zelcashd
-get /zelcash/getinfo # (Public)
-```
-
-```bash
-# return getzelnodestatus from zelcashd
-get /zelcash/getzelnodestatus # (Public)
-```
-
-```bash
-# return listzelnodes from zelcashd
-get /zelcash/listzelnodes #(Public)
-```
-
-```bash
-# return list zelnodeconf from zelcashd
-get /zelcash/listzelnodeconf #(ZelNode Owner)
-```
-
-#### - zelid Calls
-
-```bash
-# return a loginphrase - message that should be signed by zelid (or any bitcoin address). Message expires after 15 minutes. Only within these 15 minutes it is possible to log in with this message
-get /zelid/loginphrase # (Public)
-```
-
-```bash
-# Return an object with a status of either error or success and the data containing message explaining the outcome. Success means logged in. Error means, well, error. It also returns the privilege status to the api according to the user, admin, zelteam.
-
-post /zelid/verifylogin # (Public)
-
-# // this posts a stringified object of {
-#  message: loginPhrase,
-#  address: zelid/bitcoin address that signed this message,
-#  signature: signature of the message by that zelid
-# }
-```
-
-```bash
-# Subscribe to listen for notification response of user logins with a certain loginphrase. Such response contains loginPhrase, signature, address, message and privilege. This is useful for remote logging.
-websocket /ws/zelid/:loginphrase # (Public)
-```
-
-#### Protected API
-
-- In order to access protectred API, user has to be logged into their ZelNode. Every request to the protected API has to contain stringified zelidauth header of following object
-
-```html
- {
-  zelid: zelid/bitcoin address used for logging in,
- signature: signature of a loginPhrase message signed by ths address.
-  }
-
- // Note this loginPhrase must have been obtained by this ZelNode and user (zelid) must be signed in to the ZelNode with the loginPhrase
-```
-
-```bash
-# Return an array of users currently logged into the ZelNode
-get /zelid/loggeduser # (ZelNode Owner)
-
-# Example response
-# { zelid: 1btc, loginPhrase: dddasd}
-```
-
-```bash
-#Return an array of currently active login phrases
-get /zelid/activeloginphrases # (ZelNode Owner)
-
-# Example response
-#  /* const activeLoginPhrases = [
-#     {
-#       loginPhrase: 1565356121335e9obp7h17bykbbvub0ts488wnnmd12fe1pq88mq0v,
-#       createdAt: 2019-08-09T13:08:41.335Z,
-#       expireAt: 2019-08-09T13:23:41.335Z
-#     }
-#  ] */
-```
-
-```bash
-# Log out all users
-get /zelid/logoutallusers # (ZelNode Owner)
-```
-
-```bash
-# Return an array of currently logged users into the ZelNode
-get /zelid/loggedsessions # (User level)
-```
-
-```bash
-#Log out current login session
-get /zelid/logoutcurrentsession # (User level)
-```
-
-```bash
-#Return status about logging out specific sessions
-post /zelid/logoutspecificsession # (User level)
-# @param = loginPhrase # ( signed message that is assigned to this specific session)
-```
-
-```bash
-#Log out all login sessions - all devices (precisely all still valid logins)
-get /zelid/logoutallsessions # (User level)
-```
 
 Made with ❤️ by the Zel Team
