@@ -2,12 +2,13 @@
 const config = require('config');
 const fs = require('fs');
 const https = require('https');
+const path = require('path');
 const app = require('./src/lib/server.js');
 const log = require('./src/lib/log');
 const communication = require('./src/services/zelfluxCommunication');
 
-const key = fs.readFileSync(`${__dirname}../../certs/selfsigned.key`, 'utf8');
-const cert = fs.readFileSync(`${__dirname}../../certs/selfsigned.crt`, 'utf8');
+const key = fs.readFileSync(path.join(__dirname, '../certs/selfsigned.key'), 'utf8');
+const cert = fs.readFileSync(path.join(__dirname, '../certs/selfsigned.crt'), 'utf8');
 const credentials = { key, cert };
 const httpsServer = https.createServer(credentials, app);
 
