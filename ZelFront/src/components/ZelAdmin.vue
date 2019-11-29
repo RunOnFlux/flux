@@ -381,7 +381,7 @@ export default {
       zelIDService.loggedSessions(zelidauth)
         .then((response) => {
           console.log(response);
-          this.loggedUsersTable = response.data;
+          this.loggedUsersTable = response.data.data;
           if (response.data.status === 'error') {
             vue.$message.error(response.data.data.message);
           }
@@ -398,7 +398,7 @@ export default {
       zelIDService.loggedUsers(zelidauth)
         .then((response) => {
           console.log(response);
-          this.loggedUsersTable = response.data;
+          this.loggedUsersTable = response.data.data;
           if (response.data.status === 'error') {
             vue.$message.error(response.data.data.message);
           }

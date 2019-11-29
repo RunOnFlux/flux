@@ -164,7 +164,7 @@ export default {
               this.errorMessage = response.data.data.message;
             }
           } else {
-            this.loginPhrase = response.data;
+            this.loginPhrase = response.data.data;
           }
         })
         .catch((error) => {

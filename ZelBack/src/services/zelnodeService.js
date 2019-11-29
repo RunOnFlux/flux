@@ -127,7 +127,8 @@ async function reindexZelCash(req, res) {
 
 function getZelFluxVersion(req, res) {
   const { version } = packageJson;
-  return res.json(version);
+  const message = serviceHelper.createDataMessage(version);
+  return res.json(message);
 }
 
 module.exports = {

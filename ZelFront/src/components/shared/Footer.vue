@@ -43,7 +43,7 @@ export default {
     ZelNodeService.getZelFluxVersion()
       .then((response) => {
         console.log(response);
-        const version = response.data;
+        const version = response.data.data;
         this.$store.commit('setZelFluxVersion', version);
         self.getLatestZelFluxVersion();
       })

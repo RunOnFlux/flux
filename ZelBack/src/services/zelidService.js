@@ -43,7 +43,8 @@ async function loginPhrase(req, res) {
     throw error;
   });
   db.close();
-  res.json(phrase);
+  const phraseResponse = serviceHelper.createDataMessage(phrase);
+  res.json(phraseResponse);
 }
 
 async function verifyLogin(req, res) {
@@ -207,7 +208,8 @@ async function activeLoginPhrases(req, res) {
       throw error;
     });
     db.close();
-    res.json(results);
+    const resultsResponse = serviceHelper.createDataMessage(results);
+    res.json(resultsResponse);
   } else {
     const errMessage = serviceHelper.errUnauthorizedMessage();
     res.json(errMessage);
@@ -240,7 +242,8 @@ async function loggedUsers(req, res) {
       throw error;
     });
     db.close();
-    res.json(results);
+    const resultsResponse = serviceHelper.createDataMessage(results);
+    res.json(resultsResponse);
   } else {
     const errMessage = serviceHelper.errUnauthorizedMessage();
     res.json(errMessage);
@@ -275,7 +278,8 @@ async function loggedSessions(req, res) {
       throw error;
     });
     db.close();
-    res.json(results);
+    const resultsResponse = serviceHelper.createDataMessage(results);
+    res.json(resultsResponse);
   } else {
     const errMessage = serviceHelper.errUnauthorizedMessage();
     res.json(errMessage);
