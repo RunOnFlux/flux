@@ -136,7 +136,7 @@ async function removeDocumentsFromCollection(database, collection, query) {
 // Verification functions
 async function verifyAdminSession(headers) {
   if (headers && headers.zelidauth) {
-    const auth = qs.parse(headers.zelidauth);
+    const auth = ensureObject(headers.zelidauth);
     console.log(auth);
     if (auth.zelid && auth.signature) {
       console.log(auth.zelid);
@@ -180,7 +180,7 @@ async function verifyAdminSession(headers) {
 
 async function verifyUserSession(headers) {
   if (headers && headers.zelidauth) {
-    const auth = qs.parse(headers.zelidauth);
+    const auth = ensureObject(headers.zelidauth);
     console.log(auth);
     if (auth.zelid && auth.signature) {
       const db = await connectMongoDb(mongoUrl).catch((error) => { throw error; });
@@ -217,7 +217,7 @@ async function verifyUserSession(headers) {
 
 async function verifyZelTeamSession(headers) {
   if (headers && headers.zelidauth) {
-    const auth = qs.parse(headers.zelidauth);
+    const auth = ensureObject(headers.zelidauth);
     if (auth.zelid && auth.signature) {
       if (auth.zelid === config.zelTeamZelId || auth.zelid === userconfig.initial.zelid) { // admin is considered as zelTeam
         const db = await connectMongoDb(mongoUrl).catch((error) => { throw error; });

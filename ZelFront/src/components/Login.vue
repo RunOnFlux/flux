@@ -79,9 +79,9 @@ export default {
   data() {
     return {
       loginForm: {
-        address: '',
+        zelid: '',
         signature: '',
-        message: '',
+        loginPhrase: '',
       },
       loginphrase: null,
       websocket: null,
@@ -115,7 +115,7 @@ export default {
             this.errorMessage = response.data.data.message;
           } else {
             this.loginPhrase = response.data;
-            this.loginForm.message = response.data;
+            this.loginForm.loginPhrase = response.data;
           }
         })
         .catch((error) => {
@@ -132,9 +132,9 @@ export default {
           if (response.data.status === 'success' && response.data.data) {
             // user is  now signed. Store their values
             const zelidauth = {
-              zelid: this.loginForm.address,
+              zelid: this.loginForm.zelid,
               signature: this.loginForm.signature,
-              loginPhrase: this.loginForm.message,
+              loginPhrase: this.loginForm.loginPhrase,
             };
             this.$store.commit('setPrivilage', response.data.data.privilage);
             localStorage.setItem('zelidauth', qs.stringify(zelidauth));
