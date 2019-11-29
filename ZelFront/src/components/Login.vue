@@ -26,7 +26,7 @@
         <ElInput
           type="text"
           name="message"
-          placeholder="message"
+          placeholder="insert Login Phrase"
           v-model="loginForm.message"
           disabled
         >
@@ -37,7 +37,7 @@
         <ElInput
           type="text"
           name="address"
-          placeholder="insert bitcoin address"
+          placeholder="insert Zel ID or Bitcoin address"
           v-model="loginForm.address"
         >
           <template slot="prepend">Address: </template>
@@ -47,7 +47,7 @@
         <ElInput
           type="text"
           name="signature"
-          placeholder="insert signature"
+          placeholder="insert Signature"
           v-model="loginForm.signature"
         >
           <template slot="prepend">Signature: </template>
