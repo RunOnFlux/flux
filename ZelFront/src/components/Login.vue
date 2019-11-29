@@ -115,7 +115,6 @@ export default {
             this.errorMessage = response.data.data.message;
           } else {
             this.loginPhrase = response.data.data;
-            console.log(this.loginPhrase)
             this.loginForm.loginPhrase = response.data.data;
           }
         })
