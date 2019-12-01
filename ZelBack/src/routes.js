@@ -2,6 +2,7 @@ const zelcashService = require('./services/zelcashService');
 const zelidService = require('./services/zelidService');
 const zelnodeService = require('./services/zelnodeService');
 const zelfluxCommunication = require('./services/zelfluxCommunication');
+const zelappsService = require('./services/zelappsService');
 
 module.exports = (app, expressWs) => {
   // GET PUBLIC methods
@@ -183,6 +184,13 @@ module.exports = (app, expressWs) => {
   });
   app.get('/zelflux/incomingconnectionsinfo', (req, res) => {
     zelfluxCommunication.getIncomingConnectionsInfo(req, res, expressWs.getWss('/ws/zelflux'));
+  });
+
+  app.get('/zelapps/listzelapps', (req, res) => {
+    zelappsService.listZelApps(req, res);
+  });
+  app.get('/zelapps/zelapplog/:container?', (req, res) => {
+    zelappsService.zelAppLog(req, res);
   });
 
   // GET PROTECTED API - User level
