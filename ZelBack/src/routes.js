@@ -189,8 +189,29 @@ module.exports = (app, expressWs) => {
   app.get('/zelapps/listzelapps', (req, res) => {
     zelappsService.listZelApps(req, res);
   });
+  app.get('/zelapps/liststoppedzelapps', (req, res) => {
+    zelappsService.listStoppedZelApps(req, res);
+  });
+  app.get('/zelapps/startzelapp/:container?', (req, res) => {
+    zelappsService.startZelApp(req, res);
+  });
+  app.get('/zelapps/listzelappsimages', (req, res) => {
+    zelappsService.listZelAppsImages(req, res);
+  });
   app.get('/zelapps/zelapplog/:container?', (req, res) => {
     zelappsService.zelAppLog(req, res);
+  });
+  app.get('/zelapps/zelapppull/:repotag?', (req, res) => { // TODO make me post, needs redoing
+    zelappsService.zelAppPull(req, res);
+  });
+  app.get('/zelapps/zelappinspect/:container?', (req, res) => { // TODO this shall require app owner privilege for all information
+    zelappsService.zelAppInspect(req, res);
+  });
+  app.get('/zelapps/zelappupdate/:container?/:cpus?/:memory?', (req, res) => { // TODO this shall require app owner privilege for all information
+    zelappsService.zelAppUpdate(req, res);
+  });
+  app.get('/zelapps/zelappexec/:container?/:cmd?/:env?', (req, res) => { // todo post, privileges
+    zelappsService.zelAppExec(req, res);
   });
 
   // GET PROTECTED API - User level
