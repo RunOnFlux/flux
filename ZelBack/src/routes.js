@@ -186,23 +186,44 @@ module.exports = (app, expressWs) => {
     zelfluxCommunication.getIncomingConnectionsInfo(req, res, expressWs.getWss('/ws/zelflux'));
   });
 
-  app.get('/zelapps/listzelapps', (req, res) => {
-    zelappsService.listZelApps(req, res);
+  app.get('/zelapps/zelapppull/:repotag?', (req, res) => { // TODO make me post, needs redoing
+    zelappsService.zelAppPull(req, res);
   });
-  app.get('/zelapps/liststoppedzelapps', (req, res) => {
-    zelappsService.listStoppedZelApps(req, res);
+  app.get('/zelapps/listrunningzelapps', (req, res) => {
+    zelappsService.listRunningZelApps(req, res);
   });
-  app.get('/zelapps/startzelapp/:container?', (req, res) => {
-    zelappsService.startZelApp(req, res);
+  app.get('/zelapps/listallzelapps', (req, res) => {
+    zelappsService.listAllZelApps(req, res);
   });
   app.get('/zelapps/listzelappsimages', (req, res) => {
     zelappsService.listZelAppsImages(req, res);
   });
+  app.get('/zelapps/zelappstart/:container?', (req, res) => {
+    zelappsService.zelAppStart(req, res);
+  });
+  app.get('/zelapps/zelappstop/:container?', (req, res) => {
+    zelappsService.zelAppStop(req, res);
+  });
+  app.get('/zelapps/restartzelapp/:container?', (req, res) => {
+    zelappsService.zelAppRestart(req, res);
+  });
+  app.get('/zelapps/zelappkill/:container?', (req, res) => {
+    zelappsService.zelAppKill(req, res);
+  });
+  app.get('/zelapps/zelappremove/:container?', (req, res) => {
+    zelappsService.zelAppRemove(req, res);
+  });
+  app.get('/zelapps/zelapppause/:container?', (req, res) => {
+    zelappsService.zelAppPause(req, res);
+  });
+  app.get('/zelapps/zelappunpause/:container?', (req, res) => {
+    zelappsService.zelAppUnpause(req, res);
+  });
+  app.get('/zelapps/zelapptop/:container?', (req, res) => {
+    zelappsService.zelAppTop(req, res);
+  });
   app.get('/zelapps/zelapplog/:container?', (req, res) => {
     zelappsService.zelAppLog(req, res);
-  });
-  app.get('/zelapps/zelapppull/:repotag?', (req, res) => { // TODO make me post, needs redoing
-    zelappsService.zelAppPull(req, res);
   });
   app.get('/zelapps/zelappinspect/:container?', (req, res) => { // TODO this shall require app owner privilege for all information
     zelappsService.zelAppInspect(req, res);

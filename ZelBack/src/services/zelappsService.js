@@ -163,8 +163,28 @@ function dockerContainerLogs(container, callback) {
   }
 }
 
-async function listZelApps(req, res) {
-  const zelapps = await dockerListContainers().catch((error) => {
+// TODO needs redoing
+function zelAppPull(req, res) {
+  let { repotag } = req.params;
+  repotag = repotag || req.query.repotag;
+
+  dockerPullStream(repotag, (error, dataLog) => {
+    if (error) {
+      const errorResponse = serviceHelper.createErrorMessage(
+        error.message,
+        error.name,
+        error.code,
+      );
+      res.json(errorResponse);
+    } else {
+      const containerLogResponse = serviceHelper.createDataMessage(dataLog);
+      res.json(containerLogResponse);
+    }
+  });
+}
+
+async function listRunningZelApps(req, res) {
+  const zelapps = await dockerListContainers(false).catch((error) => {
     const errMessage = serviceHelper.createErrorMessage(
       error.message,
       error.name,
@@ -178,7 +198,7 @@ async function listZelApps(req, res) {
   return res ? res.json(zelappsResponse) : zelappsResponse;
 }
 
-async function listStoppedZelApps(req, res) {
+async function listAllZelApps(req, res) {
   const zelapps = await dockerListContainers(true).catch((error) => {
     const errMessage = serviceHelper.createErrorMessage(
       error.message,
@@ -193,7 +213,23 @@ async function listStoppedZelApps(req, res) {
   return res ? res.json(zelappsResponse) : zelappsResponse;
 }
 
-async function startZelApp(req, res) {
+async function listZelAppsImages(req, res) {
+  const zelapps = await dockerListImages().catch((error) => {
+    const errMessage = serviceHelper.createErrorMessage(
+      error.message,
+      error.name,
+      error.code,
+    );
+    log.error(error);
+    res.json(errMessage);
+    throw error;
+  });
+  const zelappsResponse = serviceHelper.createDataMessage(zelapps);
+  return res ? res.json(zelappsResponse) : zelappsResponse;
+}
+
+
+async function zelAppStart(req, res) {
   let { container } = req.params;
   container = container || req.query.container;
 
@@ -213,8 +249,13 @@ async function startZelApp(req, res) {
   return res ? res.json(zelappResponse) : zelappResponse;
 }
 
-async function listZelAppsImages(req, res) {
-  const zelapps = await dockerListImages().catch((error) => {
+async function zelAppStop(req, res) {
+  let { container } = req.params;
+  container = container || req.query.container;
+
+  const dockerContainer = docker.getContainer(container);
+
+  const zelapp = await dockerContainer.stop().catch((error) => {
     const errMessage = serviceHelper.createErrorMessage(
       error.message,
       error.name,
@@ -224,8 +265,129 @@ async function listZelAppsImages(req, res) {
     res.json(errMessage);
     throw error;
   });
-  const zelappsResponse = serviceHelper.createDataMessage(zelapps);
-  return res ? res.json(zelappsResponse) : zelappsResponse;
+  const zelappResponse = serviceHelper.createDataMessage(zelapp);
+  return res ? res.json(zelappResponse) : zelappResponse;
+}
+
+async function zelAppRestart(req, res) {
+  let { container } = req.params;
+  container = container || req.query.container;
+
+  const dockerContainer = docker.getContainer(container);
+
+  const zelapp = await dockerContainer.restart().catch((error) => {
+    const errMessage = serviceHelper.createErrorMessage(
+      error.message,
+      error.name,
+      error.code,
+    );
+    log.error(error);
+    res.json(errMessage);
+    throw error;
+  });
+  const zelappResponse = serviceHelper.createDataMessage(zelapp);
+  return res ? res.json(zelappResponse) : zelappResponse;
+}
+
+async function zelAppKill(req, res) {
+  let { container } = req.params;
+  container = container || req.query.container;
+
+  const dockerContainer = docker.getContainer(container);
+
+  const zelapp = await dockerContainer.kill().catch((error) => {
+    const errMessage = serviceHelper.createErrorMessage(
+      error.message,
+      error.name,
+      error.code,
+    );
+    log.error(error);
+    res.json(errMessage);
+    throw error;
+  });
+  const zelappResponse = serviceHelper.createDataMessage(zelapp);
+  return res ? res.json(zelappResponse) : zelappResponse;
+}
+
+async function zelAppRemove(req, res) {
+  let { container } = req.params;
+  container = container || req.query.container;
+
+  const dockerContainer = docker.getContainer(container);
+
+  const zelapp = await dockerContainer.remove().catch((error) => {
+    const errMessage = serviceHelper.createErrorMessage(
+      error.message,
+      error.name,
+      error.code,
+    );
+    log.error(error);
+    res.json(errMessage);
+    throw error;
+  });
+  const zelappResponse = serviceHelper.createDataMessage(zelapp);
+  return res ? res.json(zelappResponse) : zelappResponse;
+}
+
+async function zelAppPause(req, res) {
+  let { container } = req.params;
+  container = container || req.query.container;
+
+  const dockerContainer = docker.getContainer(container);
+
+  const zelapp = await dockerContainer.pause().catch((error) => {
+    const errMessage = serviceHelper.createErrorMessage(
+      error.message,
+      error.name,
+      error.code,
+    );
+    log.error(error);
+    res.json(errMessage);
+    throw error;
+  });
+  const zelappResponse = serviceHelper.createDataMessage(zelapp);
+  return res ? res.json(zelappResponse) : zelappResponse;
+}
+
+async function zelAppUnpause(req, res) {
+  let { container } = req.params;
+  container = container || req.query.container;
+
+  const dockerContainer = docker.getContainer(container);
+
+  const zelapp = await dockerContainer.unpause().catch((error) => {
+    const errMessage = serviceHelper.createErrorMessage(
+      error.message,
+      error.name,
+      error.code,
+    );
+    log.error(error);
+    res.json(errMessage);
+    throw error;
+  });
+  const zelappResponse = serviceHelper.createDataMessage(zelapp);
+  return res ? res.json(zelappResponse) : zelappResponse;
+}
+
+async function zelAppTop(req, res) {
+  // List processes running inside a container
+  let { container } = req.params;
+  container = container || req.query.container;
+
+  const dockerContainer = docker.getContainer(container);
+
+  const zelapp = await dockerContainer.top().catch((error) => {
+    const errMessage = serviceHelper.createErrorMessage(
+      error.message,
+      error.name,
+      error.code,
+    );
+    log.error(error);
+    res.json(errMessage);
+    throw error;
+  });
+  const zelappResponse = serviceHelper.createDataMessage(zelapp);
+  return res ? res.json(zelappResponse) : zelappResponse;
 }
 
 function zelAppLog(req, res) {
@@ -320,26 +482,6 @@ async function zelAppUpdate(req, res) {
   return res ? res.json(zelappResponse) : zelappResponse;
 }
 
-// TODO needs redoing
-function zelAppPull(req, res) {
-  let { repotag } = req.params;
-  repotag = repotag || req.query.repotag;
-
-  dockerPullStream(repotag, (error, dataLog) => {
-    if (error) {
-      const errorResponse = serviceHelper.createErrorMessage(
-        error.message,
-        error.name,
-        error.code,
-      );
-      res.json(errorResponse);
-    } else {
-      const containerLogResponse = serviceHelper.createDataMessage(dataLog);
-      res.json(containerLogResponse);
-    }
-  });
-}
-
 // todo needs post
 function zelAppExec(req, res) {
   let { container } = req.params;
@@ -383,13 +525,20 @@ function zelAppExec(req, res) {
 }
 
 module.exports = {
-  listZelApps,
-  listStoppedZelApps,
+  zelAppPull,
+  listRunningZelApps,
+  listAllZelApps,
   listZelAppsImages,
+  zelAppStart,
+  zelAppStop,
+  zelAppRestart,
+  zelAppKill,
+  zelAppRemove,
+  zelAppPause,
+  zelAppUnpause,
+  zelAppTop,
   zelAppLog,
   zelAppInspect,
   zelAppUpdate,
-  zelAppPull,
   zelAppExec,
-  startZelApp,
 };
