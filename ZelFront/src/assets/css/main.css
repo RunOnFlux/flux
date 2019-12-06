@@ -179,11 +179,6 @@ h4 {
   height: 100%;
 }
 
-.footer-left img {
-  vertical-align: middle;
-  height: 30px;
-}
-
 .footer-middle {
   text-align: center;
   grid-area: 1 / 2 / 2 / 3;

@@ -1,8 +1,20 @@
 <template>
   <div class="footer-grid">
     <div class="footer-left">
-      <!--<span class="helper"></span>
-      <img src="@/assets/img/ZelNodes.svg">-->
+      <el-select
+        v-model="backendURL"
+        placeholder="Select Backend"
+        filterable
+        allow-create
+        @change=changeBackendURL
+      >
+        <el-option
+          key="Default"
+          :label="`http://${externalip}:${port}`"
+          :value="`http://${externalip}:${port}`"
+        >
+        </el-option>
+      </el-select>
     </div>
     <div class="footer-middle">
       <ElLink
@@ -24,6 +36,11 @@ import axios from 'axios';
 
 import ZelNodeService from '@/services/ZelNodeService';
 
+const store = require('store');
+
+const config = require('../../../../config/default');
+const userconfig = require('../../../../config/userconfig');
+
 Vue.use(Vuex);
 const vue = new Vue();
 
@@ -31,6 +48,9 @@ export default {
   name: 'Footer',
   data() {
     return {
+      backendURL: '',
+      externalip: userconfig.initial.ipaddress,
+      port: config.server.apiport,
     };
   },
   computed: {
@@ -39,6 +59,7 @@ export default {
     ]),
   },
   mounted() {
+    this.backendURL = store.get('backendURL') || `http://${this.externalip}:${this.port}`;
     const self = this;
     ZelNodeService.getZelFluxVersion()
       .then((response) => {
@@ -69,6 +90,9 @@ export default {
           console.log(error);
           vue.$message.error('Error verifying recent version');
         });
+    },
+    changeBackendURL(value) {
+      store.set('backendURL', value);
     },
   },
 };
