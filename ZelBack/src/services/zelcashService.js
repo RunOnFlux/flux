@@ -653,6 +653,37 @@ async function submitBlock(req, res) {
   return res ? res.json(response) : response;
 }
 
+async function submitBlockPost(req, res) {
+  console.log(req.headers);
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const { hexdata } = processedBody;
+    let { jsonparametersobject } = processedBody;
+
+    const authorized = await serviceHelper.verifyPrivilege('user', req);
+    if (authorized === true) {
+      const rpccall = 'submitBlock';
+      let rpcparameters = [];
+      if (hexdata && jsonparametersobject) {
+        jsonparametersobject = serviceHelper.ensureObject(jsonparametersobject);
+        rpcparameters = [hexdata, jsonparametersobject];
+      } else if (hexdata) {
+        rpcparameters = [hexdata];
+      }
+
+      response = await executeCall(rpccall, rpcparameters);
+    } else {
+      response = serviceHelper.errUnauthorizedMessage();
+    }
+
+    return res.json(response);
+  });
+}
+
 // == Network ==
 async function addNode(req, res) {
   let { node } = req.params;
@@ -944,6 +975,26 @@ async function decodeScript(req, res) {
   return res ? res.json(response) : response;
 }
 
+async function decodeScriptPost(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const { hex } = processedBody;
+
+    const rpccall = 'decodeScript';
+    let rpcparameters = [];
+    if (hex) {
+      rpcparameters = [hex];
+    }
+    response = await executeCall(rpccall, rpcparameters);
+
+    return res.json(response);
+  });
+}
+
 async function fundRawTransaction(req, res) {
   let { hexstring } = req.params;
   hexstring = hexstring || req.query.hexstring;
@@ -956,6 +1007,26 @@ async function fundRawTransaction(req, res) {
   response = await executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
+}
+
+async function fundRawTransactionPost(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const { hexstring } = processedBody;
+
+    const rpccall = 'fundRawTransaction';
+    let rpcparameters = [];
+    if (hexstring) {
+      rpcparameters = [hexstring];
+    }
+    response = await executeCall(rpccall, rpcparameters);
+
+    return res.json(response);
+  });
 }
 
 async function getRawTransaction(req, res) {
@@ -990,6 +1061,29 @@ async function sendRawTransaction(req, res) {
   response = await executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
+}
+
+async function sendRawTransactionPost(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const { hexstring } = processedBody;
+    let { allowhighfees } = processedBody;
+    allowhighfees = allowhighfees || false;
+
+    const rpccall = 'sendRawTransaction';
+    let rpcparameters = [];
+    if (hexstring) {
+      allowhighfees = serviceHelper.ensureBoolean(allowhighfees);
+      rpcparameters = [hexstring, allowhighfees];
+    }
+    response = await executeCall(rpccall, rpcparameters);
+
+    return res.json(response);
+  });
 }
 
 async function signRawTransaction(req, res) {
@@ -1090,6 +1184,29 @@ async function createMultiSig(req, res) {
   return res ? res.json(response) : response;
 }
 
+async function createMultiSigPost(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    let { n } = processedBody;
+    let { keys } = processedBody;
+
+    const rpccall = 'createMultiSig';
+    let rpcparameters = [];
+    if (n && keys) {
+      n = serviceHelper.ensureNumber(n);
+      keys = serviceHelper.ensureObject(keys);
+      rpcparameters = [n, keys];
+    }
+    response = await executeCall(rpccall, rpcparameters);
+
+    return res.json(response);
+  });
+}
+
 async function estimateFee(req, res) {
   let { nblocks } = req.params;
   nblocks = nblocks || req.query.nblocks;
@@ -1152,6 +1269,28 @@ async function verifyMessage(req, res) {
   return res ? res.json(response) : response;
 }
 
+async function verifyMessagePost(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const { zelcashaddress } = processedBody;
+    const { signature } = processedBody;
+    const { message } = processedBody;
+
+    const rpccall = 'verifyMessage';
+    let rpcparameters = [];
+    if (zelcashaddress && signature && message) {
+      rpcparameters = [zelcashaddress, signature, message];
+    }
+    response = await executeCall(rpccall, rpcparameters);
+
+    return res.json(response);
+  });
+}
+
 async function zValidateAddress(req, res) {
   let { zaddr } = req.params;
   zaddr = zaddr || req.query.zaddr;
@@ -1187,6 +1326,33 @@ async function addMultiSigAddress(req, res) {
   }
 
   return res ? res.json(response) : response;
+}
+
+async function addMultiSigAddressPost(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    let { n } = processedBody;
+    let { keysobject } = processedBody;
+    const authorized = await serviceHelper.verifyPrivilege('admin', req);
+    if (authorized === true) {
+      const rpccall = 'addMultiSigAddress';
+      let rpcparameters = [];
+      if (n && keysobject) {
+        n = serviceHelper.ensureNumber(n);
+        keysobject = serviceHelper.ensureObject(keysobject);
+        rpcparameters = [n, keysobject];
+      }
+      response = await executeCall(rpccall, rpcparameters);
+    } else {
+      response = serviceHelper.errUnauthorizedMessage();
+    }
+
+    return res.json(response);
+  });
 }
 
 async function backupWallet(req, res) {
@@ -1595,6 +1761,41 @@ async function sendFrom(req, res) {
   return res ? res.json(response) : response;
 }
 
+async function sendFromPost(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const { tozelcashaddress } = processedBody;
+    let { amount } = processedBody;
+    let { minconf } = processedBody;
+    let { comment } = processedBody;
+    let { commentto } = processedBody;
+    const account = '';
+    minconf = minconf || 1;
+    comment = comment || '';
+    commentto = commentto || '';
+    const authorized = await serviceHelper.verifyPrivilege('admin', req);
+    if (authorized === true) {
+      const rpccall = 'sendFrom';
+      let rpcparameters = [];
+      if (tozelcashaddress && amount) {
+        amount = serviceHelper.ensureNumber(amount);
+        minconf = serviceHelper.ensureNumber(minconf);
+        rpcparameters = [account, tozelcashaddress, amount, minconf, comment, commentto];
+      }
+
+      response = await executeCall(rpccall, rpcparameters);
+    } else {
+      response = serviceHelper.errUnauthorizedMessage();
+    }
+
+    return res.json(response);
+  });
+}
+
 async function sendMany(req, res) {
   const fromaccount = '';
   let { amounts } = req.params;
@@ -1627,6 +1828,43 @@ async function sendMany(req, res) {
   return res ? res.json(response) : response;
 }
 
+async function sendManyPost(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    let { amounts } = processedBody;
+    let { minconf } = processedBody;
+    let { comment } = processedBody;
+    let { substractfeefromamount } = processedBody;
+    const fromaccount = '';
+    minconf = minconf || 1;
+    comment = comment || '';
+    const authorized = await serviceHelper.verifyPrivilege('admin', req);
+    if (authorized === true) {
+      const rpccall = 'sendMany';
+      let rpcparameters = [];
+      if (amounts) {
+        amounts = serviceHelper.ensureObject(amounts);
+        minconf = serviceHelper.ensureNumber(minconf);
+        rpcparameters = [fromaccount, amounts, minconf, comment];
+        if (substractfeefromamount) {
+          substractfeefromamount = serviceHelper.ensureObject(substractfeefromamount);
+          rpcparameters.push(substractfeefromamount);
+        }
+      }
+
+      response = await executeCall(rpccall, rpcparameters);
+    } else {
+      response = serviceHelper.errUnauthorizedMessage();
+    }
+
+    return res.json(response);
+  });
+}
+
 async function sendToAddress(req, res) {
   let { zelcashaddress } = req.params;
   zelcashaddress = zelcashaddress || req.query.zelcashaddress;
@@ -1654,6 +1892,40 @@ async function sendToAddress(req, res) {
   }
 
   return res ? res.json(response) : response;
+}
+
+async function sendToAddressPost(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const { zelcashaddress } = processedBody;
+    let { amount } = processedBody;
+    let { comment } = processedBody;
+    let { commentto } = processedBody;
+    let { substractfeefromamount } = processedBody;
+    comment = comment || '';
+    commentto = commentto || '';
+    substractfeefromamount = substractfeefromamount || false;
+    const authorized = await serviceHelper.verifyPrivilege('admin', req);
+    if (authorized === true) {
+      const rpccall = 'sendToAddress';
+      let rpcparameters = [];
+      if (zelcashaddress && amount) {
+        amount = serviceHelper.ensureNumber(amount);
+        substractfeefromamount = serviceHelper.ensureBoolean(substractfeefromamount);
+        rpcparameters = [zelcashaddress, amount, comment, commentto, substractfeefromamount];
+      }
+
+      response = await executeCall(rpccall, rpcparameters);
+    } else {
+      response = serviceHelper.errUnauthorizedMessage();
+    }
+
+    return res.json(response);
+  });
 }
 
 async function setTxFee(req, res) {
@@ -1695,6 +1967,33 @@ async function signMessage(req, res) {
   }
 
   return res ? res.json(response) : response;
+}
+
+async function signMessagePost(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const { taddr } = processedBody;
+    const { message } = processedBody;
+
+    const authorized = await serviceHelper.verifyPrivilege('admin', req);
+    if (authorized === true) {
+      const rpccall = 'signMessage';
+      let rpcparameters = [];
+      if (taddr && message) {
+        rpcparameters = [taddr, message];
+      }
+
+      response = await executeCall(rpccall, rpcparameters);
+    } else {
+      response = serviceHelper.errUnauthorizedMessage();
+    }
+
+    return res.json(response);
+  });
 }
 
 async function zExportKey(req, res) {
@@ -2047,6 +2346,38 @@ async function zSendMany(req, res) {
   return res ? res.json(response) : response;
 }
 
+async function zSendManyPost(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const { fromaddress } = processedBody;
+    let { amounts } = processedBody;
+    let { minconf } = processedBody;
+    let { fee } = processedBody;
+    minconf = minconf || 1;
+    fee = fee || 0.0001;
+    const authorized = await serviceHelper.verifyPrivilege('admin', req);
+    if (authorized === true) {
+      const rpccall = 'z_sendmany';
+      let rpcparameters = [];
+      if (fromaddress && amounts) {
+        amounts = serviceHelper.ensureObject(amounts);
+        minconf = serviceHelper.ensureNumber(minconf);
+        fee = serviceHelper.ensureNumber(fee);
+        rpcparameters = [fromaddress, amounts, minconf, fee];
+      }
+      response = await executeCall(rpccall, rpcparameters);
+    } else {
+      response = serviceHelper.errUnauthorizedMessage();
+    }
+
+    return res.json(response);
+  });
+}
+
 async function zSetMigration(req, res) {
   let { enabled } = req.params;
   enabled = enabled || req.query.enabled;
@@ -2142,6 +2473,37 @@ async function zcRawJoinSplit(req, res) {
   return res ? res.json(response) : response;
 }
 
+async function zcRawJoinSplitPost(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const { rawtx } = processedBody;
+    let { inputs } = processedBody;
+    let { outputs } = processedBody;
+    const { vpubold } = processedBody;
+    const { vpubnew } = processedBody;
+
+    const authorized = await serviceHelper.verifyPrivilege('admin', req);
+    if (authorized === true) {
+      const rpccall = 'zcrawjoinsplit';
+      let rpcparameters = [];
+      if (rawtx && inputs && outputs && vpubold && vpubnew) {
+        inputs = serviceHelper.ensureObject(inputs);
+        outputs = serviceHelper.ensureObject(outputs);
+        rpcparameters = [rawtx, inputs, outputs, vpubold, vpubnew];
+      }
+      response = await executeCall(rpccall, rpcparameters);
+    } else {
+      response = serviceHelper.errUnauthorizedMessage();
+    }
+
+    return res.json(response);
+  });
+}
+
 async function zcRawKeygen(req, res) {
   const authorized = await serviceHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
@@ -2172,6 +2534,32 @@ async function zcRawReceive(req, res) {
   }
 
   return res ? res.json(response) : response;
+}
+
+async function zcRawReceivePost(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const { zcsecretkey } = processedBody;
+    const { encryptednote } = processedBody;
+
+    const authorized = await serviceHelper.verifyPrivilege('admin', req);
+    if (authorized === true) {
+      const rpccall = 'zcrawreceive';
+      let rpcparameters = [];
+      if (zcsecretkey && encryptednote) {
+        rpcparameters = [zcsecretkey, encryptednote];
+      }
+      response = await executeCall(rpccall, rpcparameters);
+    } else {
+      response = serviceHelper.errUnauthorizedMessage();
+    }
+
+    return res.json(response);
+  });
 }
 
 async function zcSampleJoinSplit(req, res) {
@@ -2243,6 +2631,7 @@ module.exports = {
   getNetworkSolPs,
   prioritiseTransaction,
   submitBlock,
+  submitBlockPost,
 
   // == Network ==
   addNode,
@@ -2264,22 +2653,28 @@ module.exports = {
   decodeRawTransaction,
   decodeRawTransactionPost,
   decodeScript,
+  decodeScriptPost,
   fundRawTransaction,
+  fundRawTransactionPost,
   getRawTransaction,
   sendRawTransaction,
+  sendRawTransactionPost,
   signRawTransaction,
   signRawTransactionPost,
 
   // == Util ==
   createMultiSig,
+  createMultiSigPost,
   estimateFee,
   estimatePriority,
   validateAddress,
   verifyMessage,
+  verifyMessagePost,
   zValidateAddress,
 
   // == Wallet ==
   addMultiSigAddress,
+  addMultiSigAddressPost,
   backupWallet,
   dumpPrivKey,
   // encryptWallet, // == not available - EXPERIMENTAL FEATURE ==
@@ -2310,11 +2705,15 @@ module.exports = {
   rescanBlockchain,
   // move, // == not available - DEPRECATED ==
   sendFrom, // == available but DEPRECATED ==
+  sendFromPost, // == available but DEPRECATED ==
   sendMany,
+  sendManyPost,
   sendToAddress,
+  sendToAddressPost,
   // setAccount, // == not available - DEPRECATED ==
   setTxFee,
   signMessage,
+  signMessagePost,
   zExportKey,
   zExportViewingKey,
   zGetBalance,
@@ -2332,11 +2731,14 @@ module.exports = {
   zListUnspent,
   zMergeToAddress,
   zSendMany,
+  zSendManyPost,
   zSetMigration,
   zShieldCoinBase,
   zcBenchmark,
   zcRawJoinSplit, // == available but DEPRECATED ==
+  zcRawJoinSplitPost, // == available but DEPRECATED ==
   zcRawKeygen, // == available but DEPRECATED ==
   zcRawReceive, // == available but DEPRECATED ==
+  zcRawReceivePost, // == available but DEPRECATED ==
   zcSampleJoinSplit,
 };

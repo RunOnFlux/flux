@@ -132,19 +132,19 @@ module.exports = (app, expressWs) => {
   app.get('/zelcash/decoderawtransaction/:hexstring?', (req, res) => {
     zelcashService.decodeRawTransaction(req, res);
   });
-  app.get('/zelcash/decodescript/:hex?', (req, res) => { // todo make this post too
+  app.get('/zelcash/decodescript/:hex?', (req, res) => {
     zelcashService.decodeScript(req, res);
   });
-  app.get('/zelcash/fundrawtransaction/:hexstring?', (req, res) => { // todo make this post too
+  app.get('/zelcash/fundrawtransaction/:hexstring?', (req, res) => {
     zelcashService.fundRawTransaction(req, res);
   });
-  app.get('/zelcash/getrawtransaction/:txid?/:verbose?', (req, res) => { // todo make this post too
+  app.get('/zelcash/getrawtransaction/:txid?/:verbose?', (req, res) => {
     zelcashService.getRawTransaction(req, res);
   });
-  app.get('/zelcash/sendrawtransaction/:hexstring?/:allowhighfees?', (req, res) => { // todo make this post too
+  app.get('/zelcash/sendrawtransaction/:hexstring?/:allowhighfees?', (req, res) => {
     zelcashService.sendRawTransaction(req, res);
   });
-  app.get('/zelcash/createmultisig/:n?/:keys?', (req, res) => { // todo make this post too
+  app.get('/zelcash/createmultisig/:n?/:keys?', (req, res) => {
     zelcashService.createMultiSig(req, res);
   });
   app.get('/zelcash/estimatefee/:nblocks?', (req, res) => {
@@ -156,7 +156,7 @@ module.exports = (app, expressWs) => {
   app.get('/zelcash/validateaddress/:zelcashaddress?', (req, res) => {
     zelcashService.validateAddress(req, res);
   });
-  app.get('/zelcash/verifymessage/:zelcashaddress?/:signature?/:message?', (req, res) => { // todo make this post too
+  app.get('/zelcash/verifymessage/:zelcashaddress?/:signature?/:message?', (req, res) => {
     zelcashService.verifyMessage(req, res);
   });
   app.get('/zelcash/gettransaction/:txid?/:includewatchonly?', (req, res) => {
@@ -239,7 +239,7 @@ module.exports = (app, expressWs) => {
   app.get('/zelcash/prioritisetransaction/:txid?/:prioritydelta?/:feedelta?', (req, res) => {
     zelcashService.prioritiseTransaction(req, res);
   });
-  app.get('/zelcash/submitblock/:hexdata?/:jsonparametersobject?', (req, res) => { // todo make it post too
+  app.get('/zelcash/submitblock/:hexdata?/:jsonparametersobject?', (req, res) => {
     zelcashService.submitBlock(req, res);
   });
 
@@ -302,7 +302,7 @@ module.exports = (app, expressWs) => {
   app.get('/zelcash/signrawtransaction/:hexstring?/:prevtxs?/:privatekeys?/:sighashtype?/:branchid?', (req, res) => {
     zelcashService.signRawTransaction(req, res);
   });
-  app.get('/zelcash/addmultisigaddress/:n?/:keysobject?', (req, res) => { // todo make this post too
+  app.get('/zelcash/addmultisigaddress/:n?/:keysobject?', (req, res) => {
     zelcashService.addMultiSigAddress(req, res);
   });
   app.get('/zelcash/backupwallet/:destination?', (req, res) => {
@@ -365,19 +365,19 @@ module.exports = (app, expressWs) => {
   app.get('/zelcash/rescanblockchain/:startheight?', (req, res) => {
     zelcashService.rescanBlockchain(req, res);
   });
-  app.get('/zelcash/sendfrom/:tozelcashaddress?/:amount?/:minconf?/:comment?/:commentto?', (req, res) => { // todo make this post too
+  app.get('/zelcash/sendfrom/:tozelcashaddress?/:amount?/:minconf?/:comment?/:commentto?', (req, res) => {
     zelcashService.sendFrom(req, res);
   });
-  app.get('/zelcash/sendmany/:amounts?/:minconf?/:comment?/:substractfeefromamount?', (req, res) => { // todo make this post too
+  app.get('/zelcash/sendmany/:amounts?/:minconf?/:comment?/:substractfeefromamount?', (req, res) => {
     zelcashService.sendMany(req, res);
   });
-  app.get('/zelcash/sendtoaddress/:zelcashaddress?/:amount?/:comment?/:commentto?/:substractfeefromamount?', (req, res) => { // todo make this post too
+  app.get('/zelcash/sendtoaddress/:zelcashaddress?/:amount?/:comment?/:commentto?/:substractfeefromamount?', (req, res) => {
     zelcashService.sendToAddress(req, res);
   });
   app.get('/zelcash/settxfee/:amount?', (req, res) => {
     zelcashService.setTxFee(req, res);
   });
-  app.get('/zelcash/signmessage/:taddr?/:message?', (req, res) => { // todo make this post too
+  app.get('/zelcash/signmessage/:taddr?/:message?', (req, res) => {
     zelcashService.signMessage(req, res);
   });
   app.get('/zelcash/zexportkey/:zaddr?', (req, res) => {
@@ -428,7 +428,7 @@ module.exports = (app, expressWs) => {
   app.get('/zelcash/zmergetoaddress/:fromaddresses?/:toaddress?/:fee?/:transparentlimit?/:shieldedlimit?/:memo?', (req, res) => {
     zelcashService.zMergeToAddress(req, res);
   });
-  app.get('/zelcash/zsendmany/:fromaddress?/:amounts?/:minconf?/:fee?', (req, res) => { // todo make this post too
+  app.get('/zelcash/zsendmany/:fromaddress?/:amounts?/:minconf?/:fee?', (req, res) => {
     zelcashService.zSendMany(req, res);
   });
   app.get('/zelcash/zsetmigration/:enabled?', (req, res) => {
@@ -437,13 +437,13 @@ module.exports = (app, expressWs) => {
   app.get('/zelcash/zshieldcoinbase/:fromaddress?/:toaddress?/:fee?/:limit?', (req, res) => {
     zelcashService.zShieldCoinBase(req, res);
   });
-  app.get('/zelcash/zcrawjoinsplit/:rawtx?/:inputs?/:outputs?/:vpubold?/:vpubnew?', (req, res) => { // todo make this post too
+  app.get('/zelcash/zcrawjoinsplit/:rawtx?/:inputs?/:outputs?/:vpubold?/:vpubnew?', (req, res) => {
     zelcashService.zcRawJoinSplit(req, res);
   });
   app.get('/zelcash/zcrawkeygen', (req, res) => {
     zelcashService.zcRawKeygen(req, res);
   });
-  app.get('/zelcash/zcrawreceive/:zcsecretkey?/:encryptednote?', (req, res) => { // todo make this post too
+  app.get('/zelcash/zcrawreceive/:zcsecretkey?/:encryptednote?', (req, res) => {
     zelcashService.zcRawReceive(req, res);
   });
   app.get('/zelcash/zcsamplejoinsplit', (req, res) => {
@@ -512,11 +512,26 @@ module.exports = (app, expressWs) => {
     zelidService.verifyLogin(req, res);
   });
 
+  app.post('/zelcash/createrawtransaction', (req, res) => {
+    zelcashService.createRawTransactionPost(req, res);
+  });
   app.post('/zelcash/decoderawtransaction', (req, res) => {
     zelcashService.decodeRawTransactionPost(req, res);
   });
-  app.get('/zelcash/createrawtransaction', (req, res) => {
-    zelcashService.createRawTransactionPost(req, res);
+  app.post('/zelcash/decodescript', (req, res) => {
+    zelcashService.decodeScriptPost(req, res);
+  });
+  app.post('/zelcash/fundrawtransaction', (req, res) => {
+    zelcashService.fundRawTransactionPost(req, res);
+  });
+  app.post('/zelcash/sendrawtransaction', (req, res) => {
+    zelcashService.sendRawTransactionPost(req, res);
+  });
+  app.post('/zelcash/createmultisig', (req, res) => {
+    zelcashService.createMultiSigPost(req, res);
+  });
+  app.post('/zelcash/verifymessage', (req, res) => {
+    zelcashService.verifyMessagePost(req, res);
   });
 
   // POST PROTECTED API - USER LEVEL
@@ -524,9 +539,37 @@ module.exports = (app, expressWs) => {
     zelidService.logoutSpecificSession(req, res);
   });
 
+  app.post('/zelcash/submitblock', (req, res) => {
+    zelcashService.submitBlockPost(req, res);
+  });
+
   // POST PROTECTED API - ZelNode owner level
   app.post('/zelcash/signrawtransaction', (req, res) => {
     zelcashService.signRawTransactionPost(req, res);
+  });
+  app.post('/zelcash/addmultisigaddress', (req, res) => {
+    zelcashService.addMultiSigAddressPost(req, res);
+  });
+  app.post('/zelcash/sendfrom', (req, res) => {
+    zelcashService.sendFromPost(req, res);
+  });
+  app.post('/zelcash/sendmany', (req, res) => {
+    zelcashService.sendManyPost(req, res);
+  });
+  app.post('/zelcash/sendtoaddress', (req, res) => {
+    zelcashService.sendToAddressPost(req, res);
+  });
+  app.post('/zelcash/signmessage', (req, res) => {
+    zelcashService.signMessagePost(req, res);
+  });
+  app.post('/zelcash/zsendmany', (req, res) => {
+    zelcashService.zSendManyPost(req, res);
+  });
+  app.post('/zelcash/zcrawjoinsplit', (req, res) => {
+    zelcashService.zcRawJoinSplitPost(req, res);
+  });
+  app.post('/zelcash/zcrawreceive', (req, res) => {
+    zelcashService.zcRawReceivePost(req, res);
   });
 
   // POST PROTECTED API - ZelTeam
