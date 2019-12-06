@@ -8,16 +8,17 @@ module.exports = {
     url: '127.0.0.1',
     port: 27017,
     local: {
-      database: 'zelnodelocal',
+      database: 'zelfluxlocal',
       collections: {
         loggedUsers: 'loggedusers',
         activeLoginPhrases: 'activeloginphrases',
       },
     },
     global: {
-      database: 'zelnodeglobal',
+      database: 'zelfluxglobal',
       collections: {
-        zelid: 'zelid',
+        registeredZelApps: 'registeredzelapps',
+        zelAppsInfo: 'zelappsinfo',
       },
     },
   },

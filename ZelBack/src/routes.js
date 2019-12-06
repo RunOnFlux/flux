@@ -186,6 +186,9 @@ module.exports = (app, expressWs) => {
     zelfluxCommunication.getIncomingConnectionsInfo(req, res, expressWs.getWss('/ws/zelflux'));
   });
 
+  app.get('/zelapps/zelappregister/:repotag?/:name?/:owner?/:cpus?/:ram?/:space?/:port?/:ip?/:envvars?/:privacylevel?', (req, res) => { // privacy level means restrictions of calls. envvars can have privacy to be/not to be exposed // TODO make me post, needs redoing
+    zelappsService.zelAppRegister(req, res);
+  });
   app.get('/zelapps/zelapppull/:repotag?', (req, res) => { // TODO make me post, needs redoing
     zelappsService.zelAppPull(req, res);
   });
