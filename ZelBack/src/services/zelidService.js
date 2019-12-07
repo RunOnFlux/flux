@@ -5,6 +5,7 @@ const qs = require('qs');
 const userconfig = require('../../../config/userconfig');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
+const zelappsService = require('./zelappsService');
 
 const mongoUrl = `mongodb://${config.database.url}:${config.database.port}/`;
 const goodchars = /^[1-9a-km-zA-HJ-NP-Z]+$/;
@@ -43,6 +44,13 @@ async function loginPhrase(req, res) {
     throw error;
   });
   db.close();
+  await zelappsService.dockerListContainers(false).catch((error) => {
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+    log.error(error);
+    throw error;
+  });
+  // mongodb and docker works correctly
   const phraseResponse = serviceHelper.createDataMessage(phrase);
   res.json(phraseResponse);
 }

@@ -525,6 +525,7 @@ function zelAppExec(req, res) {
 }
 
 module.exports = {
+  dockerListContainers,
   zelAppPull,
   listRunningZelApps,
   listAllZelApps,
