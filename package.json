@@ -1,6 +1,6 @@
 {
   "name": "zelflux",
-  "version": "0.41.1",
+  "version": "0.41.2",
   "description": "ZelFlux - ZelNode Daemon. The entrace to the Zel network.",
   "repository": {
     "type": "git",
@@ -35,7 +35,7 @@
     "zelfrontprod": "nodemon ZelFront/server.js",
     "zelfrontstart": "npm run zelfrontprod",
     "zelfrontbuild": "vue-cli-service build",
-    "zelfrontbuildwatch": "vue-cli-service build --watch",
+    "zelfrontbuildwatch": "vue-cli-service build --watch --mode production",
     "zelbackstart": "nodemon ZelBack/server.js",
     "zelbackdev": "nodemon ZelBack/server.js",
     "zelflux": "nodemon app.js",
