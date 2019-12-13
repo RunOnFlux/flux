@@ -5,11 +5,11 @@ on: [push]
 jobs:
   build:
 
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-18.04
 
     strategy:
       matrix:
-        node-version: [8.x, 10.x, 12.x]
+        node-version: [12.x]
 
     steps:
     - uses: actions/checkout@v1
@@ -20,7 +20,6 @@ jobs:
     - name: npm install, build, and test
       run: |
         npm i
-        npm run zelfrontbuild
         npm test:zelback
       env:
         CI: true
