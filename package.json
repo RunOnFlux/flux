@@ -1,6 +1,6 @@
 {
   "name": "zelflux",
-  "version": "0.41.3",
+  "version": "0.41.4",
   "description": "ZelFlux - ZelNode Daemon. The entrace to the Zel network.",
   "repository": {
     "type": "git",
@@ -42,7 +42,8 @@
     "start": "npm install && node init.js && (npm run zelfrontbuildwatch & npm run zelflux)",
     "dev": "node init.js && (npm run zelbackdev & npm run zelfrontdev)",
     "updatezelflux": "git pull && npm install",
-    "hardupdatezelflux": "rm -rf node_modules && rm -f package-lock.json && git reset --hard && git pull && npm run start"
+    "hardupdatezelflux": "rm -rf node_modules && rm -f package-lock.json && git reset --hard && git pull && npm run start",
+    "ciconfig": "cp sampleUserConfig.js config/userconfig.js"
   },
   "dependencies": {
     "axios": "^0.19.0",

@@ -129,7 +129,7 @@ export default {
       zelIDService.verifyLogin(this.loginForm)
         .then((response) => {
           console.log(response);
-          if (response.data.status === 'success' && response.data.data) {
+          if (response.data.status === 'success') {
             // user is  now signed. Store their values
             const zelidauth = {
               zelid: this.loginForm.zelid,
@@ -140,7 +140,10 @@ export default {
             localStorage.setItem('zelidauth', qs.stringify(zelidauth));
             vue.$message.success(response.data.data.message);
           } else {
-            vue.$message.error(response.data.data.message);
+            vue.$message({
+              type: response.data.status,
+              message: response.data.data.message || response.data.data,
+            });
           }
         })
         .catch((e) => {
