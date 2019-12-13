@@ -51,7 +51,7 @@
     "bitcoinjs-message": "^2.1.0",
     "body-parser": "^1.19.0",
     "config": "^3.2.2",
-    "core-js": "^2.6.5",
+    "core-js": "^3.5.0",
     "cors": "^2.8.5",
     "dockerode": "^3.0.2",
     "element-ui": "^2.11.1",
