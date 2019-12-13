@@ -128,7 +128,9 @@
         popper-append-to-body="true"
       >
         <template slot="title">ZelApps</template>
-        <el-menu-item index="3-1">Information</el-menu-item>
+        <el-menu-item index="3-1">Local ZelApps</el-menu-item>
+        <el-menu-item index="3-2">All ZelApps</el-menu-item>
+        <el-menu-item index="3-3">Register ZelApp</el-menu-item>
       </el-submenu>
       <el-submenu
         v-if="privilage === 'user' || privilage === 'admin' || privilage === 'zelteam'"
@@ -243,7 +245,7 @@ export default {
           this.$store.commit('setZelNodeSection', 'messages');
           break;
         case '3-1':
-          this.$store.commit('setZelAppsSection', 'information');
+          this.$store.commit('setZelAppsSection', 'localzelapps');
           break;
         case '10-1':
           this.$store.commit('setZelAdminSection', 'loggedsessions');

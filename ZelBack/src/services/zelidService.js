@@ -427,7 +427,7 @@ async function logoutAllUsers(req, res) {
       throw error;
     });
     db.close();
-    const message = serviceHelper.createSuccessMessage('Successfully logged out all sessions');
+    const message = serviceHelper.createSuccessMessage('Successfully logged out all users');
     return res.json(message);
   }
   const errMessage = serviceHelper.errUnauthorizedMessage();
