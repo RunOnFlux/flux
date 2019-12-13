@@ -17,7 +17,7 @@ const client = new zelcashrpc.Client({
 let response = serviceHelper.createErrorMessage();
 
 async function executeCall(rpc, params) {
-  let callResponse = serviceHelper.createErrorMessage();
+  let callResponse;
   const rpcparameters = params || [];
   try {
     const data = await client[rpc](...rpcparameters);

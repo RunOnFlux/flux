@@ -264,7 +264,7 @@ function handleIncomingConnection(ws, req, expressWS) {
   ws.on('error', async (msg) => {
     console.log(ws._socket.remoteAddress);
     const ip = ws._socket.remoteAddress;
-    const ocIndex = await incomingConnections.indexOf(ws);
+    const ocIndex = incomingConnections.indexOf(ws);
     const foundPeer = await incomingPeers.find(mypeer => mypeer.ip === ip);
     if (ocIndex > -1) {
       incomingConnections.splice(ocIndex, 1);
@@ -279,7 +279,7 @@ function handleIncomingConnection(ws, req, expressWS) {
   });
   ws.on('close', async (msg) => {
     const ip = ws._socket.remoteAddress;
-    const ocIndex = await incomingConnections.indexOf(ws);
+    const ocIndex = incomingConnections.indexOf(ws);
     const foundPeer = await incomingPeers.find(mypeer => mypeer.ip === ip);
     if (ocIndex > -1) {
       incomingConnections.splice(ocIndex, 1);
@@ -669,7 +669,7 @@ function getIncomingConnectionsInfo(req, res) {
 
 
 async function closeConnection(ip) {
-  let message = serviceHelper.createErrorMessage(`Unkown error while closing ${ip}`);
+  let message;
   const wsObj = await outgoingConnections.find(client => client._socket.remoteAddress === ip);
   if (wsObj) {
     const ocIndex = await outgoingConnections.indexOf(wsObj);
@@ -696,7 +696,7 @@ async function closeConnection(ip) {
 
 async function closeIncomingConnection(ip, expressWS) {
   const clientsSet = expressWS.clients;
-  let message = serviceHelper.createErrorMessage(`Unkown error while closing incoming ${ip}`);
+  let message;
   let wsObj = null;
   clientsSet.forEach((client) => {
     if (client._socket.remoteAddress === ip) {
@@ -704,7 +704,7 @@ async function closeIncomingConnection(ip, expressWS) {
     }
   });
   if (wsObj) {
-    const ocIndex = await incomingConnections.indexOf(wsObj);
+    const ocIndex = incomingConnections.indexOf(wsObj);
     const foundPeer = await incomingPeers.find(peer => peer.ip === ip);
     if (ocIndex > -1) {
       wsObj.close(1000);
