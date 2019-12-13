@@ -135,14 +135,14 @@ h4 {
 /* desktop */
 @media screen and (min-width: 805px) {
   .content {
-    padding: 120px 0px 30px 0px;
+    padding: 120px 0 30px 0;
   }
 }
 
 /* mobile */
 @media screen and (max-width: 805px) {
   .content {
-    padding: 90px 0px 30px 0px;
+    padding: 90px 0 30px 0;
   }
 }
 

@@ -2,6 +2,8 @@
 
 ![ZelNode.gif](ZelFront/src/assets/img/zelnode.gif)
 
+[![DeepScan grade](https://deepscan.io/api/teams/6436/projects/8442/branches/100920/badge/grade.svg)](https://deepscan.io/dashboard#view=project&tid=6436&pid=8442&bid=100920) [![CodeFactor](https://www.codefactor.io/repository/github/zelcash/zelflux/badge)](https://www.codefactor.io/repository/github/zelcash/zelflux)
+
 ## API Documentation
 
 [API documentation](https://zelcash.github.io/zelfluxdocs/)
@@ -10,7 +12,7 @@
 
 ZelFlux is the frontend UI to the entire Zel Network, it enables ZelNode operators to manage their ZelNode easily via a simple web interface. ZelFlux enables a ZelNode operator to perform all tasks such as updating and maintenance from a simple web interface, instead of having to remotely login to their ZelNode to manage it.
 
-ZelFlux Requires a reasonably new version of Node.js (npm) and MongoDB. It is a MongoDB, Express.js, Vue.js, Node.js (MEVN) application
+ZelFlux Requires a reasonably new version of Node.js (npm), MongoDB and Docker. It is a MongoDB, Express.js, Vue.js, Node.js (MEVN) application
 
 This application communicates locally with the ZelCash Daemon (zelcashd), ZelBench Daemon (benchmarkd) and with other ZelNode Daemons (zelflux).
 
@@ -183,15 +185,15 @@ npm run zelfrontdev
 THE SETUP ENDS HERE...
 The following information below provided for brief usage guidelines and/or examples only.
 
-
 ## ZelFront Information
 
 > Frontend interface to interact with the Zel network
+> Uses port 16126
 
 ## Build Setup
 
 ```bash
-# serve with hot reload at localhost:8080
+# serve with hot reload at localhost:16126
 npm run zelfrontdev
 
 # build for production with minification
@@ -199,22 +201,12 @@ npm run zelfrontbuild
 
 # build for production and view the bundle analyzer report
 npm run zelfrontbuild --report
-
-# run unit tests
-npm run zelfrontunit
-
-# run e2e tests
-npm run zelfronte2e
-
-# run all tests
-npm run zelfronttest
 ```
 
 ## ZelBack Information
 
 > Backend interface to interact with the Zel Network
-> Default port is 16126
-> Communication port with other zelnodes is 16127
+> Uses port 16127
 
 ## Continued Build Setup
 
@@ -222,11 +214,5 @@ npm run zelfronttest
 # serve with hot reload at localhost:16126
 npm run zelbackdev
 ```
-
-Signed message requirement
-
-- First 13 characters is timestamp
-- The length of message must be at least 40 characters
-- Message and corresponding signature must not be older than X seconds
 
 Made with ❤️ by the Zel Team
