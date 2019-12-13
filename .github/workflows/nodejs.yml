@@ -20,6 +20,8 @@ jobs:
     - name: npm install, build, and test
       run: |
         npm i
+        npm run ciconfig
+        npm run zelfrontbuild
         npm run test:zelback
       env:
         CI: true

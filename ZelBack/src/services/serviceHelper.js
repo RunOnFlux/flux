@@ -87,7 +87,7 @@ function ensureObject(parameter) {
   if (typeof parameter === 'object') {
     return parameter;
   }
-  let param = parameter;
+  let param;
   try {
     param = JSON.parse(parameter);
   } catch (e) {
