@@ -672,7 +672,7 @@ async function closeConnection(ip) {
   let message;
   const wsObj = await outgoingConnections.find(client => client._socket.remoteAddress === ip);
   if (wsObj) {
-    const ocIndex = await outgoingConnections.indexOf(wsObj);
+    const ocIndex = outgoingConnections.indexOf(wsObj);
     const foundPeer = await outgoingPeers.find(peer => peer.ip === ip);
     if (ocIndex > -1) {
       wsObj.close(1000);
