@@ -71,6 +71,7 @@
                 slot-scope="scope"
               >
                 <el-input
+                  v-if="scope"
                   v-model="filterConnectedPeer"
                   size="mini"
                   placeholder="Type to search"
@@ -136,6 +137,7 @@
                 slot-scope="scope"
               >
                 <el-input
+                  v-if="scope"
                   v-model="filterConnectedPeer"
                   size="mini"
                   placeholder="Type to search"
@@ -193,10 +195,10 @@ export default {
       'zelNodeSection',
     ]),
     connectedPeersFilter() {
-      return this.connectedPeers.filter(data => !this.filterConnectedPeer || data.ip.toLowerCase().includes(this.filterConnectedPeer.toLowerCase()));
+      return this.connectedPeers.filter((data) => !this.filterConnectedPeer || data.ip.toLowerCase().includes(this.filterConnectedPeer.toLowerCase()));
     },
     incomingConnectionsFilter() {
-      return this.incomingConnections.filter(data => !this.filterConnectedPeer || data.ip.toLowerCase().includes(this.filterConnectedPeer.toLowerCase()));
+      return this.incomingConnections.filter((data) => !this.filterConnectedPeer || data.ip.toLowerCase().includes(this.filterConnectedPeer.toLowerCase()));
     },
   },
   watch: {

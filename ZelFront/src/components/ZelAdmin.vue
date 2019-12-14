@@ -21,6 +21,7 @@
             slot-scope="scope"
           >
             <el-input
+              v-if="scope"
               v-model="filterLoggedUsers"
               size="mini"
               placeholder="Type to search"
@@ -89,6 +90,7 @@
             slot-scope="scope"
           >
             <el-input
+              v-if="scope"
               v-model="filterLoggedUsers"
               size="mini"
               placeholder="Type to search"
