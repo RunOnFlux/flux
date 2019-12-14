@@ -64,8 +64,11 @@ async function verifyFluxBroadcast(data, obtainedZelNodeList, currentTimeStamp) 
   }
 
   let zelnode = null;
-  if (obtainedZelNodeList) { // for test purposes
-    zelnode = await obtainedZelNodeList.find(key => key.pubkey === pubKey);
+  if (obtainedZelNodeList) { // for test purposes. TODO Can this be misuesed?
+    zelnode = await obtainedZelNodeList.find((key) => key.pubkey === pubKey);
+    if (!zelnode) {
+      return false;
+    }
   }
   if (!zelnode) {
     const zl = await zelnodelist(pubKey); // this itself is sufficient.
@@ -78,7 +81,7 @@ async function verifyFluxBroadcast(data, obtainedZelNodeList, currentTimeStamp) 
   if (!zelnode) { // if filtering fails, fetch all the list and run find method
     // eslint-disable-next-line no-param-reassign
     obtainedZelNodeList = await zelnodelist(); // support for daemons that do not have filtering via public key
-    zelnode = await obtainedZelNodeList.find(key => key.pubkey === pubKey);
+    zelnode = await obtainedZelNodeList.find((key) => key.pubkey === pubKey);
   }
   if (!zelnode) {
     return false;
@@ -130,7 +133,7 @@ function sendToAllPeers(data) {
       log.error(e);
       removals.push(client);
       const ip = client._socket.remoteAddress;
-      const foundPeer = outgoingPeers.find(peer => peer.ip === ip);
+      const foundPeer = outgoingPeers.find((peer) => peer.ip === ip);
       ipremovals.push(foundPeer);
     }
   });
@@ -162,7 +165,7 @@ function sendToAllIncomingConnections(data) {
       log.error(e);
       removals.push(client);
       const ip = client._socket.remoteAddress;
-      const foundPeer = incomingPeers.find(peer => peer.ip === ip);
+      const foundPeer = incomingPeers.find((peer) => peer.ip === ip);
       ipremovals.push(foundPeer);
     }
   });
@@ -227,7 +230,7 @@ function handleIncomingConnection(ws, req, expressWS) {
           const newerTimeStamp = Date.now(); // ms, get a bit newer time that has passed verification of broadcast
           const rtt = newerTimeStamp - msgObj.data.timestamp;
           const ip = ws._socket.remoteAddress;
-          const foundPeer = incomingPeers.find(mypeer => mypeer.ip === ip);
+          const foundPeer = incomingPeers.find((mypeer) => mypeer.ip === ip);
           if (foundPeer) {
             const peerIndex = incomingPeers.indexOf(foundPeer);
             if (peerIndex > -1) {
@@ -265,7 +268,7 @@ function handleIncomingConnection(ws, req, expressWS) {
     console.log(ws._socket.remoteAddress);
     const ip = ws._socket.remoteAddress;
     const ocIndex = incomingConnections.indexOf(ws);
-    const foundPeer = await incomingPeers.find(mypeer => mypeer.ip === ip);
+    const foundPeer = await incomingPeers.find((mypeer) => mypeer.ip === ip);
     if (ocIndex > -1) {
       incomingConnections.splice(ocIndex, 1);
     }
@@ -280,7 +283,7 @@ function handleIncomingConnection(ws, req, expressWS) {
   ws.on('close', async (msg) => {
     const ip = ws._socket.remoteAddress;
     const ocIndex = incomingConnections.indexOf(ws);
-    const foundPeer = await incomingPeers.find(mypeer => mypeer.ip === ip);
+    const foundPeer = await incomingPeers.find((mypeer) => mypeer.ip === ip);
     if (ocIndex > -1) {
       incomingConnections.splice(ocIndex, 1);
     }
@@ -455,7 +458,7 @@ async function getRandomConnection() {
     return null;
   }
 
-  const clientExists = outgoingConnections.find(client => client._socket.remoteAddress === ip);
+  const clientExists = outgoingConnections.find((client) => client._socket.remoteAddress === ip);
   if (clientExists) {
     return null;
   }
@@ -489,7 +492,7 @@ async function initiateAndHandleConnection(ip) {
       log.info(`Connection to ${conIP} closed with code ${evt.code}`);
       outgoingConnections.splice(ocIndex, 1);
     }
-    const foundPeer = outgoingPeers.find(peer => peer.ip === conIP);
+    const foundPeer = outgoingPeers.find((peer) => peer.ip === conIP);
     if (foundPeer) {
       const peerIndex = outgoingPeers.indexOf(foundPeer);
       if (peerIndex > -1) {
@@ -513,7 +516,7 @@ async function initiateAndHandleConnection(ip) {
         const { url } = websocket;
         let conIP = url.split('/')[2];
         conIP = conIP.split(':16127').join('');
-        const foundPeer = outgoingPeers.find(peer => peer.ip === conIP);
+        const foundPeer = outgoingPeers.find((peer) => peer.ip === conIP);
         if (foundPeer) {
           const peerIndex = outgoingPeers.indexOf(foundPeer);
           if (peerIndex > -1) {
@@ -543,7 +546,7 @@ async function initiateAndHandleConnection(ip) {
       log.info(`Connection to ${conIP} errord with code ${evt.code}`);
       outgoingConnections.splice(ocIndex, 1);
     }
-    const foundPeer = outgoingPeers.find(peer => peer.ip === conIP);
+    const foundPeer = outgoingPeers.find((peer) => peer.ip === conIP);
     if (foundPeer) {
       const peerIndex = outgoingPeers.indexOf(foundPeer);
       if (peerIndex > -1) {
@@ -630,7 +633,7 @@ async function addPeer(req, res) {
     const errMessage = serviceHelper.createErrorMessage('No IP address specified.');
     return res.json(errMessage);
   }
-  const wsObj = await outgoingConnections.find(client => client._socket.remoteAddress === ip);
+  const wsObj = await outgoingConnections.find((client) => client._socket.remoteAddress === ip);
   if (wsObj) {
     const errMessage = serviceHelper.createErrorMessage(`Already connected to ${ip}`);
     return res.json(errMessage);
@@ -670,10 +673,10 @@ function getIncomingConnectionsInfo(req, res) {
 
 async function closeConnection(ip) {
   let message;
-  const wsObj = await outgoingConnections.find(client => client._socket.remoteAddress === ip);
+  const wsObj = await outgoingConnections.find((client) => client._socket.remoteAddress === ip);
   if (wsObj) {
     const ocIndex = outgoingConnections.indexOf(wsObj);
-    const foundPeer = await outgoingPeers.find(peer => peer.ip === ip);
+    const foundPeer = await outgoingPeers.find((peer) => peer.ip === ip);
     if (ocIndex > -1) {
       wsObj.close(1000);
       log.info(`Connection to ${ip} closed`);
@@ -705,7 +708,7 @@ async function closeIncomingConnection(ip, expressWS) {
   });
   if (wsObj) {
     const ocIndex = incomingConnections.indexOf(wsObj);
-    const foundPeer = await incomingPeers.find(peer => peer.ip === ip);
+    const foundPeer = await incomingPeers.find((peer) => peer.ip === ip);
     if (ocIndex > -1) {
       wsObj.close(1000);
       log.info(`Connection from ${ip} closed`);
