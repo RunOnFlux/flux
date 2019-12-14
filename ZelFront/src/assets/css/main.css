@@ -232,6 +232,7 @@ h4 {
 
 .el-menu--collapse .el-submenu.is-opened>.el-submenu__title .el-submenu__icon-arrow{
   -webkit-transform: rotateZ(180deg);
+  -ms-transform: rotateZ(180deg);
   transform: rotateZ(180deg)
 }
 
@@ -275,6 +276,7 @@ h4 {
 
 .change .bar1 {
   -webkit-transform: rotate(-45deg) translate(-9px, 6px);
+  -ms-transform: rotate(-45deg) translate(-9px, 6px);
   transform: rotate(-45deg) translate(-9px, 6px);
 }
 
@@ -282,6 +284,7 @@ h4 {
 
 .change .bar3 {
   -webkit-transform: rotate(45deg) translate(-8px, -8px);
+  -ms-transform: rotate(45deg) translate(-8px, -8px);
   transform: rotate(45deg) translate(-8px, -8px);
 }
 
