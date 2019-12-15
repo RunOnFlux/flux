@@ -1,6 +1,6 @@
 {
   "name": "zelflux",
-  "version": "0.42.1",
+  "version": "0.43.0",
   "description": "ZelFlux - ZelNode Daemon. The entrace to the Zel network.",
   "repository": {
     "type": "git",
@@ -75,9 +75,9 @@
     "zeltrezjs": "^2.7.5"
   },
   "devDependencies": {
-    "@vue/cli-plugin-eslint": "^4.1.1",
     "@vue/cli-plugin-babel": "^4.1.1",
     "@vue/cli-plugin-e2e-cypress": "^4.1.1",
+    "@vue/cli-plugin-eslint": "^4.1.1",
     "@vue/cli-plugin-unit-mocha": "^4.1.1",
     "@vue/cli-service": "^4.1.1",
     "@vue/eslint-config-airbnb": "^5.0.0",
@@ -89,6 +89,7 @@
     "mocha": "^6.2.2",
     "sass": "^1.23.7",
     "sass-loader": "^8.0.0",
+    "supertest": "^4.0.2",
     "vue-template-compiler": "^2.6.11"
   }
 }
