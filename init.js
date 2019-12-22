@@ -4,7 +4,6 @@ const fs = require('fs');
 const path = './config/userconfig.js';
 
 const goodchars = /^[1-9a-km-zA-HJ-NP-Z]+$/;
-const alfasymbols = /(.*[a-zA-Z]){1}/i;
 if (fs.existsSync(path)) {
   console.log('Configuration file found. You can change your configuration in ./config/userconfig.js');
   console.log('Starting ZelFlux...');
@@ -28,13 +27,22 @@ function showQuestions() {
   inquirer.prompt(questions).then((answers) => {
     console.log(`IP address: ${answers.ipaddr}`);
     console.log(`zel ID: ${answers.zelid}`);
-    if (answers.ipaddr.length < 5 || alfasymbols.test(answers.ipaddr) || (answers.ipaddr.indexOf('.') === -1 && answers.ipaddr.indexOf(':') === -1)) {
+    if (answers.ipaddr.length < 5 || (answers.ipaddr.indexOf('.') === -1 && answers.ipaddr.indexOf(':') === -1)) {
       console.log('IP address is NOT valid!');
       return showQuestions();
     }
     if (!goodchars.test(answers.zelid) || answers.zelid[0] !== '1' || answers.zelid.length > 34 || answers.zelid.length < 25) {
       console.log('zelID is NOT valid!');
       return showQuestions();
+    }
+
+    if (answers.ipaddr.includes(':')) {
+      if (!answers.ipaddr.includes('[')) {
+        answers.ipaddr = '[' + answers.ipaddr;
+      }
+      if (!answers.ipaddr.includes(']')) {
+        answers.ipaddr = answers.ipaddr + ']';
+      }
     }
 
     const dataToWrite = `module.exports = {
