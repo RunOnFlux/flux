@@ -38,7 +38,7 @@
           type="text"
           name="address"
           placeholder="insert Zel ID or Bitcoin address"
-          v-model="loginForm.address"
+          v-model="loginForm.zelid"
         >
           <template slot="prepend">Address: </template>
         </ElInput>
