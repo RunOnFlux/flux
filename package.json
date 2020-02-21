@@ -1,6 +1,6 @@
 {
   "name": "zelflux",
-  "version": "0.45.0",
+  "version": "0.46.0",
   "description": "ZelFlux - ZelNode Daemon. The entrace to the Zel network.",
   "repository": {
     "type": "git",
@@ -39,8 +39,8 @@
     "zelbackstart": "nodemon ZelBack/server.js",
     "zelbackdev": "nodemon ZelBack/server.js",
     "zelflux": "nodemon app.js",
-    "start": "npm install && node init.js && (npm run zelfrontbuildwatch & npm run zelflux)",
-    "dev": "node init.js && (npm run zelbackdev & npm run zelfrontdev)",
+    "start": "npm install && node init.js && concurrently \"npm run zelfrontbuildwatch\" \"npm run zelflux\"",
+    "dev": "node init.js && concurrently \"npm run zelbackdev\" \"npm run zelfrontdev\"",
     "updatezelflux": "git pull && npm install",
     "hardupdatezelflux": "rm -rf node_modules && rm -f package-lock.json && git reset --hard && git pull && npm run start",
     "ciconfig": "cp sampleUserConfig.js config/userconfig.js && mkdir ~/.zelcash && cp sampleZelCashConfig.conf ~/.zelcash/zelcash.conf"
@@ -86,6 +86,7 @@
     "@vue/test-utils": "1.0.0-beta.30",
     "babel-eslint": "^10.0.3",
     "chai": "^4.2.0",
+    "concurrently": "^5.1.0",
     "eslint": "^6.7.2",
     "eslint-plugin-vue": "^6.0.1",
     "mocha": "^6.2.2",
