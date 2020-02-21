@@ -280,6 +280,29 @@ async function spork(req, res) {
   return res ? res.json(response) : response;
 }
 
+async function startDeterministicZelNode(req, res) {
+  let { alias } = req.params;
+  alias = alias || req.query.alias;
+  let { lockwallet } = req.params;
+  lockwallet = lockwallet || req.query.lockwallet || false;
+  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  if (authorized === true) {
+    const rpccall = 'startdeterministiczelnode';
+    const rpcparameters = [];
+    rpcparameters.push(alias);
+    if (lockwallet) {
+      lockwallet = serviceHelper.ensureBoolean(lockwallet);
+      rpcparameters.push(lockwallet);
+    }
+
+    response = await executeCall(rpccall, rpcparameters);
+  } else {
+    response = serviceHelper.errUnauthorizedMessage();
+  }
+
+  return res ? res.json(response) : response;
+}
+
 async function startZelNode(req, res) {
   let { set } = req.params;
   set = set || req.query.set;
@@ -302,6 +325,20 @@ async function startZelNode(req, res) {
   } else {
     response = serviceHelper.errUnauthorizedMessage();
   }
+
+  return res ? res.json(response) : response;
+}
+
+async function viewDeterministicZelNodeList(req, res) {
+  let { filter } = req.params;
+  filter = filter || req.query.filter;
+  const rpccall = 'viewdeterministiczelnodelist';
+  const rpcparameters = [];
+  if (filter) {
+    rpcparameters.push(filter);
+  }
+
+  response = await executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -2595,7 +2632,9 @@ module.exports = {
   listZelNodes,
   relayZelNodeBroadcast,
   spork,
+  startDeterministicZelNode,
   startZelNode,
+  viewDeterministicZelNodeList,
   zelNodeCurrentWinner,
   zelNodeDebug,
   znsync,

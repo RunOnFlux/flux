@@ -15,7 +15,7 @@ const incomingPeers = []; // array of objects containing ip and rtt latency
 
 let response = serviceHelper.createErrorMessage();
 
-async function zelnodelist(filter) {
+async function deterministicZelNodeList(filter) {
   let zelnodeList = null;
   const request = {
     params: {
@@ -23,7 +23,7 @@ async function zelnodelist(filter) {
     },
     query: {},
   };
-  zelnodeList = await zelcashServices.listZelNodes(request);
+  zelnodeList = await zelcashServices.viewDeterministicZelNodeList(request);
   return zelnodeList.data || [];
 }
 
@@ -71,7 +71,7 @@ async function verifyFluxBroadcast(data, obtainedZelNodeList, currentTimeStamp) 
     }
   }
   if (!zelnode) {
-    const zl = await zelnodelist(pubKey); // this itself is sufficient.
+    const zl = await deterministicZelNodeList(pubKey); // this itself is sufficient.
     if (zl.length === 1) {
       if (zl[0].pubkey === pubKey) {
         [zelnode] = zl;
@@ -80,7 +80,7 @@ async function verifyFluxBroadcast(data, obtainedZelNodeList, currentTimeStamp) 
   }
   if (!zelnode) { // if filtering fails, fetch all the list and run find method
     // eslint-disable-next-line no-param-reassign
-    obtainedZelNodeList = await zelnodelist(); // support for daemons that do not have filtering via public key
+    obtainedZelNodeList = await deterministicZelNodeList(); // support for daemons that do not have filtering via public key
     zelnode = await obtainedZelNodeList.find((key) => key.pubkey === pubKey);
   }
   if (!zelnode) {
@@ -442,7 +442,7 @@ async function broadcastMessageFromUserPost(req, res) {
 }
 
 async function getRandomConnection() {
-  const zelnodeList = await zelnodelist();
+  const zelnodeList = await deterministicZelNodeList();
   const zlLength = zelnodeList.length;
   const randomNode = Math.floor((Math.random() * zlLength)); // we do not really need a 'random'
   const fullip = zelnodeList[randomNode].ipaddress;
@@ -560,7 +560,7 @@ async function initiateAndHandleConnection(ip) {
 
 async function fluxDisovery() {
   const minPeers = 5; // todo to 10;
-  const zl = await zelnodelist();
+  const zl = await deterministicZelNodeList();
   const numberOfZelNodes = zl.length;
   const requiredNumberOfConnections = numberOfZelNodes / 50; // 2%
   const minCon = Math.min(minPeers, requiredNumberOfConnections); // TODO correctly max

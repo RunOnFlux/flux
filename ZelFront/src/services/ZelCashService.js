@@ -13,6 +13,9 @@ export default {
   listZelNodes() {
     return Api().get('/zelcash/listzelnodes');
   },
+  viewDeterministicZelNodeList() {
+    return Api().get('/zelcash/viewdeterministiczelnodelist');
+  },
   listZelNodeConf(zelidauthHeader) {
     return Api().get('/zelcash/listzelnodeconf', {
       headers: {

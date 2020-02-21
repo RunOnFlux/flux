@@ -18,6 +18,9 @@ module.exports = (app, expressWs) => {
   app.get('/zelcash/listzelnodes/:filter?', (req, res) => {
     zelcashService.listZelNodes(req, res);
   });
+  app.get('/zelcash/viewdeterministiczelnodelist/:filter?', (req, res) => {
+    zelcashService.viewDeterministicZelNodeList(req, res);
+  });
   app.get('/zelcash/znsync/:mode?', (req, res) => {
     zelcashService.znsync(req, res);
   });
@@ -279,10 +282,13 @@ module.exports = (app, expressWs) => {
     zelcashService.listZelNodeConf(req, res);
   });
   app.get('/zelcash/getzelnodeoutputs', (req, res) => {
-    zelcashService.listZelNodeConf(req, res);
+    zelcashService.getZelNodeOutputs(req, res);
   });
   app.get('/zelcash/startzelnode/:set?/:lockwallet?/:alias?', (req, res) => {
     zelcashService.startZelNode(req, res);
+  });
+  app.get('/zelcash/startdeterministiczelnode/:alias?/:lockwallet?', (req, res) => {
+    zelcashService.startDeterministicZelNode(req, res);
   });
   app.get('/zelcash/verifychain/:checklevel?/:numblocks?', (req, res) => {
     zelcashService.verifyChain(req, res);
