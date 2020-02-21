@@ -1,5 +1,6 @@
 /* eslint-disable no-underscore-dangle */
 const WebSocket = require('ws');
+const weekstart = require('weekstart');
 const bitcoinjs = require('bitcoinjs-lib');
 const config = require('config');
 const log = require('../lib/log');
@@ -766,6 +767,8 @@ async function removeIncomingPeer(req, res, expressWS) {
 }
 
 function startFluxFunctions() {
+  console.log('A');
+  console.log(weekstart);
   fluxDisovery();
   log.info('Flux Discovery started');
   keepConnectionsAlive();

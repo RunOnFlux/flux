@@ -16,6 +16,8 @@
 import Vue from 'vue';
 import Vuex, { mapState } from 'vuex';
 
+const weekstart = require('weekstart');
+
 const Header = () => import('@/components/shared/Header.vue');
 const Footer = () => import('@/components/shared/Footer.vue');
 
@@ -37,6 +39,7 @@ export default {
     ]),
   },
   mounted() {
+    console.log(weekstart);
     vue.$message.success('Hi!');
   },
   methods: {
