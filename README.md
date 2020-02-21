@@ -138,6 +138,12 @@ nvm install 12
 nvm use 12
 ```
 
+Install Docker using snap
+
+```bash
+snap install docker
+```
+
 Clone ZelFlux repo (Ubuntu):
 
 ```bash

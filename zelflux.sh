@@ -10,6 +10,9 @@ sudo ufw allow 27017/tcp      # default mongodb port
 sudo apt update
 sudo apt install mongodb -y
 
+# Install Docker
+snap install docker
+
 # Install Nodejs
 curl -sL https://deb.nodesource.com/setup_12.x | sudo -E bash -
 sudo apt-get install nodejs -y
