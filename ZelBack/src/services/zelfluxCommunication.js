@@ -1,10 +1,10 @@
 /* eslint-disable no-underscore-dangle */
 const WebSocket = require('ws');
 const bitcoinjs = require('bitcoinjs-lib');
+const config = require('config');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const zelcashServices = require('./zelcashService');
-const config = require('../../../config/default');
 const userconfig = require('../../../config/userconfig');
 
 const outgoingConnections = []; // websocket list
@@ -23,8 +23,8 @@ async function deterministicZelNodeList(filter) {
     },
     query: {},
   };
-  zelnodeList = await zelcashServices.viewDeterministicZelNodeList(request);
-  return zelnodeList.data || [];
+  zelnodeList = await zelcashServices.listZelNodes(request);
+  return zelnodeList.status === 'success' ? (zelnodeList.data || []) : [];
 }
 
 async function getZelNodePrivateKey(privatekey) {
@@ -445,7 +445,7 @@ async function getRandomConnection() {
   const zelnodeList = await deterministicZelNodeList();
   const zlLength = zelnodeList.length;
   const randomNode = Math.floor((Math.random() * zlLength)); // we do not really need a 'random'
-  const fullip = zelnodeList[randomNode].ipaddress;
+  const fullip = zelnodeList[randomNode].ip || zelnodeList[randomNode].ipaddress;
   const ip = fullip.split(':16125').join('');
 
   // const zelnodeList = ['157.230.249.150', '94.177.240.7', '89.40.115.8', '94.177.241.10', '54.37.234.130', '194.182.83.182'];

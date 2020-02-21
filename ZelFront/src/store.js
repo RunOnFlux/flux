@@ -1,7 +1,7 @@
 import Vue from 'vue';
 import Vuex from 'vuex';
 
-const config = require('../../config/default');
+const config = require('../../ZelBack/config/default');
 const userconfig = require('../../config/userconfig');
 
 Vue.use(Vuex);

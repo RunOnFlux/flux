@@ -1,3 +1,4 @@
+process.env.NODE_CONFIG_DIR = `${process.cwd()}/ZelBack/config/`;
 const request = require('supertest');
 const config = require('config');
 const chai = require('chai');

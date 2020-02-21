@@ -1,11 +1,13 @@
 const zelcashrpc = require('zelcashrpc');
 const fullnode = require('fullnode');
 const serviceHelper = require('./serviceHelper');
+const userconfig = require('../../../config/userconfig');
 
 const config = new fullnode.Config();
+const isTestnet = userconfig.testnet;
 const rpcuser = config.rpcuser() || 'rpcuser';
 const rpcpassword = config.rpcpassword() || 'rpcpassowrd';
-const rpcport = config.rpcport() || 16124;
+const rpcport = config.rpcport() || isTestnet === true ? 26124 : 16124;
 
 const client = new zelcashrpc.Client({
   port: rpcport,
@@ -71,7 +73,7 @@ async function stop(req, res) { // practically useless
 }
 
 // == Zelnode ==
-async function getZelnNodeStatus(req, res) {
+async function getZelNodeStatus(req, res) {
   const rpccall = 'getzelnodestatus';
 
   response = await executeCall(rpccall);
@@ -2626,7 +2628,7 @@ module.exports = {
   getZelNodeCount,
   getZelNodeOutputs,
   getZelNodeScores,
-  getZelnNodeStatus,
+  getZelNodeStatus,
   getZelNodeWinners,
   listZelNodeConf,
   listZelNodes,

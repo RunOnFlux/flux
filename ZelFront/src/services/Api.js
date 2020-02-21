@@ -3,7 +3,7 @@ import axios from 'axios';
 
 const store = require('store');
 
-const config = require('../../../config/default');
+const config = require('../../../ZelBack/config/default');
 const userconfig = require('../../../config/userconfig');
 
 const port = config.server.apiport;

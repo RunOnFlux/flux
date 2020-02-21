@@ -13,7 +13,7 @@ module.exports = (app, expressWs) => {
     zelcashService.getInfo(req, res);
   });
   app.get('/zelcash/getzelnodestatus', (req, res) => {
-    zelcashService.getZelnNodeStatus(req, res);
+    zelcashService.getZelNodeStatus(req, res);
   });
   app.get('/zelcash/listzelnodes/:filter?', (req, res) => {
     zelcashService.listZelNodes(req, res);

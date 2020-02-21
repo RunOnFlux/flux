@@ -38,7 +38,7 @@ import ZelNodeService from '@/services/ZelNodeService';
 
 const store = require('store');
 
-const config = require('../../../../config/default');
+const config = require('../../../../ZelBack/config/default');
 const userconfig = require('../../../../config/userconfig');
 
 Vue.use(Vuex);

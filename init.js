@@ -38,17 +38,18 @@ function showQuestions() {
 
     if (answers.ipaddr.includes(':')) {
       if (!answers.ipaddr.includes('[')) {
-        answers.ipaddr = '[' + answers.ipaddr;
+        answers.ipaddr = `[${answers.ipaddr}`;
       }
       if (!answers.ipaddr.includes(']')) {
-        answers.ipaddr = answers.ipaddr + ']';
+        answers.ipaddr = `${answers.ipaddr}]`;
       }
     }
 
     const dataToWrite = `module.exports = {
       initial: {
         ipaddress: '${answers.ipaddr}',
-        zelid: '${answers.zelid}'
+        zelid: '${answers.zelid}',
+        testnet: false
       }
     }`;
 

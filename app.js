@@ -1,3 +1,4 @@
+process.env.NODE_CONFIG_DIR = `${__dirname}/ZelBack/config/`;
 // ZelBack configuration
 const config = require('config');
 // const fs = require('fs');
