@@ -22,5 +22,5 @@ module.exports = {
       },
     },
   },
-  zelTeamZelId: '12hbuDGzfnndXP4NbrS3xdVXUcC6L7N2ag',
+  zelTeamZelId: '132hG26CFTNhLM3MRsLEJhp9DpBrK6vg5N',
 };
