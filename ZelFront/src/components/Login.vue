@@ -28,7 +28,6 @@
           name="message"
           placeholder="insert Login Phrase"
           v-model="loginForm.loginPhrase"
-          disabled
         >
           <template slot="prepend">Message: </template>
         </ElInput>
