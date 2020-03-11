@@ -19,7 +19,7 @@
             <ElLink
               type="primary"
               :href="'https://explorer.zel.cash/tx/' + getZelNodeStatusResponse.data.txhash"
-              target="_blank"
+              target="_blank" rel="noopener noreferrer"
             >Show Locked transaction</ElLink>
           </h4>
         </div>
