@@ -20,7 +20,7 @@
       <ElLink
         type="primary"
         href="https://github.com/zelcash/zelflux"
-        target="_blank"
+        target="_blank" rel="noopener noreferrer"
       >The gateway to the Zel Network</ElLink>
     </div>
     <div class="footer-right">
