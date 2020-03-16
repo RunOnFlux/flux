@@ -10,6 +10,9 @@ export default {
   getZelNodeStatus() {
     return Api().get('/zelcash/getzelnodestatus');
   },
+  getRawTransaction(txid) {
+    return Api().get(`/zelcash/getrawtransaction/${txid}/1`);
+  },
   listZelNodes() {
     return Api().get('/zelcash/listzelnodes');
   },
