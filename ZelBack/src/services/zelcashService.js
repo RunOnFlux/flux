@@ -400,11 +400,11 @@ async function getBlockCount(req, res) {
   return res ? res.json(response) : response;
 }
 
-async function getBlockHah(req, res) {
+async function getBlockHash(req, res) {
   let { index } = req.params;
   index = index || req.query.index; // no default value, show help
 
-  const rpccall = 'getBlockHah';
+  const rpccall = 'getBlockHash';
   const rpcparameters = [];
   if (index) {
     index = serviceHelper.ensureNumber(index);
@@ -2646,7 +2646,7 @@ module.exports = {
   getBlock,
   getBlockchainInfo,
   getBlockCount,
-  getBlockHah,
+  getBlockHash,
   getBlockHeader,
   getChainTips,
   getDifficulty,
@@ -2658,6 +2658,8 @@ module.exports = {
   verifyChain,
   verifyTxOutProof,
 
+  // == AddressIndex ==
+  // intentianlly left out as requires addressindex
   // == Disclosure ==
   // intentionally left out as of experimental feature
   // == Generating ==

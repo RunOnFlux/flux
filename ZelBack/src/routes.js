@@ -64,7 +64,7 @@ module.exports = (app, expressWs) => {
     zelcashService.getBlockCount(req, res);
   });
   app.get('/zelcash/getblockhash/:index?', (req, res) => {
-    zelcashService.getBlockHah(req, res);
+    zelcashService.getBlockHash(req, res);
   });
   app.get('/zelcash/getblockheader/:hash?/:verbose?', (req, res) => {
     zelcashService.getBlockHeader(req, res);

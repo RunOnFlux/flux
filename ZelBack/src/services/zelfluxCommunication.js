@@ -765,11 +765,22 @@ async function removeIncomingPeer(req, res, expressWS) {
   return res.json(response);
 }
 
+async function checkDeterministicNodes() {
+  // get my external ip address
+  // get zelnode list with filter on this ip address
+  // if it returns more than 1 object, shut down.
+  // another precatuion might be comparing zelnode list on multiple zelnodes. evaulate in the future
+  setInterval(() => {
+    // else process.exit(1);
+  }, 60000);
+}
+
 function startFluxFunctions() {
   fluxDisovery();
   log.info('Flux Discovery started');
   keepConnectionsAlive();
   keepIncomingConnectionsAlive();
+  checkDeterministicNodes();
 }
 
 module.exports = {
