@@ -524,6 +524,16 @@ function zelAppExec(req, res) {
   });
 }
 
+async function zelShareFile(req, res) {
+  let { file } = req.params;
+  file = file || req.query.file;
+
+  const dirpath = path.join(__dirname, '../../../');
+  const filepath = `${dirpath}/ZelApps/Zelshare/file`
+
+  return res.sendFile(filepath);
+}
+
 module.exports = {
   dockerListContainers,
   zelAppPull,
@@ -542,4 +552,5 @@ module.exports = {
   zelAppInspect,
   zelAppUpdate,
   zelAppExec,
+  zelShareFile,
 };
