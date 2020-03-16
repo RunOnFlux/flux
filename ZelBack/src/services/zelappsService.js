@@ -1,5 +1,6 @@
 const Docker = require('dockerode');
 const stream = require('stream');
+const path = require('path');
 const serviceHelper = require('./serviceHelper');
 const log = require('../lib/log');
 
