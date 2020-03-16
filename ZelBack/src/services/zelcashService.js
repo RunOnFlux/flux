@@ -187,14 +187,6 @@ async function decodeZelNodeBroadcast(req, res) {
   return res ? res.json(response) : response;
 }
 
-async function getNodeBenchmarks(req, res) {
-  const rpccall = 'getnodebenchmarks';
-
-  response = await executeCall(rpccall);
-
-  return res ? res.json(response) : response;
-}
-
 async function getZelNodeCount(req, res) {
   const rpccall = 'getzelnodecount';
 
@@ -2613,6 +2605,47 @@ async function zcSampleJoinSplit(req, res) {
   return res ? res.json(response) : response;
 }
 
+// Benchmarks
+async function getBenchmarks(req, res) {
+  const rpccall = 'getbenchmarks';
+
+  response = await executeCall(rpccall);
+
+  return res ? res.json(response) : response;
+}
+
+async function getBenchStatus(req, res) {
+  const rpccall = 'getbenchstatus';
+
+  response = await executeCall(rpccall);
+
+  return res ? res.json(response) : response;
+}
+
+async function startZelBenchD(req, res) {
+  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+  if (authorized === true) {
+    const rpccall = 'startzelbenchd';
+    response = await executeCall(rpccall);
+  } else {
+    response = serviceHelper.errUnauthorizedMessage();
+  }
+
+  return res ? res.json(response) : response;
+}
+
+async function stopZelBenchD(req, res) {
+  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+  if (authorized === true) {
+    const rpccall = 'stopzelbenchd';
+    response = await executeCall(rpccall);
+  } else {
+    response = serviceHelper.errUnauthorizedMessage();
+  }
+
+  return res ? res.json(response) : response;
+}
+
 module.exports = {
   getConfigValue,
   // == Control ==
@@ -2624,7 +2657,6 @@ module.exports = {
   createZelNodeBroadcast,
   createZelNodeKey,
   decodeZelNodeBroadcast,
-  getNodeBenchmarks,
   getZelNodeCount,
   getZelNodeOutputs,
   getZelNodeScores,
@@ -2786,4 +2818,10 @@ module.exports = {
   zcRawReceive, // == available but DEPRECATED ==
   zcRawReceivePost, // == available but DEPRECATED ==
   zcSampleJoinSplit,
+
+  // == Benchmarks ==
+  getBenchmarks,
+  getBenchStatus,
+  startZelBenchD,
+  stopZelBenchD,
 };
