@@ -150,11 +150,12 @@ export default {
       this.getZelNodeStatusResponse.data = response.data.data;
       console.log(this.getZelNodeStatusResponse.data);
       if (this.getZelNodeStatusResponse.data) {
-        if (this.getZelNodeStatusResponse.data.status === 4) {
+        if (this.getZelNodeStatusResponse.data.location === "CONFIRMED") {
           this.getZelNodeStatusResponse.zelnodeStatus = 'ZelNode is working correctly';
+        } else if (this.getZelNodeStatusResponse.data.location === "STARTED") {
+          this.getZelNodeStatusResponse.zelnodeStatus = 'ZelNode has just been started. ZelFlux is running with limited capabilities.';
         } else {
-          const statusCode = this.getZelNodeStatusResponse.data.code || this.getZelNodeStatusResponse.data.status;
-          this.getZelNodeStatusResponse.zelnodeStatus = `Error status code: ${statusCode}. ZelNode is not activated. ZelFlux is running with limited capabilities.`;
+          this.getZelNodeStatusResponse.zelnodeStatus = 'ZelNode is not confirmed. ZelFlux is running with limited capabilities.';
         }
       }
     },

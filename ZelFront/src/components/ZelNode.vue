@@ -8,18 +8,51 @@
         <h4>
           Status: {{ getZelNodeStatusResponse.zelnodeStatus }}
         </h4>
-        <div v-if="getZelNodeStatusResponse.code != -1">
+        <h4>
+          Tier: {{ getZelNodeStatusResponse.tier }}
+        </h4>
+        <div v-if="getZelNodeStatusResponse.data.collateral">
+          <h4>
+            Added Height: <ElLink
+              type="primary"
+              :href="'https://explorer.zel.cash/block-index/' + getZelNodeStatusResponse.data.added_height"
+              target="_blank"
+              rel="noopener noreferrer"
+            >{{ getZelNodeStatusResponse.data.added_height }}</ElLink>
+          </h4>
+          <h4>
+            Confirmed Height: <ElLink
+              type="primary"
+              :href="'https://explorer.zel.cash/block-index/' + getZelNodeStatusResponse.data.confirmed_height"
+              target="_blank"
+              rel="noopener noreferrer"
+            >{{ getZelNodeStatusResponse.data.confirmed_height }}</ElLink>
+          </h4>
+          <h4>
+            Last Confirmed Height: <ElLink
+              type="primary"
+              :href="'https://explorer.zel.cash/block-index/' + getZelNodeStatusResponse.data.last_confirmed_height"
+              target="_blank"
+              rel="noopener noreferrer"
+            >{{ getZelNodeStatusResponse.data.last_confirmed_height }}</ElLink>
+          </h4>
+          <h4>
+            Last Paid Height: <ElLink
+              type="primary"
+              :href="'https://explorer.zel.cash/block-index/' + getZelNodeStatusResponse.data.last_paid_height"
+              target="_blank"
+              rel="noopener noreferrer"
+            >{{ getZelNodeStatusResponse.data.last_paid_height }}</ElLink>
+          </h4>
           <h4>
             ZelNode Address: {{ getZelNodeStatusResponse.data.addr }}
           </h4>
           <h4>
-            Network: {{ getZelNodeStatusResponse.data.netaddr }}
-          </h4>
-          <h4>
             <ElLink
               type="primary"
-              :href="'https://explorer.zel.cash/tx/' + getZelNodeStatusResponse.data.txhash"
-              target="_blank" rel="noopener noreferrer"
+              :href="'https://explorer.zel.cash/tx/' + getZelNodeStatusResponse.data.collateral.slice(10, 74)"
+              target="_blank"
+              rel="noopener noreferrer"
             >Show Locked transaction</ElLink>
           </h4>
         </div>
@@ -257,12 +290,12 @@ export default {
       this.getZelNodeStatusResponse.data = response.data.data;
       console.log(this.getZelNodeStatusResponse.data);
       if (this.getZelNodeStatusResponse.data) {
-        if (this.getZelNodeStatusResponse.data.status === 4) {
+        if (this.getZelNodeStatusResponse.data.location === "CONFIRMED") {
           this.getZelNodeStatusResponse.zelnodeStatus = 'ZelNode is working correctly';
+        } else if (this.getZelNodeStatusResponse.data.location === "STARTED") {
+          this.getZelNodeStatusResponse.zelnodeStatus = 'ZelNode has just been started. ZelFlux is running with limited capabilities.';
         } else {
-          const statusCode = this.getZelNodeStatusResponse.data.code || this.getZelNodeStatusResponse.data.status;
-          this.getZelNodeStatusResponse.code = statusCode;
-          this.getZelNodeStatusResponse.zelnodeStatus = `Error status code: ${statusCode}. ZelNode not activated yet. ZelFlux is running but with limited capabilities.`;
+          this.getZelNodeStatusResponse.zelnodeStatus = 'ZelNode is not confirmed. ZelFlux is running with limited capabilities.';
         }
       }
     },
