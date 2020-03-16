@@ -241,6 +241,10 @@ module.exports = (app, expressWs) => {
     zelappsService.zelAppExec(req, res);
   });
 
+  app.get('/zelapps/zelshare/getfile/:file?', (req, res) => {
+    zelappsService.zelShareFile(req, res);
+  });
+
   // GET PROTECTED API - User level
   app.get('/zelcash/prioritisetransaction/:txid?/:prioritydelta?/:feedelta?', (req, res) => {
     zelcashService.prioritiseTransaction(req, res);

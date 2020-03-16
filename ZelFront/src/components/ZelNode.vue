@@ -50,7 +50,7 @@
           <h4>
             <ElLink
               type="primary"
-              :href="'https://explorer.zel.cash/tx/' + getZelNodeStatusResponse.data.collateral.slice(10, 74)"
+              :href="'https://explorer.zel.cash/tx/' + getZelNodeStatusResponse.data.collateral.split(', ')[0].split('COutPoint(')[1]"
               target="_blank"
               rel="noopener noreferrer"
             >Show Locked transaction</ElLink>
@@ -290,13 +290,22 @@ export default {
       this.getZelNodeStatusResponse.data = response.data.data;
       console.log(this.getZelNodeStatusResponse.data);
       if (this.getZelNodeStatusResponse.data) {
-        if (this.getZelNodeStatusResponse.data.location === "CONFIRMED") {
+        if (this.getZelNodeStatusResponse.data.location === 'CONFIRMED') {
           this.getZelNodeStatusResponse.zelnodeStatus = 'ZelNode is working correctly';
-        } else if (this.getZelNodeStatusResponse.data.location === "STARTED") {
+        } else if (this.getZelNodeStatusResponse.data.location === 'STARTED') {
           this.getZelNodeStatusResponse.zelnodeStatus = 'ZelNode has just been started. ZelFlux is running with limited capabilities.';
         } else {
           this.getZelNodeStatusResponse.zelnodeStatus = 'ZelNode is not confirmed. ZelFlux is running with limited capabilities.';
         }
+      }
+      if (this.getZelNodeStatusResponse.data.collateral) {
+        const collateral = this.getZelNodeStatusResponse.data.collateral.split(', ');
+        const collateralHash = collateral[0].split('COutPoint(')[1];
+        const collateralIndex = collateral[1].split(')')[0];
+        const rawTxResponse = await ZelCashService.getRawTransaction(collateralHash);
+        const rawtxdata = rawTxResponse.data.data;
+        const address = rawtxdata.vout[collateralIndex].scriptPubKey.addresses[0];
+        this.getZelNodeStatusResponse.data.addr = address;
       }
     },
     async broadcastMessage() {
