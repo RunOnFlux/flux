@@ -530,7 +530,7 @@ async function zelShareFile(req, res) {
   file = file || req.query.file;
 
   const dirpath = path.join(__dirname, '../../../');
-  const filepath = `${dirpath}/ZelApps/ZelShare/${file}`
+  const filepath = `${dirpath}/ZelApps/ZelShare/${file}`;
 
   return res.sendFile(filepath);
 }

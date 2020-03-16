@@ -2647,11 +2647,13 @@ module.exports = {
   getBlockchainInfo,
   getBlockCount,
   getBlockHash,
+  // getBlockHashes, // intentionally left out as of experimental feataure
   getBlockHeader,
   getChainTips,
   getDifficulty,
   getMempoolInfo,
   getRawMemPool,
+  // getSpentInfo, // intentionally left out as of experimental feature
   getTxOut,
   getTxOutProof,
   getTxOutSetInfo,
