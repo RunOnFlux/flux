@@ -15,6 +15,17 @@ const incomingPeers = []; // array of objects containing ip and rtt latency
 
 let response = serviceHelper.createErrorMessage();
 
+async function myZelNodeIP() {
+  const benchmarkResponse = await zelcashServices.getBenchmarks();
+  let myIP = null;
+  if (benchmarkResponse.status === 'success') {
+    if (benchmarkResponse.data.ipaddress) {
+      myIP = benchmarkResponse.data.ipaddress.length > 5 ? benchmarkResponse.data.ipaddress : null;
+    }
+  }
+  return myIP;
+}
+
 async function deterministicZelNodeList(filter) {
   let zelnodeList = null;
   const request = {
@@ -574,10 +585,10 @@ async function fluxDisovery() {
       fluxDisovery();
     }, 1000);
   } else {
-    // do new connections every 30 seconds
+    // do new connections every 60 seconds
     setTimeout(() => {
       fluxDisovery();
-    }, 30000);
+    }, 60000);
   }
 }
 
@@ -765,14 +776,20 @@ async function removeIncomingPeer(req, res, expressWS) {
   return res.json(response);
 }
 
-async function checkDeterministicNodes() {
+async function checkDeterministicNodesCollisions() {
   // get my external ip address
   // get zelnode list with filter on this ip address
   // if it returns more than 1 object, shut down.
   // another precatuion might be comparing zelnode list on multiple zelnodes. evaulate in the future
-  setInterval(() => {
-    // else process.exit(1);
-  }, 60000);
+  const myIP = await myZelNodeIP();
+  if (myIP !== null) {
+    const zelnodeList = await deterministicZelNodeList();
+    const result = zelnodeList.filter((zelnode) => zelnode.ip === myIP);
+    if (result.length > 1) {
+      log.error('Flux collision detection');
+      process.exit(1);
+    }
+  }
 }
 
 function startFluxFunctions() {
@@ -780,7 +797,10 @@ function startFluxFunctions() {
   log.info('Flux Discovery started');
   keepConnectionsAlive();
   keepIncomingConnectionsAlive();
-  checkDeterministicNodes();
+  checkDeterministicNodesCollisions();
+  setInterval(() => {
+    checkDeterministicNodesCollisions();
+  }, 60000);
 }
 
 module.exports = {
