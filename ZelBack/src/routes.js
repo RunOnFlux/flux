@@ -24,9 +24,6 @@ module.exports = (app, expressWs) => {
   app.get('/zelcash/znsync/:mode?', (req, res) => {
     zelcashService.znsync(req, res);
   });
-  app.get('/zelcash/getnodebenchmarks', (req, res) => {
-    zelcashService.getNodeBenchmarks(req, res);
-  });
   app.get('/zelcash/decodezelnodebroadcast/:hexstring?', (req, res) => {
     zelcashService.decodeZelNodeBroadcast(req, res);
   });
@@ -64,7 +61,7 @@ module.exports = (app, expressWs) => {
     zelcashService.getBlockCount(req, res);
   });
   app.get('/zelcash/getblockhash/:index?', (req, res) => {
-    zelcashService.getBlockHah(req, res);
+    zelcashService.getBlockHash(req, res);
   });
   app.get('/zelcash/getblockheader/:hash?/:verbose?', (req, res) => {
     zelcashService.getBlockHeader(req, res);
@@ -167,6 +164,12 @@ module.exports = (app, expressWs) => {
   });
   app.get('/zelcash/zvalidateaddress/:zaddr?', (req, res) => {
     zelcashService.zValidateAddress(req, res);
+  });
+  app.get('/zelcash/getbenchmarks', (req, res) => {
+    zelcashService.getBenchmarks(req, res);
+  });
+  app.get('/zelcash/getbenchstatus', (req, res) => {
+    zelcashService.getBenchStatus(req, res);
   });
 
   app.get('/zelid/loginphrase', (req, res) => {
@@ -489,6 +492,12 @@ module.exports = (app, expressWs) => {
   });
   app.get('/zelcash/zcbenchmark/:benchmarktype?/:samplecount?', (req, res) => {
     zelcashService.zcBenchmark(req, res);
+  });
+  app.get('/zelcash/startzelbenchd', (req, res) => {
+    zelcashService.startZelBenchD(req, res);
+  });
+  app.get('/zelcash/stopzelbenchd', (req, res) => {
+    zelcashService.stopZelBenchD(req, res);
   });
 
   app.get('/zelnode/updatezelflux', (req, res) => { // method shall be called only if zelflux version is obsolete.

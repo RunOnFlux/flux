@@ -187,14 +187,6 @@ async function decodeZelNodeBroadcast(req, res) {
   return res ? res.json(response) : response;
 }
 
-async function getNodeBenchmarks(req, res) {
-  const rpccall = 'getnodebenchmarks';
-
-  response = await executeCall(rpccall);
-
-  return res ? res.json(response) : response;
-}
-
 async function getZelNodeCount(req, res) {
   const rpccall = 'getzelnodecount';
 
@@ -400,11 +392,11 @@ async function getBlockCount(req, res) {
   return res ? res.json(response) : response;
 }
 
-async function getBlockHah(req, res) {
+async function getBlockHash(req, res) {
   let { index } = req.params;
   index = index || req.query.index; // no default value, show help
 
-  const rpccall = 'getBlockHah';
+  const rpccall = 'getBlockHash';
   const rpcparameters = [];
   if (index) {
     index = serviceHelper.ensureNumber(index);
@@ -2613,6 +2605,47 @@ async function zcSampleJoinSplit(req, res) {
   return res ? res.json(response) : response;
 }
 
+// Benchmarks
+async function getBenchmarks(req, res) {
+  const rpccall = 'getbenchmarks';
+
+  response = await executeCall(rpccall);
+
+  return res ? res.json(response) : response;
+}
+
+async function getBenchStatus(req, res) {
+  const rpccall = 'getbenchstatus';
+
+  response = await executeCall(rpccall);
+
+  return res ? res.json(response) : response;
+}
+
+async function startZelBenchD(req, res) {
+  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+  if (authorized === true) {
+    const rpccall = 'startzelbenchd';
+    response = await executeCall(rpccall);
+  } else {
+    response = serviceHelper.errUnauthorizedMessage();
+  }
+
+  return res ? res.json(response) : response;
+}
+
+async function stopZelBenchD(req, res) {
+  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+  if (authorized === true) {
+    const rpccall = 'stopzelbenchd';
+    response = await executeCall(rpccall);
+  } else {
+    response = serviceHelper.errUnauthorizedMessage();
+  }
+
+  return res ? res.json(response) : response;
+}
+
 module.exports = {
   getConfigValue,
   // == Control ==
@@ -2624,7 +2657,6 @@ module.exports = {
   createZelNodeBroadcast,
   createZelNodeKey,
   decodeZelNodeBroadcast,
-  getNodeBenchmarks,
   getZelNodeCount,
   getZelNodeOutputs,
   getZelNodeScores,
@@ -2646,18 +2678,22 @@ module.exports = {
   getBlock,
   getBlockchainInfo,
   getBlockCount,
-  getBlockHah,
+  getBlockHash,
+  // getBlockHashes, // intentionally left out as of experimental feataure
   getBlockHeader,
   getChainTips,
   getDifficulty,
   getMempoolInfo,
   getRawMemPool,
+  // getSpentInfo, // intentionally left out as of experimental feature
   getTxOut,
   getTxOutProof,
   getTxOutSetInfo,
   verifyChain,
   verifyTxOutProof,
 
+  // == AddressIndex ==
+  // intentianlly left out as requires addressindex
   // == Disclosure ==
   // intentionally left out as of experimental feature
   // == Generating ==
@@ -2782,4 +2818,10 @@ module.exports = {
   zcRawReceive, // == available but DEPRECATED ==
   zcRawReceivePost, // == available but DEPRECATED ==
   zcSampleJoinSplit,
+
+  // == Benchmarks ==
+  getBenchmarks,
+  getBenchStatus,
+  startZelBenchD,
+  stopZelBenchD,
 };
