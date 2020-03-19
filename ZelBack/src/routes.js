@@ -503,6 +503,9 @@ module.exports = (app, expressWs) => {
   app.get('/zelnode/updatezelflux', (req, res) => { // method shall be called only if zelflux version is obsolete.
     zelnodeService.updateZelFlux(req, res);
   });
+  app.get('/zelnode/hardupdatezelflux', (req, res) => { // method shall be called only if zelflux version is obsolete and updatezeflux is not working correctly
+    zelnodeService.hardUpdateZelFlux(req, res);
+  });
   app.get('/zelnode/rebuildzelfront', (req, res) => {
     zelnodeService.rebuildZelFront(req, res);
   });

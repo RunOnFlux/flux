@@ -97,9 +97,6 @@ async function verifyFluxBroadcast(data, obtainedZelNodeList, currentTimeStamp) 
   if (!zelnode) {
     return false;
   }
-  if (zelnode.status !== 'ENABLED') { // refuse messages from not enabled zelnodes
-    return false;
-  }
   const verified = await serviceHelper.verifyMessage(message, pubKey, signature);
   if (verified === true) {
     return true;

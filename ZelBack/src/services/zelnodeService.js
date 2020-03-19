@@ -15,7 +15,27 @@ async function updateZelFlux(req, res) {
         const errMessage = serviceHelper.createErrorMessage(`Error updating ZelFlux: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
       }
-      const message = serviceHelper.createSuccessMessage('ZelFlux successfully updated');
+      const message = serviceHelper.createSuccessMessage('ZelFlux successfully updaating');
+      return res.json(message);
+    });
+  } else {
+    const errMessage = serviceHelper.errUnauthorizedMessage();
+    return res.json(errMessage);
+  }
+}
+
+// eslint-disable-next-line consistent-return
+async function hardUpdateZelFlux(req, res) {
+  const authorized = await serviceHelper.verifyZelTeamSession(req.headers);
+  if (authorized === true) {
+    const zelnodedpath = path.join(__dirname, '../../../');
+    const exec = `cd ${zelnodedpath} && npm run hardupdatezelflux`;
+    cmd.get(exec, (err) => {
+      if (err) {
+        const errMessage = serviceHelper.createErrorMessage(`Error hardupdating ZelFlux: ${err.message}`, err.name, err.code);
+        return res.json(errMessage);
+      }
+      const message = serviceHelper.createSuccessMessage('ZelFlux successfully updating');
       return res.json(message);
     });
   } else {
@@ -134,6 +154,7 @@ function getZelFluxVersion(req, res) {
 module.exports = {
   startZelCash,
   updateZelFlux,
+  hardUpdateZelFlux,
   rebuildZelFront,
   updateZelCash,
   restartZelCash,
