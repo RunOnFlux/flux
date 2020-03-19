@@ -22,7 +22,7 @@ gpg --export 4B69CA27A986265D | sudo apt-key add - > /dev/null 2>&1
 
 #Updating zelcash package
 sudo apt-get update -y
-sudo apt-get install zelcash -y
-sudo chmod 755 /usr/local/bin/zelcash*
+sudo apt-get install zelbench -y
+sudo chmod 755 /usr/local/bin/zelbench*
 sleep 2
 zelcashd
