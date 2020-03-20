@@ -152,8 +152,14 @@
           Manage ZelCash
         </el-menu-item>
         <el-menu-item
-          v-if="privilage === 'admin'"
+          v-if="privilage === 'zelteam' || privilage === 'admin'"
           index="10-4"
+        >
+          Manage ZelBench
+        </el-menu-item>
+        <el-menu-item
+          v-if="privilage === 'admin'"
+          index="10-5"
         >
           Manage Users
         </el-menu-item>
@@ -257,6 +263,9 @@ export default {
           this.$store.commit('setZelAdminSection', 'managezelcash');
           break;
         case '10-4':
+          this.$store.commit('setZelAdminSection', 'managezelbench');
+          break;
+        case '10-5':
           this.$store.commit('setZelAdminSection', 'manageusers');
           break;
         case '100':

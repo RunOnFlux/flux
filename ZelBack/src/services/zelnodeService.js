@@ -85,6 +85,26 @@ async function updateZelCash(req, res) {
 }
 
 // eslint-disable-next-line consistent-return
+async function updateZelBench(req, res) {
+  const authorized = await serviceHelper.verifyZelTeamSession(req.headers);
+  if (authorized === true) {
+    const zelnodedpath = path.join(__dirname, '../../../helpers');
+    const exec = `cd ${zelnodedpath} && sh updateZelBench.sh`;
+    cmd.get(exec, (err) => {
+      if (err) {
+        const errMessage = serviceHelper.createErrorMessage(`Error updating ZelBench: ${err.message}`, err.name, err.code);
+        return res.json(errMessage);
+      }
+      const message = serviceHelper.createSuccessMessage('ZelBench successfully updated');
+      return res.json(message);
+    });
+  } else {
+    const errMessage = serviceHelper.errUnauthorizedMessage();
+    return res.json(errMessage);
+  }
+}
+
+// eslint-disable-next-line consistent-return
 async function startZelCash(req, res) {
   const authorized = await serviceHelper.verifyAdminSession(req.headers);
   if (authorized === true) {
@@ -157,6 +177,7 @@ module.exports = {
   hardUpdateZelFlux,
   rebuildZelFront,
   updateZelCash,
+  updateZelBench,
   restartZelCash,
   reindexZelCash,
   getZelFluxVersion,

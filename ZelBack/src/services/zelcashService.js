@@ -6,7 +6,7 @@ const userconfig = require('../../../config/userconfig');
 const config = new fullnode.Config();
 const isTestnet = userconfig.initial.testnet;
 const rpcuser = config.rpcuser() || 'rpcuser';
-const rpcpassword = config.rpcpassword() || 'rpcpassowrd';
+const rpcpassword = config.rpcpassword() || 'rpcpassword';
 const rpcport = config.rpcport() || (isTestnet === true ? 26124 : 16124);
 
 const client = new zelcashrpc.Client({
@@ -128,8 +128,6 @@ async function createZelNodeKey(req, res) { // practically useless
 }
 
 async function znsync(req, res) {
-  console.log(req.params);
-  console.log(req.query);
   let { mode } = req.params; // we accept both znsync/status and znsync?mode=status
   mode = mode || req.query.mode || 'status'; // default to status
   if (mode === 'status') {
@@ -171,8 +169,6 @@ async function createZelNodeBroadcast(req, res) {
 }
 
 async function decodeZelNodeBroadcast(req, res) {
-  console.log(req.params);
-  console.log(req.query);
   let { hexstring } = req.params;
   hexstring = hexstring || req.query.hexstring;
 
@@ -233,7 +229,6 @@ async function getZelNodeWinners(req, res) {
   if (filter) {
     rpcparameters.push(filter);
   }
-  console.log(rpcparameters);
 
   response = await executeCall(rpccall, rpcparameters);
 
@@ -304,7 +299,6 @@ async function startZelNode(req, res) {
   lockwallet = lockwallet || req.query.lockwallet;
   let { alias } = req.params;
   alias = alias || req.query.alias;
-  console.log(set, lockwallet, alias);
   const authorized = await serviceHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'startzelnode';
@@ -685,7 +679,6 @@ async function submitBlock(req, res) {
 }
 
 async function submitBlockPost(req, res) {
-  console.log(req.headers);
   let body = '';
   req.on('data', (data) => {
     body += data;
@@ -905,7 +898,6 @@ async function createRawTransaction(req, res) {
   const defaultExpiryHeight = blockcount + 20;
   let { expiryheight } = req.params;
   expiryheight = expiryheight || req.query.expiryheight || defaultExpiryHeight;
-  console.log(expiryheight);
 
   locktime = serviceHelper.ensureNumber(locktime);
   expiryheight = serviceHelper.ensureNumber(expiryheight);
@@ -940,7 +932,6 @@ async function createRawTransactionPost(req, res) {
     const defaultExpiryHeight = blockcount + 20;
     let { expiryheight } = processedBody;
     expiryheight = expiryheight || defaultExpiryHeight;
-    console.log(expiryheight);
 
     locktime = serviceHelper.ensureNumber(locktime);
     expiryheight = serviceHelper.ensureNumber(expiryheight);
@@ -972,7 +963,6 @@ async function decodeRawTransaction(req, res) {
 }
 
 async function decodeRawTransactionPost(req, res) {
-  console.log(req.headers);
   let body = '';
   req.on('data', (data) => {
     body += data;
@@ -1156,7 +1146,6 @@ async function signRawTransaction(req, res) {
 }
 
 async function signRawTransactionPost(req, res) {
-  console.log(req.headers);
   let body = '';
   req.on('data', (data) => {
     body += data;
@@ -2413,7 +2402,6 @@ async function zSetMigration(req, res) {
   let { enabled } = req.params;
   enabled = enabled || req.query.enabled;
   const authorized = await serviceHelper.verifyPrivilege('admin', req);
-  console.log(authorized);
   if (authorized === true) {
     const rpccall = 'z_setmigration';
     let rpcparameters = [];

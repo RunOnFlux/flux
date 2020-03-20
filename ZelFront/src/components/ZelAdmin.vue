@@ -69,6 +69,14 @@
         Update ZelCash
       </ElButton>
     </div>
+    <div v-if="zelAdminSection === 'managezelbench'">
+      <ElButton
+        class="generalButton"
+        @click="updateZelBench()"
+      >
+        Update ZelBench
+      </ElButton>
+    </div>
     <div v-if="zelAdminSection === 'manageusers'">
       <el-table
         :data="loggedUsersTable.filter(data => !filterLoggedUsers || data.zelid.toLowerCase().includes(filterLoggedUsers.toLowerCase()) || data.loginPhrase.toLowerCase().includes(filterLoggedUsers.toLowerCase()))"
@@ -127,6 +135,7 @@ import axios from 'axios';
 import zelIDService from '@/services/ZelIDService';
 import ZelNodeService from '@/services/ZelNodeService';
 import ZelCashService from '@/services/ZelCashService';
+import ZelBenchService from '@/services/ZelBenchService';
 
 const qs = require('qs');
 
@@ -171,6 +180,9 @@ export default {
         case 'managezelcash':
           this.checkZelCashVersion();
           break;
+        case 'managezelbench':
+          this.checkZelBenchVersion();
+          break;
         case 'manageusers':
           this.loggedUsersTable = [];
           this.filterLoggedUsers = '';
@@ -194,6 +206,9 @@ export default {
         break;
       case 'managezelcash':
         this.checkZelCashVersion();
+        break;
+      case 'managezelbench':
+        this.checkZelBenchVersion();
         break;
       case 'manageusers':
         this.loggedUsers();
@@ -276,6 +291,45 @@ export default {
           vue.$message.error('Error connecting to ZelCash daemon');
         });
     },
+    updateZelBench() {
+      ZelBenchService.getInfo()
+        .then((zelbenchResponse) => {
+          console.log(zelbenchResponse);
+          const zelbenchVersion = zelbenchResponse.data.data.version;
+          axios.get('https://zelcore.io/zelflux/zelbenchinfo.php')
+            .then((response) => {
+              console.log(response);
+              if (response.data.version !== zelbenchVersion) {
+                const zelidauth = localStorage.getItem('zelidauth');
+                const auth = qs.parse(zelidauth);
+                console.log(auth);
+                vue.$message.success('ZelBench is now updating in the background');
+                ZelNodeService.updateZelBench(zelidauth)
+                  .then((responseUpdateZelBench) => {
+                    console.log(responseUpdateZelBench);
+                    if (responseUpdateZelBench.data.status === 'error') {
+                      vue.$message.error(responseUpdateZelBench.data.data.message);
+                    }
+                  })
+                  .catch((e) => {
+                    console.log(e);
+                    console.log(e.code);
+                    vue.$message.error(e.toString());
+                  });
+              } else {
+                vue.$message.success('ZelBench is already up to date');
+              }
+            })
+            .catch((error) => {
+              console.log(error);
+              vue.$message.error('Error verifying recent version');
+            });
+        })
+        .catch((error) => {
+          console.log(error);
+          vue.$message.error('Error connecting to ZelBench daemon');
+        });
+    },
     rebuildZelFront() {
       const zelidauth = localStorage.getItem('zelidauth');
       const auth = qs.parse(zelidauth);
@@ -332,6 +386,30 @@ export default {
         .catch((error) => {
           console.log(error);
           vue.$message.error('Error connecting to ZelCash daemon');
+        });
+    },
+    checkZelBenchVersion() {
+      ZelBenchService.getInfo()
+        .then((zelbenchResponse) => {
+          console.log(zelbenchResponse);
+          const zelbenchVersion = zelbenchResponse.data.data.version;
+          axios.get('https://zelcore.io/zelflux/zelbenchinfo.php')
+            .then((response) => {
+              console.log(response);
+              if (response.data.version !== zelbenchVersion) {
+                vue.$message.warning('ZelBench requires an update!');
+              } else {
+                vue.$message.success('ZelBench is up to date');
+              }
+            })
+            .catch((error) => {
+              console.log(error);
+              vue.$message.error('Error verifying recent version');
+            });
+        })
+        .catch((error) => {
+          console.log(error);
+          vue.$message.error('Error connecting to ZelBench daemon');
         });
     },
     logOutAllUsers() {

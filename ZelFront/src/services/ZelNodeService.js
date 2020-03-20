@@ -22,6 +22,13 @@ export default {
       },
     });
   },
+  updateZelBench(zelidauthHeader) {
+    return Api().get('/zelnode/updatezelbench', {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    });
+  },
   getZelFluxVersion() {
     return Api().get('/zelflux/version');
   },

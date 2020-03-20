@@ -512,6 +512,9 @@ module.exports = (app, expressWs) => {
   app.get('/zelnode/updatezelcash', (req, res) => { // method shall be called only if zelcash version is obsolete
     zelnodeService.updateZelCash(req, res);
   });
+  app.get('/zelnode/updatezelbench', (req, res) => { // method shall be called only if zelbench version is obsolete
+    zelnodeService.updateZelBench(req, res);
+  });
 
   app.get('/zelflux/broadcastmessage/:data?', (req, res) => {
     zelfluxCommunication.broadcastMessageFromUser(req, res);
