@@ -87,7 +87,7 @@ async function help(req, res) {
 }
 
 async function stop(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+  const authorized = await serviceHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'stop';
 
