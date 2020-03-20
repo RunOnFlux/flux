@@ -68,6 +68,12 @@
       >
         Update ZelCash
       </ElButton>
+      <ElButton
+        class="generalButton"
+        @click="reindexZelCash()"
+      >
+        Reindex ZelCash
+      </ElButton>
     </div>
     <div v-if="zelAdminSection === 'managezelbench'">
       <ElButton
@@ -289,6 +295,19 @@ export default {
         .catch((error) => {
           console.log(error);
           vue.$message.error('Error connecting to ZelCash daemon');
+        });
+    },
+    reindexZelCash() {
+      ZelNodeService.reindexZelCash()
+        .then((response) => {
+          vue.$message.success('ZelCash is now reindexing. This will take several hours.');
+          if (response.data.status === 'error') {
+            vue.$message.error(response.data.data.message);
+          }
+        })
+        .catch((error) => {
+          console.log(error);
+          vue.$message.error('Error while trying to reindex ZelCash');
         });
     },
     updateZelBench() {
