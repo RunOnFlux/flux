@@ -625,6 +625,10 @@ module.exports = (app, expressWs) => {
     zelcashService.zcRawReceivePost(req, res);
   });
 
+  app.post('/zelbench/signzelnodetransaction', (req, res) => {
+    zelbenchService.signZelNodeTransactionPost(req, res);
+  });
+
   // POST PROTECTED API - ZelTeam
   app.post('/zelflux/broadcastmessage', (req, res) => {
     zelfluxCommunication.broadcastMessageFromUserPost(req, res);

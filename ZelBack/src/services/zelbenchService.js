@@ -73,9 +73,32 @@ async function signZelNodeTransaction(req, res) {
   return res ? res.json(response) : response;
 }
 
+async function signZelNodeTransactionPost(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const { hexstring } = processedBody;
+    const authorized = await serviceHelper.verifyPrivilege('admin', req);
+    if (authorized === true) {
+      const rpccall = 'signzelnodetransaction';
+      const rpcparameters = [];
+      if (hexstring) {
+        rpcparameters.push(hexstring);
+      }
+      response = await executeCall(rpccall, rpcparameters);
+    } else {
+      response = serviceHelper.errUnauthorizedMessage();
+    }
+    return res.json(response);
+  });
+}
+
 // == Control ==
 async function help(req, res) {
-  let { command } = req.params; // we accept both help/command and help?command=getinfo
+  let { command } = req.params;
   command = command || req.query.command || '';
 
   const rpccall = 'help';
@@ -121,6 +144,7 @@ module.exports = {
   getStatus,
   restartNodeBenchmarks,
   signZelNodeTransaction,
+  signZelNodeTransactionPost,
 
   // == Control ==
   help,
