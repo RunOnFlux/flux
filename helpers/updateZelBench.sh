@@ -49,4 +49,4 @@ fi
 fi
 fi
 
-$COIN_DAEMON
+sudo $COIN_DAEMON
