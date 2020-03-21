@@ -298,7 +298,8 @@ export default {
         });
     },
     reindexZelCash() {
-      ZelNodeService.reindexZelCash()
+      const zelidauth = localStorage.getItem('zelidauth');
+      ZelNodeService.reindexZelCash(zelidauth)
         .then((response) => {
           vue.$message.success('ZelCash is now reindexing. This will take several hours.');
           if (response.data.status === 'error') {
