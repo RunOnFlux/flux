@@ -22,5 +22,11 @@ module.exports = {
       },
     },
   },
+  zelbench: {
+    port: 16225,
+    rpcport: 16224,
+    porttestnet: 26225,
+    rpcporttestnet: 26224,
+  },
   zelTeamZelId: '132hG26CFTNhLM3MRsLEJhp9DpBrK6vg5N',
 };

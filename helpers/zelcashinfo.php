@@ -1,6 +1,6 @@
 <?php header('Access-Control-Allow-Origin: *'); ?>
 {
-  "version": 3030250,
-  "protocolversion": 170013,
+  "version": 4000050,
+  "protocolversion": 170016,
   "walletversion": 60000
 }

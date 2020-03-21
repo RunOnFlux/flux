@@ -1,4 +1,5 @@
 const zelcashService = require('./services/zelcashService');
+const zelbenchService = require('./services/zelbenchService');
 const zelidService = require('./services/zelidService');
 const zelnodeService = require('./services/zelnodeService');
 const zelfluxCommunication = require('./services/zelfluxCommunication');
@@ -266,6 +267,19 @@ module.exports = (app, expressWs) => {
     zelidService.logoutAllSessions(req, res);
   });
 
+  app.get('/zelbench/getstatus', (req, res) => {
+    zelbenchService.getStatus(req, res);
+  });
+  app.get('/zelbench/help', (req, res) => {
+    zelbenchService.help(req, res);
+  });
+  app.get('/zelbench/getbenchmarks', (req, res) => {
+    zelbenchService.getBenchmarks(req, res);
+  });
+  app.get('/zelbench/getinfo', (req, res) => {
+    zelbenchService.getInfo(req, res);
+  });
+
   // GET PROTECTED API - ZelNode Owner
   app.get('/zelcash/stop', (req, res) => {
     zelcashService.stop(req, res);
@@ -486,6 +500,13 @@ module.exports = (app, expressWs) => {
     zelnodeService.reindexZelCash(req, res);
   });
 
+  app.get('/zelbench/signzelnodetransaction/:hexstring?', (req, res) => {
+    zelbenchService.signZelNodeTransaction(req, res);
+  });
+  app.get('/zelbench/stop', (req, res) => {
+    zelbenchService.stop(req, res);
+  });
+
   // GET PROTECTED API - ZelTeam
   app.get('/zelcash/ping', (req, res) => { // we do not want this to be issued by anyone.
     zelcashService.ping(req, res);
@@ -503,11 +524,17 @@ module.exports = (app, expressWs) => {
   app.get('/zelnode/updatezelflux', (req, res) => { // method shall be called only if zelflux version is obsolete.
     zelnodeService.updateZelFlux(req, res);
   });
+  app.get('/zelnode/hardupdatezelflux', (req, res) => { // method shall be called only if zelflux version is obsolete and updatezeflux is not working correctly
+    zelnodeService.hardUpdateZelFlux(req, res);
+  });
   app.get('/zelnode/rebuildzelfront', (req, res) => {
     zelnodeService.rebuildZelFront(req, res);
   });
   app.get('/zelnode/updatezelcash', (req, res) => { // method shall be called only if zelcash version is obsolete
     zelnodeService.updateZelCash(req, res);
+  });
+  app.get('/zelnode/updatezelbench', (req, res) => { // method shall be called only if zelbench version is obsolete
+    zelnodeService.updateZelBench(req, res);
   });
 
   app.get('/zelflux/broadcastmessage/:data?', (req, res) => {
@@ -527,6 +554,10 @@ module.exports = (app, expressWs) => {
   });
   app.get('/zelflux/removeincomingpeer/:ip?', (req, res) => {
     zelfluxCommunication.removeIncomingPeer(req, res, expressWs.getWss('/ws/zelflux'));
+  });
+
+  app.get('/zelbench/restartnodebenchmarks', (req, res) => {
+    zelbenchService.restartNodeBenchmarks(req, res);
   });
 
   // POST PUBLIC methods route
@@ -592,6 +623,10 @@ module.exports = (app, expressWs) => {
   });
   app.post('/zelcash/zcrawreceive', (req, res) => {
     zelcashService.zcRawReceivePost(req, res);
+  });
+
+  app.post('/zelbench/signzelnodetransaction', (req, res) => {
+    zelbenchService.signZelNodeTransactionPost(req, res);
   });
 
   // POST PROTECTED API - ZelTeam
