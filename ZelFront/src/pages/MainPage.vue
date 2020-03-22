@@ -49,7 +49,7 @@
       <br>
       <h3>
         Error connecting to the ZelCash Daemon
-        <div v-if="privilage ==='admin'">
+        <div v-if="privilage ==='admin' || privilage ==='zelteam'">
           <p>
             Please try to restart your ZelCash Daemon in ZelCash section.
           </p>
