@@ -13,6 +13,8 @@ const outgoingPeers = []; // array of objects containing ip and rtt latency
 const incomingConnections = []; // websocket list
 const incomingPeers = []; // array of objects containing ip and rtt latency
 
+let dosState = 0;
+
 let response = serviceHelper.createErrorMessage();
 
 async function myZelNodeIP() {
@@ -784,6 +786,11 @@ async function checkDeterministicNodesCollisions() {
     const result = zelnodeList.filter((zelnode) => zelnode.ip === myIP);
     if (result.length > 1) {
       log.error('Flux collision detection');
+      process.exit(1);
+    }
+  } else {
+    dosState += 1;
+    if (dosState > 10) {
       process.exit(1);
     }
   }
