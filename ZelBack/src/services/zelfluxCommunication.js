@@ -21,8 +21,9 @@ async function myZelNodeIP() {
   const benchmarkResponse = await zelcashServices.getBenchmarks();
   let myIP = null;
   if (benchmarkResponse.status === 'success') {
-    if (benchmarkResponse.data.ipaddress) {
-      myIP = benchmarkResponse.data.ipaddress.length > 5 ? benchmarkResponse.data.ipaddress : null;
+    const benchmarkResponseData = JSON.parse(benchmarkResponse.data);
+    if (benchmarkResponseData.ipaddress) {
+      myIP = benchmarkResponseData.ipaddress.length > 5 ? benchmarkResponseData.ipaddress : null;
     }
   }
   return myIP;
