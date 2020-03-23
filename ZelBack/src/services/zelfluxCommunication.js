@@ -26,6 +26,8 @@ async function myZelNodeIP() {
     if (benchmarkResponseData.ipaddress) {
       myIP = benchmarkResponseData.ipaddress.length > 5 ? benchmarkResponseData.ipaddress : null;
     }
+  } else {
+    dosState += 10;
   }
   return myIP;
 }
@@ -790,6 +792,9 @@ async function checkDeterministicNodesCollisions() {
       log.error('Flux collision detection');
       dosState = 100;
       dosMessage = 'Flux collision detection';
+    } else {
+      dosState = 0;
+      dosMessage = null;
     }
   } else {
     dosState += 1;
