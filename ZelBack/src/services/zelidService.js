@@ -31,8 +31,8 @@ async function loginPhrase(req, res) {
     res.json(errMessage);
   }
   if (dosState.status === 'success') {
-    if (dosState.data.dosState > 10 || dosState.date.dosMessage !== null) {
-      const errMessage = serviceHelper.createErrorMessage(dosState.date.dosMessage, 'DOS', dosState.date.dosState);
+    if (dosState.data.dosState > 10 || dosState.data.dosMessage !== null) {
+      const errMessage = serviceHelper.createErrorMessage(dosState.data.dosMessage, 'DOS', dosState.data.dosState);
       res.json(errMessage);
     }
   }
