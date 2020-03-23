@@ -1,6 +1,6 @@
 {
   "name": "zelflux",
-  "version": "0.53.1",
+  "version": "0.54.0",
   "description": "ZelFlux - ZelNode Daemon. The entrace to the Zel network.",
   "repository": {
     "type": "git",

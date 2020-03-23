@@ -6,6 +6,7 @@ const userconfig = require('../../../config/userconfig');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const zelappsService = require('./zelappsService');
+const zelfluxCommunication = require('./zelfluxCommunication');
 
 const mongoUrl = `mongodb://${config.database.url}:${config.database.port}/`;
 const goodchars = /^[1-9a-km-zA-HJ-NP-Z]+$/;
@@ -22,6 +23,19 @@ async function loginPhrase(req, res) {
        expireAt: 2019-08-09T13:23:41.335Z
      }
 ] */
+  // check DOS state
+  const dosState = await zelfluxCommunication.getDOSState();
+  if (dosState.status === 'error') {
+    const errorMessage = 'Unable to check DOS state';
+    const errMessage = serviceHelper.createErrorMessage(errorMessage);
+    res.json(errMessage);
+  }
+  if (dosState.status === 'success') {
+    if (dosState.data.dosState > 10 || dosState.date.dosMessage !== null) {
+      const errMessage = serviceHelper.createErrorMessage(dosState.date.dosMessage, 'DOS', dosState.date.dosState);
+      res.json(errMessage);
+    }
+  }
   const db = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
     const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
