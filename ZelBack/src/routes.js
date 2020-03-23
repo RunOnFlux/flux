@@ -180,6 +180,15 @@ module.exports = (app, expressWs) => {
   app.get('/zelflux/version', (req, res) => {
     zelnodeService.getZelFluxVersion(req, res);
   });
+  app.get('/zelflux/ip', (req, res) => {
+    zelnodeService.getZelFluxIP(req, res);
+  });
+  app.get('/zelflux/zelid', (req, res) => {
+    zelnodeService.getZelFluxZelID(req, res);
+  });
+  app.get('/zelflux/dosstate', (req, res) => {
+    zelfluxCommunication.getDOSState(req, res);
+  });
   app.get('/zelflux/connectedpeers', (req, res) => {
     zelfluxCommunication.connectedPeers(req, res);
   });
