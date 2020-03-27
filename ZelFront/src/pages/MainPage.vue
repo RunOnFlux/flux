@@ -19,8 +19,11 @@
       <div v-if="zelAppsSection !== null">
         <ZelApps />
       </div>
+      <div v-if="explorerSection !== null">
+        <Explorer />
+      </div>
       <br>
-      <div v-if="privilage === 'none'">
+      <div v-if="privilage === 'none' && explorerSection === null">
         <Login />
       </div>
     </div>
@@ -65,6 +68,9 @@
           <div v-if="zelAppsSection !== null">
             <ZelApps />
           </div>
+          <div v-if="explorerSection !== null">
+            <Explorer />
+          </div>
         </div>
       </h3>
     </div>
@@ -96,6 +102,7 @@ const ZelCash = () => import('@/components/ZelCash.vue');
 const ZelNode = () => import('@/components/ZelNode.vue');
 const ZelAdmin = () => import('@/components/ZelAdmin.vue');
 const ZelApps = () => import('@/components/ZelApps.vue');
+const Explorer = () => import('@/components/Explorer.vue');
 
 const qs = require('qs');
 
@@ -105,7 +112,7 @@ const vue = new Vue();
 export default {
   name: 'MainPage',
   components: {
-    Header, Footer, Login, ZelCash, ZelNode, ZelAdmin, ZelApps,
+    Header, Footer, Login, ZelCash, ZelNode, ZelAdmin, ZelApps, Explorer,
   },
   data() {
     return {
@@ -126,6 +133,7 @@ export default {
       'zelNodeSection',
       'zelAdminSection',
       'zelAppsSection',
+      'explorerSection',
     ]),
   },
   mounted() {
