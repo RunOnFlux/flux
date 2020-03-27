@@ -194,16 +194,6 @@
       <el-row v-if="transactionDetail.txid">
         <el-col :span="6">
           <div class="grid-content bg-purple">
-            Height
-          </div>
-        </el-col>
-        <el-col :span="18">
-          <div class="grid-content bg-purple-light">
-            {{ transactionDetail.height }}
-          </div>
-        </el-col>
-        <el-col :span="6">
-          <div class="grid-content bg-purple">
             TXID
           </div>
         </el-col>
@@ -239,7 +229,149 @@
         </el-col>
         <el-col :span="18">
           <div class="grid-content bg-purple-light">
-            {{ transactionDetail.version }}
+            {{ transactionDetail.version }} {{ transactionDetail.version === 5 ? ' - ZelNode transaction' : ''}}
+          </div>
+        </el-col>
+        <el-col :span="6">
+          <div class="grid-content bg-purple">
+            Height
+          </div>
+        </el-col>
+        <el-col :span="18">
+          <div class="grid-content bg-purple-light">
+            {{ transactionDetail.height }}
+          </div>
+        </el-col>
+        <el-col :span="6">
+          <div class="grid-content bg-purple">
+            Block Hash
+          </div>
+        </el-col>
+        <el-col :span="18">
+          <div class="grid-content bg-purple-light">
+            {{ transactionDetail.blockhash }}
+          </div>
+        </el-col>
+      </el-row>
+      <el-row v-if="transactionDetail.version === 5">
+        <el-col :span="6">
+          <div class="grid-content bg-purple">
+            Type
+          </div>
+        </el-col>
+        <el-col :span="18">
+          <div class="grid-content bg-purple-light">
+            {{ transactionDetail.type }}
+          </div>
+        </el-col>
+        <el-col :span="6">
+          <div class="grid-content bg-purple">
+            Collateral Hash
+          </div>
+        </el-col>
+        <el-col :span="18">
+          <div class="grid-content bg-purple-light">
+            {{ getValueHexBuffer(transactionDetail.hex.slice(10, 74)) }}
+          </div>
+        </el-col>
+        <el-col :span="6">
+          <div class="grid-content bg-purple">
+            Collateral Index
+          </div>
+        </el-col>
+        <el-col :span="18">
+          <div class="grid-content bg-purple-light">
+            {{ getCollateralIndex(transactionDetail.hex.slice(74, 82)) }}
+          </div>
+        </el-col>
+        <el-col :span="6">
+          <div class="grid-content bg-purple">
+            Signature
+          </div>
+        </el-col>
+        <el-col :span="18">
+          <div class="grid-content bg-purple-light">
+            {{ transactionDetail.sig }}
+          </div>
+        </el-col>
+        <el-col :span="6">
+          <div class="grid-content bg-purple">
+            Signature Time
+          </div>
+        </el-col>
+        <el-col :span="18">
+          <div class="grid-content bg-purple-light">
+            {{ new Date(transactionDetail.sigtime * 1000).toLocaleString('en-GB', timeoptions) }}
+          </div>
+        </el-col>
+        <el-col :span="6" v-if="transactionDetail.type === 'Starting a zelnode'">
+          <div class="grid-content bg-purple">
+            Collateral Public Key
+          </div>
+        </el-col>
+        <el-col :span="18" v-if="transactionDetail.type === 'Starting a zelnode'">
+          <div class="grid-content bg-purple-light">
+            {{ transactionDetail.collateral_pubkey }}
+          </div>
+        </el-col>
+        <el-col :span="6" v-if="transactionDetail.type === 'Starting a zelnode'">
+          <div class="grid-content bg-purple">
+            ZelNode Public Key
+          </div>
+        </el-col>
+        <el-col :span="18" v-if="transactionDetail.type === 'Starting a zelnode'">
+          <div class="grid-content bg-purple-light">
+            {{ transactionDetail.zelnode_pubkey }}
+          </div>
+        </el-col>
+        <el-col :span="6" v-if="transactionDetail.type === 'Confirming a zelnode'">
+          <div class="grid-content bg-purple">
+            ZelNode Network
+          </div>
+        </el-col>
+        <el-col :span="18" v-if="transactionDetail.type === 'Confirming a zelnode'">
+          <div class="grid-content bg-purple-light">
+            {{ transactionDetail.ip }}
+          </div>
+        </el-col>
+        <el-col :span="6" v-if="transactionDetail.type === 'Confirming a zelnode'">
+          <div class="grid-content bg-purple">
+            Update Type
+          </div>
+        </el-col>
+        <el-col :span="18" v-if="transactionDetail.type === 'Confirming a zelnode'">
+          <div class="grid-content bg-purple-light">
+            {{ transactionDetail.update_type }}
+          </div>
+        </el-col>
+        <el-col :span="6" v-if="transactionDetail.type === 'Confirming a zelnode'">
+          <div class="grid-content bg-purple">
+            Benchmark Tier
+          </div>
+        </el-col>
+        <el-col :span="18" v-if="transactionDetail.type === 'Confirming a zelnode'">
+          <div class="grid-content bg-purple-light">
+            {{ transactionDetail.benchmark_tier }}
+          </div>
+        </el-col>
+        <el-col :span="6" v-if="transactionDetail.type === 'Confirming a zelnode'">
+          <div class="grid-content bg-purple">
+            Benchmark Signature
+          </div>
+        </el-col>
+        <el-col :span="18" v-if="transactionDetail.type === 'Confirming a zelnode'">
+          <div class="grid-content bg-purple-light">
+            {{ transactionDetail.benchmark_sig }}
+          </div>
+        </el-col>
+        <el-col :span="6" v-if="transactionDetail.type === 'Confirming a zelnode'">
+          <div class="grid-content bg-purple">
+           Benchmark Signature Time
+          </div>
+        </el-col>
+        <el-col :span="18" v-if="transactionDetail.type === 'Confirming a zelnode'">
+          <div class="grid-content bg-purple-light">
+            {{ new Date(transactionDetail.benchmark_sigtime * 1000).toLocaleString('en-GB', timeoptions) }}
           </div>
         </el-col>
       </el-row>
@@ -303,6 +435,9 @@ export default {
         case 'block':
           // nothing to do
           break;
+        case 'transaction':
+          // nothing to do
+          break;
         default:
           console.log('Explorer Section: Unrecognized method'); // should not be visible if everything works correctly
       }
@@ -325,6 +460,9 @@ export default {
         case 'block':
           // nothing to do
           break;
+        case 'transaction':
+          // nothing to do
+          break;
         default:
           console.log('Explorer Section: Unrecognized method'); // should not be visible if everything works correctly
       }
@@ -336,6 +474,9 @@ export default {
         this.zelcashGetInfo();
         break;
       case 'block':
+        // nothing to do
+        break;
+      case 'transaction':
         // nothing to do
         break;
       default:
@@ -451,6 +592,14 @@ export default {
         return `${Math.floor(diff / periods.minute)}m ago`;
       }
       return 'Just now';
+    },
+    getValueHexBuffer(hex) {
+      const buf = Buffer.from(hex, 'hex').reverse();
+      return buf.toString('hex');
+    },
+    getCollateralIndex(hex) {
+      const buf = Buffer.from(hex, 'hex').reverse();
+      return parseInt(buf.toString('hex'), 16);
     },
   },
 };
