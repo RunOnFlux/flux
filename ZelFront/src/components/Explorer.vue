@@ -44,148 +44,193 @@
       <el-row v-if="!blocksWithTransaction[height]">
         Loading Block...
       </el-row>
-      <el-row v-if="blocksWithTransaction[height]">
-        <el-col :span="6">
-          <div class="grid-content bg-purple">
-            Height
-          </div>
-        </el-col>
-        <el-col :span="18">
-          <div class="grid-content bg-purple-light">
-            {{ blocksWithTransaction[height].height }}
-          </div>
-        </el-col>
-        <el-col :span="6">
-          <div class="grid-content bg-purple">
-            Hash
-          </div>
-        </el-col>
-        <el-col :span="18">
-          <div class="grid-content bg-purple-light">
-            {{ blocksWithTransaction[height].hash }}
-          </div>
-        </el-col>
-        <el-col :span="6">
-          <div class="grid-content bg-purple">
-            Date
-          </div>
-        </el-col>
-        <el-col :span="18">
-          <div class="grid-content bg-purple-light">
-            {{ new Date(blocksWithTransaction[height].time * 1000).toLocaleString('en-GB', timeoptions) }}
-          </div>
-        </el-col>
-        <el-col :span="6">
-          <div class="grid-content bg-purple">
-            Confirmations
-          </div>
-        </el-col>
-        <el-col :span="18">
-          <div class="grid-content bg-purple-light">
-            {{ blocksWithTransaction[height].confirmations }}
-          </div>
-        </el-col>
-        <el-col :span="6">
-          <div class="grid-content bg-purple">
-            Size
-          </div>
-        </el-col>
-        <el-col :span="18">
-          <div class="grid-content bg-purple-light">
-            {{ blocksWithTransaction[height].size }} Bytes
-          </div>
-        </el-col>
-        <el-col :span="6">
-          <div class="grid-content bg-purple">
-            Version
-          </div>
-        </el-col>
-        <el-col :span="18">
-          <div class="grid-content bg-purple-light">
-            {{ blocksWithTransaction[height].version }}
-          </div>
-        </el-col>
-        <el-col :span="6">
-          <div class="grid-content bg-purple">
-            Nonce
-          </div>
-        </el-col>
-        <el-col :span="18">
-          <div class="grid-content bg-purple-light">
-            {{ blocksWithTransaction[height].nonce }}
-          </div>
-        </el-col>
-        <el-col :span="6">
-          <div class="grid-content bg-purple">
-            Solution
-          </div>
-        </el-col>
-        <el-col :span="18">
-          <div class="grid-content bg-purple-light">
-            {{ blocksWithTransaction[height].solution }}
-          </div>
-        </el-col>
-        <el-col :span="6">
-          <div class="grid-content bg-purple">
-            Bits
-          </div>
-        </el-col>
-        <el-col :span="18">
-          <div class="grid-content bg-purple-light">
-            {{ blocksWithTransaction[height].bits }}
-          </div>
-        </el-col>
-        <el-col :span="6">
-          <div class="grid-content bg-purple">
-            Difficulty
-          </div>
-        </el-col>
-        <el-col :span="18">
-          <div class="grid-content bg-purple-light">
-            {{ blocksWithTransaction[height].difficulty }}
-          </div>
-        </el-col>
-        <el-col :span="6">
-          <div class="grid-content bg-purple">
-            Chainwork
-          </div>
-        </el-col>
-        <el-col :span="18">
-          <div class="grid-content bg-purple-light">
-            {{ blocksWithTransaction[height].chainwork }}
-          </div>
-        </el-col>
-        <el-col :span="6">
-          <div class="grid-content bg-purple">
-            Merkle Root
-          </div>
-        </el-col>
-        <el-col :span="18">
-          <div class="grid-content bg-purple-light">
-            {{ blocksWithTransaction[height].merkleroot }}
-          </div>
-        </el-col>
-        <el-col :span="6">
-          <div class="grid-content bg-purple">
-            Final Sapling Root
-          </div>
-        </el-col>
-        <el-col :span="18">
-          <div class="grid-content bg-purple-light">
-            {{ blocksWithTransaction[height].finalsaplingroot }}
-          </div>
-        </el-col>
-        <el-col :span="6">
-          <div class="grid-content bg-purple">
-            Anchor
-          </div>
-        </el-col>
-        <el-col :span="18">
-          <div class="grid-content bg-purple-light">
-            {{ blocksWithTransaction[height].anchor }}
-          </div>
-        </el-col>
-      </el-row>
+      <div v-if="blocksWithTransaction[height]">
+        <el-row v-if="blocksWithTransaction[height]">
+          <el-col :span="6">
+            <div class="grid-content bg-purple">
+              Height
+            </div>
+          </el-col>
+          <el-col :span="18">
+            <div class="grid-content bg-purple-light">
+              {{ blocksWithTransaction[height].height }}
+            </div>
+          </el-col>
+        </el-row>
+        <el-row>
+          <el-col :span="6">
+            <div class="grid-content bg-purple">
+              Hash
+            </div>
+          </el-col>
+          <el-col :span="18">
+            <div class="grid-content bg-purple-light">
+              {{ blocksWithTransaction[height].hash }}
+            </div>
+          </el-col>
+        </el-row>
+        <el-row>
+          <el-col :span="6">
+            <div class="grid-content bg-purple">
+              Date
+            </div>
+          </el-col>
+          <el-col :span="18">
+            <div class="grid-content bg-purple-light">
+              {{ new Date(blocksWithTransaction[height].time * 1000).toLocaleString('en-GB', timeoptions) }}
+            </div>
+          </el-col>
+        </el-row>
+        <el-row>
+          <el-col :span="6">
+            <div class="grid-content bg-purple">
+              Confirmations
+            </div>
+          </el-col>
+          <el-col :span="18">
+            <div class="grid-content bg-purple-light">
+              {{ blocksWithTransaction[height].confirmations }}
+            </div>
+          </el-col>
+        </el-row>
+        <el-row>
+          <el-col :span="6">
+            <div class="grid-content bg-purple">
+              Size
+            </div>
+          </el-col>
+          <el-col :span="18">
+            <div class="grid-content bg-purple-light">
+              {{ blocksWithTransaction[height].size }} Bytes
+            </div>
+          </el-col>
+        </el-row>
+        <el-row>
+          <el-col :span="6">
+            <div class="grid-content bg-purple">
+              Version
+            </div>
+          </el-col>
+          <el-col :span="18">
+            <div class="grid-content bg-purple-light">
+              {{ blocksWithTransaction[height].version }}
+            </div>
+          </el-col>
+        </el-row>
+        <el-row>
+          <el-col :span="6">
+            <div class="grid-content bg-purple">
+              Nonce
+            </div>
+          </el-col>
+          <el-col :span="18">
+            <div class="grid-content bg-purple-light">
+              {{ blocksWithTransaction[height].nonce }}
+            </div>
+          </el-col>
+        </el-row>
+        <el-row>
+          <el-col :span="6">
+            <div class="grid-content bg-purple">
+              Solution
+            </div>
+          </el-col>
+          <el-col :span="18">
+            <div class="grid-content bg-purple-light">
+              {{ blocksWithTransaction[height].solution }}
+            </div>
+          </el-col>
+        </el-row>
+        <el-row>
+          <el-col :span="6">
+            <div class="grid-content bg-purple">
+              Bits
+            </div>
+          </el-col>
+          <el-col :span="18">
+            <div class="grid-content bg-purple-light">
+              {{ blocksWithTransaction[height].bits }}
+            </div>
+          </el-col>
+        </el-row>
+        <el-row>
+          <el-col :span="6">
+            <div class="grid-content bg-purple">
+              Difficulty
+            </div>
+          </el-col>
+          <el-col :span="18">
+            <div class="grid-content bg-purple-light">
+              {{ blocksWithTransaction[height].difficulty }}
+            </div>
+          </el-col>
+        </el-row>
+        <el-row>
+          <el-col :span="6">
+            <div class="grid-content bg-purple">
+              Chainwork
+            </div>
+          </el-col>
+          <el-col :span="18">
+            <div class="grid-content bg-purple-light">
+              {{ blocksWithTransaction[height].chainwork }}
+            </div>
+          </el-col>
+        </el-row>
+        <el-row>
+          <el-col :span="6">
+            <div class="grid-content bg-purple">
+              Merkle Root
+            </div>
+          </el-col>
+          <el-col :span="18">
+            <div class="grid-content bg-purple-light">
+              {{ blocksWithTransaction[height].merkleroot }}
+            </div>
+          </el-col>
+        </el-row>
+        <el-row>
+          <el-col :span="6">
+            <div class="grid-content bg-purple">
+              Final Sapling Root
+            </div>
+          </el-col>
+          <el-col :span="18">
+            <div class="grid-content bg-purple-light">
+              {{ blocksWithTransaction[height].finalsaplingroot }}
+            </div>
+          </el-col>
+        </el-row>
+        <el-row>
+          <el-col :span="6">
+            <div class="grid-content bg-purple">
+              Anchor
+            </div>
+          </el-col>
+          <el-col :span="18">
+            <div class="grid-content bg-purple-light">
+              {{ blocksWithTransaction[height].anchor }}
+            </div>
+          </el-col>
+        </el-row>
+        <el-row>
+          <el-col :span="6">
+            <div class="grid-content bg-purple">
+              Transactions
+            </div>
+          </el-col>
+          <el-col :span="18">
+            <div class="grid-content bg-purple-light">
+              <div
+                v-for="tx in blocksWithTransaction[height].tx"
+                :key="tx"
+              >
+                {{ tx }}
+              </div>
+            </div>
+          </el-col>
+        </el-row>
+      </div>
     </div>
     <div v-if="explorerSection === 'transaction'">
       <el-row v-if="!transactionDetail.txid">
