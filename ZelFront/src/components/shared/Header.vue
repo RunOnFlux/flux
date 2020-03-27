@@ -168,7 +168,7 @@
       <el-menu-item
         index="50"
       >
-        Explorer
+        Very Basic Explorer
       </el-menu-item>
       <el-menu-item
         v-if="privilage === 'user' || privilage === 'admin' || privilage === 'zelteam'"
