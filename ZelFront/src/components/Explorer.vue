@@ -229,7 +229,18 @@
         </el-col>
         <el-col :span="18">
           <div class="grid-content bg-purple-light">
-            {{ transactionDetail.version }} {{ transactionDetail.version === 5 ? ' - ZelNode transaction' : ''}}
+            {{ transactionDetail.version }} {{ transactionDetail.version === 5 ? ' - ZelNode transaction' : JSON.stringify(transactionDetail.vin).includes('coinbase')
+              ? ' - Coinbase transaction' : ' - Standard transaction' }}
+          </div>
+        </el-col>
+        <el-col :span="6">
+          <div class="grid-content bg-purple">
+            Size
+          </div>
+        </el-col>
+        <el-col :span="18">
+          <div class="grid-content bg-purple-light">
+            {{ transactionDetail.hex.length / 2 }} Bytes
           </div>
         </el-col>
         <el-col :span="6">
@@ -253,6 +264,50 @@
           </div>
         </el-col>
       </el-row>
+
+      <el-row v-if="transactionDetail.version < 5 && transactionDetail.version > 0">
+        <el-col :span="6">
+          <div class="grid-content bg-purple">
+            Overwintered
+          </div>
+        </el-col>
+        <el-col :span="18">
+          <div class="grid-content bg-purple-light">
+            {{ transactionDetail.overwintered }}
+          </div>
+        </el-col>
+        <el-col :span="6" v-if="transactionDetail.version === 4">
+          <div class="grid-content bg-purple">
+            Version Group ID
+          </div>
+        </el-col>
+        <el-col :span="18" v-if="transactionDetail.version === 4">
+          <div class="grid-content bg-purple-light">
+            {{ transactionDetail.versiongroupid }}
+          </div>
+        </el-col>
+        <el-col :span="6">
+          <div class="grid-content bg-purple">
+            Lock Time
+          </div>
+        </el-col>
+        <el-col :span="18">
+          <div class="grid-content bg-purple-light">
+            {{ transactionDetail.locktime }}
+          </div>
+        </el-col>
+        <el-col :span="6" v-if="transactionDetail.version === 4">
+          <div class="grid-content bg-purple">
+            Expiry Height
+          </div>
+        </el-col>
+        <el-col :span="18" v-if="transactionDetail.version === 4">
+          <div class="grid-content bg-purple-light">
+            {{ transactionDetail.expiryheight }}
+          </div>
+        </el-col>
+      </el-row>
+
       <el-row v-if="transactionDetail.version === 5">
         <el-col :span="6">
           <div class="grid-content bg-purple">
