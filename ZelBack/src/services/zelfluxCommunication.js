@@ -824,9 +824,7 @@ function startFluxFunctions() {
   // setInterval(() => {
   //   checkDeterministicNodesCollisions();
   // }, 60000);
-  for (let i = 1; i < 50000; i += 1) {
-    explorerService.processBlock(i);
-  }
+  explorerService.processBlock(1);
 }
 
 module.exports = {

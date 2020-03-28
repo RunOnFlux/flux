@@ -84,18 +84,18 @@ async function getBlock(heightOrHash) {
 
 async function processBlock(blockHeight) {
   // prepare database
-  const db = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
-    log.error(error);
-    throw error;
-  });
-  const database = db.db(config.database.zelcash.database);
+  // const db = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
+  //   log.error(error);
+  //   throw error;
+  // });
+  // const database = db.db(config.database.zelcash.database);
 
   // get Block information
   const blockData = await getBlock(blockHeight).catch((error) => {
     log.error(error);
     throw error;
   });
-  if (blockData.height % 100 === 0) {
+  if (blockData.height % 50 === 0) {
     console.log(blockData.height);
   }
   // get Block transactions information
@@ -107,7 +107,10 @@ async function processBlock(blockHeight) {
   if (blockData.height % 1000 === 0) {
     console.log(blockData.height);
   }
-  db.close();
+  if (blockData.height < 50000) {
+    processBlock(blockData.height + 1);
+  }
+  // db.close();
 }
 
 module.exports = {
