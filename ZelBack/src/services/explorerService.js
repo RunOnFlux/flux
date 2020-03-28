@@ -149,7 +149,7 @@ async function processBlock(blockHeight) {
       }
     });
     console.log(result);
-    db.collection(transactionIndexCollection).createIndex({ txid: 1 });
+    database.collection(transactionIndexCollection).createIndex({ txid: 1 });
     db.close();
   }
 
