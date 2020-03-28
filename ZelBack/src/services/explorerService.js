@@ -18,13 +18,11 @@ async function getSender(txid, vout) {
     },
   };
   const txContent = await zelcashService.getRawTransaction(req);
-  console.log(txContent);
   if (txContent.status === 'success') {
     const sender = txContent.data.vout[vout];
     return sender;
   }
-  log.error(txContent.data);
-  // TODO error
+  throw txContent.data;
 }
 
 async function getTransaction(hash) {
@@ -37,7 +35,6 @@ async function getTransaction(hash) {
     },
   };
   const txContent = await zelcashService.getRawTransaction(req);
-  console.log(txContent);
   if (txContent.status === 'success') {
     transactionDetail = txContent.data;
     const sendersToFetch = [];
@@ -58,20 +55,14 @@ async function getTransaction(hash) {
     // transactionDetail now contains senders. So then going through senders and vouts when generating indexes.
     return transactionDetail;
   }
-  log.error(txContent.data);
-  // TODO error
+  throw txContent.data;
 }
 
 async function getBlockTransactions(txidsArray) {
   const transactions = [];
   await Promise.all(txidsArray.map(async (transaction) => {
     const txContent = await getTransaction(transaction);
-    if (txContent.status === 'success') {
-      transactions.push(txContent.data);
-    } else {
-      log.error(txContent.data);
-      // TODO error
-    }
+    transactions.push(txContent);
   }));
   return transactions;
 }
@@ -85,12 +76,10 @@ async function getBlock(heightOrHash) {
     },
   };
   const blockInfo = await zelcashService.getBlock(req);
-  console.log(blockInfo);
   if (blockInfo.status === 'success') {
     return blockInfo.data;
   }
-  log.error(blockInfo.data);
-  // TODO error
+  throw blockInfo.data;
 }
 
 async function processBlock(blockHeight) {
@@ -102,10 +91,15 @@ async function processBlock(blockHeight) {
   const database = db.db(config.database.zelcash.database);
 
   // get Block information
-  const blockData = await getBlock(blockHeight);
-  console.log(blockData);
+  const blockData = await getBlock(blockHeight).catch((error) => {
+    log.error(error);
+    throw error;
+  });
   // get Block transactions information
-  const transactions = await getBlockTransactions(blockData.tx);
+  const transactions = await getBlockTransactions(blockData.tx).catch((error) => {
+    log.error(error);
+    throw error;
+  });
   // now we have verbose transactions of the block extended for senders (vout type). So we go through senders (basically better vin) and vout.
   console.log(transactions);
   db.close();
