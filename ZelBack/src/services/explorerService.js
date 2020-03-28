@@ -143,10 +143,13 @@ async function processBlock(blockHeight) {
     const database = db.db(config.database.zelcash.database);
     console.log('dropping collection');
     const result = await serviceHelper.dropCollection(database, transactionIndexCollection).catch((error) => {
-      log.error(error);
-      throw error;
+      if (error.message !== 'ns not found') {
+        log.error(error);
+        throw error;
+      }
     });
     console.log(result);
+    db.collection(transactionIndexCollection).createIndex({ txid: 1 });
     db.close();
   }
 
@@ -173,7 +176,7 @@ async function processBlock(blockHeight) {
       throw error;
     });
     const database = db.db(config.database.zelcash.database);
-    const result = await serviceHelper.collectionTotalSize(database, transactionIndexCollection).catch((error) => {
+    const result = await serviceHelper.collectionStats(database, transactionIndexCollection).catch((error) => {
       log.error(error);
       throw error;
     });

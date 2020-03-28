@@ -138,9 +138,9 @@ async function dropCollection(database, collection) {
   return result;
 }
 
-async function collectionTotalSize(database, collection) {
+async function collectionStats(database, collection) {
   // to remove all documents from collection, the query is just {}
-  const result = await database.collection(collection).totalSize().catch((error) => { throw error; });
+  const result = await database.collection(collection).stats().catch((error) => { throw error; });
   return result;
 }
 
@@ -338,7 +338,7 @@ module.exports = {
   findOneAndDeleteInDatabase,
   removeDocumentsFromCollection,
   dropCollection,
-  collectionTotalSize,
+  collectionStats,
   verifyAdminSession,
   verifyUserSession,
   verifyZelTeamSession,
