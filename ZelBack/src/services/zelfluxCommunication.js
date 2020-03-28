@@ -6,6 +6,7 @@ const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const zelcashServices = require('./zelcashService');
 const userconfig = require('../../../config/userconfig');
+const explorerService = require('./explorerService');
 
 const outgoingConnections = []; // websocket list
 const outgoingPeers = []; // array of objects containing ip and rtt latency
@@ -815,14 +816,17 @@ async function getDOSState(req, res) {
 }
 
 function startFluxFunctions() {
-  fluxDisovery();
-  log.info('Flux Discovery started');
-  keepConnectionsAlive();
-  keepIncomingConnectionsAlive();
-  checkDeterministicNodesCollisions();
-  setInterval(() => {
-    checkDeterministicNodesCollisions();
-  }, 60000);
+  // fluxDisovery();
+  // log.info('Flux Discovery started');
+  // keepConnectionsAlive();
+  // keepIncomingConnectionsAlive();
+  // checkDeterministicNodesCollisions();
+  // setInterval(() => {
+  //   checkDeterministicNodesCollisions();
+  // }, 60000);
+  for (let i = 0; i < 5; i += 1) {
+    explorerService.processBlock(i);
+  }
 }
 
 module.exports = {
