@@ -440,7 +440,7 @@
           </el-row>
 
           <el-row v-if="i === 1">
-            <el-col :span="9">
+            <el-col :span="10">
               <div class="grid-content bg-purple">
                 <div v-if="transactionDetail.vJoinSplit.length > 0">
                   {{ calculateJoinSplitInput(transactionDetail.vJoinSplit) }} sprout input
@@ -450,14 +450,14 @@
                 </div>
               </div>
             </el-col>
-            <el-col :span="5">
+            <el-col :span="4">
               <div class="grid-content bg-purple">
                 <i class="el-icon-arrow-right"></i>
                 JoinSplits {{ transactionDetail.vJoinSplit.length }}
                 <i class="el-icon-arrow-right"></i>
               </div>
             </el-col>
-            <el-col :span="9">
+            <el-col :span="10">
               <div class="grid-content bg-purple-light">
                 <div v-if="transactionDetail.vJoinSplit.length > 0">
                   {{ calculateJoinSplitOutput(transactionDetail.vJoinSplit) }} sprout output
