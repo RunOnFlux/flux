@@ -40,7 +40,10 @@
         </el-table-column>
       </el-table>
     </div>
-    <div v-if="explorerSection === 'block'">
+    <div
+      :key="uniqueKeyBlock"
+      v-if="explorerSection === 'block'"
+    >
       <el-row v-if="!blocksWithTransaction[height]">
         Loading Block...
       </el-row>
@@ -230,6 +233,16 @@
             </div>
           </el-col>
         </el-row>
+        <br>
+        Transactions:
+        <br>
+        <div
+          v-for="transaction in blocksWithTransaction[height].transactions"
+          :key="transaction"
+        >
+          <Transaction :transaction="transaction" />
+          <br>
+        </div>
       </div>
     </div>
     <div v-if="explorerSection === 'transaction'">
@@ -427,7 +440,7 @@
           </el-row>
 
           <el-row v-if="i === 1">
-            <el-col :span="9">
+            <el-col :span="10">
               <div class="grid-content bg-purple">
                 <div v-if="transactionDetail.vJoinSplit.length > 0">
                   {{ calculateJoinSplitInput(transactionDetail.vJoinSplit) }} sprout input
@@ -437,14 +450,14 @@
                 </div>
               </div>
             </el-col>
-            <el-col :span="5">
+            <el-col :span="4">
               <div class="grid-content bg-purple">
                 <i class="el-icon-arrow-right"></i>
                 JoinSplits {{ transactionDetail.vJoinSplit.length }}
                 <i class="el-icon-arrow-right"></i>
               </div>
             </el-col>
-            <el-col :span="9">
+            <el-col :span="10">
               <div class="grid-content bg-purple-light">
                 <div v-if="transactionDetail.vJoinSplit.length > 0">
                   {{ calculateJoinSplitOutput(transactionDetail.vJoinSplit) }} sprout output
@@ -658,12 +671,17 @@ import Vue from 'vue';
 
 import ZelCashService from '@/services/ZelCashService';
 
+const Transaction = () => import('@/components/Transaction.vue');
+
 Vue.use(Vuex);
 
 const vue = new Vue();
 
 export default {
   name: 'Explorer',
+  components: {
+    Transaction,
+  },
   data() {
     return {
       timeoptions: {
@@ -686,6 +704,7 @@ export default {
       transactionDetail: {},
       transactionDetailSenders: {},
       uniqueKey: 100000,
+      uniqueKeyBlock: 10000,
     };
   },
   computed: {
@@ -803,6 +822,7 @@ export default {
           this.blocksWithTransaction[height].transactions.push(txContent.data.data);
         }
       }));
+      this.uniqueKeyBlock += 1;
       console.log(this.blocksWithTransaction);
     },
     async getBlock(heightOrHash) {
