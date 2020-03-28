@@ -9,6 +9,7 @@ const mongoUrl = `mongodb://${config.database.url}:${config.database.port}/`;
 const transactionIndexCollection = config.database.zelcash.collections.transactionIndex;
 const addressIndexCollection = config.database.zelcash.collections.addressIndex;
 const scannedHeightCollection = config.database.zelcash.collections.scannedHeight;
+let db = null;
 
 // async function getSender(txid, vout) {
 //   const verbose = 1;
@@ -27,19 +28,14 @@ const scannedHeightCollection = config.database.zelcash.collections.scannedHeigh
 // }
 
 async function getSender(txid, vout) {
-  // prepare database
-  const db = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
-    log.error(error);
-    throw error;
-  });
   const database = db.db(config.database.zelcash.database);
   const query = { txid };
   const projection = {};
   const txContent = await serviceHelper.findOneInDatabase(database, transactionIndexCollection, query, projection).catch((error) => {
+    db.close();
     log.error(error);
     throw error;
   });
-  db.close();
   if (!txContent) {
     const errMessage = serviceHelper.createErrorMessage(`Transaction ${txid} not found in database`);
     throw errMessage;
@@ -49,11 +45,6 @@ async function getSender(txid, vout) {
 }
 
 async function getTransaction(hash) {
-  // prepare database
-  const db = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
-    log.error(error);
-    throw error;
-  });
   const database = db.db(config.database.zelcash.database);
   let transactionDetail = {};
   const verbose = 1;
@@ -68,10 +59,10 @@ async function getTransaction(hash) {
     transactionDetail = txContent.data;
     // put tarnsaction to our mongoDB transactionIndex.
     await serviceHelper.insertOneToDatabase(database, transactionIndexCollection, transactionDetail).catch((error) => {
+      db.close();
       log.error(error);
       throw error;
     });
-    db.close();
     // fetch senders from our mongoDatabase
     const sendersToFetch = [];
     if (transactionDetail.version < 5 && transactionDetail.version > 0) {
@@ -136,7 +127,7 @@ async function getBlock(heightOrHash) {
 async function processBlock(blockHeight) {
   // prepare database
   if (blockHeight === 1) {
-    const db = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
+    db = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
       log.error(error);
       throw error;
     });
@@ -144,13 +135,13 @@ async function processBlock(blockHeight) {
     console.log('dropping collection');
     const result = await serviceHelper.dropCollection(database, transactionIndexCollection).catch((error) => {
       if (error.message !== 'ns not found') {
+        db.close();
         log.error(error);
         throw error;
       }
     });
     console.log(result);
     database.collection(transactionIndexCollection).createIndex({ txid: 1 });
-    db.close();
   }
 
   // get Block information
@@ -170,21 +161,19 @@ async function processBlock(blockHeight) {
   if (blockData.height % 1000 === 0) {
     console.log(transactions);
   }
-  if (blockHeight === 3000) {
-    const db = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
-      log.error(error);
-      throw error;
-    });
+  if (blockHeight % 5000 === 0) {
     const database = db.db(config.database.zelcash.database);
     const result = await serviceHelper.collectionStats(database, transactionIndexCollection).catch((error) => {
+      db.close();
       log.error(error);
       throw error;
     });
     console.log(result);
-    db.close();
   }
-  if (blockData.height < 5000) {
+  if (blockData.height < 100000) {
     processBlock(blockData.height + 1);
+  } else {
+    db.close();
   }
 }
 
