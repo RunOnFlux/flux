@@ -1,8 +1,8 @@
 module.exports = {
   server: {
-    zelfrontport: 16126,
-    apiport: 16127,
-    apiporthttps: 16128,
+    zelfrontport: 26126,
+    apiport: 26127,
+    apiporthttps: 26128,
   },
   database: {
     url: '127.0.0.1',
@@ -12,6 +12,15 @@ module.exports = {
       collections: {
         loggedUsers: 'loggedusers',
         activeLoginPhrases: 'activeloginphrases',
+      },
+    },
+    zelcash: {
+      database: 'zelcashdata',
+      collections: {
+        // addreesIndex contains a) balance, b) list of all transacitons, c) list of utxos
+        scannedHeight: 'scannedheight',
+        addressIndex: 'addressindex',
+        zelnodeTransactions: 'zelnodetransactions',
       },
     },
     global: {
