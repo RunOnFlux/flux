@@ -11,7 +11,13 @@ const scannedHeightCollection = config.database.zelcash.collections.scannedHeigh
 
 async function getSender(txid, vout) {
   const verbose = 1;
-  const txContent = await zelcashService.getRawTransaction(txid, verbose);
+  const req = {
+    params: {
+      txid,
+      verbose,
+    },
+  };
+  const txContent = await zelcashService.getRawTransaction(req);
   console.log(txContent);
   if (txContent.status === 'success') {
     const sender = txContent.data.vout[vout];
@@ -24,7 +30,13 @@ async function getSender(txid, vout) {
 async function getTransaction(hash) {
   let transactionDetail = {};
   const verbose = 1;
-  const txContent = await zelcashService.getRawTransaction(hash, verbose);
+  const req = {
+    params: {
+      txid: hash,
+      verbose,
+    },
+  };
+  const txContent = await zelcashService.getRawTransaction(req);
   console.log(txContent);
   if (txContent.status === 'success') {
     transactionDetail = txContent.data;
@@ -66,7 +78,14 @@ async function getBlockTransactions(txidsArray) {
 
 async function getBlock(heightOrHash) {
   const verbosity = 1;
-  const blockInfo = await zelcashService.getBlock(heightOrHash, verbosity);
+  const req = {
+    params: {
+      hashheight: heightOrHash,
+      verbosity,
+    },
+  };
+  const blockInfo = await zelcashService.getBlock(req);
+  console.log(blockInfo);
   if (blockInfo.status === 'success') {
     return blockInfo.data;
   }
@@ -84,6 +103,7 @@ async function processBlock(blockHeight) {
 
   // get Block information
   const blockData = await getBlock(blockHeight);
+  console.log(blockData);
   // get Block transactions information
   const transactions = await getBlockTransactions(blockData.tx);
   // now we have verbose transactions of the block extended for senders (vout type). So we go through senders (basically better vin) and vout.

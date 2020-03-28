@@ -358,6 +358,7 @@ async function getBestBlockHash(req, res) {
 async function getBlock(req, res) {
   let { hashheight } = req.params;
   hashheight = hashheight || req.query.hashheight;
+  hashheight = serviceHelper.ensureString(hashheight);
   let { verbosity } = req.params;
   verbosity = verbosity || req.query.verbosity || 2; // defaults to json object. CORRECT ZELCASH verbosity is number, error says its not boolean
   verbosity = serviceHelper.ensureNumber(verbosity);
