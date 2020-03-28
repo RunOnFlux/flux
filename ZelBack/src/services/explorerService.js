@@ -6,26 +6,55 @@ const zelcashService = require('./zelcashService');
 
 const mongoUrl = `mongodb://${config.database.url}:${config.database.port}/`;
 
+const transactionIndexCollection = config.database.zelcash.collections.transactionIndex;
 const addressIndexCollection = config.database.zelcash.collections.addressIndex;
 const scannedHeightCollection = config.database.zelcash.collections.scannedHeight;
 
+// async function getSender(txid, vout) {
+//   const verbose = 1;
+//   const req = {
+//     params: {
+//       txid,
+//       verbose,
+//     },
+//   };
+//   const txContent = await zelcashService.getRawTransaction(req);
+//   if (txContent.status === 'success') {
+//     const sender = txContent.data.vout[vout];
+//     return sender;
+//   }
+//   throw txContent.data;
+// }
+
 async function getSender(txid, vout) {
-  const verbose = 1;
-  const req = {
-    params: {
-      txid,
-      verbose,
-    },
-  };
-  const txContent = await zelcashService.getRawTransaction(req);
-  if (txContent.status === 'success') {
-    const sender = txContent.data.vout[vout];
-    return sender;
+  // prepare database
+  const db = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
+    log.error(error);
+    throw error;
+  });
+  const database = db.db(config.database.zelcash.database);
+  const query = { txid };
+  const projection = {};
+  const txContent = await serviceHelper.findOneInDatabase(database, transactionIndexCollection, query, projection).catch((error) => {
+    log.error(error);
+    throw error;
+  });
+  db.close();
+  if (!txContent) {
+    const errMessage = serviceHelper.createErrorMessage(`Transaction ${txid} not found in database`);
+    throw errMessage;
   }
-  throw txContent.data;
+  const sender = txContent.vout[vout];
+  return sender;
 }
 
 async function getTransaction(hash) {
+  // prepare database
+  const db = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
+    log.error(error);
+    throw error;
+  });
+  const database = db.db(config.database.zelcash.database);
   let transactionDetail = {};
   const verbose = 1;
   const req = {
@@ -37,6 +66,13 @@ async function getTransaction(hash) {
   const txContent = await zelcashService.getRawTransaction(req);
   if (txContent.status === 'success') {
     transactionDetail = txContent.data;
+    // put tarnsaction to our mongoDB transactionIndex.
+    await serviceHelper.insertOneToDatabase(database, transactionIndexCollection, transactionDetail).catch((error) => {
+      log.error(error);
+      throw error;
+    });
+    db.close();
+    // fetch senders from our mongoDatabase
     const sendersToFetch = [];
     if (transactionDetail.version < 5 && transactionDetail.version > 0) {
       transactionDetail.vin.forEach((vin) => {
@@ -47,10 +83,18 @@ async function getTransaction(hash) {
       });
     }
     const senders = []; // Can put just value and address
-    await Promise.all(sendersToFetch.map(async (sender) => {
+    // parallel reading causes zelcash to fail with error 500
+    // await Promise.all(sendersToFetch.map(async (sender) => {
+    //   const senderInformation = await getSender(sender.txid, sender.vout);
+    //   senders.push(senderInformation);
+    // }));
+    // use sequential
+    // eslint-disable-next-line no-restricted-syntax
+    for (const sender of sendersToFetch) {
+      // eslint-disable-next-line no-await-in-loop
       const senderInformation = await getSender(sender.txid, sender.vout);
       senders.push(senderInformation);
-    }));
+    }
     transactionDetail.senders = senders;
     // transactionDetail now contains senders. So then going through senders and vouts when generating indexes.
     return transactionDetail;
@@ -60,10 +104,17 @@ async function getTransaction(hash) {
 
 async function getBlockTransactions(txidsArray) {
   const transactions = [];
-  await Promise.all(txidsArray.map(async (transaction) => {
+  // parallel reading causes zelcash to fail with error 500
+  // await Promise.all(txidsArray.map(async (transaction) => {
+  //   const txContent = await getTransaction(transaction);
+  //   transactions.push(txContent);
+  // }));
+  // eslint-disable-next-line no-restricted-syntax
+  for (const transaction of txidsArray) {
+    // eslint-disable-next-line no-await-in-loop
     const txContent = await getTransaction(transaction);
     transactions.push(txContent);
-  }));
+  }
   return transactions;
 }
 
@@ -84,11 +135,20 @@ async function getBlock(heightOrHash) {
 
 async function processBlock(blockHeight) {
   // prepare database
-  // const db = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
-  //   log.error(error);
-  //   throw error;
-  // });
-  // const database = db.db(config.database.zelcash.database);
+  if (blockHeight === 1) {
+    const db = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
+      log.error(error);
+      throw error;
+    });
+    const database = db.db(config.database.zelcash.database);
+    console.log('dropping collection');
+    const result = await serviceHelper.dropCollection(database, transactionIndexCollection).catch((error) => {
+      log.error(error);
+      throw error;
+    });
+    console.log(result);
+    db.close();
+  }
 
   // get Block information
   const blockData = await getBlock(blockHeight).catch((error) => {
@@ -105,12 +165,24 @@ async function processBlock(blockHeight) {
   });
   // now we have verbose transactions of the block extended for senders (vout type). So we go through senders (basically better vin) and vout.
   if (blockData.height % 1000 === 0) {
-    console.log(blockData.height);
+    console.log(transactions);
   }
-  if (blockData.height < 50000) {
+  if (blockHeight === 3000) {
+    const db = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
+      log.error(error);
+      throw error;
+    });
+    const database = db.db(config.database.zelcash.database);
+    const result = await serviceHelper.collectionTotalSize(database, transactionIndexCollection).catch((error) => {
+      log.error(error);
+      throw error;
+    });
+    console.log(result);
+    db.close();
+  }
+  if (blockData.height < 5000) {
     processBlock(blockData.height + 1);
   }
-  // db.close();
 }
 
 module.exports = {

@@ -133,6 +133,17 @@ async function removeDocumentsFromCollection(database, collection, query) {
   return result;
 }
 
+async function dropCollection(database, collection) {
+  const result = await database.collection(collection).drop().catch((error) => { throw error; });
+  return result;
+}
+
+async function collectionTotalSize(database, collection) {
+  // to remove all documents from collection, the query is just {}
+  const result = await database.collection(collection).totalSize().catch((error) => { throw error; });
+  return result;
+}
+
 // Verification functions
 async function verifyAdminSession(headers) {
   if (headers && headers.zelidauth) {
@@ -326,6 +337,8 @@ module.exports = {
   insertOneToDatabase,
   findOneAndDeleteInDatabase,
   removeDocumentsFromCollection,
+  dropCollection,
+  collectionTotalSize,
   verifyAdminSession,
   verifyUserSession,
   verifyZelTeamSession,

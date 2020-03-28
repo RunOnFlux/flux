@@ -20,6 +20,7 @@ module.exports = {
         // addreesIndex contains a) balance, b) list of all transacitons, c) list of utxos
         scannedHeight: 'scannedheight',
         addressIndex: 'addressindex',
+        transactionIndex: 'transactionindex',
         zelnodeTransactions: 'zelnodetransactions',
       },
     },
