@@ -95,13 +95,18 @@ async function processBlock(blockHeight) {
     log.error(error);
     throw error;
   });
+  if (blockData.height % 100 === 0) {
+    console.log(blockData.height);
+  }
   // get Block transactions information
   const transactions = await getBlockTransactions(blockData.tx).catch((error) => {
     log.error(error);
     throw error;
   });
   // now we have verbose transactions of the block extended for senders (vout type). So we go through senders (basically better vin) and vout.
-  console.log(transactions);
+  if (blockData.height % 1000 === 0) {
+    console.log(blockData.height);
+  }
   db.close();
 }
 
