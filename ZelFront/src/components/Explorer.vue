@@ -806,7 +806,11 @@ export default {
       await Promise.all(blocksToFetch.map(async (blockIndex) => {
         const blockContent = await ZelCashService.getBlock(blockIndex, verbosity);
         if (blockContent.data.status === 'success') {
-          if (!this.existInArray(this.blocks, blockContent.data.data)) {
+          const blockHashes = [];
+          this.blocks.forEach((block) => {
+            blockHashes.push(block.hash);
+          });
+          if (!this.existInArray(this.blocks, blockContent.data.data.hash)) {
             this.blocks.push(blockContent.data.data);
           }
         }
