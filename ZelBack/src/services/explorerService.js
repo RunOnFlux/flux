@@ -271,7 +271,7 @@ async function processBlock(blockHeight) {
   // if (blockData.height % 999 === 0) {
   //   console.log(transactions);
   // }
-  if (blockHeight % 1000 === 0) {
+  if (blockHeight % 100 === 0) {
     const database = db.db(config.database.zelcash.database);
     const result = await serviceHelper.collectionStats(database, utxoIndexCollection).catch((error) => {
       db.close();
@@ -286,7 +286,7 @@ async function processBlock(blockHeight) {
     console.log('UTXO', result.size, result.count, result.avgObjSize);
     console.log('ADDR', resultB.size, resultB.count, resultB.avgObjSize);
   }
-  if (blockData.height < 100) {
+  if (blockData.height <= 10330) {
     processBlock(blockData.height + 1);
   } else {
     db.close();
@@ -320,7 +320,6 @@ async function getAllUtxos(req, res) {
     log.error(error);
     throw error;
   });
-  console.log(results);
   dbopen.close();
   const resMessage = serviceHelper.createDataMessage(results);
   return res.json(resMessage);
@@ -360,7 +359,6 @@ async function getAddressUtxos(req, res) {
     log.error(error);
     throw error;
   });
-  console.log(results);
   dbopen.close();
   const resMessage = serviceHelper.createDataMessage(results);
   return res.json(resMessage);
@@ -396,7 +394,6 @@ async function getAddressTransactions(req, res) {
     log.error(error);
     throw error;
   });
-  console.log(results);
   dbopen.close();
   const resMessage = serviceHelper.createDataMessage(results);
   return res.json(resMessage);
