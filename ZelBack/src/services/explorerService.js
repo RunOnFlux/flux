@@ -67,49 +67,51 @@ async function getTransaction(hash) {
   const txContent = await zelcashService.getRawTransaction(req);
   if (txContent.status === 'success') {
     transactionDetail = txContent.data;
-    // if transaction has no vouts, it cannot be an utxo. Do not store it.
-    await Promise.all(transactionDetail.vout.map(async (vout, index) => {
-      // we need only utxo related information
-      const utxoDetail = {
-        txid: txContent.data.txid,
-        voutIndex: index,
-        height: txContent.data.height,
-        address: vout.scriptPubKey.addresses[0],
-        satoshis: vout.valueSat,
-        scriptPubKey: vout.scriptPubKey.hex,
-      };
-      // put the utxo to our mongoDB utxoIndex collection.
-      await serviceHelper.insertOneToDatabase(database, utxoIndexCollection, utxoDetail).catch((error) => {
-        db.close();
-        log.error(error);
-        throw error;
-      });
-    }));
-
-    // fetch senders from our mongoDatabase
-    const sendersToFetch = [];
     if (txContent.data.version < 5 && txContent.data.version > 0) {
+      // if transaction has no vouts, it cannot be an utxo. Do not store it.
+      await Promise.all(transactionDetail.vout.map(async (vout, index) => {
+        // we need only utxo related information
+        const utxoDetail = {
+          txid: txContent.data.txid,
+          voutIndex: index,
+          height: txContent.data.height,
+          address: vout.scriptPubKey.addresses[0],
+          satoshis: vout.valueSat,
+          scriptPubKey: vout.scriptPubKey.hex,
+        };
+        // put the utxo to our mongoDB utxoIndex collection.
+        await serviceHelper.insertOneToDatabase(database, utxoIndexCollection, utxoDetail).catch((error) => {
+          db.close();
+          log.error(error);
+          throw error;
+        });
+      }));
+
+      // fetch senders from our mongoDatabase
+      const sendersToFetch = [];
+
       txContent.data.vin.forEach((vin) => {
         if (!vin.coinbase) {
           // we need an address who sent those coins and amount of it.
           sendersToFetch.push(vin);
         }
       });
+
+      const senders = []; // Can put just value and address
+      // parallel reading causes zelcash to fail with error 500
+      // await Promise.all(sendersToFetch.map(async (sender) => {
+      //   const senderInformation = await getSender(sender.txid, sender.vout);
+      //   senders.push(senderInformation);
+      // }));
+      // use sequential
+      // eslint-disable-next-line no-restricted-syntax
+      for (const sender of sendersToFetch) {
+        // eslint-disable-next-line no-await-in-loop
+        const senderInformation = await getSender(sender.txid, sender.vout);
+        senders.push(senderInformation);
+      }
+      transactionDetail.senders = senders;
     }
-    const senders = []; // Can put just value and address
-    // parallel reading causes zelcash to fail with error 500
-    // await Promise.all(sendersToFetch.map(async (sender) => {
-    //   const senderInformation = await getSender(sender.txid, sender.vout);
-    //   senders.push(senderInformation);
-    // }));
-    // use sequential
-    // eslint-disable-next-line no-restricted-syntax
-    for (const sender of sendersToFetch) {
-      // eslint-disable-next-line no-await-in-loop
-      const senderInformation = await getSender(sender.txid, sender.vout);
-      senders.push(senderInformation);
-    }
-    transactionDetail.senders = senders;
     // transactionDetail now contains senders. So then going through senders and vouts when generating indexes.
     return transactionDetail;
   }
@@ -265,6 +267,11 @@ async function processBlock(blockHeight) {
     // tx version 5 are zelnode transactions. Put them into zelnode
     if (tx.version === 5) {
       // todo. We can get an address from getSender method too as that utxo was not spent yet.
+      await serviceHelper.insertOneToDatabase(database, zelnodeTransactionCollection, tx).catch((error) => {
+        db.close();
+        log.error(error);
+        throw error;
+      });
     }
   }));
   // addressTransactionIndex shall contains object of address: address, transactions: [txids]
@@ -314,6 +321,79 @@ async function getAllUtxos(req, res) {
     },
   };
   const results = await serviceHelper.findInDatabase(database, utxoIndexCollection, query, projection).catch((error) => {
+    dbopen.close();
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+    log.error(error);
+    throw error;
+  });
+  dbopen.close();
+  const resMessage = serviceHelper.createDataMessage(results);
+  return res.json(resMessage);
+}
+
+async function getAllZelNodeTransactions(req, res) {
+  const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+    log.error(error);
+    throw error;
+  });
+  const database = dbopen.db(config.database.zelcash.database);
+  const query = {};
+  const projection = {
+    projection: {
+      _id: 0,
+      transactions: 1,
+      address: 1,
+    },
+  };
+  const results = await serviceHelper.findInDatabase(database, zelnodeTransactionCollection, query, projection).catch((error) => {
+    dbopen.close();
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+    log.error(error);
+    throw error;
+  });
+  dbopen.close();
+  const resMessage = serviceHelper.createDataMessage(results);
+  return res.json(resMessage);
+}
+
+async function getAllAddressesWithTransactions(req, res) {
+  const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+    log.error(error);
+    throw error;
+  });
+  const database = dbopen.db(config.database.zelcash.database);
+  const query = {};
+  const projection = {
+    projection: {
+      _id: 0,
+      hex: 1,
+      txid: 1,
+      version: 1,
+      type: 1,
+      collateral_output: 1,
+      sigtime: 1,
+      sig: 1,
+      ip: 1,
+      update_type: 1,
+      benchmark_tier: 1,
+      benchmark_sigtime: 1,
+      benchmark_sig: 1,
+      collateral_pubkey: 1,
+      zelnode_pubkey: 1,
+      blockhash: 0,
+      height: 1,
+      confirmations: 0,
+      time: 0,
+      blocktime: 0,
+    },
+  };
+  const results = await serviceHelper.findInDatabase(database, addressTransactionIndexCollection, query, projection).catch((error) => {
     dbopen.close();
     const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
@@ -402,6 +482,8 @@ async function getAddressTransactions(req, res) {
 module.exports = {
   processBlock,
   getAllUtxos,
+  getAllAddressesWithTransactions,
+  getAllZelNodeTransactions,
   getAddressUtxos,
   getAddressTransactions,
 };

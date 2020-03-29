@@ -259,8 +259,14 @@ module.exports = (app, expressWs) => {
     zelappsService.zelShareFile(req, res);
   });
 
-  app.get('/explorer/getallutxos', (req, res) => {
+  app.get('/explorer/allutxos', (req, res) => {
     explorerService.getAllUtxos(req, res);
+  });
+  app.get('/explorer/alladdresseswithtransactions', (req, res) => {
+    explorerService.getAllAddressesWithTransactions(req, res);
+  });
+  app.get('/explorer/zelnodetransactions', (req, res) => {
+    explorerService.getAllZelNodeTransactions(req, res);
   });
   app.get('/explorer/utxo/:address?', (req, res) => {
     explorerService.getAddressUtxos(req, res);
