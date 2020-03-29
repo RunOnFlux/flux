@@ -538,7 +538,7 @@ export default {
       const value = this.transactionDetail.valueBalanceZat || 0;
       let valueOut = 0;
       let valueIn = 0;
-      this.transactionDetail.sender.forEach((sender) => {
+      this.transactionDetail.senders.forEach((sender) => {
         if (typeof sender === 'object') {
           valueIn += sender.valueSat;
         }
