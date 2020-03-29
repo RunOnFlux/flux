@@ -802,15 +802,15 @@ export default {
       for (let i = startingBlockHeight; i <= height; i += 1) {
         blocksToFetch.push(i);
       }
+      const blockHashes = [];
+      this.blocks.forEach((block) => {
+        blockHashes.push(block.hash);
+      });
       // parallel may result in error 500
       await Promise.all(blocksToFetch.map(async (blockIndex) => {
         const blockContent = await ZelCashService.getBlock(blockIndex, verbosity);
         if (blockContent.data.status === 'success') {
-          const blockHashes = [];
-          this.blocks.forEach((block) => {
-            blockHashes.push(block.hash);
-          });
-          if (!this.existInArray(this.blocks, blockContent.data.data.hash)) {
+          if (!this.existInArray(blockHashes, blockContent.data.data.hash)) {
             this.blocks.push(blockContent.data.data);
           }
         }
