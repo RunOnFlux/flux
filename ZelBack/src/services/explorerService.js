@@ -78,7 +78,6 @@ async function getTransaction(hash) {
         satoshis: vout.valueSat,
         scriptPubKey: vout.scriptPubKey.hex,
       };
-      console.log(utxoDetail);
       // put the utxo to our mongoDB utxoIndex collection.
       await serviceHelper.insertOneToDatabase(database, utxoIndexCollection, utxoDetail).catch((error) => {
         db.close();
@@ -227,7 +226,6 @@ async function processBlock(blockHeight) {
       const transactionRecord = { txid: tx.txid, height: tx.height };
       // update addresses from addressesOK array in our database. We need blockheight there too. transac
       await Promise.all(addressesOK.map(async (address) => {
-        console.log(address);
         const query = { address };
         const projection = {};
         const existingAddressRecord = await serviceHelper.findOneInDatabase(database, addressTransactionIndexCollection, query, projection).catch((error) => {
@@ -247,7 +245,7 @@ async function processBlock(blockHeight) {
             log.error(error);
             throw error;
           });
-          if (tx.height % 100 === 0) {
+          if (tx.height % 101 === 0) {
             console.log(existingAddressRecord);
           }
         } else {
@@ -269,7 +267,7 @@ async function processBlock(blockHeight) {
     }
   }));
   // addressTransactionIndex shall contains object of address: address, transactions: [txids]
-  if (blockData.height % 1000 === 0) {
+  if (blockData.height % 999 === 0) {
     console.log(transactions);
   }
   if (blockHeight % 5000 === 0) {
@@ -279,7 +277,13 @@ async function processBlock(blockHeight) {
       log.error(error);
       throw error;
     });
+    const resultB = await serviceHelper.collectionStats(database, addressTransactionIndexCollection).catch((error) => {
+      db.close();
+      log.error(error);
+      throw error;
+    });
     console.log(result);
+    console.log(resultB);
   }
   if (blockData.height < 100000) {
     processBlock(blockData.height + 1);
