@@ -161,19 +161,10 @@ async function processBlock(blockHeight) {
         throw error;
       }
     });
-    // delete
-    const resultB = await serviceHelper.dropCollection(database, transactionIndexCollection).catch((error) => {
-      if (error.message !== 'ns not found') {
-        db.close();
-        log.error(error);
-        throw error;
-      }
-    });
-    //
     console.log(result);
-    database.collection(utxoIndexCollection).createIndex({ txid: 1 });
-    database.collection(utxoIndexCollection).createIndex({ voutIndex: 1 });
-    database.collection(utxoIndexCollection).createIndex({ height: 1 });
+    database.collection(utxoIndexCollection).createIndex({ txid: 1, voutIndex: 1 }, { name: 'query for getting utxo' });
+    database.collection(utxoIndexCollection).createIndex({ txid: 1 }, { name: 'query for utxos for specific txid' });
+    database.collection(utxoIndexCollection).createIndex({ height: 1 }, { name: 'query for utxos created on specific height' });
   }
 
   // get Block information
