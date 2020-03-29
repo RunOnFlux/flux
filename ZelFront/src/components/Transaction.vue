@@ -158,110 +158,105 @@
       :key="uniqueKey"
       v-if="transactionDetail.version < 5 && transactionDetail.version > 0"
     >
-      <div
-        v-for="i in Math.max(transactionDetail.vin.length, transactionDetail.vout.length)"
-        :key="i"
-      >
-        <el-row v-if="i === 1 && transactionDetail.version === 4">
-          <el-col :span="11">
-            <div class="grid-content bg-purple">
-              <div v-if="transactionDetail.vShieldedSpend.length > 0">
-                {{ transactionDetail.vShieldedSpend.length }} sapling inputs
-              </div>
-              <div v-else>
-                No sapling inputs
-              </div>
+      <el-row v-if="transactionDetail.version === 4">
+        <el-col :span="11">
+          <div class="grid-content bg-purple">
+            <div v-if="transactionDetail.vShieldedSpend.length > 0">
+              {{ transactionDetail.vShieldedSpend.length }} sapling inputs
             </div>
-          </el-col>
-          <el-col :span="2">
-            <div class="grid-content bg-purple">
-              <i
-                v-if="i === 1"
-                class="el-icon-arrow-right"
-              ></i>
+            <div v-else>
+              No sapling inputs
             </div>
-          </el-col>
-          <el-col :span="11">
-            <div class="grid-content bg-purple-light">
-              <div v-if="transactionDetail.vShieldedOutput.length > 0">
-                {{ transactionDetail.vShieldedOutput.length }} sapling outputs
-              </div>
-              <div v-else>
-                No sapling outputs
-              </div>
+          </div>
+        </el-col>
+        <el-col :span="2">
+          <div class="grid-content bg-purple">
+            <i class="el-icon-arrow-right"></i>
+          </div>
+        </el-col>
+        <el-col :span="11">
+          <div class="grid-content bg-purple-light">
+            <div v-if="transactionDetail.vShieldedOutput.length > 0">
+              {{ transactionDetail.vShieldedOutput.length }} sapling outputs
             </div>
-          </el-col>
-        </el-row>
+            <div v-else>
+              No sapling outputs
+            </div>
+          </div>
+        </el-col>
+      </el-row>
 
-        <el-row v-if="i === 1">
-          <el-col :span="10">
-            <div class="grid-content bg-purple">
-              <div v-if="transactionDetail.vJoinSplit.length > 0">
-                {{ calculateJoinSplitInput(transactionDetail.vJoinSplit) }} sprout input
-              </div>
-              <div v-else>
-                No sprout inputs
-              </div>
+      <el-row>
+        <el-col :span="10">
+          <div class="grid-content bg-purple">
+            <div v-if="transactionDetail.vJoinSplit.length > 0">
+              {{ calculateJoinSplitInput(transactionDetail.vJoinSplit) }} sprout input
             </div>
-          </el-col>
-          <el-col :span="4">
-            <div class="grid-content bg-purple">
-              <i class="el-icon-arrow-right"></i>
-              JoinSplits {{ transactionDetail.vJoinSplit.length }}
-              <i class="el-icon-arrow-right"></i>
+            <div v-else>
+              No sprout inputs
             </div>
-          </el-col>
-          <el-col :span="10">
-            <div class="grid-content bg-purple-light">
-              <div v-if="transactionDetail.vJoinSplit.length > 0">
-                {{ calculateJoinSplitOutput(transactionDetail.vJoinSplit) }} sprout output
-              </div>
-              <div v-else>
-                No sprout outputs
-              </div>
+          </div>
+        </el-col>
+        <el-col :span="4">
+          <div class="grid-content bg-purple">
+            <i class="el-icon-arrow-right"></i>
+            JoinSplits {{ transactionDetail.vJoinSplit.length }}
+            <i class="el-icon-arrow-right"></i>
+          </div>
+        </el-col>
+        <el-col :span="10">
+          <div class="grid-content bg-purple-light">
+            <div v-if="transactionDetail.vJoinSplit.length > 0">
+              {{ calculateJoinSplitOutput(transactionDetail.vJoinSplit) }} sprout output
             </div>
-          </el-col>
-        </el-row>
+            <div v-else>
+              No sprout outputs
+            </div>
+          </div>
+        </el-col>
+      </el-row>
 
-        <el-row :gutter="0">
-          <el-col :span="11">
-            <div class="grid-content bg-purple">
-              <div v-if="transactionDetail.vin[i - 1]">
-                <div>
-                  <div v-if="transactionDetail.vin[i - 1].coinbase">
-                    Newly generated coins
-                  </div>
-                  <div
-                    :key="transactionDetail.senders[i - 1]"
-                    v-else-if="typeof transactionDetail.senders[i - 1] === 'object'"
-                  >
-                    {{ transactionDetail.senders[i - 1].value }} ZEL
-                    {{ transactionDetail.senders[i - 1].scriptPubKey.addresses[0] }}
-                  </div>
-                  <div v-else>
-                    {{ transactionDetail.senders[i - 1] || 'Loading Sender' }}
-                  </div>
+      <el-row :gutter="0">
+        <el-col :span="11">
+          <div class="grid-content bg-purple">
+            <div
+              v-for="i in transactionDetail.vin.length"
+              :key="i"
+            >
+              <div>
+                <div v-if="transactionDetail.vin[i - 1].coinbase">
+                  Newly generated coins
+                </div>
+                <div
+                  :key="transactionDetail.senders[i - 1]"
+                  v-else-if="typeof transactionDetail.senders[i - 1] === 'object'"
+                >
+                  {{ transactionDetail.senders[i - 1].value }} ZEL
+                  {{ transactionDetail.senders[i - 1].scriptPubKey.addresses[0] }}
+                </div>
+                <div v-else>
+                  {{ transactionDetail.senders[i - 1] || 'Loading Sender' }}
                 </div>
               </div>
             </div>
-          </el-col>
-          <el-col :span="2">
-            <div class="grid-content bg-purple">
-              <i
-                v-if="i === 1"
-                class="el-icon-arrow-right"
-              ></i>
+          </div>
+        </el-col>
+        <el-col :span="2">
+          <div class="grid-content bg-purple">
+            <i class="el-icon-arrow-right"></i>
+          </div>
+        </el-col>
+        <el-col :span="11">
+          <div class="grid-content bg-purple-light">
+            <div
+              v-for="i in transactionDetail.vout.length"
+              :key="i"
+            >
+              {{ transactionDetail.vout[i - 1].scriptPubKey.addresses[0] }} {{ transactionDetail.vout[i - 1].value }} ZEL
             </div>
-          </el-col>
-          <el-col :span="11">
-            <div class="grid-content bg-purple-light">
-              <div v-if="transactionDetail.vout[i - 1]">
-                {{ transactionDetail.vout[i - 1].scriptPubKey.addresses[0] }} {{ transactionDetail.vout[i - 1].value }} ZEL
-              </div>
-            </div>
-          </el-col>
-        </el-row>
-      </div>
+          </div>
+        </el-col>
+      </el-row>
     </div>
 
     <div v-if="transactionDetail.version === 5">
