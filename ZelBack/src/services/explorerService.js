@@ -68,7 +68,7 @@ async function getTransaction(hash) {
   if (txContent.status === 'success') {
     transactionDetail = txContent.data;
     // if transaction has no vouts, it cannot be an utxo. Do not store it.
-    await Promise.all(txContent.data.vout.map(async (vout, index) => {
+    await Promise.all(transactionDetail.vout.map(async (vout, index) => {
       // we need only utxo related information
       const utxoDetail = {
         txid: txContent.data.txid,
@@ -78,6 +78,7 @@ async function getTransaction(hash) {
         satoshis: vout.valueSat,
         scriptPubKey: vout.scriptPubKey.hex,
       };
+      console.log(utxoDetail);
       // put the utxo to our mongoDB utxoIndex collection.
       await serviceHelper.insertOneToDatabase(database, utxoIndexCollection, utxoDetail).catch((error) => {
         db.close();
@@ -219,13 +220,14 @@ async function processBlock(blockHeight) {
       tx.senders.forEach((sender) => {
         addresses.push(sender.address);
       });
-      tx.vout.forEach((sender) => {
-        addresses.push(sender.address);
+      tx.vout.forEach((receiver) => {
+        addresses.push(receiver.scriptPubKey.addresses[0]);
       });
       const addressesOK = [...new Set(addresses)];
       const transactionRecord = { txid: tx.txid, height: tx.height };
       // update addresses from addressesOK array in our database. We need blockheight there too. transac
       await Promise.all(addressesOK.map(async (address) => {
+        console.log(address);
         const query = { address };
         const projection = {};
         const existingAddressRecord = await serviceHelper.findOneInDatabase(database, addressTransactionIndexCollection, query, projection).catch((error) => {
