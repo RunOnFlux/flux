@@ -286,13 +286,46 @@ async function processBlock(blockHeight) {
     console.log('UTXO', result.size, result.count, result.avgObjSize);
     console.log('ADDR', resultB.size, resultB.count, resultB.avgObjSize);
   }
-  if (blockData.height < 100000) {
+  if (blockData.height < 100) {
     processBlock(blockData.height + 1);
   } else {
     db.close();
   }
 }
 
+async function getAllUtxos(req, res) {
+  const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+    log.error(error);
+    throw error;
+  });
+  const database = dbopen.db(config.database.zelcash.database);
+  const query = {};
+  const projection = {
+    projection: {
+      _id: 0,
+      txid: 1,
+      voutIndex: 1,
+      height: 1,
+      address: 1,
+      satoshis: 1,
+      scriptPubKey: 1,
+    },
+  };
+  const results = await serviceHelper.findInDatabase(database, utxoIndexCollection, query, projection).catch((error) => {
+    dbopen.close();
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+    log.error(error);
+    throw error;
+  });
+  dbopen.close();
+  const resMessage = serviceHelper.createDataMessage(results);
+  return res.json(resMessage);
+}
+
 module.exports = {
   processBlock,
+  getAllUtxos,
 };

@@ -4,6 +4,7 @@ const zelidService = require('./services/zelidService');
 const zelnodeService = require('./services/zelnodeService');
 const zelfluxCommunication = require('./services/zelfluxCommunication');
 const zelappsService = require('./services/zelappsService');
+const explorerService = require('./services/explorerService');
 
 module.exports = (app, expressWs) => {
   // GET PUBLIC methods
@@ -256,6 +257,10 @@ module.exports = (app, expressWs) => {
 
   app.get('/zelapps/zelshare/getfile/:file?', (req, res) => {
     zelappsService.zelShareFile(req, res);
+  });
+
+  app.get('/explorer/getallutxos', (req, res) => {
+    explorerService.getAllUtxos(req, res);
   });
 
   // GET PROTECTED API - User level
