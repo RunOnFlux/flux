@@ -31,7 +31,7 @@ let db = null;
 
 async function getSender(txid, vout) {
   const database = db.db(config.database.zelcash.database);
-  const query = { txid };
+  const query = { $and: [{ txid }, { voutIndex: vout }] };
   const projection = {};
   // find the utxo so we know the sender
   const txContent = await serviceHelper.findOneInDatabase(database, utxoIndexCollection, query, projection).catch((error) => {
@@ -43,14 +43,14 @@ async function getSender(txid, vout) {
     const errMessage = serviceHelper.createErrorMessage(`Transaction ${txid} not found in database`);
     throw errMessage;
   }
-  // delete transaction from global utxo list
+  // delete the utxo from global utxo list
   await serviceHelper.findOneAndDeleteInDatabase(database, utxoIndexCollection, query, projection).catch((error) => {
     db.close();
     log.error(error);
     throw error;
   });
 
-  const sender = txContent.vout[vout];
+  const sender = txContent.vout;
   return sender;
 }
 
@@ -68,21 +68,22 @@ async function getTransaction(hash) {
   if (txContent.status === 'success') {
     transactionDetail = txContent.data;
     // if transaction has no vouts, it cannot be an utxo. Do not store it.
-    if (txContent.data.vout.length > 0) {
-      // we need only txid, vout and height.
+    await Promise.all(txContent.data.vout.map(async (vout, index) => {
+      // we need only txid, vout and height. voutIndex is used for identification too.
       const utxoDetail = {
         txid: txContent.data.txid,
-        vout: txContent.data.vout,
+        voutIndex: index,
+        vout,
         height: txContent.data.height,
       };
-
-      // put tarnsaction to our mongoDB transactionIndex.
+      // put the utxo to our mongoDB utxoIndex collection.
       await serviceHelper.insertOneToDatabase(database, utxoIndexCollection, utxoDetail).catch((error) => {
         db.close();
         log.error(error);
         throw error;
       });
-    }
+    }));
+
     // fetch senders from our mongoDatabase
     const sendersToFetch = [];
     if (txContent.data.version < 5 && txContent.data.version > 0) {
@@ -171,6 +172,7 @@ async function processBlock(blockHeight) {
     //
     console.log(result);
     database.collection(utxoIndexCollection).createIndex({ txid: 1 });
+    database.collection(utxoIndexCollection).createIndex({ voutIndex: 1 });
     database.collection(utxoIndexCollection).createIndex({ height: 1 });
   }
 
