@@ -858,9 +858,12 @@ export default {
       const txContent = await ZelCashService.getRawTransaction(hash, verbose);
       console.log(txContent);
       if (txContent.data.status === 'success') {
-        if (this.transactionDetail.version < 5 && this.transactionDetail.version > 0) {
+        if (txContent.data.data.version < 5 && txContent.data.data.version > 0) {
+          const txA = txContent.data.data;
+          txA.senders = [];
+          this.transactionDetail = txA;
           const sendersToFetch = [];
-          this.transactionDetail.vin.forEach((vin) => {
+          txContent.data.data.vin.forEach((vin) => {
             if (!vin.coinbase) {
               sendersToFetch.push(vin);
             }
