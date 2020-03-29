@@ -6,6 +6,7 @@ const zelcashService = require('./zelcashService');
 
 const mongoUrl = `mongodb://${config.database.url}:${config.database.port}/`;
 
+const utxoIndexCollection = config.database.zelcash.collections.utxoIndex;
 const transactionIndexCollection = config.database.zelcash.collections.transactionIndex;
 const addressIndexCollection = config.database.zelcash.collections.addressIndex;
 const scannedHeightCollection = config.database.zelcash.collections.scannedHeight;
@@ -13,6 +14,7 @@ let db = null;
 
 // async function getSender(txid, vout) {
 //   const verbose = 1;
+
 //   const req = {
 //     params: {
 //       txid,
@@ -31,7 +33,8 @@ async function getSender(txid, vout) {
   const database = db.db(config.database.zelcash.database);
   const query = { txid };
   const projection = {};
-  const txContent = await serviceHelper.findOneInDatabase(database, transactionIndexCollection, query, projection).catch((error) => {
+  // find the utxo so we know the sender
+  const txContent = await serviceHelper.findOneInDatabase(database, utxoIndexCollection, query, projection).catch((error) => {
     db.close();
     log.error(error);
     throw error;
@@ -40,6 +43,13 @@ async function getSender(txid, vout) {
     const errMessage = serviceHelper.createErrorMessage(`Transaction ${txid} not found in database`);
     throw errMessage;
   }
+  // delete transaction from global utxo list
+  await serviceHelper.findOneAndDeleteInDatabase(database, utxoIndexCollection, query, projection).catch((error) => {
+    db.close();
+    log.error(error);
+    throw error;
+  });
+
   const sender = txContent.vout[vout];
   return sender;
 }
@@ -57,16 +67,26 @@ async function getTransaction(hash) {
   const txContent = await zelcashService.getRawTransaction(req);
   if (txContent.status === 'success') {
     transactionDetail = txContent.data;
-    // put tarnsaction to our mongoDB transactionIndex.
-    await serviceHelper.insertOneToDatabase(database, transactionIndexCollection, transactionDetail).catch((error) => {
-      db.close();
-      log.error(error);
-      throw error;
-    });
+    // if transaction has no vouts, it cannot be an utxo. Do not store it.
+    if (txContent.data.vout.length > 0) {
+      // we need only txid, vout and height.
+      const utxoDetail = {
+        txid: txContent.data.txid,
+        vout: txContent.data.vout,
+        height: txContent.data.height,
+      };
+
+      // put tarnsaction to our mongoDB transactionIndex.
+      await serviceHelper.insertOneToDatabase(database, utxoIndexCollection, utxoDetail).catch((error) => {
+        db.close();
+        log.error(error);
+        throw error;
+      });
+    }
     // fetch senders from our mongoDatabase
     const sendersToFetch = [];
-    if (transactionDetail.version < 5 && transactionDetail.version > 0) {
-      transactionDetail.vin.forEach((vin) => {
+    if (txContent.data.version < 5 && txContent.data.version > 0) {
+      txContent.data.vin.forEach((vin) => {
         if (!vin.coinbase) {
           // we need an address who sent those coins and amount of it.
           sendersToFetch.push(vin);
@@ -133,15 +153,25 @@ async function processBlock(blockHeight) {
     });
     const database = db.db(config.database.zelcash.database);
     console.log('dropping collection');
-    const result = await serviceHelper.dropCollection(database, transactionIndexCollection).catch((error) => {
+    const result = await serviceHelper.dropCollection(database, utxoIndexCollection).catch((error) => {
       if (error.message !== 'ns not found') {
         db.close();
         log.error(error);
         throw error;
       }
     });
+    // delete
+    const resultB = await serviceHelper.dropCollection(database, transactionIndexCollection).catch((error) => {
+      if (error.message !== 'ns not found') {
+        db.close();
+        log.error(error);
+        throw error;
+      }
+    });
+    //
     console.log(result);
-    database.collection(transactionIndexCollection).createIndex({ txid: 1 });
+    database.collection(utxoIndexCollection).createIndex({ txid: 1 });
+    database.collection(utxoIndexCollection).createIndex({ height: 1 });
   }
 
   // get Block information
@@ -158,12 +188,13 @@ async function processBlock(blockHeight) {
     throw error;
   });
   // now we have verbose transactions of the block extended for senders (vout type). So we go through senders (basically better vin) and vout.
+  // and can create addressIndex.
   if (blockData.height % 1000 === 0) {
     console.log(transactions);
   }
   if (blockHeight % 5000 === 0) {
     const database = db.db(config.database.zelcash.database);
-    const result = await serviceHelper.collectionStats(database, transactionIndexCollection).catch((error) => {
+    const result = await serviceHelper.collectionStats(database, utxoIndexCollection).catch((error) => {
       db.close();
       log.error(error);
       throw error;
