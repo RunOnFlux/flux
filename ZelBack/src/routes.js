@@ -262,6 +262,12 @@ module.exports = (app, expressWs) => {
   app.get('/explorer/getallutxos', (req, res) => {
     explorerService.getAllUtxos(req, res);
   });
+  app.get('/explorer/utxo/:address?', (req, res) => {
+    explorerService.getAddressUtxos(req, res);
+  });
+  app.get('/explorer/transactions/:address?', (req, res) => {
+    explorerService.getAddressTransactions(req, res);
+  });
 
   // GET PROTECTED API - User level
   app.get('/zelcash/prioritisetransaction/:txid?/:prioritydelta?/:feedelta?', (req, res) => {

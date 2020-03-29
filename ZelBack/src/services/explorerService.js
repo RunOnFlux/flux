@@ -320,6 +320,83 @@ async function getAllUtxos(req, res) {
     log.error(error);
     throw error;
   });
+  console.log(results);
+  dbopen.close();
+  const resMessage = serviceHelper.createDataMessage(results);
+  return res.json(resMessage);
+}
+
+async function getAddressUtxos(req, res) {
+  let { address } = req.params; // we accept both help/command and help?command=getinfo
+  address = address || req.query.command || '';
+  if (!address) {
+    const errMessage = serviceHelper.createErrorMessage('No address provided');
+    return res.json(errMessage);
+  }
+  const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+    log.error(error);
+    throw error;
+  });
+  const database = dbopen.db(config.database.zelcash.database);
+  const query = { address };
+  const projection = {
+    projection: {
+      _id: 0,
+      txid: 1,
+      voutIndex: 1,
+      height: 1,
+      address: 1,
+      satoshis: 1,
+      scriptPubKey: 1,
+    },
+  };
+  // findOneInDatabase
+  const results = await serviceHelper.findInDatabase(database, utxoIndexCollection, query, projection).catch((error) => {
+    dbopen.close();
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+    log.error(error);
+    throw error;
+  });
+  console.log(results);
+  dbopen.close();
+  const resMessage = serviceHelper.createDataMessage(results);
+  return res.json(resMessage);
+}
+
+async function getAddressTransactions(req, res) {
+  let { address } = req.params; // we accept both help/command and help?command=getinfo
+  address = address || req.query.command || '';
+  if (!address) {
+    const errMessage = serviceHelper.createErrorMessage('No address provided');
+    return res.json(errMessage);
+  }
+  const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+    log.error(error);
+    throw error;
+  });
+  const database = dbopen.db(config.database.zelcash.database);
+  const query = { address };
+  const projection = {
+    projection: {
+      _id: 0,
+      transactions: 1,
+      address: 1,
+    },
+  };
+  // findOneInDatabase
+  const results = await serviceHelper.findInDatabase(database, addressTransactionIndexCollection, query, projection).catch((error) => {
+    dbopen.close();
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+    log.error(error);
+    throw error;
+  });
+  console.log(results);
   dbopen.close();
   const resMessage = serviceHelper.createDataMessage(results);
   return res.json(resMessage);
@@ -328,4 +405,6 @@ async function getAllUtxos(req, res) {
 module.exports = {
   processBlock,
   getAllUtxos,
+  getAddressUtxos,
+  getAddressTransactions,
 };
