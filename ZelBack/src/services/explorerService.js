@@ -191,6 +191,7 @@ async function processBlock(blockHeight) {
     // below is not needed but may be some day
     // database.collection(utxoIndexCollection).createIndex({ txid: 1 }, { name: 'query for utxos for specific txid' });
     // database.collection(utxoIndexCollection).createIndex({ height: 1 }, { name: 'query for utxos created on specific height' });
+    database.collection(addressTransactionIndexCollection).createIndex({ address: 1 }, { name: 'query for addresses transactions' });
     // database.collection(zelnodeTransactionCollection).createIndex({ ip: 1 }, { name: 'query for getting list of zelnode txs associated to IP address' });
   }
 
@@ -245,9 +246,9 @@ async function processBlock(blockHeight) {
             log.error(error);
             throw error;
           });
-          if (tx.height % 101 === 0) {
-            console.log(existingAddressRecord);
-          }
+          // if (tx.height % 1011 === 0) {
+          //   console.log(existingAddressRecord);
+          // }
         } else {
           const value = {
             address,
@@ -267,10 +268,10 @@ async function processBlock(blockHeight) {
     }
   }));
   // addressTransactionIndex shall contains object of address: address, transactions: [txids]
-  if (blockData.height % 999 === 0) {
-    console.log(transactions);
-  }
-  if (blockHeight % 5000 === 0) {
+  // if (blockData.height % 999 === 0) {
+  //   console.log(transactions);
+  // }
+  if (blockHeight % 1000 === 0) {
     const database = db.db(config.database.zelcash.database);
     const result = await serviceHelper.collectionStats(database, utxoIndexCollection).catch((error) => {
       db.close();
@@ -282,8 +283,8 @@ async function processBlock(blockHeight) {
       log.error(error);
       throw error;
     });
-    console.log(result);
-    console.log(resultB);
+    console.log('UTXO', result.size, result.count, result.avgObjSize);
+    console.log('ADDR', resultB.size, resultB.count, resultB.avgObjSize);
   }
   if (blockData.height < 100000) {
     processBlock(blockData.height + 1);
