@@ -468,10 +468,15 @@ export default {
           // eslint-disable-next-line no-await-in-loop
           const senderInformation = await this.getSender(sender.txid, sender.vout);
           senders.push(senderInformation);
+          const txDetail = tx;
+          txDetail.senders = senders;
+          this.transactionDetail = txDetail;
+          this.uniqueKey += 1;
         }
         const txDetail = tx;
         txDetail.senders = senders;
         this.transactionDetail = txDetail;
+        this.uniqueKey += 1;
       } else {
         this.transactionDetail = tx;
       }

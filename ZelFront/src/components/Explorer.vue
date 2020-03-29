@@ -243,6 +243,11 @@
           <Transaction :transaction="transaction" />
           <br>
         </div>
+        <div v-if="blocksWithTransaction[height].transactions">
+          <p v-if="blocksWithTransaction[height].transactions.length < blocksWithTransaction[height].tx.length">
+            Loading More Transactions...
+          </p>
+        </div>
       </div>
     </div>
     <div v-if="explorerSection === 'transaction'">
@@ -819,6 +824,7 @@ export default {
     },
     async getBlockTransactions(transactionArray, height) {
       this.blocksWithTransaction[height].transactions = [];
+      this.uniqueKeyBlock += 1;
       const verbose = 1;
       // parallel is not possible as zelcash will result in error 500
       // await Promise.all(transactionArray.map(async (transaction) => {
@@ -834,8 +840,8 @@ export default {
         if (txContent.data.status === 'success') {
           this.blocksWithTransaction[height].transactions.push(txContent.data.data);
         }
+        this.uniqueKeyBlock += 1;
       }
-      this.uniqueKeyBlock += 1;
       console.log(this.blocksWithTransaction);
     },
     async getBlock(heightOrHash) {
@@ -878,12 +884,17 @@ export default {
             // eslint-disable-next-line no-await-in-loop
             const senderInformation = await this.getSender(sender.txid, sender.vout);
             senders.push(senderInformation);
+            const txDetail = txContent.data.data;
+            txDetail.senders = senders;
+            this.transactionDetail = txDetail;
+            this.uniqueKey += 1;
           }
           const txDetail = txContent.data.data;
           txDetail.senders = senders;
           this.transactionDetail = txDetail;
         } else {
           this.transactionDetail = txContent.data.data;
+          this.uniqueKey += 1;
         }
       } else {
         vue.$message.info('Not found');
