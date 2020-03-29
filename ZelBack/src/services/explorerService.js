@@ -7,9 +7,9 @@ const zelcashService = require('./zelcashService');
 const mongoUrl = `mongodb://${config.database.url}:${config.database.port}/`;
 
 const utxoIndexCollection = config.database.zelcash.collections.utxoIndex;
-const transactionIndexCollection = config.database.zelcash.collections.transactionIndex;
-const addressIndexCollection = config.database.zelcash.collections.addressIndex;
+const addressTransactionIndexCollection = config.database.zelcash.collections.addressTransactionIndex;
 const scannedHeightCollection = config.database.zelcash.collections.scannedHeight;
+const zelnodeTransactionCollection = config.database.zelcash.collections.zelnodeTransactions;
 let db = null;
 
 // async function getSender(txid, vout) {
@@ -50,7 +50,7 @@ async function getSender(txid, vout) {
     throw error;
   });
 
-  const sender = txContent.vout;
+  const sender = txContent;
   return sender;
 }
 
@@ -69,12 +69,14 @@ async function getTransaction(hash) {
     transactionDetail = txContent.data;
     // if transaction has no vouts, it cannot be an utxo. Do not store it.
     await Promise.all(txContent.data.vout.map(async (vout, index) => {
-      // we need only txid, vout and height. voutIndex is used for identification too.
+      // we need only utxo related information
       const utxoDetail = {
         txid: txContent.data.txid,
         voutIndex: index,
-        vout,
         height: txContent.data.height,
+        address: vout.scriptPubKey.addresses[0],
+        satoshis: vout.valueSat,
+        scriptPubKey: vout.scriptPubKey.hex,
       };
       // put the utxo to our mongoDB utxoIndex collection.
       await serviceHelper.insertOneToDatabase(database, utxoIndexCollection, utxoDetail).catch((error) => {
@@ -153,7 +155,7 @@ async function processBlock(blockHeight) {
       throw error;
     });
     const database = db.db(config.database.zelcash.database);
-    console.log('dropping collection');
+    console.log('dropping collections');
     const result = await serviceHelper.dropCollection(database, utxoIndexCollection).catch((error) => {
       if (error.message !== 'ns not found') {
         db.close();
@@ -161,10 +163,35 @@ async function processBlock(blockHeight) {
         throw error;
       }
     });
-    console.log(result);
+    const resultB = await serviceHelper.dropCollection(database, addressTransactionIndexCollection).catch((error) => {
+      if (error.message !== 'ns not found') {
+        db.close();
+        log.error(error);
+        throw error;
+      }
+    });
+    const resultC = await serviceHelper.dropCollection(database, zelnodeTransactionCollection).catch((error) => {
+      if (error.message !== 'ns not found') {
+        db.close();
+        log.error(error);
+        throw error;
+      }
+    });
+    const resultD = await serviceHelper.dropCollection(database, scannedHeightCollection).catch((error) => {
+      if (error.message !== 'ns not found') {
+        db.close();
+        log.error(error);
+        throw error;
+      }
+    });
+    console.log(result, resultB, resultC, resultD);
     database.collection(utxoIndexCollection).createIndex({ txid: 1, voutIndex: 1 }, { name: 'query for getting utxo' });
-    database.collection(utxoIndexCollection).createIndex({ txid: 1 }, { name: 'query for utxos for specific txid' });
-    database.collection(utxoIndexCollection).createIndex({ height: 1 }, { name: 'query for utxos created on specific height' });
+    database.collection(utxoIndexCollection).createIndex({ address: 1 }, { name: 'query for addresses utxo' });
+    database.collection(utxoIndexCollection).createIndex({ scriptPubKey: 1 }, { name: 'query for scriptPubKey utxo' });
+    // below is not needed but may be some day
+    // database.collection(utxoIndexCollection).createIndex({ txid: 1 }, { name: 'query for utxos for specific txid' });
+    // database.collection(utxoIndexCollection).createIndex({ height: 1 }, { name: 'query for utxos created on specific height' });
+    // database.collection(zelnodeTransactionCollection).createIndex({ ip: 1 }, { name: 'query for getting list of zelnode txs associated to IP address' });
   }
 
   // get Block information
@@ -180,8 +207,66 @@ async function processBlock(blockHeight) {
     log.error(error);
     throw error;
   });
-  // now we have verbose transactions of the block extended for senders (vout type). So we go through senders (basically better vin) and vout.
-  // and can create addressIndex.
+  // now we have verbose transactions of the block extended for senders - object of
+  // utxoDetail = { txid, voutIndex, height, address, satoshis, scriptPubKey )
+  // and can create addressTransactionIndex.
+  // amount in address can be calculated from utxos. We do not need to store it.
+  await Promise.all(transactions.map(async (tx) => {
+    const database = db.db(config.database.zelcash.database);
+    // normal transactions
+    if (tx.version < 5 && tx.version > 0) {
+      const addresses = [];
+      tx.senders.forEach((sender) => {
+        addresses.push(sender.address);
+      });
+      tx.vout.forEach((sender) => {
+        addresses.push(sender.address);
+      });
+      const addressesOK = [...new Set(addresses)];
+      const transactionRecord = { txid: tx.txid, height: tx.height };
+      // update addresses from addressesOK array in our database. We need blockheight there too. transac
+      await Promise.all(addressesOK.map(async (address) => {
+        const query = { address };
+        const projection = {};
+        const existingAddressRecord = await serviceHelper.findOneInDatabase(database, addressTransactionIndexCollection, query, projection).catch((error) => {
+          db.close();
+          log.error(error);
+          throw error;
+        });
+        if (existingAddressRecord) {
+          const txRecords = existingAddressRecord.transactions;
+          txRecords.push(transactionRecord);
+          const newValue = {
+            address,
+            transactions: txRecords,
+          };
+          await serviceHelper.updateOneInDatabase(database, addressTransactionIndexCollection, query, newValue).catch((error) => {
+            db.close();
+            log.error(error);
+            throw error;
+          });
+          if (tx.height % 100 === 0) {
+            console.log(existingAddressRecord);
+          }
+        } else {
+          const value = {
+            address,
+            transactions: [transactionRecord],
+          };
+          await serviceHelper.insertOneToDatabase(database, addressTransactionIndexCollection, value).catch((error) => {
+            db.close();
+            log.error(error);
+            throw error;
+          });
+        }
+      }));
+    }
+    // tx version 5 are zelnode transactions. Put them into zelnode
+    if (tx.version === 5) {
+      // todo. We can get an address from getSender method too as that utxo was not spent yet.
+    }
+  }));
+  // addressTransactionIndex shall contains object of address: address, transactions: [txids]
   if (blockData.height % 1000 === 0) {
     console.log(transactions);
   }
