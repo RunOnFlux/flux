@@ -12,23 +12,6 @@ const scannedHeightCollection = config.database.zelcash.collections.scannedHeigh
 const zelnodeTransactionCollection = config.database.zelcash.collections.zelnodeTransactions;
 let db = null;
 
-// async function getSender(txid, vout) {
-//   const verbose = 1;
-
-//   const req = {
-//     params: {
-//       txid,
-//       verbose,
-//     },
-//   };
-//   const txContent = await zelcashService.getRawTransaction(req);
-//   if (txContent.status === 'success') {
-//     const sender = txContent.data.vout[vout];
-//     return sender;
-//   }
-//   throw txContent.data;
-// }
-
 async function getSender(txid, vout) {
   const database = db.db(config.database.zelcash.database);
   const query = { $and: [{ txid }, { voutIndex: vout }] };
@@ -294,7 +277,7 @@ async function processBlock(blockHeight) {
     console.log('UTXO', result.size, result.count, result.avgObjSize);
     console.log('ADDR', resultB.size, resultB.count, resultB.avgObjSize);
   }
-  if (blockData.height <= 10330) {
+  if (blockData.height <= 500000) {
     processBlock(blockData.height + 1);
   } else {
     db.close();
