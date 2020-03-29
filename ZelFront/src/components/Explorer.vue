@@ -478,14 +478,14 @@
                       Newly generated coins
                     </div>
                     <div
-                      :key="transactionDetailSenders[transactionDetail.vin[i - 1].txid + transactionDetail.vin[i - 1].vout]"
-                      v-else-if="typeof transactionDetailSenders[transactionDetail.vin[i - 1].txid + transactionDetail.vin[i - 1].vout] === 'object'"
+                      :key="transactionDetail.senders[i - 1]"
+                      v-else-if="typeof transactionDetail.senders[i - 1] === 'object'"
                     >
-                      {{ transactionDetailSenders[transactionDetail.vin[i - 1].txid + transactionDetail.vin[i - 1].vout].value }} ZEL
-                      {{ transactionDetailSenders[transactionDetail.vin[i - 1].txid + transactionDetail.vin[i - 1].vout].scriptPubKey.addresses[0] }}
+                      {{ transactionDetail.senders[i - 1].value }} ZEL
+                      {{ transactionDetail.senders[i - 1].scriptPubKey.addresses[0] }}
                     </div>
                     <div v-else>
-                      {{ transactionDetailSenders[transactionDetail.vin[i - 1].txid + transactionDetail.vin[i - 1].vout] || 'Loading Sender' }}
+                      {{ transactionDetail.senders[i - 1] || 'Loading Sender' }}
                     </div>
                   </div>
                 </div>
@@ -702,7 +702,6 @@ export default {
       blocksWithTransaction: {},
       height: 0,
       transactionDetail: {},
-      transactionDetailSenders: {},
       uniqueKey: 100000,
       uniqueKeyBlock: 10000,
     };
@@ -803,6 +802,7 @@ export default {
       for (let i = startingBlockHeight; i <= height; i += 1) {
         blocksToFetch.push(i);
       }
+      // parallel may result in error 500
       await Promise.all(blocksToFetch.map(async (blockIndex) => {
         const blockContent = await ZelCashService.getBlock(blockIndex, verbosity);
         if (blockContent.data.status === 'success') {
@@ -816,12 +816,21 @@ export default {
     async getBlockTransactions(transactionArray, height) {
       this.blocksWithTransaction[height].transactions = [];
       const verbose = 1;
-      await Promise.all(transactionArray.map(async (transaction) => {
+      // parallel is not possible as zelcash will result in error 500
+      // await Promise.all(transactionArray.map(async (transaction) => {
+      //   const txContent = await ZelCashService.getRawTransaction(transaction, verbose);
+      //   if (txContent.data.status === 'success') {
+      //     this.blocksWithTransaction[height].transactions.push(txContent.data.data);
+      //   }
+      // }));
+      // eslint-disable-next-line no-restricted-syntax
+      for (const transaction of transactionArray) {
+        // eslint-disable-next-line no-await-in-loop
         const txContent = await ZelCashService.getRawTransaction(transaction, verbose);
         if (txContent.data.status === 'success') {
           this.blocksWithTransaction[height].transactions.push(txContent.data.data);
         }
-      }));
+      }
       this.uniqueKeyBlock += 1;
       console.log(this.blocksWithTransaction);
     },
@@ -849,13 +858,25 @@ export default {
       const txContent = await ZelCashService.getRawTransaction(hash, verbose);
       console.log(txContent);
       if (txContent.data.status === 'success') {
-        this.transactionDetail = txContent.data.data;
         if (this.transactionDetail.version < 5 && this.transactionDetail.version > 0) {
-          this.transactionDetail.vin.forEach((vin, index) => {
-            if (!this.transactionDetail.vin[index].coinbase) {
-              this.getSender(this.transactionDetail.vin[index].txid, this.transactionDetail.vin[index].vout);
+          const sendersToFetch = [];
+          this.transactionDetail.vin.forEach((vin) => {
+            if (!vin.coinbase) {
+              sendersToFetch.push(vin);
             }
           });
+          const senders = [];
+          // eslint-disable-next-line no-restricted-syntax
+          for (const sender of sendersToFetch) {
+            // eslint-disable-next-line no-await-in-loop
+            const senderInformation = await this.getSender(sender.txid, sender.vout);
+            senders.push(senderInformation);
+          }
+          const txDetail = txContent.data.data;
+          txDetail.senders = senders;
+          this.transactionDetail = txDetail;
+        } else {
+          this.transactionDetail = txContent.data.data;
         }
       } else {
         vue.$message.info('Not found');
@@ -898,23 +919,19 @@ export default {
       const buf = Buffer.from(hex, 'hex').reverse();
       return parseInt(buf.toString('hex'), 16);
     },
-    sender(txid, vout) {
-      this.getSender(txid, vout);
-      return this.transactionDetailSenders[txid + vout];
-    },
     async getSender(txid, vout) {
       const verbose = 1;
       const txContent = await ZelCashService.getRawTransaction(txid, verbose);
       console.log(txContent);
       if (txContent.data.status === 'success') {
         const sender = txContent.data.data.vout[vout];
-        this.transactionDetailSenders[txid + vout] = sender;
-      } else {
-        this.transactionDetailSenders[txid + vout] = 'Sender not found';
+        this.calculateTxFee();
+        this.uniqueKey += 1;
+        return sender;
       }
-      console.log(this.transactionDetailSenders);
       this.calculateTxFee();
       this.uniqueKey += 1;
+      return 'Sender not found';
     },
     calculateTxFee() {
       if (this.transactionDetail.version === 5) {
@@ -928,15 +945,13 @@ export default {
       const value = this.transactionDetail.valueBalanceZat || 0;
       let valueOut = 0;
       let valueIn = 0;
-      this.transactionDetail.vin.forEach((vin, index) => {
-        if (!this.transactionDetail.vin[index].coinbase) {
-          if (typeof this.transactionDetailSenders[this.transactionDetail.vin[index].txid + this.transactionDetail.vin[index].vout] === 'object') {
-            valueIn += this.transactionDetailSenders[this.transactionDetail.vin[index].txid + this.transactionDetail.vin[index].vout].valueZat;
-          }
+      this.transactionDetail.sender.forEach((sender) => {
+        if (typeof sender === 'object') {
+          valueIn += sender.valueSat;
         }
       });
       this.transactionDetail.vout.forEach((vout) => {
-        valueOut += vout.valueZat;
+        valueOut += vout.valueSat;
       });
       this.transactionDetail.vJoinSplit.forEach((tx) => {
         valueIn += tx.vpub_newZat;
