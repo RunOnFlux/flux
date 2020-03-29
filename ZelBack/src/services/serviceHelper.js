@@ -103,7 +103,11 @@ function ensureString(parameter) {
 // MongoDB functions
 async function connectMongoDb(url) {
   const connectUrl = url || mongoUrl;
-  const db = await MongoClient.connect(connectUrl).catch((error) => { throw error; });
+  const mongoSettings = {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+  };
+  const db = await MongoClient.connect(connectUrl, mongoSettings).catch((error) => { throw error; });
   return db;
 }
 

@@ -71,6 +71,7 @@ async function getTransaction(hash) {
       // if transaction has no vouts, it cannot be an utxo. Do not store it.
       await Promise.all(transactionDetail.vout.map(async (vout, index) => {
         // we need only utxo related information
+        // TODO if tx.vin is type of coinbase!
         const utxoDetail = {
           txid: txContent.data.txid,
           voutIndex: index,
