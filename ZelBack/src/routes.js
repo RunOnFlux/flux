@@ -277,6 +277,9 @@ module.exports = (app, expressWs) => {
   app.get('/explorer/transactions/:address?', (req, res) => {
     explorerService.getAddressTransactions(req, res);
   });
+  app.get('/explorer/scannedheight', (req, res) => {
+    explorerService.getScannedHeight(req, res);
+  });
 
   // GET PROTECTED API - User level
   app.get('/zelcash/prioritisetransaction/:txid?/:prioritydelta?/:feedelta?', (req, res) => {
