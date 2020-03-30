@@ -582,7 +582,7 @@ async function getScannedHeight(req, res) {
   return res.json(resMessage);
 }
 
-async function checkBlockProcessingStopping(callback, i) {
+async function checkBlockProcessingStopping(i, callback) {
   if (blockProccessingCanContinue) {
     const succMessage = serviceHelper.createSuccessMessage('Block processing is stopped');
     callback(succMessage);
@@ -602,7 +602,7 @@ async function checkBlockProcessingStopping(callback, i) {
 async function reindexExplorer(req, res) {
   // stop block processing
   blockProccessingCanContinue = false;
-  checkBlockProcessingStopping(async (response) => {
+  checkBlockProcessingStopping(0, async (response) => {
     if (response.status === 'error') {
       res.json(response);
     } else {
