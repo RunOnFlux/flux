@@ -374,7 +374,7 @@ async function initiateBlockProcessor() {
     // database.collection(zelnodeTransactionCollection).createIndex({ ip: 1 }, { name: 'query for getting list of zelnode txs associated to IP address' });
   } else {
     const databaseRestored = await restoreDatabaseToBlockheightState(scannedBlockHeight);
-    console.log(`Database resotre status: ${databaseRestored}`);
+    console.log(`Database restore status: ${databaseRestored}`);
     if (!databaseRestored) {
       log.error('Error restoring database!');
       throw new Error('Error restoring database!');
@@ -656,6 +656,7 @@ async function restartBlockProcessing(req, res) {
   const i = 0;
   blockProccessingCanContinue = false;
   checkBlockProcessingStopping(i, async () => {
+    blockProccessingCanContinue = true;
     initiateBlockProcessor();
     const message = serviceHelper.createSuccessMessage('Block processing initiated');
     res.json(message);
