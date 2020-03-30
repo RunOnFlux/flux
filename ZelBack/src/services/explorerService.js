@@ -582,31 +582,15 @@ async function getScannedHeight(req, res) {
   return res.json(resMessage);
 }
 
-async function checkBlockProcessing(callback, i) {
+async function checkBlockProcessingStopping(callback, i) {
   if (blockProccessingCanContinue) {
-    const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
-      const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
-      log.error(errMessage);
-      callback(errMessage);
-    });
-    const database = dbopen.db(config.database.zelcash.database);
-    await serviceHelper.dropCollection(database, scannedHeightCollection).catch((error) => {
-      if (error.message !== 'ns not found') {
-        dbopen.close();
-        log.error(error);
-        const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
-        callback(errMessage);
-      }
-    });
-    dbopen.close();
-    initiateBlockProcessor();
-    const message = serviceHelper.createSuccessMessage('Explorer database reindex initiated');
-    callback(message);
+    const succMessage = serviceHelper.createSuccessMessage('Block processing is stopped');
+    callback(succMessage);
   } else {
     setTimeout(() => {
       const j = i + 1;
       if (j < 10) {
-        checkBlockProcessing(callback, j);
+        checkBlockProcessingStopping(callback, j);
       } else {
         const errMessage = serviceHelper.createErrorMessage('Uknown error occured. Try again later.');
         callback(errMessage);
@@ -618,8 +602,31 @@ async function checkBlockProcessing(callback, i) {
 async function reindexExplorer(req, res) {
   // stop block processing
   blockProccessingCanContinue = false;
-  checkBlockProcessing((response) => {
-    res.json(response);
+  checkBlockProcessingStopping(async (response) => {
+    if (response.status === 'error') {
+      res.json(response);
+    } else {
+      const dbopen = await serviceHelper.connectMongoDb(mongoUrl).then(async () => {
+        const database = dbopen.db(config.database.zelcash.database);
+        await serviceHelper.dropCollection(database, scannedHeightCollection).then(() => {
+          dbopen.close();
+          initiateBlockProcessor();
+          const message = serviceHelper.createSuccessMessage('Explorer database reindex initiated');
+          res.json(message);
+        }).catch((error) => {
+          if (error.message !== 'ns not found') {
+            dbopen.close();
+            log.error(error);
+            const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+            res.json(errMessage);
+          }
+        });
+      }).catch((error) => {
+        const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+        log.error(errMessage);
+        res.json(errMessage);
+      });
+    }
   });
 }
 
