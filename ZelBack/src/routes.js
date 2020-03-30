@@ -283,6 +283,9 @@ module.exports = (app, expressWs) => {
   app.get('/explorer/reindex', (req, res) => {
     explorerService.reindexExplorer(req, res);
   });
+  app.get('/explorer/rescan/:blockheight?', (req, res) => {
+    explorerService.rescanExplorer(req, res);
+  });
 
   // GET PROTECTED API - User level
   app.get('/zelcash/prioritisetransaction/:txid?/:prioritydelta?/:feedelta?', (req, res) => {

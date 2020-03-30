@@ -274,6 +274,33 @@ async function processBlock(blockHeight) {
   }
 }
 
+async function restoreDatabaseToBlockheightState(height) {
+  if (!height) {
+    throw new Error('No blockheight for restoring provided');
+  }
+  const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
+    throw error;
+  });
+  const database = dbopen.db(config.database.zelcash.database);
+  // restore utxoDatabase
+  // restore addressTransactionIndex database
+  // restore zelnodeTransactions database
+  const query = { height: { $gt: height } };
+  await serviceHelper.removeDocumentsFromCollection(database, utxoIndexCollection, query).catch((error) => {
+    log.error(error);
+    throw error;
+  });
+  await serviceHelper.removeDocumentsFromCollection(database, addressTransactionIndexCollection, query).catch((error) => {
+    log.error(error);
+    throw error;
+  });
+  await serviceHelper.removeDocumentsFromCollection(database, zelnodeTransactionCollection, query).catch((error) => {
+    log.error(error);
+    throw error;
+  });
+  return true;
+}
+
 async function initiateBlockProcessor() {
   db = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
     log.error(error);
@@ -335,7 +362,12 @@ async function initiateBlockProcessor() {
     database.collection(addressTransactionIndexCollection).createIndex({ address: 1 }, { name: 'query for addresses transactions' });
     // database.collection(zelnodeTransactionCollection).createIndex({ ip: 1 }, { name: 'query for getting list of zelnode txs associated to IP address' });
   } else {
-    // todo delete all data that have height > than our scannedHeight
+    const databaseRestored = await restoreDatabaseToBlockheightState(scannedBlockHeight);
+    console.log(databaseRestored);
+    if (!databaseRestored) {
+      log.error('Error restoring database!');
+      throw new Error('Error restoring database!');
+    }
   }
   if (zelcashHeight > scannedBlockHeight) {
     processBlock(scannedBlockHeight + 1);
@@ -635,10 +667,53 @@ async function reindexExplorer(req, res) {
   });
 }
 
+async function rescanExplorer(req, res) {
+  // since what blockheight
+  let { blockheight } = req.params; // we accept both help/command and help?command=getinfo
+  blockheight = blockheight || req.query.command || '';
+  if (!blockheight) {
+    const errMessage = serviceHelper.createErrorMessage('No blockheight provided');
+    res.json(errMessage);
+  }
+  // stop block processing
+  blockProccessingCanContinue = false;
+  const i = 0;
+  if (blockheight) {
+    checkBlockProcessingStopping(i, async (response) => {
+      if (response.status === 'error') {
+        res.json(response);
+      } else {
+        const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
+          const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+          log.error(errMessage);
+          return res.json(errMessage);
+        });
+        const scannedHeight = serviceHelper.ensureNumber(blockheight);
+        // update scanned Height in scannedBlockHeightCollection
+        const database = dbopen.db(config.database.zelcash.database);
+        const query = { generalScannedHeight: { $gte: 0 } };
+        const update = { $set: { generalScannedHeight: scannedHeight } };
+        const options = { upsert: true };
+        await serviceHelper.findOneAndUpdateInDatabase(database, scannedHeightCollection, query, update, options).catch((error) => {
+          dbopen.close();
+          log.error(error);
+          const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+          return res.json(errMessage);
+        });
+        dbopen.close();
+        initiateBlockProcessor();
+        const message = serviceHelper.createSuccessMessage(`Explorer rescan from blockheight ${blockheight} initiated`);
+        res.json(message);
+      }
+    });
+  }
+}
+
 module.exports = {
   initiateBlockProcessor,
   processBlock,
   reindexExplorer,
+  rescanExplorer,
   getAllUtxos,
   getAllAddressesWithTransactions,
   getAllAddresses,
