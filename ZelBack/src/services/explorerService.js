@@ -328,6 +328,7 @@ async function initiateBlockProcessor() {
   } else {
     // todo delete all data that have height > than our scannedHeight
   }
+  console.log(blockProccessingCanContinue);
   if (blockProccessingCanContinue) {
     if (zelcashHeight > scannedBlockHeight) {
       processBlock(scannedBlockHeight + 1);
@@ -590,7 +591,7 @@ async function checkBlockProcessingStopping(i, callback) {
     setTimeout(() => {
       const j = i + 1;
       if (j < 10) {
-        checkBlockProcessingStopping(callback, j);
+        checkBlockProcessingStopping(j, callback);
       } else {
         const errMessage = serviceHelper.createErrorMessage('Uknown error occured. Try again later.');
         callback(errMessage);
@@ -602,7 +603,8 @@ async function checkBlockProcessingStopping(i, callback) {
 async function reindexExplorer(req, res) {
   // stop block processing
   blockProccessingCanContinue = false;
-  checkBlockProcessingStopping(0, async (response) => {
+  const i = 0;
+  checkBlockProcessingStopping(i, async (response) => {
     if (response.status === 'error') {
       res.json(response);
     } else {
