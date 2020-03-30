@@ -252,7 +252,7 @@ async function initiateBlockProcessor() {
     log.error(error);
     throw error;
   });
-  if (scannedBlockHeightsResult) {
+  if (scannedBlockHeightsResult[0]) {
     scannedBlockHeight = scannedBlockHeightsResult[0].generalScannedHeight;
   }
   const zelcashGetInfo = await zelcashService.getInfo();
