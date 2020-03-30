@@ -53,7 +53,7 @@ async function getSender(txid, vout) {
   });
   if (!txContent.value) {
     // we are spending it anyway so it wont affect users balance
-    log.error(`Transaction ${txid} ${vout} not found in database. Fall back to blockchain data`);
+    log.error(`Transaction ${txid} ${vout} not found in database. Falling back to blockchain data`);
     const zelcashSender = await getSenderTransactionFromZelCash(txid).catch((error) => {
       log.error(error);
       throw error;
@@ -608,26 +608,29 @@ async function reindexExplorer(req, res) {
     if (response.status === 'error') {
       res.json(response);
     } else {
-      const dbopen = await serviceHelper.connectMongoDb(mongoUrl).then(async () => {
-        const database = dbopen.db(config.database.zelcash.database);
-        await serviceHelper.dropCollection(database, scannedHeightCollection).then(() => {
-          dbopen.close();
-          initiateBlockProcessor();
-          const message = serviceHelper.createSuccessMessage('Explorer database reindex initiated');
-          res.json(message);
-        }).catch((error) => {
-          if (error.message !== 'ns not found') {
-            dbopen.close();
-            log.error(error);
-            const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
-            res.json(errMessage);
-          }
-        });
-      }).catch((error) => {
+      const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
         const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
         log.error(errMessage);
-        res.json(errMessage);
+        return res.json(errMessage);
       });
+      const database = dbopen.db(config.database.zelcash.database);
+      const resultOfDropping = await serviceHelper.dropCollection(database, scannedHeightCollection).catch((error) => {
+        if (error.message !== 'ns not found') {
+          dbopen.close();
+          log.error(error);
+          const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+          res.json(errMessage);
+        }
+      });
+      dbopen.close();
+      if (resultOfDropping === true || resultOfDropping === undefined) {
+        initiateBlockProcessor();
+        const message = serviceHelper.createSuccessMessage('Explorer database reindex initiated');
+        res.json(message);
+      } else {
+        const errMessage = serviceHelper.createErrorMessage(resultOfDropping, 'Collection dropping error');
+        res.json(errMessage);
+      }
     }
   });
 }
