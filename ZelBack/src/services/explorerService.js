@@ -15,25 +15,30 @@ let db = null;
 async function getSender(txid, vout) {
   const database = db.db(config.database.zelcash.database);
   const query = { $and: [{ txid }, { voutIndex: vout }] };
-  const projection = {};
-  // find the utxo so we know the sender
-  const txContent = await serviceHelper.findOneInDatabase(database, utxoIndexCollection, query, projection).catch((error) => {
+  const projection = {
+    projection: {
+      _id: 0,
+      txid: 1,
+      voutIndex: 1,
+      height: 1,
+      address: 1,
+      satoshis: 1,
+      scriptPubKey: 1,
+    },
+  };
+
+  // find and delete the utxo from global utxo list
+  const txContent = await serviceHelper.findOneAndDeleteInDatabase(database, utxoIndexCollection, query, projection).catch((error) => {
     db.close();
     log.error(error);
     throw error;
   });
-  if (!txContent) {
+  if (!txContent.value) {
     const errMessage = serviceHelper.createErrorMessage(`Transaction ${txid} not found in database`);
     throw errMessage;
   }
-  // delete the utxo from global utxo list
-  await serviceHelper.findOneAndDeleteInDatabase(database, utxoIndexCollection, query, projection).catch((error) => {
-    db.close();
-    log.error(error);
-    throw error;
-  });
 
-  const sender = txContent;
+  const sender = txContent.value;
   return sender;
 }
 
@@ -214,38 +219,13 @@ async function processBlock(blockHeight) {
       // update addresses from addressesOK array in our database. We need blockheight there too. transac
       await Promise.all(addressesOK.map(async (address) => {
         const query = { address };
-        const projection = {};
-        const existingAddressRecord = await serviceHelper.findOneInDatabase(database, addressTransactionIndexCollection, query, projection).catch((error) => {
+        const update = { $set: { address }, $push: { transactions: transactionRecord } };
+        const options = { upsert: true };
+        await serviceHelper.findOneAndUpdateInDatabase(database, addressTransactionIndexCollection, query, update, options).catch((error) => {
           db.close();
           log.error(error);
           throw error;
         });
-        if (existingAddressRecord) {
-          const txRecords = existingAddressRecord.transactions;
-          txRecords.push(transactionRecord);
-          const newValue = {
-            address,
-            transactions: txRecords,
-          };
-          await serviceHelper.updateOneInDatabase(database, addressTransactionIndexCollection, query, newValue).catch((error) => {
-            db.close();
-            log.error(error);
-            throw error;
-          });
-          // if (tx.height % 1011 === 0) {
-          //   console.log(existingAddressRecord);
-          // }
-        } else {
-          const value = {
-            address,
-            transactions: [transactionRecord],
-          };
-          await serviceHelper.insertOneToDatabase(database, addressTransactionIndexCollection, value).catch((error) => {
-            db.close();
-            log.error(error);
-            throw error;
-          });
-        }
       }));
     }
     // tx version 5 are zelnode transactions. Put them into zelnode

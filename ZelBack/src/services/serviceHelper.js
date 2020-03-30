@@ -121,6 +121,12 @@ async function findOneInDatabase(database, collection, query, projection) {
   return result;
 }
 
+async function findOneAndUpdateInDatabase(database, collection, query, update, options) {
+  const passedOptions = options || {};
+  const result = await database.collection(collection).findOneAndUpdate(query, update, passedOptions).catch((error) => { throw error; });
+  return result;
+}
+
 async function insertOneToDatabase(database, collection, value) {
   const result = await database.collection(collection).insertOne(value).catch((error) => { throw error; });
   return result;
@@ -343,6 +349,7 @@ module.exports = {
   connectMongoDb,
   findInDatabase,
   findOneInDatabase,
+  findOneAndUpdateInDatabase,
   insertOneToDatabase,
   updateOneInDatabase,
   findOneAndDeleteInDatabase,
