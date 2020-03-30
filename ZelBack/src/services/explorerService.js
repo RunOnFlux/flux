@@ -645,14 +645,10 @@ async function stopBlockProcessing(req, res) {
 async function restartBlockProcessing(req, res) {
   const i = 0;
   blockProccessingCanContinue = false;
-  checkBlockProcessingStopping(i, async (response) => {
-    if (response.status === 'error') {
-      res.json(response);
-    } else {
-      initiateBlockProcessor();
-      const message = serviceHelper.createSuccessMessage('Block processing initiated');
-      res.json(message);
-    }
+  checkBlockProcessingStopping(i, async () => {
+    initiateBlockProcessor();
+    const message = serviceHelper.createSuccessMessage('Block processing initiated');
+    res.json(message);
   });
 }
 
