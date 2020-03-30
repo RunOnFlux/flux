@@ -254,14 +254,23 @@ async function processBlock(blockHeight) {
     log.error(error);
     throw error;
   });
-  if (blockData.confirmations > 1) {
-    processBlock(blockData.height + 1);
+  if (blockProccessingCanContinue) {
+    if (blockData.confirmations > 1) {
+      processBlock(blockData.height + 1);
+    } else {
+      db.close();
+      setTimeout(() => {
+        if (blockProccessingCanContinue) { // just a precaution because maybe it is just waiting
+          // eslint-disable-next-line no-use-before-define
+          initiateBlockProcessor();
+        } else {
+          blockProccessingCanContinue = true;
+        }
+      }, 5000);
+    }
   } else {
     db.close();
-    setTimeout(() => {
-      // eslint-disable-next-line no-use-before-define
-      initiateBlockProcessor();
-    }, 5000);
+    blockProccessingCanContinue = true;
   }
 }
 
@@ -328,22 +337,13 @@ async function initiateBlockProcessor() {
   } else {
     // todo delete all data that have height > than our scannedHeight
   }
-  console.log(blockProccessingCanContinue);
-  if (blockProccessingCanContinue) {
-    if (zelcashHeight > scannedBlockHeight) {
-      processBlock(scannedBlockHeight + 1);
-    } else {
-      db.close();
-      setTimeout(() => {
-        if (blockProccessingCanContinue) { // just a precaution because maybe it is just waiting
-          initiateBlockProcessor();
-        } else {
-          blockProccessingCanContinue = true;
-        }
-      }, 5000);
-    }
+  if (zelcashHeight > scannedBlockHeight) {
+    processBlock(scannedBlockHeight + 1);
   } else {
-    blockProccessingCanContinue = true;
+    db.close();
+    setTimeout(() => {
+      initiateBlockProcessor();
+    }, 5000);
   }
 }
 
