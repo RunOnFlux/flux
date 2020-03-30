@@ -540,6 +540,7 @@ async function getScannedHeight(req, res) {
 }
 
 module.exports = {
+  initiateBlockProcessor,
   processBlock,
   getAllUtxos,
   getAllAddressesWithTransactions,
