@@ -11,6 +11,7 @@ const addressTransactionIndexCollection = config.database.zelcash.collections.ad
 const scannedHeightCollection = config.database.zelcash.collections.scannedHeight;
 const zelnodeTransactionCollection = config.database.zelcash.collections.zelnodeTransactions;
 let db = null;
+let blockProccessingCanContinue = true;
 
 async function getSenderTransactionFromZelCash(txid) {
   const verbose = 1;
@@ -327,13 +328,21 @@ async function initiateBlockProcessor() {
   } else {
     // todo delete all data that have height > than our scannedHeight
   }
-  if (zelcashHeight > scannedBlockHeight) {
-    processBlock(scannedBlockHeight + 1);
+  if (blockProccessingCanContinue) {
+    if (zelcashHeight > scannedBlockHeight) {
+      processBlock(scannedBlockHeight + 1);
+    } else {
+      db.close();
+      setTimeout(() => {
+        if (blockProccessingCanContinue) { // just a precaution because maybe it is just waiting
+          initiateBlockProcessor();
+        } else {
+          blockProccessingCanContinue = true;
+        }
+      }, 5000);
+    }
   } else {
-    db.close();
-    setTimeout(() => {
-      initiateBlockProcessor();
-    }, 5000);
+    blockProccessingCanContinue = true;
   }
 }
 
@@ -559,6 +568,8 @@ async function getScannedHeight(req, res) {
   const result = await serviceHelper.findOneInDatabase(database, scannedHeightCollection, query, projection).catch((error) => {
     dbopen.close();
     log.error(error);
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
     throw error;
   });
   dbopen.close();
@@ -571,9 +582,51 @@ async function getScannedHeight(req, res) {
   return res.json(resMessage);
 }
 
+async function checkBlockProcessing(callback, i) {
+  if (blockProccessingCanContinue) {
+    const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
+      const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+      log.error(errMessage);
+      callback(errMessage);
+    });
+    const database = dbopen.db(config.database.zelcash.database);
+    await serviceHelper.dropCollection(database, scannedHeightCollection).catch((error) => {
+      if (error.message !== 'ns not found') {
+        dbopen.close();
+        log.error(error);
+        const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+        callback(errMessage);
+      }
+    });
+    dbopen.close();
+    initiateBlockProcessor();
+    const message = serviceHelper.createSuccessMessage('Explorer database reindex initiated');
+    callback(message);
+  } else {
+    setTimeout(() => {
+      const j = i + 1;
+      if (j < 10) {
+        checkBlockProcessing(callback, j);
+      } else {
+        const errMessage = serviceHelper.createErrorMessage('Uknown error occured. Try again later.');
+        callback(errMessage);
+      }
+    }, 1000);
+  }
+}
+
+async function reindexExplorer(req, res) {
+  // stop block processing
+  blockProccessingCanContinue = false;
+  checkBlockProcessing((response) => {
+    res.json(response);
+  });
+}
+
 module.exports = {
   initiateBlockProcessor,
   processBlock,
+  reindexExplorer,
   getAllUtxos,
   getAllAddressesWithTransactions,
   getAllAddresses,
