@@ -137,6 +137,11 @@ async function updateOneInDatabase(database, collection, query, value) {
   return result;
 }
 
+async function updateInDatabase(database, collection, query, projection) {
+  const result = await database.collection(collection).update(query, projection).catch((error) => { throw error; });
+  return result;
+}
+
 async function findOneAndDeleteInDatabase(database, collection, query, projection) {
   const result = await database.collection(collection).findOneAndDelete(query, projection).catch((error) => { throw error; });
   return result;
@@ -351,6 +356,7 @@ module.exports = {
   findOneInDatabase,
   findOneAndUpdateInDatabase,
   insertOneToDatabase,
+  updateInDatabase,
   updateOneInDatabase,
   findOneAndDeleteInDatabase,
   removeDocumentsFromCollection,

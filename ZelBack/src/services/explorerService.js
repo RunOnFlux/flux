@@ -286,12 +286,13 @@ async function restoreDatabaseToBlockheightState(height) {
   // restore addressTransactionIndex database
   // restore zelnodeTransactions database
   const query = { height: { $gt: height } };
-  const queryForAddresses = { 'transactions.$[].height': { $gt: height } }; // we need to remove those transactions in transactions field that have height greater than height
+  const queryForAddresses = { }; // we need to remove those transactions in transactions field that have height greater than height
+  const projection = { $pull: { transactions: { height: { $gt: height } } } };
   await serviceHelper.removeDocumentsFromCollection(database, utxoIndexCollection, query).catch((error) => {
     log.error(error);
     throw error;
   });
-  await serviceHelper.removeDocumentsFromCollection(database, addressTransactionIndexCollection, queryForAddresses).catch((error) => {
+  await serviceHelper.updateInDatabase(database, addressTransactionIndexCollection, queryForAddresses, projection).catch((error) => {
     log.error(error);
     throw error;
   });
