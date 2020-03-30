@@ -12,6 +12,23 @@ const scannedHeightCollection = config.database.zelcash.collections.scannedHeigh
 const zelnodeTransactionCollection = config.database.zelcash.collections.zelnodeTransactions;
 let db = null;
 
+async function getSenderTransactionFromZelCash(txid) {
+  const verbose = 1;
+  const req = {
+    params: {
+      txid,
+      verbose,
+    },
+  };
+
+  const txContent = await zelcashService.getRawTransaction(req);
+  if (txContent.status === 'success') {
+    const sender = txContent.data;
+    return sender;
+  }
+  throw txContent.data;
+}
+
 async function getSender(txid, vout) {
   const database = db.db(config.database.zelcash.database);
   const query = { $and: [{ txid }, { voutIndex: vout }] };
@@ -34,10 +51,23 @@ async function getSender(txid, vout) {
     throw error;
   });
   if (!txContent.value) {
-    const errMessage = serviceHelper.createErrorMessage(`Transaction ${txid} not found in database`);
-    throw errMessage;
+    // we are spending it anyway so it wont affect users balance
+    log.error(`Transaction ${txid} ${vout} not found in database. Fall back to blockchain data`);
+    const zelcashSender = await getSenderTransactionFromZelCash(txid).catch((error) => {
+      log.error(error);
+      throw error;
+    });
+    const senderData = zelcashSender.vout[vout];
+    const zelcashTxContent = {
+      txid,
+      voutIndex: vout,
+      height: zelcashSender.height,
+      address: senderData.scriptPubKey.addresses[0],
+      satoshis: senderData.valueSat,
+      scriptPubKey: senderData.scriptPubKey.hex,
+    };
+    return zelcashTxContent;
   }
-
   const sender = txContent.value;
   return sender;
 }
@@ -294,6 +324,8 @@ async function initiateBlockProcessor() {
     database.collection(utxoIndexCollection).createIndex({ scriptPubKey: 1 }, { name: 'query for scriptPubKey utxo' });
     database.collection(addressTransactionIndexCollection).createIndex({ address: 1 }, { name: 'query for addresses transactions' });
     // database.collection(zelnodeTransactionCollection).createIndex({ ip: 1 }, { name: 'query for getting list of zelnode txs associated to IP address' });
+  } else {
+    // todo delete all data that have height > than our scannedHeight
   }
   if (zelcashHeight > scannedBlockHeight) {
     processBlock(scannedBlockHeight + 1);
