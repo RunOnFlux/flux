@@ -257,7 +257,7 @@ async function processBlock(blockHeight) {
     console.log('UTXO', result.size, result.count, result.avgObjSize);
     console.log('ADDR', resultB.size, resultB.count, resultB.avgObjSize);
   }
-  if (blockData.height <= 500000) {
+  if (blockData.height <= 5000) {
     processBlock(blockData.height + 1);
   } else {
     db.close();
@@ -369,6 +369,33 @@ async function getAllAddressesWithTransactions(req, res) {
   return res.json(resMessage);
 }
 
+async function getAllAddresses(req, res) {
+  const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+    log.error(error);
+    throw error;
+  });
+  const database = dbopen.db(config.database.zelcash.database);
+  const query = {};
+  const projection = {
+    projection: {
+      _id: 0,
+      address: 1,
+    },
+  };
+  const results = await serviceHelper.findInDatabase(database, addressTransactionIndexCollection, query, projection).catch((error) => {
+    dbopen.close();
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+    log.error(error);
+    throw error;
+  });
+  dbopen.close();
+  const resMessage = serviceHelper.createDataMessage(results);
+  return res.json(resMessage);
+}
+
 async function getAddressUtxos(req, res) {
   let { address } = req.params; // we accept both help/command and help?command=getinfo
   address = address || req.query.command || '';
@@ -447,6 +474,7 @@ module.exports = {
   processBlock,
   getAllUtxos,
   getAllAddressesWithTransactions,
+  getAllAddresses,
   getAllZelNodeTransactions,
   getAddressUtxos,
   getAddressTransactions,

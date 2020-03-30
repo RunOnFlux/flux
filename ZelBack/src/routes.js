@@ -265,6 +265,9 @@ module.exports = (app, expressWs) => {
   app.get('/explorer/alladdresseswithtransactions', (req, res) => {
     explorerService.getAllAddressesWithTransactions(req, res);
   });
+  app.get('/explorer/alladdresses', (req, res) => {
+    explorerService.getAllAddresses(req, res);
+  });
   app.get('/explorer/zelnodetransactions', (req, res) => {
     explorerService.getAllZelNodeTransactions(req, res);
   });
