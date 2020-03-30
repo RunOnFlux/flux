@@ -138,7 +138,7 @@ async function updateOneInDatabase(database, collection, query, value) {
 }
 
 async function updateInDatabase(database, collection, query, projection) {
-  const result = await database.collection(collection).update(query, projection).catch((error) => { throw error; });
+  const result = await database.collection(collection).updateMany(query, projection).catch((error) => { throw error; });
   return result;
 }
 
