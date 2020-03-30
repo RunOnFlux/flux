@@ -286,11 +286,12 @@ async function restoreDatabaseToBlockheightState(height) {
   // restore addressTransactionIndex database
   // restore zelnodeTransactions database
   const query = { height: { $gt: height } };
+  const queryForAddresses = { 'transactions.$[].height': { $gt: height } }; // we need to remove those transactions in transactions field that have height greater than height
   await serviceHelper.removeDocumentsFromCollection(database, utxoIndexCollection, query).catch((error) => {
     log.error(error);
     throw error;
   });
-  await serviceHelper.removeDocumentsFromCollection(database, addressTransactionIndexCollection, query).catch((error) => {
+  await serviceHelper.removeDocumentsFromCollection(database, addressTransactionIndexCollection, queryForAddresses).catch((error) => {
     log.error(error);
     throw error;
   });
@@ -363,7 +364,7 @@ async function initiateBlockProcessor() {
     // database.collection(zelnodeTransactionCollection).createIndex({ ip: 1 }, { name: 'query for getting list of zelnode txs associated to IP address' });
   } else {
     const databaseRestored = await restoreDatabaseToBlockheightState(scannedBlockHeight);
-    console.log(databaseRestored);
+    console.log(`Database resotre status: ${databaseRestored}`);
     if (!databaseRestored) {
       log.error('Error restoring database!');
       throw new Error('Error restoring database!');
@@ -625,12 +626,35 @@ async function checkBlockProcessingStopping(i, callback) {
       if (j < 10) {
         checkBlockProcessingStopping(j, callback);
       } else {
-        const errMessage = serviceHelper.createErrorMessage('Uknown error occured. Try again later.');
+        const errMessage = serviceHelper.createErrorMessage('Unknown error occured. Try again later.');
         callback(errMessage);
       }
     }, 1000);
   }
 }
+
+async function stopBlockProcessing(req, res) {
+  const i = 0;
+  checkBlockProcessingStopping(i, async (response) => {
+    // put blockProccessingCanContinue status to true.
+    blockProccessingCanContinue = true;
+    res.json(response);
+  });
+}
+
+async function startBlockProcessing(req, res) {
+  const i = 0;
+  checkBlockProcessingStopping(i, async (response) => {
+    if (response.status === 'error') {
+      res.json(response);
+    } else {
+      initiateBlockProcessor();
+      const message = serviceHelper.createSuccessMessage('Block processing initiated');
+      res.json(message);
+    }
+  });
+}
+
 
 async function reindexExplorer(req, res) {
   // stop block processing
@@ -714,6 +738,8 @@ module.exports = {
   processBlock,
   reindexExplorer,
   rescanExplorer,
+  stopBlockProcessing,
+  startBlockProcessing,
   getAllUtxos,
   getAllAddressesWithTransactions,
   getAllAddresses,

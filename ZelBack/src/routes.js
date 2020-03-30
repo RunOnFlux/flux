@@ -283,6 +283,12 @@ module.exports = (app, expressWs) => {
   app.get('/explorer/reindex', (req, res) => {
     explorerService.reindexExplorer(req, res);
   });
+  app.get('/explorer/start', (req, res) => {
+    explorerService.startBlockProcessing(req, res);
+  });
+  app.get('/explorer/stop', (req, res) => {
+    explorerService.stopBlockProcessing(req, res);
+  });
   app.get('/explorer/rescan/:blockheight?', (req, res) => {
     explorerService.rescanExplorer(req, res);
   });
