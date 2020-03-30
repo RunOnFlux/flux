@@ -635,15 +635,16 @@ async function checkBlockProcessingStopping(i, callback) {
 
 async function stopBlockProcessing(req, res) {
   const i = 0;
+  blockProccessingCanContinue = false;
   checkBlockProcessingStopping(i, async (response) => {
     // put blockProccessingCanContinue status to true.
-    blockProccessingCanContinue = true;
     res.json(response);
   });
 }
 
-async function startBlockProcessing(req, res) {
+async function restartBlockProcessing(req, res) {
   const i = 0;
+  blockProccessingCanContinue = false;
   checkBlockProcessingStopping(i, async (response) => {
     if (response.status === 'error') {
       res.json(response);
@@ -739,7 +740,7 @@ module.exports = {
   reindexExplorer,
   rescanExplorer,
   stopBlockProcessing,
-  startBlockProcessing,
+  restartBlockProcessing,
   getAllUtxos,
   getAllAddressesWithTransactions,
   getAllAddresses,

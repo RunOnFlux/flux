@@ -144,7 +144,7 @@ async function findOneAndDeleteInDatabase(database, collection, query, projectio
 
 async function removeDocumentsFromCollection(database, collection, query) {
   // to remove all documents from collection, the query is just {}
-  const result = await database.collection(collection).remove(query).catch((error) => { throw error; });
+  const result = await database.collection(collection).deleteMany(query).catch((error) => { throw error; });
   return result;
 }
 
