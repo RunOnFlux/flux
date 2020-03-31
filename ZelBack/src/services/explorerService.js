@@ -835,6 +835,49 @@ async function rescanExplorer(req, res) {
   }
 }
 
+async function getAddressBalance(req, res) {
+  let { address } = req.params; // we accept both help/command and help?command=getinfo
+  address = address || req.query.command || '';
+  if (!address) {
+    const errMessage = serviceHelper.createErrorMessage('No address provided');
+    return res.json(errMessage);
+  }
+  const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+    log.error(error);
+    throw error;
+  });
+  const database = dbopen.db(config.database.zelcash.database);
+  const query = { address };
+  const projection = {
+    projection: {
+      _id: 0,
+      // txid: 1,
+      // voutIndex: 1,
+      // height: 1,
+      // address: 1,
+      satoshis: 1,
+      // scriptPubKey: 1,
+      // coinbase: 1,
+    },
+  };
+  const results = await serviceHelper.findInDatabase(database, utxoIndexCollection, query, projection).catch((error) => {
+    dbopen.close();
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+    log.error(error);
+    throw error;
+  });
+  dbopen.close();
+  let balance = 0;
+  results.forEach((utxo) => {
+    balance += utxo.satoshis;
+  });
+  const resMessage = serviceHelper.createDataMessage(balance);
+  return res.json(resMessage);
+}
+
 module.exports = {
   initiateBlockProcessor,
   processBlock,
@@ -848,5 +891,6 @@ module.exports = {
   getAllZelNodeTransactions,
   getAddressUtxos,
   getAddressTransactions,
+  getAddressBalance,
   getScannedHeight,
 };

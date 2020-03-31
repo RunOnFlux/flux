@@ -277,6 +277,9 @@ module.exports = (app, expressWs) => {
   app.get('/explorer/transactions/:address?', (req, res) => {
     explorerService.getAddressTransactions(req, res);
   });
+  app.get('/explorer/balance/:address?', (req, res) => {
+    explorerService.getAddressBalance(req, res);
+  });
   app.get('/explorer/scannedheight', (req, res) => {
     explorerService.getScannedHeight(req, res);
   });
