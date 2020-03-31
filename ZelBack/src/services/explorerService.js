@@ -13,6 +13,18 @@ const zelnodeTransactionCollection = config.database.zelcash.collections.zelnode
 let db = null;
 let blockProccessingCanContinue = true;
 
+function getCollateralHash(hexOfZelNodeTx) {
+  const hex = hexOfZelNodeTx.slice(10, 74);
+  const buf = Buffer.from(hex, 'hex').reverse();
+  return buf.toString('hex');
+}
+
+function getCollateralIndex(hexOfZelNodeTx) {
+  const hex = hexOfZelNodeTx.slice(74, 82);
+  const buf = Buffer.from(hex, 'hex').reverse();
+  return parseInt(buf.toString('hex'), 16);
+}
+
 async function getSenderTransactionFromZelCash(txid) {
   const verbose = 1;
   const req = {
@@ -29,6 +41,52 @@ async function getSenderTransactionFromZelCash(txid) {
   }
   throw txContent.data;
 }
+
+async function getSenderWithoutDelete(txid, vout) {
+  const database = db.db(config.database.zelcash.database);
+  const query = { $and: [{ txid }, { voutIndex: vout }] };
+  // we do not need other data as we are just asking what the sender address is.
+  const projection = {
+    projection: {
+      _id: 0,
+      // txid: 1,
+      // voutIndex: 1,
+      // height: 1,
+      address: 1,
+      satoshis: 1,
+      // scriptPubKey: 1,
+      // coinbase: 1,
+    },
+  };
+
+  // find the utxo from global utxo list
+  const txContent = await serviceHelper.findOneInDatabase(database, utxoIndexCollection, query, projection).catch((error) => {
+    db.close();
+    log.error(error);
+    throw error;
+  });
+  if (txContent === null) {
+    // we are spending it anyway so it wont affect users balance
+    log.error(`Transaction ${txid} ${vout} not found in database. Falling back to blockchain data`);
+    const zelcashSender = await getSenderTransactionFromZelCash(txid).catch((error) => {
+      log.error(error);
+      throw error;
+    });
+    const senderData = zelcashSender.vout[vout];
+    const zelcashTxContent = {
+      // txid,
+      // voutIndex: vout,
+      // height: zelcashSender.height,
+      address: senderData.scriptPubKey.addresses[0], // always exists as it is utxo.
+      satoshis: senderData.valueSat,
+      // scriptPubKey: senderData.scriptPubKey.hex,
+    };
+    return zelcashTxContent;
+  }
+  const sender = txContent.value;
+  return sender;
+}
+
 
 async function getSender(txid, vout) {
   const database = db.db(config.database.zelcash.database);
@@ -231,7 +289,23 @@ async function processBlock(blockHeight) {
     // tx version 5 are zelnode transactions. Put them into zelnode
     if (tx.version === 5) {
       // todo. We can get an address from getSender method too as that utxo was not spent yet.
-      await serviceHelper.insertOneToDatabase(database, zelnodeTransactionCollection, tx).catch((error) => {
+      const collateralHash = getCollateralHash(tx.hex);
+      const collateralIndex = getCollateralIndex(tx.hex);
+      const senderInfo = await getSenderWithoutDelete(collateralHash, collateralIndex);
+      const zelnodeTxData = {
+        txid: tx.txid,
+        version: tx.version,
+        type: tx.type,
+        updateType: tx.update_type,
+        ip: tx.ip,
+        benchTier: tx.benchmark_tier,
+        collateralHash,
+        collateralIndex,
+        zelAddress: senderInfo.address,
+        lockedAmount: senderInfo.satoshis,
+        height: tx.height,
+      };
+      await serviceHelper.insertOneToDatabase(database, zelnodeTransactionCollection, zelnodeTxData).catch((error) => {
         db.close();
         log.error(error);
         throw error;
@@ -385,7 +459,17 @@ async function initiateBlockProcessor() {
     database.collection(utxoIndexCollection).createIndex({ address: 1 }, { name: 'query for addresses utxo' });
     database.collection(utxoIndexCollection).createIndex({ scriptPubKey: 1 }, { name: 'query for scriptPubKey utxo' });
     database.collection(addressTransactionIndexCollection).createIndex({ address: 1 }, { name: 'query for addresses transactions' });
-    // database.collection(zelnodeTransactionCollection).createIndex({ ip: 1 }, { name: 'query for getting list of zelnode txs associated to IP address' });
+    database.collection(zelnodeTransactionCollection).createIndex({ ip: 1 }, { name: 'query for getting list of zelnode txs associated to IP address' });
+    database.collection(zelnodeTransactionCollection).createIndex({ zelAddress: 1 }, { name: 'query for getting list of zelnode txs associated to ZEL address' });
+    database.collection(zelnodeTransactionCollection).createIndex({ tier: 1 }, { name: 'query for getting list of zelnode txs according to benchmarking tier' });
+    database.collection(zelnodeTransactionCollection).createIndex({ type: 1 }, { name: 'query for getting all zelnode txs according to type of transaction' });
+    database.collection(zelnodeTransactionCollection).createIndex({ collateralHash: 1, collateralIndex: 1 }, { name: 'query for getting list of zelnode txs associated to specific collateral' });
+  } else if (scannedBlockHeight === 558000) { // delete this else if
+    database.collection(zelnodeTransactionCollection).createIndex({ ip: 1 }, { name: 'query for getting list of zelnode txs associated to IP address' });
+    database.collection(zelnodeTransactionCollection).createIndex({ zelAddress: 1 }, { name: 'query for getting list of zelnode txs associated to ZEL address' });
+    database.collection(zelnodeTransactionCollection).createIndex({ benchTier: 1 }, { name: 'query for getting list of zelnode txs according to benchmarking tier' });
+    database.collection(zelnodeTransactionCollection).createIndex({ type: 1 }, { name: 'query for getting all zelnode txs according to type of transaction' });
+    database.collection(zelnodeTransactionCollection).createIndex({ collateralHash: 1, collateralIndex: 1 }, { name: 'query for getting list of zelnode txs associated to specific collateral' });
   } else {
     const databaseRestored = await restoreDatabaseToBlockheightState(scannedBlockHeight);
     console.log(`Database restore status: ${databaseRestored}`);
@@ -449,25 +533,17 @@ async function getAllZelNodeTransactions(req, res) {
   const projection = {
     projection: {
       _id: 0,
-      hex: 1,
       txid: 1,
       version: 1,
       type: 1,
-      collateral_output: 1,
-      sigtime: 1,
-      sig: 1,
+      updateType: 1,
       ip: 1,
-      update_type: 1,
-      benchmark_tier: 1,
-      benchmark_sigtime: 1,
-      benchmark_sig: 1,
-      collateral_pubkey: 1,
-      zelnode_pubkey: 1,
-      // blockhash: 0,
+      benchTier: 1,
+      collateralHash: 1,
+      collateralIndex: 1,
+      zelAddress: 1,
+      lockedAmount: 1,
       height: 1,
-      // confirmations: 0,
-      // time: 0,
-      // blocktime: 0,
     },
   };
   const results = await serviceHelper.findInDatabase(database, zelnodeTransactionCollection, query, projection).catch((error) => {
@@ -564,7 +640,7 @@ async function getAddressUtxos(req, res) {
       coinbase: 1,
     },
   };
-  const result = await serviceHelper.findOneInDatabase(database, utxoIndexCollection, query, projection).catch((error) => {
+  const results = await serviceHelper.findInDatabase(database, utxoIndexCollection, query, projection).catch((error) => {
     dbopen.close();
     const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
@@ -572,7 +648,7 @@ async function getAddressUtxos(req, res) {
     throw error;
   });
   dbopen.close();
-  const resMessage = serviceHelper.createDataMessage(result);
+  const resMessage = serviceHelper.createDataMessage(results);
   return res.json(resMessage);
 }
 
