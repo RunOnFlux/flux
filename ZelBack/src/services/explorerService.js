@@ -328,8 +328,14 @@ async function processBlock(blockHeight) {
       log.error(error);
       throw error;
     });
-    console.log('UTXO', result.size, result.count, result.avgObjSize);
-    console.log('ADDR', resultB.size, resultB.count, resultB.avgObjSize);
+    const resultC = await serviceHelper.collectionStats(database, zelnodeTransactionCollection).catch((error) => {
+      db.close();
+      log.error(error);
+      throw error;
+    });
+    log.info('UTXO', result.size, result.count, result.avgObjSize);
+    log.info('ADDR', resultB.size, resultB.count, resultB.avgObjSize);
+    log.info('ZELNODE', resultC.size, resultC.count, resultC.avgObjSize);
   }
   const scannedHeight = blockData.height;
   // update scanned Height in scannedBlockHeightCollection
@@ -466,6 +472,7 @@ async function initiateBlockProcessor() {
     database.collection(zelnodeTransactionCollection).createIndex({ collateralHash: 1, collateralIndex: 1 }, { name: 'query for getting list of zelnode txs associated to specific collateral' });
   }
   if (zelcashHeight > scannedBlockHeight) {
+    // TODO this restoring will run basically every new block. That is not ideal.
     const databaseRestored = await restoreDatabaseToBlockheightState(scannedBlockHeight);
     console.log(`Database restore status: ${databaseRestored}`);
     if (!databaseRestored) {
