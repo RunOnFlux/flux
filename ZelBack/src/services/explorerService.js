@@ -37,13 +37,13 @@ async function getSender(txid, vout) {
   const projection = {
     projection: {
       _id: 0,
-      txid: 0,
-      voutIndex: 0,
-      height: 0,
+      // txid: 1,
+      // voutIndex: 1,
+      // height: 1,
       address: 1,
-      satoshis: 0,
-      scriptPubKey: 0,
-      coinbase: 0,
+      // satoshis: 1,
+      // scriptPubKey: 1,
+      // coinbase: 1,
     },
   };
 
@@ -561,6 +561,7 @@ async function getAddressUtxos(req, res) {
       address: 1,
       satoshis: 1,
       scriptPubKey: 1,
+      coinbase: 1,
     },
   };
   const result = await serviceHelper.findOneInDatabase(database, utxoIndexCollection, query, projection).catch((error) => {
