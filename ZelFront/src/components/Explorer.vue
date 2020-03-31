@@ -903,6 +903,7 @@ export default {
       this.blocksWithTransaction[height].transactions = [];
       this.uniqueKeyBlock += 1;
       const verbose = 1;
+      let i = 0;
       // parallel is not possible as zelcash will result in error 500
       // await Promise.all(transactionArray.map(async (transaction) => {
       //   const txContent = await ZelCashService.getRawTransaction(transaction, verbose);
@@ -915,8 +916,29 @@ export default {
         // eslint-disable-next-line no-await-in-loop
         const txContent = await ZelCashService.getRawTransaction(transaction, verbose);
         if (txContent.data.status === 'success') {
-          this.blocksWithTransaction[height].transactions.push(txContent.data.data);
+          const transactionDetail = txContent.data.data;
+          transactionDetail.senders = [];
+          this.blocksWithTransaction[height].transactions.push(transactionDetail);
+          this.uniqueKeyAddress += 1;
+          // fetching of senders
+          if (transactionDetail.version < 5 && transactionDetail.version > 0) {
+            const sendersToFetch = [];
+            transactionDetail.vin.forEach((vin) => {
+              if (!vin.coinbase) {
+                sendersToFetch.push(vin);
+              }
+            });
+            // eslint-disable-next-line no-restricted-syntax
+            for (const sender of sendersToFetch) {
+              // eslint-disable-next-line no-await-in-loop
+              const senderInformation = await this.getSenderForBlockOrAddress(sender.txid, sender.vout);
+              this.blocksWithTransaction[height].transactions[i].senders.push(senderInformation);
+              this.uniqueKeyBlock += 1;
+            }
+            this.uniqueKeyBlock += 1;
+          }
         }
+        i += 1;
         this.uniqueKeyBlock += 1;
       }
       console.log(this.blocksWithTransaction);
@@ -942,6 +964,7 @@ export default {
       this.addressWithTransactions[address].fetchedTransactions = [];
       this.uniqueKeyAddress += 1;
       const verbose = 1;
+      let i = 0;
       // parallel is not possible as zelcash will result in error 500
       // await Promise.all(transactionArray.map(async (transaction) => {
       //   const txContent = await ZelCashService.getRawTransaction(transaction, verbose);
@@ -954,8 +977,29 @@ export default {
         // eslint-disable-next-line no-await-in-loop
         const txContent = await ZelCashService.getRawTransaction(transaction.txid, verbose);
         if (txContent.data.status === 'success') {
-          this.addressWithTransactions[address].fetchedTransactions.push(txContent.data.data);
+          const transactionDetail = txContent.data.data;
+          transactionDetail.senders = [];
+          this.addressWithTransactions[address].fetchedTransactions.push(transactionDetail);
+          this.uniqueKeyAddress += 1;
+          // fetching of senders
+          if (transactionDetail.version < 5 && transactionDetail.version > 0) {
+            const sendersToFetch = [];
+            transactionDetail.vin.forEach((vin) => {
+              if (!vin.coinbase) {
+                sendersToFetch.push(vin);
+              }
+            });
+            // eslint-disable-next-line no-restricted-syntax
+            for (const sender of sendersToFetch) {
+              // eslint-disable-next-line no-await-in-loop
+              const senderInformation = await this.getSenderForBlockOrAddress(sender.txid, sender.vout);
+              this.addressWithTransactions[address].fetchedTransactions[i].senders.push(senderInformation);
+              this.uniqueKeyAddress += 1;
+            }
+            this.uniqueKeyAddress += 1;
+          }
         }
+        i += 1;
         this.uniqueKeyAddress += 1;
       }
     },
@@ -1068,6 +1112,16 @@ export default {
       }
       this.calculateTxFee();
       this.uniqueKey += 1;
+      return 'Sender not found';
+    },
+    async getSenderForBlockOrAddress(txid, vout) {
+      const verbose = 1;
+      const txContent = await ZelCashService.getRawTransaction(txid, verbose);
+      console.log(txContent);
+      if (txContent.data.status === 'success') {
+        const sender = txContent.data.data.vout[vout];
+        return sender;
+      }
       return 'Sender not found';
     },
     calculateTxFee() {

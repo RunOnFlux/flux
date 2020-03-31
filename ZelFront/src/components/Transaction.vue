@@ -417,8 +417,6 @@
 import Vuex from 'vuex';
 import Vue from 'vue';
 
-import ZelCashService from '@/services/ZelCashService';
-
 Vue.use(Vuex);
 
 export default {
@@ -447,67 +445,13 @@ export default {
   },
   mounted() {
     console.log('here');
-    this.getTransaction(this.transaction);
+    this.processTransaction(this.transaction);
   },
   methods: {
-    async getTransaction(tx) {
+    async processTransaction(tx) {
       this.transactionDetail = {};
-      const txA = tx;
-      txA.senders = [];
-      this.transactionDetail = txA;
-      if (tx.version < 5 && tx.version > 0) {
-        const sendersToFetch = [];
-        tx.vin.forEach((vin) => {
-          if (!vin.coinbase) {
-            sendersToFetch.push(vin);
-          }
-        });
-        const senders = [];
-        // eslint-disable-next-line no-restricted-syntax
-        for (const sender of sendersToFetch) {
-          // eslint-disable-next-line no-await-in-loop
-          const senderInformation = await this.getSender(sender.txid, sender.vout);
-          senders.push(senderInformation);
-          const txDetail = tx;
-          txDetail.senders = senders;
-          this.transactionDetail = txDetail;
-          this.uniqueKey += 1;
-        }
-        const txDetail = tx;
-        txDetail.senders = senders;
-        this.transactionDetail = txDetail;
-        this.uniqueKey += 1;
-      } else {
-        this.transactionDetail = tx;
-      }
-    },
-    formatTimeAgo(timeCreated) {
-      const periods = {
-        month: 30 * 24 * 60 * 60 * 1000,
-        week: 7 * 24 * 60 * 60 * 1000,
-        day: 24 * 60 * 60 * 1000,
-        hour: 60 * 60 * 1000,
-        minute: 60 * 1000,
-      };
-      const diff = new Date().getTime() - (timeCreated * 1000);
-
-      if (diff > periods.month) {
-        // it was at least a month ago
-        return `${Math.floor(diff / periods.month)}mo ago`;
-      }
-      if (diff > periods.week) {
-        return `${Math.floor(diff / periods.week)}w ago`;
-      }
-      if (diff > periods.day) {
-        return `${Math.floor(diff / periods.day)}d ago`;
-      }
-      if (diff > periods.hour) {
-        return `${Math.floor(diff / periods.hour)}h ago`;
-      }
-      if (diff > periods.minute) {
-        return `${Math.floor(diff / periods.minute)}m ago`;
-      }
-      return 'Just now';
+      this.transactionDetail = tx;
+      this.calculateTxFee();
     },
     getValueHexBuffer(hex) {
       const buf = Buffer.from(hex, 'hex').reverse();
@@ -516,20 +460,6 @@ export default {
     getCollateralIndex(hex) {
       const buf = Buffer.from(hex, 'hex').reverse();
       return parseInt(buf.toString('hex'), 16);
-    },
-    async getSender(txid, vout) {
-      const verbose = 1;
-      const txContent = await ZelCashService.getRawTransaction(txid, verbose);
-      console.log(txContent);
-      if (txContent.data.status === 'success') {
-        const sender = txContent.data.data.vout[vout];
-        this.calculateTxFee();
-        this.uniqueKey += 1;
-        return sender;
-      }
-      this.calculateTxFee();
-      this.uniqueKey += 1;
-      return 'Sender not found';
     },
     calculateTxFee() {
       if (this.transactionDetail.version === 5) {
