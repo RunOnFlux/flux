@@ -252,7 +252,12 @@
               v-for="i in transactionDetail.vout.length"
               :key="i"
             >
-              {{ transactionDetail.vout[i - 1].scriptPubKey.addresses[0] }} {{ transactionDetail.vout[i - 1].value }} ZEL
+              <div v-if="transactionDetail.vout[i - 1].scriptPubKey.addresses">
+                {{ transactionDetail.vout[i - 1].scriptPubKey.addresses[0] }} {{ transactionDetail.vout[i - 1].value }} ZEL
+              </div>
+              <div v-else>
+                {{ decodeMessage(transactionDetail.vout[i - 1].asm) }}
+              </div>
             </div>
           </div>
         </el-col>
@@ -566,6 +571,20 @@ export default {
         valueOut += tx.vpub_oldZat;
       });
       return valueOut / 1e8;
+    },
+    decodeMessage(asm) {
+      const parts = asm.split('OP_RETURN ', 2);
+      let message = '';
+      if (parts[1]) {
+        const encodedMessage = parts[1];
+        const hexx = encodedMessage.toString(); // force conversion
+        for (let k = 0; k < hexx.length && hexx.substr(k, 2) !== '00'; k += 2) {
+          message += String.fromCharCode(
+            parseInt(hexx.substr(k, 2), 16),
+          );
+        }
+      }
+      return message;
     },
   },
 };

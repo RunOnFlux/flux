@@ -48,7 +48,7 @@
         Loading Block...
       </el-row>
       <div v-if="blocksWithTransaction[height]">
-        <el-row v-if="blocksWithTransaction[height]">
+        <el-row>
           <el-col :span="6">
             <div class="grid-content bg-purple">
               Height
@@ -238,7 +238,7 @@
         <br>
         <div
           v-for="transaction in blocksWithTransaction[height].transactions"
-          :key="transaction"
+          :key="transaction.txid"
         >
           <Transaction :transaction="transaction" />
           <br>
@@ -250,6 +250,69 @@
         </div>
       </div>
     </div>
+
+    <div
+      :key="uniqueKeyAddress"
+      v-if="explorerSection === 'address'"
+    >
+      <el-row v-if="!addressWithTransactions[address]">
+        Loading Address...
+      </el-row>
+      <div v-if="addressWithTransactions[address]">
+        <el-row>
+          <el-col :span="6">
+            <div class="grid-content bg-purple">
+              Address
+            </div>
+          </el-col>
+          <el-col :span="18">
+            <div class="grid-content bg-purple-light">
+              {{ addressWithTransactions[address].address }}
+            </div>
+          </el-col>
+        </el-row>
+        <el-row>
+          <el-col :span="6">
+            <div class="grid-content bg-purple">
+              Balance
+            </div>
+          </el-col>
+          <el-col :span="18">
+            <div class="grid-content bg-purple-light">
+              {{ addressWithTransactions[address].balance }}
+            </div>
+          </el-col>
+        </el-row>
+        <el-row>
+          <el-col :span="6">
+            <div class="grid-content bg-purple">
+              No. Transactions
+            </div>
+          </el-col>
+          <el-col :span="18">
+            <div class="grid-content bg-purple-light">
+              {{ addressWithTransactions[address].transactions.length }}
+            </div>
+          </el-col>
+        </el-row>
+        <br>
+        Transactions:
+        <br>
+        <div
+          v-for="transaction in addressWithTransactions[address].fetchedTransactions"
+          :key="transaction.txid"
+        >
+          <Transaction :transaction="transaction" />
+          <br>
+        </div>
+        <div v-if="addressWithTransactions[address].fetchedTransactions">
+          <p v-if="addressWithTransactions[address].fetchedTransactions.length < addressWithTransactions[address].transactions.length">
+            Loading More Transactions...
+          </p>
+        </div>
+      </div>
+    </div>
+
     <div v-if="explorerSection === 'transaction'">
       <el-row v-if="!transactionDetail.txid">
         Loading Transaction...
@@ -503,7 +566,12 @@
                 v-for="i in transactionDetail.vout.length"
                 :key="i"
               >
-                {{ transactionDetail.vout[i - 1].scriptPubKey.addresses[0] }} {{ transactionDetail.vout[i - 1].value }} ZEL
+                <div v-if="transactionDetail.vout[i - 1].scriptPubKey.addresses">
+                  {{ transactionDetail.vout[i - 1].scriptPubKey.addresses[0] }} {{ transactionDetail.vout[i - 1].value }} ZEL
+                </div>
+                <div v-else>
+                  {{ decodeMessage(transactionDetail.vout[i - 1].asm) }}
+                </div>
               </div>
             </div>
           </el-col>
@@ -670,6 +738,7 @@ import Vuex, { mapState } from 'vuex';
 import Vue from 'vue';
 
 import ZelCashService from '@/services/ZelCashService';
+import ExplorerService from '@/services/ExplorerService';
 
 const Transaction = () => import('@/components/Transaction.vue');
 
@@ -700,10 +769,12 @@ export default {
       blocks: [],
       searchBar: '',
       blocksWithTransaction: {},
+      addressWithTransactions: {},
       height: 0,
       transactionDetail: {},
       uniqueKey: 100000,
       uniqueKeyBlock: 10000,
+      uniqueKeyAddress: 10000,
     };
   },
   computed: {
@@ -723,6 +794,9 @@ export default {
         case 'block':
           // nothing to do
           break;
+        case 'address':
+          // nothing to do
+          break;
         case 'transaction':
           // nothing to do
           break;
@@ -735,6 +809,8 @@ export default {
         this.getBlock(val);
       } else if (val.length === 64) {
         this.getBlock(val);
+      } else if (val.length >= 30 && val.length < 38) {
+        this.getAddress(val);
       } else {
         this.$store.commit('setExplorerSection', 'explorer');
       }
@@ -746,6 +822,9 @@ export default {
           this.zelcashGetInfo();
           break;
         case 'block':
+          // nothing to do
+          break;
+        case 'address':
           // nothing to do
           break;
         case 'transaction':
@@ -762,6 +841,9 @@ export default {
         this.zelcashGetInfo();
         break;
       case 'block':
+        // nothing to do
+        break;
+      case 'address':
         // nothing to do
         break;
       case 'transaction':
@@ -854,6 +936,48 @@ export default {
         }
       } else {
         this.height = heightOrHash;
+      }
+    },
+    async getAddressTransactions(transactionArray, address) {
+      this.addressWithTransactions[address].fetchedTransactions = [];
+      this.uniqueKeyAddress += 1;
+      const verbose = 1;
+      // parallel is not possible as zelcash will result in error 500
+      // await Promise.all(transactionArray.map(async (transaction) => {
+      //   const txContent = await ZelCashService.getRawTransaction(transaction, verbose);
+      //   if (txContent.data.status === 'success') {
+      //     this.blocksWithTransaction[height].transactions.push(txContent.data.data);
+      //   }
+      // }));
+      // eslint-disable-next-line no-restricted-syntax
+      for (const transaction of transactionArray) {
+        // eslint-disable-next-line no-await-in-loop
+        const txContent = await ZelCashService.getRawTransaction(transaction.txid, verbose);
+        if (txContent.data.status === 'success') {
+          this.addressWithTransactions[address].fetchedTransactions.push(txContent.data.data);
+        }
+        this.uniqueKeyAddress += 1;
+      }
+    },
+    async getAddress(address) {
+      this.address = 'dummyAddress';
+      this.$store.commit('setExplorerSection', 'address');
+      if (!this.addressWithTransactions[address]) {
+        const responseAddr = await ExplorerService.getAddressTransactions(address);
+        const responseBalance = await ExplorerService.getAddressBalance(address);
+        console.log(responseAddr);
+        console.log(responseBalance);
+        if (responseAddr.data.status === 'success' && responseBalance.data.status === 'success') {
+          this.address = responseAddr.data.data.address;
+          this.addressWithTransactions[address] = responseAddr.data.data;
+          this.addressWithTransactions[address].balance = responseBalance.data.data;
+          this.getAddressTransactions(responseAddr.data.data.transactions, address);
+        } else {
+          vue.$message.info('Not found');
+          this.$store.commit('setExplorerSection', 'explorer');
+        }
+      } else {
+        this.address = address;
       }
     },
     async getTransaction(hash) {
@@ -986,6 +1110,20 @@ export default {
         valueOut += tx.vpub_oldZat;
       });
       return valueOut / 1e8;
+    },
+    decodeMessage(asm) {
+      const parts = asm.split('OP_RETURN ', 2);
+      let message = '';
+      if (parts[1]) {
+        const encodedMessage = parts[1];
+        const hexx = encodedMessage.toString(); // force conversion
+        for (let k = 0; k < hexx.length && hexx.substr(k, 2) !== '00'; k += 2) {
+          message += String.fromCharCode(
+            parseInt(hexx.substr(k, 2), 16),
+          );
+        }
+      }
+      return message;
     },
   },
 };
