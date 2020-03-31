@@ -473,11 +473,13 @@ async function initiateBlockProcessor() {
   }
   if (zelcashHeight > scannedBlockHeight) {
     // TODO this restoring will run basically every new block. That is not ideal.
-    const databaseRestored = await restoreDatabaseToBlockheightState(scannedBlockHeight);
-    console.log(`Database restore status: ${databaseRestored}`);
-    if (!databaseRestored) {
-      log.error('Error restoring database!');
-      throw new Error('Error restoring database!');
+    if (scannedBlockHeight !== 0) {
+      const databaseRestored = await restoreDatabaseToBlockheightState(scannedBlockHeight);
+      console.log(`Database restore status: ${databaseRestored}`);
+      if (!databaseRestored) {
+        log.error('Error restoring database!');
+        throw new Error('Error restoring database!');
+      }
     }
     processBlock(scannedBlockHeight + 1);
   } else {
