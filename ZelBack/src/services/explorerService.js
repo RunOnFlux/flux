@@ -33,15 +33,17 @@ async function getSenderTransactionFromZelCash(txid) {
 async function getSender(txid, vout) {
   const database = db.db(config.database.zelcash.database);
   const query = { $and: [{ txid }, { voutIndex: vout }] };
+  // we do not need other data as we are just asking what the sender address is.
   const projection = {
     projection: {
       _id: 0,
-      txid: 1,
-      voutIndex: 1,
-      height: 1,
+      txid: 0,
+      voutIndex: 0,
+      height: 0,
       address: 1,
-      satoshis: 1,
-      scriptPubKey: 1,
+      satoshis: 0,
+      scriptPubKey: 0,
+      coinbase: 0,
     },
   };
 
@@ -60,12 +62,12 @@ async function getSender(txid, vout) {
     });
     const senderData = zelcashSender.vout[vout];
     const zelcashTxContent = {
-      txid,
-      voutIndex: vout,
-      height: zelcashSender.height,
-      address: senderData.scriptPubKey.addresses[0],
-      satoshis: senderData.valueSat,
-      scriptPubKey: senderData.scriptPubKey.hex,
+      // txid,
+      // voutIndex: vout,
+      // height: zelcashSender.height,
+      address: senderData.scriptPubKey.addresses[0], // always exists as it is utxo.
+      // satoshis: senderData.valueSat,
+      // scriptPubKey: senderData.scriptPubKey.hex,
     };
     return zelcashTxContent;
   }
@@ -91,20 +93,30 @@ async function getTransaction(hash) {
       await Promise.all(transactionDetail.vout.map(async (vout, index) => {
         // we need only utxo related information
         // TODO if tx.vin is type of coinbase!
-        const utxoDetail = {
-          txid: txContent.data.txid,
-          voutIndex: index,
-          height: txContent.data.height,
-          address: vout.scriptPubKey.addresses[0],
-          satoshis: vout.valueSat,
-          scriptPubKey: vout.scriptPubKey.hex,
-        };
-        // put the utxo to our mongoDB utxoIndex collection.
-        await serviceHelper.insertOneToDatabase(database, utxoIndexCollection, utxoDetail).catch((error) => {
-          db.close();
-          log.error(error);
-          throw error;
-        });
+        let coinbase = false;
+        if (transactionDetail.vin[0]) {
+          if (transactionDetail.vin[0].coinbase) {
+            coinbase = true;
+          }
+        }
+        // account for messages
+        if (vout.scriptPubKey.addresses) {
+          const utxoDetail = {
+            txid: txContent.data.txid,
+            voutIndex: index,
+            height: txContent.data.height,
+            address: vout.scriptPubKey.addresses[0],
+            satoshis: vout.valueSat,
+            scriptPubKey: vout.scriptPubKey.hex,
+            coinbase,
+          };
+          // put the utxo to our mongoDB utxoIndex collection.
+          await serviceHelper.insertOneToDatabase(database, utxoIndexCollection, utxoDetail).catch((error) => {
+            db.close();
+            log.error(error);
+            throw error;
+          });
+        }
       }));
 
       // fetch senders from our mongoDatabase
@@ -198,7 +210,9 @@ async function processBlock(blockHeight) {
         addresses.push(sender.address);
       });
       tx.vout.forEach((receiver) => {
-        addresses.push(receiver.scriptPubKey.addresses[0]);
+        if (receiver.scriptPubKey.addresses) { // count for messages
+          addresses.push(receiver.scriptPubKey.addresses[0]);
+        }
       });
       const addressesOK = [...new Set(addresses)];
       const transactionRecord = { txid: tx.txid, height: tx.height };
@@ -284,7 +298,7 @@ async function restoreDatabaseToBlockheightState(height) {
   const database = dbopen.db(config.database.zelcash.database);
 
   const query = { height: { $gt: height } };
-  const queryForAddresses = { }; // we need to remove those transactions in transactions field that have height greater than height
+  const queryForAddresses = {}; // we need to remove those transactions in transactions field that have height greater than height
   const queryForAddressesDeletion = { transactions: { $exists: true, $size: 0 } };
   const projection = { $pull: { transactions: { height: { $gt: height } } } };
 
@@ -408,6 +422,7 @@ async function getAllUtxos(req, res) {
       address: 1,
       satoshis: 1,
       scriptPubKey: 1,
+      coinbase: 1,
     },
   };
   const results = await serviceHelper.findInDatabase(database, utxoIndexCollection, query, projection).catch((error) => {
