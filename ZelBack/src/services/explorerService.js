@@ -464,21 +464,14 @@ async function initiateBlockProcessor() {
     database.collection(zelnodeTransactionCollection).createIndex({ tier: 1 }, { name: 'query for getting list of zelnode txs according to benchmarking tier' });
     database.collection(zelnodeTransactionCollection).createIndex({ type: 1 }, { name: 'query for getting all zelnode txs according to type of transaction' });
     database.collection(zelnodeTransactionCollection).createIndex({ collateralHash: 1, collateralIndex: 1 }, { name: 'query for getting list of zelnode txs associated to specific collateral' });
-  } else if (scannedBlockHeight === 558000) { // delete this else if
-    database.collection(zelnodeTransactionCollection).createIndex({ ip: 1 }, { name: 'query for getting list of zelnode txs associated to IP address' });
-    database.collection(zelnodeTransactionCollection).createIndex({ zelAddress: 1 }, { name: 'query for getting list of zelnode txs associated to ZEL address' });
-    database.collection(zelnodeTransactionCollection).createIndex({ benchTier: 1 }, { name: 'query for getting list of zelnode txs according to benchmarking tier' });
-    database.collection(zelnodeTransactionCollection).createIndex({ type: 1 }, { name: 'query for getting all zelnode txs according to type of transaction' });
-    database.collection(zelnodeTransactionCollection).createIndex({ collateralHash: 1, collateralIndex: 1 }, { name: 'query for getting list of zelnode txs associated to specific collateral' });
-  } else {
+  }
+  if (zelcashHeight > scannedBlockHeight) {
     const databaseRestored = await restoreDatabaseToBlockheightState(scannedBlockHeight);
     console.log(`Database restore status: ${databaseRestored}`);
     if (!databaseRestored) {
       log.error('Error restoring database!');
       throw new Error('Error restoring database!');
     }
-  }
-  if (zelcashHeight > scannedBlockHeight) {
     processBlock(scannedBlockHeight + 1);
   } else {
     db.close();
