@@ -67,7 +67,7 @@ async function getSenderWithoutDelete(txid, vout) {
   });
   if (txContent === null) {
     // we are spending it anyway so it wont affect users balance
-    log.error(`Transaction ${txid} ${vout} not found in database. Falling back to blockchain data`);
+    log.info(`Transaction ${txid} ${vout} not found in database. Falling back to blockchain data`);
     const zelcashSender = await getSenderTransactionFromZelCash(txid).catch((error) => {
       log.error(error);
       throw error;
@@ -113,7 +113,7 @@ async function getSender(txid, vout) {
   });
   if (!txContent.value) {
     // we are spending it anyway so it wont affect users balance
-    log.error(`Transaction ${txid} ${vout} not found in database. Falling back to blockchain data`);
+    log.info(`Transaction ${txid} ${vout} not found in database. Falling back to blockchain data`);
     const zelcashSender = await getSenderTransactionFromZelCash(txid).catch((error) => {
       log.error(error);
       throw error;
