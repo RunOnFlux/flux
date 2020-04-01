@@ -610,7 +610,7 @@ export default {
         const responseBalance = await ExplorerService.getAddressBalance(address);
         console.log(responseAddr);
         console.log(responseBalance);
-        if (responseAddr.data.status === 'success' && responseBalance.data.status === 'success') {
+        if (responseAddr.data.status === 'success' && responseBalance.data.status === 'success' && responseAddr.data.data !== null) {
           this.address = responseAddr.data.data.address;
           this.addressWithTransactions[address] = responseAddr.data.data;
           this.addressWithTransactions[address].balance = responseBalance.data.data;
