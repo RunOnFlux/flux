@@ -542,7 +542,7 @@ async function zelShareFile(req, res) {
   return res.sendFile(filepath);
 }
 
-async function zelfluxUseage(req, res) {
+async function zelfluxUsage(req, res) {
   const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
     const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
@@ -567,7 +567,10 @@ async function zelfluxUseage(req, res) {
   if (!result) {
     log.error('Scanning not initiated');
   }
-  const explorerHeight = result || 999999999; // fall back to normal load
+  let explorerHeight = 999999999;
+  if (result) {
+    explorerHeight = serviceHelper.ensureNumber(result.generalScannedHeight) || 999999999;
+  }
   const zelcashGetInfo = await zelcashService.getInfo();
   let zelcashHeight = 1;
   if (zelcashGetInfo.status === 'success') {
@@ -612,17 +615,17 @@ async function zelfluxUseage(req, res) {
   });
   let zelAppsCpusLocked = 0;
   if (zelappsResult) {
-    zelAppsCpusLocked += serviceHelper.ensureNumber(zelappsResult.cpu);
+    zelAppsCpusLocked += serviceHelper.ensureNumber(zelappsResult.cpu) || 0;
   }
   cpuUsage += zelAppsCpusLocked;
-  let fiveMinUseage = 0;
+  let fiveMinUsage = 0;
   const loadavg = os.loadavg();
   if (loadavg) {
-    fiveMinUseage = serviceHelper.ensureNumber(loadavg[1]);
+    fiveMinUsage = serviceHelper.ensureNumber(loadavg[1]) || 0;
   }
-  // if fiveminUseage is greaeter than our cpuUsage, do an average of those numbers;
-  const avgOfUseage = (fiveMinUseage + cpuUsage) / 2;
-  const response = serviceHelper.createDataMessage(avgOfUseage);
+  // if fiveminUsage is greaeter than our cpuUsage, do an average of those numbers;
+  const avgOfUsage = (fiveMinUsage + cpuUsage) / 2;
+  const response = serviceHelper.createDataMessage(avgOfUsage);
   res.json(response);
 }
 
@@ -645,5 +648,5 @@ module.exports = {
   zelAppUpdate,
   zelAppExec,
   zelShareFile,
-  zelfluxUseage,
+  zelfluxUsage,
 };
