@@ -695,7 +695,7 @@ async function getScannedHeight(req, res) {
     log.error(error);
     throw error;
   });
-  const database = db.db(config.database.zelcash.database);
+  const database = dbopen.db(config.database.zelcash.database);
   const query = { generalScannedHeight: { $gte: 0 } };
   const projection = {
     projection: {

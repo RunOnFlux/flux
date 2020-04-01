@@ -24,6 +24,12 @@ module.exports = {
         zelnodeTransactions: 'zelnodetransactions',
       },
     },
+    zelapps: {
+      database: 'localzelapps',
+      collections: {
+        resourcesLocked: 'zelappslocalresources',
+      },
+    },
     global: {
       database: 'zelfluxglobal',
       collections: {

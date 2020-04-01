@@ -1,10 +1,17 @@
+const config = require('config');
+const os = require('os');
 const Docker = require('dockerode');
 const stream = require('stream');
 const path = require('path');
 const serviceHelper = require('./serviceHelper');
+const zelcashService = require('./zelcashService');
 const log = require('../lib/log');
 
 const docker = new Docker();
+
+const mongoUrl = `mongodb://${config.database.url}:${config.database.port}/`;
+const scannedHeightCollection = config.database.zelcash.collections.scannedHeight;
+const zelAppsLocalResources = config.database.zelapps.collections.resourcesLocked;
 
 async function dockerListContainers(all, limit, size, filter) {
   const options = {
@@ -535,6 +542,90 @@ async function zelShareFile(req, res) {
   return res.sendFile(filepath);
 }
 
+async function zelfluxUseage(req, res) {
+  const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+    log.error(error);
+    throw error;
+  });
+  const database = dbopen.db(config.database.zelcash.database);
+  const query = { generalScannedHeight: { $gte: 0 } };
+  const projection = {
+    projection: {
+      _id: 0,
+      generalScannedHeight: 1,
+    },
+  };
+  const result = await serviceHelper.findOneInDatabase(database, scannedHeightCollection, query, projection).catch((error) => {
+    dbopen.close();
+    log.error(error);
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+    throw error;
+  });
+  if (!result) {
+    log.error('Scanning not initiated');
+  }
+  const explorerHeight = result || 999999999; // fall back to normal load
+  const zelcashGetInfo = await zelcashService.getInfo();
+  let zelcashHeight = 1;
+  if (zelcashGetInfo.status === 'success') {
+    zelcashHeight = zelcashGetInfo.data.blocks;
+  } else {
+    log.error(zelcashGetInfo.data);
+  }
+  let cpuCores = 0;
+  const cpus = os.cpus();
+  if (cpus) {
+    cpuCores = cpus.length;
+  }
+  if (cpuCores > 8) {
+    cpuCores = 8;
+  }
+  let cpuUsage = 0;
+  if (explorerHeight < (zelcashHeight - 5)) {
+    // Initial scanning is in progress
+    cpuUsage += 0.5;
+  } else if (explorerHeight < zelcashHeight) {
+    cpuUsage += 0.25;
+  } else {
+    cpuUsage += 0.1; // normal load
+  }
+  cpuUsage *= cpuCores;
+
+  // load usedResources of zelapps
+  const zelappsDatabase = dbopen.db(config.database.zelapps.database);
+  const zelappsQuery = { cpu: { $gte: 0 } };
+  const zelappsProjection = {
+    projection: {
+      _id: 0,
+      cpu: 1,
+    },
+  };
+  const zelappsResult = await serviceHelper.findOneInDatabase(zelappsDatabase, zelAppsLocalResources, zelappsQuery, zelappsProjection).catch((error) => {
+    dbopen.close();
+    log.error(error);
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+    throw error;
+  });
+  let zelAppsCpusLocked = 0;
+  if (zelappsResult) {
+    zelAppsCpusLocked += serviceHelper.ensureNumber(zelappsResult.cpu);
+  }
+  cpuUsage += zelAppsCpusLocked;
+  let fiveMinUseage = 0;
+  const loadavg = os.loadavg();
+  if (loadavg) {
+    fiveMinUseage = serviceHelper.ensureNumber(loadavg[1]);
+  }
+  // if fiveminUseage is greaeter than our cpuUsage, do an average of those numbers;
+  const avgOfUseage = (fiveMinUseage + cpuUsage) / 2;
+  const response = serviceHelper.createDataMessage(avgOfUseage);
+  res.json(response);
+}
+
 module.exports = {
   dockerListContainers,
   zelAppPull,
@@ -554,4 +645,5 @@ module.exports = {
   zelAppUpdate,
   zelAppExec,
   zelShareFile,
+  zelfluxUseage,
 };

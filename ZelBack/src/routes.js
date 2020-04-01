@@ -258,6 +258,9 @@ module.exports = (app, expressWs) => {
   app.get('/zelapps/zelshare/getfile/:file?', (req, res) => {
     zelappsService.zelShareFile(req, res);
   });
+  app.get('/zelapps/zelfluxuseage', (req, res) => {
+    zelappsService.zelfluxUseage(req, res);
+  });
 
   app.get('/explorer/allutxos', (req, res) => {
     explorerService.getAllUtxos(req, res);
