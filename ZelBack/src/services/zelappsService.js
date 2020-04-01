@@ -624,7 +624,7 @@ async function zelfluxUsage(req, res) {
     fiveMinUsage = serviceHelper.ensureNumber(loadavg[1]) || 0;
   }
   // if fiveminUsage is greaeter than our cpuUsage, do an average of those numbers;
-  const avgOfUsage = (fiveMinUsage + cpuUsage) / 2;
+  const avgOfUsage = ((fiveMinUsage + cpuUsage) / 2).toFixed(8);
   const response = serviceHelper.createDataMessage(avgOfUsage);
   res.json(response);
 }
