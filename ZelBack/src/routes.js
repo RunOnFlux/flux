@@ -274,6 +274,10 @@ module.exports = (app, expressWs) => {
   // app.get('/explorer/zelnodetransactions', (req, res) => {
   //   explorerService.getAllZelNodeTransactions(req, res);
   // });
+  // filter can be IP, address, collateralHash.
+  app.get('/explorer/zelnodetxs/:filter?', (req, res) => {
+    explorerService.getFilteredZelNodeTxs(req, res);
+  });
   app.get('/explorer/utxo/:address?', (req, res) => {
     explorerService.getAddressUtxos(req, res);
   });

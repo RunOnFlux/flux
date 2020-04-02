@@ -617,7 +617,7 @@ async function getAllAddresses(req, res) {
 
 async function getAddressUtxos(req, res) {
   let { address } = req.params; // we accept both help/command and help?command=getinfo
-  address = address || req.query.command || '';
+  address = address || req.query.address;
   if (!address) {
     const errMessage = serviceHelper.createErrorMessage('No address provided');
     return res.json(errMessage);
@@ -654,9 +654,65 @@ async function getAddressUtxos(req, res) {
   return res.json(resMessage);
 }
 
+async function getFilteredZelNodeTxs(req, res) {
+  let { filter } = req.params; // we accept both help/command and help?command=getinfo
+  filter = filter || req.query.filter;
+  let query = {};
+  if (!filter) {
+    const errMessage = serviceHelper.createErrorMessage('No filter provided');
+    return res.json(errMessage);
+  }
+  if (filter.includes('.')) {
+    // IP address case
+    query = { ip: filter };
+  } else if (filter.length === 64) {
+    // collateralHash case
+    query = { collateralHash: filter };
+  } else if (filter.length >= 30 && filter.length < 38) {
+    // zelAddress case
+    query = { zelAddress: filter };
+  } else {
+    const errMessage = serviceHelper.createErrorMessage('It is possible to only filter via IP address, Zel address and Collateral hash.');
+    return res.json(errMessage);
+  }
+  const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+    log.error(error);
+    throw error;
+  });
+  const database = dbopen.db(config.database.zelcash.database);
+  const projection = {
+    projection: {
+      _id: 0,
+      txid: 1,
+      version: 1,
+      type: 1,
+      updateType: 1,
+      ip: 1,
+      benchTier: 1,
+      collateralHash: 1,
+      collateralIndex: 1,
+      zelAddress: 1,
+      lockedAmount: 1,
+      height: 1,
+    },
+  };
+  const results = await serviceHelper.findInDatabase(database, zelnodeTransactionCollection, query, projection).catch((error) => {
+    dbopen.close();
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+    log.error(error);
+    throw error;
+  });
+  dbopen.close();
+  const resMessage = serviceHelper.createDataMessage(results);
+  return res.json(resMessage);
+}
+
 async function getAddressTransactions(req, res) {
   let { address } = req.params; // we accept both help/command and help?command=getinfo
-  address = address || req.query.command || '';
+  address = address || req.query.address;
   if (!address) {
     const errMessage = serviceHelper.createErrorMessage('No address provided');
     return res.json(errMessage);
@@ -916,5 +972,6 @@ module.exports = {
   getAddressUtxos,
   getAddressTransactions,
   getAddressBalance,
+  getFilteredZelNodeTxs,
   getScannedHeight,
 };
