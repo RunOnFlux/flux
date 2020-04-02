@@ -7,4 +7,7 @@ export default {
   getAddressTransactions(address) {
     return Api().get(`/explorer/transactions/${address}`);
   },
+  getZelNodeTransactions(filter) {
+    return Api().get(`/explorer/zelnodetxs/${filter}`);
+  },
 };

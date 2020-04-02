@@ -295,6 +295,18 @@
             </div>
           </el-col>
         </el-row>
+        <el-row>
+          <el-col :span="6">
+            <div class="grid-content bg-purple">
+              No. ZelNode Transactions
+            </div>
+          </el-col>
+          <el-col :span="18">
+            <div class="grid-content bg-purple-light">
+              {{ addressWithTransactions[address].zelnodeTxs.length }}
+            </div>
+          </el-col>
+        </el-row>
         <br>
         Transactions:
         <br>
@@ -309,6 +321,18 @@
           <p v-if="addressWithTransactions[address].fetchedTransactions.length < addressWithTransactions[address].transactions.length">
             Loading More Transactions...
           </p>
+        </div>
+        <div v-if="addressWithTransactions[address].zelnodeTxs.length > 0">
+          <br>
+          ZelNode Transactions:
+          <br>
+          <div
+            v-for="transaction in addressWithTransactions[address].zelnodeTxs"
+            :key="transaction.txid"
+          >
+            <ZelNodeTx :transaction="transaction" />
+            <br>
+          </div>
         </div>
       </div>
     </div>
@@ -340,6 +364,7 @@ import ZelCashService from '@/services/ZelCashService';
 import ExplorerService from '@/services/ExplorerService';
 
 const Transaction = () => import('@/components/Transaction.vue');
+const ZelNodeTx = () => import('@/components/ZelNodeTx.vue');
 
 Vue.use(Vuex);
 
@@ -349,6 +374,7 @@ export default {
   name: 'Explorer',
   components: {
     Transaction,
+    ZelNodeTx,
   },
   data() {
     return {
@@ -614,7 +640,13 @@ export default {
           this.address = responseAddr.data.data.address;
           this.addressWithTransactions[address] = responseAddr.data.data;
           this.addressWithTransactions[address].balance = responseBalance.data.data;
+          this.addressWithTransactions[address].zelnodeTxs = [];
           this.getAddressTransactions(responseAddr.data.data.transactions, address);
+          const responseZelNodeTxs = await ExplorerService.getZelNodeTransactions(address);
+          if (responseZelNodeTxs.data.status === 'success') {
+            this.addressWithTransactions[address].zelnodeTxs = responseZelNodeTxs.data.data;
+            this.uniqueKeyAddress += 1;
+          }
         } else {
           vue.$message.info('Not found');
           this.$store.commit('setExplorerSection', 'explorer');

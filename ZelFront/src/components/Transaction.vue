@@ -154,10 +154,7 @@
       </el-row>
     </div>
 
-    <div
-      :key="uniqueKey"
-      v-if="transactionDetail.version < 5 && transactionDetail.version > 0"
-    >
+    <div v-if="transactionDetail.version < 5 && transactionDetail.version > 0">
       <el-row v-if="transactionDetail.version === 4">
         <el-col :span="11">
           <div class="grid-content bg-purple">
@@ -438,9 +435,7 @@ export default {
         hour: '2-digit',
         minute: '2-digit',
       },
-      height: 0,
       transactionDetail: {},
-      uniqueKey: 100000,
     };
   },
   mounted() {
