@@ -11,7 +11,7 @@ sudo $COIN_CLI stop > /dev/null 2>&1 && sleep 5
 sudo systemctl stop zelcash > /dev/null 2>&1 && sleep 3
 sudo killall $COIN_DAEMON > /dev/null 2>&1
 sudo apt-get purge zelbench -y > /dev/null 2>&1 && sleep 1
-sudo killall -s zelbenchd > /dev/null 2>&1 && sleep 1
+sudo killall -s SIGKILL zelbenchd > /dev/null 2>&1 && sleep 1
 sudo rm /etc/apt/sources.list.d/zelcash.list > /dev/null 2>&1 && sleep 1
 
 #Install zelbench apt package
