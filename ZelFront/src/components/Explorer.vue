@@ -48,7 +48,7 @@
         Loading Block...
       </el-row>
       <div v-if="blocksWithTransaction[height]">
-        <el-row v-if="blocksWithTransaction[height]">
+        <el-row>
           <el-col :span="6">
             <div class="grid-content bg-purple">
               Height
@@ -238,423 +238,114 @@
         <br>
         <div
           v-for="transaction in blocksWithTransaction[height].transactions"
-          :key="transaction"
+          :key="transaction.txid"
         >
           <Transaction :transaction="transaction" />
           <br>
         </div>
+        <div v-if="blocksWithTransaction[height].transactions">
+          <p v-if="blocksWithTransaction[height].transactions.length < blocksWithTransaction[height].tx.length">
+            Loading More Transactions...
+          </p>
+        </div>
       </div>
     </div>
-    <div v-if="explorerSection === 'transaction'">
+
+    <div
+      :key="uniqueKeyAddress"
+      v-if="explorerSection === 'address'"
+    >
+      <el-row v-if="!addressWithTransactions[address]">
+        Loading Address...
+      </el-row>
+      <div v-if="addressWithTransactions[address]">
+        <el-row>
+          <el-col :span="6">
+            <div class="grid-content bg-purple">
+              Address
+            </div>
+          </el-col>
+          <el-col :span="18">
+            <div class="grid-content bg-purple-light">
+              {{ addressWithTransactions[address].address }}
+            </div>
+          </el-col>
+        </el-row>
+        <el-row>
+          <el-col :span="6">
+            <div class="grid-content bg-purple">
+              Balance
+            </div>
+          </el-col>
+          <el-col :span="18">
+            <div class="grid-content bg-purple-light">
+              {{ addressWithTransactions[address].balance }}
+            </div>
+          </el-col>
+        </el-row>
+        <el-row>
+          <el-col :span="6">
+            <div class="grid-content bg-purple">
+              No. Transactions
+            </div>
+          </el-col>
+          <el-col :span="18">
+            <div class="grid-content bg-purple-light">
+              {{ addressWithTransactions[address].transactions.length }}
+            </div>
+          </el-col>
+        </el-row>
+        <el-row>
+          <el-col :span="6">
+            <div class="grid-content bg-purple">
+              No. ZelNode Transactions
+            </div>
+          </el-col>
+          <el-col :span="18">
+            <div class="grid-content bg-purple-light">
+              {{ addressWithTransactions[address].zelnodeTxs.length }}
+            </div>
+          </el-col>
+        </el-row>
+        <br>
+        Transactions:
+        <br>
+        <div
+          v-for="transaction in addressWithTransactions[address].fetchedTransactions"
+          :key="transaction.txid"
+        >
+          <Transaction :transaction="transaction" />
+          <br>
+        </div>
+        <div v-if="addressWithTransactions[address].fetchedTransactions">
+          <p v-if="addressWithTransactions[address].fetchedTransactions.length < addressWithTransactions[address].transactions.length">
+            Loading More Transactions...
+          </p>
+        </div>
+        <div v-if="addressWithTransactions[address].zelnodeTxs.length > 0">
+          <br>
+          ZelNode Transactions:
+          <br>
+          <div
+            v-for="transaction in addressWithTransactions[address].zelnodeTxs"
+            :key="transaction.txid"
+          >
+            <ZelNodeTx :transaction="transaction" />
+            <br>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div
+      :key="uniqueKey"
+      v-if="explorerSection === 'transaction'"
+    >
       <el-row v-if="!transactionDetail.txid">
         Loading Transaction...
       </el-row>
       <div v-if="transactionDetail.txid">
-        <el-row>
-          <el-col :span="6">
-            <div class="grid-content bg-purple">
-              TXID
-            </div>
-          </el-col>
-          <el-col :span="18">
-            <div class="grid-content bg-purple-light">
-              {{ transactionDetail.txid }}
-            </div>
-          </el-col>
-        </el-row>
-        <el-row>
-          <el-col :span="6">
-            <div class="grid-content bg-purple">
-              Date
-            </div>
-          </el-col>
-          <el-col :span="18">
-            <div class="grid-content bg-purple-light">
-              {{ new Date(transactionDetail.blocktime * 1000).toLocaleString('en-GB', timeoptions) }}
-            </div>
-          </el-col>
-        </el-row>
-        <el-row>
-          <el-col :span="6">
-            <div class="grid-content bg-purple">
-              Confirmations
-            </div>
-          </el-col>
-          <el-col :span="18">
-            <div class="grid-content bg-purple-light">
-              {{ transactionDetail.confirmations }}
-            </div>
-          </el-col>
-        </el-row>
-        <el-row>
-          <el-col :span="6">
-            <div class="grid-content bg-purple">
-              Version
-            </div>
-          </el-col>
-          <el-col :span="18">
-            <div class="grid-content bg-purple-light">
-              {{ transactionDetail.version }} {{ transactionDetail.version === 5 ? ' - ZelNode transaction' : JSON.stringify(transactionDetail.vin).includes('coinbase')
-              ? ' - Coinbase transaction' : ' - Standard transaction' }}
-            </div>
-          </el-col>
-        </el-row>
-        <el-row>
-          <el-col :span="6">
-            <div class="grid-content bg-purple">
-              Size
-            </div>
-          </el-col>
-          <el-col :span="18">
-            <div class="grid-content bg-purple-light">
-              {{ transactionDetail.hex.length / 2 }} Bytes
-            </div>
-          </el-col>
-        </el-row>
-        <el-row>
-          <el-col :span="6">
-            <div class="grid-content bg-purple">
-              Fee
-            </div>
-          </el-col>
-          <el-col :span="18">
-            <div class="grid-content bg-purple-light">
-              {{ calculateTxFee() }} ZEL
-            </div>
-          </el-col>
-        </el-row>
-        <el-row>
-          <el-col :span="6">
-            <div class="grid-content bg-purple">
-              Height
-            </div>
-          </el-col>
-          <el-col :span="18">
-            <div class="grid-content bg-purple-light">
-              {{ transactionDetail.height }}
-            </div>
-          </el-col>
-        </el-row>
-        <el-row>
-          <el-col :span="6">
-            <div class="grid-content bg-purple">
-              Block Hash
-            </div>
-          </el-col>
-          <el-col :span="18">
-            <div class="grid-content bg-purple-light">
-              {{ transactionDetail.blockhash }}
-            </div>
-          </el-col>
-        </el-row>
-      </div>
-
-      <div v-if="transactionDetail.version < 5 && transactionDetail.version > 0">
-        <el-row>
-          <el-col :span="6">
-            <div class="grid-content bg-purple">
-              Overwintered
-            </div>
-          </el-col>
-          <el-col :span="18">
-            <div class="grid-content bg-purple-light">
-              {{ transactionDetail.overwintered }}
-            </div>
-          </el-col>
-        </el-row>
-        <el-row v-if="transactionDetail.version === 4">
-          <el-col :span="6">
-            <div class="grid-content bg-purple">
-              Version Group ID
-            </div>
-          </el-col>
-          <el-col :span="18">
-            <div class="grid-content bg-purple-light">
-              {{ transactionDetail.versiongroupid }}
-            </div>
-          </el-col>
-        </el-row>
-        <el-row>
-          <el-col :span="6">
-            <div class="grid-content bg-purple">
-              Lock Time
-            </div>
-          </el-col>
-          <el-col :span="18">
-            <div class="grid-content bg-purple-light">
-              {{ transactionDetail.locktime }}
-            </div>
-          </el-col>
-        </el-row>
-        <el-row v-if="transactionDetail.version === 4">
-          <el-col :span="6">
-            <div class="grid-content bg-purple">
-              Expiry Height
-            </div>
-          </el-col>
-          <el-col :span="18">
-            <div class="grid-content bg-purple-light">
-              {{ transactionDetail.expiryheight }}
-            </div>
-          </el-col>
-        </el-row>
-      </div>
-
-      <div
-        :key="uniqueKey"
-        v-if="transactionDetail.version < 5 && transactionDetail.version > 0"
-      >
-        <div
-          v-for="i in Math.max(transactionDetail.vin.length, transactionDetail.vout.length)"
-          :key="i"
-        >
-          <el-row v-if="i === 1 && transactionDetail.version === 4">
-            <el-col :span="11">
-              <div class="grid-content bg-purple">
-                <div v-if="transactionDetail.vShieldedSpend.length > 0">
-                  {{ transactionDetail.vShieldedSpend.length }} sapling inputs
-                </div>
-                <div v-else>
-                  No sapling inputs
-                </div>
-              </div>
-            </el-col>
-            <el-col :span="2">
-              <div class="grid-content bg-purple">
-                <i
-                  v-if="i === 1"
-                  class="el-icon-arrow-right"
-                ></i>
-              </div>
-            </el-col>
-            <el-col :span="11">
-              <div class="grid-content bg-purple-light">
-                <div v-if="transactionDetail.vShieldedOutput.length > 0">
-                  {{ transactionDetail.vShieldedOutput.length }} sapling outputs
-                </div>
-                <div v-else>
-                  No sapling outputs
-                </div>
-              </div>
-            </el-col>
-          </el-row>
-
-          <el-row v-if="i === 1">
-            <el-col :span="10">
-              <div class="grid-content bg-purple">
-                <div v-if="transactionDetail.vJoinSplit.length > 0">
-                  {{ calculateJoinSplitInput(transactionDetail.vJoinSplit) }} sprout input
-                </div>
-                <div v-else>
-                  No sprout inputs
-                </div>
-              </div>
-            </el-col>
-            <el-col :span="4">
-              <div class="grid-content bg-purple">
-                <i class="el-icon-arrow-right"></i>
-                JoinSplits {{ transactionDetail.vJoinSplit.length }}
-                <i class="el-icon-arrow-right"></i>
-              </div>
-            </el-col>
-            <el-col :span="10">
-              <div class="grid-content bg-purple-light">
-                <div v-if="transactionDetail.vJoinSplit.length > 0">
-                  {{ calculateJoinSplitOutput(transactionDetail.vJoinSplit) }} sprout output
-                </div>
-                <div v-else>
-                  No sprout outputs
-                </div>
-              </div>
-            </el-col>
-          </el-row>
-
-          <el-row :gutter="0">
-            <el-col :span="11">
-              <div class="grid-content bg-purple">
-                <div v-if="transactionDetail.vin[i - 1]">
-                  <div>
-                    <div v-if="transactionDetail.vin[i - 1].coinbase">
-                      Newly generated coins
-                    </div>
-                    <div
-                      :key="transactionDetailSenders[transactionDetail.vin[i - 1].txid + transactionDetail.vin[i - 1].vout]"
-                      v-else-if="typeof transactionDetailSenders[transactionDetail.vin[i - 1].txid + transactionDetail.vin[i - 1].vout] === 'object'"
-                    >
-                      {{ transactionDetailSenders[transactionDetail.vin[i - 1].txid + transactionDetail.vin[i - 1].vout].value }} ZEL
-                      {{ transactionDetailSenders[transactionDetail.vin[i - 1].txid + transactionDetail.vin[i - 1].vout].scriptPubKey.addresses[0] }}
-                    </div>
-                    <div v-else>
-                      {{ transactionDetailSenders[transactionDetail.vin[i - 1].txid + transactionDetail.vin[i - 1].vout] || 'Loading Sender' }}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </el-col>
-            <el-col :span="2">
-              <div class="grid-content bg-purple">
-                <i
-                  v-if="i === 1"
-                  class="el-icon-arrow-right"
-                ></i>
-              </div>
-            </el-col>
-            <el-col :span="11">
-              <div class="grid-content bg-purple-light">
-                <div v-if="transactionDetail.vout[i - 1]">
-                  {{ transactionDetail.vout[i - 1].scriptPubKey.addresses[0] }} {{ transactionDetail.vout[i - 1].value }} ZEL
-                </div>
-              </div>
-            </el-col>
-          </el-row>
-        </div>
-      </div>
-
-      <div v-if="transactionDetail.version === 5">
-        <el-row>
-          <el-col :span="6">
-            <div class="grid-content bg-purple">
-              Type
-            </div>
-          </el-col>
-          <el-col :span="18">
-            <div class="grid-content bg-purple-light">
-              {{ transactionDetail.type }}
-            </div>
-          </el-col>
-        </el-row>
-        <el-row>
-          <el-col :span="6">
-            <div class="grid-content bg-purple">
-              Collateral Hash
-            </div>
-          </el-col>
-          <el-col :span="18">
-            <div class="grid-content bg-purple-light">
-              {{ getValueHexBuffer(transactionDetail.hex.slice(10, 74)) }}
-            </div>
-          </el-col>
-        </el-row>
-        <el-row>
-          <el-col :span="6">
-            <div class="grid-content bg-purple">
-              Collateral Index
-            </div>
-          </el-col>
-          <el-col :span="18">
-            <div class="grid-content bg-purple-light">
-              {{ getCollateralIndex(transactionDetail.hex.slice(74, 82)) }}
-            </div>
-          </el-col>
-        </el-row>
-        <el-row>
-          <el-col :span="6">
-            <div class="grid-content bg-purple">
-              Signature
-            </div>
-          </el-col>
-          <el-col :span="18">
-            <div class="grid-content bg-purple-light">
-              {{ transactionDetail.sig }}
-            </div>
-          </el-col>
-        </el-row>
-        <el-row>
-          <el-col :span="6">
-            <div class="grid-content bg-purple">
-              Signature Time
-            </div>
-          </el-col>
-          <el-col :span="18">
-            <div class="grid-content bg-purple-light">
-              {{ new Date(transactionDetail.sigtime * 1000).toLocaleString('en-GB', timeoptions) }}
-            </div>
-          </el-col>
-        </el-row>
-        <el-row v-if="transactionDetail.type === 'Starting a zelnode'">
-          <el-col :span="6">
-            <div class="grid-content bg-purple">
-              Collateral Public Key
-            </div>
-          </el-col>
-          <el-col :span="18">
-            <div class="grid-content bg-purple-light">
-              {{ transactionDetail.collateral_pubkey }}
-            </div>
-          </el-col>
-        </el-row>
-        <el-row v-if="transactionDetail.type === 'Starting a zelnode'">
-          <el-col :span="6">
-            <div class="grid-content bg-purple">
-              ZelNode Public Key
-            </div>
-          </el-col>
-          <el-col :span="18">
-            <div class="grid-content bg-purple-light">
-              {{ transactionDetail.zelnode_pubkey }}
-            </div>
-          </el-col>
-        </el-row>
-        <el-row v-if="transactionDetail.type === 'Confirming a zelnode'">
-          <el-col :span="6">
-            <div class="grid-content bg-purple">
-              ZelNode Network
-            </div>
-          </el-col>
-          <el-col :span="18">
-            <div class="grid-content bg-purple-light">
-              {{ transactionDetail.ip }}
-            </div>
-          </el-col>
-        </el-row>
-        <el-row v-if="transactionDetail.type === 'Confirming a zelnode'">
-          <el-col :span="6">
-            <div class="grid-content bg-purple">
-              Update Type
-            </div>
-          </el-col>
-          <el-col :span="18">
-            <div class="grid-content bg-purple-light">
-              {{ transactionDetail.update_type }}
-            </div>
-          </el-col>
-        </el-row>
-        <el-row v-if="transactionDetail.type === 'Confirming a zelnode'">
-          <el-col :span="6">
-            <div class="grid-content bg-purple">
-              Benchmark Tier
-            </div>
-          </el-col>
-          <el-col :span="18">
-            <div class="grid-content bg-purple-light">
-              {{ transactionDetail.benchmark_tier }}
-            </div>
-          </el-col>
-        </el-row>
-        <el-row v-if="transactionDetail.type === 'Confirming a zelnode'">
-          <el-col :span="6">
-            <div class="grid-content bg-purple">
-              Benchmark Signature
-            </div>
-          </el-col>
-          <el-col :span="18">
-            <div class="grid-content bg-purple-light">
-              {{ transactionDetail.benchmark_sig }}
-            </div>
-          </el-col>
-        </el-row>
-        <el-row v-if="transactionDetail.type === 'Confirming a zelnode'">
-          <el-col :span="6">
-            <div class="grid-content bg-purple">
-              Benchmark Signature Time
-            </div>
-          </el-col>
-          <el-col :span="18">
-            <div class="grid-content bg-purple-light">
-              {{ new Date(transactionDetail.benchmark_sigtime * 1000).toLocaleString('en-GB', timeoptions) }}
-            </div>
-          </el-col>
-        </el-row>
+        <Transaction :transaction="transactionDetail" />
       </div>
     </div>
     <div v-if="errorMessage !== ''">
@@ -670,8 +361,10 @@ import Vuex, { mapState } from 'vuex';
 import Vue from 'vue';
 
 import ZelCashService from '@/services/ZelCashService';
+import ExplorerService from '@/services/ExplorerService';
 
 const Transaction = () => import('@/components/Transaction.vue');
+const ZelNodeTx = () => import('@/components/ZelNodeTx.vue');
 
 Vue.use(Vuex);
 
@@ -681,6 +374,7 @@ export default {
   name: 'Explorer',
   components: {
     Transaction,
+    ZelNodeTx,
   },
   data() {
     return {
@@ -700,11 +394,12 @@ export default {
       blocks: [],
       searchBar: '',
       blocksWithTransaction: {},
+      addressWithTransactions: {},
       height: 0,
       transactionDetail: {},
-      transactionDetailSenders: {},
       uniqueKey: 100000,
       uniqueKeyBlock: 10000,
+      uniqueKeyAddress: 10000,
     };
   },
   computed: {
@@ -724,6 +419,9 @@ export default {
         case 'block':
           // nothing to do
           break;
+        case 'address':
+          // nothing to do
+          break;
         case 'transaction':
           // nothing to do
           break;
@@ -736,6 +434,8 @@ export default {
         this.getBlock(val);
       } else if (val.length === 64) {
         this.getBlock(val);
+      } else if (val.length >= 30 && val.length < 38) {
+        this.getAddress(val);
       } else {
         this.$store.commit('setExplorerSection', 'explorer');
       }
@@ -747,6 +447,9 @@ export default {
           this.zelcashGetInfo();
           break;
         case 'block':
+          // nothing to do
+          break;
+        case 'address':
           // nothing to do
           break;
         case 'transaction':
@@ -763,6 +466,9 @@ export default {
         this.zelcashGetInfo();
         break;
       case 'block':
+        // nothing to do
+        break;
+      case 'address':
         // nothing to do
         break;
       case 'transaction':
@@ -803,10 +509,15 @@ export default {
       for (let i = startingBlockHeight; i <= height; i += 1) {
         blocksToFetch.push(i);
       }
+      const blockHashes = [];
+      this.blocks.forEach((block) => {
+        blockHashes.push(block.hash);
+      });
+      // parallel may result in error 500
       await Promise.all(blocksToFetch.map(async (blockIndex) => {
         const blockContent = await ZelCashService.getBlock(blockIndex, verbosity);
         if (blockContent.data.status === 'success') {
-          if (!this.existInArray(this.blocks, blockContent.data.data)) {
+          if (!this.existInArray(blockHashes, blockContent.data.data.hash)) {
             this.blocks.push(blockContent.data.data);
           }
         }
@@ -815,14 +526,46 @@ export default {
     },
     async getBlockTransactions(transactionArray, height) {
       this.blocksWithTransaction[height].transactions = [];
+      this.uniqueKeyBlock += 1;
       const verbose = 1;
-      await Promise.all(transactionArray.map(async (transaction) => {
+      let i = 0;
+      // parallel is not possible as zelcash will result in error 500
+      // await Promise.all(transactionArray.map(async (transaction) => {
+      //   const txContent = await ZelCashService.getRawTransaction(transaction, verbose);
+      //   if (txContent.data.status === 'success') {
+      //     this.blocksWithTransaction[height].transactions.push(txContent.data.data);
+      //   }
+      // }));
+      // eslint-disable-next-line no-restricted-syntax
+      for (const transaction of transactionArray) {
+        // eslint-disable-next-line no-await-in-loop
         const txContent = await ZelCashService.getRawTransaction(transaction, verbose);
         if (txContent.data.status === 'success') {
-          this.blocksWithTransaction[height].transactions.push(txContent.data.data);
+          const transactionDetail = txContent.data.data;
+          transactionDetail.senders = [];
+          this.blocksWithTransaction[height].transactions.push(transactionDetail);
+          this.uniqueKeyAddress += 1;
+          // fetching of senders
+          if (transactionDetail.version < 5 && transactionDetail.version > 0) {
+            const sendersToFetch = [];
+            transactionDetail.vin.forEach((vin) => {
+              if (!vin.coinbase) {
+                sendersToFetch.push(vin);
+              }
+            });
+            // eslint-disable-next-line no-restricted-syntax
+            for (const sender of sendersToFetch) {
+              // eslint-disable-next-line no-await-in-loop
+              const senderInformation = await this.getSenderForBlockOrAddress(sender.txid, sender.vout);
+              this.blocksWithTransaction[height].transactions[i].senders.push(senderInformation);
+              this.uniqueKeyBlock += 1;
+            }
+            this.uniqueKeyBlock += 1;
+          }
         }
-      }));
-      this.uniqueKeyBlock += 1;
+        i += 1;
+        this.uniqueKeyBlock += 1;
+      }
       console.log(this.blocksWithTransaction);
     },
     async getBlock(heightOrHash) {
@@ -842,6 +585,76 @@ export default {
         this.height = heightOrHash;
       }
     },
+    async getAddressTransactions(transactionArray, address) {
+      this.addressWithTransactions[address].fetchedTransactions = [];
+      this.uniqueKeyAddress += 1;
+      const verbose = 1;
+      let i = 0;
+      // parallel is not possible as zelcash will result in error 500
+      // await Promise.all(transactionArray.map(async (transaction) => {
+      //   const txContent = await ZelCashService.getRawTransaction(transaction, verbose);
+      //   if (txContent.data.status === 'success') {
+      //     this.blocksWithTransaction[height].transactions.push(txContent.data.data);
+      //   }
+      // }));
+      // eslint-disable-next-line no-restricted-syntax
+      for (const transaction of transactionArray) {
+        // eslint-disable-next-line no-await-in-loop
+        const txContent = await ZelCashService.getRawTransaction(transaction.txid, verbose);
+        if (txContent.data.status === 'success') {
+          const transactionDetail = txContent.data.data;
+          transactionDetail.senders = [];
+          this.addressWithTransactions[address].fetchedTransactions.push(transactionDetail);
+          this.uniqueKeyAddress += 1;
+          // fetching of senders
+          if (transactionDetail.version < 5 && transactionDetail.version > 0) {
+            const sendersToFetch = [];
+            transactionDetail.vin.forEach((vin) => {
+              if (!vin.coinbase) {
+                sendersToFetch.push(vin);
+              }
+            });
+            // eslint-disable-next-line no-restricted-syntax
+            for (const sender of sendersToFetch) {
+              // eslint-disable-next-line no-await-in-loop
+              const senderInformation = await this.getSenderForBlockOrAddress(sender.txid, sender.vout);
+              this.addressWithTransactions[address].fetchedTransactions[i].senders.push(senderInformation);
+              this.uniqueKeyAddress += 1;
+            }
+            this.uniqueKeyAddress += 1;
+          }
+        }
+        i += 1;
+        this.uniqueKeyAddress += 1;
+      }
+    },
+    async getAddress(address) {
+      this.address = 'dummyAddress';
+      this.$store.commit('setExplorerSection', 'address');
+      if (!this.addressWithTransactions[address]) {
+        const responseAddr = await ExplorerService.getAddressTransactions(address);
+        const responseBalance = await ExplorerService.getAddressBalance(address);
+        console.log(responseAddr);
+        console.log(responseBalance);
+        if (responseAddr.data.status === 'success' && responseBalance.data.status === 'success' && responseAddr.data.data !== null) {
+          this.address = responseAddr.data.data.address;
+          this.addressWithTransactions[address] = responseAddr.data.data;
+          this.addressWithTransactions[address].balance = responseBalance.data.data;
+          this.addressWithTransactions[address].zelnodeTxs = [];
+          this.getAddressTransactions(responseAddr.data.data.transactions, address);
+          const responseZelNodeTxs = await ExplorerService.getZelNodeTransactions(address);
+          if (responseZelNodeTxs.data.status === 'success') {
+            this.addressWithTransactions[address].zelnodeTxs = responseZelNodeTxs.data.data;
+            this.uniqueKeyAddress += 1;
+          }
+        } else {
+          vue.$message.info('Not found');
+          this.$store.commit('setExplorerSection', 'explorer');
+        }
+      } else {
+        this.address = address;
+      }
+    },
     async getTransaction(hash) {
       this.transactionDetail = {};
       const verbose = 1;
@@ -849,18 +662,39 @@ export default {
       const txContent = await ZelCashService.getRawTransaction(hash, verbose);
       console.log(txContent);
       if (txContent.data.status === 'success') {
-        this.transactionDetail = txContent.data.data;
-        if (this.transactionDetail.version < 5 && this.transactionDetail.version > 0) {
-          this.transactionDetail.vin.forEach((vin, index) => {
-            if (!this.transactionDetail.vin[index].coinbase) {
-              this.getSender(this.transactionDetail.vin[index].txid, this.transactionDetail.vin[index].vout);
+        if (txContent.data.data.version < 5 && txContent.data.data.version > 0) {
+          const txA = txContent.data.data;
+          txA.senders = [];
+          this.transactionDetail = txA;
+          const sendersToFetch = [];
+          txContent.data.data.vin.forEach((vin) => {
+            if (!vin.coinbase) {
+              sendersToFetch.push(vin);
             }
           });
+          const senders = [];
+          // eslint-disable-next-line no-restricted-syntax
+          for (const sender of sendersToFetch) {
+            // eslint-disable-next-line no-await-in-loop
+            const senderInformation = await this.getSender(sender.txid, sender.vout);
+            senders.push(senderInformation);
+            const txDetail = txContent.data.data;
+            txDetail.senders = senders;
+            this.transactionDetail = txDetail;
+            this.uniqueKey += 1;
+          }
+          const txDetail = txContent.data.data;
+          txDetail.senders = senders;
+          this.transactionDetail = txDetail;
+        } else {
+          this.transactionDetail = txContent.data.data;
+          this.uniqueKey += 1;
         }
       } else {
         vue.$message.info('Not found');
         this.$store.commit('setExplorerSection', 'explorer');
       }
+      console.log(this.transactionDetail);
     },
     formatTimeAgo(timeCreated) {
       const periods = {
@@ -890,74 +724,27 @@ export default {
       }
       return 'Just now';
     },
-    getValueHexBuffer(hex) {
-      const buf = Buffer.from(hex, 'hex').reverse();
-      return buf.toString('hex');
-    },
-    getCollateralIndex(hex) {
-      const buf = Buffer.from(hex, 'hex').reverse();
-      return parseInt(buf.toString('hex'), 16);
-    },
-    sender(txid, vout) {
-      this.getSender(txid, vout);
-      return this.transactionDetailSenders[txid + vout];
-    },
     async getSender(txid, vout) {
       const verbose = 1;
       const txContent = await ZelCashService.getRawTransaction(txid, verbose);
       console.log(txContent);
       if (txContent.data.status === 'success') {
         const sender = txContent.data.data.vout[vout];
-        this.transactionDetailSenders[txid + vout] = sender;
-      } else {
-        this.transactionDetailSenders[txid + vout] = 'Sender not found';
+        this.uniqueKey += 1;
+        return sender;
       }
-      console.log(this.transactionDetailSenders);
-      this.calculateTxFee();
       this.uniqueKey += 1;
+      return 'Sender not found';
     },
-    calculateTxFee() {
-      if (this.transactionDetail.version === 5) {
-        return 0;
+    async getSenderForBlockOrAddress(txid, vout) {
+      const verbose = 1;
+      const txContent = await ZelCashService.getRawTransaction(txid, verbose);
+      console.log(txContent);
+      if (txContent.data.status === 'success') {
+        const sender = txContent.data.data.vout[vout];
+        return sender;
       }
-      if (this.transactionDetail.vin[0]) {
-        if (this.transactionDetail.vin[0].coinbase) {
-          return 0;
-        }
-      }
-      const value = this.transactionDetail.valueBalanceZat || 0;
-      let valueOut = 0;
-      let valueIn = 0;
-      this.transactionDetail.vin.forEach((vin, index) => {
-        if (!this.transactionDetail.vin[index].coinbase) {
-          if (typeof this.transactionDetailSenders[this.transactionDetail.vin[index].txid + this.transactionDetail.vin[index].vout] === 'object') {
-            valueIn += this.transactionDetailSenders[this.transactionDetail.vin[index].txid + this.transactionDetail.vin[index].vout].valueZat;
-          }
-        }
-      });
-      this.transactionDetail.vout.forEach((vout) => {
-        valueOut += vout.valueZat;
-      });
-      this.transactionDetail.vJoinSplit.forEach((tx) => {
-        valueIn += tx.vpub_newZat;
-        valueOut += tx.vpub_oldZat;
-      });
-      const fee = (value - valueOut + valueIn) / 1e8;
-      return fee;
-    },
-    calculateJoinSplitInput(joinsplit) {
-      let valueIn = 0;
-      joinsplit.forEach((tx) => {
-        valueIn += tx.vpub_newZat;
-      });
-      return valueIn / 1e8;
-    },
-    calculateJoinSplitOutput(joinsplit) {
-      let valueOut = 0;
-      joinsplit.forEach((tx) => {
-        valueOut += tx.vpub_oldZat;
-      });
-      return valueOut / 1e8;
+      return 'Sender not found';
     },
   },
 };

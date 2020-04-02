@@ -103,7 +103,11 @@ function ensureString(parameter) {
 // MongoDB functions
 async function connectMongoDb(url) {
   const connectUrl = url || mongoUrl;
-  const db = await MongoClient.connect(connectUrl).catch((error) => { throw error; });
+  const mongoSettings = {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+  };
+  const db = await MongoClient.connect(connectUrl, mongoSettings).catch((error) => { throw error; });
   return db;
 }
 
@@ -117,8 +121,24 @@ async function findOneInDatabase(database, collection, query, projection) {
   return result;
 }
 
+async function findOneAndUpdateInDatabase(database, collection, query, update, options) {
+  const passedOptions = options || {};
+  const result = await database.collection(collection).findOneAndUpdate(query, update, passedOptions).catch((error) => { throw error; });
+  return result;
+}
+
 async function insertOneToDatabase(database, collection, value) {
   const result = await database.collection(collection).insertOne(value).catch((error) => { throw error; });
+  return result;
+}
+
+async function updateOneInDatabase(database, collection, query, value) {
+  const result = await database.collection(collection).updateOne(query, { $set: value }).catch((error) => { throw error; });
+  return result;
+}
+
+async function updateInDatabase(database, collection, query, projection) {
+  const result = await database.collection(collection).updateMany(query, projection).catch((error) => { throw error; });
   return result;
 }
 
@@ -129,7 +149,18 @@ async function findOneAndDeleteInDatabase(database, collection, query, projectio
 
 async function removeDocumentsFromCollection(database, collection, query) {
   // to remove all documents from collection, the query is just {}
-  const result = await database.collection(collection).remove(query).catch((error) => { throw error; });
+  const result = await database.collection(collection).deleteMany(query).catch((error) => { throw error; });
+  return result;
+}
+
+async function dropCollection(database, collection) {
+  const result = await database.collection(collection).drop().catch((error) => { throw error; });
+  return result;
+}
+
+async function collectionStats(database, collection) {
+  // to remove all documents from collection, the query is just {}
+  const result = await database.collection(collection).stats().catch((error) => { throw error; });
   return result;
 }
 
@@ -323,9 +354,14 @@ module.exports = {
   connectMongoDb,
   findInDatabase,
   findOneInDatabase,
+  findOneAndUpdateInDatabase,
   insertOneToDatabase,
+  updateInDatabase,
+  updateOneInDatabase,
   findOneAndDeleteInDatabase,
   removeDocumentsFromCollection,
+  dropCollection,
+  collectionStats,
   verifyAdminSession,
   verifyUserSession,
   verifyZelTeamSession,
