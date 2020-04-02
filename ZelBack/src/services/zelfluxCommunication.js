@@ -41,7 +41,7 @@ async function deterministicZelNodeList(filter) {
     },
     query: {},
   };
-  zelnodeList = await zelcashServices.listZelNodes(request);
+  zelnodeList = await zelcashServices.viewDeterministicZelNodeList(request);
   return zelnodeList.status === 'success' ? (zelnodeList.data || []) : [];
 }
 
@@ -460,8 +460,7 @@ async function getRandomConnection() {
   const zelnodeList = await deterministicZelNodeList();
   const zlLength = zelnodeList.length;
   const randomNode = Math.floor((Math.random() * zlLength)); // we do not really need a 'random'
-  const fullip = zelnodeList[randomNode].ip || zelnodeList[randomNode].ipaddress;
-  const ip = fullip.split(':16125').join('');
+  const ip = zelnodeList[randomNode].ip || zelnodeList[randomNode].ipaddress;
 
   // const zelnodeList = ['157.230.249.150', '94.177.240.7', '89.40.115.8', '94.177.241.10', '54.37.234.130', '194.182.83.182'];
   // const zlLength = zelnodeList.length;
@@ -469,7 +468,8 @@ async function getRandomConnection() {
   // const ip = zelnodeList[randomNode];
 
   // TODO checks for ipv4, ipv6, tor
-  if (ip.includes('onion') || ip === userconfig.initial.ipaddress) {
+  // TODO check for if its mine address
+  if (ip === userconfig.initial.ipaddress) {
     return null;
   }
 
@@ -816,15 +816,17 @@ async function getDOSState(req, res) {
 }
 
 function startFluxFunctions() {
-  // fluxDisovery();
-  // log.info('Flux Discovery started');
-  // keepConnectionsAlive();
-  // keepIncomingConnectionsAlive();
-  // checkDeterministicNodesCollisions();
-  // setInterval(() => {
-  //   checkDeterministicNodesCollisions();
-  // }, 60000);
+  fluxDisovery();
+  log.info('Flux Discovery started');
+  keepConnectionsAlive();
+  keepIncomingConnectionsAlive();
+  checkDeterministicNodesCollisions();
+  setInterval(() => {
+    checkDeterministicNodesCollisions();
+  }, 60000);
+  log.info('Flux checks operational');
   explorerService.initiateBlockProcessor();
+  log.info('Flux Block Explorer Service started');
 }
 
 module.exports = {
