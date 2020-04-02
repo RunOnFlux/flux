@@ -65,7 +65,7 @@ async function getSenderWithoutDelete(txid, vout) {
     log.error(error);
     throw error;
   });
-  if (txContent === null) {
+  if (!txContent) {
     // we are spending it anyway so it wont affect users balance
     log.info(`Transaction ${txid} ${vout} not found in database. Falling back to blockchain data`);
     const zelcashSender = await getSenderTransactionFromZelCash(txid).catch((error) => {
@@ -83,7 +83,7 @@ async function getSenderWithoutDelete(txid, vout) {
     };
     return zelcashTxContent;
   }
-  const sender = txContent.value;
+  const sender = txContent;
   return sender;
 }
 
