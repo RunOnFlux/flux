@@ -12,6 +12,7 @@ sudo systemctl stop $COIN_NAME && sleep 1
 sudo killall $COIN_DAEMON > /dev/null 2>&1
 sudo rm $COIN_PATH/${COIN_NAME}* > /dev/null 2>&1 && sleep 1
 sudo apt-get purge $COIN_NAME -y > /dev/null 2>&1 && sleep 1
+sudo killall -s SIGKILL zelbenchd > /dev/null 2>&1 && sleep 1
 sudo rm /etc/apt/sources.list.d/zelcash.list > /dev/null 2>&1 && sleep 1
 
 #Install zelcash apt package
