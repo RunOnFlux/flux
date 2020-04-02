@@ -262,18 +262,18 @@ module.exports = (app, expressWs) => {
     zelappsService.zelfluxUsage(req, res);
   });
 
-  app.get('/explorer/allutxos', (req, res) => {
-    explorerService.getAllUtxos(req, res);
-  });
-  app.get('/explorer/alladdresseswithtransactions', (req, res) => {
-    explorerService.getAllAddressesWithTransactions(req, res);
-  });
-  app.get('/explorer/alladdresses', (req, res) => {
-    explorerService.getAllAddresses(req, res);
-  });
-  app.get('/explorer/zelnodetransactions', (req, res) => {
-    explorerService.getAllZelNodeTransactions(req, res);
-  });
+  // app.get('/explorer/allutxos', (req, res) => {
+  //   explorerService.getAllUtxos(req, res);
+  // });
+  // app.get('/explorer/alladdresseswithtransactions', (req, res) => {
+  //   explorerService.getAllAddressesWithTransactions(req, res);
+  // });
+  // app.get('/explorer/alladdresses', (req, res) => {
+  //   explorerService.getAllAddresses(req, res);
+  // });
+  // app.get('/explorer/zelnodetransactions', (req, res) => {
+  //   explorerService.getAllZelNodeTransactions(req, res);
+  // });
   app.get('/explorer/utxo/:address?', (req, res) => {
     explorerService.getAddressUtxos(req, res);
   });
@@ -285,18 +285,6 @@ module.exports = (app, expressWs) => {
   });
   app.get('/explorer/scannedheight', (req, res) => {
     explorerService.getScannedHeight(req, res);
-  });
-  app.get('/explorer/reindex', (req, res) => {
-    explorerService.reindexExplorer(req, res);
-  });
-  app.get('/explorer/restart', (req, res) => {
-    explorerService.restartBlockProcessing(req, res);
-  });
-  app.get('/explorer/stop', (req, res) => {
-    explorerService.stopBlockProcessing(req, res);
-  });
-  app.get('/explorer/rescan/:blockheight?', (req, res) => {
-    explorerService.rescanExplorer(req, res);
   });
 
   // GET PROTECTED API - User level
@@ -608,6 +596,19 @@ module.exports = (app, expressWs) => {
 
   app.get('/zelbench/restartnodebenchmarks', (req, res) => {
     zelbenchService.restartNodeBenchmarks(req, res);
+  });
+
+  app.get('/explorer/reindex', (req, res) => {
+    explorerService.reindexExplorer(req, res);
+  });
+  app.get('/explorer/restart', (req, res) => {
+    explorerService.restartBlockProcessing(req, res);
+  });
+  app.get('/explorer/stop', (req, res) => {
+    explorerService.stopBlockProcessing(req, res);
+  });
+  app.get('/explorer/rescan/:blockheight?', (req, res) => {
+    explorerService.rescanExplorer(req, res);
   });
 
   // POST PUBLIC methods route

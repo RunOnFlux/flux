@@ -738,73 +738,44 @@ async function checkBlockProcessingStopping(i, callback) {
 }
 
 async function stopBlockProcessing(req, res) {
-  const i = 0;
-  blockProccessingCanContinue = false;
-  checkBlockProcessingStopping(i, async (response) => {
-    // put blockProccessingCanContinue status to true.
-    res.json(response);
-  });
+  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+  if (authorized === true) {
+    const i = 0;
+    blockProccessingCanContinue = false;
+    checkBlockProcessingStopping(i, async (response) => {
+      // put blockProccessingCanContinue status to true.
+      res.json(response);
+    });
+  } else {
+    const errMessage = serviceHelper.errUnauthorizedMessage();
+    res.json(errMessage);
+  }
 }
 
 async function restartBlockProcessing(req, res) {
-  const i = 0;
-  blockProccessingCanContinue = false;
-  checkBlockProcessingStopping(i, async () => {
-    blockProccessingCanContinue = true;
-    initiateBlockProcessor();
-    const message = serviceHelper.createSuccessMessage('Block processing initiated');
-    res.json(message);
-  });
+  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+  if (authorized === true) {
+    const i = 0;
+    blockProccessingCanContinue = false;
+    checkBlockProcessingStopping(i, async () => {
+      blockProccessingCanContinue = true;
+      initiateBlockProcessor();
+      const message = serviceHelper.createSuccessMessage('Block processing initiated');
+      res.json(message);
+    });
+  } else {
+    const errMessage = serviceHelper.errUnauthorizedMessage();
+    res.json(errMessage);
+  }
 }
 
 
 async function reindexExplorer(req, res) {
-  // stop block processing
-  blockProccessingCanContinue = false;
-  const i = 0;
-  checkBlockProcessingStopping(i, async (response) => {
-    if (response.status === 'error') {
-      res.json(response);
-    } else {
-      const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
-        const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
-        log.error(errMessage);
-        return res.json(errMessage);
-      });
-      const database = dbopen.db(config.database.zelcash.database);
-      const resultOfDropping = await serviceHelper.dropCollection(database, scannedHeightCollection).catch((error) => {
-        if (error.message !== 'ns not found') {
-          dbopen.close();
-          log.error(error);
-          const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
-          res.json(errMessage);
-        }
-      });
-      dbopen.close();
-      if (resultOfDropping === true || resultOfDropping === undefined) {
-        initiateBlockProcessor();
-        const message = serviceHelper.createSuccessMessage('Explorer database reindex initiated');
-        res.json(message);
-      } else {
-        const errMessage = serviceHelper.createErrorMessage(resultOfDropping, 'Collection dropping error');
-        res.json(errMessage);
-      }
-    }
-  });
-}
-
-async function rescanExplorer(req, res) {
-  // since what blockheight
-  let { blockheight } = req.params; // we accept both help/command and help?command=getinfo
-  blockheight = blockheight || req.query.command || '';
-  if (!blockheight) {
-    const errMessage = serviceHelper.createErrorMessage('No blockheight provided');
-    res.json(errMessage);
-  }
-  // stop block processing
-  blockProccessingCanContinue = false;
-  const i = 0;
-  if (blockheight) {
+  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+  if (authorized === true) {
+    // stop block processing
+    blockProccessingCanContinue = false;
+    const i = 0;
     checkBlockProcessingStopping(i, async (response) => {
       if (response.status === 'error') {
         res.json(response);
@@ -814,24 +785,77 @@ async function rescanExplorer(req, res) {
           log.error(errMessage);
           return res.json(errMessage);
         });
-        const scannedHeight = serviceHelper.ensureNumber(blockheight);
-        // update scanned Height in scannedBlockHeightCollection
         const database = dbopen.db(config.database.zelcash.database);
-        const query = { generalScannedHeight: { $gte: 0 } };
-        const update = { $set: { generalScannedHeight: scannedHeight } };
-        const options = { upsert: true };
-        await serviceHelper.findOneAndUpdateInDatabase(database, scannedHeightCollection, query, update, options).catch((error) => {
-          dbopen.close();
-          log.error(error);
-          const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
-          return res.json(errMessage);
+        const resultOfDropping = await serviceHelper.dropCollection(database, scannedHeightCollection).catch((error) => {
+          if (error.message !== 'ns not found') {
+            dbopen.close();
+            log.error(error);
+            const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+            res.json(errMessage);
+          }
         });
         dbopen.close();
-        initiateBlockProcessor();
-        const message = serviceHelper.createSuccessMessage(`Explorer rescan from blockheight ${blockheight} initiated`);
-        res.json(message);
+        if (resultOfDropping === true || resultOfDropping === undefined) {
+          initiateBlockProcessor();
+          const message = serviceHelper.createSuccessMessage('Explorer database reindex initiated');
+          res.json(message);
+        } else {
+          const errMessage = serviceHelper.createErrorMessage(resultOfDropping, 'Collection dropping error');
+          res.json(errMessage);
+        }
       }
     });
+  } else {
+    const errMessage = serviceHelper.errUnauthorizedMessage();
+    res.json(errMessage);
+  }
+}
+
+async function rescanExplorer(req, res) {
+  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+  if (authorized === true) {
+    // since what blockheight
+    let { blockheight } = req.params; // we accept both help/command and help?command=getinfo
+    blockheight = blockheight || req.query.command || '';
+    if (!blockheight) {
+      const errMessage = serviceHelper.createErrorMessage('No blockheight provided');
+      res.json(errMessage);
+    }
+    // stop block processing
+    blockProccessingCanContinue = false;
+    const i = 0;
+    if (blockheight) {
+      checkBlockProcessingStopping(i, async (response) => {
+        if (response.status === 'error') {
+          res.json(response);
+        } else {
+          const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
+            const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+            log.error(errMessage);
+            return res.json(errMessage);
+          });
+          const scannedHeight = serviceHelper.ensureNumber(blockheight);
+          // update scanned Height in scannedBlockHeightCollection
+          const database = dbopen.db(config.database.zelcash.database);
+          const query = { generalScannedHeight: { $gte: 0 } };
+          const update = { $set: { generalScannedHeight: scannedHeight } };
+          const options = { upsert: true };
+          await serviceHelper.findOneAndUpdateInDatabase(database, scannedHeightCollection, query, update, options).catch((error) => {
+            dbopen.close();
+            log.error(error);
+            const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+            return res.json(errMessage);
+          });
+          dbopen.close();
+          initiateBlockProcessor();
+          const message = serviceHelper.createSuccessMessage(`Explorer rescan from blockheight ${blockheight} initiated`);
+          res.json(message);
+        }
+      });
+    }
+  } else {
+    const errMessage = serviceHelper.errUnauthorizedMessage();
+    res.json(errMessage);
   }
 }
 
