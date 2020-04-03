@@ -11,4 +11,4 @@ sudo systemctl stop zelcash >/dev/null 2>&1 && sleep 3
 sudo killall "$COIN_DAEMON" >/dev/null 2>&1
 sudo killall -s SIGKILL zelbenchd >/dev/null 2>&1
 sleep 2
-"$COIN_DAEMON" -reindex
+sudo "$COIN_DAEMON" -reindex

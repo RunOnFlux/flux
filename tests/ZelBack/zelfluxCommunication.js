@@ -71,7 +71,7 @@ describe('getFluxMessageSignature', () => {
     const privKey = '5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh';
     const messageToSend = await communication.serialiseAndSignZelFluxBroadcast(data, privKey);
     console.log(messageToSend);
-    const wsuri = `ws://157.230.249.150:16127/ws/zelflux/`; // locally running 127.0.0.1
+    const wsuri = `ws://62.171.163.150:16127/ws/zelflux/`; // locally running 127.0.0.1
     const websocket = new WebSocket(wsuri);
 
     websocket.on('open', (msg) => {

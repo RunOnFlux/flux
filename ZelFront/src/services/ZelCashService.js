@@ -10,8 +10,8 @@ export default {
   getZelNodeStatus() {
     return Api().get('/zelcash/getzelnodestatus');
   },
-  getRawTransaction(txid) {
-    return Api().get(`/zelcash/getrawtransaction/${txid}/1`);
+  getRawTransaction(txid, verbose) {
+    return Api().get(`/zelcash/getrawtransaction/${txid}/${verbose}`);
   },
   listZelNodes() {
     return Api().get('/zelcash/listzelnodes');
@@ -32,5 +32,8 @@ export default {
         zelidauth: zelidauthHeader,
       },
     });
+  },
+  getBlock(height, verbosity) {
+    return Api().get(`/zelcash/getblock/${height}/${verbosity}`);
   },
 };

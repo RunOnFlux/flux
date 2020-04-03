@@ -22,6 +22,7 @@ export default new Vuex.Store({
     zelNodeSection: null,
     zelAdminSection: null,
     zelAppsSection: null,
+    explorerSection: null,
     zelfluxVersion: '',
   },
   getters: {
@@ -36,6 +37,7 @@ export default new Vuex.Store({
       state.zelNodeSection = null;
       state.zelAdminSection = null;
       state.zelAppsSection = null;
+      state.explorerSection = null;
     },
     setZelNodeSection(state, section) {
       state.zelNodeSection = section;
@@ -43,6 +45,7 @@ export default new Vuex.Store({
       state.zelCashSection = null;
       state.zelAdminSection = null;
       state.zelAppsSection = null;
+      state.explorerSection = null;
     },
     setZelAdminSection(state, section) {
       state.zelAdminSection = section;
@@ -50,6 +53,7 @@ export default new Vuex.Store({
       state.zelCashSection = null;
       state.zelNodeSection = null;
       state.zelAppsSection = null;
+      state.explorerSection = null;
     },
     setZelAppsSection(state, section) {
       state.zelAppsSection = section;
@@ -57,6 +61,15 @@ export default new Vuex.Store({
       state.zelCashSection = null;
       state.zelNodeSection = null;
       state.zelAdminSection = null;
+      state.explorerSection = null;
+    },
+    setExplorerSection(state, section) {
+      state.explorerSection = section;
+      // we always want to reset the other sections to null state
+      state.zelCashSection = null;
+      state.zelNodeSection = null;
+      state.zelAdminSection = null;
+      state.zelAppsSection = null;
     },
     setZelFluxVersion(state, version) {
       state.zelfluxVersion = version;

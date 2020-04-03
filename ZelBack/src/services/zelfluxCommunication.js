@@ -6,6 +6,7 @@ const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const zelcashServices = require('./zelcashService');
 const userconfig = require('../../../config/userconfig');
+const explorerService = require('./explorerService');
 
 const outgoingConnections = []; // websocket list
 const outgoingPeers = []; // array of objects containing ip and rtt latency
@@ -13,15 +14,21 @@ const outgoingPeers = []; // array of objects containing ip and rtt latency
 const incomingConnections = []; // websocket list
 const incomingPeers = []; // array of objects containing ip and rtt latency
 
+let dosState = 0;
+let dosMessage = null;
+
 let response = serviceHelper.createErrorMessage();
 
 async function myZelNodeIP() {
   const benchmarkResponse = await zelcashServices.getBenchmarks();
   let myIP = null;
   if (benchmarkResponse.status === 'success') {
-    if (benchmarkResponse.data.ipaddress) {
-      myIP = benchmarkResponse.data.ipaddress.length > 5 ? benchmarkResponse.data.ipaddress : null;
+    const benchmarkResponseData = JSON.parse(benchmarkResponse.data);
+    if (benchmarkResponseData.ipaddress) {
+      myIP = benchmarkResponseData.ipaddress.length > 5 ? benchmarkResponseData.ipaddress : null;
     }
+  } else {
+    dosState += 10;
   }
   return myIP;
 }
@@ -34,7 +41,7 @@ async function deterministicZelNodeList(filter) {
     },
     query: {},
   };
-  zelnodeList = await zelcashServices.listZelNodes(request);
+  zelnodeList = await zelcashServices.viewDeterministicZelNodeList(request);
   return zelnodeList.status === 'success' ? (zelnodeList.data || []) : [];
 }
 
@@ -453,8 +460,7 @@ async function getRandomConnection() {
   const zelnodeList = await deterministicZelNodeList();
   const zlLength = zelnodeList.length;
   const randomNode = Math.floor((Math.random() * zlLength)); // we do not really need a 'random'
-  const fullip = zelnodeList[randomNode].ip || zelnodeList[randomNode].ipaddress;
-  const ip = fullip.split(':16125').join('');
+  const ip = zelnodeList[randomNode].ip || zelnodeList[randomNode].ipaddress;
 
   // const zelnodeList = ['157.230.249.150', '94.177.240.7', '89.40.115.8', '94.177.241.10', '54.37.234.130', '194.182.83.182'];
   // const zlLength = zelnodeList.length;
@@ -462,7 +468,8 @@ async function getRandomConnection() {
   // const ip = zelnodeList[randomNode];
 
   // TODO checks for ipv4, ipv6, tor
-  if (ip.includes('onion') || ip === userconfig.initial.ipaddress) {
+  // TODO check for if its mine address
+  if (ip === userconfig.initial.ipaddress) {
     return null;
   }
 
@@ -784,9 +791,28 @@ async function checkDeterministicNodesCollisions() {
     const result = zelnodeList.filter((zelnode) => zelnode.ip === myIP);
     if (result.length > 1) {
       log.error('Flux collision detection');
-      process.exit(1);
+      dosState = 100;
+      dosMessage = 'Flux collision detection';
+    } else {
+      dosState = 0;
+      dosMessage = null;
+    }
+  } else {
+    dosState += 1;
+    if (dosState > 10) {
+      log.error('Flux IP detection failed');
+      dosMessage = 'Flux IP detection failed';
     }
   }
+}
+
+async function getDOSState(req, res) {
+  const data = {
+    dosState,
+    dosMessage,
+  };
+  response = serviceHelper.createDataMessage(data);
+  return res ? res.json(response) : response;
 }
 
 function startFluxFunctions() {
@@ -798,6 +824,9 @@ function startFluxFunctions() {
   setInterval(() => {
     checkDeterministicNodesCollisions();
   }, 60000);
+  log.info('Flux checks operational');
+  explorerService.initiateBlockProcessor();
+  log.info('Flux Block Explorer Service started');
 }
 
 module.exports = {
@@ -824,4 +853,5 @@ module.exports = {
   removePeer,
   removeIncomingPeer,
   connectedPeersInfo,
+  getDOSState,
 };

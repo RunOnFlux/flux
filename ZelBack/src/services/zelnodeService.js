@@ -3,6 +3,8 @@ const path = require('path');
 
 const packageJson = require('../../../package.json');
 const serviceHelper = require('./serviceHelper');
+const zelcashServices = require('./zelcashService');
+const userconfig = require('../../../config/userconfig');
 
 // eslint-disable-next-line consistent-return
 async function updateZelFlux(req, res) {
@@ -171,6 +173,25 @@ function getZelFluxVersion(req, res) {
   return res.json(message);
 }
 
+async function getZelFluxIP(req, res) {
+  const benchmarkResponse = await zelcashServices.getBenchmarks();
+  let myIP = null;
+  if (benchmarkResponse.status === 'success') {
+    const benchmarkResponseData = JSON.parse(benchmarkResponse.data);
+    if (benchmarkResponseData.ipaddress) {
+      myIP = benchmarkResponseData.ipaddress.length > 5 ? benchmarkResponseData.ipaddress : null;
+    }
+  }
+  const message = serviceHelper.createDataMessage(myIP);
+  return res.json(message);
+}
+
+function getZelFluxZelID(req, res) {
+  const zelID = userconfig.initial.zelid;
+  const message = serviceHelper.createDataMessage(zelID);
+  return res.json(message);
+}
+
 module.exports = {
   startZelCash,
   updateZelFlux,
@@ -181,4 +202,6 @@ module.exports = {
   restartZelCash,
   reindexZelCash,
   getZelFluxVersion,
+  getZelFluxIP,
+  getZelFluxZelID,
 };

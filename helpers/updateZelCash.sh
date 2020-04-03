@@ -51,4 +51,4 @@ if ! gpg --list-keys Zel >/dev/null; then
   fi
 fi
 
-"$COIN_DAEMON"
+sudo "$COIN_DAEMON"

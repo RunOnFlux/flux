@@ -166,6 +166,11 @@
         <!--<el-menu-item index="10-4">Active Login Phrases</el-menu-item>-->
       </el-submenu>
       <el-menu-item
+        index="50"
+      >
+        Very Basic Explorer
+      </el-menu-item>
+      <el-menu-item
         v-if="privilage === 'user' || privilage === 'admin' || privilage === 'zelteam'"
         index="100"
       >
@@ -267,6 +272,9 @@ export default {
           break;
         case '10-5':
           this.$store.commit('setZelAdminSection', 'manageusers');
+          break;
+        case '50':
+          this.$store.commit('setExplorerSection', 'explorer');
           break;
         case '100':
           this.logoutCurrentSession();
