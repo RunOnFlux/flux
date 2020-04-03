@@ -3,6 +3,7 @@ const config = require('config');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const zelcashService = require('./zelcashService');
+const zelbenchService = require('./zelbenchService');
 
 const mongoUrl = `mongodb://${config.database.url}:${config.database.port}/`;
 
@@ -407,6 +408,20 @@ async function restoreDatabaseToBlockheightState(height) {
 }
 
 async function initiateBlockProcessor(restoreDatabase) {
+  // if ZelBench version is lower than 1.1.0 give warning to user
+  if (restoreDatabase) {
+    let zelbenchVersion = 100;
+    const zelbenchInfo = await zelbenchService.getInfo();
+    if (zelbenchInfo.status === 'success') {
+      const { version } = zelbenchInfo.data;
+      zelbenchVersion = serviceHelper.ensureNumber(version.split('.').join(''));
+    } else {
+      log.error('Unable to communicate with zelbench!');
+    }
+    if (zelbenchVersion < 110) {
+      log.warning('Your ZelBench version is outdated! ZelNode may not behave correctly');
+    }
+  }
   db = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
     log.error(error);
     throw error;
