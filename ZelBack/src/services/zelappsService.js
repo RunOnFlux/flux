@@ -1,4 +1,5 @@
 const config = require('config');
+// eslint-disable-next-line import/no-extraneous-dependencies
 const os = require('os');
 const Docker = require('dockerode');
 const stream = require('stream');

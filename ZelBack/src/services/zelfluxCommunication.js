@@ -825,7 +825,7 @@ function startFluxFunctions() {
     checkDeterministicNodesCollisions();
   }, 60000);
   log.info('Flux checks operational');
-  explorerService.initiateBlockProcessor();
+  explorerService.initiateBlockProcessor(true);
   log.info('Flux Block Explorer Service started');
 }
 

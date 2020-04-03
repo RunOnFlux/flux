@@ -356,7 +356,7 @@ async function processBlock(blockHeight) {
       setTimeout(() => {
         if (blockProccessingCanContinue) { // just a precaution because maybe it is just waiting
           // eslint-disable-next-line no-use-before-define
-          initiateBlockProcessor();
+          initiateBlockProcessor(false);
         } else {
           blockProccessingCanContinue = true;
         }
@@ -406,7 +406,7 @@ async function restoreDatabaseToBlockheightState(height) {
   return true;
 }
 
-async function initiateBlockProcessor() {
+async function initiateBlockProcessor(restoreDatabase) {
   db = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
     log.error(error);
     throw error;
@@ -473,7 +473,7 @@ async function initiateBlockProcessor() {
   }
   if (zelcashHeight > scannedBlockHeight) {
     // TODO this restoring will run basically every new block. That is not ideal.
-    if (scannedBlockHeight !== 0) {
+    if (scannedBlockHeight !== 0 && restoreDatabase) {
       const databaseRestored = await restoreDatabaseToBlockheightState(scannedBlockHeight);
       console.log(`Database restore status: ${databaseRestored}`);
       if (!databaseRestored) {
@@ -485,7 +485,7 @@ async function initiateBlockProcessor() {
   } else {
     db.close();
     setTimeout(() => {
-      initiateBlockProcessor();
+      initiateBlockProcessor(false);
     }, 5000);
   }
 }
@@ -815,7 +815,7 @@ async function restartBlockProcessing(req, res) {
     blockProccessingCanContinue = false;
     checkBlockProcessingStopping(i, async () => {
       blockProccessingCanContinue = true;
-      initiateBlockProcessor();
+      initiateBlockProcessor(true);
       const message = serviceHelper.createSuccessMessage('Block processing initiated');
       res.json(message);
     });
@@ -852,7 +852,7 @@ async function reindexExplorer(req, res) {
         });
         dbopen.close();
         if (resultOfDropping === true || resultOfDropping === undefined) {
-          initiateBlockProcessor();
+          initiateBlockProcessor(true);
           const message = serviceHelper.createSuccessMessage('Explorer database reindex initiated');
           res.json(message);
         } else {
@@ -903,7 +903,7 @@ async function rescanExplorer(req, res) {
             return res.json(errMessage);
           });
           dbopen.close();
-          initiateBlockProcessor();
+          initiateBlockProcessor(true);
           const message = serviceHelper.createSuccessMessage(`Explorer rescan from blockheight ${blockheight} initiated`);
           res.json(message);
         }
