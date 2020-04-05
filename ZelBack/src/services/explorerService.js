@@ -428,8 +428,8 @@ async function initiateBlockProcessor(restoreDatabase) {
         log.error('Unable to communicate with zelbench!');
       }
       if (zelbenchVersion < 110) {
-        log.warning('Your ZelBench version is outdated! ZelNode may not behave correctly');
-        log.warning('Block processing will try to reinitiate in 10 minutes');
+        log.warn('Your ZelBench version is outdated! ZelNode may not behave correctly');
+        log.warn('Block processing will try to reinitiate in 10 minutes');
         throw new Error('ZelBench update required. Block processing halted.');
       }
     }
