@@ -4,6 +4,7 @@ const zelidService = require('./services/zelidService');
 const zelnodeService = require('./services/zelnodeService');
 const zelfluxCommunication = require('./services/zelfluxCommunication');
 const zelappsService = require('./services/zelappsService');
+const explorerService = require('./services/explorerService');
 
 module.exports = (app, expressWs) => {
   // GET PUBLIC methods
@@ -256,6 +257,38 @@ module.exports = (app, expressWs) => {
 
   app.get('/zelapps/zelshare/getfile/:file?', (req, res) => {
     zelappsService.zelShareFile(req, res);
+  });
+  app.get('/zelapps/zelfluxusage', (req, res) => {
+    zelappsService.zelfluxUsage(req, res);
+  });
+
+  // app.get('/explorer/allutxos', (req, res) => {
+  //   explorerService.getAllUtxos(req, res);
+  // });
+  // app.get('/explorer/alladdresseswithtransactions', (req, res) => {
+  //   explorerService.getAllAddressesWithTransactions(req, res);
+  // });
+  // app.get('/explorer/alladdresses', (req, res) => {
+  //   explorerService.getAllAddresses(req, res);
+  // });
+  // app.get('/explorer/zelnodetransactions', (req, res) => {
+  //   explorerService.getAllZelNodeTransactions(req, res);
+  // });
+  // filter can be IP, address, collateralHash.
+  app.get('/explorer/zelnodetxs/:filter?', (req, res) => {
+    explorerService.getFilteredZelNodeTxs(req, res);
+  });
+  app.get('/explorer/utxo/:address?', (req, res) => {
+    explorerService.getAddressUtxos(req, res);
+  });
+  app.get('/explorer/transactions/:address?', (req, res) => {
+    explorerService.getAddressTransactions(req, res);
+  });
+  app.get('/explorer/balance/:address?', (req, res) => {
+    explorerService.getAddressBalance(req, res);
+  });
+  app.get('/explorer/scannedheight', (req, res) => {
+    explorerService.getScannedHeight(req, res);
   });
 
   // GET PROTECTED API - User level
@@ -567,6 +600,19 @@ module.exports = (app, expressWs) => {
 
   app.get('/zelbench/restartnodebenchmarks', (req, res) => {
     zelbenchService.restartNodeBenchmarks(req, res);
+  });
+
+  app.get('/explorer/reindex', (req, res) => {
+    explorerService.reindexExplorer(req, res);
+  });
+  app.get('/explorer/restart', (req, res) => {
+    explorerService.restartBlockProcessing(req, res);
+  });
+  app.get('/explorer/stop', (req, res) => {
+    explorerService.stopBlockProcessing(req, res);
+  });
+  app.get('/explorer/rescan/:blockheight?', (req, res) => {
+    explorerService.rescanExplorer(req, res);
   });
 
   // POST PUBLIC methods route

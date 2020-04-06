@@ -154,114 +154,111 @@
       </el-row>
     </div>
 
-    <div
-      :key="uniqueKey"
-      v-if="transactionDetail.version < 5 && transactionDetail.version > 0"
-    >
-      <div
-        v-for="i in Math.max(transactionDetail.vin.length, transactionDetail.vout.length)"
-        :key="i"
-      >
-        <el-row v-if="i === 1 && transactionDetail.version === 4">
-          <el-col :span="11">
-            <div class="grid-content bg-purple">
-              <div v-if="transactionDetail.vShieldedSpend.length > 0">
-                {{ transactionDetail.vShieldedSpend.length }} sapling inputs
-              </div>
-              <div v-else>
-                No sapling inputs
-              </div>
+    <div v-if="transactionDetail.version < 5 && transactionDetail.version > 0">
+      <el-row v-if="transactionDetail.version === 4">
+        <el-col :span="11">
+          <div class="grid-content bg-purple">
+            <div v-if="transactionDetail.vShieldedSpend.length > 0">
+              {{ transactionDetail.vShieldedSpend.length }} sapling inputs
             </div>
-          </el-col>
-          <el-col :span="2">
-            <div class="grid-content bg-purple">
-              <i
-                v-if="i === 1"
-                class="el-icon-arrow-right"
-              ></i>
+            <div v-else>
+              No sapling inputs
             </div>
-          </el-col>
-          <el-col :span="11">
-            <div class="grid-content bg-purple-light">
-              <div v-if="transactionDetail.vShieldedOutput.length > 0">
-                {{ transactionDetail.vShieldedOutput.length }} sapling outputs
-              </div>
-              <div v-else>
-                No sapling outputs
-              </div>
+          </div>
+        </el-col>
+        <el-col :span="2">
+          <div class="grid-content bg-purple">
+            <i class="el-icon-arrow-right"></i>
+          </div>
+        </el-col>
+        <el-col :span="11">
+          <div class="grid-content bg-purple-light">
+            <div v-if="transactionDetail.vShieldedOutput.length > 0">
+              {{ transactionDetail.vShieldedOutput.length }} sapling outputs
             </div>
-          </el-col>
-        </el-row>
+            <div v-else>
+              No sapling outputs
+            </div>
+          </div>
+        </el-col>
+      </el-row>
 
-        <el-row v-if="i === 1">
-          <el-col :span="10">
-            <div class="grid-content bg-purple">
-              <div v-if="transactionDetail.vJoinSplit.length > 0">
-                {{ calculateJoinSplitInput(transactionDetail.vJoinSplit) }} sprout input
-              </div>
-              <div v-else>
-                No sprout inputs
-              </div>
+      <el-row>
+        <el-col :span="10">
+          <div class="grid-content bg-purple">
+            <div v-if="transactionDetail.vJoinSplit.length > 0">
+              {{ calculateJoinSplitInput(transactionDetail.vJoinSplit) }} sprout input
             </div>
-          </el-col>
-          <el-col :span="4">
-            <div class="grid-content bg-purple">
-              <i class="el-icon-arrow-right"></i>
-              JoinSplits {{ transactionDetail.vJoinSplit.length }}
-              <i class="el-icon-arrow-right"></i>
+            <div v-else>
+              No sprout inputs
             </div>
-          </el-col>
-          <el-col :span="10">
-            <div class="grid-content bg-purple-light">
-              <div v-if="transactionDetail.vJoinSplit.length > 0">
-                {{ calculateJoinSplitOutput(transactionDetail.vJoinSplit) }} sprout output
-              </div>
-              <div v-else>
-                No sprout outputs
-              </div>
+          </div>
+        </el-col>
+        <el-col :span="4">
+          <div class="grid-content bg-purple">
+            <i class="el-icon-arrow-right"></i>
+            JoinSplits {{ transactionDetail.vJoinSplit.length }}
+            <i class="el-icon-arrow-right"></i>
+          </div>
+        </el-col>
+        <el-col :span="10">
+          <div class="grid-content bg-purple-light">
+            <div v-if="transactionDetail.vJoinSplit.length > 0">
+              {{ calculateJoinSplitOutput(transactionDetail.vJoinSplit) }} sprout output
             </div>
-          </el-col>
-        </el-row>
+            <div v-else>
+              No sprout outputs
+            </div>
+          </div>
+        </el-col>
+      </el-row>
 
-        <el-row :gutter="0">
-          <el-col :span="11">
-            <div class="grid-content bg-purple">
-              <div v-if="transactionDetail.vin[i - 1]">
-                <div>
-                  <div v-if="transactionDetail.vin[i - 1].coinbase">
-                    Newly generated coins
-                  </div>
-                  <div
-                    :key="transactionDetailSenders[transactionDetail.vin[i - 1].txid + transactionDetail.vin[i - 1].vout]"
-                    v-else-if="typeof transactionDetailSenders[transactionDetail.vin[i - 1].txid + transactionDetail.vin[i - 1].vout] === 'object'"
-                  >
-                    {{ transactionDetailSenders[transactionDetail.vin[i - 1].txid + transactionDetail.vin[i - 1].vout].value }} ZEL
-                    {{ transactionDetailSenders[transactionDetail.vin[i - 1].txid + transactionDetail.vin[i - 1].vout].scriptPubKey.addresses[0] }}
-                  </div>
-                  <div v-else>
-                    {{ transactionDetailSenders[transactionDetail.vin[i - 1].txid + transactionDetail.vin[i - 1].vout] || 'Loading Sender' }}
-                  </div>
+      <el-row :gutter="0">
+        <el-col :span="11">
+          <div class="grid-content bg-purple">
+            <div
+              v-for="i in transactionDetail.vin.length"
+              :key="i"
+            >
+              <div>
+                <div v-if="transactionDetail.vin[i - 1].coinbase">
+                  Newly generated coins
+                </div>
+                <div
+                  :key="transactionDetail.senders[i - 1]"
+                  v-else-if="typeof transactionDetail.senders[i - 1] === 'object'"
+                >
+                  {{ transactionDetail.senders[i - 1].value }} ZEL
+                  {{ transactionDetail.senders[i - 1].scriptPubKey.addresses[0] }}
+                </div>
+                <div v-else>
+                  {{ transactionDetail.senders[i - 1] || 'Loading Sender' }}
                 </div>
               </div>
             </div>
-          </el-col>
-          <el-col :span="2">
-            <div class="grid-content bg-purple">
-              <i
-                v-if="i === 1"
-                class="el-icon-arrow-right"
-              ></i>
-            </div>
-          </el-col>
-          <el-col :span="11">
-            <div class="grid-content bg-purple-light">
-              <div v-if="transactionDetail.vout[i - 1]">
+          </div>
+        </el-col>
+        <el-col :span="2">
+          <div class="grid-content bg-purple">
+            <i class="el-icon-arrow-right"></i>
+          </div>
+        </el-col>
+        <el-col :span="11">
+          <div class="grid-content bg-purple-light">
+            <div
+              v-for="i in transactionDetail.vout.length"
+              :key="i"
+            >
+              <div v-if="transactionDetail.vout[i - 1].scriptPubKey.addresses">
                 {{ transactionDetail.vout[i - 1].scriptPubKey.addresses[0] }} {{ transactionDetail.vout[i - 1].value }} ZEL
               </div>
+              <div v-else>
+                {{ decodeMessage(transactionDetail.vout[i - 1].asm) }}
+              </div>
             </div>
-          </el-col>
-        </el-row>
-      </div>
+          </div>
+        </el-col>
+      </el-row>
     </div>
 
     <div v-if="transactionDetail.version === 5">
@@ -417,8 +414,6 @@
 import Vuex from 'vuex';
 import Vue from 'vue';
 
-import ZelCashService from '@/services/ZelCashService';
-
 Vue.use(Vuex);
 
 export default {
@@ -440,55 +435,18 @@ export default {
         hour: '2-digit',
         minute: '2-digit',
       },
-      height: 0,
       transactionDetail: {},
-      transactionDetailSenders: {},
-      uniqueKey: 100000,
     };
   },
   mounted() {
     console.log('here');
-    this.getTransaction(this.transaction);
+    this.processTransaction(this.transaction);
   },
   methods: {
-    async getTransaction(tx) {
+    async processTransaction(tx) {
       this.transactionDetail = {};
       this.transactionDetail = tx;
-      if (this.transactionDetail.version < 5 && this.transactionDetail.version > 0) {
-        this.transactionDetail.vin.forEach((vin, index) => {
-          if (!this.transactionDetail.vin[index].coinbase) {
-            this.getSender(this.transactionDetail.vin[index].txid, this.transactionDetail.vin[index].vout);
-          }
-        });
-      }
-    },
-    formatTimeAgo(timeCreated) {
-      const periods = {
-        month: 30 * 24 * 60 * 60 * 1000,
-        week: 7 * 24 * 60 * 60 * 1000,
-        day: 24 * 60 * 60 * 1000,
-        hour: 60 * 60 * 1000,
-        minute: 60 * 1000,
-      };
-      const diff = new Date().getTime() - (timeCreated * 1000);
-
-      if (diff > periods.month) {
-        // it was at least a month ago
-        return `${Math.floor(diff / periods.month)}mo ago`;
-      }
-      if (diff > periods.week) {
-        return `${Math.floor(diff / periods.week)}w ago`;
-      }
-      if (diff > periods.day) {
-        return `${Math.floor(diff / periods.day)}d ago`;
-      }
-      if (diff > periods.hour) {
-        return `${Math.floor(diff / periods.hour)}h ago`;
-      }
-      if (diff > periods.minute) {
-        return `${Math.floor(diff / periods.minute)}m ago`;
-      }
-      return 'Just now';
+      this.calculateTxFee();
     },
     getValueHexBuffer(hex) {
       const buf = Buffer.from(hex, 'hex').reverse();
@@ -497,24 +455,6 @@ export default {
     getCollateralIndex(hex) {
       const buf = Buffer.from(hex, 'hex').reverse();
       return parseInt(buf.toString('hex'), 16);
-    },
-    sender(txid, vout) {
-      this.getSender(txid, vout);
-      return this.transactionDetailSenders[txid + vout];
-    },
-    async getSender(txid, vout) {
-      const verbose = 1;
-      const txContent = await ZelCashService.getRawTransaction(txid, verbose);
-      console.log(txContent);
-      if (txContent.data.status === 'success') {
-        const sender = txContent.data.data.vout[vout];
-        this.transactionDetailSenders[txid + vout] = sender;
-      } else {
-        this.transactionDetailSenders[txid + vout] = 'Sender not found';
-      }
-      console.log(this.transactionDetailSenders);
-      this.calculateTxFee();
-      this.uniqueKey += 1;
     },
     calculateTxFee() {
       if (this.transactionDetail.version === 5) {
@@ -528,15 +468,13 @@ export default {
       const value = this.transactionDetail.valueBalanceZat || 0;
       let valueOut = 0;
       let valueIn = 0;
-      this.transactionDetail.vin.forEach((vin, index) => {
-        if (!this.transactionDetail.vin[index].coinbase) {
-          if (typeof this.transactionDetailSenders[this.transactionDetail.vin[index].txid + this.transactionDetail.vin[index].vout] === 'object') {
-            valueIn += this.transactionDetailSenders[this.transactionDetail.vin[index].txid + this.transactionDetail.vin[index].vout].valueZat;
-          }
+      this.transactionDetail.senders.forEach((sender) => {
+        if (typeof sender === 'object') {
+          valueIn += sender.valueSat;
         }
       });
       this.transactionDetail.vout.forEach((vout) => {
-        valueOut += vout.valueZat;
+        valueOut += vout.valueSat;
       });
       this.transactionDetail.vJoinSplit.forEach((tx) => {
         valueIn += tx.vpub_newZat;
@@ -558,6 +496,20 @@ export default {
         valueOut += tx.vpub_oldZat;
       });
       return valueOut / 1e8;
+    },
+    decodeMessage(asm) {
+      const parts = asm.split('OP_RETURN ', 2);
+      let message = '';
+      if (parts[1]) {
+        const encodedMessage = parts[1];
+        const hexx = encodedMessage.toString(); // force conversion
+        for (let k = 0; k < hexx.length && hexx.substr(k, 2) !== '00'; k += 2) {
+          message += String.fromCharCode(
+            parseInt(hexx.substr(k, 2), 16),
+          );
+        }
+      }
+      return message;
     },
   },
 };

@@ -158,7 +158,7 @@
           Manage ZelBench
         </el-menu-item>
         <el-menu-item
-          v-if="privilage === 'admin'"
+          v-if="privilage === 'zelteam' || privilage === 'admin'"
           index="10-5"
         >
           Manage Users

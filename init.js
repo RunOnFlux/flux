@@ -38,9 +38,11 @@ function showQuestions() {
 
     if (answers.ipaddr.includes(':')) {
       if (!answers.ipaddr.includes('[')) {
+        // eslint-disable-next-line no-param-reassign
         answers.ipaddr = `[${answers.ipaddr}`;
       }
       if (!answers.ipaddr.includes(']')) {
+        // eslint-disable-next-line no-param-reassign
         answers.ipaddr = `${answers.ipaddr}]`;
       }
     }
