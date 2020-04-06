@@ -20,25 +20,25 @@ gpg --keyserver keyserver.ubuntu.com --recv 4B69CA27A986265D
 gpg --export 4B69CA27A986265D | sudo apt-key add -
 sudo apt-get update
 sudo apt install zelbench -y
-sudo chmod 755 "$COIN_PATH"/zelbench* sleep 2
+sudo chmod 755 "$COIN_PATH"/zelbench* && sleep 2
 if ! gpg --list-keys Zel >/dev/null; then
   gpg --keyserver na.pool.sks-keyservers.net --recv 4B69CA27A986265D
   gpg --export 4B69CA27A986265D | sudo apt-key add -
   sudo apt-get update
   sudo apt install zelbench -y
-  sudo chmod 755 "$COIN_PATH"/zelbench* sleep 2
+  sudo chmod 755 "$COIN_PATH"/zelbench* && sleep 2
   if ! gpg --list-keys Zel >/dev/null; then
     gpg --keyserver eu.pool.sks-keyservers.net --recv 4B69CA27A986265D
     gpg --export 4B69CA27A986265D | sudo apt-key add -
     sudo apt-get update
     sudo apt install zelbench -y
-    sudo chmod 755 "$COIN_PATH"/zelbench* sleep 2
+    sudo chmod 755 "$COIN_PATH"/zelbench* && sleep 2
     if ! gpg --list-keys Zel >/dev/null; then
       gpg --keyserver pgpkeys.urown.net --recv 4B69CA27A986265D
       gpg --export 4B69CA27A986265D | sudo apt-key add -
       sudo apt-get update
       sudo apt install zelbench -y
-      sudo chmod 755 "$COIN_PATH"/zelbench* sleep 2
+      sudo chmod 755 "$COIN_PATH"/zelbench* && sleep 2
       if ! gpg --list-keys Zel >/dev/null; then
         gpg --keyserver keys.gnupg.net --recv 4B69CA27A986265D
         gpg --export 4B69CA27A986265D | sudo apt-key add -
