@@ -108,7 +108,7 @@ async function updateZelBench(req, res) {
 
 // eslint-disable-next-line consistent-return
 async function startZelCash(req, res) {
-  const authorized = await serviceHelper.verifyAdminSession(req.headers);
+  const authorized = await serviceHelper.verifyZelTeamSession(req.headers);
   if (authorized === true) {
     const exec = 'zelcashd';
     cmd.get(exec, (err, data) => {
@@ -128,7 +128,7 @@ async function startZelCash(req, res) {
 
 // eslint-disable-next-line consistent-return
 async function restartZelCash(req, res) {
-  const authorized = await serviceHelper.verifyAdminSession(req.headers);
+  const authorized = await serviceHelper.verifyZelTeamSession(req.headers);
   if (authorized === true) {
     const zelnodedpath = path.join(__dirname, '../../../helpers');
     const exec = `cd ${zelnodedpath} && sh restartZelCash.sh`;
