@@ -1,12 +1,14 @@
 #!/bin/bash
 
-# add to path
-[[ ":$PATH:" != *":/usr/local/bin:"* ]] && PATH="/usr/local/bin:${PATH}"
-
 #information
 COIN_DAEMON='zelcashd'
 COIN_CLI='zelcash-cli'
+COIN_PATH='/usr/local/bin'
 #end of required details
+
+# add to path
+PATH=$PATH:"$COIN_PATH"
+export PATH
 
 #Closing zelcash daemon and start reindex
 "$COIN_CLI" stop >/dev/null 2>&1 && sleep 5
