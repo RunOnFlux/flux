@@ -3,6 +3,8 @@
 #information
 COIN_DAEMON='zelcashd'
 COIN_CLI='zelcash-cli'
+COIN_PATH='/usr/local/bin'
+#end of required details
 
 # add to path
 PATH=$PATH:"$COIN_PATH"
