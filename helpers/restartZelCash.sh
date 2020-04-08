@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# add to path
+[[ ":$PATH:" != *":/usr/local/bin:"* ]] && PATH="/usr/local/bin:${PATH}"
+
 #information
 COIN_DAEMON='zelcashd'
 COIN_CLI='zelcash-cli'
