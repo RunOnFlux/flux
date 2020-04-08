@@ -6,6 +6,10 @@ COIN_DAEMON='zelcashd'
 COIN_CLI='zelcash-cli'
 COIN_PATH='/usr/local/bin'
 
+# add to path
+PATH=$PATH:"$COIN_PATH"
+export PATH
+
 #Closing zelcash daemon and purge apt package
 "$COIN_CLI" stop >/dev/null 2>&1 && sleep 2
 sudo systemctl stop "$COIN_NAME" && sleep 1
@@ -51,4 +55,4 @@ if ! gpg --list-keys Zel >/dev/null; then
   fi
 fi
 
-sudo "$COIN_DAEMON"
+"$COIN_DAEMON"
