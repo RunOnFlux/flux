@@ -14,10 +14,12 @@ async function updateZelFlux(req, res) {
     const exec = `cd ${zelnodedpath} && npm run updatezelflux`;
     cmd.get(exec, (err) => {
       if (err) {
-        const errMessage = serviceHelper.createErrorMessage(`Error updating ZelFlux: ${err.message}`, err.name, err.code);
+        const errMessage = serviceHelper.createErrorMessage(
+            `Error updating ZelFlux: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
       }
-      const message = serviceHelper.createSuccessMessage('ZelFlux successfully updaating');
+      const message =
+          serviceHelper.createSuccessMessage('ZelFlux successfully updaating');
       return res.json(message);
     });
   } else {
@@ -34,10 +36,12 @@ async function hardUpdateZelFlux(req, res) {
     const exec = `cd ${zelnodedpath} && npm run hardupdatezelflux`;
     cmd.get(exec, (err) => {
       if (err) {
-        const errMessage = serviceHelper.createErrorMessage(`Error hardupdating ZelFlux: ${err.message}`, err.name, err.code);
+        const errMessage = serviceHelper.createErrorMessage(
+            `Error hardupdating ZelFlux: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
       }
-      const message = serviceHelper.createSuccessMessage('ZelFlux successfully updating');
+      const message =
+          serviceHelper.createSuccessMessage('ZelFlux successfully updating');
       return res.json(message);
     });
   } else {
@@ -54,10 +58,12 @@ async function rebuildZelFront(req, res) {
     const exec = `cd ${zelnodedpath} && npm run zelfrontbuild`;
     cmd.get(exec, (err) => {
       if (err) {
-        const errMessage = serviceHelper.createErrorMessage(`Error rebuilding ZelFlux: ${err.message}`, err.name, err.code);
+        const errMessage = serviceHelper.createErrorMessage(
+            `Error rebuilding ZelFlux: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
       }
-      const message = serviceHelper.createSuccessMessage('ZelFlux successfully rebuilt');
+      const message =
+          serviceHelper.createSuccessMessage('ZelFlux successfully rebuilt');
       return res.json(message);
     });
   } else {
@@ -74,10 +80,12 @@ async function updateZelCash(req, res) {
     const exec = `cd ${zelnodedpath} && sh updateZelCash.sh`;
     cmd.get(exec, (err) => {
       if (err) {
-        const errMessage = serviceHelper.createErrorMessage(`Error updating ZelCash: ${err.message}`, err.name, err.code);
+        const errMessage = serviceHelper.createErrorMessage(
+            `Error updating ZelCash: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
       }
-      const message = serviceHelper.createSuccessMessage('ZelCash successfully updated');
+      const message =
+          serviceHelper.createSuccessMessage('ZelCash successfully updated');
       return res.json(message);
     });
   } else {
@@ -94,10 +102,12 @@ async function updateZelBench(req, res) {
     const exec = `cd ${zelnodedpath} && sh updateZelBench.sh`;
     cmd.get(exec, (err) => {
       if (err) {
-        const errMessage = serviceHelper.createErrorMessage(`Error updating ZelBench: ${err.message}`, err.name, err.code);
+        const errMessage = serviceHelper.createErrorMessage(
+            `Error updating ZelBench: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
       }
-      const message = serviceHelper.createSuccessMessage('ZelBench successfully updated');
+      const message =
+          serviceHelper.createSuccessMessage('ZelBench successfully updated');
       return res.json(message);
     });
   } else {
@@ -113,11 +123,13 @@ async function startZelCash(req, res) {
     const exec = 'zelcashd';
     cmd.get(exec, (err, data) => {
       if (err) {
-        const errMessage = serviceHelper.createErrorMessage(`Error starting ZelCash: ${err.message}`, err.name, err.code);
+        const errMessage = serviceHelper.createErrorMessage(
+            `Error starting ZelCash: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
       }
       console.log(data);
-      const message = serviceHelper.createSuccessMessage('ZelCash successfully started');
+      const message =
+          serviceHelper.createSuccessMessage('ZelCash successfully started');
       return res.json(message);
     });
   } else {
@@ -134,10 +146,12 @@ async function restartZelCash(req, res) {
     const exec = `cd ${zelnodedpath} && sh restartZelCash.sh`;
     cmd.get(exec, (err) => {
       if (err) {
-        const errMessage = serviceHelper.createErrorMessage(`Error restarting ZelCash: ${err.message}`, err.name, err.code);
+        const errMessage = serviceHelper.createErrorMessage(
+            `Error restarting ZelCash: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
       }
-      const message = serviceHelper.createSuccessMessage('ZelCash successfully restarted');
+      const message =
+          serviceHelper.createSuccessMessage('ZelCash successfully restarted');
       return res.json(message);
     });
   } else {
@@ -155,10 +169,12 @@ async function reindexZelCash(req, res) {
     const exec = `cd ${zelnodedpath} && sh reindexZelCash.sh`;
     cmd.get(exec, (err) => {
       if (err) {
-        const errMessage = serviceHelper.createErrorMessage(`Error reindexing ZelCash: ${err.message}`, err.name, err.code);
+        const errMessage = serviceHelper.createErrorMessage(
+            `Error reindexing ZelCash: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
       }
-      const message = serviceHelper.createSuccessMessage('ZelCash successfully reindexing');
+      const message =
+          serviceHelper.createSuccessMessage('ZelCash successfully reindexing');
       return res.json(message);
     });
   } else {
@@ -168,7 +184,7 @@ async function reindexZelCash(req, res) {
 }
 
 function getZelFluxVersion(req, res) {
-  const { version } = packageJson;
+  const {version} = packageJson;
   const message = serviceHelper.createDataMessage(version);
   return res.json(message);
 }
@@ -179,7 +195,9 @@ async function getZelFluxIP(req, res) {
   if (benchmarkResponse.status === 'success') {
     const benchmarkResponseData = JSON.parse(benchmarkResponse.data);
     if (benchmarkResponseData.ipaddress) {
-      myIP = benchmarkResponseData.ipaddress.length > 5 ? benchmarkResponseData.ipaddress : null;
+      myIP = benchmarkResponseData.ipaddress.length > 5
+                 ? benchmarkResponseData.ipaddress
+                 : null;
     }
   }
   const message = serviceHelper.createDataMessage(myIP);
