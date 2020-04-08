@@ -326,12 +326,6 @@ module.exports = (app, expressWs) => {
   app.get('/zelcash/stop', (req, res) => {
     zelcashService.stop(req, res);
   });
-  app.get('/zelcash/start', (req, res) => {
-    zelnodeService.startZelCash(req, res);
-  });
-  app.get('/zelcash/restart', (req, res) => {
-    zelnodeService.restartZelCash(req, res);
-  });
   app.get('/zelcash/reindex', (req, res) => {
     zelnodeService.reindexZelCash(req, res);
   });
@@ -550,6 +544,12 @@ module.exports = (app, expressWs) => {
   });
 
   // GET PROTECTED API - ZelTeam
+  app.get('/zelcash/start', (req, res) => {
+    zelnodeService.startZelCash(req, res);
+  });
+  app.get('/zelcash/restart', (req, res) => {
+    zelnodeService.restartZelCash(req, res);
+  });
   app.get('/zelcash/ping', (req, res) => { // we do not want this to be issued by anyone.
     zelcashService.ping(req, res);
   });
