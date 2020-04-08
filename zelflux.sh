@@ -7,8 +7,8 @@ sudo ufw allow 16128/tcp
 sudo ufw allow 27017/tcp      # default mongodb port
 
 # Install Mongodb, enable, and start service
-sudo apt update
-sudo apt install mongodb -y
+sudo apt-get update
+sudo apt-get install mongodb -y
 
 # Install Docker
 snap install docker
