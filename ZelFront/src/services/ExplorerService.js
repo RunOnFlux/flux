@@ -10,4 +10,7 @@ export default {
   getZelNodeTransactions(filter) {
     return Api().get(`/explorer/zelnodetxs/${filter}`);
   },
+  getScannedHeight() {
+    return Api().get('/explorer/scannedheight');
+  },
 };
