@@ -28,6 +28,7 @@ async function myZelNodeIP() {
       myIP = benchmarkResponseData.ipaddress.length > 5 ? benchmarkResponseData.ipaddress : null;
     }
   } else {
+    dosMessage = benchmarkResponse.data;
     dosState += 10;
   }
   return myIP;
@@ -800,8 +801,8 @@ async function checkDeterministicNodesCollisions() {
   } else {
     dosState += 1;
     if (dosState > 10) {
-      log.error('Flux IP detection failed');
-      dosMessage = 'Flux IP detection failed';
+      dosMessage = dosMessage || 'Flux IP detection failed';
+      log.error(dosMessage);
     }
   }
 }

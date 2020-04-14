@@ -177,6 +177,9 @@ module.exports = (app, expressWs) => {
   app.get('/zelid/loginphrase', (req, res) => {
     zelidService.loginPhrase(req, res);
   });
+  app.get('/zelid/emergencyphrase', (req, res) => {
+    zelidService.emergencyPhrase(req, res);
+  });
 
   app.get('/zelflux/version', (req, res) => {
     zelnodeService.getZelFluxVersion(req, res);
