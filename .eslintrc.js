@@ -21,6 +21,10 @@ module.exports = {
       "error",
       "never",
     ],
+    "linebreak-style": [
+      "error",
+      "unix",
+    ],
   },
   parserOptions: {
     parser: 'babel-eslint',
