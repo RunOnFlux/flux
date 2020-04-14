@@ -111,7 +111,7 @@ export default {
         .then((response) => {
           console.log(response);
           if (response.data.status === 'error') {
-            if (response.data.data.toString().includes('CONNERROR')) {
+            if (JSON.stringify(response.data.data).includes('CONN')) {
               // we can fix zelcash, zelbench problems. But cannot fix mongo, docker issues (docker may be possible to fix in the future, mongo not)...
               this.getEmergencyLoginPhrase();
             } else {
