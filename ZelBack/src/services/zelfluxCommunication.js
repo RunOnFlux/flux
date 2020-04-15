@@ -827,7 +827,7 @@ async function allowPort(port) {
     message: null,
   };
   cmdStat.message = cmdres;
-  if (serviceHelper.ensureString(cmdres).includes('updated') || serviceHelper.ensureString(cmdres).includes('existing')) {
+  if (serviceHelper.ensureString(cmdres).includes('updated') || serviceHelper.ensureString(cmdres).includes('existing') || serviceHelper.ensureString(cmdres).includes('added')) {
     cmdStat.status = true;
   } else {
     cmdStat.status = false;
@@ -847,9 +847,9 @@ async function allowPortApi(req, res) {
   if (authorized === true) {
     const portResponseOK = await allowPort(port);
     if (portResponseOK.status === true) {
-      response = serviceHelper.createSuccessMessage(portResponseOK, port, port);
+      response = serviceHelper.createSuccessMessage(portResponseOK.message, port, port);
     } else if (portResponseOK.status === false) {
-      response = serviceHelper.createErrorMessage(portResponseOK, port, port);
+      response = serviceHelper.createErrorMessage(portResponseOK.message, port, port);
     } else {
       response = serviceHelper.createErrorMessage(`Unkown error while opening port ${port}`);
     }
