@@ -600,6 +600,9 @@ module.exports = (app, expressWs) => {
   app.get('/zelflux/removeincomingpeer/:ip?', (req, res) => {
     zelfluxCommunication.removeIncomingPeer(req, res, expressWs.getWss('/ws/zelflux'));
   });
+  app.get('/zelflux/allowport/:port?', (req, res) => {
+    zelfluxCommunication.allowPortApi(req, res);
+  });
 
   app.get('/zelbench/restartnodebenchmarks', (req, res) => {
     zelbenchService.restartNodeBenchmarks(req, res);
