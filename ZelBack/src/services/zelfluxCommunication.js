@@ -845,7 +845,7 @@ async function allowPortApi(req, res) {
     const portResponseOK = await allowPort(port);
     if (portResponseOK.status === true) {
       response = serviceHelper.createSuccessMessage(portResponseOK, port, port);
-    } else if (portResponseOK === false) {
+    } else if (portResponseOK.status === false) {
       response = serviceHelper.createErrorMessage(portResponseOK, port, port);
     } else {
       response = serviceHelper.createErrorMessage(`Unkown error while opening port ${port}`);
