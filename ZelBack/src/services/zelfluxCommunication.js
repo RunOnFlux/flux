@@ -3,6 +3,7 @@ const WebSocket = require('ws');
 const bitcoinjs = require('bitcoinjs-lib');
 const config = require('config');
 const cmd = require('node-cmd');
+// eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
@@ -859,7 +860,26 @@ async function allowPortApi(req, res) {
   return res.json(response);
 }
 
+async function adjustFirewall() {
+  const execA = 'sudo ufw status | grep Status';
+  const execB = `sudo ufw allow ${config.server.apiport}`;
+  const cmdAsync = util.promisify(cmd.get);
+
+  const cmdresA = await cmdAsync(execA);
+  if (cmdresA === 'Status: active') {
+    const cmdresB = await cmdAsync(execB);
+    if (serviceHelper.ensureString(cmdresB).includes('updated') || serviceHelper.ensureString(cmdresB).includes('existing') || serviceHelper.ensureString(cmdresB).includes('added')) {
+      log.info('Firewall adjusted for ZelBack port');
+    } else {
+      log.info('Failed to adjust Firewall for ZelBack port');
+    }
+  } else {
+    log.info('Firewall is not active. Adjusting not applied');
+  }
+}
+
 function startFluxFunctions() {
+  adjustFirewall();
   fluxDisovery();
   log.info('Flux Discovery started');
   keepConnectionsAlive();
