@@ -866,7 +866,7 @@ async function adjustFirewall() {
   const cmdAsync = util.promisify(cmd.get);
 
   const cmdresA = await cmdAsync(execA);
-  if (cmdresA === 'Status: active') {
+  if (serviceHelper.ensureString(cmdresA).includes('Status: active')) {
     const cmdresB = await cmdAsync(execB);
     if (serviceHelper.ensureString(cmdresB).includes('updated') || serviceHelper.ensureString(cmdresB).includes('existing') || serviceHelper.ensureString(cmdresB).includes('added')) {
       log.info('Firewall adjusted for ZelBack port');
