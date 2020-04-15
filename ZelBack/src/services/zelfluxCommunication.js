@@ -463,6 +463,9 @@ async function broadcastMessageFromUserPost(req, res) {
 async function getRandomConnection() {
   const zelnodeList = await deterministicZelNodeList();
   const zlLength = zelnodeList.length;
+  if (zlLength === 0) {
+    return null;
+  }
   const randomNode = Math.floor((Math.random() * zlLength)); // we do not really need a 'random'
   const ip = zelnodeList[randomNode].ip || zelnodeList[randomNode].ipaddress;
 

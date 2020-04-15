@@ -257,12 +257,15 @@ module.exports = (app, expressWs) => {
   app.get('/zelapps/zelappexec/:container?/:cmd?/:env?', (req, res) => { // todo post, privileges
     zelappsService.zelAppExec(req, res);
   });
+  app.get('/zelapps/zelapptemporarylocalregister/foldingathome', (req, res) => {
+    zelappsService.temporaryZelAppRegisterFunctionForFoldingAtHome(req, res);
+  });
 
   app.get('/zelapps/zelshare/getfile/:file?', (req, res) => {
     zelappsService.zelShareFile(req, res);
   });
   app.get('/zelapps/zelfluxusage', (req, res) => {
-    zelappsService.zelfluxUsage(req, res);
+    zelappsService.zelFluxUsage(req, res);
   });
 
   // app.get('/explorer/allutxos', (req, res) => {

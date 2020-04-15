@@ -41,8 +41,7 @@ async function dockerContainerInspect(container) {
   return response;
 }
 
-// TODO needs roding
-function dockerPullStream(repoTag, callback) {
+function dockerPullStream(repoTag, res, callback) {
   docker.pull(repoTag, (err, mystream) => {
     function onFinished(error, output) {
       if (error) {
@@ -52,6 +51,7 @@ function dockerPullStream(repoTag, callback) {
       }
     }
     function onProgress(event) {
+      res.write(serviceHelper.ensureString(event));
       console.log(event);
     }
     if (err) {
@@ -62,13 +62,14 @@ function dockerPullStream(repoTag, callback) {
   });
 }
 
-// TODO fixme
-function dockerContainerExec(container, cmd, env, callback) {
+// TODO look into
+function dockerContainerExec(container, cmd, env, res, callback) {
   try {
     const logStream = new stream.PassThrough();
     let logStreamData = '';
     logStream.on('data', (chunk) => {
       console.log(chunk.toString('utf8'));
+      res.write(serviceHelper.ensureString(chunk.toString('utf8')));
       logStreamData += chunk.toString('utf8');
     });
     console.log(cmd);
@@ -172,12 +173,16 @@ function dockerContainerLogs(container, callback) {
   }
 }
 
-// TODO needs redoing
 function zelAppPull(req, res) {
   let { repotag } = req.params;
   repotag = repotag || req.query.repotag;
 
-  dockerPullStream(repotag, (error, dataLog) => {
+  if (!repotag) {
+    const errMessage = serviceHelper.createErrorMessage('No Docker repository specified');
+    return res.json(errMessage);
+  }
+
+  dockerPullStream(repotag, res, (error, dataLog) => {
     if (error) {
       const errorResponse = serviceHelper.createErrorMessage(
         error.message,
@@ -237,24 +242,43 @@ async function listZelAppsImages(req, res) {
   return res ? res.json(zelappsResponse) : zelappsResponse;
 }
 
+async function zelAppDockerStart(container) {
+  const dockerContainer = docker.getContainer(container);
+
+  const zelapp = await dockerContainer.start().catch((error) => {
+    log.error(error);
+    throw error;
+  });
+  return zelapp
+}
+
+async function zelAppDockerStop(container) {
+  const dockerContainer = docker.getContainer(container);
+
+  const zelapp = await dockerContainer.stop().catch((error) => {
+    log.error(error);
+    throw error;
+  });
+  return zelapp
+}
 
 async function zelAppStart(req, res) {
   let { container } = req.params;
   container = container || req.query.container;
 
-  const dockerContainer = docker.getContainer(container);
+  if (!container) {
+    const errMessage = serviceHelper.createErrorMessage('No ZelApp specified');
+    return res.json(errMessage);
+  }
 
-  const zelapp = await dockerContainer.start().catch((error) => {
-    const errMessage = serviceHelper.createErrorMessage(
-      error.message,
-      error.name,
-      error.code,
-    );
-    log.error(error);
+  const zelappRes = await zelAppDockerStart(container).catch((error) => {
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
+    log.error(error);
     throw error;
   });
-  const zelappResponse = serviceHelper.createDataMessage(zelapp);
+
+  const zelappResponse = serviceHelper.createDataMessage(zelappRes);
   return res ? res.json(zelappResponse) : zelappResponse;
 }
 
@@ -262,25 +286,30 @@ async function zelAppStop(req, res) {
   let { container } = req.params;
   container = container || req.query.container;
 
-  const dockerContainer = docker.getContainer(container);
+  if (!container) {
+    const errMessage = serviceHelper.createErrorMessage('No ZelApp specified');
+    return res.json(errMessage);
+  }
 
-  const zelapp = await dockerContainer.stop().catch((error) => {
-    const errMessage = serviceHelper.createErrorMessage(
-      error.message,
-      error.name,
-      error.code,
-    );
-    log.error(error);
+  const zelappRes = await zelAppDockerStop(container).catch((error) => {
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
+    log.error(error);
     throw error;
   });
-  const zelappResponse = serviceHelper.createDataMessage(zelapp);
+
+  const zelappResponse = serviceHelper.createDataMessage(zelappRes);
   return res ? res.json(zelappResponse) : zelappResponse;
 }
 
 async function zelAppRestart(req, res) {
   let { container } = req.params;
   container = container || req.query.container;
+
+  if (!container) {
+    const errMessage = serviceHelper.createErrorMessage('No ZelApp specified');
+    return res.json(errMessage);
+  }
 
   const dockerContainer = docker.getContainer(container);
 
@@ -302,6 +331,11 @@ async function zelAppKill(req, res) {
   let { container } = req.params;
   container = container || req.query.container;
 
+  if (!container) {
+    const errMessage = serviceHelper.createErrorMessage('No ZelApp specified');
+    return res.json(errMessage);
+  }
+
   const dockerContainer = docker.getContainer(container);
 
   const zelapp = await dockerContainer.kill().catch((error) => {
@@ -321,6 +355,11 @@ async function zelAppKill(req, res) {
 async function zelAppRemove(req, res) {
   let { container } = req.params;
   container = container || req.query.container;
+
+  if (!container) {
+    const errMessage = serviceHelper.createErrorMessage('No ZelApp specified');
+    return res.json(errMessage);
+  }
 
   const dockerContainer = docker.getContainer(container);
 
@@ -342,6 +381,11 @@ async function zelAppPause(req, res) {
   let { container } = req.params;
   container = container || req.query.container;
 
+  if (!container) {
+    const errMessage = serviceHelper.createErrorMessage('No ZelApp specified');
+    return res.json(errMessage);
+  }
+
   const dockerContainer = docker.getContainer(container);
 
   const zelapp = await dockerContainer.pause().catch((error) => {
@@ -361,6 +405,11 @@ async function zelAppPause(req, res) {
 async function zelAppUnpause(req, res) {
   let { container } = req.params;
   container = container || req.query.container;
+
+  if (!container) {
+    const errMessage = serviceHelper.createErrorMessage('No ZelApp specified');
+    return res.json(errMessage);
+  }
 
   const dockerContainer = docker.getContainer(container);
 
@@ -383,6 +432,11 @@ async function zelAppTop(req, res) {
   let { container } = req.params;
   container = container || req.query.container;
 
+  if (!container) {
+    const errMessage = serviceHelper.createErrorMessage('No ZelApp specified');
+    return res.json(errMessage);
+  }
+
   const dockerContainer = docker.getContainer(container);
 
   const zelapp = await dockerContainer.top().catch((error) => {
@@ -402,6 +456,11 @@ async function zelAppTop(req, res) {
 function zelAppLog(req, res) {
   let { container } = req.params;
   container = container || req.query.container;
+
+  if (!container) {
+    const errMessage = serviceHelper.createErrorMessage('No ZelApp specified');
+    return res.json(errMessage);
+  }
 
   const dockerContainer = docker.getContainer(container);
 
@@ -423,6 +482,11 @@ function zelAppLog(req, res) {
 async function zelAppInspect(req, res) {
   let { container } = req.params;
   container = container || req.query.container;
+
+  if (!container) {
+    const errMessage = serviceHelper.createErrorMessage('No ZelApp specified');
+    return res.json(errMessage);
+  }
 
   const dockerContainer = docker.getContainer(container);
 
@@ -518,7 +582,7 @@ function zelAppExec(req, res) {
 
   const dockerContainer = docker.getContainer(container);
 
-  dockerContainerExec(dockerContainer, cmd, env, (error, dataLog) => {
+  dockerContainerExec(dockerContainer, cmd, env, res, (error, dataLog) => {
     if (error) {
       const errorResponse = serviceHelper.createErrorMessage(
         error.message,
@@ -543,7 +607,7 @@ async function zelShareFile(req, res) {
   return res.sendFile(filepath);
 }
 
-async function zelfluxUsage(req, res) {
+async function zelFluxUsage(req, res) {
   const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
     const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
@@ -630,6 +694,73 @@ async function zelfluxUsage(req, res) {
   res.json(response);
 }
 
+async function registerZelAppLocally() {
+  // get applications specifics from zelapp messages database
+  // check if hash is in blockchain
+  // register and launch according to specifications in message
+}
+
+async function temporaryZelAppRegisterFunctionForFoldingAtHome(req, res) {
+  // this function is just temporary
+  // when a launch folding button is clicked
+  // check what tier our node is
+  // if bamf limit to - 2 cores, 4 GB ram, super 1 core, 1 gb ram, basic 0.5 core, 0.5gb ram;
+  // data storage let be ~/zelflux/ZelApp/zelFoldingAtHome
+  // name of docker let be zelFoldingAtHome
+  // Flux uses port range for apps 30000 - 39999. Allowing up to 10k apps.
+  // port this temporary folding at home let be a unique 30000 though and highest available ip on 172.16.0.2;
+  // as according to specifications ports are asssigned from lowest possible number ();
+  // if not exists create zelflux network for docker on gateway ip docker network create --subnet=172.16.0.0/16 --gateway=172.16.0.1 zelfluxDockerNetwork
+  const repotag = 'thetrunk/electrumx:zelflux';
+  const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+    log.error(error);
+    throw error;
+  });
+  // name, cpu, ram, hdd, port, ip
+  const zelappsDatabase = dbopen.db(config.database.zelapps.database);
+  const zelappsQuery = { cpu: { $gte: 0 } };
+  const zelappsProjection = {
+    projection: {
+      _id: 0,
+      cpu: 1,
+    },
+  };
+
+  // set the appropriate HTTP header
+  res.setHeader('Content-Type', 'text/html');
+  // eslint-disable-next-line no-unused-vars
+  dockerPullStream(repotag, res, async (error, dataLog) => {
+    if (error) {
+      const errorResponse = serviceHelper.createErrorMessage(
+        error.message,
+        error.name,
+        error.code,
+      );
+      res.json(errorResponse);
+    } else {
+      res.write('\r\nPulling global ZelApp success\r\n');
+      res.write('Creating local ZelApp\r\n');
+      res.write('Starting ZelApp\r\n');
+      const dockerContainer = docker.getContainer(repotag);
+
+      const zelapp = await dockerContainer.start().catch((error2) => {
+        const errMessage = serviceHelper.createErrorMessage(
+          error2.message,
+          error2.name,
+          error2.code,
+        );
+        log.error(error2);
+        res.json(errMessage);
+        throw error2;
+      });
+      const zelappResponse = serviceHelper.createDataMessage(zelapp);
+      res.end();
+    }
+  });
+}
+
 module.exports = {
   dockerListContainers,
   zelAppPull,
@@ -649,5 +780,7 @@ module.exports = {
   zelAppUpdate,
   zelAppExec,
   zelShareFile,
-  zelfluxUsage,
+  zelFluxUsage,
+  registerZelAppLocally,
+  temporaryZelAppRegisterFunctionForFoldingAtHome,
 };
