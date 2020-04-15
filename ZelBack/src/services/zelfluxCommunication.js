@@ -3,6 +3,7 @@ const WebSocket = require('ws');
 const bitcoinjs = require('bitcoinjs-lib');
 const config = require('config');
 const cmd = require('node-cmd');
+const util = require('util');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const zelcashServices = require('./zelcashService');
@@ -817,7 +818,9 @@ async function getDOSState(req, res) {
 
 async function allowPort(port) {
   const exec = `sudo ufw allow ${port}`;
-  const cmdres = await cmd.get(exec);
+  const cmdAsync = util.promisify(cmd.get);
+
+  const cmdres = await cmdAsync(exec);
   console.log(cmdres);
   const cmdStat = {
     status: false,
