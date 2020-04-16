@@ -260,6 +260,9 @@ module.exports = (app, expressWs) => {
   app.get('/zelapps/zelapptemporarylocalregister/foldingathome', (req, res) => {
     zelappsService.temporaryZelAppRegisterFunctionForFoldingAtHome(req, res);
   });
+  app.get('/zelapps/createzelfluxnetwork', (req, res) => {
+    zelappsService.createZelFluxNetwork(req, res);
+  });
 
   app.get('/zelapps/zelshare/getfile/:file?', (req, res) => {
     zelappsService.zelShareFile(req, res);
