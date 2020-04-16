@@ -8,6 +8,9 @@ const serviceHelper = require('./serviceHelper');
 const zelcashService = require('./zelcashService');
 const log = require('../lib/log');
 const userconfig = require('../../../config/userconfig');
+const fluxDirPath = path.join(__dirname, '../../../');
+const zelappsFolder = `${fluxDirPath}/ZelApps/`;
+
 
 const docker = new Docker();
 
@@ -299,7 +302,7 @@ async function zelAppDockerCreate(zelappSpecifications, fluxNetworkID) {
     HostConfig: {
       NanoCPUs: zelappSpecifications.cpu * 1e9,
       Memory: zelappSpecifications.ram * 1024 * 1024,
-      Binds: [`~/zelflux/ZelApps/${zelappSpecifications.name}:${zelappSpecifications.containerData}`],
+      Binds: [`${zelappsFolder + zelappSpecifications.name}:${zelappSpecifications.containerData}`],
       Ulimits: [
         {
           Name: 'nofile',
