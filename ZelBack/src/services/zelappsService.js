@@ -8,8 +8,9 @@ const serviceHelper = require('./serviceHelper');
 const zelcashService = require('./zelcashService');
 const log = require('../lib/log');
 const userconfig = require('../../../config/userconfig');
+
 const fluxDirPath = path.join(__dirname, '../../../');
-const zelappsFolder = `${fluxDirPath}/ZelApps/`;
+const zelappsFolder = `${fluxDirPath}ZelApps/`;
 
 
 const docker = new Docker();
@@ -700,7 +701,7 @@ async function zelShareFile(req, res) {
   file = file || req.query.file;
 
   const dirpath = path.join(__dirname, '../../../');
-  const filepath = `${dirpath}/ZelApps/ZelShare/${file}`;
+  const filepath = `${dirpath}ZelApps/ZelShare/${file}`;
 
   return res.sendFile(filepath);
 }
@@ -925,9 +926,10 @@ async function temporaryZelAppRegisterFunctionForFoldingAtHome(req, res) {
         log.info(dataLog);
         res.write('\r\nPulling global ZelApp success\r\n');
         res.write('Creating local ZelApp\r\n');
-        const dockerContainer = zelAppDockerCreate(zelAppSpecifications, fluxNetworkID).catch((e) => {
+        zelAppDockerCreate(zelAppSpecifications, fluxNetworkID).catch((e) => {
           throw e;
         });
+        const dockerContainer = docker.getContainer(zelAppSpecifications.name);
         res.write('\r\nStarting ZelApp\r\n');
         const zelapp = await dockerContainer.start().catch((error2) => {
           throw error2;
