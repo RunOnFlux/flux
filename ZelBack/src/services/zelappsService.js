@@ -298,7 +298,7 @@ async function zelAppDockerCreate(zelappSpecifications, fluxNetworkID) {
     Tty: false,
     HostConfig: {
       NanoCPUs: zelappSpecifications.cpu * 1e9,
-      Memory: zelappSpecifications.ram * 1e6,
+      Memory: zelappSpecifications.ram * 1024 * 1024,
       Binds: [`~/zelflux/ZelApps/${zelappSpecifications.name}:${zelappSpecifications.containerData}`],
       Ulimits: [
         {
@@ -319,12 +319,10 @@ async function zelAppDockerCreate(zelappSpecifications, fluxNetworkID) {
       },
     },
     NetworkingConfig: {
-      EndpointsConfig: {
-        net1: [{
-          NetworkID: fluxNetworkID,
-          IPAddress: zelappSpecifications.ip,
-        }],
-      },
+      bridge: [{
+        NetworkID: fluxNetworkID,
+        IPAddress: zelappSpecifications.ip,
+      }],
     },
   };
 
