@@ -936,13 +936,15 @@ async function temporaryZelAppRegisterFunctionForFoldingAtHome(req, res) {
           throw e;
         });
         res.write('\r\nAllowing ZelApp port\r\n');
-        const portResponse = zelfluxCommunication.allowPort(zelAppSpecifications.port);
+        const portResponse = await zelfluxCommunication.allowPort(zelAppSpecifications.port);
         if (portResponse.status === true) {
           res.write('Port OK\r\n');
         } else {
           res.write('Port FAILed to open\r\n');
         }
-        const dockerContainer = docker.getContainer(zelAppSpecifications.name);
+        const containers = await dockerListContainers(true);
+        const myContainer = containers.find((container) => serviceHelper.ensureString(container.Names).includes(zelAppSpecifications.name));
+        const dockerContainer = docker.getContainer(myContainer.Id);
         res.write('\r\nStarting ZelApp\r\n');
         const zelapp = await dockerContainer.start().catch((error2) => {
           throw error2;
