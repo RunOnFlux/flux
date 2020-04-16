@@ -22,15 +22,22 @@ async function dockerCreateNetwork(options) {
   return network;
 }
 
+async function dockerNetworkInspect(netw) {
+  const network = await docker.createNetwork(netw).catch((error) => {
+    throw error;
+  });
+  return network;
+}
+
 async function createZelFluxNetwork(req, res) {
   try {
     const options = {
       Name: 'zelfluxDockerNetwork',
       IPAM: {
-        Config: {
+        Config: [{
           Subnet: '172.16.0.0/16',
           Gateway: '172.16.0.1',
-        },
+        }],
       },
     };
     const dockerRes = await dockerCreateNetwork(options);
@@ -838,8 +845,25 @@ async function temporaryZelAppRegisterFunctionForFoldingAtHome(req, res) {
       throw error;
     });
 
+    // check if zelfluxDockerNetwork exists
+    const fluxNetworkOptions = {
+      Name: 'zelfluxDockerNetwork',
+      IPAM: {
+        Config: [{
+          Subnet: '172.16.0.0/16',
+          Gateway: '172.16.0.1',
+        }],
+      },
+    };
+    let fluxNetworkExists = true;
+    await dockerNetworkInspect(fluxNetworkOptions.Name).catch(() => {
+      fluxNetworkExists = false;
+    });
     // create or check docker network
     // docker network create --subnet=172.16.0.0/16 --gateway=172.16.0.1 zelfluxDockerNetwork
+    if (!fluxNetworkExists) {
+      await dockerCreateNetwork(fluxNetworkOptions);
+    }
 
     // pull image
     // set the appropriate HTTP header
