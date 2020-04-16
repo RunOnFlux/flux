@@ -950,7 +950,7 @@ async function temporaryZelAppRegisterFunctionForFoldingAtHome(req, res) {
           throw error2;
         });
         const zelappResponse = serviceHelper.createDataMessage(zelapp);
-        res.write(zelappResponse);
+        res.write(serviceHelper.ensureString(zelappResponse));
         res.end();
       }
     });
