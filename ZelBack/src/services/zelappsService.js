@@ -308,9 +308,9 @@ async function zelAppDockerCreate(zelappSpecifications, fluxNetworkID) {
         },
       ],
       PortBindings: {
-        [`${zelappSpecifications.containerPort}/tcp`]: [
+        [`${zelappSpecifications.containerPort.toString()}/tcp`]: [
           {
-            HostPort: zelappSpecifications.port,
+            HostPort: zelappSpecifications.port.toString(),
           },
         ],
       },
@@ -320,8 +320,10 @@ async function zelAppDockerCreate(zelappSpecifications, fluxNetworkID) {
     },
     NetworkingConfig: {
       EndpointsConfig: {
-        NetworkID: fluxNetworkID,
-        IPAddress: zelappSpecifications.ip,
+        net1: [{
+          NetworkID: fluxNetworkID,
+          IPAddress: zelappSpecifications.ip,
+        }],
       },
     },
   };
@@ -826,7 +828,7 @@ async function temporaryZelAppRegisterFunctionForFoldingAtHome(req, res) {
       ram: 500,
       hdd: 15,
       enviromentParameters: [`USER=${userconfig.initial.zelid}`, 'TEAM=262156', 'ENABLE_GPU=false', 'ENABLE_SMP=true'],
-      commands: ['init'],
+      commands: [],
       containerPort: 7396,
       containerData: '/config',
     };
@@ -883,15 +885,13 @@ async function temporaryZelAppRegisterFunctionForFoldingAtHome(req, res) {
       dbopen.close();
       throw error;
     });
-    if (zelappResult) {
-      throw new Error('ZelApp is already installed.');
+    if (!zelappResult) {
+      // register the zelapp
+      await serviceHelper.insertOneToDatabase(zelappsDatabase, localZelAppsInformation, zelAppSpecifications).catch((error) => {
+        dbopen.close();
+        throw error;
+      });
     }
-
-    // register the zelapp
-    await serviceHelper.insertOneToDatabase(zelappsDatabase, localZelAppsInformation, zelAppSpecifications).catch((error) => {
-      dbopen.close();
-      throw error;
-    });
 
     // check if zelfluxDockerNetwork exists
     const fluxNetworkOptions = {
