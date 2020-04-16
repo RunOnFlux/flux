@@ -862,10 +862,8 @@ async function temporaryZelAppRegisterFunctionForFoldingAtHome(req, res) {
     const { value } = txInformation.data.vout[collateralInformation.txindex];
     console.log(value);
     if (value === 10000) {
-      // zelAppSpecifications.cpu = 0.5;
-      // zelAppSpecifications.ram = 500;
-      zelAppSpecifications.cpu = 1;
-      zelAppSpecifications.ram = 2000;
+      zelAppSpecifications.cpu = 0.5;
+      zelAppSpecifications.ram = 500;
     } else if (value === 25000) {
       zelAppSpecifications.cpu = 1;
       zelAppSpecifications.ram = 1000;
