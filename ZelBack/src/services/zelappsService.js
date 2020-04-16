@@ -23,7 +23,7 @@ async function dockerCreateNetwork(options) {
 }
 
 async function dockerNetworkInspect(netw) {
-  const network = await docker.createNetwork(netw).catch((error) => {
+  const network = await netw.inspect().catch((error) => {
     throw error;
   });
   return network;
@@ -904,7 +904,8 @@ async function temporaryZelAppRegisterFunctionForFoldingAtHome(req, res) {
       },
     };
     let fluxNetworkExists = true;
-    const fluxNetworkID = await dockerNetworkInspect(fluxNetworkOptions.Name).catch(() => {
+    const networkID = docker.getNetwork(fluxNetworkOptions.Name);
+    const fluxNetworkID = await dockerNetworkInspect(networkID).catch(() => {
       fluxNetworkExists = false;
     });
     // create or check docker network
