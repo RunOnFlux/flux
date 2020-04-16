@@ -4,6 +4,7 @@ const os = require('os');
 const Docker = require('dockerode');
 const stream = require('stream');
 const path = require('path');
+const zelfluxCommunication = require('./zelfluxCommunication');
 const serviceHelper = require('./serviceHelper');
 const zelcashService = require('./zelcashService');
 const log = require('../lib/log');
@@ -290,7 +291,7 @@ async function listZelAppsImages(req, res) {
 }
 
 async function zelAppDockerCreate(zelappSpecifications, fluxNetworkID) {
-  // todo https://docs.docker.com/engine/api/v1.37/#operation/ContainerCreate
+  // todo attaching our zelflux network and correct ip not working, limiting size
   const options = {
     Image: zelappSpecifications.repotag,
     name: zelappSpecifications.name,
@@ -830,7 +831,12 @@ async function temporaryZelAppRegisterFunctionForFoldingAtHome(req, res) {
       ram: 500,
       hdd: 15,
       enviromentParameters: [`USER=${userconfig.initial.zelid}`, 'TEAM=262156', 'ENABLE_GPU=false', 'ENABLE_SMP=true'],
-      commands: [],
+      commands: [
+        '--allow',
+        '0/0',
+        '--web-allow',
+        '0/0',
+      ],
       containerPort: 7396,
       containerData: '/config',
     };
@@ -929,6 +935,13 @@ async function temporaryZelAppRegisterFunctionForFoldingAtHome(req, res) {
         zelAppDockerCreate(zelAppSpecifications, fluxNetworkID).catch((e) => {
           throw e;
         });
+        res.write('\r\nAllowing ZelApp port\r\n');
+        const portResponse = zelfluxCommunication.allowPort(zelAppSpecifications.port);
+        if (portResponse.status === true) {
+          res.write('Port OK\r\n');
+        } else {
+          res.write('Port FAILed to open\r\n');
+        }
         const dockerContainer = docker.getContainer(zelAppSpecifications.name);
         res.write('\r\nStarting ZelApp\r\n');
         const zelapp = await dockerContainer.start().catch((error2) => {
