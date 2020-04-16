@@ -285,6 +285,54 @@ async function listZelAppsImages(req, res) {
   return res ? res.json(zelappsResponse) : zelappsResponse;
 }
 
+async function zelAppDockerCreate(zelappSpecifications, fluxNetworkID) {
+  // todo https://docs.docker.com/engine/api/v1.37/#operation/ContainerCreate
+  const options = {
+    Image: zelappSpecifications.repotag,
+    name: zelappSpecifications.name,
+    AttachStdin: true,
+    AttachStdout: true,
+    AttachStderr: true,
+    Cmd: zelappSpecifications.commands,
+    Env: zelappSpecifications.enviromentParameters,
+    Tty: false,
+    HostConfig: {
+      NanoCPUs: zelappSpecifications.cpu * 1e9,
+      Memory: zelappSpecifications.ram * 1e6,
+      Binds: [`~/zelflux/ZelApps/${zelappSpecifications.name}:${zelappSpecifications.containerData}`],
+      Ulimits: [
+        {
+          Name: 'nofile',
+          Soft: 8192,
+          Hard: 16384,
+        },
+      ],
+      PortBindings: {
+        [`${zelappSpecifications.containerPort}/tcp`]: [
+          {
+            HostPort: zelappSpecifications.port,
+          },
+        ],
+      },
+      RestartPolicy: {
+        Name: 'unless-stopped',
+      },
+    },
+    NetworkingConfig: {
+      EndpointsConfig: {
+        NetworkID: fluxNetworkID,
+        IPAddress: zelappSpecifications.ip,
+      },
+    },
+  };
+
+  const zelapp = await docker.createContainer(options).catch((error) => {
+    log.error(error);
+    throw error;
+  });
+  return zelapp;
+}
+
 async function zelAppDockerStart(container) {
   const dockerContainer = docker.getContainer(container);
 
@@ -778,10 +826,10 @@ async function temporaryZelAppRegisterFunctionForFoldingAtHome(req, res) {
       ram: 500,
       hdd: 15,
       enviromentParameters: [`USER=${userconfig.initial.zelid}`, 'TEAM=262156', 'ENABLE_GPU=false', 'ENABLE_SMP=true'],
+      commands: ['init'],
       containerPort: 7396,
       containerData: '/config',
     };
-    // furthermore we use --restart unless-stopped and --ulimit nofile=10000:10000
     // get our collateral information to decide if app specifications are basic, super, bamf
     // getzlenodestatus.collateral
     const zelnodeStatus = await zelcashService.getZelNodeStatus();
@@ -856,7 +904,7 @@ async function temporaryZelAppRegisterFunctionForFoldingAtHome(req, res) {
       },
     };
     let fluxNetworkExists = true;
-    await dockerNetworkInspect(fluxNetworkOptions.Name).catch(() => {
+    const fluxNetworkID = await dockerNetworkInspect(fluxNetworkOptions.Name).catch(() => {
       fluxNetworkExists = false;
     });
     // create or check docker network
@@ -868,20 +916,22 @@ async function temporaryZelAppRegisterFunctionForFoldingAtHome(req, res) {
     // pull image
     // set the appropriate HTTP header
     res.setHeader('Content-Type', 'text/html');
-    // eslint-disable-next-line no-unused-vars
     dockerPullStream(zelAppSpecifications.repotag, res, async (error, dataLog) => {
       if (error) {
         throw error;
       } else {
+        log.info(dataLog);
         res.write('\r\nPulling global ZelApp success\r\n');
         res.write('Creating local ZelApp\r\n');
-        res.write('Starting ZelApp\r\n');
-        const dockerContainer = docker.getContainer(zelAppSpecifications.repotag);
-
+        const dockerContainer = zelAppDockerCreate(zelAppSpecifications, fluxNetworkID).catch((e) => {
+          throw e;
+        });
+        res.write('\r\nStarting ZelApp\r\n');
         const zelapp = await dockerContainer.start().catch((error2) => {
           throw error2;
         });
         const zelappResponse = serviceHelper.createDataMessage(zelapp);
+        res.write(zelappResponse);
         res.end();
       }
     });

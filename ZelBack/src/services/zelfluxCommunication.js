@@ -882,18 +882,18 @@ async function adjustFirewall() {
 }
 
 function startFluxFunctions() {
-  adjustFirewall();
-  fluxDisovery();
-  log.info('Flux Discovery started');
-  keepConnectionsAlive();
-  keepIncomingConnectionsAlive();
-  checkDeterministicNodesCollisions();
-  setInterval(() => {
-    checkDeterministicNodesCollisions();
-  }, 60000);
-  log.info('Flux checks operational');
-  explorerService.initiateBlockProcessor(true);
-  log.info('Flux Block Explorer Service started');
+  // adjustFirewall();
+  // fluxDisovery();
+  // log.info('Flux Discovery started');
+  // keepConnectionsAlive();
+  // keepIncomingConnectionsAlive();
+  // checkDeterministicNodesCollisions();
+  // setInterval(() => {
+  //   checkDeterministicNodesCollisions();
+  // }, 60000);
+  // log.info('Flux checks operational');
+  // explorerService.initiateBlockProcessor(true);
+  // log.info('Flux Block Explorer Service started');
 }
 
 module.exports = {
