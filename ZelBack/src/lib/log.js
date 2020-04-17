@@ -1,4 +1,7 @@
 const fs = require('fs');
+const path = require('path');
+
+const homeDirPath = path.join(__dirname, '../../../../');
 
 function getFilesizeInBytes(filename) {
   const stats = fs.statSync(filename);
@@ -9,7 +12,8 @@ function getFilesizeInBytes(filename) {
 function error(...args) {
   console.error(...args);
   // write to file
-  const filepath = '~/zelflux/error.log';
+  const datadir = `${homeDirPath}zelflux`;
+  const filepath = `${datadir}/error.log`;
   const size = getFilesizeInBytes(filepath);
   let flag = 'a+';
   if (size > (25 * 1000 * 1000)) { // 25MB

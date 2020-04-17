@@ -194,21 +194,24 @@ function getZelFluxZelID(req, res) {
 
 async function zelcashDebug(req, res) {
   // check zelcash datadir
-  const datadir = zelcashServices.getConfigValue('datadir') || '~/.zelcash';
+  const homeDirPath = path.join(__dirname, '../../../../');
+  const datadir = zelcashServices.getConfigValue('datadir') || `${homeDirPath}.zelcash`;
   const filepath = `${datadir}/debug.log`;
 
   return res.sendFile(filepath);
 }
 
 async function zelbenchDebug(req, res) {
-  const datadir = '~/.zelbenchmark';
+  const homeDirPath = path.join(__dirname, '../../../../');
+  const datadir = `${homeDirPath}.zelbenchmark`;
   const filepath = `${datadir}/debug.log`;
 
   return res.sendFile(filepath);
 }
 
 async function zelfluxErrorLog(req, res) {
-  const datadir = '~/zelflux';
+  const homeDirPath = path.join(__dirname, '../../../../');
+  const datadir = `${homeDirPath}zelflux`;
   const filepath = `${datadir}/error.log`;
 
   return res.sendFile(filepath);
