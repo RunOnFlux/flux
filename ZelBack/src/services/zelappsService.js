@@ -4,6 +4,9 @@ const os = require('os');
 const Docker = require('dockerode');
 const stream = require('stream');
 const path = require('path');
+const nodecmd = require('node-cmd');
+// eslint-disable-next-line import/no-extraneous-dependencies
+const util = require('util');
 const zelfluxCommunication = require('./zelfluxCommunication');
 const serviceHelper = require('./serviceHelper');
 const zelcashService = require('./zelcashService');
@@ -1077,6 +1080,122 @@ async function temporaryZelAppRegisterFunctionForFoldingAtHome(req, res) {
   }
 }
 
+async function removeZelAppLocally(req, res) {
+  try {
+    // remove zelapp from local machine.
+    // find in database, stop zelapp, remove container, close port delete data associated on system, remove from database
+    let { zelapp } = req.params;
+    zelapp = zelapp || req.query.zelapp;
+
+    if (!zelapp) {
+      throw new Error('No ZelApp specified');
+    }
+
+    // first find the zelappSpecifications in our database.
+    // connect to mongodb
+    const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
+      throw error;
+    });
+
+    const zelappsDatabase = dbopen.db(config.database.zelapps.database);
+    const zelappsQuery = { name: zelapp };
+    const zelappsProjection = {};
+    const zelAppSpecifications = await serviceHelper.findOneInDatabase(zelappsDatabase, localZelAppsInformation, zelappsQuery, zelappsProjection).catch((error) => {
+      dbopen.close();
+      throw error;
+    });
+    if (!zelAppSpecifications) {
+      throw new Error('ZelApp not found');
+    }
+
+    // simplifying ignore error messages for now
+    // set the appropriate HTTP header
+    res.setHeader('Content-Type', 'application/json');
+
+    const stopStatus = {
+      status: 'Stopping ZelApp...',
+    };
+    res.write(serviceHelper.ensureString(stopStatus));
+    await zelAppDockerStop(zelapp).catch((error2) => {
+      const errorResponse = serviceHelper.createErrorMessage(
+        error2.message || error2,
+        error2.name,
+        error2.code,
+      );
+      res.write(serviceHelper.ensureString(errorResponse));
+    });
+    const stopStatus2 = {
+      status: 'ZelApp stopped',
+    };
+    res.write(serviceHelper.ensureString(stopStatus2));
+
+    const removeStatus = {
+      status: 'Removing ZelApp container...',
+    };
+    res.write(serviceHelper.ensureString(removeStatus));
+    await zelAppDockerRemove(zelapp).catch((error2) => {
+      const errorResponse = serviceHelper.createErrorMessage(
+        error2.message || error2,
+        error2.name,
+        error2.code,
+      );
+      res.write(serviceHelper.ensureString(errorResponse));
+    });
+    const removeStatus2 = {
+      status: 'ZelApp container removed',
+    };
+    res.write(serviceHelper.ensureString(removeStatus2));
+
+    const portStatus = {
+      status: 'Denying ZelApp port...',
+    };
+    res.write(serviceHelper.ensureString(portStatus));
+    await zelfluxCommunication.denyPort(zelAppSpecifications.port);
+    const portStatus2 = {
+      status: 'Port denied',
+    };
+    res.write(serviceHelper.ensureString(portStatus2));
+
+    const cleaningStatus = {
+      status: 'Cleaning up data...',
+    };
+    res.write(serviceHelper.ensureString(cleaningStatus));
+    const exec = `sudo rm -rf ${zelappsFolder + zelAppSpecifications.name}`;
+    const cmdAsync = util.promisify(nodecmd.get);
+    await cmdAsync(exec);
+    const cleaningStatus2 = {
+      status: 'Data cleaned',
+    };
+    res.write(serviceHelper.ensureString(cleaningStatus2));
+
+    const databaseStatus = {
+      status: 'Cleaning up database...',
+    };
+    res.write(serviceHelper.ensureString(databaseStatus));
+    await serviceHelper.findOneAndDeleteInDatabase(zelappsDatabase, localZelAppsInformation, zelappsQuery, zelappsProjection).catch((error) => {
+      dbopen.close();
+      throw error;
+    });
+    const databaseStatus2 = {
+      status: 'Database cleaned',
+    };
+    res.write(serviceHelper.ensureString(databaseStatus2));
+    dbopen.close();
+
+    const zelappRemovalResponse = serviceHelper.createDataMessage(`ZelApp ${zelapp} was successfuly removed`);
+    res.write(serviceHelper.ensureString(zelappRemovalResponse));
+    return res.end();
+  } catch (error) {
+    log.error(error);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    return res.json(errorResponse);
+  }
+}
+
 module.exports = {
   dockerListContainers,
   zelAppPull,
@@ -1100,4 +1219,5 @@ module.exports = {
   registerZelAppLocally,
   temporaryZelAppRegisterFunctionForFoldingAtHome,
   createZelFluxNetwork,
+  removeZelAppLocally,
 };

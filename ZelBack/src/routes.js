@@ -233,7 +233,7 @@ module.exports = (app, expressWs) => {
   app.get('/zelapps/zelappkill/:container?', (req, res) => {
     zelappsService.zelAppKill(req, res);
   });
-  app.get('/zelapps/zelappremove/:container?', (req, res) => {
+  app.get('/zelapps/zelappcontainerremove/:container?', (req, res) => {
     zelappsService.zelAppRemove(req, res);
   });
   app.get('/zelapps/zelapppause/:container?', (req, res) => {
@@ -256,6 +256,9 @@ module.exports = (app, expressWs) => {
   });
   app.get('/zelapps/zelappexec/:container?/:cmd?/:env?', (req, res) => { // todo post, privileges
     zelappsService.zelAppExec(req, res);
+  });
+  app.get('/zelapps/zelappremove/:zelapp?', (req, res) => {
+    zelappsService.removeZelAppLocally(req, res);
   });
   app.get('/zelapps/zelapptemporarylocalregister/foldingathome', (req, res) => {
     zelappsService.temporaryZelAppRegisterFunctionForFoldingAtHome(req, res);

@@ -839,6 +839,25 @@ async function allowPort(port) {
   return cmdStat;
 }
 
+async function denyPort(port) {
+  const exec = `sudo ufw deny ${port}`;
+  const cmdAsync = util.promisify(cmd.get);
+
+  const cmdres = await cmdAsync(exec);
+  console.log(cmdres);
+  const cmdStat = {
+    status: false,
+    message: null,
+  };
+  cmdStat.message = cmdres;
+  if (serviceHelper.ensureString(cmdres).includes('updated') || serviceHelper.ensureString(cmdres).includes('existing') || serviceHelper.ensureString(cmdres).includes('added')) {
+    cmdStat.status = true;
+  } else {
+    cmdStat.status = false;
+  }
+  return cmdStat;
+}
+
 async function allowPortApi(req, res) {
   let { port } = req.params;
   port = port || req.query.port;
@@ -923,4 +942,5 @@ module.exports = {
   getDOSState,
   allowPort,
   allowPortApi,
+  denyPort,
 };
