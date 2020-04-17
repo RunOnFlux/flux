@@ -361,6 +361,85 @@ async function zelAppDockerStop(idOrName) {
   return `ZelApp ${idOrName} succesfully stopped.`;
 }
 
+async function zelAppDockerRestart(idOrName) {
+  // container ID or name
+  const containers = await dockerListContainers(true);
+  const myContainer = containers.find((container) => (serviceHelper.ensureString(container.Names).includes(idOrName) || serviceHelper.ensureString(container.Id).includes(idOrName)));
+  const dockerContainer = docker.getContainer(myContainer.Id);
+
+  await dockerContainer.restart().catch((error) => {
+    log.error(error);
+    throw error;
+  });
+  return `ZelApp ${idOrName} succesfully restarted.`;
+}
+
+async function zelAppDockerKill(idOrName) {
+  // container ID or name
+  const containers = await dockerListContainers(true);
+  const myContainer = containers.find((container) => (serviceHelper.ensureString(container.Names).includes(idOrName) || serviceHelper.ensureString(container.Id).includes(idOrName)));
+  const dockerContainer = docker.getContainer(myContainer.Id);
+
+  await dockerContainer.kill().catch((error) => {
+    log.error(error);
+    throw error;
+  });
+  return `ZelApp ${idOrName} succesfully killed.`;
+}
+
+async function zelAppDockerRemove(idOrName) {
+  // container ID or name
+  const containers = await dockerListContainers(true);
+  const myContainer = containers.find((container) => (serviceHelper.ensureString(container.Names).includes(idOrName) || serviceHelper.ensureString(container.Id).includes(idOrName)));
+  const dockerContainer = docker.getContainer(myContainer.Id);
+
+  await dockerContainer.remove().catch((error) => {
+    log.error(error);
+    throw error;
+  });
+  return `ZelApp ${idOrName} succesfully removed.`;
+}
+
+async function zelAppDockerPause(idOrName) {
+  // container ID or name
+  const containers = await dockerListContainers(true);
+  const myContainer = containers.find((container) => (serviceHelper.ensureString(container.Names).includes(idOrName) || serviceHelper.ensureString(container.Id).includes(idOrName)));
+  const dockerContainer = docker.getContainer(myContainer.Id);
+
+  await dockerContainer.pause().catch((error) => {
+    log.error(error);
+    throw error;
+  });
+  return `ZelApp ${idOrName} succesfully paused.`;
+}
+
+async function zelAppDockerUnpase(idOrName) {
+  // container ID or name
+  const containers = await dockerListContainers(true);
+  const myContainer = containers.find((container) => (serviceHelper.ensureString(container.Names).includes(idOrName) || serviceHelper.ensureString(container.Id).includes(idOrName)));
+  const dockerContainer = docker.getContainer(myContainer.Id);
+
+  await dockerContainer.unpause().catch((error) => {
+    log.error(error);
+    throw error;
+  });
+  return `ZelApp ${idOrName} succesfully unpaused.`;
+}
+
+async function zelAppDockerTop(idOrName) {
+  // container ID or name
+  const containers = await dockerListContainers(true);
+  const myContainer = containers.find((container) => (serviceHelper.ensureString(container.Names).includes(idOrName) || serviceHelper.ensureString(container.Id).includes(idOrName)));
+  const dockerContainer = docker.getContainer(myContainer.Id);
+
+  const processes = await dockerContainer.top().catch((error) => {
+    log.error(error);
+    throw error;
+  });
+  return processes;
+}
+
+
 async function zelAppStart(req, res) {
   let { container } = req.params;
   container = container || req.query.container;
@@ -414,19 +493,17 @@ async function zelAppRestart(req, res) {
     return res.json(errMessage);
   }
 
-  const dockerContainer = docker.getContainer(container);
-
-  const zelapp = await dockerContainer.restart().catch((error) => {
-    const errMessage = serviceHelper.createErrorMessage(
-      error.message,
-      error.name,
-      error.code,
-    );
-    log.error(error);
+  const zelappRes = await zelAppDockerRestart(container).catch((error) => {
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
-    throw error;
+    log.error(error);
   });
-  const zelappResponse = serviceHelper.createDataMessage(zelapp);
+
+  if (!zelappRes) {
+    return 0;
+  }
+
+  const zelappResponse = serviceHelper.createDataMessage(zelappRes);
   return res ? res.json(zelappResponse) : zelappResponse;
 }
 
@@ -439,19 +516,17 @@ async function zelAppKill(req, res) {
     return res.json(errMessage);
   }
 
-  const dockerContainer = docker.getContainer(container);
-
-  const zelapp = await dockerContainer.kill().catch((error) => {
-    const errMessage = serviceHelper.createErrorMessage(
-      error.message,
-      error.name,
-      error.code,
-    );
-    log.error(error);
+  const zelappRes = await zelAppDockerKill(container).catch((error) => {
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
-    throw error;
+    log.error(error);
   });
-  const zelappResponse = serviceHelper.createDataMessage(zelapp);
+
+  if (!zelappRes) {
+    return 0;
+  }
+
+  const zelappResponse = serviceHelper.createDataMessage(zelappRes);
   return res ? res.json(zelappResponse) : zelappResponse;
 }
 
@@ -464,19 +539,17 @@ async function zelAppRemove(req, res) {
     return res.json(errMessage);
   }
 
-  const dockerContainer = docker.getContainer(container);
-
-  const zelapp = await dockerContainer.remove().catch((error) => {
-    const errMessage = serviceHelper.createErrorMessage(
-      error.message,
-      error.name,
-      error.code,
-    );
-    log.error(error);
+  const zelappRes = await zelAppDockerRemove(container).catch((error) => {
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
-    throw error;
+    log.error(error);
   });
-  const zelappResponse = serviceHelper.createDataMessage(zelapp);
+
+  if (!zelappRes) {
+    return 0;
+  }
+
+  const zelappResponse = serviceHelper.createDataMessage(zelappRes);
   return res ? res.json(zelappResponse) : zelappResponse;
 }
 
@@ -489,19 +562,17 @@ async function zelAppPause(req, res) {
     return res.json(errMessage);
   }
 
-  const dockerContainer = docker.getContainer(container);
-
-  const zelapp = await dockerContainer.pause().catch((error) => {
-    const errMessage = serviceHelper.createErrorMessage(
-      error.message,
-      error.name,
-      error.code,
-    );
-    log.error(error);
+  const zelappRes = await zelAppDockerPause(container).catch((error) => {
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
-    throw error;
+    log.error(error);
   });
-  const zelappResponse = serviceHelper.createDataMessage(zelapp);
+
+  if (!zelappRes) {
+    return 0;
+  }
+
+  const zelappResponse = serviceHelper.createDataMessage(zelappRes);
   return res ? res.json(zelappResponse) : zelappResponse;
 }
 
@@ -514,19 +585,17 @@ async function zelAppUnpause(req, res) {
     return res.json(errMessage);
   }
 
-  const dockerContainer = docker.getContainer(container);
-
-  const zelapp = await dockerContainer.unpause().catch((error) => {
-    const errMessage = serviceHelper.createErrorMessage(
-      error.message,
-      error.name,
-      error.code,
-    );
-    log.error(error);
+  const zelappRes = await zelAppDockerUnpase(container).catch((error) => {
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
-    throw error;
+    log.error(error);
   });
-  const zelappResponse = serviceHelper.createDataMessage(zelapp);
+
+  if (!zelappRes) {
+    return 0;
+  }
+
+  const zelappResponse = serviceHelper.createDataMessage(zelappRes);
   return res ? res.json(zelappResponse) : zelappResponse;
 }
 
@@ -540,19 +609,17 @@ async function zelAppTop(req, res) {
     return res.json(errMessage);
   }
 
-  const dockerContainer = docker.getContainer(container);
-
-  const zelapp = await dockerContainer.top().catch((error) => {
-    const errMessage = serviceHelper.createErrorMessage(
-      error.message,
-      error.name,
-      error.code,
-    );
-    log.error(error);
+  const zelappRes = await zelAppDockerTop(container).catch((error) => {
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
-    throw error;
+    log.error(error);
   });
-  const zelappResponse = serviceHelper.createDataMessage(zelapp);
+
+  if (!zelappRes) {
+    return 0;
+  }
+
+  const zelappResponse = serviceHelper.createDataMessage(zelappRes);
   return res ? res.json(zelappResponse) : zelappResponse;
 }
 
