@@ -403,6 +403,17 @@ async function zelAppDockerRemove(idOrName) {
   return `ZelApp ${idOrName} succesfully removed.`;
 }
 
+async function zelAppDockerImageRemove(idOrName) {
+  // container ID or name
+  const dockerImage = docker.getImage(idOrName);
+
+  await dockerImage.remove().catch((error) => {
+    log.error(error);
+    throw error;
+  });
+  return `ZelApp ${idOrName} image succesfully removed.`;
+}
+
 async function zelAppDockerPause(idOrName) {
   // container ID or name
   const containers = await dockerListContainers(true);
@@ -543,6 +554,29 @@ async function zelAppRemove(req, res) {
   }
 
   const zelappRes = await zelAppDockerRemove(container).catch((error) => {
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+    log.error(error);
+  });
+
+  if (!zelappRes) {
+    return 0;
+  }
+
+  const zelappResponse = serviceHelper.createDataMessage(zelappRes);
+  return res ? res.json(zelappResponse) : zelappResponse;
+}
+
+async function zelAppImageRemove(req, res) {
+  let { image } = req.params;
+  image = image || req.query.image;
+
+  if (!image) {
+    const errMessage = serviceHelper.createErrorMessage('No ZelApp image specified');
+    return res.json(errMessage);
+  }
+
+  const zelappRes = await zelAppDockerImageRemove(image).catch((error) => {
     const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
     log.error(error);
@@ -1084,6 +1118,7 @@ async function removeZelAppLocally(req, res) {
   try {
     // remove zelapp from local machine.
     // find in database, stop zelapp, remove container, close port delete data associated on system, remove from database
+    // todo do we want to remove the image as well (repotag) what if other container uses the same image -> then it shall result in an error so ok anyway
     let { zelapp } = req.params;
     zelapp = zelapp || req.query.zelapp;
 
@@ -1116,11 +1151,11 @@ async function removeZelAppLocally(req, res) {
       status: 'Stopping ZelApp...',
     };
     res.write(serviceHelper.ensureString(stopStatus));
-    await zelAppDockerStop(zelapp).catch((error2) => {
+    await zelAppDockerStop(zelapp).catch((error) => {
       const errorResponse = serviceHelper.createErrorMessage(
-        error2.message || error2,
-        error2.name,
-        error2.code,
+        error.message || error,
+        error.name,
+        error.code,
       );
       res.write(serviceHelper.ensureString(errorResponse));
     });
@@ -1133,11 +1168,11 @@ async function removeZelAppLocally(req, res) {
       status: 'Removing ZelApp container...',
     };
     res.write(serviceHelper.ensureString(removeStatus));
-    await zelAppDockerRemove(zelapp).catch((error2) => {
+    await zelAppDockerRemove(zelapp).catch((error) => {
       const errorResponse = serviceHelper.createErrorMessage(
-        error2.message || error2,
-        error2.name,
-        error2.code,
+        error.message || error,
+        error.name,
+        error.code,
       );
       res.write(serviceHelper.ensureString(errorResponse));
     });
@@ -1145,6 +1180,23 @@ async function removeZelAppLocally(req, res) {
       status: 'ZelApp container removed',
     };
     res.write(serviceHelper.ensureString(removeStatus2));
+
+    const imageStatus = {
+      status: 'Removing ZelApp image...',
+    };
+    res.write(serviceHelper.ensureString(imageStatus));
+    await zelAppDockerImageRemove(zelAppSpecifications.repotag).catch((error) => {
+      const errorResponse = serviceHelper.createErrorMessage(
+        error.message || error,
+        error.name,
+        error.code,
+      );
+      res.write(serviceHelper.ensureString(errorResponse));
+    });
+    const imageStatus2 = {
+      status: 'ZelApp image operations done',
+    };
+    res.write(serviceHelper.ensureString(imageStatus2));
 
     const portStatus = {
       status: 'Denying ZelApp port...',
@@ -1220,4 +1272,5 @@ module.exports = {
   temporaryZelAppRegisterFunctionForFoldingAtHome,
   createZelFluxNetwork,
   removeZelAppLocally,
+  zelAppImageRemove,
 };

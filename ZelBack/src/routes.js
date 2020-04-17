@@ -260,6 +260,9 @@ module.exports = (app, expressWs) => {
   app.get('/zelapps/zelappremove/:zelapp?', (req, res) => {
     zelappsService.removeZelAppLocally(req, res);
   });
+  app.get('/zelapps/zelappimageremove/:image?', (req, res) => {
+    zelappsService.zelAppImageRemove(req, res);
+  });
   app.get('/zelapps/zelapptemporarylocalregister/foldingathome', (req, res) => {
     zelappsService.temporaryZelAppRegisterFunctionForFoldingAtHome(req, res);
   });
