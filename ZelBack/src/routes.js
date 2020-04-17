@@ -306,6 +306,16 @@ module.exports = (app, expressWs) => {
     explorerService.getScannedHeight(req, res);
   });
 
+  app.get('/zelnode/zelcashdebug', (req, res) => {
+    zelnodeService.zelcashDebug(req, res);
+  });
+  app.get('/zelnode/zelbenchdebug', (req, res) => {
+    zelnodeService.zelbenchDebug(req, res);
+  });
+  app.get('/zelnode/zelfluxerrorlog', (req, res) => {
+    zelnodeService.zelfluxErrorLog(req, res);
+  });
+
   // GET PROTECTED API - User level
   app.get('/zelcash/prioritisetransaction/:txid?/:prioritydelta?/:feedelta?', (req, res) => {
     zelcashService.prioritiseTransaction(req, res);

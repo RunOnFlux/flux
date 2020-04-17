@@ -192,6 +192,29 @@ function getZelFluxZelID(req, res) {
   return res.json(message);
 }
 
+async function zelcashDebug(req, res) {
+  // check zelcash datadir
+  const datadir = zelcashServices.getConfigValue('datadir') || '~/.zelcash';
+  const filepath = `${datadir}/debug.log`;
+
+  return res.sendFile(filepath);
+}
+
+async function zelbenchDebug(req, res) {
+  const datadir = '~/.zelbenchmark';
+  const filepath = `${datadir}/debug.log`;
+
+  return res.sendFile(filepath);
+}
+
+async function zelfluxErrorLog(req, res) {
+  const datadir = '~/zelflux';
+  const filepath = `${datadir}/error.log`;
+
+  return res.sendFile(filepath);
+}
+
+
 module.exports = {
   startZelCash,
   updateZelFlux,
@@ -204,4 +227,7 @@ module.exports = {
   getZelFluxVersion,
   getZelFluxIP,
   getZelFluxZelID,
+  zelcashDebug,
+  zelbenchDebug,
+  zelfluxErrorLog,
 };
