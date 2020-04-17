@@ -11,7 +11,7 @@ function error(...args) {
   // write to file
   const filepath = '~/zelflux/error.log';
   const size = getFilesizeInBytes(filepath);
-  let flag = 'a';
+  let flag = 'a+';
   if (size > (25 * 1000 * 1000)) { // 25MB
     flag = 'w'; // rewrite file
   }
