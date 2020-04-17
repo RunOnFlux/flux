@@ -4,9 +4,13 @@ const path = require('path');
 const homeDirPath = path.join(__dirname, '../../../../');
 
 function getFilesizeInBytes(filename) {
-  const stats = fs.statSync(filename);
-  const fileSizeInBytes = stats.size;
-  return fileSizeInBytes;
+  try {
+    const stats = fs.statSync(filename);
+    const fileSizeInBytes = stats.size;
+    return fileSizeInBytes;
+  } catch {
+    return 0;
+  }
 }
 
 function error(...args) {
