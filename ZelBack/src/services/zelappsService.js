@@ -333,24 +333,32 @@ async function zelAppDockerCreate(zelappSpecifications) {
   return zelapp;
 }
 
-async function zelAppDockerStart(container) {
-  const dockerContainer = docker.getContainer(container);
+async function zelAppDockerStart(idOrName) {
+  try {
+    // container ID or name
+    const containers = await dockerListContainers(true);
+    const myContainer = containers.find((container) => (serviceHelper.ensureString(container.Names).includes(idOrName) || serviceHelper.ensureString(container.Id).includes(idOrName)));
+    const dockerContainer = docker.getContainer(myContainer.Id);
 
-  const zelapp = await dockerContainer.start().catch((error) => {
+    await dockerContainer.start();
+    return `ZelApp ${idOrName} succesfully started.`;
+  } catch (error) {
     log.error(error);
     throw error;
-  });
-  return zelapp;
+  }
 }
 
-async function zelAppDockerStop(container) {
-  const dockerContainer = docker.getContainer(container);
+async function zelAppDockerStop(idOrName) {
+  // container ID or name
+  const containers = await dockerListContainers(true);
+  const myContainer = containers.find((container) => (serviceHelper.ensureString(container.Names).includes(idOrName) || serviceHelper.ensureString(container.Id).includes(idOrName)));
+  const dockerContainer = docker.getContainer(myContainer.Id);
 
-  const zelapp = await dockerContainer.stop().catch((error) => {
+  await dockerContainer.stop().catch((error) => {
     log.error(error);
     throw error;
   });
-  return zelapp;
+  return `ZelApp ${idOrName} succesfully stopped.`;
 }
 
 async function zelAppStart(req, res) {
@@ -366,9 +374,10 @@ async function zelAppStart(req, res) {
     const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
     log.error(error);
-    throw error;
   });
-
+  if (!zelappRes) {
+    return 0;
+  }
   const zelappResponse = serviceHelper.createDataMessage(zelappRes);
   return res ? res.json(zelappResponse) : zelappResponse;
 }
@@ -386,8 +395,11 @@ async function zelAppStop(req, res) {
     const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
     log.error(error);
-    throw error;
   });
+
+  if (!zelappRes) {
+    return 0;
+  }
 
   const zelappResponse = serviceHelper.createDataMessage(zelappRes);
   return res ? res.json(zelappResponse) : zelappResponse;
@@ -854,7 +866,6 @@ async function temporaryZelAppRegisterFunctionForFoldingAtHome(req, res) {
     }
     // get collateralInformation.txindex vout
     const { value } = txInformation.data.vout[collateralInformation.txindex];
-    console.log(value);
     if (value === 10000) {
       zelAppSpecifications.cpu = 0.5;
       zelAppSpecifications.ram = 500;
@@ -918,31 +929,71 @@ async function temporaryZelAppRegisterFunctionForFoldingAtHome(req, res) {
 
     // pull image
     // set the appropriate HTTP header
-    res.setHeader('Content-Type', 'text/html');
+    res.setHeader('Content-Type', 'application/json');
+    // eslint-disable-next-line no-unused-vars
     dockerPullStream(zelAppSpecifications.repotag, res, async (error, dataLog) => {
       if (error) {
-        throw error;
+        log.error(error);
+        const errorResponse = serviceHelper.createErrorMessage(
+          error.message || error,
+          error.name,
+          error.code,
+        );
+        res.write(serviceHelper.ensureString(errorResponse));
+        res.end();
       } else {
-        log.info(dataLog);
-        res.write('\r\nPulling global ZelApp success\r\n');
-        res.write('Creating local ZelApp\r\n');
-        zelAppDockerCreate(zelAppSpecifications).catch((e) => {
-          throw e;
+        const pullStatus = {
+          status: 'Pulling global ZelApp was successful',
+        };
+        res.write(serviceHelper.ensureString(pullStatus));
+        const createZelApp = {
+          status: 'Creating local ZelApp',
+        };
+        res.write(serviceHelper.ensureString(createZelApp));
+        const dockerCreated = await zelAppDockerCreate(zelAppSpecifications).catch((e) => {
+          const errorResponse = serviceHelper.createErrorMessage(
+            e.message || e,
+            e.name,
+            e.code,
+          );
+          res.write(serviceHelper.ensureString(errorResponse));
+          res.end();
         });
-        res.write('\r\nAllowing ZelApp port\r\n');
+        if (!dockerCreated) {
+          return;
+        }
+        const portStatusInitial = {
+          status: 'Allowing ZelApp port...',
+        };
+        res.write(serviceHelper.ensureString(portStatusInitial));
         const portResponse = await zelfluxCommunication.allowPort(zelAppSpecifications.port);
         if (portResponse.status === true) {
-          res.write('Port OK\r\n');
+          const portStatus = {
+            status: 'Port OK',
+          };
+          res.write(serviceHelper.ensureString(portStatus));
         } else {
-          res.write('Port FAILed to open\r\n');
+          const portStatus = {
+            status: 'Warning: Port FAILed to open. Try opening manually later.',
+          };
+          res.write(serviceHelper.ensureString(portStatus));
         }
-        const containers = await dockerListContainers(true);
-        const myContainer = containers.find((container) => serviceHelper.ensureString(container.Names).includes(zelAppSpecifications.name));
-        const dockerContainer = docker.getContainer(myContainer.Id);
-        res.write('\r\nStarting ZelApp\r\n');
-        const zelapp = await dockerContainer.start().catch((error2) => {
-          throw error2;
+        const startStatus = {
+          status: 'Starting ZelApp...',
+        };
+        res.write(serviceHelper.ensureString(startStatus));
+        const zelapp = await zelAppDockerStart(zelAppSpecifications.name).catch((error2) => {
+          const errorResponse = serviceHelper.createErrorMessage(
+            error2.message || error2,
+            error2.name,
+            error2.code,
+          );
+          res.write(serviceHelper.ensureString(errorResponse));
+          res.end();
         });
+        if (!zelapp) {
+          return;
+        }
         const zelappResponse = serviceHelper.createDataMessage(zelapp);
         res.write(serviceHelper.ensureString(zelappResponse));
         res.end();
