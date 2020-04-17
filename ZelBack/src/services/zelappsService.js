@@ -290,7 +290,7 @@ async function listZelAppsImages(req, res) {
   return res ? res.json(zelappsResponse) : zelappsResponse;
 }
 
-async function zelAppDockerCreate(zelappSpecifications, fluxNetworkID) {
+async function zelAppDockerCreate(zelappSpecifications) {
   // todo attaching our zelflux network and correct ip not working, limiting size
   const options = {
     Image: zelappSpecifications.repotag,
@@ -322,12 +322,7 @@ async function zelAppDockerCreate(zelappSpecifications, fluxNetworkID) {
       RestartPolicy: {
         Name: 'unless-stopped',
       },
-    },
-    NetworkingConfig: {
-      bridge: [{
-        NetworkID: fluxNetworkID,
-        IPAddress: zelappSpecifications.ip,
-      }],
+      NetworkMode: 'zelfluxDockerNetwork',
     },
   };
 
@@ -817,7 +812,7 @@ async function temporaryZelAppRegisterFunctionForFoldingAtHome(req, res) {
   // data storage let be ~/zelflux/ZelApp/zelFoldingAtHome
   // name of docker let be zelFoldingAtHome
   // Flux uses port range for apps 30000 - 39999. Allowing up to 10k apps.
-  // port this temporary folding at home let be a unique 30000 though and highest available ip on 172.16.0.2;
+  // port this temporary folding at home let be a unique 30000
   // as according to specifications ports are asssigned from lowest possible number ();
   // if not exists create zelflux network for docker on gateway ip docker network create --subnet=172.16.0.0/16 --gateway=172.16.0.1 zelfluxDockerNetwork
   try {
@@ -826,7 +821,6 @@ async function temporaryZelAppRegisterFunctionForFoldingAtHome(req, res) {
       repotag: 'yurinnick/folding-at-home:latest',
       name: 'zelFoldingAtHome', // corresponds to docker name and this name is stored in zelapps mongo database
       port: 30000,
-      ip: '172.16.0.2',
       cpu: 0.5,
       ram: 500,
       hdd: 15,
@@ -913,7 +907,7 @@ async function temporaryZelAppRegisterFunctionForFoldingAtHome(req, res) {
     };
     let fluxNetworkExists = true;
     const networkID = docker.getNetwork(fluxNetworkOptions.Name);
-    const fluxNetworkID = await dockerNetworkInspect(networkID).catch(() => {
+    await dockerNetworkInspect(networkID).catch(() => {
       fluxNetworkExists = false;
     });
     // create or check docker network
@@ -932,7 +926,7 @@ async function temporaryZelAppRegisterFunctionForFoldingAtHome(req, res) {
         log.info(dataLog);
         res.write('\r\nPulling global ZelApp success\r\n');
         res.write('Creating local ZelApp\r\n');
-        zelAppDockerCreate(zelAppSpecifications, fluxNetworkID).catch((e) => {
+        zelAppDockerCreate(zelAppSpecifications).catch((e) => {
           throw e;
         });
         res.write('\r\nAllowing ZelApp port\r\n');
