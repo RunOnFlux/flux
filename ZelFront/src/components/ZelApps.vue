@@ -76,6 +76,10 @@ export default {
         status: '',
         data: '',
       },
+      installZelApps: {
+        status: '',
+        data: '',
+      },
     };
   },
   computed: {
@@ -132,15 +136,47 @@ export default {
     }
   },
   methods: {
+    async zelappsGetInstalledZelApps() {
+      const response = await ZelAppsService.installZelApps();
+      this.installedZelApps.status = response.data.status;
+      this.installedZelApps.data = response.data.data;
+    },
     async zelappsGetListRunningZelApps() {
       const response = await ZelAppsService.listRunningZelApps();
+      console.log(response);
       this.getRunningZelAppsResponse.status = response.data.status;
       this.getRunningZelAppsResponse.data = response.data.data;
     },
     async zelappsGetListAllZelApps() {
       const response = await ZelAppsService.listAllZelApps();
+      console.log(response);
       this.getAllZelAppsResponse.status = response.data.status;
       this.getAllZelAppsResponse.data = response.data.data;
+    },
+    async stopZelApp(zelapp) {
+      const zelidauth = localStorage.getItem('zelidauth');
+      const response = await ZelAppsService.stopZelApp(zelidauth, zelapp);
+      console.log(response);
+    },
+    async startZelApp(zelapp) {
+      const zelidauth = localStorage.getItem('zelidauth');
+      const response = await ZelAppsService.startZelApp(zelidauth, zelapp);
+      console.log(response);
+    },
+    async restartZelApp(zelapp) {
+      const zelidauth = localStorage.getItem('zelidauth');
+      const response = await ZelAppsService.restartZelApp(zelidauth, zelapp);
+      console.log(response);
+    },
+    async removeZelApp(zelapp) {
+      const zelidauth = localStorage.getItem('zelidauth');
+      const response = await ZelAppsService.removeZelApp(zelidauth, zelapp);
+      console.log(response);
+    },
+    async installFoldingAtHome() {
+      const zelidauth = localStorage.getItem('zelidauth');
+      const response = await ZelAppsService.removeZelApp(zelidauth);
+      console.log(response);
     },
   },
 };

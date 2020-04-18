@@ -7,6 +7,9 @@ export default {
   listAllZelApps() {
     return Api().get('/zelapps/listallzelapps');
   },
+  installZelApps() {
+    return Api().get('/zelapps/installedzelapps');
+  },
   stopZelApp(zelidauthHeader, zelapp) {
     const axiosConfig = {
       headers: {

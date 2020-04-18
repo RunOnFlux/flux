@@ -257,7 +257,7 @@ function zelAppPull(req, res) {
 }
 
 async function listRunningZelApps(req, res) {
-  const zelapps = await dockerListContainers(false).catch((error) => {
+  let zelapps = await dockerListContainers(false).catch((error) => {
     const errMessage = serviceHelper.createErrorMessage(
       error.message,
       error.name,
@@ -267,11 +267,15 @@ async function listRunningZelApps(req, res) {
     res.json(errMessage);
     throw error;
   });
+  if (zelapps.length > 0) {
+    zelapps = zelapps.filter((zelapp) => zelapp.name.substr(0, 3) === 'zel');
+  }
   const zelappsResponse = serviceHelper.createDataMessage(zelapps);
   return res ? res.json(zelappsResponse) : zelappsResponse;
 }
 
-async function listAllZelApps(req, res) {
+async function listAllZelApps(req, res) { // this shall be equal to installed zelapps.
+  // todo adjust to return only zel dockers
   const zelapps = await dockerListContainers(true).catch((error) => {
     const errMessage = serviceHelper.createErrorMessage(
       error.message,
@@ -1117,6 +1121,32 @@ async function temporaryZelAppRegisterFunctionForFoldingAtHome(req, res) {
   }
 }
 
+async function installedZelApps(req, res) {
+  try {
+    const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
+      throw error;
+    });
+
+    const zelappsDatabase = dbopen.db(config.database.zelapps.database);
+    const zelappsQuery = {};
+    const zelappsProjection = {};
+    const zelApps = await serviceHelper.findInDatabase(zelappsDatabase, localZelAppsInformation, zelappsQuery, zelappsProjection).catch((error) => {
+      dbopen.close();
+      throw error;
+    });
+    const dataResponse = serviceHelper.createDataMessage(zelApps);
+    return res.json(dataResponse);
+  } catch (error) {
+    log.error(error);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    return res.json(errorResponse);
+  }
+}
+
 async function removeZelAppLocally(req, res) {
   try {
     // remove zelapp from local machine.
@@ -1276,4 +1306,5 @@ module.exports = {
   createZelFluxNetwork,
   removeZelAppLocally,
   zelAppImageRemove,
+  installedZelApps,
 };
