@@ -63,25 +63,86 @@
           </el-table>
         </el-tab-pane>
         <el-tab-pane
-          label="All"
-          name="all"
+          label="Installed"
+          name="installed"
         >
           <el-table
-            :data="getAllZelAppsResponse.data"
+            :data="installedZelApps.data"
             empty-text="No ZelApp installed"
             style="width: 100%"
           >
             <el-table-column
               label="Name"
-              prop="Names"
+              prop="name"
               sortable
             >
             </el-table-column>
             <el-table-column
-              label="Image"
-              prop="Image"
+              label="Port"
+              prop="port"
               sortable
             >
+            </el-table-column>
+            <el-table-column
+              label="CPU"
+              prop="cpu"
+              sortable
+            >
+              <template slot-scope="scope">
+                {{ resolveCpu(scope.row) }}
+              </template>
+            </el-table-column>
+            <el-table-column
+              label="RAM"
+              prop="ram"
+              sortable
+            >
+              <template slot-scope="scope">
+                {{ resolveRam(scope.row) }}
+              </template>
+            </el-table-column>
+            <el-table-column
+              label="HDD"
+              prop="hdd"
+              sortable
+            >
+              <template slot-scope="scope">
+                {{ resolveHdd(scope.row) }}
+              </template>
+            </el-table-column>
+            <el-table-column
+              label="Actions"
+              prop="actions"
+              sortable
+            >
+              <template slot-scope="scope">
+                <ElButton
+                  class="generalButton"
+                  @click="startZelApp(scope.row.name)"
+                >
+                  Start
+                </ElButton>
+                <ElButton
+                  class="generalButton"
+                  @click="restartZelApp(scope.row.name)"
+                >
+                  Restart
+                </ElButton>
+              </template>
+            </el-table-column>
+            <el-table-column
+              label="Remove"
+              prop="remove"
+              sortable
+            >
+              <template slot-scope="scope">
+                <ElButton
+                  class="generalButton"
+                  @click="removeZelApp(scope.row.name)"
+                >
+                  Remove
+                </ElButton>
+              </template>
             </el-table-column>
           </el-table>
         </el-tab-pane>
@@ -102,7 +163,7 @@
             </el-table-column>
             <el-table-column
               label="Image"
-              prop="image"
+              prop="repotag"
               sortable
             >
             </el-table-column>
@@ -119,7 +180,7 @@
             >
             </el-table-column>
             <el-table-column
-              label="CPU resource"
+              label="CPU"
               prop="cpu"
               sortable
             >
@@ -128,7 +189,7 @@
               </template>
             </el-table-column>
             <el-table-column
-              label="RAM resource"
+              label="RAM"
               prop="ram"
               sortable
             >
@@ -137,7 +198,7 @@
               </template>
             </el-table-column>
             <el-table-column
-              label="HDD resource"
+              label="HDD"
               prop="hdd"
               sortable
             >
@@ -146,14 +207,23 @@
               </template>
             </el-table-column>
             <el-table-column
-              label="Port"
-              prop="port"
+              label="Install"
+              prop="install"
               sortable
             >
+              <template slot-scope="scope">
+                <ElButton
+                  class="generalButton"
+                  @click="installFoldingAtHome(scope.row.name)"
+                >
+                  Install
+                </ElButton>
+              </template>
             </el-table-column>
           </el-table>
         </el-tab-pane>
       </el-tabs>
+      <br>
       <div class='actionCenter'>
         <el-input
           v-if="output"
@@ -237,6 +307,9 @@ export default {
         case 'all':
           this.zelappsGetListAllZelApps();
           break;
+        case 'installed':
+          this.zelappsGetInstalledZelApps();
+          break;
         case 'available':
           this.zelappsGetAvailableZelApps();
           break;
@@ -288,48 +361,66 @@ export default {
     },
     async stopZelApp(zelapp) {
       this.output = '';
+      vue.$message.success('Stopping ZelApp');
       const zelidauth = localStorage.getItem('zelidauth');
       const response = await ZelAppsService.stopZelApp(zelidauth, zelapp);
-      this.output = response;
+      if (response.data.status === 'success') {
+        vue.$message.success(response.data.data.messsage || response.data.data);
+      } else {
+        vue.$message.error(response.data.data.messsage || response.data.data);
+      }
       console.log(response);
     },
     async startZelApp(zelapp) {
       this.output = '';
+      vue.$message.success('Stargin ZelApp');
       const zelidauth = localStorage.getItem('zelidauth');
       const response = await ZelAppsService.startZelApp(zelidauth, zelapp);
-      this.output = response;
+      if (response.data.status === 'success') {
+        vue.$message.success(response.data.data.messsage || response.data.data);
+      } else {
+        vue.$message.error(response.data.data.messsage || response.data.data);
+      }
       console.log(response);
     },
     async restartZelApp(zelapp) {
       this.output = '';
+      vue.$message.success('Restarting ZelApp');
       const zelidauth = localStorage.getItem('zelidauth');
       const response = await ZelAppsService.restartZelApp(zelidauth, zelapp);
-      this.output = response;
+      if (response.data.status === 'success') {
+        vue.$message.success(response.data.data.messsage || response.data.data);
+      } else {
+        vue.$message.error(response.data.data.messsage || response.data.data);
+      }
       console.log(response);
     },
     async removeZelApp(zelapp) {
       this.output = '';
+      vue.$message.success('Removing ZelApp');
       const zelidauth = localStorage.getItem('zelidauth');
       const response = await ZelAppsService.removeZelApp(zelidauth, zelapp);
-      this.output = response;
+      this.output = response.data;
       console.log(response);
     },
-    async installFoldingAtHome() {
+    async installFoldingAtHome(zelapp) { // todo rewrite to installZelApp later
       this.output = '';
+      vue.$message.success('Installing ZelApp');
       const zelidauth = localStorage.getItem('zelidauth');
-      const response = await ZelAppsService.removeZelApp(zelidauth);
-      this.output = response;
+      const response = await ZelAppsService.installFoldingAtHome(zelidauth, zelapp);
+      this.output = response.data;
       console.log(response);
     },
     installedZelApp(zelappName) {
-      return this.installedZelApps.find((zelapp) => zelapp.name === zelappName);
+      return this.installedZelApps.data.find((zelapp) => zelapp.name === zelappName);
     },
     openZelApp(name) {
       const zelappInfo = this.installedZelApp(name);
       if (zelappInfo) {
         const backendURL = store.get('backendURL') || `http://${this.userconfig.initial.externalip}:${this.userconfig.initial.port}`;
-        const ip = backendURL.split(':')[0].split('//')[1];
-        window.location.href = `http://${ip}:${zelappInfo.port}`;
+        const ip = backendURL.split(':')[1].split('//')[1];
+        const url = `http://${ip}:${zelappInfo.port}`;
+        this.openSite(url);
       } else {
         vue.$message.error('Unable to open ZelApp :(');
       }
@@ -340,7 +431,7 @@ export default {
         this.tier = response.data.tier;
       }
     },
-    async resolveCpu(zelapp) {
+    resolveCpu(zelapp) {
       if (this.tier === 'BASIC') {
         return (`${zelapp.cpubasic || zelapp.cpu} cores`);
       }
@@ -352,7 +443,7 @@ export default {
       }
       return (`${zelapp.cpu} cores`);
     },
-    async resolveRam(zelapp) {
+    resolveRam(zelapp) {
       if (this.tier === 'BASIC') {
         return (`${zelapp.rambasic || zelapp.ram} MB`);
       }
@@ -364,7 +455,7 @@ export default {
       }
       return zelapp.ram;
     },
-    async resolveHdd(zelapp) {
+    resolveHdd(zelapp) {
       if (this.tier === 'BASIC') {
         return (`${zelapp.hddbasic || zelapp.hdd} GB`);
       }
@@ -375,6 +466,10 @@ export default {
         return (`${zelapp.hddbamf || zelapp.hdd} GB`);
       }
       return (`${zelapp.hdd} GB`);
+    },
+    openSite(url) {
+      const win = window.open(url, '_blank');
+      win.focus();
     },
   },
 };
