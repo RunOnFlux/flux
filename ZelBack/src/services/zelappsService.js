@@ -82,8 +82,12 @@ async function dockerListImages() {
   return containers;
 }
 
-async function dockerContainerInspect(container) {
-  const response = await container.inspect().catch((error) => {
+async function dockerContainerInspect(idOrName) {
+  // container ID or name
+  const containers = await dockerListContainers(true);
+  const myContainer = containers.find((container) => (serviceHelper.ensureString(container.Names).includes(idOrName) || serviceHelper.ensureString(container.Id).includes(idOrName)));
+  const dockerContainer = docker.getContainer(myContainer.Id);
+  const response = await dockerContainer.inspect().catch((error) => {
     throw error;
   });
   return response;
@@ -177,15 +181,19 @@ function dockerContainerExec(container, cmd, env, res, callback) {
   }
 }
 
-function dockerContainerLogs(container, callback) {
+async function dockerContainerLogs(idOrName, callback) {
   try {
+    // container ID or name
+    const containers = await dockerListContainers(true);
+    const myContainer = containers.find((container) => (serviceHelper.ensureString(container.Names).includes(idOrName) || serviceHelper.ensureString(container.Id).includes(idOrName)));
+    const dockerContainer = docker.getContainer(myContainer.Id);
     const logStream = new stream.PassThrough();
     let logStreamData = '';
     logStream.on('data', (chunk) => {
       logStreamData += chunk.toString('utf8');
     });
 
-    container.logs(
+    dockerContainer.logs(
       {
         follow: true,
         stdout: true,
@@ -196,7 +204,7 @@ function dockerContainerLogs(container, callback) {
           callback(err);
         } else {
           try {
-            container.modem.demuxStream(mystream, logStream, logStream);
+            dockerContainer.modem.demuxStream(mystream, logStream, logStream);
             mystream.on('end', () => {
               logStream.end();
               callback(null, logStreamData);
@@ -453,7 +461,6 @@ async function zelAppDockerTop(idOrName) {
   return processes;
 }
 
-
 async function zelAppStart(req, res) {
   let { container } = req.params;
   container = container || req.query.container;
@@ -669,9 +676,7 @@ function zelAppLog(req, res) {
       throw new Error('No ZelApp specified');
     }
 
-    const dockerContainer = docker.getContainer(container);
-
-    dockerContainerLogs(dockerContainer, (error, dataLog) => {
+    dockerContainerLogs(container, (error, dataLog) => {
       if (error) {
         throw error;
       } else {
@@ -699,9 +704,7 @@ async function zelAppInspect(req, res) {
     return res.json(errMessage);
   }
 
-  const dockerContainer = docker.getContainer(container);
-
-  const response = await dockerContainerInspect(dockerContainer).catch(
+  const response = await dockerContainerInspect(container).catch(
     (error) => {
       const errMessage = serviceHelper.createErrorMessage(
         error.message,
