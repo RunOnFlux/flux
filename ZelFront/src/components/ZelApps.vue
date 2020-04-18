@@ -17,7 +17,7 @@
               sortable
             >
               <template slot-scope="scope">
-                {{ scope.row.Names[0].substr(1, scope.row.Names[0].length) }}
+                {{ scope.row.Names[0].substr(4, scope.row.Names[0].length) }}
               </template>
             </el-table-column>
             <el-table-column
@@ -76,6 +76,9 @@
               prop="name"
               sortable
             >
+              <template slot-scope="scope">
+                {{ scope.row.name.substr(3, scope.row.name.length) }}
+              </template>
             </el-table-column>
             <el-table-column
               label="Port"
@@ -160,6 +163,9 @@
               prop="name"
               sortable
             >
+              <template slot-scope="scope">
+                {{ scope.row.name.substr(3, scope.row.name.length) }}
+              </template>
             </el-table-column>
             <el-table-column
               label="Image"
@@ -228,8 +234,8 @@
         <el-input
           v-if="output"
           type="textarea"
-          :autosize="{ minRows: 2, maxRows: 10}"
-          v-model="output"
+          autosize
+          v-model="stringOutput"
         >
         </el-input>
       </div>
@@ -281,6 +287,13 @@ export default {
       'userconfig',
       'zelAppsSection',
     ]),
+    stringOutput() {
+      let string = '';
+      this.output.forEach((output) => {
+        string += `${JSON.stringify(output)}\r\n`;
+      });
+      return string;
+    },
   },
   watch: {
     zelAppsSection(val, oldVal) {
@@ -369,6 +382,7 @@ export default {
       } else {
         vue.$message.error(response.data.data.messsage || response.data.data);
       }
+      this.zelappsGetListRunningZelApps();
       console.log(response);
     },
     async startZelApp(zelapp) {
@@ -396,20 +410,62 @@ export default {
       console.log(response);
     },
     async removeZelApp(zelapp) {
+      const self = this;
       this.output = '';
       vue.$message.success('Removing ZelApp');
       const zelidauth = localStorage.getItem('zelidauth');
-      const response = await ZelAppsService.removeZelApp(zelidauth, zelapp);
-      this.output = response.data;
-      console.log(response);
+      // const response = await ZelAppsService.installFoldingAtHome(zelidauth, zelapp);
+      const axiosConfig = {
+        headers: {
+          zelidauth,
+        },
+        onDownloadProgress(progressEvent) {
+          console.log(progressEvent.target.response);
+          self.output = JSON.parse(`[${progressEvent.target.response.replace(/}{/g, '},{')}]`);
+        },
+      };
+      const response = await ZelAppsService.justAPI().get(`/zelapps/zelappremove/${zelapp}`, axiosConfig);
+      if (response.data.status === 'error') {
+        vue.$message.error(response.data.data);
+      } else {
+        this.zelappsGetInstalledZelApps();
+        this.output = JSON.parse(`[${response.data.replace(/}{/g, '},{')}]`);
+        if (this.output[this.output.length - 1].status === 'error') {
+          vue.$message.error(this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
+        } else {
+          vue.$message.success(this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
+        }
+      }
     },
     async installFoldingAtHome(zelapp) { // todo rewrite to installZelApp later
+      console.log(zelapp);
+      const self = this;
       this.output = '';
       vue.$message.success('Installing ZelApp');
       const zelidauth = localStorage.getItem('zelidauth');
-      const response = await ZelAppsService.installFoldingAtHome(zelidauth, zelapp);
-      this.output = response.data;
-      console.log(response);
+      // const response = await ZelAppsService.installFoldingAtHome(zelidauth, zelapp);
+      const axiosConfig = {
+        headers: {
+          zelidauth,
+        },
+        onDownloadProgress(progressEvent) {
+          console.log(progressEvent.target.response);
+          self.output = JSON.parse(`[${progressEvent.target.response.replace(/}{/g, '},{')}]`);
+        },
+      };
+      const response = await ZelAppsService.justAPI().get('/zelapps/zelapptemporarylocalregister/foldingathome', axiosConfig);
+      if (response.data.status === 'error') {
+        vue.$message.error(response.data.data);
+      } else {
+        console.log(response);
+        this.output = JSON.parse(`[${response.data.replace(/}{/g, '},{')}]`);
+        console.log(this.output);
+        if (this.output[this.output.length - 1].status === 'error') {
+          vue.$message.error(this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
+        } else {
+          vue.$message.success(this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
+        }
+      }
     },
     installedZelApp(zelappName) {
       return this.installedZelApps.data.find((zelapp) => zelapp.name === zelappName);
@@ -453,7 +509,7 @@ export default {
       if (this.tier === 'BAMF') {
         return (`${zelapp.rambamf || zelapp.ram} MB`);
       }
-      return zelapp.ram;
+      return (`${zelapp.ram} MB`);
     },
     resolveHdd(zelapp) {
       if (this.tier === 'BASIC') {

@@ -42,6 +42,9 @@ export default {
       headers: {
         zelidauth: zelidauthHeader,
       },
+      onDownloadProgress(progressEvent) {
+        console.log(progressEvent);
+      },
     };
     return Api().get(`/zelapps/zelappremove/${zelapp}`, axiosConfig);
   },
@@ -49,6 +52,9 @@ export default {
     const axiosConfig = {
       headers: {
         zelidauth: zelidauthHeader,
+      },
+      onDownloadProgress(progressEvent) {
+        console.log(progressEvent);
       },
     };
     return Api().get(`/zelapps/zelapplog/${zelapp}`, axiosConfig);
@@ -58,7 +64,13 @@ export default {
       headers: {
         zelidauth: zelidauthHeader,
       },
+      onDownloadProgress(progressEvent) {
+        console.log(progressEvent);
+      },
     };
     return Api().get('/zelapps/zelapptemporarylocalregister/foldingathome', axiosConfig);
+  },
+  justAPI() {
+    return Api();
   },
 };
