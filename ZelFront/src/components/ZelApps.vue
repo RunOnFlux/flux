@@ -16,12 +16,29 @@
               prop="Names"
               sortable
             >
+              <template slot-scope="scope">
+                {{ scope.row.Names[0].substr(1, scope.row.Names[0].length) }}
+              </template>
             </el-table-column>
             <el-table-column
               label="Image"
               prop="Image"
               sortable
             >
+            </el-table-column>
+            <el-table-column
+              label="Image"
+              prop="Visit"
+              sortable
+            >
+              <template slot-scope="scope">
+                <ElButton
+                  class="generalButton"
+                  @click="openZelApp(scope.row.Names[0].substr(1, scope.row.Names[0].length))"
+                >
+                  Visit
+                </ElButton>
+              </template>
             </el-table-column>
           </el-table>
         </el-tab-pane>
@@ -58,6 +75,8 @@ import Vuex, { mapState } from 'vuex';
 import Vue from 'vue';
 
 import ZelAppsService from '@/services/ZelAppsService';
+
+const store = require('store');
 
 Vue.use(Vuex);
 
@@ -123,6 +142,7 @@ export default {
     },
   },
   mounted() {
+    this.zelappsGetInstalledZelApps();
     switch (this.zelAppsSection) {
       case 'localzelapps':
         this.zelappsGetListRunningZelApps();
@@ -177,6 +197,19 @@ export default {
       const zelidauth = localStorage.getItem('zelidauth');
       const response = await ZelAppsService.removeZelApp(zelidauth);
       console.log(response);
+    },
+    installedZelApp(zelappName) {
+      return this.installZelApps.find((zelapp) => zelapp.name === zelappName);
+    },
+    openZelApp(name) {
+      const zelappInfo = this.installZelApps(name);
+      if (zelappInfo) {
+        const backendURL = store.get('backendURL') || `http://${this.userconfig.initial.externalip}:${this.userconfig.initial.port}`;
+        const ip = backendURL.split(':')[0].split('//')[1];
+        window.location.href = `http://${ip}:${zelappInfo.port}`;
+      } else {
+        vue.$message.error('Unable to open ZelApp :(');
+      }
     },
   },
 };

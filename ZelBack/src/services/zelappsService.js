@@ -267,16 +267,20 @@ async function listRunningZelApps(req, res) {
     res.json(errMessage);
     throw error;
   });
-  if (zelapps.length > 0) {
-    zelapps = zelapps.filter((zelapp) => zelapp.name.substr(0, 3) === 'zel');
+  try {
+    if (zelapps.length > 0) {
+      zelapps = zelapps.filter((zelapp) => zelapp.Names[0].substr(1, 4) === 'zel');
+    }
+    const zelappsResponse = serviceHelper.createDataMessage(zelapps);
+    return res ? res.json(zelappsResponse) : zelappsResponse;
+  } catch (error) {
+    const zelappsResponse = serviceHelper.createDataMessage(zelapps);
+    return res ? res.json(zelappsResponse) : zelappsResponse;
   }
-  const zelappsResponse = serviceHelper.createDataMessage(zelapps);
-  return res ? res.json(zelappsResponse) : zelappsResponse;
 }
 
-async function listAllZelApps(req, res) { // this shall be equal to installed zelapps.
-  // todo adjust to return only zel dockers
-  const zelapps = await dockerListContainers(true).catch((error) => {
+async function listAllZelApps(req, res) {
+  let zelapps = await dockerListContainers(true).catch((error) => {
     const errMessage = serviceHelper.createErrorMessage(
       error.message,
       error.name,
@@ -286,8 +290,16 @@ async function listAllZelApps(req, res) { // this shall be equal to installed ze
     res.json(errMessage);
     throw error;
   });
-  const zelappsResponse = serviceHelper.createDataMessage(zelapps);
-  return res ? res.json(zelappsResponse) : zelappsResponse;
+  try {
+    if (zelapps.length > 0) {
+      zelapps = zelapps.filter((zelapp) => zelapp.Names[0].substr(1, 4) === 'zel');
+    }
+    const zelappsResponse = serviceHelper.createDataMessage(zelapps);
+    return res ? res.json(zelappsResponse) : zelappsResponse;
+  } catch (error) {
+    const zelappsResponse = serviceHelper.createDataMessage(zelapps);
+    return res ? res.json(zelappsResponse) : zelappsResponse;
+  }
 }
 
 async function listZelAppsImages(req, res) {
