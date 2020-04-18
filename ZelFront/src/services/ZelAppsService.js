@@ -10,6 +10,9 @@ export default {
   installedZelApps() {
     return Api().get('/zelapps/installedzelapps');
   },
+  availableZelApps() {
+    return Api().get('/zelapps/availablezelapps');
+  },
   stopZelApp(zelidauthHeader, zelapp) {
     const axiosConfig = {
       headers: {

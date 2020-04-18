@@ -272,6 +272,9 @@ module.exports = (app, expressWs) => {
   app.get('/zelapps/installedzelapps', (req, res) => {
     zelappsService.installedZelApps(req, res);
   });
+  app.get('/zelapps/availablezelapps', (req, res) => {
+    zelappsService.availableZelApps(req, res);
+  });
 
   app.get('/zelapps/zelshare/getfile/:file?', (req, res) => {
     zelappsService.zelShareFile(req, res);

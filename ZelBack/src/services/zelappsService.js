@@ -1133,6 +1133,50 @@ async function temporaryZelAppRegisterFunctionForFoldingAtHome(req, res) {
   }
 }
 
+async function availableZelApps(req, res) {
+  // calls to global mongo db
+  // simulate a similar response
+  const zelapps = [
+    {
+      name: 'zelFoldingAtHome',
+      repotag: 'yurinnick/folding-at-home:latest',
+      owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+      timestamp: 1587181519000,
+      validTill: 1608263119000,
+      tiered: true,
+      port: 30000,
+      cpu: 0.5,
+      ram: 500,
+      hdd: 15,
+      cpubasic: 0.5,
+      cpusuper: 1,
+      cpubamf: 2,
+      rambasic: 500,
+      ramsuper: 1000,
+      rambamf: 4000,
+      hddbasic: 15,
+      hddsuper: 15,
+      hddbamf: 15,
+      enviromentParameters: [`USER=${userconfig.initial.zelid}`, 'TEAM=262156', 'ENABLE_GPU=false', 'ENABLE_SMP=true'],
+      commands: [
+        '--allow',
+        '0/0',
+        '--web-allow',
+        '0/0',
+      ],
+      containerPort: 7396,
+      containerData: '/config',
+      // below not part of message data. Signature from above data
+      signature: 'todo',
+      // txid of transaction that brings the hash message to zel blockchain
+      txid: 'todo',
+    },
+  ];
+
+  const dataResponse = serviceHelper.createDataMessage(zelapps);
+  return res.json(dataResponse);
+}
+
 async function installedZelApps(req, res) {
   try {
     const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
@@ -1319,4 +1363,5 @@ module.exports = {
   removeZelAppLocally,
   zelAppImageRemove,
   installedZelApps,
+  availableZelApps,
 };
