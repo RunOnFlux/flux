@@ -157,7 +157,7 @@ export default {
   },
   methods: {
     async zelappsGetInstalledZelApps() {
-      const response = await ZelAppsService.installZelApps();
+      const response = await ZelAppsService.installedZelApps();
       this.installedZelApps.status = response.data.status;
       this.installedZelApps.data = response.data.data;
     },

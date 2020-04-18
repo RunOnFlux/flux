@@ -7,7 +7,7 @@ export default {
   listAllZelApps() {
     return Api().get('/zelapps/listallzelapps');
   },
-  installZelApps() {
+  installedZelApps() {
     return Api().get('/zelapps/installedzelapps');
   },
   stopZelApp(zelidauthHeader, zelapp) {

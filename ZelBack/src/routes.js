@@ -269,7 +269,7 @@ module.exports = (app, expressWs) => {
   app.get('/zelapps/createzelfluxnetwork', (req, res) => {
     zelappsService.createZelFluxNetwork(req, res);
   });
-  app.get('/zelapps/installzedzelapps', (req, res) => {
+  app.get('/zelapps/installedzelapps', (req, res) => {
     zelappsService.installedZelApps(req, res);
   });
 

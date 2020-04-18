@@ -269,7 +269,7 @@ async function listRunningZelApps(req, res) {
   });
   try {
     if (zelapps.length > 0) {
-      zelapps = zelapps.filter((zelapp) => zelapp.Names[0].substr(1, 4) === 'zel');
+      zelapps = zelapps.filter((zelapp) => zelapp.Names[0].substr(1, 3) === 'zel');
     }
     const zelappsResponse = serviceHelper.createDataMessage(zelapps);
     return res ? res.json(zelappsResponse) : zelappsResponse;
@@ -292,7 +292,7 @@ async function listAllZelApps(req, res) {
   });
   try {
     if (zelapps.length > 0) {
-      zelapps = zelapps.filter((zelapp) => zelapp.Names[0].substr(1, 4) === 'zel');
+      zelapps = zelapps.filter((zelapp) => zelapp.Names[0].substr(1, 3) === 'zel');
     }
     const zelappsResponse = serviceHelper.createDataMessage(zelapps);
     return res ? res.json(zelappsResponse) : zelappsResponse;
