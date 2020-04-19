@@ -240,6 +240,7 @@ async function getZelFluxInfo(req, res) {
   try {
     const info = {
       zelcash: {},
+      zelnode: {},
       zelbench: {},
       zelflux: {},
       zelapps: {},
@@ -270,6 +271,12 @@ async function getZelFluxInfo(req, res) {
       throw zelcashInfoRes.data;
     }
     info.zelcash.info = zelcashInfoRes.data;
+
+    const zelcashZelnodeStatusRes = await zelcashService.getZelNodeStatus();
+    if (zelcashZelnodeStatusRes.status === 'error') {
+      throw zelcashZelnodeStatusRes.data;
+    }
+    info.zelnode.status = zelcashZelnodeStatusRes.data;
 
     const zelbenchInfoRes = await zelbenchService.getInfo();
     if (zelbenchInfoRes.status === 'error') {
