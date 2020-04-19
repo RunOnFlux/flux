@@ -7,6 +7,7 @@ const serviceHelper = require('./serviceHelper');
 const zelcashService = require('./zelcashService');
 const zelbenchService = require('./zelbenchService');
 const zelappsService = require('./zelappsService');
+const zelfluxCommunication = require('./zelfluxCommunication');
 const userconfig = require('../../../config/userconfig');
 
 // eslint-disable-next-line consistent-return
@@ -243,7 +244,7 @@ async function getZelFluxInfo(req, res) {
       zelflux: {},
       zelapps: {},
     };
-    const versionRes = await getZelFluxInfo();
+    const versionRes = await getZelFluxVersion();
     if (versionRes.status === 'error') {
       throw versionRes.data;
     }
@@ -258,6 +259,11 @@ async function getZelFluxInfo(req, res) {
       throw zelidRes.data;
     }
     info.zelflux.zelid = zelidRes.data;
+    const dosResult = await zelfluxCommunication.getDOSState();
+    if (dosResult.status === 'error') {
+      throw dosResult.data;
+    }
+    info.zelflux.dos = dosResult.data;
 
     const zelcashInfoRes = await zelcashService.getInfo();
     if (zelcashInfoRes.status === 'error') {
@@ -298,7 +304,7 @@ async function getZelFluxInfo(req, res) {
     info.zelapps.resources = zelappsResources.data;
 
     const response = serviceHelper.createDataMessage(info);
-    res.json(response);
+    return res ? res.json(response) : response;
   } catch (error) {
     log.error(error);
     const errorResponse = serviceHelper.createErrorMessage(
@@ -306,7 +312,7 @@ async function getZelFluxInfo(req, res) {
       error.name,
       error.code,
     );
-    res.json(errorResponse);
+    return res ? res.json(errorResponse) : errorResponse;
   }
 }
 
