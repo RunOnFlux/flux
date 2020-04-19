@@ -193,6 +193,11 @@ function getZelFluxZelID(req, res) {
 }
 
 async function zelcashDebug(req, res) {
+  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+  if (!authorized) {
+    const errMessage = serviceHelper.errUnauthorizedMessage();
+    return res.json(errMessage);
+  }
   // check zelcash datadir
   const homeDirPath = path.join(__dirname, '../../../../');
   const datadir = zelcashServices.getConfigValue('datadir') || `${homeDirPath}.zelcash`;
@@ -202,6 +207,11 @@ async function zelcashDebug(req, res) {
 }
 
 async function zelbenchDebug(req, res) {
+  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+  if (!authorized) {
+    const errMessage = serviceHelper.errUnauthorizedMessage();
+    return res.json(errMessage);
+  }
   const homeDirPath = path.join(__dirname, '../../../../');
   const datadir = `${homeDirPath}.zelbenchmark`;
   const filepath = `${datadir}/debug.log`;
@@ -210,6 +220,11 @@ async function zelbenchDebug(req, res) {
 }
 
 async function zelfluxErrorLog(req, res) {
+  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+  if (!authorized) {
+    const errMessage = serviceHelper.errUnauthorizedMessage();
+    return res.json(errMessage);
+  }
   const homeDirPath = path.join(__dirname, '../../../../');
   const datadir = `${homeDirPath}zelflux`;
   const filepath = `${datadir}/error.log`;
