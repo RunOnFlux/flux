@@ -243,55 +243,55 @@ async function getZelFluxInfo(req, res) {
       zelflux: {},
       zelapps: {},
     };
-    const versionRes = await getZelFluxInfo;
+    const versionRes = await getZelFluxInfo();
     if (versionRes.status === 'error') {
       throw versionRes.data;
     }
     info.zelflux.version = versionRes.data;
-    const ipRes = await getZelFluxIP;
+    const ipRes = await getZelFluxIP();
     if (ipRes.status === 'error') {
       throw ipRes.data;
     }
     info.zelflux.ip = ipRes.data;
-    const zelidRes = await getZelFluxZelID;
+    const zelidRes = await getZelFluxZelID();
     if (zelidRes.status === 'error') {
       throw zelidRes.data;
     }
     info.zelflux.zelid = zelidRes.data;
 
-    const zelcashInfoRes = await zelcashService.getInfo;
+    const zelcashInfoRes = await zelcashService.getInfo();
     if (zelcashInfoRes.status === 'error') {
       throw zelcashInfoRes.data;
     }
     info.zelcash.info = zelcashInfoRes.data;
 
-    const zelbenchInfoRes = await zelbenchService.getInfo;
+    const zelbenchInfoRes = await zelbenchService.getInfo();
     if (zelbenchInfoRes.status === 'error') {
       throw zelbenchInfoRes.data;
     }
     info.zelbench.info = zelbenchInfoRes.data;
-    const zelbenchStatusRes = await zelbenchService.getStatus;
+    const zelbenchStatusRes = await zelbenchService.getStatus();
     if (zelbenchStatusRes.status === 'error') {
       throw zelbenchStatusRes.data;
     }
     info.zelbench.status = zelbenchStatusRes.data;
-    const zelbenchBenchRes = await zelbenchService.getBenchmarks;
+    const zelbenchBenchRes = await zelbenchService.getBenchmarks();
     if (zelbenchBenchRes.status === 'error') {
       throw zelbenchBenchRes.data;
     }
     info.zelbench.bench = zelbenchBenchRes.data;
 
-    const zelapppsFluxUsage = await zelappsService.zelFluxUsage;
+    const zelapppsFluxUsage = await zelappsService.zelFluxUsage();
     if (zelapppsFluxUsage.status === 'error') {
       throw zelapppsFluxUsage.data;
     }
     info.zelapps.fluxusage = zelapppsFluxUsage.data;
-    const zelappsRunning = await zelappsService.listRunningZelApps;
+    const zelappsRunning = await zelappsService.listRunningZelApps();
     if (zelappsRunning.status === 'error') {
       throw zelappsRunning.data;
     }
     info.zelapps.runningapps = zelappsRunning.data;
-    const zelappsResources = await zelappsService.zelappsResources;
+    const zelappsResources = await zelappsService.zelappsResources();
     if (zelappsResources.status === 'error') {
       throw zelappsResources.data;
     }

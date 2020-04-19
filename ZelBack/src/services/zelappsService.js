@@ -1460,8 +1460,8 @@ async function zelappsResources(req, res) {
     let zelAppsHddLocked = 0;
     zelappsResult.forEach((zelapp) => {
       zelAppsCpusLocked += serviceHelper.ensureNumber(zelapp.cpu) || 0;
-      zelAppsRamLocked += serviceHelper.ensureNumber(zelapp.hdd) || 0;
-      zelAppsHddLocked += serviceHelper.ensureNumber(zelapp.ram) || 0;
+      zelAppsRamLocked += serviceHelper.ensureNumber(zelapp.ram) || 0;
+      zelAppsHddLocked += serviceHelper.ensureNumber(zelapp.hdd) || 0;
     });
     const zelappsUsage = {
       zelAppsCpusLocked,
