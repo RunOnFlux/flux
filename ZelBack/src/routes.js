@@ -181,6 +181,9 @@ module.exports = (app, expressWs) => {
     zelidService.emergencyPhrase(req, res);
   });
 
+  app.get('/zelflux/info', (req, res) => {
+    zelnodeService.getZelFluxInfo(req, res);
+  });
   app.get('/zelflux/version', (req, res) => {
     zelnodeService.getZelFluxVersion(req, res);
   });
@@ -226,6 +229,9 @@ module.exports = (app, expressWs) => {
   });
   app.get('/zelapps/zelfluxusage', (req, res) => {
     zelappsService.zelFluxUsage(req, res);
+  });
+  app.get('/zelapps/zelappsresources', (req, res) => {
+    zelappsService.zelappsResources(req, res);
   });
 
   // app.get('/explorer/allutxos', (req, res) => {

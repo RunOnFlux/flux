@@ -1,9 +1,12 @@
 const cmd = require('node-cmd');
 const path = require('path');
 
+const log = require('../lib/log');
 const packageJson = require('../../../package.json');
 const serviceHelper = require('./serviceHelper');
-const zelcashServices = require('./zelcashService');
+const zelcashService = require('./zelcashService');
+const zelbenchService = require('./zelbenchService');
+const zelappsService = require('./zelappsService');
 const userconfig = require('../../../config/userconfig');
 
 // eslint-disable-next-line consistent-return
@@ -170,11 +173,11 @@ async function reindexZelCash(req, res) {
 function getZelFluxVersion(req, res) {
   const { version } = packageJson;
   const message = serviceHelper.createDataMessage(version);
-  return res.json(message);
+  return res ? res.json(message) : message;
 }
 
 async function getZelFluxIP(req, res) {
-  const benchmarkResponse = await zelcashServices.getBenchmarks();
+  const benchmarkResponse = await zelcashService.getBenchmarks();
   let myIP = null;
   if (benchmarkResponse.status === 'success') {
     const benchmarkResponseData = JSON.parse(benchmarkResponse.data);
@@ -183,13 +186,13 @@ async function getZelFluxIP(req, res) {
     }
   }
   const message = serviceHelper.createDataMessage(myIP);
-  return res.json(message);
+  return res ? res.json(message) : message;
 }
 
 function getZelFluxZelID(req, res) {
   const zelID = userconfig.initial.zelid;
   const message = serviceHelper.createDataMessage(zelID);
-  return res.json(message);
+  return res ? res.json(message) : message;
 }
 
 async function zelcashDebug(req, res) {
@@ -200,7 +203,7 @@ async function zelcashDebug(req, res) {
   }
   // check zelcash datadir
   const homeDirPath = path.join(__dirname, '../../../../');
-  const datadir = zelcashServices.getConfigValue('datadir') || `${homeDirPath}.zelcash`;
+  const datadir = zelcashService.getConfigValue('datadir') || `${homeDirPath}.zelcash`;
   const filepath = `${datadir}/debug.log`;
 
   return res.sendFile(filepath);
@@ -232,6 +235,80 @@ async function zelfluxErrorLog(req, res) {
   return res.sendFile(filepath);
 }
 
+async function getZelFluxInfo(req, res) {
+  try {
+    const info = {
+      zelcash: {},
+      zelbench: {},
+      zelflux: {},
+      zelapps: {},
+    };
+    const versionRes = await getZelFluxInfo;
+    if (versionRes.status === 'error') {
+      throw versionRes.data;
+    }
+    info.zelflux.version = versionRes.data;
+    const ipRes = await getZelFluxIP;
+    if (ipRes.status === 'error') {
+      throw ipRes.data;
+    }
+    info.zelflux.ip = ipRes.data;
+    const zelidRes = await getZelFluxZelID;
+    if (zelidRes.status === 'error') {
+      throw zelidRes.data;
+    }
+    info.zelflux.zelid = zelidRes.data;
+
+    const zelcashInfoRes = await zelcashService.getInfo;
+    if (zelcashInfoRes.status === 'error') {
+      throw zelcashInfoRes.data;
+    }
+    info.zelcash.info = zelcashInfoRes.data;
+
+    const zelbenchInfoRes = await zelbenchService.getInfo;
+    if (zelbenchInfoRes.status === 'error') {
+      throw zelbenchInfoRes.data;
+    }
+    info.zelbench.info = zelbenchInfoRes.data;
+    const zelbenchStatusRes = await zelbenchService.getStatus;
+    if (zelbenchStatusRes.status === 'error') {
+      throw zelbenchStatusRes.data;
+    }
+    info.zelbench.status = zelbenchStatusRes.data;
+    const zelbenchBenchRes = await zelbenchService.getBenchmarks;
+    if (zelbenchBenchRes.status === 'error') {
+      throw zelbenchBenchRes.data;
+    }
+    info.zelbench.bench = zelbenchBenchRes.data;
+
+    const zelapppsFluxUsage = await zelappsService.zelFluxUsage;
+    if (zelapppsFluxUsage.status === 'error') {
+      throw zelapppsFluxUsage.data;
+    }
+    info.zelapps.fluxusage = zelapppsFluxUsage.data;
+    const zelappsRunning = await zelappsService.listRunningZelApps;
+    if (zelappsRunning.status === 'error') {
+      throw zelappsRunning.data;
+    }
+    info.zelapps.runningapps = zelappsRunning.data;
+    const zelappsResources = await zelappsService.zelappsResources;
+    if (zelappsResources.status === 'error') {
+      throw zelappsResources.data;
+    }
+    info.zelapps.resources = zelappsResources.data;
+
+    const response = serviceHelper.createDataMessage(info);
+    res.json(response);
+  } catch (error) {
+    log.error(error);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
+}
 
 module.exports = {
   startZelCash,
@@ -248,4 +325,5 @@ module.exports = {
   zelcashDebug,
   zelbenchDebug,
   zelfluxErrorLog,
+  getZelFluxInfo,
 };

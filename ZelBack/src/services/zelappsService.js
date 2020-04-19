@@ -275,8 +275,7 @@ async function listRunningZelApps(req, res) {
       error.code,
     );
     log.error(error);
-    res.json(errMessage);
-    throw error;
+    return res ? res.json(errMessage) : errMessage;
   });
   try {
     if (zelapps.length > 0) {
@@ -926,91 +925,92 @@ async function zelShareFile(req, res) {
 }
 
 async function zelFluxUsage(req, res) {
-  const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
-    res.json(errMessage);
-    log.error(error);
-    throw error;
-  });
-  const database = dbopen.db(config.database.zelcash.database);
-  const query = { generalScannedHeight: { $gte: 0 } };
-  const projection = {
-    projection: {
-      _id: 0,
-      generalScannedHeight: 1,
-    },
-  };
-  const result = await serviceHelper.findOneInDatabase(database, scannedHeightCollection, query, projection).catch((error) => {
-    dbopen.close();
-    log.error(error);
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
-    res.json(errMessage);
-    throw error;
-  });
-  if (!result) {
-    log.error('Scanning not initiated');
-  }
-  let explorerHeight = 999999999;
-  if (result) {
-    explorerHeight = serviceHelper.ensureNumber(result.generalScannedHeight) || 999999999;
-  }
-  const zelcashGetInfo = await zelcashService.getInfo();
-  let zelcashHeight = 1;
-  if (zelcashGetInfo.status === 'success') {
-    zelcashHeight = zelcashGetInfo.data.blocks;
-  } else {
-    log.error(zelcashGetInfo.data);
-  }
-  let cpuCores = 0;
-  const cpus = os.cpus();
-  if (cpus) {
-    cpuCores = cpus.length;
-  }
-  if (cpuCores > 8) {
-    cpuCores = 8;
-  }
-  let cpuUsage = 0;
-  if (explorerHeight < (zelcashHeight - 5)) {
-    // Initial scanning is in progress
-    cpuUsage += 0.5;
-  } else if (explorerHeight < zelcashHeight) {
-    cpuUsage += 0.25;
-  } else {
-    cpuUsage += 0.1; // normal load
-  }
-  cpuUsage *= cpuCores;
+  try {
+    const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
+      throw error;
+    });
+    const database = dbopen.db(config.database.zelcash.database);
+    const query = { generalScannedHeight: { $gte: 0 } };
+    const projection = {
+      projection: {
+        _id: 0,
+        generalScannedHeight: 1,
+      },
+    };
+    const result = await serviceHelper.findOneInDatabase(database, scannedHeightCollection, query, projection).catch((error) => {
+      dbopen.close();
+      throw error;
+    });
+    if (!result) {
+      log.error('Scanning not initiated');
+    }
+    let explorerHeight = 999999999;
+    if (result) {
+      explorerHeight = serviceHelper.ensureNumber(result.generalScannedHeight) || 999999999;
+    }
+    const zelcashGetInfo = await zelcashService.getInfo();
+    let zelcashHeight = 1;
+    if (zelcashGetInfo.status === 'success') {
+      zelcashHeight = zelcashGetInfo.data.blocks;
+    } else {
+      log.error(zelcashGetInfo.data);
+    }
+    let cpuCores = 0;
+    const cpus = os.cpus();
+    if (cpus) {
+      cpuCores = cpus.length;
+    }
+    if (cpuCores > 8) {
+      cpuCores = 8;
+    }
+    let cpuUsage = 0;
+    if (explorerHeight < (zelcashHeight - 5)) {
+      // Initial scanning is in progress
+      cpuUsage += 0.5;
+    } else if (explorerHeight < zelcashHeight) {
+      cpuUsage += 0.25;
+    } else {
+      cpuUsage += 0.1; // normal load
+    }
+    cpuUsage *= cpuCores;
 
-  // load usedResources of zelapps
-  const zelappsDatabase = dbopen.db(config.database.zelapps.database);
-  const zelappsQuery = { cpu: { $gte: 0 } };
-  const zelappsProjection = {
-    projection: {
-      _id: 0,
-      cpu: 1,
-    },
-  };
-  const zelappsResult = await serviceHelper.findInDatabase(zelappsDatabase, localZelAppsInformation, zelappsQuery, zelappsProjection).catch((error) => {
-    dbopen.close();
-    log.error(error);
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
-    res.json(errMessage);
-    throw error;
-  });
-  let zelAppsCpusLocked = 0;
-  zelappsResult.forEach((zelapp) => {
-    zelAppsCpusLocked += serviceHelper.ensureNumber(zelapp.cpu) || 0;
-  });
+    // load usedResources of zelapps
+    const zelappsDatabase = dbopen.db(config.database.zelapps.database);
+    const zelappsQuery = { cpu: { $gte: 0 } };
+    const zelappsProjection = {
+      projection: {
+        _id: 0,
+        cpu: 1,
+      },
+    };
+    const zelappsResult = await serviceHelper.findInDatabase(zelappsDatabase, localZelAppsInformation, zelappsQuery, zelappsProjection).catch((error) => {
+      dbopen.close();
+      throw error;
+    });
+    let zelAppsCpusLocked = 0;
+    zelappsResult.forEach((zelapp) => {
+      zelAppsCpusLocked += serviceHelper.ensureNumber(zelapp.cpu) || 0;
+    });
 
-  cpuUsage += zelAppsCpusLocked;
-  let fiveMinUsage = 0;
-  const loadavg = os.loadavg();
-  if (loadavg) {
-    fiveMinUsage = serviceHelper.ensureNumber(loadavg[1]) || 0;
+    cpuUsage += zelAppsCpusLocked;
+    let fiveMinUsage = 0;
+    const loadavg = os.loadavg();
+    if (loadavg) {
+      fiveMinUsage = serviceHelper.ensureNumber(loadavg[1]) || 0;
+    }
+    // if fiveminUsage is greaeter than our cpuUsage, do an average of those numbers;
+    const avgOfUsage = ((fiveMinUsage + cpuUsage) / 2).toFixed(8);
+    const response = serviceHelper.createDataMessage(avgOfUsage);
+    return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    return res ? res.json(errorResponse) : errorResponse;
   }
-  // if fiveminUsage is greaeter than our cpuUsage, do an average of those numbers;
-  const avgOfUsage = ((fiveMinUsage + cpuUsage) / 2).toFixed(8);
-  const response = serviceHelper.createDataMessage(avgOfUsage);
-  res.json(response);
 }
 
 async function registerZelAppLocally() {
@@ -1436,6 +1436,51 @@ async function removeZelAppLocally(req, res) {
   }
 }
 
+async function zelappsResources(req, res) {
+  try {
+    const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
+      throw error;
+    });
+    const zelappsDatabase = dbopen.db(config.database.zelapps.database);
+    const zelappsQuery = { cpu: { $gte: 0 } };
+    const zelappsProjection = {
+      projection: {
+        _id: 0,
+        cpu: 1,
+        ram: 1,
+        hdd: 1,
+      },
+    };
+    const zelappsResult = await serviceHelper.findInDatabase(zelappsDatabase, localZelAppsInformation, zelappsQuery, zelappsProjection).catch((error) => {
+      dbopen.close();
+      throw error;
+    });
+    let zelAppsCpusLocked = 0;
+    let zelAppsRamLocked = 0;
+    let zelAppsHddLocked = 0;
+    zelappsResult.forEach((zelapp) => {
+      zelAppsCpusLocked += serviceHelper.ensureNumber(zelapp.cpu) || 0;
+      zelAppsRamLocked += serviceHelper.ensureNumber(zelapp.hdd) || 0;
+      zelAppsHddLocked += serviceHelper.ensureNumber(zelapp.ram) || 0;
+    });
+    const zelappsUsage = {
+      zelAppsCpusLocked,
+      zelAppsRamLocked,
+      zelAppsHddLocked,
+    };
+    const response = serviceHelper.createDataMessage(zelappsUsage);
+    return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
 module.exports = {
   dockerListContainers,
   zelAppPull,
@@ -1463,4 +1508,5 @@ module.exports = {
   zelAppImageRemove,
   installedZelApps,
   availableZelApps,
+  zelappsResources,
 };
