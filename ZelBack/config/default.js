@@ -27,7 +27,8 @@ module.exports = {
     zelapps: {
       database: 'localzelapps',
       collections: {
-        resourcesLocked: 'zelappslocalresources',
+        resourcesLocked: 'zelappslocalresources', // TODO DELETE
+        zelappsInformation: 'zelappsinformation',
       },
     },
     global: {

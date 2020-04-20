@@ -168,9 +168,28 @@ export default {
           if (response.data.status === 'error') {
             if (response.data.data.name === 'MongoNetworkError') {
               this.errorMessage = 'Failed to connect to MongoDB.';
+            } else if (JSON.stringify(response.data.data).includes('CONN')) {
+              // we can fix zelcash, zelbench problems. But cannot fix mongo, docker issues (docker may be possible to fix in the future, mongo not)...
+              this.getEmergencyLoginPhrase();
             } else {
               this.errorMessage = response.data.data.message;
             }
+          } else {
+            this.loginPhrase = response.data.data;
+          }
+        })
+        .catch((error) => {
+          console.log(error);
+          vue.$message.error(error);
+          this.errorMessage = 'Error connecting to ZelBack';
+        });
+    },
+    getEmergencyLoginPhrase() {
+      zelIDService.emergencyLoginPhrase()
+        .then((response) => {
+          console.log(response);
+          if (response.data.status === 'error') {
+            this.errorMessage = response.data.data.message;
           } else {
             this.loginPhrase = response.data.data;
           }

@@ -2,6 +2,9 @@
 const WebSocket = require('ws');
 const bitcoinjs = require('bitcoinjs-lib');
 const config = require('config');
+const cmd = require('node-cmd');
+// eslint-disable-next-line import/no-extraneous-dependencies
+const util = require('util');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const zelcashServices = require('./zelcashService');
@@ -28,6 +31,7 @@ async function myZelNodeIP() {
       myIP = benchmarkResponseData.ipaddress.length > 5 ? benchmarkResponseData.ipaddress : null;
     }
   } else {
+    dosMessage = benchmarkResponse.data;
     dosState += 10;
   }
   return myIP;
@@ -459,6 +463,9 @@ async function broadcastMessageFromUserPost(req, res) {
 async function getRandomConnection() {
   const zelnodeList = await deterministicZelNodeList();
   const zlLength = zelnodeList.length;
+  if (zlLength === 0) {
+    return null;
+  }
   const randomNode = Math.floor((Math.random() * zlLength)); // we do not really need a 'random'
   const ip = zelnodeList[randomNode].ip || zelnodeList[randomNode].ipaddress;
 
@@ -472,13 +479,6 @@ async function getRandomConnection() {
   if (ip === userconfig.initial.ipaddress) {
     return null;
   }
-
-  const clientExists = outgoingConnections.find((client) => client._socket.remoteAddress === ip);
-  if (clientExists) {
-    return null;
-  }
-
-  log.info(`Adding ZelFlux peer: ${ip}`);
 
   return ip;
 }
@@ -580,8 +580,13 @@ async function fluxDisovery() {
   const requiredNumberOfConnections = numberOfZelNodes / 50; // 2%
   const minCon = Math.min(minPeers, requiredNumberOfConnections); // TODO correctly max
   if (outgoingConnections.length < minCon) {
-    const ip = await getRandomConnection();
+    let ip = await getRandomConnection();
+    const clientExists = outgoingConnections.find((client) => client._socket.remoteAddress === ip);
+    if (clientExists) {
+      ip = null;
+    }
     if (ip) {
+      log.info(`Adding ZelFlux peer: ${ip}`);
       initiateAndHandleConnection(ip);
     }
     // connect another peer
@@ -800,8 +805,8 @@ async function checkDeterministicNodesCollisions() {
   } else {
     dosState += 1;
     if (dosState > 10) {
-      log.error('Flux IP detection failed');
-      dosMessage = 'Flux IP detection failed';
+      dosMessage = dosMessage || 'Flux IP detection failed';
+      log.error(dosMessage);
     }
   }
 }
@@ -815,7 +820,88 @@ async function getDOSState(req, res) {
   return res ? res.json(response) : response;
 }
 
+async function allowPort(port) {
+  const exec = `sudo ufw allow ${port}`;
+  const cmdAsync = util.promisify(cmd.get);
+
+  const cmdres = await cmdAsync(exec);
+  console.log(cmdres);
+  const cmdStat = {
+    status: false,
+    message: null,
+  };
+  cmdStat.message = cmdres;
+  if (serviceHelper.ensureString(cmdres).includes('updated') || serviceHelper.ensureString(cmdres).includes('existing') || serviceHelper.ensureString(cmdres).includes('added')) {
+    cmdStat.status = true;
+  } else {
+    cmdStat.status = false;
+  }
+  return cmdStat;
+}
+
+async function denyPort(port) {
+  const exec = `sudo ufw deny ${port}`;
+  const cmdAsync = util.promisify(cmd.get);
+
+  const cmdres = await cmdAsync(exec);
+  console.log(cmdres);
+  const cmdStat = {
+    status: false,
+    message: null,
+  };
+  cmdStat.message = cmdres;
+  if (serviceHelper.ensureString(cmdres).includes('updated') || serviceHelper.ensureString(cmdres).includes('existing') || serviceHelper.ensureString(cmdres).includes('added')) {
+    cmdStat.status = true;
+  } else {
+    cmdStat.status = false;
+  }
+  return cmdStat;
+}
+
+async function allowPortApi(req, res) {
+  let { port } = req.params;
+  port = port || req.query.port;
+  if (port === undefined || port === null) {
+    const errMessage = serviceHelper.createErrorMessage('No Port address specified.');
+    return res.json(errMessage);
+  }
+  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+
+  if (authorized === true) {
+    const portResponseOK = await allowPort(port);
+    if (portResponseOK.status === true) {
+      response = serviceHelper.createSuccessMessage(portResponseOK.message, port, port);
+    } else if (portResponseOK.status === false) {
+      response = serviceHelper.createErrorMessage(portResponseOK.message, port, port);
+    } else {
+      response = serviceHelper.createErrorMessage(`Unkown error while opening port ${port}`);
+    }
+  } else {
+    response = serviceHelper.errUnauthorizedMessage();
+  }
+  return res.json(response);
+}
+
+async function adjustFirewall() {
+  const execA = 'sudo ufw status | grep Status';
+  const execB = `sudo ufw allow ${config.server.apiport}`;
+  const cmdAsync = util.promisify(cmd.get);
+
+  const cmdresA = await cmdAsync(execA);
+  if (serviceHelper.ensureString(cmdresA).includes('Status: active')) {
+    const cmdresB = await cmdAsync(execB);
+    if (serviceHelper.ensureString(cmdresB).includes('updated') || serviceHelper.ensureString(cmdresB).includes('existing') || serviceHelper.ensureString(cmdresB).includes('added')) {
+      log.info('Firewall adjusted for ZelBack port');
+    } else {
+      log.info('Failed to adjust Firewall for ZelBack port');
+    }
+  } else {
+    log.info('Firewall is not active. Adjusting not applied');
+  }
+}
+
 function startFluxFunctions() {
+  adjustFirewall();
   fluxDisovery();
   log.info('Flux Discovery started');
   keepConnectionsAlive();
@@ -854,4 +940,7 @@ module.exports = {
   removeIncomingPeer,
   connectedPeersInfo,
   getDOSState,
+  allowPort,
+  allowPortApi,
+  denyPort,
 };

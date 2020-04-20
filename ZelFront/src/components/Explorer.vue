@@ -2,7 +2,7 @@
   <div>
     <ElInput
       type="text"
-      placeholder="Search for block or transaction"
+      placeholder="Search for block, transaction or address"
       v-model="searchBar"
     >
     </ElInput>
@@ -353,6 +353,9 @@
         {{ errorMessage }}
       </h3>
     </div>
+    <div>
+      {{ 'Synced: ' + scannedHeight + '/' + getInfoResponse.data.blocks}}
+    </div>
   </div>
 </template>
 
@@ -391,6 +394,7 @@ export default {
         status: '',
         data: '',
       },
+      scannedHeight: 0,
       blocks: [],
       searchBar: '',
       blocksWithTransaction: {},
@@ -415,6 +419,7 @@ export default {
       switch (val) {
         case 'explorer':
           this.zelcashGetInfo();
+          this.getSyncedHeight();
           break;
         case 'block':
           // nothing to do
@@ -445,6 +450,7 @@ export default {
       switch (val) {
         case 'explorer':
           this.zelcashGetInfo();
+          this.getSyncedHeight();
           break;
         case 'block':
           // nothing to do
@@ -464,6 +470,7 @@ export default {
     switch (this.explorerSection) {
       case 'explorer':
         this.zelcashGetInfo();
+        this.getSyncedHeight();
         break;
       case 'block':
         // nothing to do
@@ -498,6 +505,14 @@ export default {
       } else {
         this.errorMessage = 'Unable to communicate with ZelCash node';
         vue.$message.error(this.errorMessage);
+      }
+    },
+    async getSyncedHeight() {
+      const response = await ExplorerService.getScannedHeight();
+      if (response.data.status === 'success') {
+        this.scannedHeight = response.data.data.generalScannedHeight;
+      } else {
+        this.scannedHeight = 'ERROR';
       }
     },
     async getBlocks() {
