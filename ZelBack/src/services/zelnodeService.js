@@ -236,6 +236,12 @@ async function zelfluxErrorLog(req, res) {
   return res.sendFile(filepath);
 }
 
+function getZelFluxTimezone(req, res) {
+  const timezone = process.env.TZ;
+  const message = serviceHelper.createDataMessage(timezone);
+  return res ? res.json(message) : message;
+}
+
 async function getZelFluxInfo(req, res) {
   try {
     const info = {
@@ -265,6 +271,11 @@ async function getZelFluxInfo(req, res) {
       throw dosResult.data;
     }
     info.zelflux.dos = dosResult.data;
+    const timeResult = await zelfluxCommunication.getZelFluxTimezone();
+    if (timeResult.status === 'error') {
+      throw timeResult.data;
+    }
+    info.zelflux.timezone = timeResult.data;
 
     const zelcashInfoRes = await zelcashService.getInfo();
     if (zelcashInfoRes.status === 'error') {
@@ -338,5 +349,6 @@ module.exports = {
   zelcashDebug,
   zelbenchDebug,
   zelfluxErrorLog,
+  getZelFluxTimezone,
   getZelFluxInfo,
 };

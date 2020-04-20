@@ -14,18 +14,23 @@ function getFilesizeInBytes(filename) {
 }
 
 function error(...args) {
-  console.error(...args);
-  // write to file
-  const datadir = `${homeDirPath}zelflux`;
-  const filepath = `${datadir}/error.log`;
-  const size = getFilesizeInBytes(filepath);
-  let flag = 'a+';
-  if (size > (25 * 1000 * 1000)) { // 25MB
-    flag = 'w'; // rewrite file
+  try {
+    console.error(...args);
+    // write to file
+    const datadir = `${homeDirPath}zelflux`;
+    const filepath = `${datadir}/error.log`;
+    const size = getFilesizeInBytes(filepath);
+    let flag = 'a+';
+    if (size > (25 * 1000 * 1000)) { // 25MB
+      flag = 'w'; // rewrite file
+    }
+    const stream = fs.createWriteStream(filepath, { flags: flag });
+    stream.write(`${new Date().toISOString()}          ${[...args]}\n`);
+    stream.end();
+  } catch (err) {
+    console.error('This shall not have happened');
+    console.error(err);
   }
-  const stream = fs.createWriteStream(filepath, { flags: flag });
-  stream.write(`${new Date().toISOString()}          ${[...args]}\n`);
-  stream.end();
 }
 
 module.exports = {

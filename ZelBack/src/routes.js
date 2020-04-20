@@ -184,6 +184,9 @@ module.exports = (app, expressWs) => {
   app.get('/zelflux/info', (req, res) => {
     zelnodeService.getZelFluxInfo(req, res);
   });
+  app.get('/zelflux/timezone', (req, res) => {
+    zelnodeService.getZelFluxTimezone(req, res);
+  });
   app.get('/zelflux/version', (req, res) => {
     zelnodeService.getZelFluxVersion(req, res);
   });
