@@ -52,12 +52,12 @@
                 >
                   Stop
                 </ElButton>
-                <ElButton
+                <!-- <ElButton
                   class="generalButton"
                   @click="restartZelApp(scope.row.Names[0].substr(1, scope.row.Names[0].length))"
                 >
                   Restart
-                </ElButton>
+                </ElButton> -->
               </template>
             </el-table-column>
           </el-table>
