@@ -473,7 +473,7 @@ export default {
     openZelApp(name) {
       const zelappInfo = this.installedZelApp(name);
       if (zelappInfo) {
-        const backendURL = store.get('backendURL') || `http://${`http://${this.userconfig.externalip}:${this.config.apiPort}`}`;
+        const backendURL = store.get('backendURL') || `http://${this.userconfig.externalip}:${this.config.apiPort}`;
         const ip = backendURL.split(':')[1].split('//')[1];
         const url = `http://${ip}:${zelappInfo.port}`;
         this.openSite(url);
