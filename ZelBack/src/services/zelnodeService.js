@@ -237,9 +237,15 @@ async function zelfluxErrorLog(req, res) {
 }
 
 function getZelFluxTimezone(req, res) {
-  const timezone = process.env.TZ;
-  const message = serviceHelper.createDataMessage(timezone);
-  return res ? res.json(message) : message;
+  try {
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const message = serviceHelper.createDataMessage(timezone);
+    return res ? res.json(message) : message;
+  } catch (error) {
+    log.error(error);
+    const message = 'unkown';
+    return res ? res.json(message) : message;
+  }
 }
 
 async function getZelFluxInfo(req, res) {
@@ -266,16 +272,16 @@ async function getZelFluxInfo(req, res) {
       throw zelidRes.data;
     }
     info.zelflux.zelid = zelidRes.data;
+    const timeResult = await getZelFluxTimezone();
+    if (timeResult.status === 'error') {
+      throw timeResult.data;
+    }
+    info.zelflux.timezone = timeResult.data;
     const dosResult = await zelfluxCommunication.getDOSState();
     if (dosResult.status === 'error') {
       throw dosResult.data;
     }
     info.zelflux.dos = dosResult.data;
-    const timeResult = await zelfluxCommunication.getZelFluxTimezone();
-    if (timeResult.status === 'error') {
-      throw timeResult.data;
-    }
-    info.zelflux.timezone = timeResult.data;
 
     const zelcashInfoRes = await zelcashService.getInfo();
     if (zelcashInfoRes.status === 'error') {
