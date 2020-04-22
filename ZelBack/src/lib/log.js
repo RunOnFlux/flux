@@ -20,30 +20,32 @@ function error(...args) {
     const filepath = `${datadir}/error.log`;
     const size = getFilesizeInBytes(filepath);
     let flag = 'a+';
-    if (size > (25 * 1000 * 1000)) { // 25MB
-      flag = 'w';                    // rewrite file
+    if (size > 25 * 1000 * 1000) {
+      // 25MB
+      flag = 'w'; // rewrite file
     }
 
-    const data_zone = new Date(new Date().getTime() -
-                               (new Date().getTimezoneOffset() * 60000))
-                          .toISOString()
-                          .replace(/T/, ' ')
-                          .replace(/\..+/, '');
+    const data_zone = new Date(
+      new Date().getTime() - new Date().getTimezoneOffset() * 60000
+    )
+      .toISOString()
+      .replace(/T/, ' ')
+      .replace(/\..+/, '');
 
-    const stream = fs.createWriteStream(filepath, {flags : flag});
+    const stream = fs.createWriteStream(filepath, { flags: flag });
     var type = Function.prototype.call.bind(Object.prototype.toString);
     let error;
 
-    if (type(args) == '[object Array]' &&
-        args.toString() == "[object Object]") {
-
+    if (
+      type(args) == '[object Array]' &&
+      args.toString() == '[object Object]'
+    ) {
       error = JSON.parse(JSON.stringify(...args));
       error = error.message;
-      stream.write(data_zone + " => ERROR: " + error + "\n");
-
+      stream.write(data_zone + ' => ERROR: ' + error + '\n');
     } else {
       error = args;
-      stream.write(data_zone + " => ERROR: " + error + "\n");
+      stream.write(data_zone + ' => ERROR: ' + error + '\n');
     }
 
     stream.end();
@@ -56,9 +58,15 @@ function error(...args) {
 module.exports = {
   error,
 
-  warn(...args) { console.warn(...args); },
+  warn(...args) {
+    console.warn(...args);
+  },
 
-  info(...args) { console.log(...args); },
+  info(...args) {
+    console.log(...args);
+  },
 
-  debug(...args) { console.log(...args); },
+  debug(...args) {
+    console.log(...args);
+  },
 };
