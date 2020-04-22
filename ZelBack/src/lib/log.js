@@ -14,8 +14,7 @@ function getFilesizeInBytes(filename) {
 }
 
 function error(...args) {
-  try {
-    console.error(...args);
+  try {    
     // write to file
     const datadir = `${homeDirPath}zelflux`;
     const filepath = `${datadir}/error.log`;
@@ -24,8 +23,27 @@ function error(...args) {
     if (size > (25 * 1000 * 1000)) { // 25MB
       flag = 'w'; // rewrite file
     }
-    const stream = fs.createWriteStream(filepath, { flags: flag });
-    stream.write(`${new Date().toISOString()}          ${[...args]}\n`);
+    
+    const data_zone = new Date(new Date().getTime() - (new Date().getTimezoneOffset() * 60000)).toISOString().
+    replace(/T/, ' ').
+    replace(/\..+/, '');
+    
+    const stream = fs.createWriteStream(filepath, { flags: flag }); 
+    Object.getPrototypeOf( args.toString() ) === Object.prototype;
+    var type = Function.prototype.call.bind( Object.prototype.toString );
+    
+    if( type( args ) == '[object Array]' && args.toString() == "[object Object]" ) {
+      
+          var error = JSON.parse(JSON.stringify(...args));
+          error = error.message;
+          stream.write(data_zone + " => ERROR: "+error+"\n");
+      
+       } else      
+       { 
+          var error = args; 
+          stream.write(data_zone + " => ERROR: "+error+"\n");
+       }
+    
     stream.end();
   } catch (err) {
     console.error('This shall not have happened');
