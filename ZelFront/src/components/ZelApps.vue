@@ -387,7 +387,7 @@ export default {
     },
     async startZelApp(zelapp) {
       this.output = '';
-      vue.$message.success('Stargin ZelApp');
+      vue.$message.success('Starting ZelApp');
       const zelidauth = localStorage.getItem('zelidauth');
       const response = await ZelAppsService.startZelApp(zelidauth, zelapp);
       if (response.data.status === 'success') {
