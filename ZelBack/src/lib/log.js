@@ -26,10 +26,11 @@ function error(...args) {
     const size = getFilesizeInBytes(filepath);
     let flag = 'a+';
     if (size > (25 * 1000 * 1000)) { // 25MB
-      flag = 'w'; // rewrite file
+      flag = 'w';                    // rewrite file
     }
-    const stream = fs.createWriteStream(filepath, { flags: flag });
-    stream.write(`${new Date().toISOString()}          ${ensureString(...args.message || [...args])}\n`);
+    const stream = fs.createWriteStream(filepath, {flags : flag});
+    stream.write(`${new Date().toISOString()}          ${
+        ensureString(...args.message || [...args ])}\n`);
     stream.end();
   } catch (err) {
     console.error('This shall not have happened');
@@ -40,15 +41,9 @@ function error(...args) {
 module.exports = {
   error,
 
-  warn(...args) {
-    console.warn(...args);
-  },
+  warn(...args) { console.warn(...args); },
 
-  info(...args) {
-    console.log(...args);
-  },
+  info(...args) { console.log(...args); },
 
-  debug(...args) {
-    console.log(...args);
-  },
+  debug(...args) { console.log(...args); },
 };
