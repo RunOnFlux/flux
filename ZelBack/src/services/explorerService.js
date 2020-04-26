@@ -424,14 +424,16 @@ async function initiateBlockProcessor(restoreDatabase) {
       if (zelbenchInfo.status === 'success') {
         const { version } = zelbenchInfo.data;
         zelbenchVersion = serviceHelper.ensureNumber(version.split('.').join(''));
+        if (zelbenchVersion < 110) {
+          log.warn('Your ZelBench version is outdated! ZelNode may not behave correctly');
+          log.warn('Block processing will try to reinitiate in 10 minutes');
+          throw new Error('ZelBench update required. Block processing halted.');
+      }
+        
       } else {
         log.error('Unable to communicate with zelbench!');
       }
-      if (zelbenchVersion < 110) {
-        log.warn('Your ZelBench version is outdated! ZelNode may not behave correctly');
-        log.warn('Block processing will try to reinitiate in 10 minutes');
-        throw new Error('ZelBench update required. Block processing halted.');
-      }
+      
     }
     db = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
       log.error(error);
