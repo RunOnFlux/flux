@@ -13,6 +13,10 @@ function getFilesizeInBytes(filename) {
   }
 }
 
+function ensureString(parameter) {
+  return typeof parameter === 'string' ? parameter : JSON.stringify(parameter);
+}
+
 function error(...args) {
   try {
     console.error(...args);
@@ -25,7 +29,7 @@ function error(...args) {
       flag = 'w'; // rewrite file
     }
     const stream = fs.createWriteStream(filepath, { flags: flag });
-    stream.write(`${new Date().toISOString()}          ${[...args]}\n`);
+    stream.write(`${new Date().toISOString()}          ${ensureString(...args.message || [...args])}\n`);
     stream.end();
   } catch (err) {
     console.error('This shall not have happened');
