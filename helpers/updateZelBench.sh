@@ -54,4 +54,8 @@ if ! gpg --list-keys Zel >/dev/null; then
   fi
 fi
 
+if sudo systemctl status zelcash >/dev/null 2>&1; then
+sudo systemctl start zelcash
+else
 "$COIN_DAEMON"
+fi
