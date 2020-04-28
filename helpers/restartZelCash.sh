@@ -18,7 +18,7 @@ sudo killall -s SIGKILL zelbenchd >/dev/null 2>&1
 sleep 2
 
 if sudo systemctl status zelcash >/dev/null 2>&1; then
-sudo systemctl start zelcash
+  sudo systemctl start zelcash
 else
-"$COIN_DAEMON"
+  "$COIN_DAEMON"
 fi
