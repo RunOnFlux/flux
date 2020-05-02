@@ -68,6 +68,7 @@ async function loginPhrase(req, res) {
     const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
     log.error(error);
+    db.close();
     throw error;
   });
   db.close();
@@ -101,6 +102,7 @@ async function emergencyPhrase(req, res) {
     const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
     log.error(error);
+    db.close();
     throw error;
   });
   db.close();
@@ -212,6 +214,7 @@ async function verifyLogin(req, res) {
             const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
             res.json(errMessage);
             log.error(error);
+            db.close();
             throw error;
           });
           db.close();
@@ -266,6 +269,7 @@ async function activeLoginPhrases(req, res) {
       const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
       res.json(errMessage);
       log.error(error);
+      db.close();
       throw error;
     });
     db.close();
@@ -300,6 +304,7 @@ async function loggedUsers(req, res) {
       const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
       res.json(errMessage);
       log.error(error);
+      db.close();
       throw error;
     });
     db.close();
@@ -336,6 +341,7 @@ async function loggedSessions(req, res) {
       const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
       res.json(errMessage);
       log.error(error);
+      db.close();
       throw error;
     });
     db.close();
@@ -370,6 +376,7 @@ async function logoutCurrentSession(req, res) {
       const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
       res.json(errMessage);
       log.error(error);
+      db.close();
       throw error;
     });
     db.close();
@@ -413,6 +420,7 @@ async function logoutSpecificSession(req, res) {
         const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
         res.json(errMessage);
         log.error(error);
+        db.close();
         throw error;
       });
       db.close();
@@ -450,6 +458,7 @@ async function logoutAllSessions(req, res) {
       const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
       res.json(errMessage);
       log.error(error);
+      db.close();
       throw error;
     });
     db.close();
@@ -477,6 +486,7 @@ async function logoutAllUsers(req, res) {
       const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
       res.json(errMessage);
       log.error(error);
+      db.close();
       throw error;
     });
     db.close();

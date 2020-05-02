@@ -1001,6 +1001,7 @@ async function zelFluxUsage(req, res) {
     // if fiveminUsage is greaeter than our cpuUsage, do an average of those numbers;
     const avgOfUsage = ((fiveMinUsage + cpuUsage) / 2).toFixed(8);
     const response = serviceHelper.createDataMessage(avgOfUsage);
+    dbopen.close();
     return res ? res.json(response) : response;
   } catch (error) {
     log.error(error);
@@ -1118,6 +1119,7 @@ async function temporaryZelAppRegisterFunctionForFoldingAtHome(req, res) {
           throw error;
         });
       }
+      dbopen.close();
 
       // check if zelfluxDockerNetwork exists
       const fluxNetworkOptions = {
@@ -1284,6 +1286,7 @@ async function installedZelApps(req, res) {
       dbopen.close();
       throw error;
     });
+    dbopen.close();
     const dataResponse = serviceHelper.createDataMessage(zelApps);
     return res.json(dataResponse);
   } catch (error) {
@@ -1340,6 +1343,7 @@ async function removeZelAppLocally(req, res) {
     };
     res.write(serviceHelper.ensureString(stopStatus));
     await zelAppDockerStop(zelapp).catch((error) => {
+      dbopen.close();
       const errorResponse = serviceHelper.createErrorMessage(
         error.message || error,
         error.name,
@@ -1374,6 +1378,7 @@ async function removeZelAppLocally(req, res) {
     };
     res.write(serviceHelper.ensureString(imageStatus));
     await zelAppDockerImageRemove(zelAppSpecifications.repotag).catch((error) => {
+      dbopen.close();
       const errorResponse = serviceHelper.createErrorMessage(
         error.message || error,
         error.name,
@@ -1455,6 +1460,7 @@ async function zelappsResources(req, res) {
       dbopen.close();
       throw error;
     });
+    dbopen.close();
     let zelAppsCpusLocked = 0;
     let zelAppsRamLocked = 0;
     let zelAppsHddLocked = 0;
