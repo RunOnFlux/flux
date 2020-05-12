@@ -3,6 +3,7 @@ const config = require('config');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const zelcashService = require('./zelcashService');
+const zelappsService = require('./zelappsService');
 
 const mongoUrl = `mongodb://${config.database.url}:${config.database.port}/`;
 
@@ -255,12 +256,6 @@ function decodeMessage(asm) {
   return message;
 }
 
-function requestZelApp(zelapphash) {
-  // TODO check if we have information about such a zelapp. If not, request the information about this zelapp.
-  console.log(zelapphash);
-  // broadcast zelapp request message
-}
-
 async function processBlock(blockHeight) {
   try {
     // get Block information
@@ -309,7 +304,7 @@ async function processBlock(blockHeight) {
         // MAY contain ZelApp transaction. Store it.
         if (addressesOK.indexOf(config.zelapps.address > -1) && message.length === 64) { // todo sha256 hash length
           const zelappTxRecord = { txid: tx.txid, height: tx.height, zelapphash: message };
-          requestZelApp(message);
+          zelappsService.checkAndRequestZelApp(message);
           await serviceHelper.insertOneToDatabase(database, zelappsHashesCollection, zelappTxRecord).catch((error) => {
             db.close();
             throw error;

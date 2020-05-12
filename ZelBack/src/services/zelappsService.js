@@ -22,6 +22,7 @@ const docker = new Docker();
 const mongoUrl = `mongodb://${config.database.url}:${config.database.port}/`;
 const scannedHeightCollection = config.database.zelcash.collections.scannedHeight;
 const localZelAppsInformation = config.database.zelappslocal.collections.zelappsInformation;
+const globalZelAppsMessages = config.database.zelappsglobal.collections.zelAppsMessages;
 
 async function dockerCreateNetwork(options) {
   const network = await docker.createNetwork(options).catch((error) => {
@@ -311,6 +312,9 @@ async function zelAppDockerCreate(zelappSpecifications) {
     HostConfig: {
       NanoCPUs: zelappSpecifications.cpu * 1e9,
       Memory: zelappSpecifications.ram * 1024 * 1024,
+      StorageOpt: {
+        size: `${zelappSpecifications.hdd}G`,
+      },
       Binds: [`${zelappsFolder + zelappSpecifications.name}:${zelappSpecifications.containerData}`],
       Ulimits: [
         {
@@ -1502,6 +1506,41 @@ async function calculateZelAmountForApp(cpu, ram, hdd) {
   return total;
 }
 
+async function checkZelAppMessageExistence(zelapphash) {
+  try {
+    const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
+      throw error;
+    });
+    const zelappsDatabase = dbopen.db(config.database.zelappslocal.database);
+    const zelappsQuery = { zelapphash };
+    const zelappsProjection = {};
+    const zelappResult = await serviceHelper.findOneInDatabase(zelappsDatabase, globalZelAppsMessages, zelappsQuery, zelappsProjection).catch((error) => {
+      dbopen.close();
+      throw error;
+    });
+    dbopen.close();
+    if (zelappResult) {
+      return true;
+    }
+    return false;
+  } catch (error) {
+    log.error(error);
+    return error;
+  }
+}
+
+async function checkAndRequestZelApp(zelapphash) {
+  try {
+    const appMessageExists = await checkZelAppMessageExistence(zelapphash);
+    if (!appMessageExists) {
+      // we surely do not have that message.
+      // request the message and broadcast the message further to our connected peers.
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
 module.exports = {
   dockerListContainers,
   zelAppPull,
@@ -1531,4 +1570,6 @@ module.exports = {
   availableZelApps,
   zelappsResources,
   calculateZelAmountForApp,
+  checkZelAppMessageExistence,
+  checkAndRequestZelApp,
 };
