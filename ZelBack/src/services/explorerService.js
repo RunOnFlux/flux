@@ -277,7 +277,7 @@ async function processBlock(blockHeight) {
       const database = db.db(config.database.zelcash.database);
       // normal transactions
       if (tx.version < 5 && tx.version > 0) {
-        let message = null;
+        let message = '';
         const addresses = [];
         tx.senders.forEach((sender) => {
           addresses.push(sender.address);
@@ -916,11 +916,11 @@ async function reindexExplorer(req, res) {
 }
 
 async function rescanExplorer(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+  const authorized = true // await serviceHelper.verifyPrivilege('zelteam', req);
   if (authorized === true) {
     // since what blockheight
     let { blockheight } = req.params; // we accept both help/command and help?command=getinfo
-    blockheight = blockheight || req.query.command || '';
+    blockheight = blockheight || req.query.blockheight;
     if (!blockheight) {
       const errMessage = serviceHelper.createErrorMessage('No blockheight provided');
       res.json(errMessage);

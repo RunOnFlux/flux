@@ -32,11 +32,15 @@ let response = serviceHelper.createErrorMessage();
 
 // basic check for a version of other flux.
 async function isFluxAvailable(ip) {
-  const fluxResponse = await axios.get(`http://${ip}:16127/zelflux/version`, axiosConfig);
-  if (fluxResponse.data.status === 'success') {
-    return true;
+  try {
+    const fluxResponse = await axios.get(`http://${ip}:16127/zelflux/version`, axiosConfig);
+    if (fluxResponse.data.status === 'success') {
+      return true;
+    }
+    return false;
+  } catch (e) {
+    return false;
   }
-  return false;
 }
 
 // basic check for a version of other flux.
@@ -54,7 +58,8 @@ async function checkFluxAvailability(req, res) {
     const message = serviceHelper.createSuccessMessage('Asking Flux is available');
     response = message;
   } else {
-    response = serviceHelper.createErrorMessage('Asking Flux is not available');
+    const message = serviceHelper.createSuccessMessage('Asking Flux is not available');
+    response = message;
   }
   return res.json(response);
 }
