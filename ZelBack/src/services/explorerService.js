@@ -285,8 +285,9 @@ async function processBlock(blockHeight) {
         tx.vout.forEach((receiver) => {
           if (receiver.scriptPubKey.addresses) { // count for messages
             addresses.push(receiver.scriptPubKey.addresses[0]);
-          } else {
-            message = decodeMessage(receiver.asm);
+          }
+          if (receiver.scriptPubKey.asm) {
+            message = decodeMessage(receiver.scriptPubKey.asm); // TODO adding messages to database so we can then get all messages from blockchain
           }
         });
         const addressesOK = [...new Set(addresses)];
@@ -916,7 +917,7 @@ async function reindexExplorer(req, res) {
 }
 
 async function rescanExplorer(req, res) {
-  const authorized = true // await serviceHelper.verifyPrivilege('zelteam', req);
+  const authorized = true; // await serviceHelper.verifyPrivilege('zelteam', req);
   if (authorized === true) {
     // since what blockheight
     let { blockheight } = req.params; // we accept both help/command and help?command=getinfo

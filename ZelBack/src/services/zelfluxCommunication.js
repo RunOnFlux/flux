@@ -30,10 +30,24 @@ const axiosConfig = {
 
 let response = serviceHelper.createErrorMessage();
 
+const axiosGet = (url, options = {}) => {
+  const abort = axios.CancelToken.source();
+  const id = setTimeout(
+    () => abort.cancel(`Timeout of ${config.timeout}ms.`),
+    axiosConfig.timeout,
+  );
+  return axios
+    .get(url, { cancelToken: abort.token, ...options })
+    .then((res) => {
+      clearTimeout(id);
+      return res;
+    });
+};
+
 // basic check for a version of other flux.
 async function isFluxAvailable(ip) {
   try {
-    const fluxResponse = await axios.get(`http://${ip}:16127/zelflux/version`, axiosConfig);
+    const fluxResponse = await axiosGet(`http://${ip}:16127/zelflux/version`, axiosConfig);
     if (fluxResponse.data.status === 'success') {
       return true;
     }
