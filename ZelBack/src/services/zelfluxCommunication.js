@@ -831,6 +831,9 @@ async function checkMyFluxAvailability(zelnodelist) {
   // run if at least 10 available nodes
   if (zelnodelist.length > 10) {
     let askingIP = getRandomConnection();
+    if (typeof askingIP !== 'string' || typeof myFluxIP !== 'string') {
+      return;
+    }
     if (askingIP.includes(':')) {
       // it is ipv6
       askingIP = `[${askingIP}]`;
