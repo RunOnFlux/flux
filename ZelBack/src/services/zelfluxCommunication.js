@@ -30,6 +30,7 @@ const axiosConfig = {
 
 let response = serviceHelper.createErrorMessage();
 
+// helper function for timeout on axios connection
 const axiosGet = (url, options = {}) => {
   const abort = axios.CancelToken.source();
   const id = setTimeout(
@@ -841,6 +842,7 @@ async function removeIncomingPeer(req, res, expressWS) {
   return res.json(response);
 }
 
+// eslint-disable-next-line no-unused-vars
 async function checkMyFluxAvailability(zelnodelist) {
   // run if at least 10 available nodes
   if (zelnodelist.length > 10) {
@@ -860,15 +862,20 @@ async function checkMyFluxAvailability(zelnodelist) {
     if (resMyAvailability.data.status === 'error') {
       log.error(` My Flux unavailability detected from ${askingIP}`);
       // Asked Flux cannot reach me
-      // TODO uncomment in v60.
-      // dosState += 2;
-      // if (dosState > 10) {
-      //   dosMessage = dosMessage || 'Flux is not available for outside communication';
-      //   log.error(dosMessage);
-      // } else {
-      //   checkFluxAvailability(zelnodelist);
-      // }
+      dosState += 1;
+      if (dosState > 10) {
+        dosMessage = dosMessage || 'Flux is not available for outside communication';
+        log.error(dosMessage);
+      } else {
+        checkFluxAvailability(zelnodelist);
+      }
+    } else {
+      dosState = 0;
+      dosMessage = null;
     }
+  } else {
+    dosState = 0;
+    dosMessage = null;
   }
 }
 
@@ -886,11 +893,13 @@ async function checkDeterministicNodesCollisions() {
       log.error('Flux collision detection');
       dosState = 100;
       dosMessage = 'Flux collision detection';
-    } else {
-      dosState = 0;
-      dosMessage = null;
+      return;
     }
-    checkMyFluxAvailability(zelnodeList);
+    // TODO delete in v60
+    dosState = 0;
+    dosMessage = null;
+    // TODO uncomment in v60
+    // checkMyFluxAvailability(zelnodeList);
   } else {
     dosState += 1;
     if (dosState > 10) {
