@@ -312,9 +312,9 @@ async function zelAppDockerCreate(zelappSpecifications) {
     HostConfig: {
       NanoCPUs: zelappSpecifications.cpu * 1e9,
       Memory: zelappSpecifications.ram * 1024 * 1024,
-      StorageOpt: {
-        size: `${zelappSpecifications.hdd}G`,
-      },
+      // StorageOpt: { // disabled, done in volumes, requires xfs
+      //   size: `${zelappSpecifications.hdd}G`,
+      // },
       Binds: [`${zelappsFolder + zelappSpecifications.name}:${zelappSpecifications.containerData}`],
       Ulimits: [
         {
