@@ -3,11 +3,12 @@ const config = require('config');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const zelcashService = require('./zelcashService');
-const zelbenchService = require('./zelbenchService');
+const zelappsService = require('./zelappsService');
 
 const mongoUrl = `mongodb://${config.database.url}:${config.database.port}/`;
 
 const utxoIndexCollection = config.database.zelcash.collections.utxoIndex;
+const zelappsHashesCollection = config.database.zelcash.collections.zelappsHashes;
 const addressTransactionIndexCollection = config.database.zelcash.collections.addressTransactionIndex;
 const scannedHeightCollection = config.database.zelcash.collections.scannedHeight;
 const zelnodeTransactionCollection = config.database.zelcash.collections.zelnodeTransactions;
@@ -240,11 +241,25 @@ async function getBlock(heightOrHash) {
   throw blockInfo.data;
 }
 
+function decodeMessage(asm) {
+  const parts = asm.split('OP_RETURN ', 2);
+  let message = '';
+  if (parts[1]) {
+    const encodedMessage = parts[1];
+    const hexx = encodedMessage.toString(); // force conversion
+    for (let k = 0; k < hexx.length && hexx.substr(k, 2) !== '00'; k += 2) {
+      message += String.fromCharCode(
+        parseInt(hexx.substr(k, 2), 16),
+      );
+    }
+  }
+  return message;
+}
+
 async function processBlock(blockHeight) {
   try {
     // get Block information
     const blockData = await getBlock(blockHeight).catch((error) => {
-      log.error(error);
       throw error;
     });
     if (blockData.height % 50 === 0) {
@@ -252,7 +267,6 @@ async function processBlock(blockHeight) {
     }
     // get Block transactions information
     const transactions = await getBlockTransactions(blockData.tx).catch((error) => {
-      log.error(error);
       throw error;
     });
     // now we have verbose transactions of the block extended for senders - object of
@@ -263,6 +277,7 @@ async function processBlock(blockHeight) {
       const database = db.db(config.database.zelcash.database);
       // normal transactions
       if (tx.version < 5 && tx.version > 0) {
+        let message = '';
         const addresses = [];
         tx.senders.forEach((sender) => {
           addresses.push(sender.address);
@@ -270,6 +285,9 @@ async function processBlock(blockHeight) {
         tx.vout.forEach((receiver) => {
           if (receiver.scriptPubKey.addresses) { // count for messages
             addresses.push(receiver.scriptPubKey.addresses[0]);
+          }
+          if (receiver.scriptPubKey.asm) {
+            message = decodeMessage(receiver.scriptPubKey.asm); // TODO adding messages to database so we can then get all messages from blockchain
           }
         });
         const addressesOK = [...new Set(addresses)];
@@ -281,10 +299,18 @@ async function processBlock(blockHeight) {
           const options = { upsert: true };
           await serviceHelper.findOneAndUpdateInDatabase(database, addressTransactionIndexCollection, query, update, options).catch((error) => {
             db.close();
-            log.error(error);
             throw error;
           });
         }));
+        // MAY contain ZelApp transaction. Store it.
+        if (addressesOK.indexOf(config.zelapps.address > -1) && message.length === 64) { // todo sha256 hash length
+          const zelappTxRecord = { txid: tx.txid, height: tx.height, zelapphash: message };
+          zelappsService.checkAndRequestZelApp(message);
+          await serviceHelper.insertOneToDatabase(database, zelappsHashesCollection, zelappTxRecord).catch((error) => {
+            db.close();
+            throw error;
+          });
+        }
       }
       // tx version 5 are zelnode transactions. Put them into zelnode
       if (tx.version === 5) {
@@ -307,7 +333,6 @@ async function processBlock(blockHeight) {
         };
         await serviceHelper.insertOneToDatabase(database, zelnodeTransactionCollection, zelnodeTxData).catch((error) => {
           db.close();
-          log.error(error);
           throw error;
         });
       }
@@ -320,17 +345,14 @@ async function processBlock(blockHeight) {
       const database = db.db(config.database.zelcash.database);
       const result = await serviceHelper.collectionStats(database, utxoIndexCollection).catch((error) => {
         db.close();
-        log.error(error);
         throw error;
       });
       const resultB = await serviceHelper.collectionStats(database, addressTransactionIndexCollection).catch((error) => {
         db.close();
-        log.error(error);
         throw error;
       });
       const resultC = await serviceHelper.collectionStats(database, zelnodeTransactionCollection).catch((error) => {
         db.close();
-        log.error(error);
         throw error;
       });
       log.info('UTXO', result.size, result.count, result.avgObjSize);
@@ -345,7 +367,6 @@ async function processBlock(blockHeight) {
     const options = { upsert: true };
     await serviceHelper.findOneAndUpdateInDatabase(database, scannedHeightCollection, query, update, options).catch((error) => {
       db.close();
-      log.error(error);
       throw error;
     });
     if (blockProccessingCanContinue) {
@@ -391,12 +412,12 @@ async function restoreDatabaseToBlockheightState(height) {
   const queryForAddressesDeletion = { transactions: { $exists: true, $size: 0 } };
   const projection = { $pull: { transactions: { height: { $gt: height } } } };
 
-  // restore utxoDatabase
+  // restore utxoDatabase collection
   await serviceHelper.removeDocumentsFromCollection(database, utxoIndexCollection, query).catch((error) => {
     log.error(error);
     throw error;
   });
-  // restore addressTransactionIndex database
+  // restore addressTransactionIndex collection
   // remove transactions with height bigger than our scanned height
   await serviceHelper.updateInDatabase(database, addressTransactionIndexCollection, queryForAddresses, projection).catch((error) => {
     log.error(error);
@@ -407,8 +428,13 @@ async function restoreDatabaseToBlockheightState(height) {
     log.error(error);
     throw error;
   });
-  // restore zelnodeTransactions database
+  // restore zelnodeTransactions collection
   await serviceHelper.removeDocumentsFromCollection(database, zelnodeTransactionCollection, query).catch((error) => {
+    log.error(error);
+    throw error;
+  });
+  // restore zelappsHashes collection
+  await serviceHelper.removeDocumentsFromCollection(database, zelappsHashesCollection, query).catch((error) => {
     log.error(error);
     throw error;
   });
@@ -417,24 +443,7 @@ async function restoreDatabaseToBlockheightState(height) {
 
 async function initiateBlockProcessor(restoreDatabase) {
   try {
-    // if ZelBench version is lower than 1.1.0 give warning to user
-    if (restoreDatabase) {
-      let zelbenchVersion = 100;
-      const zelbenchInfo = await zelbenchService.getInfo();
-      if (zelbenchInfo.status === 'success') {
-        const { version } = zelbenchInfo.data;
-        zelbenchVersion = serviceHelper.ensureNumber(version.split('.').join(''));
-      } else {
-        log.error('Unable to communicate with zelbench!');
-      }
-      if (zelbenchVersion < 110) {
-        log.warn('Your ZelBench version is outdated! ZelNode may not behave correctly');
-        log.warn('Block processing will try to reinitiate in 10 minutes');
-        throw new Error('ZelBench update required. Block processing halted.');
-      }
-    }
     db = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
-      log.error(error);
       throw error;
     });
     const database = db.db(config.database.zelcash.database);
@@ -447,7 +456,6 @@ async function initiateBlockProcessor(restoreDatabase) {
     };
     let scannedBlockHeight = 0;
     const scannedBlockHeightsResult = await serviceHelper.findInDatabase(database, scannedHeightCollection, query, projection).catch((error) => {
-      log.error(error);
       throw error;
     });
     if (scannedBlockHeightsResult[0]) {
@@ -458,7 +466,6 @@ async function initiateBlockProcessor(restoreDatabase) {
     if (zelcashGetInfo.status === 'success') {
       zelcashHeight = zelcashGetInfo.data.blocks;
     } else {
-      log.error(zelcashGetInfo.data);
       throw new Error(zelcashGetInfo.data);
     }
     // get scanned height from our database;
@@ -468,25 +475,28 @@ async function initiateBlockProcessor(restoreDatabase) {
       const result = await serviceHelper.dropCollection(database, utxoIndexCollection).catch((error) => {
         if (error.message !== 'ns not found') {
           db.close();
-          log.error(error);
           throw error;
         }
       });
       const resultB = await serviceHelper.dropCollection(database, addressTransactionIndexCollection).catch((error) => {
         if (error.message !== 'ns not found') {
           db.close();
-          log.error(error);
           throw error;
         }
       });
       const resultC = await serviceHelper.dropCollection(database, zelnodeTransactionCollection).catch((error) => {
         if (error.message !== 'ns not found') {
           db.close();
-          log.error(error);
           throw error;
         }
       });
-      console.log(result, resultB, resultC);
+      const resultD = await serviceHelper.dropCollection(database, zelappsHashesCollection).catch((error) => {
+        if (error.message !== 'ns not found') {
+          db.close();
+          throw error;
+        }
+      });
+      console.log(result, resultB, resultC, resultD);
       database.collection(utxoIndexCollection).createIndex({ txid: 1, voutIndex: 1 }, { name: 'query for getting utxo' });
       database.collection(utxoIndexCollection).createIndex({ address: 1 }, { name: 'query for addresses utxo' });
       database.collection(utxoIndexCollection).createIndex({ scriptPubKey: 1 }, { name: 'query for scriptPubKey utxo' });
@@ -496,14 +506,21 @@ async function initiateBlockProcessor(restoreDatabase) {
       database.collection(zelnodeTransactionCollection).createIndex({ tier: 1 }, { name: 'query for getting list of zelnode txs according to benchmarking tier' });
       database.collection(zelnodeTransactionCollection).createIndex({ type: 1 }, { name: 'query for getting all zelnode txs according to type of transaction' });
       database.collection(zelnodeTransactionCollection).createIndex({ collateralHash: 1, collateralIndex: 1 }, { name: 'query for getting list of zelnode txs associated to specific collateral' });
+      database.collection(zelappsHashesCollection).createIndex({ txid: 1 }, { name: 'query for getting txid' });
+      database.collection(zelappsHashesCollection).createIndex({ height: 1 }, { name: 'query for getting height' });
+      database.collection(zelappsHashesCollection).createIndex({ zelapphash: 1 }, { name: 'query for getting zelapphash' });
     }
     if (zelcashHeight > scannedBlockHeight) {
-      // TODO this restoring will run basically every new block. That is not ideal.
+      if (zelcashHeight === config.zelapps.epochstart) {
+        // needed to create index on nodes not syncing from scratch. Remove after zelapps epoch start passes.
+        database.collection(zelappsHashesCollection).createIndex({ txid: 1 }, { name: 'query for getting txid' });
+        database.collection(zelappsHashesCollection).createIndex({ height: 1 }, { name: 'query for getting height' });
+        database.collection(zelappsHashesCollection).createIndex({ zelapphash: 1 }, { name: 'query for getting zelapphash' });
+      }
       if (scannedBlockHeight !== 0 && restoreDatabase) {
         const databaseRestored = await restoreDatabaseToBlockheightState(scannedBlockHeight);
         console.log(`Database restore status: ${databaseRestored}`);
         if (!databaseRestored) {
-          log.error('Error restoring database!');
           throw new Error('Error restoring database!');
         }
       }
@@ -900,11 +917,11 @@ async function reindexExplorer(req, res) {
 }
 
 async function rescanExplorer(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+  const authorized = true; // await serviceHelper.verifyPrivilege('zelteam', req);
   if (authorized === true) {
     // since what blockheight
     let { blockheight } = req.params; // we accept both help/command and help?command=getinfo
-    blockheight = blockheight || req.query.command || '';
+    blockheight = blockheight || req.query.blockheight;
     if (!blockheight) {
       const errMessage = serviceHelper.createErrorMessage('No blockheight provided');
       res.json(errMessage);
@@ -949,7 +966,7 @@ async function rescanExplorer(req, res) {
 
 async function getAddressBalance(req, res) {
   let { address } = req.params; // we accept both help/command and help?command=getinfo
-  address = address || req.query.command || '';
+  address = address || req.query.address || '';
   if (!address) {
     const errMessage = serviceHelper.createErrorMessage('No address provided');
     return res.json(errMessage);

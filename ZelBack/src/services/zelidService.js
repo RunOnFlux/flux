@@ -12,6 +12,32 @@ const mongoUrl = `mongodb://${config.database.url}:${config.database.port}/`;
 const goodchars = /^[1-9a-km-zA-HJ-NP-Z]+$/;
 
 async function loginPhrase(req, res) {
+  // check docker availablility
+  await zelappsService.dockerListContainers(false).catch((error) => {
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+    log.error(error);
+    throw error;
+  });
+  // check DOS state (contains zelcash checks)
+  const dosState = await zelfluxCommunication.getDOSState();
+  if (dosState.status === 'error') {
+    const errorMessage = 'Unable to check DOS state';
+    const errMessage = serviceHelper.createErrorMessage(errorMessage);
+    res.json(errMessage);
+    return;
+  }
+  if (dosState.status === 'success') {
+    if (dosState.data.dosState > 10 || dosState.data.dosMessage !== null) {
+      let errMessage = serviceHelper.createErrorMessage(dosState.data.dosMessage, 'DOS', dosState.data.dosState);
+      if (dosState.data.dosMessage !== 'Flux IP detection failed' && dosState.data.dosMessage !== 'Flux collision detection') {
+        errMessage = serviceHelper.createErrorMessage(dosState.data.dosMessage, 'CONNERROR', dosState.data.dosState);
+      }
+      res.json(errMessage);
+      return;
+    }
+  }
+
   const timestamp = new Date().getTime();
   const validTill = timestamp + (15 * 60 * 1000); // 15 minutes
   const phrase = timestamp + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
@@ -22,20 +48,7 @@ async function loginPhrase(req, res) {
        createdAt: 2019-08-09T13:08:41.335Z,
        expireAt: 2019-08-09T13:23:41.335Z
      }
-] */
-  // check DOS state
-  const dosState = await zelfluxCommunication.getDOSState();
-  if (dosState.status === 'error') {
-    const errorMessage = 'Unable to check DOS state';
-    const errMessage = serviceHelper.createErrorMessage(errorMessage);
-    res.json(errMessage);
-  }
-  if (dosState.status === 'success') {
-    if (dosState.data.dosState > 10 || dosState.data.dosMessage !== null) {
-      const errMessage = serviceHelper.createErrorMessage(dosState.data.dosMessage, 'DOS', dosState.data.dosState);
-      res.json(errMessage);
-    }
-  }
+  ] */
   const db = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
     const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
@@ -55,16 +68,44 @@ async function loginPhrase(req, res) {
     const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
     log.error(error);
+    db.close();
     throw error;
   });
   db.close();
-  await zelappsService.dockerListContainers(false).catch((error) => {
+  // all is ok
+  const phraseResponse = serviceHelper.createDataMessage(phrase);
+  res.json(phraseResponse);
+}
+
+// loginPhrase without status checks
+async function emergencyPhrase(req, res) {
+  const timestamp = new Date().getTime();
+  const validTill = timestamp + (15 * 60 * 1000); // 15 minutes
+  const phrase = timestamp + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+
+  const db = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
     const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
     log.error(error);
     throw error;
   });
-  // mongodb and docker works correctly
+  const database = db.db(config.database.local.database);
+  const collection = config.database.local.collections.activeLoginPhrases;
+  database.collection(collection).createIndex({ createdAt: 1 }, { expireAfterSeconds: 900 });
+  const newLoginPhrase = {
+    loginPhrase: phrase,
+    createdAt: new Date(timestamp),
+    expireAt: new Date(validTill),
+  };
+  const value = newLoginPhrase;
+  await serviceHelper.insertOneToDatabase(database, collection, value).catch((error) => {
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+    log.error(error);
+    db.close();
+    throw error;
+  });
+  db.close();
   const phraseResponse = serviceHelper.createDataMessage(phrase);
   res.json(phraseResponse);
 }
@@ -173,6 +214,7 @@ async function verifyLogin(req, res) {
             const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
             res.json(errMessage);
             log.error(error);
+            db.close();
             throw error;
           });
           db.close();
@@ -227,6 +269,7 @@ async function activeLoginPhrases(req, res) {
       const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
       res.json(errMessage);
       log.error(error);
+      db.close();
       throw error;
     });
     db.close();
@@ -261,6 +304,7 @@ async function loggedUsers(req, res) {
       const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
       res.json(errMessage);
       log.error(error);
+      db.close();
       throw error;
     });
     db.close();
@@ -297,6 +341,7 @@ async function loggedSessions(req, res) {
       const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
       res.json(errMessage);
       log.error(error);
+      db.close();
       throw error;
     });
     db.close();
@@ -331,6 +376,7 @@ async function logoutCurrentSession(req, res) {
       const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
       res.json(errMessage);
       log.error(error);
+      db.close();
       throw error;
     });
     db.close();
@@ -374,6 +420,7 @@ async function logoutSpecificSession(req, res) {
         const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
         res.json(errMessage);
         log.error(error);
+        db.close();
         throw error;
       });
       db.close();
@@ -411,6 +458,7 @@ async function logoutAllSessions(req, res) {
       const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
       res.json(errMessage);
       log.error(error);
+      db.close();
       throw error;
     });
     db.close();
@@ -438,6 +486,7 @@ async function logoutAllUsers(req, res) {
       const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
       res.json(errMessage);
       log.error(error);
+      db.close();
       throw error;
     });
     db.close();
@@ -545,6 +594,7 @@ async function wsRespondLoginPhrase(ws, req) {
 
 module.exports = {
   loginPhrase,
+  emergencyPhrase,
   verifyLogin,
   activeLoginPhrases,
   loggedUsers,

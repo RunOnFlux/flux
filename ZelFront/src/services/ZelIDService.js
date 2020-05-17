@@ -7,6 +7,10 @@ export default {
     return Api().get('/zelid/loginphrase');
   },
 
+  emergencyLoginPhrase() {
+    return Api().get('/zelid/emergencyphrase');
+  },
+
   verifyLogin(loginInfo) {
     return Api().post('/zelid/verifylogin', qs.stringify(loginInfo));
   },

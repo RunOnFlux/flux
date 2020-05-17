@@ -177,7 +177,16 @@ module.exports = (app, expressWs) => {
   app.get('/zelid/loginphrase', (req, res) => {
     zelidService.loginPhrase(req, res);
   });
+  app.get('/zelid/emergencyphrase', (req, res) => {
+    zelidService.emergencyPhrase(req, res);
+  });
 
+  app.get('/zelflux/info', (req, res) => {
+    zelnodeService.getZelFluxInfo(req, res);
+  });
+  app.get('/zelflux/timezone', (req, res) => {
+    zelnodeService.getZelFluxTimezone(req, res);
+  });
   app.get('/zelflux/version', (req, res) => {
     zelnodeService.getZelFluxVersion(req, res);
   });
@@ -202,13 +211,10 @@ module.exports = (app, expressWs) => {
   app.get('/zelflux/incomingconnectionsinfo', (req, res) => {
     zelfluxCommunication.getIncomingConnectionsInfo(req, res, expressWs.getWss('/ws/zelflux'));
   });
+  app.get('/zelflux/checkfluxavailability/:ip?', (req, res) => {
+    zelfluxCommunication.checkFluxAvailability(req, res);
+  });
 
-  app.get('/zelapps/zelappregister/:repotag?/:name?/:owner?/:cpus?/:ram?/:space?/:port?/:ip?/:envvars?/:privacylevel?', (req, res) => { // privacy level means restrictions of calls. envvars can have privacy to be/not to be exposed // TODO make me post, needs redoing
-    zelappsService.zelAppRegister(req, res);
-  });
-  app.get('/zelapps/zelapppull/:repotag?', (req, res) => { // TODO make me post, needs redoing
-    zelappsService.zelAppPull(req, res);
-  });
   app.get('/zelapps/listrunningzelapps', (req, res) => {
     zelappsService.listRunningZelApps(req, res);
   });
@@ -218,48 +224,20 @@ module.exports = (app, expressWs) => {
   app.get('/zelapps/listzelappsimages', (req, res) => {
     zelappsService.listZelAppsImages(req, res);
   });
-  app.get('/zelapps/zelappstart/:container?', (req, res) => {
-    zelappsService.zelAppStart(req, res);
+  app.get('/zelapps/installedzelapps', (req, res) => {
+    zelappsService.installedZelApps(req, res);
   });
-  app.get('/zelapps/zelappstop/:container?', (req, res) => {
-    zelappsService.zelAppStop(req, res);
+  app.get('/zelapps/availablezelapps', (req, res) => {
+    zelappsService.availableZelApps(req, res);
   });
-  app.get('/zelapps/restartzelapp/:container?', (req, res) => {
-    zelappsService.zelAppRestart(req, res);
-  });
-  app.get('/zelapps/zelappkill/:container?', (req, res) => {
-    zelappsService.zelAppKill(req, res);
-  });
-  app.get('/zelapps/zelappremove/:container?', (req, res) => {
-    zelappsService.zelAppRemove(req, res);
-  });
-  app.get('/zelapps/zelapppause/:container?', (req, res) => {
-    zelappsService.zelAppPause(req, res);
-  });
-  app.get('/zelapps/zelappunpause/:container?', (req, res) => {
-    zelappsService.zelAppUnpause(req, res);
-  });
-  app.get('/zelapps/zelapptop/:container?', (req, res) => {
-    zelappsService.zelAppTop(req, res);
-  });
-  app.get('/zelapps/zelapplog/:container?', (req, res) => {
-    zelappsService.zelAppLog(req, res);
-  });
-  app.get('/zelapps/zelappinspect/:container?', (req, res) => { // TODO this shall require app owner privilege for all information
-    zelappsService.zelAppInspect(req, res);
-  });
-  app.get('/zelapps/zelappupdate/:container?/:cpus?/:memory?', (req, res) => { // TODO this shall require app owner privilege for all information
-    zelappsService.zelAppUpdate(req, res);
-  });
-  app.get('/zelapps/zelappexec/:container?/:cmd?/:env?', (req, res) => { // todo post, privileges
-    zelappsService.zelAppExec(req, res);
-  });
-
   app.get('/zelapps/zelshare/getfile/:file?', (req, res) => {
     zelappsService.zelShareFile(req, res);
   });
   app.get('/zelapps/zelfluxusage', (req, res) => {
-    zelappsService.zelfluxUsage(req, res);
+    zelappsService.zelFluxUsage(req, res);
+  });
+  app.get('/zelapps/zelappsresources', (req, res) => {
+    zelappsService.zelappsResources(req, res);
   });
 
   // app.get('/explorer/allutxos', (req, res) => {
@@ -325,12 +303,6 @@ module.exports = (app, expressWs) => {
   // GET PROTECTED API - ZelNode Owner
   app.get('/zelcash/stop', (req, res) => {
     zelcashService.stop(req, res);
-  });
-  app.get('/zelcash/start', (req, res) => {
-    zelnodeService.startZelCash(req, res);
-  });
-  app.get('/zelcash/restart', (req, res) => {
-    zelnodeService.restartZelCash(req, res);
   });
   app.get('/zelcash/reindex', (req, res) => {
     zelnodeService.reindexZelCash(req, res);
@@ -550,6 +522,12 @@ module.exports = (app, expressWs) => {
   });
 
   // GET PROTECTED API - ZelTeam
+  app.get('/zelcash/start', (req, res) => {
+    zelnodeService.startZelCash(req, res);
+  });
+  app.get('/zelcash/restart', (req, res) => {
+    zelnodeService.restartZelCash(req, res);
+  });
   app.get('/zelcash/ping', (req, res) => { // we do not want this to be issued by anyone.
     zelcashService.ping(req, res);
   });
@@ -578,6 +556,15 @@ module.exports = (app, expressWs) => {
   app.get('/zelnode/updatezelbench', (req, res) => { // method shall be called only if zelbench version is obsolete
     zelnodeService.updateZelBench(req, res);
   });
+  app.get('/zelnode/zelcashdebug', (req, res) => {
+    zelnodeService.zelcashDebug(req, res);
+  });
+  app.get('/zelnode/zelbenchdebug', (req, res) => {
+    zelnodeService.zelbenchDebug(req, res);
+  });
+  app.get('/zelnode/zelfluxerrorlog', (req, res) => {
+    zelnodeService.zelfluxErrorLog(req, res);
+  });
 
   app.get('/zelflux/broadcastmessage/:data?', (req, res) => {
     zelfluxCommunication.broadcastMessageFromUser(req, res);
@@ -597,6 +584,9 @@ module.exports = (app, expressWs) => {
   app.get('/zelflux/removeincomingpeer/:ip?', (req, res) => {
     zelfluxCommunication.removeIncomingPeer(req, res, expressWs.getWss('/ws/zelflux'));
   });
+  app.get('/zelflux/allowport/:port?', (req, res) => {
+    zelfluxCommunication.allowPortApi(req, res);
+  });
 
   app.get('/zelbench/restartnodebenchmarks', (req, res) => {
     zelbenchService.restartNodeBenchmarks(req, res);
@@ -613,6 +603,61 @@ module.exports = (app, expressWs) => {
   });
   app.get('/explorer/rescan/:blockheight?', (req, res) => {
     explorerService.rescanExplorer(req, res);
+  });
+
+  app.get('/zelapps/zelappregister/:repotag?/:name?/:owner?/:cpus?/:ram?/:space?/:port?/:ip?/:envvars?/:privacylevel?', (req, res) => { // privacy level means restrictions of calls. envvars can have privacy to be/not to be exposed // TODO make me post, needs redoing
+    zelappsService.zelAppRegister(req, res);
+  });
+  app.get('/zelapps/zelapppull/:repotag?', (req, res) => { // TODO make me post, needs redoing
+    zelappsService.zelAppPull(req, res);
+  });
+  app.get('/zelapps/zelappstart/:container?', (req, res) => {
+    zelappsService.zelAppStart(req, res);
+  });
+  app.get('/zelapps/zelappstop/:container?', (req, res) => {
+    zelappsService.zelAppStop(req, res);
+  });
+  app.get('/zelapps/restartzelapp/:container?', (req, res) => {
+    zelappsService.zelAppRestart(req, res);
+  });
+  app.get('/zelapps/zelappkill/:container?', (req, res) => {
+    zelappsService.zelAppKill(req, res);
+  });
+  app.get('/zelapps/zelappcontainerremove/:container?', (req, res) => {
+    zelappsService.zelAppRemove(req, res);
+  });
+  app.get('/zelapps/zelapppause/:container?', (req, res) => {
+    zelappsService.zelAppPause(req, res);
+  });
+  app.get('/zelapps/zelappunpause/:container?', (req, res) => {
+    zelappsService.zelAppUnpause(req, res);
+  });
+  app.get('/zelapps/zelapptop/:container?', (req, res) => {
+    zelappsService.zelAppTop(req, res);
+  });
+  app.get('/zelapps/zelapplog/:container?', (req, res) => {
+    zelappsService.zelAppLog(req, res);
+  });
+  app.get('/zelapps/zelappinspect/:container?', (req, res) => { // TODO this shall require app owner privilege for all information
+    zelappsService.zelAppInspect(req, res);
+  });
+  app.get('/zelapps/zelappupdate/:container?/:cpus?/:memory?', (req, res) => { // TODO this shall require app owner privilege for all information
+    zelappsService.zelAppUpdate(req, res);
+  });
+  app.get('/zelapps/zelappexec/:container?/:cmd?/:env?', (req, res) => { // todo post, privileges
+    zelappsService.zelAppExec(req, res);
+  });
+  app.get('/zelapps/zelappremove/:zelapp?', (req, res) => {
+    zelappsService.removeZelAppLocally(req, res);
+  });
+  app.get('/zelapps/zelappimageremove/:image?', (req, res) => {
+    zelappsService.zelAppImageRemove(req, res);
+  });
+  app.get('/zelapps/zelapptemporarylocalregister/foldingathome', (req, res) => {
+    zelappsService.temporaryZelAppRegisterFunctionForFoldingAtHome(req, res);
+  });
+  app.get('/zelapps/createzelfluxnetwork', (req, res) => {
+    zelappsService.createZelFluxNetwork(req, res);
   });
 
   // POST PUBLIC methods route
