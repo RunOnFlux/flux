@@ -252,11 +252,23 @@ async function listRunningZelApps(req, res) {
     if (zelapps.length > 0) {
       zelapps = zelapps.filter((zelapp) => zelapp.Names[0].substr(1, 3) === 'zel');
     }
-    const zelappsResponse = serviceHelper.createDataMessage(zelapps);
+    const modifiedZelApps = [];
+    zelapps.forEach((zelapp) => {
+      delete zelapp.HostConfig;
+      delete zelapp.NetworkSettings;
+      delete zelapp.Mounts;
+      modifiedZelApps.push(zelapp)
+    })
+    const zelappsResponse = serviceHelper.createDataMessage(modifiedZelApps);
     return res ? res.json(zelappsResponse) : zelappsResponse;
   } catch (error) {
-    const zelappsResponse = serviceHelper.createDataMessage(zelapps);
-    return res ? res.json(zelappsResponse) : zelappsResponse;
+    log.error(error);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    return res ? res.json(errorResponse) : errorResponse;
   }
 }
 
@@ -268,18 +280,29 @@ async function listAllZelApps(req, res) {
       error.code,
     );
     log.error(error);
-    res.json(errMessage);
-    throw error;
+    return res ? res.json(errMessage) : errMessage;
   });
   try {
     if (zelapps.length > 0) {
       zelapps = zelapps.filter((zelapp) => zelapp.Names[0].substr(1, 3) === 'zel');
     }
-    const zelappsResponse = serviceHelper.createDataMessage(zelapps);
+    const modifiedZelApps = [];
+    zelapps.forEach((zelapp) => {
+      delete zelapp.HostConfig;
+      delete zelapp.NetworkSettings;
+      delete zelapp.Mounts;
+      modifiedZelApps.push(zelapp)
+    })
+    const zelappsResponse = serviceHelper.createDataMessage(modifiedZelApps);
     return res ? res.json(zelappsResponse) : zelappsResponse;
   } catch (error) {
-    const zelappsResponse = serviceHelper.createDataMessage(zelapps);
-    return res ? res.json(zelappsResponse) : zelappsResponse;
+    log.error(error);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    return res ? res.json(errorResponse) : errorResponse;
   }
 }
 
