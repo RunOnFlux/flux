@@ -1349,7 +1349,6 @@ async function removeZelAppLocally(req, res) {
     };
     res.write(serviceHelper.ensureString(stopStatus));
     await zelAppDockerStop(zelapp).catch((error) => {
-      dbopen.close();
       const errorResponse = serviceHelper.createErrorMessage(
         error.message || error,
         error.name,
@@ -1384,7 +1383,6 @@ async function removeZelAppLocally(req, res) {
     };
     res.write(serviceHelper.ensureString(imageStatus));
     await zelAppDockerImageRemove(zelAppSpecifications.repotag).catch((error) => {
-      dbopen.close();
       const errorResponse = serviceHelper.createErrorMessage(
         error.message || error,
         error.name,
