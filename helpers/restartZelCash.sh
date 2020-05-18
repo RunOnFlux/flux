@@ -21,4 +21,3 @@ if sudo systemctl list-units --full -all | grep -o 'zelcash.service' | head -n1 
 else
   "$COIN_DAEMON"
 fi
-
