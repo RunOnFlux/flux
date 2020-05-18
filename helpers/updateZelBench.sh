@@ -11,8 +11,8 @@ PATH=$PATH:"$COIN_PATH"
 export PATH
 
 #Closing zelcash daemon and purge zelbench
-"$COIN_CLI" stop >/dev/null 2>&1 && sleep 5
 sudo systemctl stop zelcash >/dev/null 2>&1 && sleep 3
+"$COIN_CLI" stop >/dev/null 2>&1 && sleep 3
 sudo killall "$COIN_DAEMON" >/dev/null 2>&1
 sudo killall -s SIGKILL zelbenchd >/dev/null 2>&1 && sleep 1
 sudo apt-get purge zelbench -y >/dev/null 2>&1 && sleep 1
@@ -53,5 +53,8 @@ if ! gpg --list-keys Zel >/dev/null; then
     fi
   fi
 fi
-
-"$COIN_DAEMON"
+if sudo systemctl list-units --full -all | grep -o 'zelcash.service' | head -n1 >/dev/null; then
+  sudo systemctl start zelcash
+else
+  "$COIN_DAEMON"
+fi
