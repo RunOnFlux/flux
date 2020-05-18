@@ -5,6 +5,7 @@ COIN_NAME='zelcash'
 COIN_DAEMON='zelcashd'
 COIN_CLI='zelcash-cli'
 COIN_PATH='/usr/local/bin'
+#end of required details
 
 # add to path
 PATH=$PATH:"$COIN_PATH"
@@ -54,8 +55,9 @@ if ! gpg --list-keys Zel >/dev/null; then
     fi
   fi
 fi
-if sudo systemctl list-units --full -all | grep -o 'zelcash.service' | head -n1 >/dev/null; then
-  sudo systemctl start zelcash
+
+if sudo systemctl list-units --full --no-legend --no-pager --plain --all --type service "$COIN_NAME.service" | grep -Foq "$COIN_NAME.service"; then
+  sudo systemctl start "$COIN_NAME"
 else
   "$COIN_DAEMON"
 fi
