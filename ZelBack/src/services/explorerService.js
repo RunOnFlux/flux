@@ -303,7 +303,7 @@ async function processBlock(blockHeight) {
           });
         }));
         // MAY contain ZelApp transaction. Store it.
-        if (addressesOK.indexOf(config.zelapps.address > -1) && message.length === 64) { // todo sha256 hash length
+        if (addressesOK.indexOf(config.zelapps.address) > -1 && message.length === 64) { // todo sha256 hash length
           const zelappTxRecord = { txid: tx.txid, height: tx.height, zelapphash: message };
           zelappsService.checkAndRequestZelApp(message);
           await serviceHelper.insertOneToDatabase(database, zelappsHashesCollection, zelappTxRecord).catch((error) => {

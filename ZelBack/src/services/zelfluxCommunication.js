@@ -846,7 +846,7 @@ async function removeIncomingPeer(req, res, expressWS) {
 async function checkMyFluxAvailability(zelnodelist) {
   // run if at least 10 available nodes
   if (zelnodelist.length > 10) {
-    let askingIP = getRandomConnection();
+    let askingIP = await getRandomConnection();
     if (typeof askingIP !== 'string' || typeof myFluxIP !== 'string') {
       return;
     }
@@ -860,7 +860,7 @@ async function checkMyFluxAvailability(zelnodelist) {
     }
     const resMyAvailability = await axios.get(`http://${askingIP}/zelflux/checkfluxavailability/${myIP}`, axiosConfig);
     if (resMyAvailability.data.status === 'error') {
-      log.error(` My Flux unavailability detected from ${askingIP}`);
+      log.error(`My Flux unavailability detected from ${askingIP}`);
       // Asked Flux cannot reach me
       dosState += 1;
       if (dosState > 10) {
