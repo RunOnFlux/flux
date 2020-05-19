@@ -1,4 +1,5 @@
 /* eslint-disable no-underscore-dangle */
+const axios = require('axios');
 const WebSocket = require('ws');
 const bitcoinjs = require('bitcoinjs-lib');
 const config = require('config');
@@ -20,7 +21,63 @@ const incomingPeers = []; // array of objects containing ip and rtt latency
 let dosState = 0;
 let dosMessage = null;
 
+// my external Flux IP from zelbench
+let myFluxIP = null;
+
+const axiosConfig = {
+  timeout: 8888,
+};
+
 let response = serviceHelper.createErrorMessage();
+
+// helper function for timeout on axios connection
+const axiosGet = (url, options = {}) => {
+  const abort = axios.CancelToken.source();
+  const id = setTimeout(
+    () => abort.cancel(`Timeout of ${config.timeout}ms.`),
+    axiosConfig.timeout,
+  );
+  return axios
+    .get(url, { cancelToken: abort.token, ...options })
+    .then((res) => {
+      clearTimeout(id);
+      return res;
+    });
+};
+
+// basic check for a version of other flux.
+async function isFluxAvailable(ip) {
+  try {
+    const fluxResponse = await axiosGet(`http://${ip}:16127/zelflux/version`, axiosConfig);
+    if (fluxResponse.data.status === 'success') {
+      return true;
+    }
+    return false;
+  } catch (e) {
+    return false;
+  }
+}
+
+// basic check for a version of other flux.
+async function checkFluxAvailability(req, res) {
+  let { ip } = req.params;
+  ip = ip || req.query.ip;
+  if (ip === undefined || ip === null) {
+    const errMessage = serviceHelper.createErrorMessage('No ip specified.');
+    return res.json(errMessage);
+  }
+
+  const available = await isFluxAvailable(ip);
+
+  if (available === true) {
+    const message = serviceHelper.createSuccessMessage('Asking Flux is available');
+    response = message;
+  } else {
+    const message = serviceHelper.createSuccessMessage('Asking Flux is not available');
+    response = message;
+  }
+  return res.json(response);
+}
 
 async function myZelNodeIP() {
   const benchmarkResponse = await zelcashServices.getBenchmarks();
@@ -476,7 +533,7 @@ async function getRandomConnection() {
 
   // TODO checks for ipv4, ipv6, tor
   // TODO check for if its mine address
-  if (ip === userconfig.initial.ipaddress) {
+  if (ip === userconfig.initial.ipaddress || ip === myFluxIP) {
     return null;
   }
 
@@ -785,12 +842,50 @@ async function removeIncomingPeer(req, res, expressWS) {
   return res.json(response);
 }
 
+// eslint-disable-next-line no-unused-vars
+async function checkMyFluxAvailability(zelnodelist) {
+  // run if at least 10 available nodes
+  if (zelnodelist.length > 10) {
+    let askingIP = await getRandomConnection();
+    if (typeof askingIP !== 'string' || typeof myFluxIP !== 'string') {
+      return;
+    }
+    if (askingIP.includes(':')) {
+      // it is ipv6
+      askingIP = `[${askingIP}]`;
+    }
+    let myIP = myFluxIP;
+    if (myIP.includes(':')) {
+      myIP = `[${myIP}]`;
+    }
+    const resMyAvailability = await axios.get(`http://${askingIP}/zelflux/checkfluxavailability/${myIP}`, axiosConfig);
+    if (resMyAvailability.data.status === 'error') {
+      log.error(`My Flux unavailability detected from ${askingIP}`);
+      // Asked Flux cannot reach me
+      dosState += 1;
+      if (dosState > 10) {
+        dosMessage = dosMessage || 'Flux is not available for outside communication';
+        log.error(dosMessage);
+      } else {
+        checkFluxAvailability(zelnodelist);
+      }
+    } else {
+      dosState = 0;
+      dosMessage = null;
+    }
+  } else {
+    dosState = 0;
+    dosMessage = null;
+  }
+}
+
 async function checkDeterministicNodesCollisions() {
   // get my external ip address
   // get zelnode list with filter on this ip address
   // if it returns more than 1 object, shut down.
   // another precatuion might be comparing zelnode list on multiple zelnodes. evaulate in the future
   const myIP = await myZelNodeIP();
+  myFluxIP = myIP;
   if (myIP !== null) {
     const zelnodeList = await deterministicZelNodeList();
     const result = zelnodeList.filter((zelnode) => zelnode.ip === myIP);
@@ -798,10 +893,13 @@ async function checkDeterministicNodesCollisions() {
       log.error('Flux collision detection');
       dosState = 100;
       dosMessage = 'Flux collision detection';
-    } else {
-      dosState = 0;
-      dosMessage = null;
+      return;
     }
+    // TODO delete in v60
+    dosState = 0;
+    dosMessage = null;
+    // TODO uncomment in v60
+    // checkMyFluxAvailability(zelnodeList);
   } else {
     dosState += 1;
     if (dosState > 10) {
@@ -943,4 +1041,5 @@ module.exports = {
   allowPort,
   allowPortApi,
   denyPort,
+  checkFluxAvailability,
 };

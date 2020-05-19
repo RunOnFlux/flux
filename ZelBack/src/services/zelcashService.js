@@ -2193,7 +2193,7 @@ async function zImportViewingKey(req, res) {
   startheight = startheight || req.query.startheight || 0;
   const authorized = await serviceHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
-    const rpccall = 'z_importkey';
+    const rpccall = 'z_importviewingkey';
     let rpcparameters = [];
     if (vkey) {
       startheight = serviceHelper.ensureNumber(startheight);

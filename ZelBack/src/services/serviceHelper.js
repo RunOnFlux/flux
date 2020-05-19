@@ -179,7 +179,10 @@ async function verifyAdminSession(headers) {
         const collection = config.database.local.collections.loggedUsers;
         const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
         const projection = {};
-        const result = await findOneInDatabase(database, collection, query, projection).catch((error) => { throw error; });
+        const result = await findOneInDatabase(database, collection, query, projection).catch((error) => {
+          db.close();
+          throw error;
+        });
         const loggedUser = result;
         // console.log(result)
         db.close();
@@ -219,7 +222,10 @@ async function verifyUserSession(headers) {
       const collection = config.database.local.collections.loggedUsers;
       const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
       const projection = {};
-      const result = await findOneInDatabase(database, collection, query, projection).catch((error) => { throw error; });
+      const result = await findOneInDatabase(database, collection, query, projection).catch((error) => {
+        db.close();
+        throw error;
+      });
       const loggedUser = result;
       // console.log(result)
       db.close();
@@ -256,7 +262,10 @@ async function verifyZelTeamSession(headers) {
         const collection = config.database.local.collections.loggedUsers;
         const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
         const projection = {};
-        const result = await findOneInDatabase(database, collection, query, projection).catch((error) => { throw error; });
+        const result = await findOneInDatabase(database, collection, query, projection).catch((error) => {
+          db.close();
+          throw error;
+        });
         const loggedUser = result;
         db.close();
         if (loggedUser) {

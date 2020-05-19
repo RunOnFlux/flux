@@ -21,7 +21,8 @@ const docker = new Docker();
 
 const mongoUrl = `mongodb://${config.database.url}:${config.database.port}/`;
 const scannedHeightCollection = config.database.zelcash.collections.scannedHeight;
-const localZelAppsInformation = config.database.zelapps.collections.zelappsInformation;
+const localZelAppsInformation = config.database.zelappslocal.collections.zelappsInformation;
+const globalZelAppsMessages = config.database.zelappsglobal.collections.zelAppsMessages;
 
 async function dockerCreateNetwork(options) {
   const network = await docker.createNetwork(options).catch((error) => {
@@ -35,36 +36,6 @@ async function dockerNetworkInspect(netw) {
     throw error;
   });
   return network;
-}
-
-async function createZelFluxNetwork(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
-  if (!authorized) {
-    const errMessage = serviceHelper.errUnauthorizedMessage();
-    return res.json(errMessage);
-  }
-  try {
-    const options = {
-      Name: 'zelfluxDockerNetwork',
-      IPAM: {
-        Config: [{
-          Subnet: '172.16.0.0/16',
-          Gateway: '172.16.0.1',
-        }],
-      },
-    };
-    const dockerRes = await dockerCreateNetwork(options);
-    const response = serviceHelper.createDataMessage(dockerRes);
-    return res.json(response);
-  } catch (error) {
-    log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    return res.json(errorResponse);
-  }
 }
 
 async function dockerListContainers(all, limit, size, filter) {
@@ -281,11 +252,23 @@ async function listRunningZelApps(req, res) {
     if (zelapps.length > 0) {
       zelapps = zelapps.filter((zelapp) => zelapp.Names[0].substr(1, 3) === 'zel');
     }
-    const zelappsResponse = serviceHelper.createDataMessage(zelapps);
+    const modifiedZelApps = [];
+    zelapps.forEach((zelapp) => {
+      delete zelapp.HostConfig;
+      delete zelapp.NetworkSettings;
+      delete zelapp.Mounts;
+      modifiedZelApps.push(zelapp)
+    })
+    const zelappsResponse = serviceHelper.createDataMessage(modifiedZelApps);
     return res ? res.json(zelappsResponse) : zelappsResponse;
   } catch (error) {
-    const zelappsResponse = serviceHelper.createDataMessage(zelapps);
-    return res ? res.json(zelappsResponse) : zelappsResponse;
+    log.error(error);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    return res ? res.json(errorResponse) : errorResponse;
   }
 }
 
@@ -297,18 +280,29 @@ async function listAllZelApps(req, res) {
       error.code,
     );
     log.error(error);
-    res.json(errMessage);
-    throw error;
+    return res ? res.json(errMessage) : errMessage;
   });
   try {
     if (zelapps.length > 0) {
       zelapps = zelapps.filter((zelapp) => zelapp.Names[0].substr(1, 3) === 'zel');
     }
-    const zelappsResponse = serviceHelper.createDataMessage(zelapps);
+    const modifiedZelApps = [];
+    zelapps.forEach((zelapp) => {
+      delete zelapp.HostConfig;
+      delete zelapp.NetworkSettings;
+      delete zelapp.Mounts;
+      modifiedZelApps.push(zelapp)
+    })
+    const zelappsResponse = serviceHelper.createDataMessage(modifiedZelApps);
     return res ? res.json(zelappsResponse) : zelappsResponse;
   } catch (error) {
-    const zelappsResponse = serviceHelper.createDataMessage(zelapps);
-    return res ? res.json(zelappsResponse) : zelappsResponse;
+    log.error(error);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    return res ? res.json(errorResponse) : errorResponse;
   }
 }
 
@@ -341,6 +335,9 @@ async function zelAppDockerCreate(zelappSpecifications) {
     HostConfig: {
       NanoCPUs: zelappSpecifications.cpu * 1e9,
       Memory: zelappSpecifications.ram * 1024 * 1024,
+      // StorageOpt: { // disabled, done in volumes, requires xfs
+      //   size: `${zelappSpecifications.hdd}G`,
+      // },
       Binds: [`${zelappsFolder + zelappSpecifications.name}:${zelappSpecifications.containerData}`],
       Ulimits: [
         {
@@ -924,6 +921,53 @@ async function zelShareFile(req, res) {
   return res.sendFile(filepath);
 }
 
+async function createFluxNetwork() {
+  // check if zelfluxDockerNetwork exists
+  const fluxNetworkOptions = {
+    Name: 'zelfluxDockerNetwork',
+    IPAM: {
+      Config: [{
+        Subnet: '172.16.0.0/16',
+        Gateway: '172.16.0.1',
+      }],
+    },
+  };
+  let fluxNetworkExists = true;
+  const networkID = docker.getNetwork(fluxNetworkOptions.Name);
+  await dockerNetworkInspect(networkID).catch(() => {
+    fluxNetworkExists = false;
+  });
+  let response;
+  // create or check docker network
+  if (!fluxNetworkExists) {
+    response = await dockerCreateNetwork(fluxNetworkOptions);
+  } else {
+    response = 'Flux Network already exists.';
+  }
+  return response;
+}
+
+async function createZelFluxNetwork(req, res) {
+  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+  if (!authorized) {
+    const errMessage = serviceHelper.errUnauthorizedMessage();
+    return res.json(errMessage);
+  }
+  try {
+    const dockerRes = await createFluxNetwork();
+    const response = serviceHelper.createDataMessage(dockerRes);
+    return res.json(response);
+  } catch (error) {
+    log.error(error);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    return res.json(errorResponse);
+  }
+}
+
 async function zelFluxUsage(req, res) {
   try {
     const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
@@ -975,7 +1019,7 @@ async function zelFluxUsage(req, res) {
     cpuUsage *= cpuCores;
 
     // load usedResources of zelapps
-    const zelappsDatabase = dbopen.db(config.database.zelapps.database);
+    const zelappsDatabase = dbopen.db(config.database.zelappslocal.database);
     const zelappsQuery = { cpu: { $gte: 0 } };
     const zelappsProjection = {
       projection: {
@@ -998,9 +1042,13 @@ async function zelFluxUsage(req, res) {
     if (loadavg) {
       fiveMinUsage = serviceHelper.ensureNumber(loadavg[1]) || 0;
     }
-    // if fiveminUsage is greaeter than our cpuUsage, do an average of those numbers;
+    if (fiveMinUsage > cpuCores) {
+      fiveMinUsage = cpuCores;
+    }
+    // do an average of fiveMinUsage and cpuUsage;
     const avgOfUsage = ((fiveMinUsage + cpuUsage) / 2).toFixed(8);
     const response = serviceHelper.createDataMessage(avgOfUsage);
+    dbopen.close();
     return res ? res.json(response) : response;
   } catch (error) {
     log.error(error);
@@ -1097,7 +1145,7 @@ async function temporaryZelAppRegisterFunctionForFoldingAtHome(req, res) {
         throw error;
       });
 
-      const zelappsDatabase = dbopen.db(config.database.zelapps.database);
+      const zelappsDatabase = dbopen.db(config.database.zelappslocal.database);
       const zelappsQuery = { name: zelAppSpecifications.name };
       const zelappsProjection = {
         projection: {
@@ -1118,27 +1166,10 @@ async function temporaryZelAppRegisterFunctionForFoldingAtHome(req, res) {
           throw error;
         });
       }
+      dbopen.close();
 
-      // check if zelfluxDockerNetwork exists
-      const fluxNetworkOptions = {
-        Name: 'zelfluxDockerNetwork',
-        IPAM: {
-          Config: [{
-            Subnet: '172.16.0.0/16',
-            Gateway: '172.16.0.1',
-          }],
-        },
-      };
-      let fluxNetworkExists = true;
-      const networkID = docker.getNetwork(fluxNetworkOptions.Name);
-      await dockerNetworkInspect(networkID).catch(() => {
-        fluxNetworkExists = false;
-      });
-      // create or check docker network
-      // docker network create --subnet=172.16.0.0/16 --gateway=172.16.0.1 zelfluxDockerNetwork
-      if (!fluxNetworkExists) {
-        await dockerCreateNetwork(fluxNetworkOptions);
-      }
+      // check if zelfluxDockerNetwork exists, if not create
+      await createFluxNetwork();
 
       // pull image
       // set the appropriate HTTP header
@@ -1277,13 +1308,14 @@ async function installedZelApps(req, res) {
       throw error;
     });
 
-    const zelappsDatabase = dbopen.db(config.database.zelapps.database);
+    const zelappsDatabase = dbopen.db(config.database.zelappslocal.database);
     const zelappsQuery = {};
     const zelappsProjection = {};
     const zelApps = await serviceHelper.findInDatabase(zelappsDatabase, localZelAppsInformation, zelappsQuery, zelappsProjection).catch((error) => {
       dbopen.close();
       throw error;
     });
+    dbopen.close();
     const dataResponse = serviceHelper.createDataMessage(zelApps);
     return res.json(dataResponse);
   } catch (error) {
@@ -1320,7 +1352,7 @@ async function removeZelAppLocally(req, res) {
       throw error;
     });
 
-    const zelappsDatabase = dbopen.db(config.database.zelapps.database);
+    const zelappsDatabase = dbopen.db(config.database.zelappslocal.database);
     const zelappsQuery = { name: zelapp };
     const zelappsProjection = {};
     const zelAppSpecifications = await serviceHelper.findOneInDatabase(zelappsDatabase, localZelAppsInformation, zelappsQuery, zelappsProjection).catch((error) => {
@@ -1441,7 +1473,7 @@ async function zelappsResources(req, res) {
     const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
       throw error;
     });
-    const zelappsDatabase = dbopen.db(config.database.zelapps.database);
+    const zelappsDatabase = dbopen.db(config.database.zelappslocal.database);
     const zelappsQuery = { cpu: { $gte: 0 } };
     const zelappsProjection = {
       projection: {
@@ -1455,6 +1487,7 @@ async function zelappsResources(req, res) {
       dbopen.close();
       throw error;
     });
+    dbopen.close();
     let zelAppsCpusLocked = 0;
     let zelAppsRamLocked = 0;
     let zelAppsHddLocked = 0;
@@ -1478,6 +1511,54 @@ async function zelappsResources(req, res) {
       error.code,
     );
     return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
+async function calculateZelAmountForApp(cpu, ram, hdd) {
+  const cpuPrice = config.zelapps.price.cpu;
+  const ramPrice = config.zelapps.price.ram;
+  const hddPrice = config.zelapps.price.hdd;
+
+  const cpuTotal = serviceHelper.ensureNumber(cpu) * cpuPrice;
+  const ramTotal = serviceHelper.ensureNumber(ram) * ramPrice;
+  const hddTotal = serviceHelper.ensureNumber(hdd) * hddPrice;
+
+  const total = cpuTotal + ramTotal + hddTotal;
+  return total;
+}
+
+async function checkZelAppMessageExistence(zelapphash) {
+  try {
+    const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
+      throw error;
+    });
+    const zelappsDatabase = dbopen.db(config.database.zelappslocal.database);
+    const zelappsQuery = { zelapphash };
+    const zelappsProjection = {};
+    const zelappResult = await serviceHelper.findOneInDatabase(zelappsDatabase, globalZelAppsMessages, zelappsQuery, zelappsProjection).catch((error) => {
+      dbopen.close();
+      throw error;
+    });
+    dbopen.close();
+    if (zelappResult) {
+      return true;
+    }
+    return false;
+  } catch (error) {
+    log.error(error);
+    return error;
+  }
+}
+
+async function checkAndRequestZelApp(zelapphash) {
+  try {
+    const appMessageExists = await checkZelAppMessageExistence(zelapphash);
+    if (!appMessageExists) {
+      // we surely do not have that message.
+      // request the message and broadcast the message further to our connected peers.
+    }
+  } catch (error) {
+    log.error(error);
   }
 }
 
@@ -1509,4 +1590,7 @@ module.exports = {
   installedZelApps,
   availableZelApps,
   zelappsResources,
+  calculateZelAmountForApp,
+  checkZelAppMessageExistence,
+  checkAndRequestZelApp,
 };

@@ -211,6 +211,9 @@ module.exports = (app, expressWs) => {
   app.get('/zelflux/incomingconnectionsinfo', (req, res) => {
     zelfluxCommunication.getIncomingConnectionsInfo(req, res, expressWs.getWss('/ws/zelflux'));
   });
+  app.get('/zelflux/checkfluxavailability/:ip?', (req, res) => {
+    zelfluxCommunication.checkFluxAvailability(req, res);
+  });
 
   app.get('/zelapps/listrunningzelapps', (req, res) => {
     zelappsService.listRunningZelApps(req, res);
