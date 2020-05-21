@@ -1243,9 +1243,9 @@ async function createZelAppVolume(zelAppSpecifications, res) {
   if (res) {
     res.write(serviceHelper.ensureString(allocateSpace));
   }
-  let execDD = `dd if=/dev/zero of=${useThisVolume.mount}/${zelAppSpecifications.name}TEMP bs=107374182 count=${zelAppSpecifications.hdd}`; // eg /mnt/sthMounted/zelappTEMP
+  let execDD = `sudo dd if=/dev/zero of=${useThisVolume.mount}/${zelAppSpecifications.name}TEMP bs=107374182 count=${zelAppSpecifications.hdd}`; // eg /mnt/sthMounted/zelappTEMP
   if (useThisVolume.mount === '/') {
-    execDD = `dd if=/dev/zero of=${useThisVolume.mount}tmp/${zelAppSpecifications.name}TEMP bs=107374182 count=${zelAppSpecifications.hdd}`; // if root mount then temp file is /tmp/zelappTEMP
+    execDD = `sudo dd if=/dev/zero of=${useThisVolume.mount}tmp/${zelAppSpecifications.name}TEMP bs=107374182 count=${zelAppSpecifications.hdd}`; // if root mount then temp file is /tmp/zelappTEMP
   }
   await cmdAsync(execDD);
   const allocateSpace2 = {
@@ -1261,9 +1261,9 @@ async function createZelAppVolume(zelAppSpecifications, res) {
   if (res) {
     res.write(serviceHelper.ensureString(makeFilesystem));
   }
-  let execFS = `mke2fs -t ext4 ${useThisVolume.mount}/${zelAppSpecifications.name}TEMP`;
+  let execFS = `sudo mke2fs -t ext4 ${useThisVolume.mount}/${zelAppSpecifications.name}TEMP`;
   if (useThisVolume.mount === '/') {
-    execFS = `mke2fs -t ext4 ${useThisVolume.mount}tmp/${zelAppSpecifications.name}TEMP`;
+    execFS = `sudo mke2fs -t ext4 ${useThisVolume.mount}tmp/${zelAppSpecifications.name}TEMP`;
   }
   await cmdAsync(execFS);
   const makeFilesystem2 = {
@@ -1279,7 +1279,7 @@ async function createZelAppVolume(zelAppSpecifications, res) {
   if (res) {
     res.write(serviceHelper.ensureString(makeDirectory));
   }
-  const execDIR = `mkdir -p ${zelappsFolder + zelAppSpecifications.name}`;
+  const execDIR = `sudo mkdir -p ${zelappsFolder + zelAppSpecifications.name}`;
   await cmdAsync(execDIR);
   const makeDirectory2 = {
     status: 'Directory made',
@@ -1330,7 +1330,7 @@ async function createZelAppVolume(zelAppSpecifications, res) {
   if (res) {
     res.write(serviceHelper.ensureString(spaceVerification));
   }
-  const execVerif = `dd if=/dev/zero of=${zelappsFolder + zelAppSpecifications.name}/${zelAppSpecifications.name}VERTEMP bs=96636763 count=${zelAppSpecifications.hdd}`; // 90%
+  const execVerif = `sudo dd if=/dev/zero of=${zelappsFolder + zelAppSpecifications.name}/${zelAppSpecifications.name}VERTEMP bs=96636763 count=${zelAppSpecifications.hdd}`; // 90%
   await cmdAsync(execVerif);
   const spaceVerification2 = {
     status: 'Verification written...',
