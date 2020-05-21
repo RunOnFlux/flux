@@ -1425,22 +1425,26 @@ async function temporaryZelAppRegisterFunctionForFoldingAtHome(req, res) {
         },
       };
 
+      // check if zelfluxDockerNetwork exists, if not create
+      await createFluxNetwork();
+
       // check if app is already installed
       const zelappResult = await serviceHelper.findOneInDatabase(zelappsDatabase, localZelAppsInformation, zelappsQuery, zelappsProjection).catch((error) => {
         dbopen.close();
         throw error;
       });
+
       if (!zelappResult) {
         // register the zelapp
         await serviceHelper.insertOneToDatabase(zelappsDatabase, localZelAppsInformation, zelAppSpecifications).catch((error) => {
           dbopen.close();
           throw error;
         });
+        dbopen.close();
+      } else {
+        dbopen.close();
+        throw new Error('ZelApp already installed');
       }
-      dbopen.close();
-
-      // check if zelfluxDockerNetwork exists, if not create
-      await createFluxNetwork();
 
       // pull image
       // set the appropriate HTTP header
@@ -1541,6 +1545,8 @@ async function temporaryZelAppRegisterFunctionForFoldingAtHome(req, res) {
       error.code,
     );
     res.json(errorResponse);
+    // an error occured. Remove what was done.
+    // removeZelAppLocally('zelFoldingAtHome');
   }
 }
 
@@ -1719,11 +1725,18 @@ async function removeZelAppLocally(req, res) {
     };
     res.write(serviceHelper.ensureString(unmuontStatus));
     const execUnmount = `sudo umount ${zelappsFolder + zelAppSpecifications.name}`;
-    await cmdAsync(execUnmount);
-    const unmuontStatus2 = {
-      status: 'Volume unmounted',
-    };
-    res.write(serviceHelper.ensureString(unmuontStatus2));
+    await cmdAsync(execUnmount).then(() => {
+      const unmuontStatus2 = {
+        status: 'Volume unmounted',
+      };
+      res.write(serviceHelper.ensureString(unmuontStatus2));
+    }).catch((e) => {
+      log.error(e);
+      const unmuontStatus3 = {
+        status: 'An error occured while unmounting storage. Continuing...',
+      };
+      res.write(serviceHelper.ensureString(unmuontStatus3));
+    });
 
     const cleaningStatus = {
       status: 'Cleaning up data...',
