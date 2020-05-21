@@ -1243,9 +1243,9 @@ async function createZelAppVolume(zelAppSpecifications, res) {
   if (res) {
     res.write(serviceHelper.ensureString(allocateSpace));
   }
-  let execDD = `dd if=/dev/zero ${useThisVolume.mount}/${zelAppSpecifications.name}TEMP bs=107374182 count=${zelAppSpecifications.hdd}`; // eg /mnt/sthMounted/zelappTEMP
+  let execDD = `dd if=/dev/zero of=${useThisVolume.mount}/${zelAppSpecifications.name}TEMP bs=107374182 count=${zelAppSpecifications.hdd}`; // eg /mnt/sthMounted/zelappTEMP
   if (useThisVolume.mount === '/') {
-    execDD = `dd if=/dev/zero ${useThisVolume.mount}tmp/${zelAppSpecifications.name}TEMP bs=107374182 count=${zelAppSpecifications.hdd}`; // if root mount then temp file is /tmp/zelappTEMP
+    execDD = `dd if=/dev/zero of=${useThisVolume.mount}tmp/${zelAppSpecifications.name}TEMP bs=107374182 count=${zelAppSpecifications.hdd}`; // if root mount then temp file is /tmp/zelappTEMP
   }
   await cmdAsync(execDD);
   const allocateSpace2 = {
