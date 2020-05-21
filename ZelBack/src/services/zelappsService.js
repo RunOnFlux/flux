@@ -1178,7 +1178,7 @@ async function createZelAppVolume(zelAppSpecifications, res) {
   });
   const okVolumes = [];
   dfres.forEach((volume) => {
-    if (volume.filesystem.includes('/dev/') && !volume.filesystem.includes('loop')) {
+    if (volume.filesystem.includes('/dev/') && !volume.filesystem.includes('loop') && !volume.mount.includes('boot')) {
       okVolumes.push(volume);
     } else if (volume.filesystem.includes('loop') && volume.mount === '/') {
       okVolumes.push(volume);
@@ -1384,7 +1384,7 @@ async function temporaryZelAppRegisterFunctionForFoldingAtHome(req, res) {
         port: 30000,
         cpu: 0.5,
         ram: 500,
-        hdd: 15,
+        hdd: 5,
         enviromentParameters: [`USER=${userconfig.initial.zelid}`, 'TEAM=262156', 'ENABLE_GPU=false', 'ENABLE_SMP=true'],
         commands: [
           '--allow',
@@ -1564,16 +1564,16 @@ async function availableZelApps(req, res) {
       port: 30000,
       cpu: 0.5,
       ram: 500,
-      hdd: 15,
+      hdd: 5,
       cpubasic: 0.5,
       cpusuper: 1,
       cpubamf: 2,
       rambasic: 500,
       ramsuper: 1000,
       rambamf: 4000,
-      hddbasic: 15,
-      hddsuper: 15,
-      hddbamf: 15,
+      hddbasic: 5,
+      hddsuper: 5,
+      hddbamf: 5,
       enviromentParameters: [`USER=${userconfig.initial.zelid}`, 'TEAM=262156', 'ENABLE_GPU=false', 'ENABLE_SMP=true'],
       commands: [
         '--allow',
