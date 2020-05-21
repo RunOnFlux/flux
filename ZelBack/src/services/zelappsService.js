@@ -1243,9 +1243,9 @@ async function createZelAppVolume(zelAppSpecifications, res) {
   if (res) {
     res.write(serviceHelper.ensureString(allocateSpace));
   }
-  let execDD = `dd if=/dev/zero ${useThisVolume}/${zelAppSpecifications.name}TEMP bs=107374182 count=${zelAppSpecifications.hdd}`; // eg /mnt/sthMounted/zelappTEMP
+  let execDD = `dd if=/dev/zero ${useThisVolume.mount}/${zelAppSpecifications.name}TEMP bs=107374182 count=${zelAppSpecifications.hdd}`; // eg /mnt/sthMounted/zelappTEMP
   if (useThisVolume.mount === '/') {
-    execDD = `dd if=/dev/zero ${useThisVolume}tmp/${zelAppSpecifications.name}TEMP bs=107374182 count=${zelAppSpecifications.hdd}`; // if root mount then temp file is /tmp/zelappTEMP
+    execDD = `dd if=/dev/zero ${useThisVolume.mount}tmp/${zelAppSpecifications.name}TEMP bs=107374182 count=${zelAppSpecifications.hdd}`; // if root mount then temp file is /tmp/zelappTEMP
   }
   await cmdAsync(execDD);
   const allocateSpace2 = {
@@ -1261,9 +1261,9 @@ async function createZelAppVolume(zelAppSpecifications, res) {
   if (res) {
     res.write(serviceHelper.ensureString(makeFilesystem));
   }
-  let execFS = `mke2fs -t ext4 ${useThisVolume}/${zelAppSpecifications.name}TEMP`;
+  let execFS = `mke2fs -t ext4 ${useThisVolume.mount}/${zelAppSpecifications.name}TEMP`;
   if (useThisVolume.mount === '/') {
-    execFS = `mke2fs -t ext4 ${useThisVolume}tmp/${zelAppSpecifications.name}TEMP`;
+    execFS = `mke2fs -t ext4 ${useThisVolume.mount}tmp/${zelAppSpecifications.name}TEMP`;
   }
   await cmdAsync(execFS);
   const makeFilesystem2 = {
@@ -1294,9 +1294,9 @@ async function createZelAppVolume(zelAppSpecifications, res) {
   if (res) {
     res.write(serviceHelper.ensureString(mountingStatus));
   }
-  let execMount = `sudo mount -o loop ${useThisVolume}/${zelAppSpecifications.name}TEMP ${zelappsFolder + zelAppSpecifications.name}`;
+  let execMount = `sudo mount -o loop ${useThisVolume.mount}/${zelAppSpecifications.name}TEMP ${zelappsFolder + zelAppSpecifications.name}`;
   if (useThisVolume.mount === '/') {
-    execMount = `sudo mount -o loop ${useThisVolume}tmp/${zelAppSpecifications.name}TEMP ${zelappsFolder + zelAppSpecifications.name}`;
+    execMount = `sudo mount -o loop ${useThisVolume.mount}tmp/${zelAppSpecifications.name}TEMP ${zelappsFolder + zelAppSpecifications.name}`;
   }
   await cmdAsync(execMount);
   const mountingStatus2 = {
@@ -1312,9 +1312,9 @@ async function createZelAppVolume(zelAppSpecifications, res) {
   if (res) {
     res.write(serviceHelper.ensureString(aloocationRemoval));
   }
-  let execRemoveAlloc = `sudo rm -rf ${useThisVolume}/${zelAppSpecifications.name}TEMP`;
+  let execRemoveAlloc = `sudo rm -rf ${useThisVolume.mount}/${zelAppSpecifications.name}TEMP`;
   if (useThisVolume.mount === '/') {
-    execRemoveAlloc = `sudo rm -rf ${useThisVolume}tmp/${zelAppSpecifications.name}TEMP`;
+    execRemoveAlloc = `sudo rm -rf ${useThisVolume.mount}tmp/${zelAppSpecifications.name}TEMP`;
   }
   await cmdAsync(execRemoveAlloc);
   const aloocationRemoval2 = {
