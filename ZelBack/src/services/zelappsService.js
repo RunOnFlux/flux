@@ -1243,9 +1243,10 @@ async function createZelAppVolume(zelAppSpecifications, res) {
   if (res) {
     res.write(serviceHelper.ensureString(allocateSpace));
   }
-  let execDD = `sudo dd if=/dev/zero of=${useThisVolume.mount}/${zelAppSpecifications.name}TEMP bs=107374182 count=${zelAppSpecifications.hdd}`; // eg /mnt/sthMounted/zelappTEMP
+  // space hdd * 10, thats why 0 at the end. As we have 100mb bs.
+  let execDD = `sudo dd if=/dev/zero of=${useThisVolume.mount}/${zelAppSpecifications.name}TEMP bs=107374182 count=${zelAppSpecifications.hdd}0`; // eg /mnt/sthMounted/zelappTEMP
   if (useThisVolume.mount === '/') {
-    execDD = `sudo dd if=/dev/zero of=${useThisVolume.mount}tmp/${zelAppSpecifications.name}TEMP bs=107374182 count=${zelAppSpecifications.hdd}`; // if root mount then temp file is /tmp/zelappTEMP
+    execDD = `sudo dd if=/dev/zero of=${useThisVolume.mount}tmp/${zelAppSpecifications.name}TEMP bs=107374182 count=${zelAppSpecifications.hdd}0`; // if root mount then temp file is /tmp/zelappTEMP
   }
   await cmdAsync(execDD);
   const allocateSpace2 = {
@@ -1330,7 +1331,7 @@ async function createZelAppVolume(zelAppSpecifications, res) {
   if (res) {
     res.write(serviceHelper.ensureString(spaceVerification));
   }
-  const execVerif = `sudo dd if=/dev/zero of=${zelappsFolder + zelAppSpecifications.name}/${zelAppSpecifications.name}VERTEMP bs=96636763 count=${zelAppSpecifications.hdd}`; // 90%
+  const execVerif = `sudo dd if=/dev/zero of=${zelappsFolder + zelAppSpecifications.name}/${zelAppSpecifications.name}VERTEMP bs=96636763 count=${zelAppSpecifications.hdd}0`; // 90%
   await cmdAsync(execVerif);
   const spaceVerification2 = {
     status: 'Verification written...',
