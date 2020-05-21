@@ -5,6 +5,7 @@ const Docker = require('dockerode');
 const stream = require('stream');
 const path = require('path');
 const nodecmd = require('node-cmd');
+const df = require('node-df');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
 const zelfluxCommunication = require('./zelfluxCommunication');
@@ -16,6 +17,7 @@ const userconfig = require('../../../config/userconfig');
 const fluxDirPath = path.join(__dirname, '../../../');
 const zelappsFolder = `${fluxDirPath}ZelApps/`;
 
+const cmdAsync = util.promisify(nodecmd.get);
 
 const docker = new Docker();
 
@@ -23,6 +25,14 @@ const mongoUrl = `mongodb://${config.database.url}:${config.database.port}/`;
 const scannedHeightCollection = config.database.zelcash.collections.scannedHeight;
 const localZelAppsInformation = config.database.zelappslocal.collections.zelappsInformation;
 const globalZelAppsMessages = config.database.zelappsglobal.collections.zelAppsMessages;
+
+function getCollateralInfo(collateralOutpoint) {
+  const a = collateralOutpoint;
+  const b = a.split(', ');
+  const txhash = b[0].substr(10, b[0].length);
+  const txindex = serviceHelper.ensureNumber(b[1].split(')')[0]);
+  return { txhash, txindex };
+}
 
 async function dockerCreateNetwork(options) {
   const network = await docker.createNetwork(options).catch((error) => {
@@ -254,11 +264,14 @@ async function listRunningZelApps(req, res) {
     }
     const modifiedZelApps = [];
     zelapps.forEach((zelapp) => {
+      // eslint-disable-next-line no-param-reassign
       delete zelapp.HostConfig;
+      // eslint-disable-next-line no-param-reassign
       delete zelapp.NetworkSettings;
+      // eslint-disable-next-line no-param-reassign
       delete zelapp.Mounts;
-      modifiedZelApps.push(zelapp)
-    })
+      modifiedZelApps.push(zelapp);
+    });
     const zelappsResponse = serviceHelper.createDataMessage(modifiedZelApps);
     return res ? res.json(zelappsResponse) : zelappsResponse;
   } catch (error) {
@@ -288,11 +301,14 @@ async function listAllZelApps(req, res) {
     }
     const modifiedZelApps = [];
     zelapps.forEach((zelapp) => {
+      // eslint-disable-next-line no-param-reassign
       delete zelapp.HostConfig;
+      // eslint-disable-next-line no-param-reassign
       delete zelapp.NetworkSettings;
+      // eslint-disable-next-line no-param-reassign
       delete zelapp.Mounts;
-      modifiedZelApps.push(zelapp)
-    })
+      modifiedZelApps.push(zelapp);
+    });
     const zelappsResponse = serviceHelper.createDataMessage(modifiedZelApps);
     return res ? res.json(zelappsResponse) : zelappsResponse;
   } catch (error) {
@@ -321,24 +337,57 @@ async function listZelAppsImages(req, res) {
   return res ? res.json(zelappsResponse) : zelappsResponse;
 }
 
-async function zelAppDockerCreate(zelappSpecifications) {
+async function zelnodeTier() {
+  // get our collateral information to decide if app specifications are basic, super, bamf
+  // getzlenodestatus.collateral
+  const zelnodeStatus = await zelcashService.getZelNodeStatus();
+  if (zelnodeStatus.status === 'error') {
+    throw zelnodeStatus.data;
+  }
+  const collateralInformation = getCollateralInfo(zelnodeStatus.data.collateral);
+  // get transaction information about collateralInformation.txhash
+  const request = {
+    params: {
+      txid: collateralInformation.txhash,
+      verbose: 1,
+    },
+  };
+  const txInformation = await zelcashService.getRawTransaction(request);
+  if (txInformation.status === 'error') {
+    throw txInformation.data;
+  }
+  // get collateralInformation.txindex vout
+  const { value } = txInformation.data.vout[collateralInformation.txindex];
+  if (value === 10000) {
+    return 'basic';
+  }
+  if (value === 25000) {
+    return 'super';
+  }
+  if (value === 100000) {
+    return 'bamf';
+  }
+  throw new Error('Unrecognised ZelNode tier');
+}
+
+async function zelAppDockerCreate(zelAppSpecifications) {
   // todo attaching our zelflux network and correct ip not working, limiting size
   const options = {
-    Image: zelappSpecifications.repotag,
-    name: zelappSpecifications.name,
+    Image: zelAppSpecifications.repotag,
+    name: zelAppSpecifications.name,
     AttachStdin: true,
     AttachStdout: true,
     AttachStderr: true,
-    Cmd: zelappSpecifications.commands,
-    Env: zelappSpecifications.enviromentParameters,
+    Cmd: zelAppSpecifications.commands,
+    Env: zelAppSpecifications.enviromentParameters,
     Tty: false,
     HostConfig: {
-      NanoCPUs: zelappSpecifications.cpu * 1e9,
-      Memory: zelappSpecifications.ram * 1024 * 1024,
+      NanoCPUs: zelAppSpecifications.cpu * 1e9,
+      Memory: zelAppSpecifications.ram * 1024 * 1024,
       // StorageOpt: { // disabled, done in volumes, requires xfs
-      //   size: `${zelappSpecifications.hdd}G`,
+      //   size: `${zelAppSpecifications.hdd}G`,
       // },
-      Binds: [`${zelappsFolder + zelappSpecifications.name}:${zelappSpecifications.containerData}`],
+      Binds: [`${zelappsFolder + zelAppSpecifications.name}:${zelAppSpecifications.containerData}`],
       Ulimits: [
         {
           Name: 'nofile',
@@ -347,9 +396,9 @@ async function zelAppDockerCreate(zelappSpecifications) {
         },
       ],
       PortBindings: {
-        [`${zelappSpecifications.containerPort.toString()}/tcp`]: [
+        [`${zelAppSpecifications.containerPort.toString()}/tcp`]: [
           {
-            HostPort: zelappSpecifications.port.toString(),
+            HostPort: zelAppSpecifications.port.toString(),
           },
         ],
       },
@@ -1061,18 +1110,257 @@ async function zelFluxUsage(req, res) {
   }
 }
 
+async function zelappsResources(req, res) {
+  try {
+    const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
+      throw error;
+    });
+    const zelappsDatabase = dbopen.db(config.database.zelappslocal.database);
+    const zelappsQuery = { cpu: { $gte: 0 } };
+    const zelappsProjection = {
+      projection: {
+        _id: 0,
+        cpu: 1,
+        ram: 1,
+        hdd: 1,
+      },
+    };
+    const zelappsResult = await serviceHelper.findInDatabase(zelappsDatabase, localZelAppsInformation, zelappsQuery, zelappsProjection).catch((error) => {
+      dbopen.close();
+      throw error;
+    });
+    dbopen.close();
+    let zelAppsCpusLocked = 0;
+    let zelAppsRamLocked = 0;
+    let zelAppsHddLocked = 0;
+    zelappsResult.forEach((zelapp) => {
+      zelAppsCpusLocked += serviceHelper.ensureNumber(zelapp.cpu) || 0;
+      zelAppsRamLocked += serviceHelper.ensureNumber(zelapp.ram) || 0;
+      zelAppsHddLocked += serviceHelper.ensureNumber(zelapp.hdd) || 0;
+    });
+    const zelappsUsage = {
+      zelAppsCpusLocked,
+      zelAppsRamLocked,
+      zelAppsHddLocked,
+    };
+    const response = serviceHelper.createDataMessage(zelappsUsage);
+    return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
+async function createZelAppVolume(zelAppSpecifications, res) {
+  const dfAsync = util.promisify(df);
+
+  const searchSpace = {
+    status: 'Searching available space...',
+  };
+  if (res) {
+    res.write(serviceHelper.ensureString(searchSpace));
+  }
+
+  // we want whole numbers in GB
+  const options = {
+    prefixMultiplier: 'GB',
+    isDisplayPrefixMultiplier: false,
+    precision: 0,
+  };
+
+  const dfres = await dfAsync(options).catch((error) => {
+    throw error;
+  });
+  const okVolumes = [];
+  dfres.forEach((volume) => {
+    if (volume.filesystem.includes('/dev/') && !volume.filesystem.includes('loop')) {
+      okVolumes.push(volume);
+    } else if (volume.filesystem.includes('loop') && volume.mount === '/') {
+      okVolumes.push(volume);
+    }
+  });
+  console.log(okVolumes);
+  // todo get tier
+  const tier = await zelnodeTier();
+  const totalSpaceOnNode = config.fluxSpecifics.hdd[tier];
+  const useableSpaceOnNode = totalSpaceOnNode - config.lockedSystemResources.hdd;
+  const resourcesLocked = await zelappsResources();
+  if (resourcesLocked.status !== 'success') {
+    throw new Error('Unable to obtain locked system resources by ZelApps. Aborting.');
+  }
+  const hddLockedByApps = resourcesLocked.data.zelAppsHddLocked;
+  const availableSpaceForZelApps = useableSpaceOnNode - hddLockedByApps;
+  // bigger or equal so we have the 1 gb free...
+  if (zelAppSpecifications.hdd >= availableSpaceForZelApps) {
+    throw new Error('Insufficient space on ZelNode to spawn an application');
+  }
+  // now we know that most likely there is a space available. IF user does not have his own stuff on the node or space may be sharded accross hdds.
+  let usedSpace = 0;
+  let availableSpace = 0;
+  okVolumes.forEach((volume) => {
+    usedSpace += serviceHelper.ensureNumber(volume.used);
+    availableSpace += serviceHelper.ensureNumber(volume.available);
+  });
+  // space that is further reserved for zelflux os and that will be later substracted from available space. Max 30.
+  const zelfluxSystemReserve = 30 - usedSpace > 0 ? 30 - usedSpace : 0;
+  const totalAvailableSpaceLeft = availableSpace - zelfluxSystemReserve;
+  if (zelAppSpecifications.hdd >= totalAvailableSpaceLeft) {
+    // sadly user free space is not enough for this application
+    throw new Error('Insufficient space on ZelNode. Space is already assigned to system files');
+  }
+
+  // check if space is not sharded in some bad way. Always count the zelfluxSystemReserve
+  let useThisVolume = null;
+  const totalVolumes = okVolumes.length;
+  for (let i = 0; i < totalVolumes; i += 1) {
+    // check available volumes one by one. If a sufficient is found. Use this one.
+    if (okVolumes[i].available > zelAppSpecifications.hdd + zelfluxSystemReserve) {
+      useThisVolume = okVolumes[i];
+      break;
+    }
+  }
+  if (!useThisVolume) {
+    // no useable volume has such a big space for the app
+    throw new Error('Insufficient space on ZelNode. No useable volume found.');
+  }
+
+  // now we know there is a space and we have a volum we can operate with. Let's do volume magic
+  const searchSpace2 = {
+    status: 'Space found',
+  };
+  if (res) {
+    res.write(serviceHelper.ensureString(searchSpace2));
+  }
+
+  const allocateSpace = {
+    status: 'Allocating space, this may take a while...',
+  };
+  if (res) {
+    res.write(serviceHelper.ensureString(allocateSpace));
+  }
+  let execDD = `dd if=/dev/zero ${useThisVolume}/${zelAppSpecifications.name}TEMP bs=107374182 count=${zelAppSpecifications.hdd}`; // eg /mnt/sthMounted/zelappTEMP
+  if (useThisVolume.mount === '/') {
+    execDD = `dd if=/dev/zero ${useThisVolume}tmp/${zelAppSpecifications.name}TEMP bs=107374182 count=${zelAppSpecifications.hdd}`; // if root mount then temp file is /tmp/zelappTEMP
+  }
+  await cmdAsync(execDD);
+  const allocateSpace2 = {
+    status: 'Space allocated',
+  };
+  if (res) {
+    res.write(serviceHelper.ensureString(allocateSpace2));
+  }
+
+  const makeFilesystem = {
+    status: 'Creating filesystem...',
+  };
+  if (res) {
+    res.write(serviceHelper.ensureString(makeFilesystem));
+  }
+  let execFS = `mke2fs -t ext4 ${useThisVolume}/${zelAppSpecifications.name}TEMP`;
+  if (useThisVolume.mount === '/') {
+    execFS = `mke2fs -t ext4 ${useThisVolume}tmp/${zelAppSpecifications.name}TEMP`;
+  }
+  await cmdAsync(execFS);
+  const makeFilesystem2 = {
+    status: 'Filesystem created',
+  };
+  if (res) {
+    res.write(serviceHelper.ensureString(makeFilesystem2));
+  }
+
+  const makeDirectory = {
+    status: 'Making directory...',
+  };
+  if (res) {
+    res.write(serviceHelper.ensureString(makeDirectory));
+  }
+  const execDIR = `mkdir -p ${zelappsFolder + zelAppSpecifications.name}`;
+  await cmdAsync(execDIR);
+  const makeDirectory2 = {
+    status: 'Directory made',
+  };
+  if (res) {
+    res.write(serviceHelper.ensureString(makeDirectory2));
+  }
+
+  const mountingStatus = {
+    status: 'Mounting volume...',
+  };
+  if (res) {
+    res.write(serviceHelper.ensureString(mountingStatus));
+  }
+  let execMount = `sudo mount -o loop ${useThisVolume}/${zelAppSpecifications.name}TEMP ${zelappsFolder + zelAppSpecifications.name}`;
+  if (useThisVolume.mount === '/') {
+    execMount = `sudo mount -o loop ${useThisVolume}tmp/${zelAppSpecifications.name}TEMP ${zelappsFolder + zelAppSpecifications.name}`;
+  }
+  await cmdAsync(execMount);
+  const mountingStatus2 = {
+    status: 'Filesystem created',
+  };
+  if (res) {
+    res.write(serviceHelper.ensureString(mountingStatus2));
+  }
+
+  const aloocationRemoval = {
+    status: 'Removing allocation...',
+  };
+  if (res) {
+    res.write(serviceHelper.ensureString(aloocationRemoval));
+  }
+  let execRemoveAlloc = `sudo rm -rf ${useThisVolume}/${zelAppSpecifications.name}TEMP`;
+  if (useThisVolume.mount === '/') {
+    execRemoveAlloc = `sudo rm -rf ${useThisVolume}tmp/${zelAppSpecifications.name}TEMP`;
+  }
+  await cmdAsync(execRemoveAlloc);
+  const aloocationRemoval2 = {
+    status: 'Allocation removed',
+  };
+  if (res) {
+    res.write(serviceHelper.ensureString(aloocationRemoval2));
+  }
+
+  const spaceVerification = {
+    status: 'Beginning space verification. This may take a while...',
+  };
+  if (res) {
+    res.write(serviceHelper.ensureString(spaceVerification));
+  }
+  const execVerif = `dd if=/dev/zero of=${zelappsFolder + zelAppSpecifications.name}/${zelAppSpecifications.name}VERTEMP bs=96636763 count=${zelAppSpecifications.hdd}`; // 90%
+  await cmdAsync(execVerif);
+  const spaceVerification2 = {
+    status: 'Verification written...',
+  };
+  if (res) {
+    res.write(serviceHelper.ensureString(spaceVerification2));
+  }
+
+  const finaliseSpace = {
+    status: 'Finalising space assignment',
+  };
+  if (res) {
+    res.write(serviceHelper.ensureString(finaliseSpace));
+  }
+  const execFinal = `sudo rm -rf ${zelappsFolder + zelAppSpecifications.name}/${zelAppSpecifications.name}VERTEMP`;
+  await cmdAsync(execFinal);
+  const finaliseSpace2 = {
+    status: `Space for ZelApp ${zelAppSpecifications.name} created and assigned.`,
+  };
+  if (res) {
+    res.write(serviceHelper.ensureString(finaliseSpace2));
+  }
+  const message = serviceHelper.createSuccessMessage('ZelApp volume creation completed.');
+  return message;
+}
+
 async function registerZelAppLocally() {
   // get applications specifics from zelapp messages database
   // check if hash is in blockchain
   // register and launch according to specifications in message
-}
-
-function getCollateralInfo(collateralOutpoint) {
-  const a = collateralOutpoint;
-  const b = a.split(', ');
-  const txhash = b[0].substr(10, b[0].length);
-  const txindex = serviceHelper.ensureNumber(b[1].split(')')[0]);
-  return { txhash, txindex };
 }
 
 async function temporaryZelAppRegisterFunctionForFoldingAtHome(req, res) {
@@ -1107,33 +1395,16 @@ async function temporaryZelAppRegisterFunctionForFoldingAtHome(req, res) {
         containerPort: 7396,
         containerData: '/config',
       };
-      // get our collateral information to decide if app specifications are basic, super, bamf
-      // getzlenodestatus.collateral
-      const zelnodeStatus = await zelcashService.getZelNodeStatus();
-      if (zelnodeStatus.status === 'error') {
-        throw zelnodeStatus.data;
-      }
-      const collateralInformation = getCollateralInfo(zelnodeStatus.data.collateral);
-      // get transaction information about collateralInformation.txhash
-      const request = {
-        params: {
-          txid: collateralInformation.txhash,
-          verbose: 1,
-        },
-      };
-      const txInformation = await zelcashService.getRawTransaction(request);
-      if (txInformation.status === 'error') {
-        throw txInformation.data;
-      }
-      // get collateralInformation.txindex vout
-      const { value } = txInformation.data.vout[collateralInformation.txindex];
-      if (value === 10000) {
+
+      // get our tier
+      const tier = await zelnodeTier();
+      if (tier === 'basic') {
         zelAppSpecifications.cpu = 0.5;
         zelAppSpecifications.ram = 500;
-      } else if (value === 25000) {
+      } else if (tier === 'super') {
         zelAppSpecifications.cpu = 1;
         zelAppSpecifications.ram = 1000;
-      } else if (value === 100000) {
+      } else if (tier === 'bamf') {
         zelAppSpecifications.cpu = 2;
         zelAppSpecifications.ram = 4000;
       } else {
@@ -1190,6 +1461,21 @@ async function temporaryZelAppRegisterFunctionForFoldingAtHome(req, res) {
             status: 'Pulling global ZelApp was successful',
           };
           res.write(serviceHelper.ensureString(pullStatus));
+
+          const volumeOK = await createZelAppVolume(zelAppSpecifications, res).catch((errr) => {
+            const errorResponse = serviceHelper.createErrorMessage(
+              errr.message || errr,
+              errr.name,
+              errr.code,
+            );
+            res.write(serviceHelper.ensureString(errorResponse));
+            res.end();
+          });
+
+          if (!volumeOK) {
+            return;
+          }
+
           const createZelApp = {
             status: 'Creating local ZelApp',
           };
@@ -1346,7 +1632,7 @@ async function removeZelAppLocally(req, res) {
       throw new Error('No ZelApp specified');
     }
 
-    // first find the zelappSpecifications in our database.
+    // first find the zelAppSpecifications in our database.
     // connect to mongodb
     const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
       throw error;
@@ -1428,13 +1714,23 @@ async function removeZelAppLocally(req, res) {
     };
     res.write(serviceHelper.ensureString(portStatus2));
 
+    const unmuontStatus = {
+      status: 'Unmounting volume...',
+    };
+    res.write(serviceHelper.ensureString(unmuontStatus));
+    const execUnmount = `sudo umount ${zelappsFolder + zelAppSpecifications.name}`;
+    await cmdAsync(execUnmount);
+    const unmuontStatus2 = {
+      status: 'Volume unmounted',
+    };
+    res.write(serviceHelper.ensureString(unmuontStatus2));
+
     const cleaningStatus = {
       status: 'Cleaning up data...',
     };
     res.write(serviceHelper.ensureString(cleaningStatus));
-    const exec = `sudo rm -rf ${zelappsFolder + zelAppSpecifications.name}`;
-    const cmdAsync = util.promisify(nodecmd.get);
-    await cmdAsync(exec);
+    const execDelete = `sudo rm -rf ${zelappsFolder + zelAppSpecifications.name}`;
+    await cmdAsync(execDelete);
     const cleaningStatus2 = {
       status: 'Data cleaned',
     };
@@ -1465,52 +1761,6 @@ async function removeZelAppLocally(req, res) {
       error.code,
     );
     return res.json(errorResponse);
-  }
-}
-
-async function zelappsResources(req, res) {
-  try {
-    const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
-      throw error;
-    });
-    const zelappsDatabase = dbopen.db(config.database.zelappslocal.database);
-    const zelappsQuery = { cpu: { $gte: 0 } };
-    const zelappsProjection = {
-      projection: {
-        _id: 0,
-        cpu: 1,
-        ram: 1,
-        hdd: 1,
-      },
-    };
-    const zelappsResult = await serviceHelper.findInDatabase(zelappsDatabase, localZelAppsInformation, zelappsQuery, zelappsProjection).catch((error) => {
-      dbopen.close();
-      throw error;
-    });
-    dbopen.close();
-    let zelAppsCpusLocked = 0;
-    let zelAppsRamLocked = 0;
-    let zelAppsHddLocked = 0;
-    zelappsResult.forEach((zelapp) => {
-      zelAppsCpusLocked += serviceHelper.ensureNumber(zelapp.cpu) || 0;
-      zelAppsRamLocked += serviceHelper.ensureNumber(zelapp.ram) || 0;
-      zelAppsHddLocked += serviceHelper.ensureNumber(zelapp.hdd) || 0;
-    });
-    const zelappsUsage = {
-      zelAppsCpusLocked,
-      zelAppsRamLocked,
-      zelAppsHddLocked,
-    };
-    const response = serviceHelper.createDataMessage(zelappsUsage);
-    return res ? res.json(response) : response;
-  } catch (error) {
-    log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    return res ? res.json(errorResponse) : errorResponse;
   }
 }
 
