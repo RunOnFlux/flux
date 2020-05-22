@@ -1,5 +1,5 @@
 {
   "events": {
-      "crash": "npm install"
+      "crash": "sleep 60 && rm -f package-lock.json && npm install"
     }
  }
