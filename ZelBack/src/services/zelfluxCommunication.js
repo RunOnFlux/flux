@@ -28,14 +28,18 @@ const axiosConfig = {
   timeout: 8888,
 };
 
+const axiosConfigB = {
+  timeout: 20000,
+};
+
 let response = serviceHelper.createErrorMessage();
 
 // helper function for timeout on axios connection
 const axiosGet = (url, options = {}) => {
   const abort = axios.CancelToken.source();
   const id = setTimeout(
-    () => abort.cancel(`Timeout of ${config.timeout}ms.`),
-    axiosConfig.timeout,
+    () => abort.cancel(`Timeout of ${options.timeout}ms.`),
+    options.timeout,
   );
   return axios
     .get(url, { cancelToken: abort.token, ...options })
@@ -48,7 +52,7 @@ const axiosGet = (url, options = {}) => {
 // basic check for a version of other flux.
 async function isFluxAvailable(ip) {
   try {
-    const fluxResponse = await axiosGet(`http://${ip}:16127/zelflux/version`, axiosConfig);
+    const fluxResponse = await axiosGet(`http://${ip}:${config.server.apiport}/zelflux/version`, axiosConfig);
     if (fluxResponse.data.status === 'success') {
       return true;
     }
@@ -558,7 +562,7 @@ async function initiateAndHandleConnection(ip) {
   websocket.onclose = (evt) => {
     const { url } = websocket;
     let conIP = url.split('/')[2];
-    conIP = conIP.split(':16127').join('');
+    conIP = conIP.split(`:${config.server.apiport}`).join('');
     const ocIndex = outgoingConnections.indexOf(websocket);
     if (ocIndex > -1) {
       log.info(`Connection to ${conIP} closed with code ${evt.code}`);
@@ -587,7 +591,7 @@ async function initiateAndHandleConnection(ip) {
         const rtt = newerTimeStamp - msgObj.data.timestamp;
         const { url } = websocket;
         let conIP = url.split('/')[2];
-        conIP = conIP.split(':16127').join('');
+        conIP = conIP.split(`:${config.server.apiport}`).join('');
         const foundPeer = outgoingPeers.find((peer) => peer.ip === conIP);
         if (foundPeer) {
           const peerIndex = outgoingPeers.indexOf(foundPeer);
@@ -612,7 +616,7 @@ async function initiateAndHandleConnection(ip) {
     console.log(evt.code);
     const { url } = websocket;
     let conIP = url.split('/')[2];
-    conIP = conIP.split(':16127').join('');
+    conIP = conIP.split(`:${config.server.apiport}`).join('');
     const ocIndex = outgoingConnections.indexOf(websocket);
     if (ocIndex > -1) {
       log.info(`Connection to ${conIP} errord with code ${evt.code}`);
@@ -857,7 +861,7 @@ async function checkMyFluxAvailability(zelnodelist) {
     if (myIP.includes(':')) {
       myIP = `[${myIP}]`;
     }
-    const resMyAvailability = await axiosGet(`http://${askingIP}/zelflux/checkfluxavailability/${myIP}`, axiosConfig).catch((error) => {
+    const resMyAvailability = await axiosGet(`http://${askingIP}:${config.server.apiport}/zelflux/checkfluxavailability/${myIP}`, axiosConfigB).catch((error) => {
       log.error(`${askingIP} is not reachable`);
       log.error(error);
     });
@@ -865,7 +869,7 @@ async function checkMyFluxAvailability(zelnodelist) {
       checkMyFluxAvailability(zelnodelist);
       return;
     }
-    if (resMyAvailability.data.status === 'error') {
+    if (resMyAvailability.data.status === 'error' || resMyAvailability.data.data.includes('not')) {
       log.error(`My Flux unavailability detected from ${askingIP}`);
       // Asked Flux cannot reach me
       dosState += 1.5;
