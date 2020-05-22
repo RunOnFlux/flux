@@ -868,7 +868,7 @@ async function checkMyFluxAvailability(zelnodelist) {
     if (resMyAvailability.data.status === 'error') {
       log.error(`My Flux unavailability detected from ${askingIP}`);
       // Asked Flux cannot reach me
-      dosState += 2;
+      dosState += 1.5;
       if (dosState > 10) {
         dosMessage = dosMessage || 'Flux is not available for outside communication';
         log.error(dosMessage);
