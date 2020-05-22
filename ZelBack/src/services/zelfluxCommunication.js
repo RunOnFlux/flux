@@ -73,7 +73,7 @@ async function checkFluxAvailability(req, res) {
     const message = serviceHelper.createSuccessMessage('Asking Flux is available');
     response = message;
   } else {
-    const message = serviceHelper.createSuccessMessage('Asking Flux is not available');
+    const message = serviceHelper.createErrorMessage('Asking Flux is not available');
     response = message;
   }
   return res.json(response);
@@ -842,7 +842,6 @@ async function removeIncomingPeer(req, res, expressWS) {
   return res.json(response);
 }
 
-// eslint-disable-next-line no-unused-vars
 async function checkMyFluxAvailability(zelnodelist) {
   // run if at least 10 available nodes
   if (zelnodelist.length > 10) {
@@ -858,16 +857,23 @@ async function checkMyFluxAvailability(zelnodelist) {
     if (myIP.includes(':')) {
       myIP = `[${myIP}]`;
     }
-    const resMyAvailability = await axios.get(`http://${askingIP}/zelflux/checkfluxavailability/${myIP}`, axiosConfig);
+    const resMyAvailability = await axiosGet(`http://${askingIP}/zelflux/checkfluxavailability/${myIP}`, axiosConfig).catch((error) => {
+      log.error(`${askingIP} is not reachable`);
+      log.error(error);
+    });
+    if (!resMyAvailability) {
+      checkMyFluxAvailability(zelnodelist);
+      return;
+    }
     if (resMyAvailability.data.status === 'error') {
       log.error(`My Flux unavailability detected from ${askingIP}`);
       // Asked Flux cannot reach me
-      dosState += 1;
+      dosState += 2;
       if (dosState > 10) {
         dosMessage = dosMessage || 'Flux is not available for outside communication';
         log.error(dosMessage);
       } else {
-        checkFluxAvailability(zelnodelist);
+        checkMyFluxAvailability(zelnodelist);
       }
     } else {
       dosState = 0;
@@ -895,11 +901,7 @@ async function checkDeterministicNodesCollisions() {
       dosMessage = 'Flux collision detection';
       return;
     }
-    // TODO delete in v60
-    dosState = 0;
-    dosMessage = null;
-    // TODO uncomment in v60
-    // checkMyFluxAvailability(zelnodeList);
+    checkMyFluxAvailability(zelnodeList);
   } else {
     dosState += 1;
     if (dosState > 10) {
