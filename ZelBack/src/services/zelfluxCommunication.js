@@ -8,7 +8,7 @@ const cmd = require('node-cmd');
 const util = require('util');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
-const zelcashServices = require('./zelcashService');
+const zelcashService = require('./zelcashService');
 const userconfig = require('../../../config/userconfig');
 const explorerService = require('./explorerService');
 
@@ -84,7 +84,7 @@ async function checkFluxAvailability(req, res) {
 }
 
 async function myZelNodeIP() {
-  const benchmarkResponse = await zelcashServices.getBenchmarks();
+  const benchmarkResponse = await zelcashService.getBenchmarks();
   let myIP = null;
   if (benchmarkResponse.status === 'success') {
     const benchmarkResponseData = JSON.parse(benchmarkResponse.data);
@@ -106,12 +106,12 @@ async function deterministicZelNodeList(filter) {
     },
     query: {},
   };
-  zelnodeList = await zelcashServices.viewDeterministicZelNodeList(request);
+  zelnodeList = await zelcashService.viewDeterministicZelNodeList(request);
   return zelnodeList.status === 'success' ? (zelnodeList.data || []) : [];
 }
 
 async function getZelNodePrivateKey(privatekey) {
-  const privKey = privatekey || zelcashServices.getConfigValue('zelnodeprivkey');
+  const privKey = privatekey || zelcashService.getConfigValue('zelnodeprivkey');
   return privKey;
 }
 
@@ -899,11 +899,32 @@ async function checkDeterministicNodesCollisions() {
   if (myIP !== null) {
     const zelnodeList = await deterministicZelNodeList();
     const result = zelnodeList.filter((zelnode) => zelnode.ip === myIP);
-    if (result.length > 1) {
-      log.error('Flux collision detection');
-      dosState = 100;
-      dosMessage = 'Flux collision detection';
-      return;
+    const zelnodeStatus = await zelcashService.getZelNodeStatus();
+    if (zelnodeStatus.status === 'success') { // different scenario is caught elsewhere
+      const myCollateral = zelnodeStatus.data.collateral;
+      const myZelNode = result.find((zelnode) => zelnode.collateral === myCollateral);
+      if (result.length > 1) {
+        log.warn('Multiple ZelNode instances detected');
+        if (myZelNode) {
+          const myBlockHeight = myZelNode.readded_confirmed_height || myZelNode.confirmed_height; // todo we may want to introduce new readded heights and readded confirmations
+          const filterEarlierSame = result.filter((zelnode) => (zelnode.readded_confirmed_height || zelnode.confirmed_height) <= myBlockHeight);
+          // keep running only older collaterals
+          if (filterEarlierSame.length >= 1) {
+            log.error('Flux earlier collision detection');
+            dosState = 100;
+            dosMessage = 'Flux earlier collision detection';
+            return;
+          }
+        }
+        // prevent new activation
+      } else if (result.length === 1) {
+        if (!myZelNode) {
+          log.error('Flux collision detection');
+          dosState = 100;
+          dosMessage = 'Flux collision detection';
+          return;
+        }
+      }
     }
     checkMyFluxAvailability(zelnodeList);
   } else {
