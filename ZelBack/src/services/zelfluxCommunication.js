@@ -28,14 +28,18 @@ const axiosConfig = {
   timeout: 8888,
 };
 
+const axiosConfigB = {
+  timeout: 20000,
+};
+
 let response = serviceHelper.createErrorMessage();
 
 // helper function for timeout on axios connection
 const axiosGet = (url, options = {}) => {
   const abort = axios.CancelToken.source();
   const id = setTimeout(
-    () => abort.cancel(`Timeout of ${config.timeout}ms.`),
-    axiosConfig.timeout,
+    () => abort.cancel(`Timeout of ${options.timeout}ms.`),
+    options.timeout,
   );
   return axios
     .get(url, { cancelToken: abort.token, ...options })
@@ -48,7 +52,7 @@ const axiosGet = (url, options = {}) => {
 // basic check for a version of other flux.
 async function isFluxAvailable(ip) {
   try {
-    const fluxResponse = await axiosGet(`http://${ip}:16127/zelflux/version`, axiosConfig);
+    const fluxResponse = await axiosGet(`http://${ip}:${config.server.apiport}/zelflux/version`, axiosConfig);
     if (fluxResponse.data.status === 'success') {
       return true;
     }
@@ -73,7 +77,7 @@ async function checkFluxAvailability(req, res) {
     const message = serviceHelper.createSuccessMessage('Asking Flux is available');
     response = message;
   } else {
-    const message = serviceHelper.createSuccessMessage('Asking Flux is not available');
+    const message = serviceHelper.createErrorMessage('Asking Flux is not available');
     response = message;
   }
   return res.json(response);
@@ -558,7 +562,7 @@ async function initiateAndHandleConnection(ip) {
   websocket.onclose = (evt) => {
     const { url } = websocket;
     let conIP = url.split('/')[2];
-    conIP = conIP.split(':16127').join('');
+    conIP = conIP.split(`:${config.server.apiport}`).join('');
     const ocIndex = outgoingConnections.indexOf(websocket);
     if (ocIndex > -1) {
       log.info(`Connection to ${conIP} closed with code ${evt.code}`);
@@ -587,7 +591,7 @@ async function initiateAndHandleConnection(ip) {
         const rtt = newerTimeStamp - msgObj.data.timestamp;
         const { url } = websocket;
         let conIP = url.split('/')[2];
-        conIP = conIP.split(':16127').join('');
+        conIP = conIP.split(`:${config.server.apiport}`).join('');
         const foundPeer = outgoingPeers.find((peer) => peer.ip === conIP);
         if (foundPeer) {
           const peerIndex = outgoingPeers.indexOf(foundPeer);
@@ -612,7 +616,7 @@ async function initiateAndHandleConnection(ip) {
     console.log(evt.code);
     const { url } = websocket;
     let conIP = url.split('/')[2];
-    conIP = conIP.split(':16127').join('');
+    conIP = conIP.split(`:${config.server.apiport}`).join('');
     const ocIndex = outgoingConnections.indexOf(websocket);
     if (ocIndex > -1) {
       log.info(`Connection to ${conIP} errord with code ${evt.code}`);
@@ -842,7 +846,6 @@ async function removeIncomingPeer(req, res, expressWS) {
   return res.json(response);
 }
 
-// eslint-disable-next-line no-unused-vars
 async function checkMyFluxAvailability(zelnodelist) {
   // run if at least 10 available nodes
   if (zelnodelist.length > 10) {
@@ -858,16 +861,23 @@ async function checkMyFluxAvailability(zelnodelist) {
     if (myIP.includes(':')) {
       myIP = `[${myIP}]`;
     }
-    const resMyAvailability = await axios.get(`http://${askingIP}/zelflux/checkfluxavailability/${myIP}`, axiosConfig);
-    if (resMyAvailability.data.status === 'error') {
+    const resMyAvailability = await axiosGet(`http://${askingIP}:${config.server.apiport}/zelflux/checkfluxavailability/${myIP}`, axiosConfigB).catch((error) => {
+      log.error(`${askingIP} is not reachable`);
+      log.error(error);
+    });
+    if (!resMyAvailability) {
+      checkMyFluxAvailability(zelnodelist);
+      return;
+    }
+    if (resMyAvailability.data.status === 'error' || resMyAvailability.data.data.message.includes('not')) {
       log.error(`My Flux unavailability detected from ${askingIP}`);
       // Asked Flux cannot reach me
-      dosState += 1;
+      dosState += 1.5;
       if (dosState > 10) {
         dosMessage = dosMessage || 'Flux is not available for outside communication';
         log.error(dosMessage);
       } else {
-        checkFluxAvailability(zelnodelist);
+        checkMyFluxAvailability(zelnodelist);
       }
     } else {
       dosState = 0;
@@ -895,11 +905,7 @@ async function checkDeterministicNodesCollisions() {
       dosMessage = 'Flux collision detection';
       return;
     }
-    // TODO delete in v60
-    dosState = 0;
-    dosMessage = null;
-    // TODO uncomment in v60
-    // checkMyFluxAvailability(zelnodeList);
+    checkMyFluxAvailability(zelnodeList);
   } else {
     dosState += 1;
     if (dosState > 10) {
