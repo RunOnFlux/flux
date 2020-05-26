@@ -866,6 +866,11 @@ async function checkMyFluxAvailability(zelnodelist) {
       log.error(error);
     });
     if (!resMyAvailability) {
+      dosState += 0.5;
+      if (dosState > 10) {
+        dosMessage = dosMessage || 'Flux communication is limited';
+        log.error(dosMessage);
+      }
       checkMyFluxAvailability(zelnodelist);
       return;
     }
