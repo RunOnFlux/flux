@@ -424,7 +424,7 @@ async function zelAppDockerStart(idOrName) {
     const dockerContainer = docker.getContainer(myContainer.Id);
 
     await dockerContainer.start();
-    return `ZelApp ${idOrName} succesfully started.`;
+    return `ZelApp ${idOrName} successfully started.`;
   } catch (error) {
     log.error(error);
     throw error;
@@ -441,7 +441,7 @@ async function zelAppDockerStop(idOrName) {
     log.error(error);
     throw error;
   });
-  return `ZelApp ${idOrName} succesfully stopped.`;
+  return `ZelApp ${idOrName} successfully stopped.`;
 }
 
 async function zelAppDockerRestart(idOrName) {
@@ -454,7 +454,7 @@ async function zelAppDockerRestart(idOrName) {
     log.error(error);
     throw error;
   });
-  return `ZelApp ${idOrName} succesfully restarted.`;
+  return `ZelApp ${idOrName} successfully restarted.`;
 }
 
 async function zelAppDockerKill(idOrName) {
@@ -467,7 +467,7 @@ async function zelAppDockerKill(idOrName) {
     log.error(error);
     throw error;
   });
-  return `ZelApp ${idOrName} succesfully killed.`;
+  return `ZelApp ${idOrName} successfully killed.`;
 }
 
 async function zelAppDockerRemove(idOrName) {
@@ -480,7 +480,7 @@ async function zelAppDockerRemove(idOrName) {
     log.error(error);
     throw error;
   });
-  return `ZelApp ${idOrName} succesfully removed.`;
+  return `ZelApp ${idOrName} successfully removed.`;
 }
 
 async function zelAppDockerImageRemove(idOrName) {
@@ -491,7 +491,7 @@ async function zelAppDockerImageRemove(idOrName) {
     log.error(error);
     throw error;
   });
-  return `ZelApp ${idOrName} image succesfully removed.`;
+  return `ZelApp ${idOrName} image successfully removed.`;
 }
 
 async function zelAppDockerPause(idOrName) {
@@ -504,7 +504,7 @@ async function zelAppDockerPause(idOrName) {
     log.error(error);
     throw error;
   });
-  return `ZelApp ${idOrName} succesfully paused.`;
+  return `ZelApp ${idOrName} successfully paused.`;
 }
 
 async function zelAppDockerUnpase(idOrName) {
@@ -517,7 +517,7 @@ async function zelAppDockerUnpase(idOrName) {
     log.error(error);
     throw error;
   });
-  return `ZelApp ${idOrName} succesfully unpaused.`;
+  return `ZelApp ${idOrName} successfully unpaused.`;
 }
 
 async function zelAppDockerTop(idOrName) {
