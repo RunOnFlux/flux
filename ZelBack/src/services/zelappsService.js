@@ -1460,7 +1460,14 @@ async function temporaryZelAppRegisterFunctionForFoldingAtHome(req, res) {
             error.code,
           );
           res.write(serviceHelper.ensureString(errorResponse));
-          res.end();
+          const removeStatus = {
+            status: 'Error occured. Initiating ZelApp removal',
+          };
+          res.write(serviceHelper.ensureString(removeStatus));
+          // eslint-disable-next-line no-param-reassign
+          req.params.zelapp = 'zelFoldingAtHome';
+          // eslint-disable-next-line no-use-before-define
+          removeZelAppLocally(req, res);
         } else {
           const pullStatus = {
             status: 'Pulling global ZelApp was successful',
@@ -1474,7 +1481,14 @@ async function temporaryZelAppRegisterFunctionForFoldingAtHome(req, res) {
               errr.code,
             );
             res.write(serviceHelper.ensureString(errorResponse));
-            res.end();
+            const removeStatus = {
+              status: 'Error occured. Initiating ZelApp removal',
+            };
+            res.write(serviceHelper.ensureString(removeStatus));
+            // eslint-disable-next-line no-param-reassign
+            req.params.zelapp = 'zelFoldingAtHome';
+            // eslint-disable-next-line no-use-before-define
+            removeZelAppLocally(req, res);
           });
 
           if (!volumeOK) {
@@ -1492,7 +1506,14 @@ async function temporaryZelAppRegisterFunctionForFoldingAtHome(req, res) {
               e.code,
             );
             res.write(serviceHelper.ensureString(errorResponse));
-            res.end();
+            const removeStatus = {
+              status: 'Error occured. Initiating ZelApp removal',
+            };
+            res.write(serviceHelper.ensureString(removeStatus));
+            // eslint-disable-next-line no-param-reassign
+            req.params.zelapp = 'zelFoldingAtHome';
+            // eslint-disable-next-line no-use-before-define
+            removeZelAppLocally(req, res);
           });
           if (!dockerCreated) {
             return;
@@ -1509,9 +1530,18 @@ async function temporaryZelAppRegisterFunctionForFoldingAtHome(req, res) {
             res.write(serviceHelper.ensureString(portStatus));
           } else {
             const portStatus = {
-              status: 'Warning: Port FAILed to open. Try opening manually later.',
+              status: 'Error: Port FAILed to open.',
             };
             res.write(serviceHelper.ensureString(portStatus));
+            const removeStatus = {
+              status: 'Error occured. Initiating ZelApp removal',
+            };
+            res.write(serviceHelper.ensureString(removeStatus));
+            // eslint-disable-next-line no-param-reassign
+            req.params.zelapp = 'zelFoldingAtHome';
+            // eslint-disable-next-line no-use-before-define
+            removeZelAppLocally(req, res);
+            return;
           }
           const startStatus = {
             status: 'Starting ZelApp...',
@@ -1524,7 +1554,14 @@ async function temporaryZelAppRegisterFunctionForFoldingAtHome(req, res) {
               error2.code,
             );
             res.write(serviceHelper.ensureString(errorResponse));
-            res.end();
+            const removeStatus = {
+              status: 'Error occured. Initiating ZelApp removal',
+            };
+            res.write(serviceHelper.ensureString(removeStatus));
+            // eslint-disable-next-line no-param-reassign
+            req.params.zelapp = 'zelFoldingAtHome';
+            // eslint-disable-next-line no-use-before-define
+            removeZelAppLocally(req, res);
           });
           if (!zelapp) {
             return;
