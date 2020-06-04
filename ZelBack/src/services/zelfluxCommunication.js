@@ -951,7 +951,7 @@ async function getDOSState(req, res) {
 }
 
 async function allowPort(port) {
-  const exec = `sudo ufw allow from any to any port ${port} && sudo ufw allow out to any port ${port}`;
+  const exec = `sudo ufw allow ${port} && sudo ufw allow out ${port}`;
   const cmdAsync = util.promisify(cmd.get);
 
   const cmdres = await cmdAsync(exec);
@@ -970,7 +970,7 @@ async function allowPort(port) {
 }
 
 async function denyPort(port) {
-  const exec = `sudo ufw deny from any to any port ${port} && sudo ufw deny out to any port ${port}`;
+  const exec = `sudo ufw deny ${port} && sudo ufw deny out ${port}`;
   const cmdAsync = util.promisify(cmd.get);
 
   const cmdres = await cmdAsync(exec);
@@ -1014,10 +1014,10 @@ async function allowPortApi(req, res) {
 
 async function adjustFirewall() {
   const execA = 'sudo ufw status | grep Status';
-  const execB = `sudo ufw allow from any to any port ${config.server.apiport}`;
-  const execC = `sudo ufw allow out to any port ${config.server.apiport}`;
-  const execD = `sudo ufw allow from any to any port ${config.server.zelfrontport}`;
-  const execE = `sudo ufw allow out to any port ${config.server.zelfrontport}`;
+  const execB = `sudo ufw allow ${config.server.apiport}`;
+  const execC = `sudo ufw allow out ${config.server.apiport}`;
+  const execD = `sudo ufw allow ${config.server.zelfrontport}`;
+  const execE = `sudo ufw allow out ${config.server.zelfrontport}`;
   const cmdAsync = util.promisify(cmd.get);
 
   const cmdresA = await cmdAsync(execA);
