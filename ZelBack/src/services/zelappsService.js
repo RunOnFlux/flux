@@ -1649,9 +1649,10 @@ async function registerZelAppLocally(zelAppSpecifications, res) {
       res.write(serviceHelper.ensureString(fluxNetworkStatus));
     }
     const fluxNet = await createFluxNetwork();
-    log.info(fluxNet);
+    const fluxNetResponse = serviceHelper.createDataMessage(fluxNet);
+    log.info(fluxNetResponse);
     if (res) {
-      res.write(serviceHelper.createDataMessage(fluxNet));
+      res.write(serviceHelper.ensureString(fluxNetResponse));
     }
 
     // check if app is already installed
