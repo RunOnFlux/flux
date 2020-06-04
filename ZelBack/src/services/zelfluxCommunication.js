@@ -18,7 +18,7 @@ const outgoingPeers = []; // array of objects containing ip and rtt latency
 const incomingConnections = []; // websocket list
 const incomingPeers = []; // array of objects containing ip and rtt latency
 
-let dosState = 0;
+let dosState = 0; // we can start at bigger number later
 let dosMessage = null;
 
 // my external Flux IP from zelbench
@@ -951,7 +951,7 @@ async function getDOSState(req, res) {
 }
 
 async function allowPort(port) {
-  const exec = `sudo ufw allow ${port}`;
+  const exec = `sudo ufw allow from any to any port ${port} && sudo ufw allow out to any port ${port}`;
   const cmdAsync = util.promisify(cmd.get);
 
   const cmdres = await cmdAsync(exec);
@@ -970,7 +970,7 @@ async function allowPort(port) {
 }
 
 async function denyPort(port) {
-  const exec = `sudo ufw deny ${port}`;
+  const exec = `sudo ufw deny from any to any port ${port} && sudo ufw deny out to any port ${port}`;
   const cmdAsync = util.promisify(cmd.get);
 
   const cmdres = await cmdAsync(exec);
@@ -1014,16 +1014,37 @@ async function allowPortApi(req, res) {
 
 async function adjustFirewall() {
   const execA = 'sudo ufw status | grep Status';
-  const execB = `sudo ufw allow ${config.server.apiport}`;
+  const execB = `sudo ufw allow from any to any port ${config.server.apiport}`;
+  const execC = `sudo ufw allow out to any port ${config.server.apiport}`;
+  const execD = `sudo ufw allow from any to any port ${config.server.zelfrontport}`;
+  const execE = `sudo ufw allow out to any port ${config.server.zelfrontport}`;
   const cmdAsync = util.promisify(cmd.get);
 
   const cmdresA = await cmdAsync(execA);
   if (serviceHelper.ensureString(cmdresA).includes('Status: active')) {
     const cmdresB = await cmdAsync(execB);
     if (serviceHelper.ensureString(cmdresB).includes('updated') || serviceHelper.ensureString(cmdresB).includes('existing') || serviceHelper.ensureString(cmdresB).includes('added')) {
-      log.info('Firewall adjusted for ZelBack port');
+      log.info('Incoming Firewall adjusted for ZelBack port');
     } else {
-      log.info('Failed to adjust Firewall for ZelBack port');
+      log.info('Failed to adjust Firewall for incoming ZelBack port');
+    }
+    const cmdresC = await cmdAsync(execC);
+    if (serviceHelper.ensureString(cmdresC).includes('updated') || serviceHelper.ensureString(cmdresC).includes('existing') || serviceHelper.ensureString(cmdresC).includes('added')) {
+      log.info('Outgoing Firewall adjusted for ZelBack port');
+    } else {
+      log.info('Failed to adjust Firewall for outgoing ZelBack port');
+    }
+    const cmdresD = await cmdAsync(execD);
+    if (serviceHelper.ensureString(cmdresD).includes('updated') || serviceHelper.ensureString(cmdresD).includes('existing') || serviceHelper.ensureString(cmdresD).includes('added')) {
+      log.info('Incoming Firewall adjusted for ZelFront port');
+    } else {
+      log.info('Failed to adjust Firewall for incoming ZelFront port');
+    }
+    const cmdresE = await cmdAsync(execE);
+    if (serviceHelper.ensureString(cmdresE).includes('updated') || serviceHelper.ensureString(cmdresE).includes('existing') || serviceHelper.ensureString(cmdresE).includes('added')) {
+      log.info('Outgoing Firewall adjusted for ZelFront port');
+    } else {
+      log.info('Failed to adjust Firewall for outgoing ZelFront port');
     }
   } else {
     log.info('Firewall is not active. Adjusting not applied');
