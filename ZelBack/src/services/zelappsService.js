@@ -1611,13 +1611,28 @@ async function registerZelAppLocally(zelAppSpecifications, res) {
   // check if hash is in blockchain
   // register and launch according to specifications in message
   try {
+    const zelappName = zelAppSpecifications.name;
+    const precheckForInstallation = {
+      status: 'Runnin initial checks for ZelApp...',
+    };
+    log.info(precheckForInstallation);
+    if (res) {
+      res.write(serviceHelper.ensureString(precheckForInstallation));
+    }
     // connect to mongodb
+    const dbOpenTest = {
+      status: 'Connecting to database...',
+    };
+    log.info(dbOpenTest);
+    if (res) {
+      res.write(serviceHelper.ensureString(dbOpenTest));
+    }
     const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
       throw error;
     });
 
     const zelappsDatabase = dbopen.db(config.database.zelappslocal.database);
-    const zelappsQuery = { name: zelAppSpecifications.name };
+    const zelappsQuery = { name: zelappName };
     const zelappsProjection = {
       projection: {
         _id: 0,
@@ -1626,9 +1641,27 @@ async function registerZelAppLocally(zelAppSpecifications, res) {
     };
 
     // check if zelfluxDockerNetwork exists, if not create
-    await createFluxNetwork();
+    const fluxNetworkStatus = {
+      status: 'Checking ZelFlux network...',
+    };
+    log.info(fluxNetworkStatus);
+    if (res) {
+      res.write(serviceHelper.ensureString(fluxNetworkStatus));
+    }
+    const fluxNet = await createFluxNetwork();
+    log.info(fluxNet);
+    if (res) {
+      res.write(serviceHelper.ensureString(fluxNet));
+    }
 
     // check if app is already installed
+    const checkDb = {
+      status: 'Checking database...',
+    };
+    log.info(checkDb);
+    if (res) {
+      res.write(serviceHelper.ensureString(checkDb));
+    }
     const zelappResult = await serviceHelper.findOneInDatabase(zelappsDatabase, localZelAppsInformation, zelappsQuery, zelappsProjection).catch((error) => {
       dbopen.close();
       throw error;
@@ -1644,6 +1677,14 @@ async function registerZelAppLocally(zelAppSpecifications, res) {
     } else {
       dbopen.close();
       throw new Error('ZelApp already installed');
+    }
+
+    const zelAppInstallation = {
+      status: 'Initiating ZelApp installation...',
+    };
+    log.info(zelAppInstallation);
+    if (res) {
+      res.write(serviceHelper.ensureString(zelAppInstallation));
     }
 
     // pull image
@@ -1666,7 +1707,7 @@ async function registerZelAppLocally(zelAppSpecifications, res) {
         if (res) {
           res.write(serviceHelper.ensureString(removeStatus));
         }
-        removeZelAppLocally(zelAppSpecifications, res);
+        removeZelAppLocally(zelappName, res);
       } else {
         const pullStatus = {
           status: 'Pulling global ZelApp was successful',
@@ -1691,7 +1732,7 @@ async function registerZelAppLocally(zelAppSpecifications, res) {
           if (res) {
             res.write(serviceHelper.ensureString(removeStatus));
           }
-          removeZelAppLocally(zelAppSpecifications, res);
+          removeZelAppLocally(zelappName, res);
         });
 
         if (!volumeOK) {
@@ -1728,7 +1769,7 @@ async function registerZelAppLocally(zelAppSpecifications, res) {
           if (res) {
             res.write(serviceHelper.ensureString(removeStatus));
           }
-          removeZelAppLocally(zelAppSpecifications, res);
+          removeZelAppLocally(zelappName, res);
         });
         if (!dockerCreated) {
           return;
@@ -1764,7 +1805,7 @@ async function registerZelAppLocally(zelAppSpecifications, res) {
           if (res) {
             res.write(serviceHelper.ensureString(removeStatus));
           }
-          removeZelAppLocally(zelAppSpecifications, res);
+          removeZelAppLocally(zelappName, res);
           return;
         }
         const startStatus = {
@@ -1791,7 +1832,7 @@ async function registerZelAppLocally(zelAppSpecifications, res) {
           if (res) {
             res.write(serviceHelper.ensureString(removeStatus));
           }
-          removeZelAppLocally(zelAppSpecifications, res);
+          removeZelAppLocally(zelappName, res);
         });
         if (!zelapp) {
           const removeStatus = {
@@ -1801,7 +1842,7 @@ async function registerZelAppLocally(zelAppSpecifications, res) {
           if (res) {
             res.write(serviceHelper.ensureString(removeStatus));
           }
-          removeZelAppLocally(zelAppSpecifications, res);
+          removeZelAppLocally(zelappName, res);
           return;
         }
         const zelappResponse = serviceHelper.createDataMessage(zelapp);
