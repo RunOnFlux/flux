@@ -1613,7 +1613,7 @@ async function registerZelAppLocally(zelAppSpecifications, res) {
   try {
     const zelappName = zelAppSpecifications.name;
     const precheckForInstallation = {
-      status: 'Runnin initial checks for ZelApp...',
+      status: 'Running initial checks for ZelApp...',
     };
     log.info(precheckForInstallation);
     if (res) {
@@ -1651,7 +1651,7 @@ async function registerZelAppLocally(zelAppSpecifications, res) {
     const fluxNet = await createFluxNetwork();
     log.info(fluxNet);
     if (res) {
-      res.write(serviceHelper.ensureString(fluxNet));
+      res.write(serviceHelper.createDataMessage(fluxNet));
     }
 
     // check if app is already installed
