@@ -1568,7 +1568,7 @@ async function removeZelAppLocally(zelapp, res) {
       error.code,
     );
     if (res) {
-      res.write(errorResponse);
+      res.write(serviceHelper.ensureString(errorResponse));
       res.end();
     }
   }
@@ -1862,7 +1862,7 @@ async function registerZelAppLocally(zelAppSpecifications, res) {
       error.code,
     );
     if (res) {
-      res.write(errorResponse);
+      res.write(serviceHelper.ensureString(errorResponse));
       res.end();
     }
   }
