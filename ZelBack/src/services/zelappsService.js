@@ -1701,9 +1701,7 @@ async function registerZelAppLocally(zelAppSpecifications, res) {
         if (res) {
           res.write(serviceHelper.ensureString(errorResponse));
         }
-        const removeStatus = {
-          status: 'Error occured. Initiating ZelApp removal',
-        };
+        const removeStatus = serviceHelper.createErrorMessage('Error occured. Initiating ZelApp removal');
         log.info(removeStatus);
         if (res) {
           res.write(serviceHelper.ensureString(removeStatus));
@@ -1726,9 +1724,7 @@ async function registerZelAppLocally(zelAppSpecifications, res) {
             res.write(serviceHelper.ensureString(errorResponse));
           }
 
-          const removeStatus = {
-            status: 'Error occured. Initiating ZelApp removal',
-          };
+          const removeStatus = serviceHelper.createErrorMessage('Error occured. Initiating ZelApp removal');
           log.info(removeStatus);
           if (res) {
             res.write(serviceHelper.ensureString(removeStatus));
@@ -1763,9 +1759,7 @@ async function registerZelAppLocally(zelAppSpecifications, res) {
           if (res) {
             res.write(serviceHelper.ensureString(errorResponse));
           }
-          const removeStatus = {
-            status: 'Error occured. Initiating ZelApp removal',
-          };
+          const removeStatus = serviceHelper.createErrorMessage('Error occured. Initiating ZelApp removal');
           log.info(removeStatus);
           if (res) {
             res.write(serviceHelper.ensureString(removeStatus));
@@ -1799,9 +1793,7 @@ async function registerZelAppLocally(zelAppSpecifications, res) {
           if (res) {
             res.write(serviceHelper.ensureString(portStatus));
           }
-          const removeStatus = {
-            status: 'Error occured. Initiating ZelApp removal',
-          };
+          const removeStatus = serviceHelper.createErrorMessage('Error occured. Initiating ZelApp removal');
           log.info(removeStatus);
           if (res) {
             res.write(serviceHelper.ensureString(removeStatus));
@@ -1826,9 +1818,7 @@ async function registerZelAppLocally(zelAppSpecifications, res) {
           if (res) {
             res.write(serviceHelper.ensureString(errorResponse));
           }
-          const removeStatus = {
-            status: 'Error occured. Initiating ZelApp removal',
-          };
+          const removeStatus = serviceHelper.createErrorMessage('Error occured. Initiating ZelApp removal');
           log.info(removeStatus);
           if (res) {
             res.write(serviceHelper.ensureString(removeStatus));
@@ -1836,9 +1826,7 @@ async function registerZelAppLocally(zelAppSpecifications, res) {
           removeZelAppLocally(zelappName, res);
         });
         if (!zelapp) {
-          const removeStatus = {
-            status: 'Error occured. Initiating ZelApp removal',
-          };
+          const removeStatus = serviceHelper.createErrorMessage('Error occured. Initiating ZelApp removal');
           log.info(removeStatus);
           if (res) {
             res.write(serviceHelper.ensureString(removeStatus));
