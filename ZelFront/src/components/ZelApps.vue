@@ -460,6 +460,15 @@ export default {
         console.log(response);
         this.output = JSON.parse(`[${response.data.replace(/}{/g, '},{')}]`);
         console.log(this.output);
+        for (let i = 0; i < this.output.length; i += 1) {
+          if (this.output[i] && this.output[i].data && this.output[i].data.message && this.output[i].data.message.includes('Error occured')) {
+            // error is defined one line above
+            if (this.output[i - 1] && this.output[i - 1].data) {
+              vue.$message.error(this.output[i - 1].data.message || this.output[i - 1].data);
+              return;
+            }
+          }
+        }
         if (this.output[this.output.length - 1].status === 'error') {
           vue.$message.error(this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         } else {

@@ -648,7 +648,7 @@ module.exports = (app, expressWs) => {
     zelappsService.zelAppExec(req, res);
   });
   app.get('/zelapps/zelappremove/:zelapp?', (req, res) => {
-    zelappsService.removeZelAppLocally(req, res);
+    zelappsService.removeZelAppLocallyApi(req, res);
   });
   app.get('/zelapps/zelappimageremove/:image?', (req, res) => {
     zelappsService.zelAppImageRemove(req, res);
