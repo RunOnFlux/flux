@@ -1990,7 +1990,7 @@ async function registerZelAppGlobalyApi(req, res) {
       cpu = serviceHelper.ensureNumber(cpu);
       ram = serviceHelper.ensureNumber(ram);
       hdd = serviceHelper.ensureNumber(hdd);
-      if (tiered !== true && tiered !== false) {
+      if (typeof tiered !== 'boolean') {
         throw new Error('Invalid tiered value obtained. Only boolean as true or false allowed.');
       }
 
@@ -2065,7 +2065,7 @@ async function registerZelAppGlobalyApi(req, res) {
       }
       const parameters = checkHWParameters(zelAppSpecFormatted);
       if (parameters !== true) {
-        const errorMessage = parameters === false ? 'Received message is invalid' : parameters;
+        const errorMessage = parameters;
         throw new Error(errorMessage);
       }
 
