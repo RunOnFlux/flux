@@ -1,6 +1,7 @@
 const config = require('config');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const os = require('os');
+const crypto = require('crypto');
 const Docker = require('dockerode');
 const stream = require('stream');
 const path = require('path');
@@ -24,7 +25,16 @@ const docker = new Docker();
 const mongoUrl = `mongodb://${config.database.url}:${config.database.port}/`;
 const scannedHeightCollection = config.database.zelcash.collections.scannedHeight;
 const localZelAppsInformation = config.database.zelappslocal.collections.zelappsInformation;
-const globalZelAppsMessages = config.database.zelappsglobal.collections.zelAppsMessages;
+const globalZelAppsMessages = config.database.zelappsglobal.collections.zelappsMessages;
+const globalZelAppsInformation = config.database.zelappsglobal.collections.zelappsInformation;
+
+function getZelAppIdentifier(zelappName) {
+  // this id is used for volumes, docker names so we know it reall belongs to zelflux
+  if (zelappName.startsWith('zel')) {
+    return zelappName;
+  }
+  return `zel${zelappName}`;
+}
 
 function getCollateralInfo(collateralOutpoint) {
   const a = collateralOutpoint;
@@ -375,7 +385,7 @@ async function zelnodeTier() {
 async function zelAppDockerCreate(zelAppSpecifications) {
   const options = {
     Image: zelAppSpecifications.repotag,
-    name: zelAppSpecifications.name,
+    name: getZelAppIdentifier(zelAppSpecifications.name),
     AttachStdin: true,
     AttachStdout: true,
     AttachStderr: true,
@@ -385,7 +395,7 @@ async function zelAppDockerCreate(zelAppSpecifications) {
     HostConfig: {
       NanoCPUs: zelAppSpecifications.cpu * 1e9,
       Memory: zelAppSpecifications.ram * 1024 * 1024,
-      Binds: [`${zelappsFolder + zelAppSpecifications.name}:${zelAppSpecifications.containerData}`],
+      Binds: [`${zelappsFolder + getZelAppIdentifier(zelAppSpecifications.name)}:${zelAppSpecifications.containerData}`],
       Ulimits: [
         {
           Name: 'nofile',
@@ -1156,6 +1166,7 @@ async function zelappsResources(req, res) {
 
 async function createZelAppVolume(zelAppSpecifications, res) {
   const dfAsync = util.promisify(df);
+  const zelappId = getZelAppIdentifier(zelAppSpecifications.name);
 
   const searchSpace = {
     status: 'Searching available space...',
@@ -1186,7 +1197,7 @@ async function createZelAppVolume(zelAppSpecifications, res) {
   console.log(okVolumes);
   // todo get tier
   const tier = await zelnodeTier();
-  const totalSpaceOnNode = config.fluxSpecifics.hdd[tier];
+  const totalSpaceOnNode = config.fluxSpecconfig.flifics.hdd[tier];
   const useableSpaceOnNode = totalSpaceOnNode - config.lockedSystemResources.hdd;
   const resourcesLocked = await zelappsResources();
   if (resourcesLocked.status !== 'success') {
@@ -1245,9 +1256,9 @@ async function createZelAppVolume(zelAppSpecifications, res) {
     res.write(serviceHelper.ensureString(allocateSpace));
   }
   // space hdd * 10, thats why 0 at the end. As we have 100mb bs.
-  let execDD = `sudo dd if=/dev/zero of=${useThisVolume.mount}/${zelAppSpecifications.name}TEMP bs=107374182 count=${zelAppSpecifications.hdd}0`; // eg /mnt/sthMounted/zelappTEMP
+  let execDD = `sudo dd if=/dev/zero of=${useThisVolume.mount}/${zelappId}TEMP bs=107374182 count=${zelAppSpecifications.hdd}0`; // eg /mnt/sthMounted/zelappTEMP
   if (useThisVolume.mount === '/') {
-    execDD = `sudo dd if=/dev/zero of=${useThisVolume.mount}tmp/${zelAppSpecifications.name}TEMP bs=107374182 count=${zelAppSpecifications.hdd}0`; // if root mount then temp file is /tmp/zelappTEMP
+    execDD = `sudo dd if=/dev/zero of=${useThisVolume.mount}tmp/${zelappId}TEMP bs=107374182 count=${zelAppSpecifications.hdd}0`; // if root mount then temp file is /tmp/zelappTEMP
   }
   await cmdAsync(execDD);
   const allocateSpace2 = {
@@ -1265,9 +1276,9 @@ async function createZelAppVolume(zelAppSpecifications, res) {
   if (res) {
     res.write(serviceHelper.ensureString(makeFilesystem));
   }
-  let execFS = `sudo mke2fs -t ext4 ${useThisVolume.mount}/${zelAppSpecifications.name}TEMP`;
+  let execFS = `sudo mke2fs -t ext4 ${useThisVolume.mount}/${zelappId}TEMP`;
   if (useThisVolume.mount === '/') {
-    execFS = `sudo mke2fs -t ext4 ${useThisVolume.mount}tmp/${zelAppSpecifications.name}TEMP`;
+    execFS = `sudo mke2fs -t ext4 ${useThisVolume.mount}tmp/${zelappId}TEMP`;
   }
   await cmdAsync(execFS);
   const makeFilesystem2 = {
@@ -1285,7 +1296,7 @@ async function createZelAppVolume(zelAppSpecifications, res) {
   if (res) {
     res.write(serviceHelper.ensureString(makeDirectory));
   }
-  const execDIR = `sudo mkdir -p ${zelappsFolder + zelAppSpecifications.name}`;
+  const execDIR = `sudo mkdir -p ${zelappsFolder + zelappId}`;
   await cmdAsync(execDIR);
   const makeDirectory2 = {
     status: 'Directory made',
@@ -1302,9 +1313,9 @@ async function createZelAppVolume(zelAppSpecifications, res) {
   if (res) {
     res.write(serviceHelper.ensureString(mountingStatus));
   }
-  let execMount = `sudo mount -o loop ${useThisVolume.mount}/${zelAppSpecifications.name}TEMP ${zelappsFolder + zelAppSpecifications.name}`;
+  let execMount = `sudo mount -o loop ${useThisVolume.mount}/${zelappId}TEMP ${zelappsFolder + zelappId}`;
   if (useThisVolume.mount === '/') {
-    execMount = `sudo mount -o loop ${useThisVolume.mount}tmp/${zelAppSpecifications.name}TEMP ${zelappsFolder + zelAppSpecifications.name}`;
+    execMount = `sudo mount -o loop ${useThisVolume.mount}tmp/${zelappId}TEMP ${zelappsFolder + zelappId}`;
   }
   await cmdAsync(execMount);
   const mountingStatus2 = {
@@ -1322,9 +1333,9 @@ async function createZelAppVolume(zelAppSpecifications, res) {
   if (res) {
     res.write(serviceHelper.ensureString(aloocationRemoval));
   }
-  let execRemoveAlloc = `sudo rm -rf ${useThisVolume.mount}/${zelAppSpecifications.name}TEMP`;
+  let execRemoveAlloc = `sudo rm -rf ${useThisVolume.mount}/${zelappId}TEMP`;
   if (useThisVolume.mount === '/') {
-    execRemoveAlloc = `sudo rm -rf ${useThisVolume.mount}tmp/${zelAppSpecifications.name}TEMP`;
+    execRemoveAlloc = `sudo rm -rf ${useThisVolume.mount}tmp/${zelappId}TEMP`;
   }
   await cmdAsync(execRemoveAlloc);
   const aloocationRemoval2 = {
@@ -1342,7 +1353,7 @@ async function createZelAppVolume(zelAppSpecifications, res) {
   if (res) {
     res.write(serviceHelper.ensureString(spaceVerification));
   }
-  const execVerif = `sudo dd if=/dev/zero of=${zelappsFolder + zelAppSpecifications.name}/${zelAppSpecifications.name}VERTEMP bs=96636763 count=${zelAppSpecifications.hdd}0`; // 90%
+  const execVerif = `sudo dd if=/dev/zero of=${zelappsFolder + zelappId}/${zelappId}VERTEMP bs=96636763 count=${zelAppSpecifications.hdd}0`; // 90%
   await cmdAsync(execVerif);
   const spaceVerification2 = {
     status: 'Verification written...',
@@ -1359,7 +1370,7 @@ async function createZelAppVolume(zelAppSpecifications, res) {
   if (res) {
     res.write(serviceHelper.ensureString(finaliseSpace));
   }
-  const execFinal = `sudo rm -rf ${zelappsFolder + zelAppSpecifications.name}/${zelAppSpecifications.name}VERTEMP`;
+  const execFinal = `sudo rm -rf ${zelappsFolder + zelappId}/${zelappId}VERTEMP`;
   await cmdAsync(execFinal);
   const finaliseSpace2 = {
     status: `Space for ZelApp ${zelAppSpecifications.name} created and assigned.`,
@@ -1380,6 +1391,8 @@ async function removeZelAppLocally(zelapp, res) {
     if (!zelapp) {
       throw new Error('No ZelApp specified');
     }
+
+    const zelappId = getZelAppIdentifier(zelapp);
 
     // first find the zelAppSpecifications in our database.
     // connect to mongodb
@@ -1406,7 +1419,7 @@ async function removeZelAppLocally(zelapp, res) {
     if (res) {
       res.write(serviceHelper.ensureString(stopStatus));
     }
-    await zelAppDockerStop(zelapp).catch((error) => {
+    await zelAppDockerStop(zelappId).catch((error) => {
       const errorResponse = serviceHelper.createErrorMessage(
         error.message || error,
         error.name,
@@ -1429,7 +1442,7 @@ async function removeZelAppLocally(zelapp, res) {
     if (res) {
       res.write(serviceHelper.ensureString(removeStatus));
     }
-    await zelAppDockerRemove(zelapp).catch((error) => {
+    await zelAppDockerRemove(zelappId).catch((error) => {
       const errorResponse = serviceHelper.createErrorMessage(
         error.message || error,
         error.name,
@@ -1497,7 +1510,7 @@ async function removeZelAppLocally(zelapp, res) {
     if (res) {
       res.write(serviceHelper.ensureString(unmuontStatus));
     }
-    const execUnmount = `sudo umount ${zelappsFolder + zelAppSpecifications.name}`;
+    const execUnmount = `sudo umount ${zelappsFolder + zelappId}`;
     await cmdAsync(execUnmount).then(() => {
       const unmuontStatus2 = {
         status: 'Volume unmounted',
@@ -1524,7 +1537,7 @@ async function removeZelAppLocally(zelapp, res) {
     if (res) {
       res.write(serviceHelper.ensureString(cleaningStatus));
     }
-    const execDelete = `sudo rm -rf ${zelappsFolder + zelAppSpecifications.name}`;
+    const execDelete = `sudo rm -rf ${zelappsFolder + zelappId}`;
     await cmdAsync(execDelete);
     const cleaningStatus2 = {
       status: 'Data cleaned',
@@ -1808,7 +1821,7 @@ async function registerZelAppLocally(zelAppSpecifications, res) {
         if (res) {
           res.write(serviceHelper.ensureString(startStatus));
         }
-        const zelapp = await zelAppDockerStart(zelAppSpecifications.name).catch((error2) => {
+        const zelapp = await zelAppDockerStart(getZelAppIdentifier(zelAppSpecifications.name)).catch((error2) => {
           const errorResponse = serviceHelper.createErrorMessage(
             error2.message || error2,
             error2.name,
@@ -1856,6 +1869,305 @@ async function registerZelAppLocally(zelAppSpecifications, res) {
   }
 }
 
+function checkHWParameters(zelAppSpecs) {
+  // check specs parameters. JS precision
+  if ((zelAppSpecs.cpu * 10) % 1 !== 0 || (zelAppSpecs.cpu * 10) > (config.fluxSpecifics.cpu.bamf - config.lockedSystemResources.cpu)) {
+    return new Error('CPU badly assigned');
+  }
+  if (zelAppSpecs.ram % 100 !== 0 || zelAppSpecs.ram > (config.fluxSpecifics.ram.bamf - config.lockedSystemResources.ram)) {
+    return new Error('RAM badly assigned');
+  }
+  if (zelAppSpecs.hdd % 1 !== 0 || zelAppSpecs.hdd > (config.fluxSpecifics.hdd.bamf - config.lockedSystemResources.hdd)) {
+    return new Error('SSD badly assigned');
+  }
+  if (zelAppSpecs.tiered) {
+    if ((zelAppSpecs.cpubasic * 10) % 1 !== 0 || (zelAppSpecs.cpubasic * 10) > (config.fluxSpecifics.cpu.basic - config.lockedSystemResources.cpu)) {
+      return new Error('CPU for BASIC badly assigned');
+    }
+    if (zelAppSpecs.rambasic % 100 !== 0 || zelAppSpecs.rambasic > (config.fluxSpecifics.ram.basic - config.lockedSystemResources.ram)) {
+      return new Error('RAM for BASIC badly assigned');
+    }
+    if (zelAppSpecs.hddbasic % 1 !== 0 || zelAppSpecs.hddbasic > (config.fluxSpecifics.hdd.basic - config.lockedSystemResources.hdd)) {
+      return new Error('SSD for BASIC badly assigned');
+    }
+    if ((zelAppSpecs.cpusuper * 10) % 1 !== 0 || (zelAppSpecs.cpusuper * 10) > (config.fluxSpecifics.cpu.super - config.lockedSystemResources.cpu)) {
+      return new Error('CPU for SUPER badly assigned');
+    }
+    if (zelAppSpecs.ramsuper % 100 !== 0 || zelAppSpecs.ramsuper > (config.fluxSpecifics.ram.super - config.lockedSystemResources.ram)) {
+      return new Error('RAM for SUPER badly assigned');
+    }
+    if (zelAppSpecs.hddsuper % 1 !== 0 || zelAppSpecs.hddsuper > (config.fluxSpecifics.hdd.super - config.lockedSystemResources.hdd)) {
+      return new Error('SSD for SUPER badly assigned');
+    }
+    if ((zelAppSpecs.cpubamf * 10) % 1 !== 0 || (zelAppSpecs.cpubamf * 10) > (config.fluxSpecifics.cpu.bamf - config.lockedSystemResources.cpu)) {
+      return new Error('CPU for BAMF badly assigned');
+    }
+    if (zelAppSpecs.rambamf % 100 !== 0 || zelAppSpecs.rambamf > (config.fluxSpecifics.ram.bamf - config.lockedSystemResources.ram)) {
+      return new Error('RAM for BAMF badly assigned');
+    }
+    if (zelAppSpecs.hddbamf % 1 !== 0 || zelAppSpecs.hddbamf > (config.fluxSpecifics.hdd.bamf - config.lockedSystemResources.hdd)) {
+      return new Error('SSD for BAMF badly assigned');
+    }
+  }
+  return true;
+}
+
+async function registerZelAppGlobalyApi(req, res) {
+  try {
+    let body = '';
+    req.on('data', (data) => {
+      body += data;
+    });
+    req.on('end', async () => {
+      // first  check if this node is available for application registration - has at least 5 outgoing connections and 2 incoming connections (that is sufficient as it means it is confirmed and works correctly)
+      if (zelfluxCommunication.outgoingPeers.length < 5 || zelfluxCommunication.incomingPeers.length < 2) {
+        throw new Error('Sorry. This ZelFlux does not have enough peers for safe application registration');
+      }
+      const processedBody = serviceHelper.ensureObject(body);
+      // Note. Actually signature, timestamp is not needed. But we require it only to verify that user indeed has access to the private key of the owner zelid.
+      // name and port HAVE to be unique for application. Check if they dont exist in global database
+      // first lets check if all fields are present and have propper format excpet tiered and teired specifications and those can be ommited
+      let { zelAppSpecification } = processedBody;
+      let { timestamp } = processedBody;
+      let { signature } = processedBody;
+      if (!zelAppSpecification || !timestamp || !signature) {
+        throw new Error('Inclomplete message received. Check if specifications, timestamp and siganture is provided.');
+      }
+      zelAppSpecification = serviceHelper.ensureObject(zelAppSpecification);
+      timestamp = serviceHelper.ensureNumber(timestamp);
+      signature = serviceHelper.ensureString(signature);
+      let { version } = zelAppSpecification; // shall be 1
+      let { type } = zelAppSpecification; // shall be register
+      let { name } = zelAppSpecification;
+      let { description } = zelAppSpecification;
+      let { repotag } = zelAppSpecification;
+      let { owner } = zelAppSpecification;
+      let { port } = zelAppSpecification;
+      let { enviromentParameters } = zelAppSpecification;
+      let { commands } = zelAppSpecification;
+      let { containerPort } = zelAppSpecification;
+      let { containerData } = zelAppSpecification;
+      let { cpu } = zelAppSpecification;
+      let { ram } = zelAppSpecification;
+      let { hdd } = zelAppSpecification;
+      const { tiered } = zelAppSpecification;
+
+      // check if signature of received data is correct
+      if (!version || !type || !name || !description || !repotag || !owner || !port || !enviromentParameters || commands || !containerPort || !containerData || !cpu || !ram || !hdd || !tiered || !signature || !timestamp) {
+        throw new Error('Missing ZelApp specification parameter');
+      }
+      version = serviceHelper.ensureNumber(version);
+      type = serviceHelper.ensureString(type);
+      name = serviceHelper.ensureString(name);
+      description = serviceHelper.ensureString(description);
+      repotag = serviceHelper.ensureString(repotag);
+      owner = serviceHelper.ensureString(owner);
+      port = serviceHelper.ensureNumber(port);
+      enviromentParameters = serviceHelper.ensureObject(enviromentParameters);
+      const envParamsCorrected = [];
+      if (Array.isArray(enviromentParameters)) {
+        enviromentParameters.forEach((parameter) => {
+          const param = serviceHelper.ensureString(parameter);
+          envParamsCorrected.push(param);
+        });
+      } else {
+        throw new Error('Enviromental parameters for ZelApp are invalid');
+      }
+      commands = serviceHelper.ensureObject(commands);
+      const commandsCorrected = [];
+      if (Array.isArray(commands)) {
+        commands.forEach((command) => {
+          const cmm = serviceHelper.ensureString(command);
+          commandsCorrected.push(cmm);
+        });
+      } else {
+        throw new Error('ZelApp commands are invalid');
+      }
+      containerPort = serviceHelper.ensureNumber(containerPort);
+      containerData = serviceHelper.ensureString(containerData);
+      cpu = serviceHelper.ensureNumber(cpu);
+      ram = serviceHelper.ensureNumber(ram);
+      hdd = serviceHelper.ensureNumber(hdd);
+      if (tiered !== true || tiered !== false) {
+        throw new Error('Invalid tiered value obtained. Only boolean as true or false allowed.');
+      }
+
+      // finalised parameters that will get stored in global database
+      const zelAppSpecFormatted = {
+        version, // integer
+        type, // string
+        name, // string
+        description, // string
+        repotag, // string
+        owner, // zelid string
+        port, // integer
+        enviromentParameters: envParamsCorrected, // array of strings
+        commands: commandsCorrected, // array of strings
+        containerPort, // integer
+        containerData, // string
+        cpu, // float 0.1 step
+        ram, // integer 100 step (mb)
+        hdd, // integer 1 step
+        tiered, // boolean
+      };
+
+      if (tiered) {
+        let { cpubasic } = zelAppSpecification;
+        let { cpusuper } = zelAppSpecification;
+        let { cpubamf } = zelAppSpecification;
+        let { rambasic } = zelAppSpecification;
+        let { ramsuper } = zelAppSpecification;
+        let { rambamf } = zelAppSpecification;
+        let { hddbasic } = zelAppSpecification;
+        let { hddsuper } = zelAppSpecification;
+        let { hddbamf } = zelAppSpecification;
+        if (!cpubasic || !cpusuper || !cpubamf || !rambasic || !ramsuper || !rambamf || !hddbasic || !hddsuper || !hddbamf) {
+          throw new Error('ZelApp was requested as tiered setup but specifications are missing');
+        }
+        cpubasic = serviceHelper.ensureNumber(cpubasic);
+        cpusuper = serviceHelper.ensureNumber(cpusuper);
+        cpubamf = serviceHelper.ensureNumber(cpubamf);
+        rambasic = serviceHelper.ensureNumber(rambasic);
+        ramsuper = serviceHelper.ensureNumber(ramsuper);
+        rambamf = serviceHelper.ensureNumber(rambamf);
+        hddbasic = serviceHelper.ensureNumber(hddbasic);
+        hddsuper = serviceHelper.ensureNumber(hddsuper);
+        hddbamf = serviceHelper.ensureNumber(hddbamf);
+
+        zelAppSpecFormatted.cpubasic = cpubasic;
+        zelAppSpecFormatted.cpusuper = cpusuper;
+        zelAppSpecFormatted.cpubamf = cpubamf;
+        zelAppSpecFormatted.rambasic = rambasic;
+        zelAppSpecFormatted.ramsuper = ramsuper;
+        zelAppSpecFormatted.rambamf = rambamf;
+        zelAppSpecFormatted.hddbasic = hddbasic;
+        zelAppSpecFormatted.hddsuper = hddsuper;
+        zelAppSpecFormatted.hddbamf = hddbamf;
+      }
+      // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper port, repotag exists, string lengths, specs are ok
+      if (version !== 1) {
+        throw new Error('ZelApp message version specification is invalid');
+      }
+      if (type !== 'register') {
+        throw new Error('ZelApp message type specification is invalid');
+      }
+      if (name.length > 32) {
+        throw new Error('ZelApp name is too long');
+      }
+      // furthermore name cannot contain any special character
+      if (!name.match(/^[^a-zA-Z0-9]+$/)) {
+        throw new Error('ZelApp name contains special characters. Only a-z, A-Z and 0-9 are allowed');
+      }
+      if (description.length > 256) {
+        throw new Error('Description is too long. Maximum of 256 characters is allowed');
+      }
+      const parameters = checkHWParameters(zelAppSpecFormatted);
+      if (parameters !== true) {
+        const errorMessage = parameters === false ? 'Received message is invalid' : parameters;
+        throw new Error(errorMessage);
+      }
+
+      // check port is within range
+      if (zelAppSpecFormatted.port < config.zelapps.portMin || zelAppSpecFormatted.port > config.zelapps.portMax) {
+        throw new Error(`Assigned port is not within ZelApps range ${config.zelapps.portMin}-${config.zelapps.portMax}`);
+      }
+
+      // check if containerPort makes sense
+      if (zelAppSpecFormatted.containerPort < 0 || zelAppSpecFormatted.containerPort > 65535) {
+        throw new Error('Container Port is not within system limits 0-65535');
+      }
+
+      // check repotag if available for download
+      const splittedRepo = zelAppSpecFormatted.repotag.split(':');
+      if (splittedRepo[0] && splittedRepo[1] && !splittedRepo[2]) {
+        const resDocker = await serviceHelper.axiosGet(`https://hub.docker.com/v2/repositories/${splittedRepo[0]}/tags/${splittedRepo[1]}`).catch((error) => {
+          log.error(error);
+        });
+        if (!resDocker) {
+          throw new Error('Unable to communicate with Docker Hub! Try again later.');
+        }
+        if (resDocker.data.errinfo) {
+          throw new Error('Docker image not found');
+        }
+        if (!resDocker.data.images) {
+          throw new Error('Docker image not found');
+        }
+        if (!resDocker.data.images[0]) {
+          throw new Error('Docker image not found');
+        }
+      } else {
+        throw new Error('Repository is not in valid format namespace/repository:tag');
+      }
+
+      // check if name is not yet registered
+      const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
+        throw error;
+      });
+
+      const zelappsDatabase = dbopen.db(config.database.zelappsglobal.database);
+      const zelappsQuery = { name: zelAppSpecFormatted.name };
+      const zelappsProjection = {
+        projection: {
+          _id: 0,
+          name: 1,
+        },
+      };
+      const zelappResult = await serviceHelper.findOneInDatabase(zelappsDatabase, globalZelAppsInformation, zelappsQuery, zelappsProjection).catch((error) => {
+        dbopen.close();
+        throw error;
+      });
+
+      if (zelappResult) {
+        dbopen.close();
+        throw new Error(`ZelApp ${zelAppSpecFormatted.name} already registered. ZelApp has to be registered under different name.`);
+      }
+
+      // check if port is not yet registered
+      const portQuery = { port: zelAppSpecFormatted.port };
+      const portProjection = {
+        projection: {
+          _id: 0,
+          name: 1,
+        },
+      };
+      const portResult = await serviceHelper.findOneInDatabase(zelappsDatabase, globalZelAppsInformation, portQuery, portProjection).catch((error) => {
+        dbopen.close();
+        throw error;
+      });
+
+      if (portResult) {
+        dbopen.close();
+        throw new Error(`ZelApp ${zelAppSpecFormatted.name} port already registered. ZelApp has to be registered with different port.`);
+      }
+
+      // check if zelid owner is correct ( done in message verification )
+      // if signature is not correct, then specifications are not correct type or bad message received. Respond with 'Received message is invalid';
+      const messageToVerify = JSON.stringify(zelAppSpecFormatted) + timestamp;
+      const isValidSignature = serviceHelper.verifyMessage(messageToVerify, owner, signature);
+      if (isValidSignature !== true) {
+        const errorMessage = isValidSignature === false ? 'Received message is invalid' : isValidSignature;
+        throw new Error(errorMessage);
+      }
+
+      // if all ok, then sha256 hash of entire message = message + timestamp + signature. We are hashing all to have always unique value.
+      // If hashing just specificiations, if application goes back to previous specifications, it may possess some issues if we have indeed correct state
+      // We respond with a hash that is supposed to go to transaction.
+      const message = JSON.stringify(zelAppSpecFormatted) + timestamp + signature;
+      const messageHASH = crypto.createHash('sha256').update(message).digest('hex');
+      const responseHash = serviceHelper.createDataMessage(messageHASH);
+      res.json(responseHash);
+    });
+  } catch (error) {
+    log.warn(error);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
+}
+
 async function temporaryZelAppRegisterFunctionForFoldingAtHome(req, res) {
   // this function is just temporary
   // when a launch folding button is clicked
@@ -1874,6 +2186,7 @@ async function temporaryZelAppRegisterFunctionForFoldingAtHome(req, res) {
       const zelAppSpecifications = {
         repotag: 'yurinnick/folding-at-home:latest',
         name: 'zelFoldingAtHome', // corresponds to docker name and this name is stored in zelapps mongo database
+        description: 'Folding @ Home is cool :)',
         port: 30000,
         tiered: true,
         cpu: 0.5, // true resource registered for app. If not tiered only this is available
@@ -1939,6 +2252,7 @@ async function availableZelApps(req, res) {
   const zelapps = [
     {
       name: 'zelFoldingAtHome',
+      description: 'Folding @ Home is cool :)',
       repotag: 'yurinnick/folding-at-home:latest',
       owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
       timestamp: 1587181519000,
@@ -2074,6 +2388,7 @@ module.exports = {
   zelFluxUsage,
   removeZelAppLocally,
   registerZelAppLocally,
+  registerZelAppGlobalyApi,
   temporaryZelAppRegisterFunctionForFoldingAtHome,
   createZelFluxNetwork,
   removeZelAppLocallyApi,

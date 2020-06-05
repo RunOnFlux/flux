@@ -1,5 +1,4 @@
 /* eslint-disable no-underscore-dangle */
-const axios = require('axios');
 const WebSocket = require('ws');
 const bitcoinjs = require('bitcoinjs-lib');
 const config = require('config');
@@ -24,35 +23,15 @@ let dosMessage = null;
 // my external Flux IP from zelbench
 let myFluxIP = null;
 
-const axiosConfig = {
-  timeout: 8888,
-};
-
-const axiosConfigB = {
-  timeout: 20000,
-};
-
 let response = serviceHelper.createErrorMessage();
-
-// helper function for timeout on axios connection
-const axiosGet = (url, options = {}) => {
-  const abort = axios.CancelToken.source();
-  const id = setTimeout(
-    () => abort.cancel(`Timeout of ${options.timeout}ms.`),
-    options.timeout,
-  );
-  return axios
-    .get(url, { cancelToken: abort.token, ...options })
-    .then((res) => {
-      clearTimeout(id);
-      return res;
-    });
-};
 
 // basic check for a version of other flux.
 async function isFluxAvailable(ip) {
+  const axiosConfig = {
+    timeout: 8888,
+  };
   try {
-    const fluxResponse = await axiosGet(`http://${ip}:${config.server.apiport}/zelflux/version`, axiosConfig);
+    const fluxResponse = await serviceHelper.axiosGet(`http://${ip}:${config.server.apiport}/zelflux/version`, axiosConfig);
     if (fluxResponse.data.status === 'success') {
       return true;
     }
@@ -635,11 +614,11 @@ async function initiateAndHandleConnection(ip) {
 }
 
 async function fluxDisovery() {
-  const minPeers = 5; // todo to 10;
+  const minPeers = 10;
   const zl = await deterministicZelNodeList();
   const numberOfZelNodes = zl.length;
-  const requiredNumberOfConnections = numberOfZelNodes / 50; // 2%
-  const minCon = Math.min(minPeers, requiredNumberOfConnections); // TODO correctly max
+  const requiredNumberOfConnections = numberOfZelNodes / 100; // 1%
+  const minCon = Math.max(minPeers, requiredNumberOfConnections);
   if (outgoingConnections.length < minCon) {
     let ip = await getRandomConnection();
     const clientExists = outgoingConnections.find((client) => client._socket.remoteAddress === ip);
@@ -861,7 +840,7 @@ async function checkMyFluxAvailability(zelnodelist) {
     if (myIP.includes(':')) {
       myIP = `[${myIP}]`;
     }
-    const resMyAvailability = await axiosGet(`http://${askingIP}:${config.server.apiport}/zelflux/checkfluxavailability/${myIP}`, axiosConfigB).catch((error) => {
+    const resMyAvailability = await serviceHelper.axiosGet(`http://${askingIP}:${config.server.apiport}/zelflux/checkfluxavailability/${myIP}`).catch((error) => {
       log.error(`${askingIP} is not reachable`);
       log.error(error);
     });
@@ -1095,4 +1074,6 @@ module.exports = {
   allowPortApi,
   denyPort,
   checkFluxAvailability,
+  outgoingPeers,
+  incomingPeers,
 };

@@ -35,8 +35,8 @@ module.exports = {
     zelappsglobal: {
       database: 'globalzelapps',
       collections: {
-        zelAppsMessages: 'zelappsmessages', // storage for all zelapps messages done on zelcash network
-        zelAppsInfo: 'zelappsinfo', // stores actual state of zelapp configuration info - initial state and its overwrites with update messages
+        zelappsMessages: 'zelappsmessages', // storage for all zelapps messages done on zelcash network
+        zelappsInformation: 'zelappsinformation', // stores actual state of zelapp configuration info - initial state and its overwrites with update messages
       },
     },
   },
@@ -56,10 +56,12 @@ module.exports = {
     },
     address: 't1...', // apps registration address
     epochstart: 1000000, // zelapps epoch blockheight start
+    portMin: 30001, // originally should have been from 30000 but we got temporary folding there
+    portMax: 39999,
   },
   lockedSystemResources: {
     cpu: 10, // 1 cpu core
-    ram: 20, // 2000mb
+    ram: 2000, // 2000mb
     hdd: 30, // 30gb // this value is likely to rise
   },
   fluxSpecifics: {

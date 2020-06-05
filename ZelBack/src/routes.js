@@ -605,9 +605,6 @@ module.exports = (app, expressWs) => {
     explorerService.rescanExplorer(req, res);
   });
 
-  app.get('/zelapps/zelappregister/:repotag?/:name?/:owner?/:cpus?/:ram?/:space?/:port?/:ip?/:envvars?/:privacylevel?', (req, res) => { // privacy level means restrictions of calls. envvars can have privacy to be/not to be exposed // TODO make me post, needs redoing
-    zelappsService.zelAppRegister(req, res);
-  });
   app.get('/zelapps/zelapppull/:repotag?', (req, res) => { // TODO make me post, needs redoing
     zelappsService.zelAppPull(req, res);
   });
@@ -685,6 +682,10 @@ module.exports = (app, expressWs) => {
   });
   app.post('/zelcash/verifymessage', (req, res) => {
     zelcashService.verifyMessagePost(req, res);
+  });
+
+  app.post('/zelapps/zelappregister', (req, res) => {
+    zelappsService.registerZelAppGlobalyApi(req, res);
   });
 
   // POST PROTECTED API - USER LEVEL
