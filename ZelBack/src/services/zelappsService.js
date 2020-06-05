@@ -1724,7 +1724,9 @@ async function registerZelAppLocally(zelAppSpecifications, res) {
         const pullStatus = {
           status: 'Pulling global ZelApp was successful',
         };
-        res.write(serviceHelper.ensureString(pullStatus));
+        if (res) {
+          res.write(serviceHelper.ensureString(pullStatus));
+        }
 
         const volumeOK = await createZelAppVolume(zelAppSpecifications, res).catch((errr) => {
           const errorResponse = serviceHelper.createErrorMessage(
@@ -1988,7 +1990,7 @@ async function registerZelAppGlobalyApi(req, res) {
       cpu = serviceHelper.ensureNumber(cpu);
       ram = serviceHelper.ensureNumber(ram);
       hdd = serviceHelper.ensureNumber(hdd);
-      if (tiered !== true || tiered !== false) {
+      if (tiered !== true && tiered !== false) {
         throw new Error('Invalid tiered value obtained. Only boolean as true or false allowed.');
       }
 
