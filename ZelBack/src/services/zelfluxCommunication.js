@@ -1030,6 +1030,19 @@ async function adjustFirewall() {
   }
 }
 
+function isCommunicationEstablished(req, res) {
+  let message = serviceHelper.createErrorMessage('Communication to other ZelFluxes is not sufficient');
+
+  if (outgoingPeers.length < 5) {
+    message = serviceHelper.createErrorMessage('Not enough outgoing connections');
+  } else if (incomingPeers.length < 2) {
+    message = serviceHelper.createErrorMessage('Not enough incomming connections');
+  } else {
+    message = serviceHelper.createSuccessMessage('Communication to ZelFlux network is properly established');
+  }
+  res.json(message);
+}
+
 function startFluxFunctions() {
   adjustFirewall();
   fluxDisovery();
@@ -1076,4 +1089,5 @@ module.exports = {
   checkFluxAvailability,
   outgoingPeers,
   incomingPeers,
+  isCommunicationEstablished,
 };

@@ -587,6 +587,9 @@ module.exports = (app, expressWs) => {
   app.get('/zelflux/allowport/:port?', (req, res) => {
     zelfluxCommunication.allowPortApi(req, res);
   });
+  app.get('/zelflux/checkcommunication', (req, res) => {
+    zelfluxCommunication.isCommunicationEstablished(req, res);
+  });
 
   app.get('/zelbench/restartnodebenchmarks', (req, res) => {
     zelbenchService.restartNodeBenchmarks(req, res);

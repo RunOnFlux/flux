@@ -1955,7 +1955,7 @@ async function registerZelAppGlobalyApi(req, res) {
       const { tiered } = zelAppSpecification;
 
       // check if signature of received data is correct
-      if (!version || !type || !name || !description || !repotag || !owner || !port || !enviromentParameters || commands || !containerPort || !containerData || !cpu || !ram || !hdd || !tiered || !signature || !timestamp) {
+      if (!version || !type || !name || !description || !repotag || !owner || !port || !enviromentParameters || !commands || !containerPort || !containerData || !cpu || !ram || !hdd || !signature || !timestamp) {
         throw new Error('Missing ZelApp specification parameter');
       }
       version = serviceHelper.ensureNumber(version);
@@ -2057,7 +2057,7 @@ async function registerZelAppGlobalyApi(req, res) {
         throw new Error('ZelApp name is too long');
       }
       // furthermore name cannot contain any special character
-      if (!name.match(/^[^a-zA-Z0-9]+$/)) {
+      if (!name.match(/^[a-zA-Z0-9]+$/)) {
         throw new Error('ZelApp name contains special characters. Only a-z, A-Z and 0-9 are allowed');
       }
       if (description.length > 256) {

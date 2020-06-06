@@ -5,7 +5,7 @@
       :collapse="isMobile"
       :mode="windowWidth < 805 ? 'vertical' : 'horizontal'"
       @select="handleSelect"
-      unique-opened="true"
+      :unique-opened=true
       :class="{ mobilemenu: isMobile, hidden: !showMenu }"
       background-color="#333333"
       text-color="#fff"
@@ -20,11 +20,11 @@
       <el-submenu
         v-if="privilage === 'user' || privilage === 'admin' || privilage === 'zelteam'"
         index="1"
-        popper-append-to-body="true"
+        :popper-append-to-body=true
       >
         <template slot="title">ZelCash</template>
         <el-submenu
-          popper-append-to-body="true"
+          :popper-append-to-body=true
           index="1-1"
         >
           <template slot="title">Control</template>
@@ -63,49 +63,49 @@
           </el-menu-item>
         </el-submenu>
         <el-submenu
-          popper-append-to-body="true"
+          :popper-append-to-body=true
           index="1-2"
         >
           <template slot="title">ZelNode</template>
           <el-menu-item index="1-2-1">Get Info</el-menu-item>
         </el-submenu>
         <el-submenu
-          popper-append-to-body="true"
+          :popper-append-to-body=true
           index="1-3"
         >
           <template slot="title">BlockChain</template>
           <el-menu-item index="1-3-1">Get Info</el-menu-item>
         </el-submenu>
         <el-submenu
-          popper-append-to-body="true"
+          :popper-append-to-body=true
           index="1-4"
         >
           <template slot="title">Mining</template>
           <el-menu-item index="1-4-1">Get Info</el-menu-item>
         </el-submenu>
         <el-submenu
-          popper-append-to-body="true"
+          :popper-append-to-body=true
           index="1-5"
         >
           <template slot="title">Network</template>
           <el-menu-item index="1-5-1">Get Info</el-menu-item>
         </el-submenu>
         <el-submenu
-          popper-append-to-body="true"
+          :popper-append-to-body=true
           index="1-6"
         >
           <template slot="title">Raw Transactions</template>
           <el-menu-item index="1-6-1">Get Info</el-menu-item>
         </el-submenu>
         <el-submenu
-          popper-append-to-body="true"
+          :popper-append-to-body=true
           index="1-7"
         >
           <template slot="title">Utilities</template>
           <el-menu-item index="1-7-1">Get Info</el-menu-item>
         </el-submenu>
         <el-submenu
-          popper-append-to-body="true"
+          :popper-append-to-body=true
           index="1-8"
         >
           <template slot="title">Wallet</template>
@@ -115,7 +115,7 @@
       <el-submenu
         v-if="privilage === 'user' || privilage === 'admin' || privilage === 'zelteam'"
         index="2"
-        popper-append-to-body="true"
+        :popper-append-to-body=true
       >
         <template slot="title">ZelFlux</template>
         <el-menu-item index="2-1">ZelNode Status</el-menu-item>
@@ -125,17 +125,17 @@
       <el-submenu
         v-if="privilage === 'user' || privilage === 'admin' || privilage === 'zelteam'"
         index="3"
-        popper-append-to-body="true"
+        :popper-append-to-body=true
       >
         <template slot="title">ZelApps</template>
         <el-menu-item index="3-1">Local ZelApps</el-menu-item>
-        <el-menu-item index="3-2">All ZelApps</el-menu-item>
+        <el-menu-item index="3-2">Global ZelApps</el-menu-item>
         <el-menu-item index="3-3">Register ZelApp</el-menu-item>
       </el-submenu>
       <el-submenu
         v-if="privilage === 'user' || privilage === 'admin' || privilage === 'zelteam'"
         index="10"
-        popper-append-to-body="true"
+        :popper-append-to-body=true
       >
         <template slot="title">ZelAdmin</template>
         <el-menu-item index="10-1">Logged Sessions</el-menu-item>
@@ -257,6 +257,9 @@ export default {
           break;
         case '3-1':
           this.$store.commit('setZelAppsSection', 'localzelapps');
+          break;
+        case '3-3':
+          this.$store.commit('setZelAppsSection', 'registerzelapp');
           break;
         case '10-1':
           this.$store.commit('setZelAdminSection', 'loggedsessions');

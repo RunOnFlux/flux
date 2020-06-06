@@ -70,6 +70,17 @@ export default {
     };
     return Api().get('/zelapps/zelapptemporarylocalregister/foldingathome', axiosConfig);
   },
+  registerZelApp(zelidauthHeader, data) {
+    const axiosConfig = {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    };
+    return Api().post('/zelapps/zelappregister', JSON.stringify(data), axiosConfig);
+  },
+  checkCommunication() {
+    return Api().get('/zelflux/checkcommunication');
+  },
   justAPI() {
     return Api();
   },
