@@ -690,10 +690,6 @@ module.exports = (app, expressWs) => {
     zelcashService.verifyMessagePost(req, res);
   });
 
-  app.post('/zelapps/zelappregister', (req, res) => {
-    zelappsService.registerZelAppGlobalyApi(req, res);
-  });
-
   // POST PROTECTED API - USER LEVEL
   app.post('/zelid/logoutspecificsession', (req, res) => { // requires the knowledge of a session loginPhrase so users level is sufficient and user cannot logout another user as he does not know the loginPhrase.
     zelidService.logoutSpecificSession(req, res);
@@ -705,6 +701,9 @@ module.exports = (app, expressWs) => {
 
   app.post('/zelapps/checkdockerexistance', async (req, res) => {
     zelappsService.checkDockerAccessibility(req, res);
+  });
+  app.post('/zelapps/zelappregister', (req, res) => {
+    zelappsService.registerZelAppGlobalyApi(req, res);
   });
 
   // POST PROTECTED API - ZelNode owner level

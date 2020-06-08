@@ -523,6 +523,11 @@
           >
             Register ZelApp
           </ElButton>
+          <br><br>
+          <div v-if="registrationHash">
+            Please do a transaction with following message:
+            {{ registrationHash }}
+          </div>
         </div>
       </div>
     </div>
@@ -623,6 +628,7 @@ export default {
       dataToSign: '',
       timestamp: '',
       signature: '',
+      registrationHash: '',
       fluxSpecifics: {
         cpu: {
           basic: 20, // 10 available for apps
@@ -714,6 +720,7 @@ export default {
         this.signature = '';
         this.timestamp = null;
         this.dataForZelAppRegistration = {};
+        this.registrationHash = '';
         if (this.websocket !== null) {
           this.websocket.close();
           this.websocket = null;
@@ -1179,10 +1186,19 @@ export default {
       }
     },
     async register() {
-      const response = await ZelAppsService.checkCommunication();
+      const zelidauth = localStorage.getItem('zelidauth');
+      const data = {
+        zelAppSpecification: this.dataForZelAppRegistration,
+        timestamp: this.timestamp,
+        signature: this.signature,
+      };
+      const response = await ZelAppsService.registerZelApp(zelidauth, data).catch((error) => {
+        vue.$message.error(error.message || error);
+      });
       console.log(response);
       if (response.data.status === 'success') {
-        this.fluxCommunication = true;
+        this.registrationHash = response.data.data;
+        vue.$message.success(response.data.data);
       } else {
         vue.$message.error(response.data.data);
       }

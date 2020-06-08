@@ -1921,9 +1921,14 @@ async function registerZelAppGlobalyApi(req, res) {
   });
   req.on('end', async () => {
     try {
+      const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+      if (!authorized) {
+        const errMessage = serviceHelper.errUnauthorizedMessage();
+        return res.json(errMessage);
+      }
       // first  check if this node is available for application registration - has at least 5 outgoing connections and 2 incoming connections (that is sufficient as it means it is confirmed and works correctly)
       if (zelfluxCommunication.outgoingPeers.length < 5 || zelfluxCommunication.incomingPeers.length < 2) {
-        throw new Error('Sorry. This ZelFlux does not have enough peers for safe application registration');
+        throw new Error('Sorry, This ZelFlux does not have enough peers for safe application registration');
       }
       const processedBody = serviceHelper.ensureObject(body);
       // Note. Actually signature, timestamp is not needed. But we require it only to verify that user indeed has access to the private key of the owner zelid.
@@ -2082,8 +2087,8 @@ async function registerZelAppGlobalyApi(req, res) {
       // check repotag if available for download
       const splittedRepo = zelAppSpecFormatted.repotag.split(':');
       if (splittedRepo[0] && splittedRepo[1] && !splittedRepo[2]) {
-        const resDocker = await serviceHelper.axiosGet(`https://hub.docker.com/v2/repositories/${splittedRepo[0]}/tags/${splittedRepo[1]}`).catch((error) => {
-          log.error(error);
+        const resDocker = await serviceHelper.axiosGet(`https://hub.docker.com/v2/repositories/${splittedRepo[0]}/tags/${splittedRepo[1]}`).catch(() => {
+          throw new Error('Docker image not found');
         });
         if (!resDocker) {
           throw new Error('Unable to communicate with Docker Hub! Try again later.');
@@ -2157,7 +2162,7 @@ async function registerZelAppGlobalyApi(req, res) {
       const message = JSON.stringify(zelAppSpecFormatted) + timestamp + signature;
       const messageHASH = crypto.createHash('sha256').update(message).digest('hex');
       const responseHash = serviceHelper.createDataMessage(messageHASH);
-      res.json(responseHash);
+      return res.json(responseHash);
     } catch (error) {
       log.warn(error);
       const errorResponse = serviceHelper.createErrorMessage(
@@ -2165,7 +2170,7 @@ async function registerZelAppGlobalyApi(req, res) {
         error.name,
         error.code,
       );
-      res.json(errorResponse);
+      return res.json(errorResponse);
     }
   });
 }
@@ -2388,9 +2393,8 @@ async function checkDockerAccessibility(req, res) {
       }
       const splittedRepo = processedBody.repotag.split(':');
       if (splittedRepo[0] && splittedRepo[1] && !splittedRepo[2]) {
-        const resDocker = await serviceHelper.axiosGet(`https://hub.docker.com/v2/repositories/${splittedRepo[0]}/tags/${splittedRepo[1]}`).catch((error) => {
-          // log.error(error);
-          throw error;
+        const resDocker = await serviceHelper.axiosGet(`https://hub.docker.com/v2/repositories/${splittedRepo[0]}/tags/${splittedRepo[1]}`).catch(() => {
+          throw new Error('Docker image not found');
         });
         console.log(resDocker);
         if (!resDocker) {
