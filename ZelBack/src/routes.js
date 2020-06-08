@@ -664,6 +664,9 @@ module.exports = (app, expressWs) => {
   app.post('/zelid/verifylogin', (req, res) => {
     zelidService.verifyLogin(req, res);
   });
+  app.post('/zelid/providesign', (req, res) => {
+    zelidService.provideSign(req, res);
+  });
 
   app.post('/zelcash/createrawtransaction', (req, res) => {
     zelcashService.createRawTransactionPost(req, res);
@@ -751,6 +754,9 @@ module.exports = (app, expressWs) => {
   // WebSockets PUBLIC
   app.ws('/ws/zelid/:loginphrase', (ws, req) => {
     zelidService.wsRespondLoginPhrase(ws, req);
+  });
+  app.ws('/ws/zelsign/:message', (ws, req) => {
+    zelidService.wsRespondSignature(ws, req);
   });
 
   // communication between multiple zelflux solution is on this:

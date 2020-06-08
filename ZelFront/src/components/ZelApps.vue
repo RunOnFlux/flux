@@ -476,9 +476,53 @@
           </div>
         </el-form>
         <div>
-          <button @click="checkFluxSpecificationsAndFormatMessage">
-            Compute message
-          </button>
+          <ElButton
+            class="generalButton"
+            @click="checkFluxSpecificationsAndFormatMessage"
+          >
+            Compute Registration Message
+          </ElButton>
+        </div>
+        <div v-if="dataToSign">
+          <el-form>
+            <el-form-item label="Registration Message">
+              <el-input
+                type="textarea"
+                autosize
+                disabled
+                v-model="dataToSign"
+              >
+              </el-input>
+            </el-form-item>
+            <el-form-item label="Signature">
+              <el-input
+                type="textarea"
+                autosize
+                v-model="signature"
+              >
+              </el-input>
+            </el-form-item>
+          </el-form>
+          <div>
+            Sign with ZelCore
+            <br>
+            <a
+              @click="initiateSignWS"
+              :href="'zel:?action=sign&message=' + dataToSign + '&icon=http%3A%2F%2Fzelid.io%2Fimg%2FzelID.svg&callback=http%3A%2F%2F' + userconfig.externalip + ':' + config.apiPort + '%2Fzelid%2Fprovidesign%2F'"
+            >
+              <img
+                class="zelidLogin"
+                src="@/assets/img/zelID.svg"
+              />
+            </a>
+          </div>
+          <br><br>
+          <ElButton
+            class="generalButton"
+            @click="register"
+          >
+            Register ZelApp
+          </ElButton>
         </div>
       </div>
     </div>
@@ -606,6 +650,7 @@ export default {
         ram: 2000, // 2000mb
         hdd: 30, // 30gb // this value is likely to rise
       },
+      websocket: null,
     };
   },
   computed: {
@@ -662,8 +707,26 @@ export default {
           console.log('ZelApps Section: Unrecognized method'); // should not be visible if everything works correctly
       }
     },
+    zelAppRegistrationSpecification: {
+      handler(val, oldVal) {
+        console.log(val, oldVal);
+        this.dataToSign = '';
+        this.signature = '';
+        this.timestamp = null;
+        this.dataForZelAppRegistration = {};
+        if (this.websocket !== null) {
+          this.websocket.close();
+          this.websocket = null;
+        }
+      },
+      deep: true,
+    },
   },
   mounted() {
+    const zelidauth = localStorage.getItem('zelidauth');
+    const auth = qs.parse(zelidauth);
+    this.zelAppRegistrationSpecification.owner = auth.zelid;
+    console.log(auth);
     this.getZelNodeStatus();
     this.zelappsGetInstalledZelApps();
     switch (this.zelAppsSection) {
@@ -1114,6 +1177,45 @@ export default {
       } else {
         vue.$message.error(response.data.data);
       }
+    },
+    async register() {
+      const response = await ZelAppsService.checkCommunication();
+      console.log(response);
+      if (response.data.status === 'success') {
+        this.fluxCommunication = true;
+      } else {
+        vue.$message.error(response.data.data);
+      }
+    },
+    initiateSignWS() {
+      const self = this;
+      const signatureMessage = this.zelAppRegistrationSpecification.owner + this.timestamp;
+      const wsuri = `ws://${this.userconfig.externalip}:${this.config.apiPort}/ws/zelsign/${signatureMessage}`;
+      const websocket = new WebSocket(wsuri);
+      this.websocket = websocket;
+
+      websocket.onopen = (evt) => { self.onOpen(evt); };
+      websocket.onclose = (evt) => { self.onClose(evt); };
+      websocket.onmessage = (evt) => { self.onMessage(evt); };
+      websocket.onerror = (evt) => { self.onError(evt); };
+    },
+    onError(evt) {
+      console.log(evt);
+    },
+    onMessage(evt) {
+      const data = qs.parse(evt.data);
+      if (data.status === 'success' && data.data) {
+        // user is now signed. Store their values
+        this.signature = data.data.signature;
+      }
+      console.log(data);
+      console.log(evt);
+    },
+    onClose(evt) {
+      console.log(evt);
+    },
+    onOpen(evt) {
+      console.log(evt);
     },
   },
 };

@@ -12,6 +12,7 @@ module.exports = {
       collections: {
         loggedUsers: 'loggedusers',
         activeLoginPhrases: 'activeloginphrases',
+        activeSignatures: 'activesignatures',
       },
     },
     zelcash: {
