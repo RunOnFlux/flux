@@ -1915,12 +1915,12 @@ function checkHWParameters(zelAppSpecs) {
 }
 
 async function registerZelAppGlobalyApi(req, res) {
-  try {
-    let body = '';
-    req.on('data', (data) => {
-      body += data;
-    });
-    req.on('end', async () => {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    try {
       // first  check if this node is available for application registration - has at least 5 outgoing connections and 2 incoming connections (that is sufficient as it means it is confirmed and works correctly)
       if (zelfluxCommunication.outgoingPeers.length < 5 || zelfluxCommunication.incomingPeers.length < 2) {
         throw new Error('Sorry. This ZelFlux does not have enough peers for safe application registration');
@@ -2158,16 +2158,16 @@ async function registerZelAppGlobalyApi(req, res) {
       const messageHASH = crypto.createHash('sha256').update(message).digest('hex');
       const responseHash = serviceHelper.createDataMessage(messageHASH);
       res.json(responseHash);
-    });
-  } catch (error) {
-    log.warn(error);
-    const errorResponse = serviceHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    res.json(errorResponse);
-  }
+    } catch (error) {
+      log.warn(error);
+      const errorResponse = serviceHelper.createErrorMessage(
+        error.message || error,
+        error.name,
+        error.code,
+      );
+      res.json(errorResponse);
+    }
+  });
 }
 
 async function temporaryZelAppRegisterFunctionForFoldingAtHome(req, res) {
@@ -2368,6 +2368,60 @@ async function checkAndRequestZelApp(zelapphash) {
   }
 }
 
+async function checkDockerAccessibility(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    try {
+      const authorized = await serviceHelper.verifyPrivilege('user', req);
+      if (!authorized) {
+        const errMessage = serviceHelper.errUnauthorizedMessage();
+        return res.json(errMessage);
+      }
+      // check repotag if available for download
+      const processedBody = serviceHelper.ensureObject(body);
+
+      if (!processedBody.repotag) {
+        throw new Error('No repotag specifiec');
+      }
+      const splittedRepo = processedBody.repotag.split(':');
+      if (splittedRepo[0] && splittedRepo[1] && !splittedRepo[2]) {
+        const resDocker = await serviceHelper.axiosGet(`https://hub.docker.com/v2/repositories/${splittedRepo[0]}/tags/${splittedRepo[1]}`).catch((error) => {
+          // log.error(error);
+          throw error;
+        });
+        console.log(resDocker);
+        if (!resDocker) {
+          throw new Error('Unable to communicate with Docker Hub! Try again later.');
+        }
+        if (resDocker.data.errinfo) {
+          throw new Error('Docker image not found');
+        }
+        if (!resDocker.data.images) {
+          throw new Error('Docker image not found2');
+        }
+        if (!resDocker.data.images[0]) {
+          throw new Error('Docker image not found3');
+        }
+        const message = serviceHelper.createSuccessMessage('Repotag is accessible');
+        return res.json(message);
+      }
+      throw new Error('Repository is not in valid format namespace/repository:tag');
+    } catch (error) {
+      log.warn(error);
+      const errorResponse = serviceHelper.createErrorMessage(
+        error.message || error,
+        error.name,
+        error.code,
+      );
+      return res.json(errorResponse);
+    }
+  });
+}
+
+
 module.exports = {
   dockerListContainers,
   zelAppPull,
@@ -2401,4 +2455,5 @@ module.exports = {
   calculateZelAmountForApp,
   checkZelAppMessageExistence,
   checkAndRequestZelApp,
+  checkDockerAccessibility,
 };

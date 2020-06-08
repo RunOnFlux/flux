@@ -700,6 +700,10 @@ module.exports = (app, expressWs) => {
     zelcashService.submitBlockPost(req, res);
   });
 
+  app.post('/zelapps/checkdockerexistance', async (req, res) => {
+    zelappsService.checkDockerAccessibility(req, res);
+  });
+
   // POST PROTECTED API - ZelNode owner level
   app.post('/zelcash/signrawtransaction', (req, res) => {
     zelcashService.signRawTransactionPost(req, res);

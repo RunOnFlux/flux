@@ -81,6 +81,14 @@ export default {
   checkCommunication() {
     return Api().get('/zelflux/checkcommunication');
   },
+  chekcDockerExistance(zelidauthHeader, data) {
+    const axiosConfig = {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    };
+    return Api().post('/zelapps/checkdockerexistance', JSON.stringify(data), axiosConfig);
+  },
   justAPI() {
     return Api();
   },

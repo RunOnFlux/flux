@@ -488,7 +488,6 @@
 <script>
 import Vuex, { mapState } from 'vuex';
 import Vue from 'vue';
-import axios from 'axios';
 
 import ZelCashService from '@/services/ZelCashService';
 import ZelAppsService from '@/services/ZelAppsService';
@@ -1086,25 +1085,16 @@ export default {
         // check repotag if available for download
         const splittedRepo = zelAppSpecFormatted.repotag.split(':');
         if (splittedRepo[0] && splittedRepo[1] && !splittedRepo[2]) {
-          const axiosConfig = {
-            headers: {
-              'Content-Type': 'application/x-www-form-urlencoded',
-            },
+          const zelidauth = localStorage.getItem('zelidauth');
+          const data = {
+            repotag: zelAppSpecFormatted.repotag,
           };
-          const resDocker = await axios.get(`https://hub.docker.com/v2/repositories/${splittedRepo[0]}/tags/${splittedRepo[1]}`, axiosConfig).catch((error) => {
+          const resDocker = await ZelAppsService.chekcDockerExistance(zelidauth, data).catch((error) => {
             vue.$message.error(error.message || error);
           });
-          if (!resDocker) {
-            throw new Error('Unable to communicate with Docker Hub! Try again later.');
-          }
-          if (resDocker.data.errinfo) {
-            throw new Error('Docker image not found');
-          }
-          if (!resDocker.data.images) {
-            throw new Error('Docker image not found');
-          }
-          if (!resDocker.data.images[0]) {
-            throw new Error('Docker image not found');
+          console.log(resDocker);
+          if (resDocker.data.status === 'error') {
+            throw resDocker.data.data;
           }
         } else {
           throw new Error('Repository is not in valid format namespace/repository:tag');
