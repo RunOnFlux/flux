@@ -1927,9 +1927,10 @@ async function registerZelAppGlobalyApi(req, res) {
         return res.json(errMessage);
       }
       // first  check if this node is available for application registration - has at least 5 outgoing connections and 2 incoming connections (that is sufficient as it means it is confirmed and works correctly)
-      if (zelfluxCommunication.outgoingPeers.length < 5 || zelfluxCommunication.incomingPeers.length < 2) {
-        throw new Error('Sorry, This ZelFlux does not have enough peers for safe application registration');
-      }
+      // TODO reenable in smarter way
+      // if (zelfluxCommunication.outgoingPeers.length < 5 || zelfluxCommunication.incomingPeers.length < 2) {
+      //   throw new Error('Sorry, This ZelFlux does not have enough peers for safe application registration');
+      // }
       const processedBody = serviceHelper.ensureObject(body);
       // Note. Actually signature, timestamp is not needed. But we require it only to verify that user indeed has access to the private key of the owner zelid.
       // name and port HAVE to be unique for application. Check if they dont exist in global database
