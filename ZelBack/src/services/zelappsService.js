@@ -1871,43 +1871,70 @@ async function registerZelAppLocally(zelAppSpecifications, res) {
   }
 }
 
+function appPricePerMonth(dataForZelAppRegistration) {
+  if (!dataForZelAppRegistration) {
+    return new Error('Application specification not provided');
+  }
+  if (dataForZelAppRegistration.tiered) {
+    const cpuTotalCount = dataForZelAppRegistration.cpubasic + dataForZelAppRegistration.cpusuper + dataForZelAppRegistration.cpubamf;
+    const cpuPrice = cpuTotalCount * config.zelapps.price.cpu * 10;
+    const cpuTotal = cpuPrice / 3;
+    const ramTotalCount = dataForZelAppRegistration.rambasic + dataForZelAppRegistration.ramsuper + dataForZelAppRegistration.rambamf;
+    const ramPrice = (ramTotalCount * config.zelapps.price.ram) / 100;
+    const ramTotal = ramPrice / 3;
+    const hddTotalCount = dataForZelAppRegistration.hddbasic + dataForZelAppRegistration.hddsuper + dataForZelAppRegistration.hddbamf;
+    const hddPrice = hddTotalCount * config.zelapps.price.hdd;
+    const hddTotal = hddPrice / 3;
+    return Math.ceil(cpuTotal + ramTotal + hddTotal);
+  }
+  const cpuTotal = dataForZelAppRegistration.cpu * config.zelapps.price.cpu * 10;
+  const ramTotal = (dataForZelAppRegistration.ram * config.zelapps.price.ram) / 100;
+  const hddTotal = dataForZelAppRegistration.hdd * config.zelapps.price.hdd;
+  return Math.ceil(cpuTotal + ramTotal + hddTotal);
+}
+
+function appValidTill(timestamp) {
+  const expTime = timestamp + 60 * 1000 * 1000;
+  return expTime;
+}
+
 function checkHWParameters(zelAppSpecs) {
   // check specs parameters. JS precision
-  if ((zelAppSpecs.cpu * 10) % 1 !== 0 || (zelAppSpecs.cpu * 10) > (config.fluxSpecifics.cpu.bamf - config.lockedSystemResources.cpu)) {
+  if ((zelAppSpecs.cpu * 10) % 1 !== 0 || (zelAppSpecs.cpu * 10) > (config.fluxSpecifics.cpu.bamf - config.lockedSystemResources.cpu) || zelAppSpecs.cpu < 0.1) {
     return new Error('CPU badly assigned');
   }
-  if (zelAppSpecs.ram % 100 !== 0 || zelAppSpecs.ram > (config.fluxSpecifics.ram.bamf - config.lockedSystemResources.ram)) {
+  if (zelAppSpecs.ram % 100 !== 0 || zelAppSpecs.ram > (config.fluxSpecifics.ram.bamf - config.lockedSystemResources.ram) || zelAppSpecs.ram < 100) {
     return new Error('RAM badly assigned');
   }
-  if (zelAppSpecs.hdd % 1 !== 0 || zelAppSpecs.hdd > (config.fluxSpecifics.hdd.bamf - config.lockedSystemResources.hdd)) {
+  if (zelAppSpecs.hdd % 1 !== 0 || zelAppSpecs.hdd > (config.fluxSpecifics.hdd.bamf - config.lockedSystemResources.hdd) || zelAppSpecs.hdd < 1) {
     return new Error('SSD badly assigned');
   }
   if (zelAppSpecs.tiered) {
-    if ((zelAppSpecs.cpubasic * 10) % 1 !== 0 || (zelAppSpecs.cpubasic * 10) > (config.fluxSpecifics.cpu.basic - config.lockedSystemResources.cpu)) {
+    if ((zelAppSpecs.cpubasic * 10) % 1 !== 0 || (zelAppSpecs.cpubasic * 10) > (config.fluxSpecifics.cpu.basic - config.lockedSystemResources.cpu) || zelAppSpecs.cpubasic < 0.1) {
       return new Error('CPU for BASIC badly assigned');
     }
-    if (zelAppSpecs.rambasic % 100 !== 0 || zelAppSpecs.rambasic > (config.fluxSpecifics.ram.basic - config.lockedSystemResources.ram)) {
+    if (zelAppSpecs.rambasic % 100 !== 0 || zelAppSpecs.rambasic > (config.fluxSpecifics.ram.basic - config.lockedSystemResources.ram) || zelAppSpecs.rambasic < 100) {
       return new Error('RAM for BASIC badly assigned');
     }
-    if (zelAppSpecs.hddbasic % 1 !== 0 || zelAppSpecs.hddbasic > (config.fluxSpecifics.hdd.basic - config.lockedSystemResources.hdd)) {
+    if (zelAppSpecs.hddbasic % 1 !== 0 || zelAppSpecs.hddbasic > (config.fluxSpecifics.hdd.basic - config.lockedSystemResources.hdd) || zelAppSpecs.hddbasic < 1) {
       return new Error('SSD for BASIC badly assigned');
     }
-    if ((zelAppSpecs.cpusuper * 10) % 1 !== 0 || (zelAppSpecs.cpusuper * 10) > (config.fluxSpecifics.cpu.super - config.lockedSystemResources.cpu)) {
+    if ((zelAppSpecs.cpusuper * 10) % 1 !== 0 || (zelAppSpecs.cpusuper * 10) > (config.fluxSpecifics.cpu.super - config.lockedSystemResources.cpu) || zelAppSpecs.cpusuper < 0.1) {
       return new Error('CPU for SUPER badly assigned');
     }
-    if (zelAppSpecs.ramsuper % 100 !== 0 || zelAppSpecs.ramsuper > (config.fluxSpecifics.ram.super - config.lockedSystemResources.ram)) {
+    if (zelAppSpecs.ramsuper % 100 !== 0 || zelAppSpecs.ramsuper > (config.fluxSpecifics.ram.super - config.lockedSystemResources.ram) || zelAppSpecs.ramsuper < 100) {
       return new Error('RAM for SUPER badly assigned');
     }
-    if (zelAppSpecs.hddsuper % 1 !== 0 || zelAppSpecs.hddsuper > (config.fluxSpecifics.hdd.super - config.lockedSystemResources.hdd)) {
+    if (zelAppSpecs.hddsuper % 1 !== 0 || zelAppSpecs.hddsuper > (config.fluxSpecifics.hdd.super - config.lockedSystemResources.hdd) || zelAppSpecs.hddsuper < 1) {
       return new Error('SSD for SUPER badly assigned');
     }
-    if ((zelAppSpecs.cpubamf * 10) % 1 !== 0 || (zelAppSpecs.cpubamf * 10) > (config.fluxSpecifics.cpu.bamf - config.lockedSystemResources.cpu)) {
+    if ((zelAppSpecs.cpubamf * 10) % 1 !== 0 || (zelAppSpecs.cpubamf * 10) > (config.fluxSpecifics.cpu.bamf - config.lockedSystemResources.cpu) || zelAppSpecs.cpubamf < 0.1) {
       return new Error('CPU for BAMF badly assigned');
     }
-    if (zelAppSpecs.rambamf % 100 !== 0 || zelAppSpecs.rambamf > (config.fluxSpecifics.ram.bamf - config.lockedSystemResources.ram)) {
+    if (zelAppSpecs.rambamf % 100 !== 0 || zelAppSpecs.rambamf > (config.fluxSpecifics.ram.bamf - config.lockedSystemResources.ram) || zelAppSpecs.rambamf < 100) {
       return new Error('RAM for BAMF badly assigned');
     }
-    if (zelAppSpecs.hddbamf % 1 !== 0 || zelAppSpecs.hddbamf > (config.fluxSpecifics.hdd.bamf - config.lockedSystemResources.hdd)) {
+    if (zelAppSpecs.hddbamf % 1 !== 0 || zelAppSpecs.hddbamf > (config.fluxSpecifics.hdd.bamf - config.lockedSystemResources.hdd) || zelAppSpecs.hddbamf < 1) {
       return new Error('SSD for BAMF badly assigned');
     }
   }
@@ -2426,6 +2453,21 @@ async function checkDockerAccessibility(req, res) {
   });
 }
 
+function registrationInformation(req, res) {
+  try {
+    const data = config.zelapps;
+    const response = serviceHelper.createDataMessage(data);
+    res.json(response);
+  } catch (error) {
+    log.error(error);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
+}
 
 module.exports = {
   dockerListContainers,
@@ -2461,4 +2503,7 @@ module.exports = {
   checkZelAppMessageExistence,
   checkAndRequestZelApp,
   checkDockerAccessibility,
+  registrationInformation,
+  appPricePerMonth,
+  appValidTill,
 };

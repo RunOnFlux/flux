@@ -241,7 +241,10 @@
       </div>
     </div>
     <div v-if="zelAppsSection === 'registerzelapp'">
-      <div>
+      <div v-if="!fluxCommunication">
+        Warninig: Connected Flux is not communicating properly with Flux network
+      </div>
+      <div class="zelapps-register">
         <el-form
           :model="zelAppRegistrationSpecification"
           label-width="100px"
@@ -517,6 +520,8 @@
             </a>
           </div>
           <br><br>
+          Price per Month: {{ appPricePerMonth }} ZEL
+          <br><br>
           <ElButton
             class="generalButton"
             @click="register"
@@ -525,8 +530,12 @@
           </ElButton>
           <br><br>
           <div v-if="registrationHash">
-            Please do a transaction with following message:
+            To finish registration, Please do a transaction of {{ appPricePerMonth }} to address
+            {{ zelapps.address }}
+            with following message:
             {{ registrationHash }}
+            <br><br>
+            Transaction must be mined by {{ validTill }}
           </div>
         </div>
       </div>
@@ -656,6 +665,18 @@ export default {
         ram: 2000, // 2000mb
         hdd: 30, // 30gb // this value is likely to rise
       },
+      zelapps: {
+        // in zel per month
+        price: {
+          cpu: 3, // per 0.1 cpu core,
+          ram: 1, // per 100mb,
+          hdd: 0.5, // per 1gb,
+        },
+        address: 't1...', // apps registration address
+        epochstart: 1000000, // zelapps epoch blockheight start
+        portMin: 30001, // originally should have been from 30000 but we got temporary folding there
+        portMax: 39999,
+      },
       websocket: null,
     };
   },
@@ -672,6 +693,24 @@ export default {
       });
       return string;
     },
+    appPricePerMonth() {
+      if (this.dataForZelAppRegistration.tiered) {
+        const cpuTotalCount = this.dataForZelAppRegistration.cpubasic + this.dataForZelAppRegistration.cpusuper + this.dataForZelAppRegistration.cpubamf;
+        const cpuPrice = cpuTotalCount * this.zelapps.price.cpu * 10; // 0.1 core cost cpu price
+        const cpuTotal = cpuPrice / 3;
+        const ramTotalCount = this.dataForZelAppRegistration.rambasic + this.dataForZelAppRegistration.ramsuper + this.dataForZelAppRegistration.rambamf;
+        const ramPrice = (ramTotalCount * this.zelapps.price.ram) / 100;
+        const ramTotal = ramPrice / 3;
+        const hddTotalCount = this.dataForZelAppRegistration.hddbasic + this.dataForZelAppRegistration.hddsuper + this.dataForZelAppRegistration.hddbamf;
+        const hddPrice = hddTotalCount * this.zelapps.price.hdd;
+        const hddTotal = hddPrice / 3;
+        return Math.ceil(cpuTotal + ramTotal + hddTotal);
+      }
+      const cpuTotal = this.dataForZelAppRegistration.cpu * this.zelapps.price.cpu * 10;
+      const ramTotal = (this.dataForZelAppRegistration.ram * this.zelapps.price.ram) / 100;
+      const hddTotal = this.dataForZelAppRegistration.hdd * this.zelapps.price.hdd;
+      return Math.ceil(cpuTotal + ramTotal + hddTotal);
+    },
   },
   watch: {
     zelAppsSection(val, oldVal) {
@@ -685,6 +724,8 @@ export default {
           vue.$message.info('ZelApps coming soon!');
           break;
         case 'registerzelapp':
+          this.registrationInformation();
+          this.checkFluxCommunication();
           break;
         default:
           console.log('ZelApps Section: Unrecognized method'); // should not be visible if everything works correctly
@@ -745,6 +786,8 @@ export default {
         vue.$message.info('ZelApps coming soon!');
         break;
       case 'registerzelapp':
+        this.registrationInformation();
+        this.checkFluxCommunication();
         break;
       default:
         console.log('ZelApps Section: Unrecognized method');
@@ -939,41 +982,41 @@ export default {
     },
     checkHWParameters(zelAppSpecs) {
       // check specs parameters. JS precision
-      if ((zelAppSpecs.cpu * 10) % 1 !== 0 || (zelAppSpecs.cpu * 10) > (this.fluxSpecifics.cpu.bamf - this.lockedSystemResources.cpu)) {
+      if ((zelAppSpecs.cpu * 10) % 1 !== 0 || (zelAppSpecs.cpu * 10) > (this.fluxSpecifics.cpu.bamf - this.lockedSystemResources.cpu) || zelAppSpecs.cpu < 0.1) {
         return new Error('CPU badly assigned');
       }
-      if (zelAppSpecs.ram % 100 !== 0 || zelAppSpecs.ram > (this.fluxSpecifics.ram.bamf - this.lockedSystemResources.ram)) {
+      if (zelAppSpecs.ram % 100 !== 0 || zelAppSpecs.ram > (this.fluxSpecifics.ram.bamf - this.lockedSystemResources.ram) || zelAppSpecs.ram < 100) {
         return new Error('RAM badly assigned');
       }
-      if (zelAppSpecs.hdd % 1 !== 0 || zelAppSpecs.hdd > (this.fluxSpecifics.hdd.bamf - this.lockedSystemResources.hdd)) {
+      if (zelAppSpecs.hdd % 1 !== 0 || zelAppSpecs.hdd > (this.fluxSpecifics.hdd.bamf - this.lockedSystemResources.hdd) || zelAppSpecs.hdd < 1) {
         return new Error('SSD badly assigned');
       }
       if (zelAppSpecs.tiered) {
-        if ((zelAppSpecs.cpubasic * 10) % 1 !== 0 || (zelAppSpecs.cpubasic * 10) > (this.fluxSpecifics.cpu.basic - this.lockedSystemResources.cpu)) {
+        if ((zelAppSpecs.cpubasic * 10) % 1 !== 0 || (zelAppSpecs.cpubasic * 10) > (this.fluxSpecifics.cpu.basic - this.lockedSystemResources.cpu) || zelAppSpecs.cpubasic < 0.1) {
           return new Error('CPU for BASIC badly assigned');
         }
-        if (zelAppSpecs.rambasic % 100 !== 0 || zelAppSpecs.rambasic > (this.fluxSpecifics.ram.basic - this.lockedSystemResources.ram)) {
+        if (zelAppSpecs.rambasic % 100 !== 0 || zelAppSpecs.rambasic > (this.fluxSpecifics.ram.basic - this.lockedSystemResources.ram) || zelAppSpecs.rambasic < 100) {
           return new Error('RAM for BASIC badly assigned');
         }
-        if (zelAppSpecs.hddbasic % 1 !== 0 || zelAppSpecs.hddbasic > (this.fluxSpecifics.hdd.basic - this.lockedSystemResources.hdd)) {
+        if (zelAppSpecs.hddbasic % 1 !== 0 || zelAppSpecs.hddbasic > (this.fluxSpecifics.hdd.basic - this.lockedSystemResources.hdd) || zelAppSpecs.hddbasic < 1) {
           return new Error('SSD for BASIC badly assigned');
         }
-        if ((zelAppSpecs.cpusuper * 10) % 1 !== 0 || (zelAppSpecs.cpusuper * 10) > (this.fluxSpecifics.cpu.super - this.lockedSystemResources.cpu)) {
+        if ((zelAppSpecs.cpusuper * 10) % 1 !== 0 || (zelAppSpecs.cpusuper * 10) > (this.fluxSpecifics.cpu.super - this.lockedSystemResources.cpu) || zelAppSpecs.cpusuper < 0.1) {
           return new Error('CPU for SUPER badly assigned');
         }
-        if (zelAppSpecs.ramsuper % 100 !== 0 || zelAppSpecs.ramsuper > (this.fluxSpecifics.ram.super - this.lockedSystemResources.ram)) {
+        if (zelAppSpecs.ramsuper % 100 !== 0 || zelAppSpecs.ramsuper > (this.fluxSpecifics.ram.super - this.lockedSystemResources.ram) || zelAppSpecs.ramsuper < 100) {
           return new Error('RAM for SUPER badly assigned');
         }
-        if (zelAppSpecs.hddsuper % 1 !== 0 || zelAppSpecs.hddsuper > (this.fluxSpecifics.hdd.super - this.lockedSystemResources.hdd)) {
+        if (zelAppSpecs.hddsuper % 1 !== 0 || zelAppSpecs.hddsuper > (this.fluxSpecifics.hdd.super - this.lockedSystemResources.hdd) || zelAppSpecs.hddsuper < 1) {
           return new Error('SSD for SUPER badly assigned');
         }
-        if ((zelAppSpecs.cpubamf * 10) % 1 !== 0 || (zelAppSpecs.cpubamf * 10) > (this.fluxSpecifics.cpu.bamf - this.lockedSystemResources.cpu)) {
+        if ((zelAppSpecs.cpubamf * 10) % 1 !== 0 || (zelAppSpecs.cpubamf * 10) > (this.fluxSpecifics.cpu.bamf - this.lockedSystemResources.cpu) || zelAppSpecs.cpubamf < 0.1) {
           return new Error('CPU for BAMF badly assigned');
         }
-        if (zelAppSpecs.rambamf % 100 !== 0 || zelAppSpecs.rambamf > (this.fluxSpecifics.ram.bamf - this.lockedSystemResources.ram)) {
+        if (zelAppSpecs.rambamf % 100 !== 0 || zelAppSpecs.rambamf > (this.fluxSpecifics.ram.bamf - this.lockedSystemResources.ram) || zelAppSpecs.rambamf < 100) {
           return new Error('RAM for BAMF badly assigned');
         }
-        if (zelAppSpecs.hddbamf % 1 !== 0 || zelAppSpecs.hddbamf > (this.fluxSpecifics.hdd.bamf - this.lockedSystemResources.hdd)) {
+        if (zelAppSpecs.hddbamf % 1 !== 0 || zelAppSpecs.hddbamf > (this.fluxSpecifics.hdd.bamf - this.lockedSystemResources.hdd) || zelAppSpecs.hddbamf < 1) {
           return new Error('SSD for BAMF badly assigned');
         }
       }
@@ -1143,8 +1186,8 @@ export default {
         }
 
         // check port is within range
-        if (zelAppSpecFormatted.port < 30001 || zelAppSpecFormatted.port > 39999) {
-          throw new Error('Assigned port is not within ZelApps range 30001-39999');
+        if (zelAppSpecFormatted.port < this.zelapps.portMin || zelAppSpecFormatted.port > this.zelapps.portMax) {
+          throw new Error(`Assigned port is not within ZelApps range ${this.zelapps.portMin}-${this.zelapps.portMax}`);
         }
 
         // check if containerPort makes sense
@@ -1185,6 +1228,21 @@ export default {
         vue.$message.error(response.data.data);
       }
     },
+    async registrationInformation() {
+      const response = await ZelAppsService.zelappsRegInformation();
+      const { data } = response.data;
+      if (response.data.status === 'success') {
+        this.zelapps.price.cpu = data.price.cpu;
+        this.zelapps.price.hdd = data.price.hdd;
+        this.zelapps.price.ram = data.price.ram;
+        this.zelapps.address = data.address;
+        this.zelapps.epochstart = data.epochstart;
+        this.zelapps.portMin = data.portMin;
+        this.zelapps.portMax = data.portMax;
+      } else {
+        vue.$message.error(response.data.data);
+      }
+    },
     async register() {
       const zelidauth = localStorage.getItem('zelidauth');
       const data = {
@@ -1202,6 +1260,10 @@ export default {
       } else {
         vue.$message.error(response.data.data);
       }
+    },
+    validTill() {
+      const expTime = this.timestamp + 60 * 1000 * 1000;
+      return expTime;
     },
     initiateSignWS() {
       const self = this;

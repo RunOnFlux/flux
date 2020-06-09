@@ -89,6 +89,9 @@ export default {
     };
     return Api().post('/zelapps/checkdockerexistance', JSON.stringify(data), axiosConfig);
   },
+  zelappsRegInformation() {
+    return Api().get('/zelapps/registrationinformation');
+  },
   justAPI() {
     return Api();
   },

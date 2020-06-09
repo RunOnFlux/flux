@@ -239,6 +239,9 @@ module.exports = (app, expressWs) => {
   app.get('/zelapps/zelappsresources', (req, res) => {
     zelappsService.zelappsResources(req, res);
   });
+  app.get('/zelapps/registrationinformation', (req, res) => {
+    zelappsService.registrationInformation(req, res);
+  });
 
   // app.get('/explorer/allutxos', (req, res) => {
   //   explorerService.getAllUtxos(req, res);

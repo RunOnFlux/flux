@@ -38,6 +38,7 @@ module.exports = {
       collections: {
         zelappsMessages: 'zelappsmessages', // storage for all zelapps messages done on zelcash network
         zelappsInformation: 'zelappsinformation', // stores actual state of zelapp configuration info - initial state and its overwrites with update messages
+        zelappsTemporaryMessages: 'zelappstemporarymessages', // storages for all zelapps messages that are not yet confirmed on the zelcash network
       },
     },
   },
