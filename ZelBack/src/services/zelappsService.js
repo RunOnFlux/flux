@@ -2130,6 +2130,9 @@ async function registerZelAppGlobalyApi(req, res) {
         if (!resDocker.data.images[0]) {
           throw new Error('Docker image not found');
         }
+        if (resDocker.data.full_size > config.zelapps.maxImageSize) {
+          throw new Error('Docker image size is over Flux limit');
+        }
       } else {
         throw new Error('Repository is not in valid format namespace/repository:tag');
       }
@@ -2436,6 +2439,9 @@ async function checkDockerAccessibility(req, res) {
         }
         if (!resDocker.data.images[0]) {
           throw new Error('Docker image not found3');
+        }
+        if (resDocker.data.full_size > config.zelapps.maxImageSize) {
+          throw new Error('Docker image size is over Flux limit');
         }
         const message = serviceHelper.createSuccessMessage('Repotag is accessible');
         return res.json(message);

@@ -60,6 +60,7 @@ module.exports = {
     epochstart: 1000000, // zelapps epoch blockheight start
     portMin: 30001, // originally should have been from 30000 but we got temporary folding there
     portMax: 39999,
+    maxImageSize: 300000000, // 300mb
   },
   lockedSystemResources: {
     cpu: 10, // 1 cpu core
