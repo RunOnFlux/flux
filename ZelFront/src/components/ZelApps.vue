@@ -711,6 +711,10 @@ export default {
       const hddTotal = this.dataForZelAppRegistration.hdd * this.zelapps.price.hdd;
       return Math.ceil(cpuTotal + ramTotal + hddTotal);
     },
+    validTill() {
+      const expTime = this.timestamp + 60 * 1000 * 1000;
+      return expTime;
+    },
   },
   watch: {
     zelAppsSection(val, oldVal) {
@@ -1260,10 +1264,6 @@ export default {
       } else {
         vue.$message.error(response.data.data);
       }
-    },
-    validTill() {
-      const expTime = this.timestamp + 60 * 1000 * 1000;
-      return expTime;
     },
     initiateSignWS() {
       const self = this;

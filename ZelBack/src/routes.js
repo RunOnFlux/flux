@@ -242,6 +242,9 @@ module.exports = (app, expressWs) => {
   app.get('/zelapps/registrationinformation', (req, res) => {
     zelappsService.registrationInformation(req, res);
   });
+  app.get('/zelapps/temporarymessages', (req, res) => {
+    zelappsService.getZelAppsTemporaryMessages(req, res);
+  });
 
   // app.get('/explorer/allutxos', (req, res) => {
   //   explorerService.getAllUtxos(req, res);

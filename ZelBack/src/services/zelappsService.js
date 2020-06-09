@@ -27,6 +27,7 @@ const scannedHeightCollection = config.database.zelcash.collections.scannedHeigh
 const localZelAppsInformation = config.database.zelappslocal.collections.zelappsInformation;
 const globalZelAppsMessages = config.database.zelappsglobal.collections.zelappsMessages;
 const globalZelAppsInformation = config.database.zelappsglobal.collections.zelappsInformation;
+const globalZelAppsTempMessages = config.database.zelappsglobal.collections.zelappsTemporaryMessages;
 
 function getZelAppIdentifier(zelappName) {
   // this id is used for volumes, docker names so we know it reall belongs to zelflux
@@ -1941,6 +1942,181 @@ function checkHWParameters(zelAppSpecs) {
   return true;
 }
 
+async function getZelAppsTemporaryMessages(req, res) {
+  const db = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+    log.error(error);
+    throw error;
+  });
+
+  const database = db.db(config.database.zelappsglobal.database);
+  const query = {};
+  const projection = { projection: { _id: 0 } };
+  const results = await serviceHelper.findInDatabase(database, globalZelAppsTempMessages, query, projection).catch((error) => {
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+    log.error(error);
+    db.close();
+    throw error;
+  });
+  db.close();
+  const resultsResponse = serviceHelper.createDataMessage(results);
+  res.json(resultsResponse);
+}
+
+function messageHash(message) {
+  if (typeof message !== 'string') {
+    return new Error('Invalid message');
+  }
+  return crypto.createHash('sha256').update(message).digest('hex');
+}
+
+async function verifyZelAppMessageSignature(zelAppSpec, timestamp, signature) {
+  if (typeof zelAppSpec !== 'object' && typeof timestamp !== 'number' && typeof signature !== 'string') {
+    throw new Error('Invalid ZelApp message specifications');
+  }
+  const messageToVerify = JSON.stringify(zelAppSpec) + timestamp;
+  const isValidSignature = serviceHelper.verifyMessage(messageToVerify, zelAppSpec.owner, signature);
+  if (isValidSignature !== true) {
+    const errorMessage = isValidSignature === false ? 'Received signature is invalid or ZelApp specifications are not properly formatted' : isValidSignature;
+    throw new Error(errorMessage);
+  }
+  return true;
+}
+
+async function verifyRepository(repotag) {
+  if (typeof repotag !== 'string') {
+    throw new Error('Invalid repotag');
+  }
+  const splittedRepo = repotag.split(':');
+  if (splittedRepo[0] && splittedRepo[1] && !splittedRepo[2]) {
+    const resDocker = await serviceHelper.axiosGet(`https://hub.docker.com/v2/repositories/${splittedRepo[0]}/tags/${splittedRepo[1]}`).catch(() => {
+      throw new Error('Repository is not in valid format namespace/repository:tag');
+    });
+    if (!resDocker) {
+      throw new Error('Unable to communicate with Docker Hub! Try again later.');
+    }
+    if (resDocker.data.errinfo) {
+      throw new Error('Docker image not found');
+    }
+    if (!resDocker.data.images) {
+      throw new Error('Docker image not found2');
+    }
+    if (!resDocker.data.images[0]) {
+      throw new Error('Docker image not found3');
+    }
+    if (resDocker.data.full_size > config.zelapps.maxImageSize) {
+      throw new Error('Docker image size is over Flux limit');
+    }
+  } else {
+    throw new Error('Repository is not in valid format namespace/repository:tag');
+  }
+}
+
+async function verifyZelAppSpecifications(zelAppSpecifications) {
+  if (typeof zelAppSpecifications !== 'object') {
+    throw new Error('Invalid ZelApp Specifications');
+  }
+  if (zelAppSpecifications.version !== 1) {
+    throw new Error('ZelApp message version specification is invalid');
+  }
+  if (zelAppSpecifications.type !== 'register') {
+    throw new Error('ZelApp message type specification is invalid');
+  }
+  if (zelAppSpecifications.name.length > 32) {
+    throw new Error('ZelApp name is too long');
+  }
+  // furthermore name cannot contain any special character
+  if (!zelAppSpecifications.name.match(/^[a-zA-Z0-9]+$/)) {
+    throw new Error('ZelApp name contains special characters. Only a-z, A-Z and 0-9 are allowed');
+  }
+  if (zelAppSpecifications.description.length > 256) {
+    throw new Error('Description is too long. Maximum of 256 characters is allowed');
+  }
+  const parameters = checkHWParameters(zelAppSpecifications);
+  if (parameters !== true) {
+    const errorMessage = parameters;
+    throw new Error(errorMessage);
+  }
+
+  // check port is within range
+  if (zelAppSpecifications.port < config.zelapps.portMin || zelAppSpecifications.port > config.zelapps.portMax) {
+    throw new Error(`Assigned port is not within ZelApps range ${config.zelapps.portMin}-${config.zelapps.portMax}`);
+  }
+
+  // check if containerPort makes sense
+  if (zelAppSpecifications.containerPort < 0 || zelAppSpecifications.containerPort > 65535) {
+    throw new Error('Container Port is not within system limits 0-65535');
+  }
+
+  // check repotag if available for download
+  await verifyRepository(zelAppSpecifications.repotag);
+}
+
+async function storeTemporaryMessage(message, furtherVerification = false) {
+  /* message object
+  * @param zelAppSpecifications object
+  * @param hash string
+  * @param timestamp number
+  * @param signature string
+  */
+  if (typeof message !== 'object' && typeof message.zelAppSpecifications !== 'object') {
+    return new Error('Invalid ZelApp message for storing');
+  }
+  // data shall already be verified by the broadcasting node. But verify all again.
+  if (furtherVerification) {
+    await verifyZelAppSpecifications(message.zelAppSpecifications);
+    await verifyZelAppMessageSignature(message.zelAppSpecifications, message.timestamp, message.signature);
+  }
+
+  const validTill = message.timestamp + (60 * 60 * 1000); // 60 minutes
+
+  const db = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
+    log.error(error);
+    throw error;
+  });
+  const database = db.db(config.database.zelappsglobal.database);
+  database.collection(globalZelAppsTempMessages).createIndex({ createdAt: 1 }, { expireAfterSeconds: 3600 });
+  const newMessage = {
+    zelAppSpecifications: message.zelAppSpecifications,
+    hash: message.hash,
+    timestamp: message.timestamp,
+    signature: message.signature,
+    createdAt: new Date(message.timestamp),
+    expireAt: new Date(validTill),
+  };
+  const value = newMessage;
+  await serviceHelper.insertOneToDatabase(database, globalZelAppsTempMessages, value).catch((error) => {
+    log.error(error);
+    db.close();
+    throw error;
+  });
+  db.close();
+  // all is ok
+  return 0;
+}
+
+async function broadcastTemporaryMessage(message) {
+  /* message object
+  * @param zelAppSpecifications object
+  * @param hash string
+  * @param timestamp number
+  * @param signature string
+  */
+  console.log(message);
+  if (typeof message !== 'object' && typeof message.zelAppSpecifications !== 'object') {
+    return new Error('Invalid ZelApp message for storing');
+  }
+  const messageToVerify = JSON.stringify(message.zelAppSpecifications) + message.timestamp;
+  const isValidSignature = serviceHelper.verifyMessage(messageToVerify, message.zelAppSpecifications.owner, message.signature);
+  if (isValidSignature !== true) {
+    const errorMessage = isValidSignature === false ? 'Invalid message signature' : isValidSignature;
+    return new Error(errorMessage);
+  }
+  return 0;
+}
+
 async function registerZelAppGlobalyApi(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -1971,6 +2147,7 @@ async function registerZelAppGlobalyApi(req, res) {
       zelAppSpecification = serviceHelper.ensureObject(zelAppSpecification);
       timestamp = serviceHelper.ensureNumber(timestamp);
       signature = serviceHelper.ensureString(signature);
+
       let { version } = zelAppSpecification; // shall be 1
       let { type } = zelAppSpecification; // shall be register
       let { name } = zelAppSpecification;
@@ -1988,7 +2165,7 @@ async function registerZelAppGlobalyApi(req, res) {
       const { tiered } = zelAppSpecification;
 
       // check if signature of received data is correct
-      if (!version || !type || !name || !description || !repotag || !owner || !port || !enviromentParameters || !commands || !containerPort || !containerData || !cpu || !ram || !hdd || !signature || !timestamp) {
+      if (!version || !type || !name || !description || !repotag || !owner || !port || !enviromentParameters || !commands || !containerPort || !containerData || !cpu || !ram || !hdd) {
         throw new Error('Missing ZelApp specification parameter');
       }
       version = serviceHelper.ensureNumber(version);
@@ -2080,62 +2257,7 @@ async function registerZelAppGlobalyApi(req, res) {
         zelAppSpecFormatted.hddbamf = hddbamf;
       }
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper port, repotag exists, string lengths, specs are ok
-      if (version !== 1) {
-        throw new Error('ZelApp message version specification is invalid');
-      }
-      if (type !== 'register') {
-        throw new Error('ZelApp message type specification is invalid');
-      }
-      if (name.length > 32) {
-        throw new Error('ZelApp name is too long');
-      }
-      // furthermore name cannot contain any special character
-      if (!name.match(/^[a-zA-Z0-9]+$/)) {
-        throw new Error('ZelApp name contains special characters. Only a-z, A-Z and 0-9 are allowed');
-      }
-      if (description.length > 256) {
-        throw new Error('Description is too long. Maximum of 256 characters is allowed');
-      }
-      const parameters = checkHWParameters(zelAppSpecFormatted);
-      if (parameters !== true) {
-        const errorMessage = parameters;
-        throw new Error(errorMessage);
-      }
-
-      // check port is within range
-      if (zelAppSpecFormatted.port < config.zelapps.portMin || zelAppSpecFormatted.port > config.zelapps.portMax) {
-        throw new Error(`Assigned port is not within ZelApps range ${config.zelapps.portMin}-${config.zelapps.portMax}`);
-      }
-
-      // check if containerPort makes sense
-      if (zelAppSpecFormatted.containerPort < 0 || zelAppSpecFormatted.containerPort > 65535) {
-        throw new Error('Container Port is not within system limits 0-65535');
-      }
-
-      // check repotag if available for download
-      const splittedRepo = zelAppSpecFormatted.repotag.split(':');
-      if (splittedRepo[0] && splittedRepo[1] && !splittedRepo[2]) {
-        const resDocker = await serviceHelper.axiosGet(`https://hub.docker.com/v2/repositories/${splittedRepo[0]}/tags/${splittedRepo[1]}`).catch(() => {
-          throw new Error('Docker image not found');
-        });
-        if (!resDocker) {
-          throw new Error('Unable to communicate with Docker Hub! Try again later.');
-        }
-        if (resDocker.data.errinfo) {
-          throw new Error('Docker image not found');
-        }
-        if (!resDocker.data.images) {
-          throw new Error('Docker image not found');
-        }
-        if (!resDocker.data.images[0]) {
-          throw new Error('Docker image not found');
-        }
-        if (resDocker.data.full_size > config.zelapps.maxImageSize) {
-          throw new Error('Docker image size is over Flux limit');
-        }
-      } else {
-        throw new Error('Repository is not in valid format namespace/repository:tag');
-      }
+      await verifyZelAppSpecifications(zelAppSpecFormatted);
 
       // check if name is not yet registered
       const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
@@ -2180,19 +2302,23 @@ async function registerZelAppGlobalyApi(req, res) {
 
       // check if zelid owner is correct ( done in message verification )
       // if signature is not correct, then specifications are not correct type or bad message received. Respond with 'Received message is invalid';
-      const messageToVerify = JSON.stringify(zelAppSpecFormatted) + timestamp;
-      const isValidSignature = serviceHelper.verifyMessage(messageToVerify, owner, signature);
-      if (isValidSignature !== true) {
-        const errorMessage = isValidSignature === false ? 'Received message is invalid' : isValidSignature;
-        throw new Error(errorMessage);
-      }
+      await verifyZelAppMessageSignature(zelAppSpecFormatted, timestamp, signature);
 
       // if all ok, then sha256 hash of entire message = message + timestamp + signature. We are hashing all to have always unique value.
       // If hashing just specificiations, if application goes back to previous specifications, it may possess some issues if we have indeed correct state
       // We respond with a hash that is supposed to go to transaction.
       const message = JSON.stringify(zelAppSpecFormatted) + timestamp + signature;
-      const messageHASH = crypto.createHash('sha256').update(message).digest('hex');
+      const messageHASH = await messageHash(message);
       const responseHash = serviceHelper.createDataMessage(messageHASH);
+      // now all is great. Store zelAppSpecFormatted, timestamp, signature and hash in zelappsTemporaryMessages. with 1 hours expiration time. Broadcast this message to all outgoing connections.
+      const temporaryZelAppMessage = {
+        zelAppSpecifications: zelAppSpecFormatted,
+        hash: messageHASH,
+        timestamp,
+        signature,
+      };
+      await storeTemporaryMessage(temporaryZelAppMessage, false);
+      await broadcastTemporaryMessage(temporaryZelAppMessage);
       return res.json(responseHash);
     } catch (error) {
       log.warn(error);
@@ -2422,31 +2548,10 @@ async function checkDockerAccessibility(req, res) {
       if (!processedBody.repotag) {
         throw new Error('No repotag specifiec');
       }
-      const splittedRepo = processedBody.repotag.split(':');
-      if (splittedRepo[0] && splittedRepo[1] && !splittedRepo[2]) {
-        const resDocker = await serviceHelper.axiosGet(`https://hub.docker.com/v2/repositories/${splittedRepo[0]}/tags/${splittedRepo[1]}`).catch(() => {
-          throw new Error('Docker image not found');
-        });
-        console.log(resDocker);
-        if (!resDocker) {
-          throw new Error('Unable to communicate with Docker Hub! Try again later.');
-        }
-        if (resDocker.data.errinfo) {
-          throw new Error('Docker image not found');
-        }
-        if (!resDocker.data.images) {
-          throw new Error('Docker image not found2');
-        }
-        if (!resDocker.data.images[0]) {
-          throw new Error('Docker image not found3');
-        }
-        if (resDocker.data.full_size > config.zelapps.maxImageSize) {
-          throw new Error('Docker image size is over Flux limit');
-        }
-        const message = serviceHelper.createSuccessMessage('Repotag is accessible');
-        return res.json(message);
-      }
-      throw new Error('Repository is not in valid format namespace/repository:tag');
+
+      await verifyRepository(processedBody.repotag);
+      const message = serviceHelper.createSuccessMessage('Repotag is accessible');
+      return res.json(message);
     } catch (error) {
       log.warn(error);
       const errorResponse = serviceHelper.createErrorMessage(
@@ -2512,4 +2617,5 @@ module.exports = {
   registrationInformation,
   appPricePerMonth,
   appValidTill,
+  getZelAppsTemporaryMessages,
 };
