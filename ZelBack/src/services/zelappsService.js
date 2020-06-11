@@ -1972,11 +1972,11 @@ function messageHash(message) {
   return crypto.createHash('sha256').update(message).digest('hex');
 }
 
-async function verifyZelAppMessageSignature(zelAppSpec, timestamp, signature) {
-  if (typeof zelAppSpec !== 'object' && typeof timestamp !== 'number' && typeof signature !== 'string') {
+async function verifyZelAppMessageSignature(type, version, zelAppSpec, timestamp, signature) {
+  if (typeof zelAppSpec !== 'object' && typeof timestamp !== 'number' && typeof signature !== 'string' && typeof version !== 'number' && typeof type !== 'string') {
     throw new Error('Invalid ZelApp message specifications');
   }
-  const messageToVerify = JSON.stringify(zelAppSpec) + timestamp;
+  const messageToVerify = type + version + JSON.stringify(zelAppSpec) + timestamp;
   const isValidSignature = serviceHelper.verifyMessage(messageToVerify, zelAppSpec.owner, signature);
   if (isValidSignature !== true) {
     const errorMessage = isValidSignature === false ? 'Received signature is invalid or ZelApp specifications are not properly formatted' : isValidSignature;
@@ -2021,9 +2021,6 @@ async function verifyZelAppSpecifications(zelAppSpecifications) {
   if (zelAppSpecifications.version !== 1) {
     throw new Error('ZelApp message version specification is invalid');
   }
-  if (zelAppSpecifications.type !== 'register') {
-    throw new Error('ZelApp message type specification is invalid');
-  }
   if (zelAppSpecifications.name.length > 32) {
     throw new Error('ZelApp name is too long');
   }
@@ -2067,10 +2064,10 @@ async function storeTemporaryMessage(message, furtherVerification = false) {
   // data shall already be verified by the broadcasting node. But verify all again.
   if (furtherVerification) {
     await verifyZelAppSpecifications(message.zelAppSpecifications);
-    await verifyZelAppMessageSignature(message.zelAppSpecifications, message.timestamp, message.signature);
+    await verifyZelAppMessageSignature(message.type, message.version, message.zelAppSpecifications, message.timestamp, message.signature);
   }
 
-  const validTill = message.timestamp + (60 * 60 * 1000); // 60 minutes
+  const validTill = message.timestamp + (1 * 60 * 1000); // 60 minutes
 
   const db = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
     log.error(error);
@@ -2080,6 +2077,8 @@ async function storeTemporaryMessage(message, furtherVerification = false) {
   database.collection(globalZelAppsTempMessages).createIndex({ createdAt: 1 }, { expireAfterSeconds: 3600 });
   const newMessage = {
     zelAppSpecifications: message.zelAppSpecifications,
+    type: message.type,
+    version: message.version,
     hash: message.hash,
     timestamp: message.timestamp,
     signature: message.signature,
@@ -2099,21 +2098,19 @@ async function storeTemporaryMessage(message, furtherVerification = false) {
 
 async function broadcastTemporaryMessage(message) {
   /* message object
+  * @param type
+  * @param version
   * @param zelAppSpecifications object
-  * @param hash string
+  * @param hash string - messageHash(type + version + JSON.stringify(zelAppSpecifications) + timestamp + signature))
   * @param timestamp number
   * @param signature string
   */
   console.log(message);
+  // no verification of message before broadcasting. Broadcasting happens always after data have been verified and are stored in our db. It is up to receiving node to verify it and store and rebroadcast.
   if (typeof message !== 'object' && typeof message.zelAppSpecifications !== 'object') {
     return new Error('Invalid ZelApp message for storing');
   }
-  const messageToVerify = JSON.stringify(message.zelAppSpecifications) + message.timestamp;
-  const isValidSignature = serviceHelper.verifyMessage(messageToVerify, message.zelAppSpecifications.owner, message.signature);
-  if (isValidSignature !== true) {
-    const errorMessage = isValidSignature === false ? 'Invalid message signature' : isValidSignature;
-    return new Error(errorMessage);
-  }
+  await zelfluxCommunication.broadcastMessageToOutgoing(message);
   return 0;
 }
 
@@ -2141,15 +2138,24 @@ async function registerZelAppGlobalyApi(req, res) {
       let { zelAppSpecification } = processedBody;
       let { timestamp } = processedBody;
       let { signature } = processedBody;
-      if (!zelAppSpecification || !timestamp || !signature) {
+      let messageType = processedBody.type; // determines how data is treated in the future
+      let typeVersion = processedBody.version; // further determines how data is treated in the future
+      if (!zelAppSpecification || !timestamp || !signature || !messageType || !typeVersion) {
         throw new Error('Inclomplete message received. Check if specifications, timestamp and siganture is provided.');
+      }
+      if (messageType !== 'zelappregister') {
+        throw new Error('Invalid type of message');
+      }
+      if (typeVersion !== 1) {
+        throw new Error('Invalid version of message');
       }
       zelAppSpecification = serviceHelper.ensureObject(zelAppSpecification);
       timestamp = serviceHelper.ensureNumber(timestamp);
       signature = serviceHelper.ensureString(signature);
+      messageType = serviceHelper.ensureString(messageType);
+      typeVersion = serviceHelper.ensureNumber(typeVersion);
 
       let { version } = zelAppSpecification; // shall be 1
-      let { type } = zelAppSpecification; // shall be register
       let { name } = zelAppSpecification;
       let { description } = zelAppSpecification;
       let { repotag } = zelAppSpecification;
@@ -2165,11 +2171,10 @@ async function registerZelAppGlobalyApi(req, res) {
       const { tiered } = zelAppSpecification;
 
       // check if signature of received data is correct
-      if (!version || !type || !name || !description || !repotag || !owner || !port || !enviromentParameters || !commands || !containerPort || !containerData || !cpu || !ram || !hdd) {
+      if (!version || !name || !description || !repotag || !owner || !port || !enviromentParameters || !commands || !containerPort || !containerData || !cpu || !ram || !hdd) {
         throw new Error('Missing ZelApp specification parameter');
       }
       version = serviceHelper.ensureNumber(version);
-      type = serviceHelper.ensureString(type);
       name = serviceHelper.ensureString(name);
       description = serviceHelper.ensureString(description);
       repotag = serviceHelper.ensureString(repotag);
@@ -2207,7 +2212,6 @@ async function registerZelAppGlobalyApi(req, res) {
       // finalised parameters that will get stored in global database
       const zelAppSpecFormatted = {
         version, // integer
-        type, // string
         name, // string
         description, // string
         repotag, // string
@@ -2302,16 +2306,18 @@ async function registerZelAppGlobalyApi(req, res) {
 
       // check if zelid owner is correct ( done in message verification )
       // if signature is not correct, then specifications are not correct type or bad message received. Respond with 'Received message is invalid';
-      await verifyZelAppMessageSignature(zelAppSpecFormatted, timestamp, signature);
+      await verifyZelAppMessageSignature(messageType, typeVersion, zelAppSpecFormatted, timestamp, signature);
 
       // if all ok, then sha256 hash of entire message = message + timestamp + signature. We are hashing all to have always unique value.
       // If hashing just specificiations, if application goes back to previous specifications, it may possess some issues if we have indeed correct state
       // We respond with a hash that is supposed to go to transaction.
-      const message = JSON.stringify(zelAppSpecFormatted) + timestamp + signature;
+      const message = messageType + typeVersion + JSON.stringify(zelAppSpecFormatted) + timestamp + signature;
       const messageHASH = await messageHash(message);
       const responseHash = serviceHelper.createDataMessage(messageHASH);
       // now all is great. Store zelAppSpecFormatted, timestamp, signature and hash in zelappsTemporaryMessages. with 1 hours expiration time. Broadcast this message to all outgoing connections.
       const temporaryZelAppMessage = {
+        type: messageType,
+        version: typeVersion,
         zelAppSpecifications: zelAppSpecFormatted,
         hash: messageHASH,
         timestamp,

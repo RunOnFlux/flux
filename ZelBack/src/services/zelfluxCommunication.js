@@ -117,6 +117,11 @@ async function verifyFluxBroadcast(data, obtainedZelNodeList, currentTimeStamp) 
   const { pubKey } = dataObj;
   const { timestamp } = dataObj; // ms
   const { signature } = dataObj;
+  const { version } = dataObj;
+  // onle version 1 is active
+  if (version !== 1) {
+    return false;
+  }
   const message = serviceHelper.ensureString(dataObj.data);
   // is timestamp valid ?
   // eslint-disable-next-line no-param-reassign
@@ -148,7 +153,8 @@ async function verifyFluxBroadcast(data, obtainedZelNodeList, currentTimeStamp) 
   if (!zelnode) {
     return false;
   }
-  const verified = await serviceHelper.verifyMessage(message, pubKey, signature);
+  const messageToVerify = version + message + timestamp;
+  const verified = await serviceHelper.verifyMessage(messageToVerify, pubKey, signature);
   if (verified === true) {
     return true;
   }
@@ -246,13 +252,18 @@ function sendToAllIncomingConnections(data) {
 }
 
 async function serialiseAndSignZelFluxBroadcast(dataToBroadcast, privatekey) {
+  const version = 1;
   const timestamp = Date.now();
   const pubKey = await getZelNodePublicKey(privatekey);
   const message = serviceHelper.ensureString(dataToBroadcast);
-  const signature = await getFluxMessageSignature(message, privatekey);
-  const type = 'message';
+  const messageToSign = version + message + timestamp;
+  const signature = await getFluxMessageSignature(messageToSign, privatekey);
+  // version 1 specifications
+  // message contains version, timestamp, pubKey, signature and data. Data is a stringified json. Signature is signature of version+stringifieddata+timestamp
+  // signed by the priv key corresponding to pubkey attached
+  // data object contains version, timestamp of signing, signature, pubKey, data object. further data object must at least contain its type as string to determine it further.
   const dataObj = {
-    type,
+    version,
     timestamp,
     pubKey,
     signature,

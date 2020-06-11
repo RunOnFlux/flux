@@ -257,15 +257,6 @@
             >
             </el-input>
           </el-form-item>
-
-          <el-form-item label="Type">
-            <el-input
-              placeholder="ZelApp Type"
-              disabled
-              v-model="zelAppRegistrationSpecification.type"
-            >
-            </el-input>
-          </el-form-item>
           <el-form-item label="Name">
             <el-input
               placeholder="ZelApp name"
@@ -583,7 +574,6 @@ export default {
       fluxCommunication: false,
       zelAppRegistrationSpecificationA: {
         version: 1,
-        type: 'register',
         name: '',
         description: '',
         repotag: '',
@@ -609,7 +599,6 @@ export default {
       },
       zelAppRegistrationSpecification: {
         version: 1,
-        type: 'register',
         name: 'FoldingAtHome',
         description: 'Folding @ Home is cool :)',
         repotag: 'yurinnick/folding-at-home:latest',
@@ -633,6 +622,8 @@ export default {
         rambamf: 2000,
         hddbamf: 5,
       },
+      type: 'zelappregister',
+      version: 1,
       dataForZelAppRegistration: {},
       dataToSign: '',
       timestamp: '',
@@ -1060,7 +1051,6 @@ export default {
         console.log(zelAppSpecification);
         zelAppSpecification = this.ensureObject(zelAppSpecification);
         let { version } = zelAppSpecification; // shall be 1
-        let { type } = zelAppSpecification; // shall be register
         let { name } = zelAppSpecification;
         let { description } = zelAppSpecification;
         let { repotag } = zelAppSpecification;
@@ -1075,11 +1065,10 @@ export default {
         let { hdd } = zelAppSpecification;
         const { tiered } = zelAppSpecification;
         // check if signature of received data is correct
-        if (!version || !type || !name || !description || !repotag || !owner || !port || !enviromentParameters || !commands || !containerPort || !containerData || !cpu || !ram || !hdd) {
+        if (!version || !name || !description || !repotag || !owner || !port || !enviromentParameters || !commands || !containerPort || !containerData || !cpu || !ram || !hdd) {
           throw new Error('Missing ZelApp specification parameter');
         }
         version = this.ensureNumber(version);
-        type = this.ensureString(type);
         name = this.ensureString(name);
         description = this.ensureString(description);
         repotag = this.ensureString(repotag);
@@ -1117,7 +1106,6 @@ export default {
         // finalised parameters that will get stored in global database
         const zelAppSpecFormatted = {
           version, // integer
-          type, // string
           name, // string
           description, // string
           repotag, // string
@@ -1170,9 +1158,6 @@ export default {
         if (version !== 1) {
           throw new Error('ZelApp message version specification is invalid');
         }
-        if (type !== 'register') {
-          throw new Error('ZelApp message type specification is invalid');
-        }
         if (name.length > 32) {
           throw new Error('ZelApp name is too long');
         }
@@ -1218,7 +1203,7 @@ export default {
         }
         this.timestamp = new Date().getTime();
         this.dataForZelAppRegistration = zelAppSpecFormatted;
-        this.dataToSign = JSON.stringify(zelAppSpecFormatted) + this.timestamp;
+        this.dataToSign = this.type + this.version + JSON.stringify(zelAppSpecFormatted) + this.timestamp;
       } catch (error) {
         console.log(error.message);
         vue.$message.error(error.message || error);
@@ -1250,6 +1235,8 @@ export default {
     async register() {
       const zelidauth = localStorage.getItem('zelidauth');
       const data = {
+        type: this.type,
+        version: this.version,
         zelAppSpecification: this.dataForZelAppRegistration,
         timestamp: this.timestamp,
         signature: this.signature,
