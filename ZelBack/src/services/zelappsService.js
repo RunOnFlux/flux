@@ -2067,7 +2067,7 @@ async function storeTemporaryMessage(message, furtherVerification = false) {
     await verifyZelAppMessageSignature(message.type, message.version, message.zelAppSpecifications, message.timestamp, message.signature);
   }
 
-  const validTill = message.timestamp + (1 * 60 * 1000); // 60 minutes
+  const validTill = message.timestamp + (60 * 60 * 1000); // 60 minutes
 
   const db = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
     log.error(error);
