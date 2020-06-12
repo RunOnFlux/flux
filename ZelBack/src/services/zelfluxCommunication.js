@@ -282,7 +282,7 @@ async function handleZelAppRegisterMessage(message) {
     const zelappsService = require('./zelappsService');
     const rebroadcastToPeers = await zelappsService.storeZelAppTemporaryMessage(message.data, true);
     if (rebroadcastToPeers === true) {
-      const messageString = serviceHelper.ensureObject(message);
+      const messageString = serviceHelper.ensureString(message);
       sendToAllPeers(messageString);
     }
   } catch (error) {
