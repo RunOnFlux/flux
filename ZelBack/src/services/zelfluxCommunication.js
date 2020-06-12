@@ -10,7 +10,6 @@ const serviceHelper = require('./serviceHelper');
 const zelcashService = require('./zelcashService');
 const userconfig = require('../../../config/userconfig');
 const explorerService = require('./explorerService');
-const zelappsService = require('./zelappsService');
 
 const outgoingConnections = []; // websocket list
 const outgoingPeers = []; // array of objects containing ip and rtt latency
@@ -279,6 +278,8 @@ async function handleZelAppRegisterMessage(message) {
     // check if we have it in database and if not add
     // if not in database, rebroadcast to outgoing connections only
     // do furtherVerification of message
+    // eslint-disable-next-line global-require
+    const zelappsService = require('./zelappsService');
     const rebroadcastToPeers = await zelappsService.storeZelAppTemporaryMessage(message.data, true);
     if (rebroadcastToPeers === true) {
       sendToAllPeers(message);
