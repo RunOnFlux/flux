@@ -279,7 +279,7 @@ async function handleZelAppRegisterMessage(message) {
     // check if we have it in database and if not add
     // if not in database, rebroadcast to outgoing connections only
     // do furtherVerification of message
-    const rebroadcastToPeers = await zelappsService.storeTemporaryMessage(message.data, true);
+    const rebroadcastToPeers = await zelappsService.storeZelAppTemporaryMessage(message.data, true);
     if (rebroadcastToPeers === true) {
       sendToAllPeers(message);
     }

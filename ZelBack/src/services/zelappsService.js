@@ -2068,7 +2068,7 @@ async function verifyZelAppSpecifications(zelAppSpecifications) {
   await verifyRepository(zelAppSpecifications.repotag);
 }
 
-async function storeTemporaryMessage(message, furtherVerification = false) {
+async function storeZelAppTemporaryMessage(message, furtherVerification = false) {
   /* message object
   * @param type string
   * @param version number
@@ -2336,7 +2336,7 @@ async function registerZelAppGlobalyApi(req, res) {
         timestamp,
         signature,
       };
-      await storeTemporaryMessage(temporaryZelAppMessage, false);
+      await storeZelAppTemporaryMessage(temporaryZelAppMessage, false);
       await zelfluxCommunication.broadcastTemporaryZelAppMessage(temporaryZelAppMessage);
       return res.json(responseHash);
     } catch (error) {
@@ -2637,4 +2637,5 @@ module.exports = {
   appPricePerMonth,
   appValidTill,
   getZelAppsTemporaryMessages,
+  storeZelAppTemporaryMessage,
 };
