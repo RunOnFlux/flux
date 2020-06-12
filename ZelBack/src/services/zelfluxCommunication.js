@@ -306,8 +306,8 @@ function handleIncomingConnection(ws, req, expressWS) {
     if (messageOK === true && timestampOK === true) {
       try {
         const msgObj = serviceHelper.ensureObject(msg);
-        if (msg.data.type === 'zelappregister') {
-          handleZelAppRegisterMessage(msg);
+        if (msgObj.data.type === 'zelappregister') {
+          handleZelAppRegisterMessage(msgObj);
         }
         if (msgObj.data.type === 'HeartBeat' && msgObj.data.message === 'ping') { // we know that data exists
           const newMessage = msgObj.data;
