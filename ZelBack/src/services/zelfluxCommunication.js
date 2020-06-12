@@ -10,6 +10,7 @@ const serviceHelper = require('./serviceHelper');
 const zelcashService = require('./zelcashService');
 const userconfig = require('../../../config/userconfig');
 const explorerService = require('./explorerService');
+const zelappsService = require('./zelappsService');
 
 const outgoingConnections = []; // websocket list
 const outgoingPeers = []; // array of objects containing ip and rtt latency
@@ -273,6 +274,20 @@ async function serialiseAndSignZelFluxBroadcast(dataToBroadcast, privatekey) {
   return dataString;
 }
 
+async function handleZelAppRegisterMessage(message) {
+  try {
+    // check if we have it in database and if not add
+    // if not in database, rebroadcast to outgoing connections only
+    // do furtherVerification of message
+    const rebroadcastToPeers = await zelappsService.storeTemporaryMessage(message.data, true);
+    if (rebroadcastToPeers === true) {
+      sendToAllPeers(message);
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
 // eslint-disable-next-line no-unused-vars
 function handleIncomingConnection(ws, req, expressWS) {
   // now we are in connections state. push the websocket to our incomingconnections
@@ -291,6 +306,9 @@ function handleIncomingConnection(ws, req, expressWS) {
     if (messageOK === true && timestampOK === true) {
       try {
         const msgObj = serviceHelper.ensureObject(msg);
+        if (msg.data.type === 'zelappregister') {
+          handleZelAppRegisterMessage(msg);
+        }
         if (msgObj.data.type === 'HeartBeat' && msgObj.data.message === 'ping') { // we know that data exists
           const newMessage = msgObj.data;
           newMessage.message = 'pong';
@@ -576,6 +594,9 @@ async function initiateAndHandleConnection(ip) {
     const messageOK = await verifyOriginalFluxBroadcast(evt.data, undefined, currentTimeStamp);
     if (messageOK === true) {
       const msgObj = serviceHelper.ensureObject(evt.data);
+      if (msgObj.data.type === 'zelappregister') {
+        // do not interact on zelappregister message received from an outgoing connection
+      }
       if (msgObj.data.type === 'HeartBeat' && msgObj.data.message === 'pong') {
         const newerTimeStamp = Date.now(); // ms, get a bit newer time that has passed verification of broadcast
         const rtt = newerTimeStamp - msgObj.data.timestamp;
@@ -1054,6 +1075,24 @@ function isCommunicationEstablished(req, res) {
   res.json(message);
 }
 
+async function broadcastTemporaryZelAppMessage(message) {
+  /* message object
+  * @param type string
+  * @param version number
+  * @param zelAppSpecifications object
+  * @param hash string - messageHash(type + version + JSON.stringify(zelAppSpecifications) + timestamp + signature))
+  * @param timestamp number
+  * @param signature string
+  */
+  console.log(message);
+  // no verification of message before broadcasting. Broadcasting happens always after data have been verified and are stored in our db. It is up to receiving node to verify it and store and rebroadcast.
+  if (typeof message !== 'object' && typeof message.type !== 'string' && typeof message.version !== 'number' && typeof message.zelAppSpecifications !== 'object' && typeof message.signature !== 'string' && typeof message.timestamp !== 'number' && typeof message.hash !== 'string') {
+    return new Error('Invalid ZelApp message for storing');
+  }
+  await broadcastMessageToOutgoing(message);
+  return 0;
+}
+
 function startFluxFunctions() {
   adjustFirewall();
   fluxDisovery();
@@ -1101,4 +1140,5 @@ module.exports = {
   outgoingPeers,
   incomingPeers,
   isCommunicationEstablished,
+  broadcastTemporaryZelAppMessage,
 };

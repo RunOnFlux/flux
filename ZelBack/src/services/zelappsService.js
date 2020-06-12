@@ -1965,11 +1965,28 @@ async function getZelAppsTemporaryMessages(req, res) {
   res.json(resultsResponse);
 }
 
-function messageHash(message) {
+async function messageHash(message) {
   if (typeof message !== 'string') {
     return new Error('Invalid message');
   }
   return crypto.createHash('sha256').update(message).digest('hex');
+}
+
+async function verifyZelAppHash(message) {
+  /* message object
+  * @param type string
+  * @param version number
+  * @param zelAppSpecifications object
+  * @param hash string
+  * @param timestamp number
+  * @param signature string
+  */
+  const messToHash = message.type + message.version + JSON.stringify(message.zelAppSpecifications) + message.timestamp + message.signature;
+  const messageHASH = await messageHash(messToHash);
+  if (messageHASH !== message.hash) {
+    throw new Error('Invalid ZelApp hash received!');
+  }
+  return 0;
 }
 
 async function verifyZelAppMessageSignature(type, version, zelAppSpec, timestamp, signature) {
@@ -2053,17 +2070,20 @@ async function verifyZelAppSpecifications(zelAppSpecifications) {
 
 async function storeTemporaryMessage(message, furtherVerification = false) {
   /* message object
+  * @param type string
+  * @param version number
   * @param zelAppSpecifications object
   * @param hash string
   * @param timestamp number
   * @param signature string
   */
-  if (typeof message !== 'object' && typeof message.zelAppSpecifications !== 'object') {
+  if (typeof message !== 'object' && typeof message.type !== 'string' && typeof message.version !== 'number' && typeof message.zelAppSpecifications !== 'object' && typeof message.signature !== 'string' && typeof message.timestamp !== 'number' && typeof message.hash !== 'string') {
     return new Error('Invalid ZelApp message for storing');
   }
   // data shall already be verified by the broadcasting node. But verify all again.
   if (furtherVerification) {
     await verifyZelAppSpecifications(message.zelAppSpecifications);
+    await verifyZelAppHash(message);
     await verifyZelAppMessageSignature(message.type, message.version, message.zelAppSpecifications, message.timestamp, message.signature);
   }
 
@@ -2086,32 +2106,25 @@ async function storeTemporaryMessage(message, furtherVerification = false) {
     expireAt: new Date(validTill),
   };
   const value = newMessage;
+  const query = { hash: newMessage.hash };
+  const projection = {};
+  const result = await serviceHelper.findOneInDatabase(database, globalZelAppsTempMessages, query, projection).catch((error) => {
+    log.error(error);
+    db.close();
+    throw error;
+  });
+  if (result) {
+    // it is already stored
+    return false;
+  }
   await serviceHelper.insertOneToDatabase(database, globalZelAppsTempMessages, value).catch((error) => {
     log.error(error);
     db.close();
     throw error;
   });
   db.close();
-  // all is ok
-  return 0;
-}
-
-async function broadcastTemporaryMessage(message) {
-  /* message object
-  * @param type
-  * @param version
-  * @param zelAppSpecifications object
-  * @param hash string - messageHash(type + version + JSON.stringify(zelAppSpecifications) + timestamp + signature))
-  * @param timestamp number
-  * @param signature string
-  */
-  console.log(message);
-  // no verification of message before broadcasting. Broadcasting happens always after data have been verified and are stored in our db. It is up to receiving node to verify it and store and rebroadcast.
-  if (typeof message !== 'object' && typeof message.zelAppSpecifications !== 'object') {
-    return new Error('Invalid ZelApp message for storing');
-  }
-  await zelfluxCommunication.broadcastMessageToOutgoing(message);
-  return 0;
+  // it is stored and rebroadcasted
+  return true;
 }
 
 async function registerZelAppGlobalyApi(req, res) {
@@ -2324,7 +2337,7 @@ async function registerZelAppGlobalyApi(req, res) {
         signature,
       };
       await storeTemporaryMessage(temporaryZelAppMessage, false);
-      await broadcastTemporaryMessage(temporaryZelAppMessage);
+      await zelfluxCommunication.broadcastTemporaryZelAppMessage(temporaryZelAppMessage);
       return res.json(responseHash);
     } catch (error) {
       log.warn(error);
