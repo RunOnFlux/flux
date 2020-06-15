@@ -573,7 +573,7 @@ export default {
       tier: '',
       output: '',
       fluxCommunication: false,
-      zelAppRegistrationSpecificationA: {
+      zelAppRegistrationSpecification: {
         version: 1,
         name: '',
         description: '',
@@ -598,7 +598,7 @@ export default {
         rambamf: null,
         hddbamf: null,
       },
-      zelAppRegistrationSpecification: {
+      zelAppRegistrationSpecificationB: {
         version: 1,
         name: 'FoldingAtHome',
         description: 'Folding @ Home is cool :)',
