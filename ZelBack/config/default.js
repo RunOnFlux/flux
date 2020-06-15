@@ -12,6 +12,7 @@ module.exports = {
       collections: {
         loggedUsers: 'loggedusers',
         activeLoginPhrases: 'activeloginphrases',
+        activeSignatures: 'activesignatures',
       },
     },
     zelcash: {
@@ -35,8 +36,9 @@ module.exports = {
     zelappsglobal: {
       database: 'globalzelapps',
       collections: {
-        zelAppsMessages: 'zelappsmessages', // storage for all zelapps messages done on zelcash network
-        zelAppsInfo: 'zelappsinfo', // stores actual state of zelapp configuration info - initial state and its overwrites with update messages
+        zelappsMessages: 'zelappsmessages', // storage for all zelapps messages done on zelcash network
+        zelappsInformation: 'zelappsinformation', // stores actual state of zelapp configuration info - initial state and its overwrites with update messages
+        zelappsTemporaryMessages: 'zelappstemporarymessages', // storages for all zelapps messages that are not yet confirmed on the zelcash network
       },
     },
   },
@@ -50,16 +52,19 @@ module.exports = {
   zelapps: {
     // in zel per month
     price: {
-      cpu: 3, // per 0.1 cpu core,
-      ram: 1, // per 100mb,
-      hdd: 0.5, // per 1gb,
+      cpu: 3 * 5, // per 0.1 cpu core,
+      ram: 1 * 5, // per 100mb,
+      hdd: 0.5 * 5, // per 1gb,
     },
     address: 't1...', // apps registration address
     epochstart: 1000000, // zelapps epoch blockheight start
+    portMin: 30001, // originally should have been from 30000 but we got temporary folding there
+    portMax: 39999,
+    maxImageSize: 300000000, // 300mb
   },
   lockedSystemResources: {
     cpu: 10, // 1 cpu core
-    ram: 20, // 2000mb
+    ram: 2000, // 2000mb
     hdd: 30, // 30gb // this value is likely to rise
   },
   fluxSpecifics: {

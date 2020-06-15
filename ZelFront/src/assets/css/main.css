@@ -5,7 +5,6 @@
 }
 
 body {
-  user-select: none;
   overflow-x: hidden;
   color: #e6e6e6;
   background-color: #333333;
@@ -33,14 +32,14 @@ hr {
 
 ::-webkit-scrollbar {
   height: 8px;
-  width: 6px
+  width: 6px;
 }
 
 ::-webkit-scrollbar-thumb {
   -moz-border-radius: 2em;
   -webkit-border-radius: 2em;
   background-color: rgba(255, 255, 255, 0.5);
-  border-radius: 2em
+  border-radius: 2em;
 }
 
 ::-webkit-scrollbar-thumb:hover {
@@ -55,7 +54,7 @@ hr {
   -moz-border-radius: 2em;
   -webkit-border-radius: 2em;
   background-color: transparent;
-  border-radius: 2em
+  border-radius: 2em;
 }
 
 input:focus,
@@ -75,12 +74,12 @@ input[type="checkbox"] {
   vertical-align: top;
 }
 
-input[type="checkbox"]:checked+label,
-input[type="checkbox"]:checked+label a {
+input[type="checkbox"]:checked + label,
+input[type="checkbox"]:checked + label a {
   color: #97f597;
 }
 
-input[type=checkbox] {
+input[type="checkbox"] {
   background-color: #000;
 }
 
@@ -91,7 +90,7 @@ img {
 
 a img,
 a .uk-background-cover {
-  transition: all .05s ease-in-out;
+  transition: all 0.05s ease-in-out;
 }
 
 a:hover img,
@@ -112,10 +111,10 @@ h4 {
 /* MAIN STYLE */
 
 .mainDivStyle {
-  padding: 0 20px;
+  padding: 0 20px 40px 20px;
 }
 
-.header { 
+.header {
   position: absolute;
   top: 0;
   height: 80px;
@@ -129,6 +128,7 @@ h4 {
   height: 40px;
   z-index: 10;
   width: 100%;
+  margin-left: -10px;
   background-color: #333333;
 }
 
@@ -143,6 +143,10 @@ h4 {
 @media screen and (max-width: 805px) {
   .content {
     padding: 90px 0 30px 0;
+  }
+
+  .footer-grid {
+    grid-template-columns: 120px calc(100vw - 240px) 120px;
   }
 }
 
@@ -169,7 +173,7 @@ h4 {
 
 .footer-grid {
   display: grid;
-  grid-template-columns: 120px calc(100vw - 240px) 120px;
+  grid-template-columns: 240px calc(100vw - 480px) 240px;
   grid-template-rows: 1fr;
   margin: auto;
 }
@@ -187,7 +191,7 @@ h4 {
 }
 
 .footer-right {
-  text-align: left;
+  text-align: right;
   grid-area: 1 / 3 / 2 / 4;
   height: 30px;
   line-height: 30px;
@@ -219,23 +223,27 @@ h4 {
   border: none;
 }
 
-.el-menu, .el-submenu .el-menu {
+.el-menu,
+.el-submenu .el-menu {
   border: 1px solid #ffd04b;
 }
 
-.el-menu--collapse>.el-menu-item .el-submenu__icon-arrow,.el-menu--collapse>.el-submenu>.el-submenu__title .el-submenu__icon-arrow {
+.el-menu--collapse > .el-menu-item .el-submenu__icon-arrow,
+.el-menu--collapse > .el-submenu > .el-submenu__title .el-submenu__icon-arrow {
   position: absolute;
   right: 20px;
-  vertical-align:middle;
+  vertical-align: middle;
   display: inline-block;
 }
 
-.el-menu--collapse .el-submenu.is-opened>.el-submenu__title .el-submenu__icon-arrow{
+.el-menu--collapse
+  .el-submenu.is-opened
+  > .el-submenu__title
+  .el-submenu__icon-arrow {
   -webkit-transform: rotateZ(180deg);
   -ms-transform: rotateZ(180deg);
-  transform: rotateZ(180deg)
+  transform: rotateZ(180deg);
 }
-
 
 .el-tabs__item {
   color: #fff;
@@ -249,10 +257,13 @@ h4 {
   color: #ffd04b;
 }
 
-.el-tabs__active-bar{
-  background-color:#ffd04b;
+.el-tabs__active-bar {
+  background-color: #ffd04b;
 }
 
+.zelapps-register .el-form {
+  text-align: left;
+}
 
 /* ZelCash styling */
 .helpSection {
@@ -266,7 +277,9 @@ h4 {
   padding-top: 20px;
 }
 
-.bar1, .bar2, .bar3 {
+.bar1,
+.bar2,
+.bar3 {
   width: 35px;
   height: 5px;
   background-color: #ffffff;
@@ -280,7 +293,9 @@ h4 {
   transform: rotate(-45deg) translate(-9px, 6px);
 }
 
-.change .bar2 {opacity: 0;}
+.change .bar2 {
+  opacity: 0;
+}
 
 .change .bar3 {
   -webkit-transform: rotate(45deg) translate(-8px, -8px);

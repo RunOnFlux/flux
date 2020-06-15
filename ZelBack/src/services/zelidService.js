@@ -242,6 +242,85 @@ async function verifyLogin(req, res) {
   });
 }
 
+async function provideSign(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const address = processedBody.zelid || processedBody.address;
+    const { signature } = processedBody;
+    const message = processedBody.loginPhrase || processedBody.message;
+
+    if (address === undefined || address === '') {
+      const errMessage = serviceHelper.createErrorMessage('No ZelID is specified');
+      return res.json(errMessage);
+    }
+
+    if (!goodchars.test(address)) {
+      const errMessage = serviceHelper.createErrorMessage('ZelID is not valid');
+      return res.json(errMessage);
+    }
+
+    if (address[0] !== '1') {
+      const errMessage = serviceHelper.createErrorMessage('ZelID is not valid');
+      return res.json(errMessage);
+    }
+
+    if (address.length > 34 || address.length < 25) {
+      const errMessage = serviceHelper.createErrorMessage('ZelID is not valid');
+      return res.json(errMessage);
+    }
+
+    if (message === undefined || message === '') {
+      const errMessage = serviceHelper.createErrorMessage('No message is specified');
+      return res.json(errMessage);
+    }
+
+    if (message.length < 40) {
+      const errMessage = serviceHelper.createErrorMessage('Signed message is not valid');
+      return res.json(errMessage);
+    }
+
+    if (signature === undefined || signature === '') {
+      const errMessage = serviceHelper.createErrorMessage('No signature is specified');
+      return res.json(errMessage);
+    }
+    const timestamp = new Date().getTime();
+    const validTill = timestamp + (15 * 60 * 1000); // 15 minutes
+    const identifier = address + message.substr(message.length - 13);
+
+    const db = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
+      const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+      res.json(errMessage);
+      log.error(error);
+      throw error;
+    });
+    const database = db.db(config.database.local.database);
+    const collection = config.database.local.collections.activeSignatures;
+    database.collection(collection).createIndex({ createdAt: 1 }, { expireAfterSeconds: 900 });
+    const newSignature = {
+      signature,
+      identifier,
+      createdAt: new Date(timestamp),
+      expireAt: new Date(validTill),
+    };
+    const value = newSignature;
+    await serviceHelper.insertOneToDatabase(database, collection, value).catch((error) => {
+      const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+      res.json(errMessage);
+      log.error(error);
+      db.close();
+      throw error;
+    });
+    db.close();
+    // all is ok
+    const phraseResponse = serviceHelper.createDataMessage(newSignature);
+    return res.json(phraseResponse);
+  });
+}
+
 async function activeLoginPhrases(req, res) {
   const authorized = await serviceHelper.verifyAdminSession(req.headers).catch((error) => {
     const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
@@ -592,10 +671,71 @@ async function wsRespondLoginPhrase(ws, req) {
   searchDatabase();
 }
 
+async function wsRespondSignature(ws, req) {
+  const { message } = req.params;
+  console.log(message);
+
+  let connclosed = false;
+  // eslint-disable-next-line no-param-reassign
+  ws.onclose = (evt) => {
+    console.log(evt.code);
+    connclosed = true;
+  };
+  // eslint-disable-next-line no-param-reassign
+  ws.onerror = (evt) => {
+    log.error(evt.code);
+    connclosed = true;
+  };
+
+  const db = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    ws.send(qs.stringify(errMessage));
+    ws.close(1011);
+    log.error(error);
+    throw error;
+  });
+
+  const database = db.db(config.database.local.database);
+  const collection = config.database.local.collections.activeSignatures;
+  const query = { identifier: message };
+  const projection = {};
+  async function searchDatabase() {
+    const result = await serviceHelper.findOneInDatabase(database, collection, query, projection).catch((error) => {
+      const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+      ws.send(qs.stringify(errMessage));
+      ws.close(1011);
+      log.error(error);
+      throw error;
+    });
+
+    if (result) {
+      // signature exists
+      const response = serviceHelper.createDataMessage(result);
+      if (!connclosed) {
+        try {
+          ws.send(qs.stringify(response));
+          ws.close(1000);
+        } catch (e) {
+          log.error(e);
+        }
+      }
+      db.close();
+    } else {
+      setTimeout(() => {
+        if (!connclosed) {
+          searchDatabase();
+        }
+      }, 500);
+    }
+  }
+  searchDatabase();
+}
+
 module.exports = {
   loginPhrase,
   emergencyPhrase,
   verifyLogin,
+  provideSign,
   activeLoginPhrases,
   loggedUsers,
   loggedSessions,
@@ -604,4 +744,5 @@ module.exports = {
   logoutAllSessions,
   logoutAllUsers,
   wsRespondLoginPhrase,
+  wsRespondSignature,
 };

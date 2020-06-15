@@ -17,7 +17,7 @@ describe('getFluxMessageSignature', () => {
 
   it('correctly verifies zelflux broadcast', async () => {
     const timeStamp = Date.now();
-    const type = 'message';
+    const version = 1;
     const privKey = '5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh';
     const pubKey = '0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab';
     const badPubKey = '074eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab';
@@ -26,10 +26,11 @@ describe('getFluxMessageSignature', () => {
       data: 'test'
     }
     const message = JSON.stringify(data);
-    const signature = await communication.getFluxMessageSignature(message, privKey);
+    const messageToSign = version + message + timeStamp;
+    const signature = await communication.getFluxMessageSignature(messageToSign, privKey);
     console.log(signature);
     const dataToSend = {
-      type,
+      version,
       pubKey,
       timestamp: timeStamp,
       data,
@@ -38,7 +39,7 @@ describe('getFluxMessageSignature', () => {
     const validRequest = await communication.verifyOriginalFluxBroadcast(dataToSend, zelnodeList);
     expect(validRequest).to.equal(true);
     const dataToSend2 = {
-      type,
+      version,
       pubKey,
       timestamp: timeStamp - 500000,
       data,
@@ -47,7 +48,7 @@ describe('getFluxMessageSignature', () => {
     const invalidRequest = await communication.verifyOriginalFluxBroadcast(dataToSend2, zelnodeList);
     expect(invalidRequest).to.equal(false);
     const dataToSend3 = {
-      type,
+      version,
       pubKey: badPubKey,
       timestamp: timeStamp,
       data,
@@ -56,7 +57,7 @@ describe('getFluxMessageSignature', () => {
     const invalidRequest2 = await communication.verifyOriginalFluxBroadcast(dataToSend3, zelnodeList);
     expect(invalidRequest2).to.equal(false);
     const dataToSend4 = {
-      type,
+      version,
       pubKey,
       timestamp: timeStamp,
       data,

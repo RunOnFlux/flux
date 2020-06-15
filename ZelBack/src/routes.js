@@ -239,6 +239,12 @@ module.exports = (app, expressWs) => {
   app.get('/zelapps/zelappsresources', (req, res) => {
     zelappsService.zelappsResources(req, res);
   });
+  app.get('/zelapps/registrationinformation', (req, res) => {
+    zelappsService.registrationInformation(req, res);
+  });
+  app.get('/zelapps/temporarymessages', (req, res) => {
+    zelappsService.getZelAppsTemporaryMessages(req, res);
+  });
 
   // app.get('/explorer/allutxos', (req, res) => {
   //   explorerService.getAllUtxos(req, res);
@@ -587,6 +593,9 @@ module.exports = (app, expressWs) => {
   app.get('/zelflux/allowport/:port?', (req, res) => {
     zelfluxCommunication.allowPortApi(req, res);
   });
+  app.get('/zelflux/checkcommunication', (req, res) => {
+    zelfluxCommunication.isCommunicationEstablished(req, res);
+  });
 
   app.get('/zelbench/restartnodebenchmarks', (req, res) => {
     zelbenchService.restartNodeBenchmarks(req, res);
@@ -605,9 +614,6 @@ module.exports = (app, expressWs) => {
     explorerService.rescanExplorer(req, res);
   });
 
-  app.get('/zelapps/zelappregister/:repotag?/:name?/:owner?/:cpus?/:ram?/:space?/:port?/:ip?/:envvars?/:privacylevel?', (req, res) => { // privacy level means restrictions of calls. envvars can have privacy to be/not to be exposed // TODO make me post, needs redoing
-    zelappsService.zelAppRegister(req, res);
-  });
   app.get('/zelapps/zelapppull/:repotag?', (req, res) => { // TODO make me post, needs redoing
     zelappsService.zelAppPull(req, res);
   });
@@ -664,6 +670,9 @@ module.exports = (app, expressWs) => {
   app.post('/zelid/verifylogin', (req, res) => {
     zelidService.verifyLogin(req, res);
   });
+  app.post('/zelid/providesign', (req, res) => {
+    zelidService.provideSign(req, res);
+  });
 
   app.post('/zelcash/createrawtransaction', (req, res) => {
     zelcashService.createRawTransactionPost(req, res);
@@ -694,6 +703,13 @@ module.exports = (app, expressWs) => {
 
   app.post('/zelcash/submitblock', (req, res) => {
     zelcashService.submitBlockPost(req, res);
+  });
+
+  app.post('/zelapps/checkdockerexistance', async (req, res) => {
+    zelappsService.checkDockerAccessibility(req, res);
+  });
+  app.post('/zelapps/zelappregister', (req, res) => {
+    zelappsService.registerZelAppGlobalyApi(req, res);
   });
 
   // POST PROTECTED API - ZelNode owner level
@@ -743,6 +759,9 @@ module.exports = (app, expressWs) => {
   // WebSockets PUBLIC
   app.ws('/ws/zelid/:loginphrase', (ws, req) => {
     zelidService.wsRespondLoginPhrase(ws, req);
+  });
+  app.ws('/ws/zelsign/:message', (ws, req) => {
+    zelidService.wsRespondSignature(ws, req);
   });
 
   // communication between multiple zelflux solution is on this:

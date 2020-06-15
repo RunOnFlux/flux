@@ -1,4 +1,3 @@
-
 import axios from 'axios';
 
 const store = require('store');

@@ -1,5 +1,4 @@
 /* eslint-disable no-underscore-dangle */
-const axios = require('axios');
 const WebSocket = require('ws');
 const bitcoinjs = require('bitcoinjs-lib');
 const config = require('config');
@@ -24,35 +23,15 @@ let dosMessage = null;
 // my external Flux IP from zelbench
 let myFluxIP = null;
 
-const axiosConfig = {
-  timeout: 8888,
-};
-
-const axiosConfigB = {
-  timeout: 20000,
-};
-
 let response = serviceHelper.createErrorMessage();
-
-// helper function for timeout on axios connection
-const axiosGet = (url, options = {}) => {
-  const abort = axios.CancelToken.source();
-  const id = setTimeout(
-    () => abort.cancel(`Timeout of ${options.timeout}ms.`),
-    options.timeout,
-  );
-  return axios
-    .get(url, { cancelToken: abort.token, ...options })
-    .then((res) => {
-      clearTimeout(id);
-      return res;
-    });
-};
 
 // basic check for a version of other flux.
 async function isFluxAvailable(ip) {
+  const axiosConfig = {
+    timeout: 8888,
+  };
   try {
-    const fluxResponse = await axiosGet(`http://${ip}:${config.server.apiport}/zelflux/version`, axiosConfig);
+    const fluxResponse = await serviceHelper.axiosGet(`http://${ip}:${config.server.apiport}/zelflux/version`, axiosConfig);
     if (fluxResponse.data.status === 'success') {
       return true;
     }
@@ -138,6 +117,11 @@ async function verifyFluxBroadcast(data, obtainedZelNodeList, currentTimeStamp) 
   const { pubKey } = dataObj;
   const { timestamp } = dataObj; // ms
   const { signature } = dataObj;
+  const { version } = dataObj;
+  // onle version 1 is active
+  if (version !== 1) {
+    return false;
+  }
   const message = serviceHelper.ensureString(dataObj.data);
   // is timestamp valid ?
   // eslint-disable-next-line no-param-reassign
@@ -169,7 +153,8 @@ async function verifyFluxBroadcast(data, obtainedZelNodeList, currentTimeStamp) 
   if (!zelnode) {
     return false;
   }
-  const verified = await serviceHelper.verifyMessage(message, pubKey, signature);
+  const messageToVerify = version + message + timestamp;
+  const verified = await serviceHelper.verifyMessage(messageToVerify, pubKey, signature);
   if (verified === true) {
     return true;
   }
@@ -267,13 +252,18 @@ function sendToAllIncomingConnections(data) {
 }
 
 async function serialiseAndSignZelFluxBroadcast(dataToBroadcast, privatekey) {
+  const version = 1;
   const timestamp = Date.now();
   const pubKey = await getZelNodePublicKey(privatekey);
   const message = serviceHelper.ensureString(dataToBroadcast);
-  const signature = await getFluxMessageSignature(message, privatekey);
-  const type = 'message';
+  const messageToSign = version + message + timestamp;
+  const signature = await getFluxMessageSignature(messageToSign, privatekey);
+  // version 1 specifications
+  // message contains version, timestamp, pubKey, signature and data. Data is a stringified json. Signature is signature of version+stringifieddata+timestamp
+  // signed by the priv key corresponding to pubkey attached
+  // data object contains version, timestamp of signing, signature, pubKey, data object. further data object must at least contain its type as string to determine it further.
   const dataObj = {
-    type,
+    version,
     timestamp,
     pubKey,
     signature,
@@ -281,6 +271,23 @@ async function serialiseAndSignZelFluxBroadcast(dataToBroadcast, privatekey) {
   };
   const dataString = JSON.stringify(dataObj);
   return dataString;
+}
+
+async function handleZelAppRegisterMessage(message) {
+  try {
+    // check if we have it in database and if not add
+    // if not in database, rebroadcast to outgoing connections only
+    // do furtherVerification of message
+    // eslint-disable-next-line global-require
+    const zelappsService = require('./zelappsService');
+    const rebroadcastToPeers = await zelappsService.storeZelAppTemporaryMessage(message.data, true);
+    if (rebroadcastToPeers === true) {
+      const messageString = serviceHelper.ensureString(message);
+      sendToAllPeers(messageString);
+    }
+  } catch (error) {
+    log.error(error);
+  }
 }
 
 // eslint-disable-next-line no-unused-vars
@@ -301,6 +308,9 @@ function handleIncomingConnection(ws, req, expressWS) {
     if (messageOK === true && timestampOK === true) {
       try {
         const msgObj = serviceHelper.ensureObject(msg);
+        if (msgObj.data.type === 'zelappregister') {
+          handleZelAppRegisterMessage(msgObj);
+        }
         if (msgObj.data.type === 'HeartBeat' && msgObj.data.message === 'ping') { // we know that data exists
           const newMessage = msgObj.data;
           newMessage.message = 'pong';
@@ -586,6 +596,9 @@ async function initiateAndHandleConnection(ip) {
     const messageOK = await verifyOriginalFluxBroadcast(evt.data, undefined, currentTimeStamp);
     if (messageOK === true) {
       const msgObj = serviceHelper.ensureObject(evt.data);
+      if (msgObj.data.type === 'zelappregister') {
+        // do not interact on zelappregister message received from an outgoing connection
+      }
       if (msgObj.data.type === 'HeartBeat' && msgObj.data.message === 'pong') {
         const newerTimeStamp = Date.now(); // ms, get a bit newer time that has passed verification of broadcast
         const rtt = newerTimeStamp - msgObj.data.timestamp;
@@ -635,11 +648,11 @@ async function initiateAndHandleConnection(ip) {
 }
 
 async function fluxDisovery() {
-  const minPeers = 5; // todo to 10;
+  const minPeers = 10;
   const zl = await deterministicZelNodeList();
   const numberOfZelNodes = zl.length;
-  const requiredNumberOfConnections = numberOfZelNodes / 50; // 2%
-  const minCon = Math.min(minPeers, requiredNumberOfConnections); // TODO correctly max
+  const requiredNumberOfConnections = numberOfZelNodes / 100; // 1%
+  const minCon = Math.max(minPeers, requiredNumberOfConnections);
   if (outgoingConnections.length < minCon) {
     let ip = await getRandomConnection();
     const clientExists = outgoingConnections.find((client) => client._socket.remoteAddress === ip);
@@ -861,7 +874,7 @@ async function checkMyFluxAvailability(zelnodelist) {
     if (myIP.includes(':')) {
       myIP = `[${myIP}]`;
     }
-    const resMyAvailability = await axiosGet(`http://${askingIP}:${config.server.apiport}/zelflux/checkfluxavailability/${myIP}`, axiosConfigB).catch((error) => {
+    const resMyAvailability = await serviceHelper.axiosGet(`http://${askingIP}:${config.server.apiport}/zelflux/checkfluxavailability/${myIP}`).catch((error) => {
       log.error(`${askingIP} is not reachable`);
       log.error(error);
     });
@@ -1051,6 +1064,37 @@ async function adjustFirewall() {
   }
 }
 
+function isCommunicationEstablished(req, res) {
+  let message = serviceHelper.createErrorMessage('Communication to other ZelFluxes is not sufficient');
+
+  if (outgoingPeers.length < 5) {
+    message = serviceHelper.createErrorMessage('Not enough outgoing connections');
+  } else if (incomingPeers.length < 2) {
+    message = serviceHelper.createErrorMessage('Not enough incomming connections');
+  } else {
+    message = serviceHelper.createSuccessMessage('Communication to ZelFlux network is properly established');
+  }
+  res.json(message);
+}
+
+async function broadcastTemporaryZelAppMessage(message) {
+  /* message object
+  * @param type string
+  * @param version number
+  * @param zelAppSpecifications object
+  * @param hash string - messageHash(type + version + JSON.stringify(zelAppSpecifications) + timestamp + signature))
+  * @param timestamp number
+  * @param signature string
+  */
+  console.log(message);
+  // no verification of message before broadcasting. Broadcasting happens always after data have been verified and are stored in our db. It is up to receiving node to verify it and store and rebroadcast.
+  if (typeof message !== 'object' && typeof message.type !== 'string' && typeof message.version !== 'number' && typeof message.zelAppSpecifications !== 'object' && typeof message.signature !== 'string' && typeof message.timestamp !== 'number' && typeof message.hash !== 'string') {
+    return new Error('Invalid ZelApp message for storing');
+  }
+  await broadcastMessageToOutgoing(message);
+  return 0;
+}
+
 function startFluxFunctions() {
   adjustFirewall();
   fluxDisovery();
@@ -1095,4 +1139,8 @@ module.exports = {
   allowPortApi,
   denyPort,
   checkFluxAvailability,
+  outgoingPeers,
+  incomingPeers,
+  isCommunicationEstablished,
+  broadcastTemporaryZelAppMessage,
 };

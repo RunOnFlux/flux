@@ -1,3 +1,4 @@
+const axios = require('axios');
 const mongodb = require('mongodb');
 const config = require('config');
 const bitcoinMessage = require('bitcoinjs-message');
@@ -312,6 +313,24 @@ async function verifyPrivilege(privilege, req) {
   return authorized;
 }
 
+function verifyZelID(address) {
+  let isValid = false;
+  try {
+    if (!address) {
+      throw new Error({ message: 'Missing parameters for message verification' });
+    }
+
+    if (address.length > 36) {
+      const btcPubKeyHash = '00';
+      zeltrezjs.address.pubKeyToAddr(address, btcPubKeyHash);
+    }
+    isValid = true;
+  } catch (e) {
+    log.error(e);
+    isValid = e;
+  }
+  return isValid;
+}
 
 function verifyMessage(message, address, signature) {
   let isValid = false;
@@ -355,6 +374,23 @@ function signMessage(message, pk) {
   return signature;
 }
 
+// helper function for timeout on axios connection
+const axiosGet = (url, options = {
+  timeout: 20000,
+}) => {
+  const abort = axios.CancelToken.source();
+  const id = setTimeout(
+    () => abort.cancel(`Timeout of ${options.timeout}ms.`),
+    options.timeout,
+  );
+  return axios
+    .get(url, { cancelToken: abort.token, ...options })
+    .then((res) => {
+      clearTimeout(id);
+      return res;
+    });
+};
+
 module.exports = {
   ensureBoolean,
   ensureNumber,
@@ -382,4 +418,6 @@ module.exports = {
   createWarningMessage,
   createErrorMessage,
   errUnauthorizedMessage,
+  axiosGet,
+  verifyZelID,
 };
