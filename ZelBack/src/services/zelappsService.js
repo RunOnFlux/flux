@@ -2129,7 +2129,7 @@ async function registerZelAppGlobalyApi(req, res) {
   });
   req.on('end', async () => {
     try {
-      const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+      const authorized = await serviceHelper.verifyPrivilege('user', req);
       if (!authorized) {
         const errMessage = serviceHelper.errUnauthorizedMessage();
         return res.json(errMessage);
