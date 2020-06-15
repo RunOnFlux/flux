@@ -521,12 +521,13 @@
           </ElButton>
           <br><br>
           <div v-if="registrationHash">
-            To finish registration, Please do a transaction of {{ appPricePerMonth }} to address
+            {{ registrationHash }}
+            <!--To finish registration, Please do a transaction of {{ appPricePerMonth }} to address
             {{ zelapps.address }}
             with following message:
             {{ registrationHash }}
             <br><br>
-            Transaction must be mined by {{ validTill }}
+            Transaction must be mined by {{ validTill }} -->
           </div>
         </div>
       </div>
@@ -659,9 +660,9 @@ export default {
       zelapps: {
         // in zel per month
         price: {
-          cpu: 3, // per 0.1 cpu core,
-          ram: 1, // per 100mb,
-          hdd: 0.5, // per 1gb,
+          cpu: 3 * 5, // per 0.1 cpu core,
+          ram: 1 * 5, // per 100mb,
+          hdd: 0.5 * 5, // per 1gb,
         },
         address: 't1...', // apps registration address
         epochstart: 1000000, // zelapps epoch blockheight start
