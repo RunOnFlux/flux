@@ -1198,7 +1198,7 @@ async function createZelAppVolume(zelAppSpecifications, res) {
   console.log(okVolumes);
   // todo get tier
   const tier = await zelnodeTier();
-  const totalSpaceOnNode = config.fluxSpecconfig.flifics.hdd[tier];
+  const totalSpaceOnNode = config.fluxSpecifics.hdd[tier];
   const useableSpaceOnNode = totalSpaceOnNode - config.lockedSystemResources.hdd;
   const resourcesLocked = await zelappsResources();
   if (resourcesLocked.status !== 'success') {
@@ -1892,11 +1892,6 @@ function appPricePerMonth(dataForZelAppRegistration) {
   const ramTotal = (dataForZelAppRegistration.ram * config.zelapps.price.ram) / 100;
   const hddTotal = dataForZelAppRegistration.hdd * config.zelapps.price.hdd;
   return Math.ceil(cpuTotal + ramTotal + hddTotal);
-}
-
-function appValidTill(timestamp) {
-  const expTime = timestamp + 60 * 1000 * 1000;
-  return expTime;
 }
 
 function checkHWParameters(zelAppSpecs) {
@@ -2635,7 +2630,6 @@ module.exports = {
   checkDockerAccessibility,
   registrationInformation,
   appPricePerMonth,
-  appValidTill,
   getZelAppsTemporaryMessages,
   storeZelAppTemporaryMessage,
 };
