@@ -72,15 +72,12 @@ ul {
 input[type="checkbox"] {
   margin: 5px;
   vertical-align: top;
+  background-color: #000;
 }
 
 input[type="checkbox"]:checked + label,
 input[type="checkbox"]:checked + label a {
   color: #97f597;
-}
-
-input[type="checkbox"] {
-  background-color: #000;
 }
 
 img {
@@ -236,10 +233,7 @@ h4 {
   display: inline-block;
 }
 
-.el-menu--collapse
-  .el-submenu.is-opened
-  > .el-submenu__title
-  .el-submenu__icon-arrow {
+.el-menu--collapse .el-submenu .is-opened > .el-submenu__title .el-submenu__icon-arrow {
   -webkit-transform: rotateZ(180deg);
   -ms-transform: rotateZ(180deg);
   transform: rotateZ(180deg);
