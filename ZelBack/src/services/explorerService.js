@@ -518,10 +518,12 @@ async function initiateBlockProcessor(restoreDatabase) {
         database.collection(zelappsHashesCollection).createIndex({ zelapphash: 1 }, { name: 'query for getting zelapphash' });
       }
       if (scannedBlockHeight !== 0 && restoreDatabase) {
-        const databaseRestored = await restoreDatabaseToBlockheightState(scannedBlockHeight);
-        console.log(`Database restore status: ${databaseRestored}`);
-        if (!databaseRestored) {
-          throw new Error('Error restoring database!');
+        try {
+          await restoreDatabaseToBlockheightState(scannedBlockHeight);
+          log.info('Database restored OK');
+        } catch (e) {
+          log.error('Error restoring database!');
+          throw e;
         }
       }
       processBlock(scannedBlockHeight + 1);

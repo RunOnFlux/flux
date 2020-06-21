@@ -1065,8 +1065,7 @@ async function adjustFirewall() {
 }
 
 function isCommunicationEstablished(req, res) {
-  let message = serviceHelper.createErrorMessage('Communication to other ZelFluxes is not sufficient');
-
+  let message;
   if (outgoingPeers.length < 5) {
     message = serviceHelper.createErrorMessage('Not enough outgoing connections');
   } else if (incomingPeers.length < 2) {
