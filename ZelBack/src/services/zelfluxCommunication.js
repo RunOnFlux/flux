@@ -187,68 +187,88 @@ async function verifyTimestampInFluxBroadcast(data, currentTimeStamp) {
   return false;
 }
 
-function sendToAllPeers(data) {
-  let removals = [];
-  let ipremovals = [];
-  // console.log(data);
-  outgoingConnections.forEach((client) => {
-    try {
-      client.send(data);
-    } catch (e) {
-      log.error(e);
-      removals.push(client);
-      const ip = client._socket.remoteAddress;
-      const foundPeer = outgoingPeers.find((peer) => peer.ip === ip);
-      ipremovals.push(foundPeer);
-    }
-  });
+function sendToAllPeers(data, wsList) {
+  try {
+    let removals = [];
+    let ipremovals = [];
+    // console.log(data);
+    // wsList is always a sublist of outgoingConnections
+    const outConList = wsList || outgoingConnections;
+    outConList.forEach((client) => {
+      try {
+        client.send(data);
+      } catch (e) {
+        log.error(e);
+        removals.push(client);
+        try {
+          const ip = client._socket.remoteAddress;
+          const foundPeer = outgoingPeers.find((peer) => peer.ip === ip);
+          ipremovals.push(foundPeer);
+        } catch (err) {
+          log.error(err);
+        }
+      }
+    });
 
-  for (let i = 0; i < ipremovals.length; i += 1) {
-    const peerIndex = outgoingPeers.indexOf(ipremovals[i]);
-    if (peerIndex > -1) {
-      outgoingPeers.splice(peerIndex, 1);
+    for (let i = 0; i < ipremovals.length; i += 1) {
+      const peerIndex = outgoingPeers.indexOf(ipremovals[i]);
+      if (peerIndex > -1) {
+        outgoingPeers.splice(peerIndex, 1);
+      }
     }
-  }
-  for (let i = 0; i < removals.length; i += 1) {
-    const ocIndex = outgoingConnections.indexOf(removals[i]);
-    if (ocIndex > -1) {
-      outgoingConnections.splice(ocIndex, 1);
+    for (let i = 0; i < removals.length; i += 1) {
+      const ocIndex = outgoingConnections.indexOf(removals[i]);
+      if (ocIndex > -1) {
+        outgoingConnections.splice(ocIndex, 1);
+      }
     }
+    removals = [];
+    ipremovals = [];
+  } catch (error) {
+    log.error(error);
   }
-  removals = [];
-  ipremovals = [];
 }
 
-function sendToAllIncomingConnections(data) {
-  let removals = [];
-  let ipremovals = [];
-  // console.log(data);
-  incomingConnections.forEach((client) => {
-    try {
-      client.send(data);
-    } catch (e) {
-      log.error(e);
-      removals.push(client);
-      const ip = client._socket.remoteAddress;
-      const foundPeer = incomingPeers.find((peer) => peer.ip === ip);
-      ipremovals.push(foundPeer);
-    }
-  });
+function sendToAllIncomingConnections(data, wsList) {
+  try {
+    let removals = [];
+    let ipremovals = [];
+    // console.log(data);
+    // wsList is always a sublist of incomingConnections
+    const incConList = wsList || incomingConnections;
+    incConList.forEach((client) => {
+      try {
+        client.send(data);
+      } catch (e) {
+        log.error(e);
+        removals.push(client);
+        try {
+          const ip = client._socket.remoteAddress;
+          const foundPeer = incomingPeers.find((peer) => peer.ip === ip);
+          ipremovals.push(foundPeer);
+        } catch (err) {
+          log.error(err);
+        }
+      }
+    });
 
-  for (let i = 0; i < ipremovals.length; i += 1) {
-    const peerIndex = incomingPeers.indexOf(ipremovals[i]);
-    if (peerIndex > -1) {
-      incomingPeers.splice(peerIndex, 1);
+    for (let i = 0; i < ipremovals.length; i += 1) {
+      const peerIndex = incomingPeers.indexOf(ipremovals[i]);
+      if (peerIndex > -1) {
+        incomingPeers.splice(peerIndex, 1);
+      }
     }
-  }
-  for (let i = 0; i < removals.length; i += 1) {
-    const ocIndex = incomingConnections.indexOf(removals[i]);
-    if (ocIndex > -1) {
-      incomingConnections.splice(ocIndex, 1);
+    for (let i = 0; i < removals.length; i += 1) {
+      const ocIndex = incomingConnections.indexOf(removals[i]);
+      if (ocIndex > -1) {
+        incomingConnections.splice(ocIndex, 1);
+      }
     }
+    removals = [];
+    ipremovals = [];
+  } catch (error) {
+    log.error(error);
   }
-  removals = [];
-  ipremovals = [];
 }
 
 async function serialiseAndSignZelFluxBroadcast(dataToBroadcast, privatekey) {
@@ -273,7 +293,7 @@ async function serialiseAndSignZelFluxBroadcast(dataToBroadcast, privatekey) {
   return dataString;
 }
 
-async function handleZelAppRegisterMessage(message) {
+async function handleZelAppRegisterMessage(message, fromIP) {
   try {
     // check if we have it in database and if not add
     // if not in database, rebroadcast to outgoing connections only
@@ -284,6 +304,9 @@ async function handleZelAppRegisterMessage(message) {
     if (rebroadcastToPeers === true) {
       const messageString = serviceHelper.ensureString(message);
       sendToAllPeers(messageString);
+      await serviceHelper.delay(2345);
+      const wsList = incomingConnections.filter((client) => client._socket.remoteAddress !== fromIP);
+      sendToAllIncomingConnections(messageString, wsList);
     }
   } catch (error) {
     log.error(error);
@@ -309,7 +332,7 @@ function handleIncomingConnection(ws, req, expressWS) {
       try {
         const msgObj = serviceHelper.ensureObject(msg);
         if (msgObj.data.type === 'zelappregister') {
-          handleZelAppRegisterMessage(msgObj);
+          handleZelAppRegisterMessage(msgObj, peer.ip);
         }
         if (msgObj.data.type === 'HeartBeat' && msgObj.data.message === 'ping') { // we know that data exists
           const newMessage = msgObj.data;
@@ -1089,7 +1112,11 @@ async function broadcastTemporaryZelAppMessage(message) {
   if (typeof message !== 'object' && typeof message.type !== 'string' && typeof message.version !== 'number' && typeof message.zelAppSpecifications !== 'object' && typeof message.signature !== 'string' && typeof message.timestamp !== 'number' && typeof message.hash !== 'string') {
     return new Error('Invalid ZelApp message for storing');
   }
+  // to all outoing
   await broadcastMessageToOutgoing(message);
+  await serviceHelper.delay(2345);
+  // to all incoming. Delay broadcast in case message is processing
+  await broadcastMessageToIncoming(message);
   return 0;
 }
 
