@@ -649,11 +649,15 @@ async function initiateAndHandleConnection(ip) {
 
 async function fluxDisovery() {
   const minPeers = 10;
+  const maxPeers = 20;
   const zl = await deterministicZelNodeList();
   const numberOfZelNodes = zl.length;
   const requiredNumberOfConnections = numberOfZelNodes / 100; // 1%
-  const minCon = Math.max(minPeers, requiredNumberOfConnections);
-  if (outgoingConnections.length < minCon) {
+  const maxNumberOfConnections = numberOfZelNodes / 50; // 2%
+  const minCon = Math.max(minPeers, requiredNumberOfConnections); // awlays maintain at least 10 or 1% of nodes whatever is higher
+  const maxCon = Math.max(maxPeers, maxNumberOfConnections); // have a maximum of 20 or 2% of nodes whatever is higher
+  // coonect a peer as maximum connections not yet established
+  if (outgoingConnections.length < maxCon) {
     let ip = await getRandomConnection();
     const clientExists = outgoingConnections.find((client) => client._socket.remoteAddress === ip);
     if (clientExists) {
@@ -663,16 +667,11 @@ async function fluxDisovery() {
       log.info(`Adding ZelFlux peer: ${ip}`);
       initiateAndHandleConnection(ip);
     }
-    // connect another peer
-    setTimeout(() => {
-      fluxDisovery();
-    }, 1000);
-  } else {
-    // do new connections every 60 seconds
-    setTimeout(() => {
-      fluxDisovery();
-    }, 60000);
   }
+  // fast connect another peer as we do not have even enough connections to satisfy min or wait 1 min.
+  setTimeout(() => {
+    fluxDisovery();
+  }, outgoingConnections.length < minCon ? 1000 : 60 * 1000);
 }
 
 function connectedPeers(req, res) {
