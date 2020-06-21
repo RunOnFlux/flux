@@ -20,28 +20,28 @@ This application communicates locally with the ZelCash Daemon (zelcashd), ZelBen
 
 ### Backend Solution - zelback
 
-- Provide communication with zelcashd
-- Providing private API, and public API, ZelNode team API (limited!)
-- Listen and handel frontend requests
-- Requests signing and authenticity verifying
-- Handel communication with other zelnode daemons (zelflux solution)
-- Manage ZelNode applications - smart spawning, distributing workload, termination depending of application subscription.
-- and more!
+-   Provide communication with zelcashd
+-   Providing private API, and public API, ZelNode team API (limited!)
+-   Listen and handel frontend requests
+-   Requests signing and authenticity verifying
+-   Handel communication with other zelnode daemons (zelflux solution)
+-   Manage ZelNode applications - smart spawning, distributing workload, termination depending of application subscription.
+-   and more!
 
 ### Frontend Solution - zelfront
 
-- Display ZelNode status information
-- Display Zel Network information
-- Display ZelCash status information
-- Display ZelCash network information
-- Display Specific application information
-- Provide API access
-- Login into private API part (frontend part)
-- Login into ZelNode team API part (frontend part)
-- Private: Management of ZelNode
-- Private: Management of ZelCash
-- Private: Update, status information
-- and more!
+-   Display ZelNode status information
+-   Display Zel Network information
+-   Display ZelCash status information
+-   Display ZelCash network information
+-   Display Specific application information
+-   Provide API access
+-   Login into private API part (frontend part)
+-   Login into ZelNode team API part (frontend part)
+-   Private: Management of ZelNode
+-   Private: Management of ZelCash
+-   Private: Update, status information
+-   and more!
 
 This application is open source and distributed under the GNU AGPLv3 licence
 
