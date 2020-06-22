@@ -14,7 +14,7 @@
       <el-menu-item index="0">
         <div class='header-logo'>
           <span class="helper"></span>
-          <img src="@/assets/img/ZelNodes.svg">
+          <img src="@/assets/img/flux_white_logo.svg">
         </div>
       </el-menu-item>
       <el-submenu
