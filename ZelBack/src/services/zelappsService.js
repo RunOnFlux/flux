@@ -2496,17 +2496,42 @@ async function installedZelApps(req, res) {
   }
 }
 
-async function calculateZelAmountForApp(cpu, ram, hdd) {
-  const cpuPrice = config.zelapps.price.cpu;
-  const ramPrice = config.zelapps.price.ram;
-  const hddPrice = config.zelapps.price.hdd;
+async function requestZelAppMessage(hash) {
+  // some message type request zelapp message, message hash
+  // peer responds with data from permanent database or temporary database. If does not have it requests further
+  console.log(hash);
+  // TODO request a zelapp message from all peers
+}
 
-  const cpuTotal = serviceHelper.ensureNumber(cpu) * cpuPrice;
-  const ramTotal = serviceHelper.ensureNumber(ram) * ramPrice;
-  const hddTotal = serviceHelper.ensureNumber(hdd) * hddPrice;
+async function storeZelAppPermanentMessage(message) {
+  /* message object
+  * @param type string
+  * @param version number
+  * @param zelAppSpecifications object
+  * @param hash string
+  * @param timestamp number
+  * @param signature string
+  * @param txid string
+  * @param height number
+  * @param valueSat number
+  */
+  if (typeof message !== 'object' && typeof message.type !== 'string' && typeof message.version !== 'number' && typeof message.zelAppSpecifications !== 'object' && typeof message.signature !== 'string'
+    && typeof message.timestamp !== 'number' && typeof message.hash !== 'string' && typeof message.txid !== 'string' && typeof message.height !== 'number' && typeof message.valueSat !== 'number') {
+    return new Error('Invalid ZelApp message for storing');
+  }
 
-  const total = cpuTotal + ramTotal + hddTotal;
-  return total;
+  const db = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
+    log.error(error);
+    throw error;
+  });
+  const database = db.db(config.database.zelappsglobal.database);
+  await serviceHelper.insertOneToDatabase(database, globalZelAppsMessages, message).catch((error) => {
+    log.error(error);
+    db.close();
+    throw error;
+  });
+  db.close();
+  return true;
 }
 
 async function checkZelAppMessageExistence(zelapphash) {
@@ -2514,9 +2539,21 @@ async function checkZelAppMessageExistence(zelapphash) {
     const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
       throw error;
     });
-    const zelappsDatabase = dbopen.db(config.database.zelappslocal.database);
-    const zelappsQuery = { zelapphash };
+    const zelappsDatabase = dbopen.db(config.database.zelappsglobal.database);
+    const zelappsQuery = { hash: zelapphash };
     const zelappsProjection = {};
+    // a permanent global zelappmessage looks like this:
+    // const permanentZelAppMessage = {
+    //   type: messageType,
+    //   version: typeVersion,
+    //   zelAppSpecifications: zelAppSpecFormatted,
+    //   hash: messageHASH,
+    //   timestamp,
+    //   signature,
+    //   txid,
+    //   height,
+    //   valueSat,
+    // };
     const zelappResult = await serviceHelper.findOneInDatabase(zelappsDatabase, globalZelAppsMessages, zelappsQuery, zelappsProjection).catch((error) => {
       dbopen.close();
       throw error;
@@ -2532,12 +2569,78 @@ async function checkZelAppMessageExistence(zelapphash) {
   }
 }
 
-async function checkAndRequestZelApp(zelapphash) {
+async function checkZelAppTemporaryMessageExistence(zelapphash) {
+  try {
+    const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
+      throw error;
+    });
+    const zelappsDatabase = dbopen.db(config.database.zelappsglobal.database);
+    const zelappsQuery = { hash: zelapphash };
+    const zelappsProjection = {};
+    // a temporary zelappmessage looks like this:
+    // const newMessage = {
+    //   zelAppSpecifications: message.zelAppSpecifications,
+    //   type: message.type,
+    //   version: message.version,
+    //   hash: message.hash,
+    //   timestamp: message.timestamp,
+    //   signature: message.signature,
+    //   createdAt: new Date(message.timestamp),
+    //   expireAt: new Date(validTill),
+    // };
+    const zelappResult = await serviceHelper.findOneInDatabase(zelappsDatabase, globalZelAppsTempMessages, zelappsQuery, zelappsProjection).catch((error) => {
+      dbopen.close();
+      throw error;
+    });
+    dbopen.close();
+    if (zelappResult) {
+      return zelappResult;
+    }
+    return false;
+  } catch (error) {
+    log.error(error);
+    return error;
+  }
+}
+
+// hash of zelapp information, txid it was in, height of blockchain containing the txid
+async function checkAndRequestZelApp(zelapphash, txid, height, valueSat, i = 0) {
   try {
     const appMessageExists = await checkZelAppMessageExistence(zelapphash);
-    if (!appMessageExists) {
-      // we surely do not have that message.
-      // request the message and broadcast the message further to our connected peers.
+    if (appMessageExists === false) { // otherwise do nothing
+      // we surely do not have that message in permanent storaage.
+      // check temporary message storage
+      // if we have it in temporary storage, get the temporary message
+      const tempMessage = await checkZelAppTemporaryMessageExistence(zelapphash);
+      if (tempMessage) {
+        // check if value is optimal or higher
+        const appPrice = await appPricePerMonth(tempMessage.zelAppSpecifications);
+        if (valueSat >= appPrice * 1e8) {
+          // if all ok. store it as permanent zelapp message
+          const permanentZelAppMessage = {
+            type: tempMessage.type,
+            version: tempMessage.version,
+            zelAppSpecifications: tempMessage.zelAppSpecifications,
+            hash: tempMessage.hash,
+            timestamp: tempMessage.timestamp,
+            signature: tempMessage.signature,
+            txid: serviceHelper.ensureString(txid),
+            height: serviceHelper.ensureNumber(height),
+            valueSat: serviceHelper.ensureNumber(valueSat),
+          };
+          storeZelAppPermanentMessage(permanentZelAppMessage);
+        } // else do nothing
+      } else {
+        // TODO request the message and broadcast the message further to our connected peers.
+        requestZelAppMessage(zelapphash);
+        // rerun this after 1 min delay
+        // stop this loop after 1 hour, as it might be a scammy message or simply this message is nowhere on the network
+        if (i < 60) {
+          await serviceHelper.delay(60 * 1000);
+          checkAndRequestZelApp(zelapphash, txid, height, valueSat, i + 1);
+        }
+        // TODO additional constant requesting of missing zelapp messages
+      }
     }
   } catch (error) {
     log.error(error);
@@ -2624,7 +2727,6 @@ module.exports = {
   installedZelApps,
   availableZelApps,
   zelappsResources,
-  calculateZelAmountForApp,
   checkZelAppMessageExistence,
   checkAndRequestZelApp,
   checkDockerAccessibility,
