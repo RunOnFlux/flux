@@ -17,7 +17,7 @@ snap install docker
 curl -sL https://deb.nodesource.com/setup_12.x | sudo -E bash -
 sudo apt-get install nodejs -y
 
-# Clone ZelFlux repo and start ZelFlux
+# Clone Flux repo and start Flux
 git clone https://github.com/zelcash/zelflux && cd zelflux
 npm start
 

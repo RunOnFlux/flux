@@ -302,9 +302,9 @@ export default {
         if (this.getZelNodeStatusResponse.data.status === 'CONFIRMED' || this.getZelNodeStatusResponse.data.location === 'CONFIRMED') {
           this.getZelNodeStatusResponse.zelnodeStatus = 'ZelNode is working correctly';
         } else if (this.getZelNodeStatusResponse.data.status === 'STARTED' || this.getZelNodeStatusResponse.data.location === 'STARTED') {
-          this.getZelNodeStatusResponse.zelnodeStatus = 'ZelNode has just been started. ZelFlux is running with limited capabilities.';
+          this.getZelNodeStatusResponse.zelnodeStatus = 'ZelNode has just been started. Flux is running with limited capabilities.';
         } else {
-          this.getZelNodeStatusResponse.zelnodeStatus = 'ZelNode is not confirmed. ZelFlux is running with limited capabilities.';
+          this.getZelNodeStatusResponse.zelnodeStatus = 'ZelNode is not confirmed. Flux is running with limited capabilities.';
         }
       }
     },

@@ -18,10 +18,10 @@ async function updateZelFlux(req, res) {
     const exec = `cd ${zelnodedpath} && npm run updatezelflux`;
     cmd.get(exec, (err) => {
       if (err) {
-        const errMessage = serviceHelper.createErrorMessage(`Error updating ZelFlux: ${err.message}`, err.name, err.code);
+        const errMessage = serviceHelper.createErrorMessage(`Error updating Flux: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
       }
-      const message = serviceHelper.createSuccessMessage('ZelFlux successfully updaating');
+      const message = serviceHelper.createSuccessMessage('Flux successfully updaating');
       return res.json(message);
     });
   } else {
@@ -38,10 +38,10 @@ async function hardUpdateZelFlux(req, res) {
     const exec = `cd ${zelnodedpath} && npm run hardupdatezelflux`;
     cmd.get(exec, (err) => {
       if (err) {
-        const errMessage = serviceHelper.createErrorMessage(`Error hardupdating ZelFlux: ${err.message}`, err.name, err.code);
+        const errMessage = serviceHelper.createErrorMessage(`Error hardupdating Flux: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
       }
-      const message = serviceHelper.createSuccessMessage('ZelFlux successfully updating');
+      const message = serviceHelper.createSuccessMessage('Flux successfully updating');
       return res.json(message);
     });
   } else {
@@ -58,10 +58,10 @@ async function rebuildZelFront(req, res) {
     const exec = `cd ${zelnodedpath} && npm run zelfrontbuild`;
     cmd.get(exec, (err) => {
       if (err) {
-        const errMessage = serviceHelper.createErrorMessage(`Error rebuilding ZelFlux: ${err.message}`, err.name, err.code);
+        const errMessage = serviceHelper.createErrorMessage(`Error rebuilding Flux: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
       }
-      const message = serviceHelper.createSuccessMessage('ZelFlux successfully rebuilt');
+      const message = serviceHelper.createSuccessMessage('Flux successfully rebuilt');
       return res.json(message);
     });
   } else {

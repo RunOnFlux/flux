@@ -117,10 +117,10 @@
         index="2"
         :popper-append-to-body=true
       >
-        <template slot="title">ZelFlux</template>
-        <el-menu-item index="2-1">ZelNode Status</el-menu-item>
-        <el-menu-item index="2-2">ZelFlux Network</el-menu-item>
-        <el-menu-item index="2-3">ZelFlux Messages</el-menu-item>
+        <template slot="title">Flux</template>
+        <el-menu-item index="2-1">Node Status</el-menu-item>
+        <el-menu-item index="2-2">Flux Network</el-menu-item>
+        <el-menu-item index="2-3">Flux Messages</el-menu-item>
       </el-submenu>
       <el-submenu
         v-if="privilage === 'user' || privilage === 'admin' || privilage === 'zelteam'"
@@ -143,7 +143,7 @@
           v-if="privilage === 'zelteam' || privilage === 'admin'"
           index="10-2"
         >
-          Manage ZelFlux
+          Manage Flux
         </el-menu-item>
         <el-menu-item
           v-if="privilage === 'zelteam' || privilage === 'admin'"
@@ -265,7 +265,7 @@ export default {
           this.$store.commit('setZelAdminSection', 'loggedsessions');
           break;
         case '10-2':
-          this.$store.commit('setZelAdminSection', 'managezelflux');
+          this.$store.commit('setZelAdminSection', 'manageflux');
           break;
         case '10-3':
           this.$store.commit('setZelAdminSection', 'managezelcash');

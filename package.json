@@ -1,7 +1,7 @@
 {
   "name": "zelflux",
   "version": "0.62.0",
-  "description": "ZelFlux - ZelNode Daemon. The entrace to the Zel network.",
+  "description": "Flux - Node Daemon. The entrace to the Flux network.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/zelcash/zelflux.git"
@@ -11,6 +11,7 @@
     "zelcash",
     "zelcore",
     "zelnode",
+    "node",
     "daemon",
     "masternode",
     "zelnodes",

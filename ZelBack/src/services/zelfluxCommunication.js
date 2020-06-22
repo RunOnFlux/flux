@@ -351,7 +351,7 @@ function handleIncomingConnection(ws, req, expressWS) {
             }
           }
         } else {
-          ws.send(`ZelFlux ${userconfig.initial.ipaddress} says message received!`);
+          ws.send(`Flux ${userconfig.initial.ipaddress} says message received!`);
         }
       } catch (e) {
         log.error(e);
@@ -364,7 +364,7 @@ function handleIncomingConnection(ws, req, expressWS) {
       // }
     } else if (messageOK === true) {
       try {
-        ws.send(`ZelFlux ${userconfig.initial.ipaddress} says message received but your message is outdated!`);
+        ws.send(`Flux ${userconfig.initial.ipaddress} says message received but your message is outdated!`);
       } catch (e) {
         log.error(e);
       }
@@ -431,7 +431,7 @@ async function broadcastMessageToOutgoingFromUser(req, res) {
 
   if (authorized === true) {
     broadcastMessageToOutgoing(data);
-    const message = serviceHelper.createSuccessMessage('Message successfully broadcasted to ZelFlux network');
+    const message = serviceHelper.createSuccessMessage('Message successfully broadcasted to Flux network');
     response = message;
   } else {
     response = serviceHelper.errUnauthorizedMessage();
@@ -454,7 +454,7 @@ async function broadcastMessageToOutgoingFromUserPost(req, res) {
       const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
       if (authorized === true) {
         broadcastMessageToOutgoing(processedBody);
-        const message = serviceHelper.createSuccessMessage('Message successfully broadcasted to ZelFlux network');
+        const message = serviceHelper.createSuccessMessage('Message successfully broadcasted to Flux network');
         response = message;
       } else {
         response = serviceHelper.errUnauthorizedMessage();
@@ -475,7 +475,7 @@ async function broadcastMessageToIncomingFromUser(req, res) {
 
   if (authorized === true) {
     broadcastMessageToIncoming(data);
-    const message = serviceHelper.createSuccessMessage('Message successfully broadcasted to ZelFlux network');
+    const message = serviceHelper.createSuccessMessage('Message successfully broadcasted to Flux network');
     response = message;
   } else {
     response = serviceHelper.errUnauthorizedMessage();
@@ -498,7 +498,7 @@ async function broadcastMessageToIncomingFromUserPost(req, res) {
       const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
       if (authorized === true) {
         broadcastMessageToIncoming(processedBody);
-        const message = serviceHelper.createSuccessMessage('Message successfully broadcasted to ZelFlux network');
+        const message = serviceHelper.createSuccessMessage('Message successfully broadcasted to Flux network');
         response = message;
       } else {
         response = serviceHelper.errUnauthorizedMessage();
@@ -520,7 +520,7 @@ async function broadcastMessageFromUser(req, res) {
   if (authorized === true) {
     broadcastMessageToOutgoing(data);
     broadcastMessageToIncoming(data);
-    const message = serviceHelper.createSuccessMessage('Message successfully broadcasted to ZelFlux network');
+    const message = serviceHelper.createSuccessMessage('Message successfully broadcasted to Flux network');
     response = message;
   } else {
     response = serviceHelper.errUnauthorizedMessage();
@@ -544,7 +544,7 @@ async function broadcastMessageFromUserPost(req, res) {
       if (authorized === true) {
         broadcastMessageToOutgoing(processedBody);
         broadcastMessageToIncoming(processedBody);
-        const message = serviceHelper.createSuccessMessage('Message successfully broadcasted to ZelFlux network');
+        const message = serviceHelper.createSuccessMessage('Message successfully broadcasted to Flux network');
         response = message;
       } else {
         response = serviceHelper.errUnauthorizedMessage();
@@ -588,7 +588,7 @@ async function initiateAndHandleConnection(ip) {
       rtt: null,
     };
     outgoingPeers.push(peer);
-    broadcastMessageToOutgoing('Hello ZelFlux');
+    broadcastMessageToOutgoing('Hello Flux');
     console.log(`#connectionsOut: ${outgoingConnections.length}`);
   });
 
@@ -687,7 +687,7 @@ async function fluxDisovery() {
       ip = null;
     }
     if (ip) {
-      log.info(`Adding ZelFlux peer: ${ip}`);
+      log.info(`Adding Flux peer: ${ip}`);
       initiateAndHandleConnection(ip);
     }
   }
@@ -1093,7 +1093,7 @@ function isCommunicationEstablished(req, res) {
   } else if (incomingPeers.length < 2) {
     message = serviceHelper.createErrorMessage('Not enough incomming connections');
   } else {
-    message = serviceHelper.createSuccessMessage('Communication to ZelFlux network is properly established');
+    message = serviceHelper.createSuccessMessage('Communication to Flux network is properly established');
   }
   res.json(message);
 }

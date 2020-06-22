@@ -24,7 +24,7 @@
       >The gateway to the Zel Network</ElLink>
     </div>
     <div class="footer-right">
-      ZelFlux {{ 'v' + zelfluxVersion}}
+      Flux {{ 'v' + zelfluxVersion}}
     </div>
   </div>
 </template>
@@ -81,9 +81,9 @@ export default {
         .then((response) => {
           console.log(response);
           if (response.data.version !== self.zelfluxVersion) {
-            vue.$message.warning('ZelFlux needs to be updated!');
+            vue.$message.warning('Flux needs to be updated!');
           } else {
-            vue.$message.success('ZelFlux is up to date');
+            vue.$message.success('Flux is up to date');
           }
         })
         .catch((error) => {

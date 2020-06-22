@@ -3,7 +3,7 @@ const chai = require('chai');
 const expect = chai.expect;
 
 describe('ZelCash Service calls', () => {
-  it('correctly communicates with ZelFlux and obtains data from a ZelCash service', () => {
+  it('correctly communicates with Flux and obtains data from a ZelCash service', () => {
     const data = {
       hexstring: '0400008085202f89010000000000000000000000000000000000000000000000000000000000000000ffffffff20037a4b0700324d696e6572732068747470733a2f2f326d696e6572732e636f6dffffffff04bf258e9e020000001976a91404e2699cec5f44280540fb752c7660aa3ba857cc88aca0118721000000001976a914c85ea3b8348d148b953b5c659f4f94c8998ffe2488ac601de137000000001976a914cb798afa21a56aab837459959e44ee7bc3c5691188ac80461c86000000001976a91404b74cfe29c810a5d49e8a7cdc0785e46fc4a8c588ac00000000000000000000000000000000000000',
     };

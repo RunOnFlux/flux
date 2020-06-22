@@ -47,12 +47,12 @@
         Logout all sessions
       </ElButton>
     </div>
-    <div v-if="zelAdminSection === 'managezelflux'">
+    <div v-if="zelAdminSection === 'manageflux'">
       <ElButton
         class="generalButton"
         @click="updateZelFlux()"
       >
-        Update ZelFlux
+        Update Flux
       </ElButton>
       <ElButton
         class="generalButton"
@@ -180,7 +180,7 @@ export default {
           this.filterLoggedUsers = '';
           this.loggedSessions();
           break;
-        case 'managezelflux':
+        case 'manageflux':
           this.getLatestZelFluxVersion();
           break;
         case 'managezelcash':
@@ -207,7 +207,7 @@ export default {
       case 'loggedsessions':
         this.loggedSessions();
         break;
-      case 'managezelflux':
+      case 'manageflux':
         this.getLatestZelFluxVersion();
         break;
       case 'managezelcash':
@@ -236,7 +236,7 @@ export default {
         .then((response) => {
           console.log(response);
           if (response.data.version !== self.zelfluxVersion) {
-            vue.$message.success('ZelFlux is now updating in the background');
+            vue.$message.success('Flux is now updating in the background');
             ZelNodeService.updateZelFlux(zelidauth)
               .then((responseB) => {
                 console.log(responseB);
@@ -250,7 +250,7 @@ export default {
                 vue.$message.error(e.toString());
               });
           } else {
-            vue.$message.success('ZelFlux is already up to date.');
+            vue.$message.success('Flux is already up to date.');
           }
         })
         .catch((error) => {
@@ -374,9 +374,9 @@ export default {
         .then((response) => {
           console.log(response);
           if (response.data.version !== self.zelfluxVersion) {
-            vue.$message.warning('ZelFlux requires an update!');
+            vue.$message.warning('Flux requires an update!');
           } else {
-            vue.$message.success('ZelFlux is up to date');
+            vue.$message.success('Flux is up to date');
           }
         })
         .catch((error) => {
