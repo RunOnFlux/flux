@@ -2,7 +2,7 @@
 
 ![Flux.png](ZelFront/src/assets/img/flux_banner.png)
 
-[![DeepScan grade](https://deepscan.io/api/teams/6436/projects/8442/branches/100920/badge/grade.svg)](https://deepscan.io/dashboard#view=project&tid=6436&pid=8442&bid=100920) [![CodeFactor](https://www.codefactor.io/repository/github/zelcash/Flux/badge)](https://www.codefactor.io/repository/github/zelcash/zelflux)[![Language grade: JavaScript](https://img.shields.io/lgtm/grade/javascript/g/zelcash/zelflux.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/zelcash/zelflux/context:javascript)
+[![DeepScan grade](https://deepscan.io/api/teams/6436/projects/8442/branches/100920/badge/grade.svg)](https://deepscan.io/dashboard#view=project&tid=6436&pid=8442&bid=100920) [![CodeFactor](https://www.codefactor.io/repository/github/zelcash/zelflux/badge)](https://www.codefactor.io/repository/github/zelcash/zelflux)[![Language grade: JavaScript](https://img.shields.io/lgtm/grade/javascript/g/zelcash/zelflux.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/zelcash/zelflux/context:javascript)
 
 ## API Documentation
 
