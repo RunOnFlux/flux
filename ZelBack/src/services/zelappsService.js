@@ -2614,7 +2614,7 @@ async function checkAndRequestZelApp(zelapphash, txid, height, valueSat, i = 0) 
       const tempMessage = await checkZelAppTemporaryMessageExistence(zelapphash);
       if (tempMessage) {
         // check if value is optimal or higher
-        const appPrice = await appPricePerMonth(tempMessage.zelAppSpecifications);
+        const appPrice = appPricePerMonth(tempMessage.zelAppSpecifications);
         if (valueSat >= appPrice * 1e8) {
           // if all ok. store it as permanent zelapp message
           const permanentZelAppMessage = {
