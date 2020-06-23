@@ -2082,7 +2082,8 @@ async function storeZelAppTemporaryMessage(message, furtherVerification = false)
     await verifyZelAppMessageSignature(message.type, message.version, message.zelAppSpecifications, message.timestamp, message.signature);
   }
 
-  const validTill = message.timestamp + (60 * 60 * 1000); // 60 minutes
+  const receivedAt = Date.now();
+  const validTill = receivedAt + (60 * 60 * 1000); // 60 minutes
 
   const db = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
     log.error(error);
@@ -2097,7 +2098,7 @@ async function storeZelAppTemporaryMessage(message, furtherVerification = false)
     hash: message.hash,
     timestamp: message.timestamp,
     signature: message.signature,
-    createdAt: new Date(message.timestamp),
+    receivedAt: new Date(receivedAt),
     expireAt: new Date(validTill),
   };
   const value = newMessage;
@@ -2323,7 +2324,7 @@ async function registerZelAppGlobalyApi(req, res) {
       const messageHASH = await messageHash(message);
       const responseHash = serviceHelper.createDataMessage(messageHASH);
       // now all is great. Store zelAppSpecFormatted, timestamp, signature and hash in zelappsTemporaryMessages. with 1 hours expiration time. Broadcast this message to all outgoing connections.
-      const temporaryZelAppMessage = {
+      const temporaryZelAppMessage = { // specification of temp message
         type: messageType,
         version: typeVersion,
         zelAppSpecifications: zelAppSpecFormatted,
@@ -2500,7 +2501,14 @@ async function requestZelAppMessage(hash) {
   // some message type request zelapp message, message hash
   // peer responds with data from permanent database or temporary database. If does not have it requests further
   console.log(hash);
-  // TODO request a zelapp message from all peers
+  const message = {
+    type: 'zelapprequest',
+    version: 1,
+    hash,
+  };
+  await zelfluxCommunication.broadcastMessageToOutgoing(message);
+  await serviceHelper.delay(2345);
+  await zelfluxCommunication.broadcastMessageToIncoming(message);
 }
 
 async function storeZelAppPermanentMessage(message) {
@@ -2560,7 +2568,7 @@ async function checkZelAppMessageExistence(zelapphash) {
     });
     dbopen.close();
     if (zelappResult) {
-      return true;
+      return zelappResult;
     }
     return false;
   } catch (error) {

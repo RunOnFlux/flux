@@ -303,13 +303,78 @@ async function handleZelAppRegisterMessage(message, fromIP) {
     const rebroadcastToPeers = await zelappsService.storeZelAppTemporaryMessage(message.data, true);
     if (rebroadcastToPeers === true) {
       const messageString = serviceHelper.ensureString(message);
-      sendToAllPeers(messageString);
+      const wsListOut = outgoingConnections.filter((client) => client._socket.remoteAddress !== fromIP);
+      sendToAllPeers(messageString, wsListOut);
       await serviceHelper.delay(2345);
       const wsList = incomingConnections.filter((client) => client._socket.remoteAddress !== fromIP);
       sendToAllIncomingConnections(messageString, wsList);
     }
   } catch (error) {
     log.error(error);
+  }
+}
+
+async function sendMessageToWS(message, ws) {
+  try {
+    const pongResponse = await serialiseAndSignZelFluxBroadcast(message);
+    ws.send(pongResponse);
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+async function respondWithAppMessage(message, ws) {
+  // check if we have it database of permanent zelappMessages
+  // eslint-disable-next-line global-require
+  const zelappsService = require('./zelappsService');
+  const permanentMessage = await zelappsService.checkZelAppMessageExistence(message.data.hash);
+  if (permanentMessage) {
+    // message exists in permanent storage. Create a message and broadcast it to the fromIP peer
+    // const permanentZelAppMessage = {
+    //   type: messageType,
+    //   version: typeVersion,
+    //   zelAppSpecifications: zelAppSpecFormatted,
+    //   hash: messageHASH,
+    //   timestamp,
+    //   signature,
+    //   txid,
+    //   height,
+    //   valueSat,
+    // };
+    const temporaryZelAppMessage = { // specification of temp message
+      type: permanentMessage.type,
+      version: permanentMessage.version,
+      zelAppSpecifications: permanentMessage.zelAppSpecifications,
+      hash: permanentMessage.hash,
+      timestamp: permanentMessage.timestamp,
+      signature: permanentMessage.signature,
+    };
+    sendMessageToWS(temporaryZelAppMessage, ws);
+  } else {
+    const existingTemporaryMessage = await zelappsService.checkZelAppTemporaryMessageExistence(message.data.hash);
+    if (existingTemporaryMessage) {
+      // a temporary zelappmessage looks like this:
+      // const newMessage = {
+      //   zelAppSpecifications: message.zelAppSpecifications,
+      //   type: message.type,
+      //   version: message.version,
+      //   hash: message.hash,
+      //   timestamp: message.timestamp,
+      //   signature: message.signature,
+      //   createdAt: new Date(message.timestamp),
+      //   expireAt: new Date(validTill),
+      // };
+      const temporaryZelAppMessage = { // specification of temp message
+        type: existingTemporaryMessage.type,
+        version: existingTemporaryMessage.version,
+        zelAppSpecifications: existingTemporaryMessage.zelAppSpecifications,
+        hash: existingTemporaryMessage.hash,
+        timestamp: existingTemporaryMessage.timestamp,
+        signature: existingTemporaryMessage.signature,
+      };
+      sendMessageToWS(temporaryZelAppMessage, ws);
+    }
+    // else do nothing. We do not have this message. And this Flux would be requesting it from other peers soon too.
   }
 }
 
@@ -333,8 +398,9 @@ function handleIncomingConnection(ws, req, expressWS) {
         const msgObj = serviceHelper.ensureObject(msg);
         if (msgObj.data.type === 'zelappregister') {
           handleZelAppRegisterMessage(msgObj, peer.ip);
-        }
-        if (msgObj.data.type === 'HeartBeat' && msgObj.data.message === 'ping') { // we know that data exists
+        } else if (msgObj.data.type === 'zelapprequest') {
+          respondWithAppMessage(msgObj, ws);
+        } else if (msgObj.data.type === 'HeartBeat' && msgObj.data.message === 'ping') { // we know that data exists
           const newMessage = msgObj.data;
           newMessage.message = 'pong';
           const pongResponse = await serialiseAndSignZelFluxBroadcast(newMessage);
@@ -618,16 +684,17 @@ async function initiateAndHandleConnection(ip) {
     const currentTimeStamp = Date.now(); // ms
     const messageOK = await verifyOriginalFluxBroadcast(evt.data, undefined, currentTimeStamp);
     if (messageOK === true) {
+      const { url } = websocket;
+      let conIP = url.split('/')[2];
+      conIP = conIP.split(`:${config.server.apiport}`).join('');
       const msgObj = serviceHelper.ensureObject(evt.data);
       if (msgObj.data.type === 'zelappregister') {
-        // do not interact on zelappregister message received from an outgoing connection
-      }
-      if (msgObj.data.type === 'HeartBeat' && msgObj.data.message === 'pong') {
+        handleZelAppRegisterMessage(msgObj.data, conIP);
+      } else if (msgObj.data.type === 'zelapprequest') {
+        respondWithAppMessage(msgObj, websocket);
+      } else if (msgObj.data.type === 'HeartBeat' && msgObj.data.message === 'pong') {
         const newerTimeStamp = Date.now(); // ms, get a bit newer time that has passed verification of broadcast
         const rtt = newerTimeStamp - msgObj.data.timestamp;
-        const { url } = websocket;
-        let conIP = url.split('/')[2];
-        conIP = conIP.split(`:${config.server.apiport}`).join('');
         const foundPeer = outgoingPeers.find((peer) => peer.ip === conIP);
         if (foundPeer) {
           const peerIndex = outgoingPeers.indexOf(foundPeer);
