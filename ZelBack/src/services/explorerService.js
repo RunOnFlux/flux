@@ -527,8 +527,24 @@ async function initiateBlockProcessor(restoreDatabase) {
       }
       if (scannedBlockHeight !== 0 && restoreDatabase) {
         try {
-          await restoreDatabaseToBlockheightState(scannedBlockHeight);
-          log.info('Database restored OK');
+          // adjust for initial reorg
+          if (zelcashHeight < scannedBlockHeight + 100) {
+            // we are less than 100 blocks from zelcash height. Do deep restoring
+            scannedBlockHeight = Math.max(scannedBlockHeight - 100, 0);
+            await restoreDatabaseToBlockheightState(scannedBlockHeight);
+            const queryHeight = { generalScannedHeight: { $gte: 0 } };
+            const update = { $set: { generalScannedHeight: scannedBlockHeight } };
+            const options = { upsert: true };
+            await serviceHelper.findOneAndUpdateInDatabase(database, scannedHeightCollection, queryHeight, update, options).catch((error) => {
+              db.close();
+              throw error;
+            });
+            log.info('Database restored OK');
+          } else {
+            // we are more than 100 blocks from zelcash. No need for deep restoring
+            await restoreDatabaseToBlockheightState(scannedBlockHeight);
+            log.info('Database restored OK');
+          }
         } catch (e) {
           log.error('Error restoring database!');
           throw e;
