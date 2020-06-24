@@ -1981,7 +1981,7 @@ async function verifyZelAppHash(message) {
   if (messageHASH !== message.hash) {
     throw new Error('Invalid ZelApp hash received!');
   }
-  return 0;
+  return true;
 }
 
 async function verifyZelAppMessageSignature(type, version, zelAppSpec, timestamp, signature) {
@@ -2024,6 +2024,7 @@ async function verifyRepository(repotag) {
   } else {
     throw new Error('Repository is not in valid format namespace/repository:tag');
   }
+  return true;
 }
 
 async function verifyZelAppSpecifications(zelAppSpecifications) {
@@ -2639,7 +2640,7 @@ async function checkAndRequestZelApp(zelapphash, txid, height, valueSat, i = 0) 
           storeZelAppPermanentMessage(permanentZelAppMessage);
         } // else do nothing
       } else {
-        // TODO request the message and broadcast the message further to our connected peers.
+        // request the message and broadcast the message further to our connected peers.
         requestZelAppMessage(zelapphash);
         // rerun this after 1 min delay
         // stop this loop after 1 hour, as it might be a scammy message or simply this message is nowhere on the network
@@ -2742,4 +2743,9 @@ module.exports = {
   appPricePerMonth,
   getZelAppsTemporaryMessages,
   storeZelAppTemporaryMessage,
+  verifyRepository,
+  checkHWParameters,
+  messageHash,
+  verifyZelAppHash,
+  verifyZelAppMessageSignature,
 };
