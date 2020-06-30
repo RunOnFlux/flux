@@ -698,9 +698,6 @@ export default {
             this.transactionDetail = txDetail;
             this.uniqueKey += 1;
           }
-          const txDetail = txContent.data.data;
-          txDetail.senders = senders;
-          this.transactionDetail = txDetail;
         } else {
           this.transactionDetail = txContent.data.data;
           this.uniqueKey += 1;

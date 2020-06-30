@@ -278,6 +278,8 @@ async function processBlock(blockHeight) {
       // normal transactions
       if (tx.version < 5 && tx.version > 0) {
         let message = '';
+        let isZelAppMessageValue = 0;
+
         const addresses = [];
         tx.senders.forEach((sender) => {
           addresses.push(sender.address);
@@ -285,6 +287,10 @@ async function processBlock(blockHeight) {
         tx.vout.forEach((receiver) => {
           if (receiver.scriptPubKey.addresses) { // count for messages
             addresses.push(receiver.scriptPubKey.addresses[0]);
+            if (receiver.scriptPubKey.addresses[0] === config.zelapps.address) {
+              // it is a zelapp message. Get Satoshi amount
+              isZelAppMessageValue = receiver.valueSat;
+            }
           }
           if (receiver.scriptPubKey.asm) {
             message = decodeMessage(receiver.scriptPubKey.asm); // TODO adding messages to database so we can then get all messages from blockchain
@@ -303,13 +309,15 @@ async function processBlock(blockHeight) {
           });
         }));
         // MAY contain ZelApp transaction. Store it.
-        if (addressesOK.indexOf(config.zelapps.address) > -1 && message.length === 64) { // todo sha256 hash length
-          const zelappTxRecord = { txid: tx.txid, height: tx.height, zelapphash: message };
-          zelappsService.checkAndRequestZelApp(message);
+        if (isZelAppMessageValue > 0 && message.length === 64) {
+          const zelappTxRecord = {
+            txid: tx.txid, height: tx.height, zelapphash: message, value: isZelAppMessageValue,
+          };
           await serviceHelper.insertOneToDatabase(database, zelappsHashesCollection, zelappTxRecord).catch((error) => {
             db.close();
             throw error;
           });
+          zelappsService.checkAndRequestZelApp(message, tx.txid, tx.height, isZelAppMessageValue);
         }
       }
       // tx version 5 are zelnode transactions. Put them into zelnode
@@ -518,10 +526,28 @@ async function initiateBlockProcessor(restoreDatabase) {
         database.collection(zelappsHashesCollection).createIndex({ zelapphash: 1 }, { name: 'query for getting zelapphash' });
       }
       if (scannedBlockHeight !== 0 && restoreDatabase) {
-        const databaseRestored = await restoreDatabaseToBlockheightState(scannedBlockHeight);
-        console.log(`Database restore status: ${databaseRestored}`);
-        if (!databaseRestored) {
-          throw new Error('Error restoring database!');
+        try {
+          // adjust for initial reorg
+          if (zelcashHeight < scannedBlockHeight + 100) {
+            // we are less than 100 blocks from zelcash height. Do deep restoring
+            scannedBlockHeight = Math.max(scannedBlockHeight - 100, 0);
+            await restoreDatabaseToBlockheightState(scannedBlockHeight);
+            const queryHeight = { generalScannedHeight: { $gte: 0 } };
+            const update = { $set: { generalScannedHeight: scannedBlockHeight } };
+            const options = { upsert: true };
+            await serviceHelper.findOneAndUpdateInDatabase(database, scannedHeightCollection, queryHeight, update, options).catch((error) => {
+              db.close();
+              throw error;
+            });
+            log.info('Database restored OK');
+          } else {
+            // we are more than 100 blocks from zelcash. No need for deep restoring
+            await restoreDatabaseToBlockheightState(scannedBlockHeight);
+            log.info('Database restored OK');
+          }
+        } catch (e) {
+          log.error('Error restoring database!');
+          throw e;
         }
       }
       processBlock(scannedBlockHeight + 1);

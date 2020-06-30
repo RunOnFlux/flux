@@ -13,6 +13,10 @@ const log = require('../lib/log');
 const { MongoClient } = mongodb;
 const mongoUrl = `mongodb://${config.database.url}:${config.database.port}/`;
 
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function createDataMessage(data) {
   const successMessage = {
     status: 'success',
@@ -420,4 +424,5 @@ module.exports = {
   errUnauthorizedMessage,
   axiosGet,
   verifyZelID,
+  delay,
 };

@@ -9,7 +9,7 @@ const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const zelcashService = require('./zelcashService');
 const userconfig = require('../../../config/userconfig');
-const explorerService = require('./explorerService');
+// const explorerService = require('./explorerService');
 
 const outgoingConnections = []; // websocket list
 const outgoingPeers = []; // array of objects containing ip and rtt latency
@@ -187,68 +187,88 @@ async function verifyTimestampInFluxBroadcast(data, currentTimeStamp) {
   return false;
 }
 
-function sendToAllPeers(data) {
-  let removals = [];
-  let ipremovals = [];
-  // console.log(data);
-  outgoingConnections.forEach((client) => {
-    try {
-      client.send(data);
-    } catch (e) {
-      log.error(e);
-      removals.push(client);
-      const ip = client._socket.remoteAddress;
-      const foundPeer = outgoingPeers.find((peer) => peer.ip === ip);
-      ipremovals.push(foundPeer);
-    }
-  });
+function sendToAllPeers(data, wsList) {
+  try {
+    let removals = [];
+    let ipremovals = [];
+    // console.log(data);
+    // wsList is always a sublist of outgoingConnections
+    const outConList = wsList || outgoingConnections;
+    outConList.forEach((client) => {
+      try {
+        client.send(data);
+      } catch (e) {
+        log.error(e);
+        removals.push(client);
+        try {
+          const ip = client._socket.remoteAddress;
+          const foundPeer = outgoingPeers.find((peer) => peer.ip === ip);
+          ipremovals.push(foundPeer);
+        } catch (err) {
+          log.error(err);
+        }
+      }
+    });
 
-  for (let i = 0; i < ipremovals.length; i += 1) {
-    const peerIndex = outgoingPeers.indexOf(ipremovals[i]);
-    if (peerIndex > -1) {
-      outgoingPeers.splice(peerIndex, 1);
+    for (let i = 0; i < ipremovals.length; i += 1) {
+      const peerIndex = outgoingPeers.indexOf(ipremovals[i]);
+      if (peerIndex > -1) {
+        outgoingPeers.splice(peerIndex, 1);
+      }
     }
-  }
-  for (let i = 0; i < removals.length; i += 1) {
-    const ocIndex = outgoingConnections.indexOf(removals[i]);
-    if (ocIndex > -1) {
-      outgoingConnections.splice(ocIndex, 1);
+    for (let i = 0; i < removals.length; i += 1) {
+      const ocIndex = outgoingConnections.indexOf(removals[i]);
+      if (ocIndex > -1) {
+        outgoingConnections.splice(ocIndex, 1);
+      }
     }
+    removals = [];
+    ipremovals = [];
+  } catch (error) {
+    log.error(error);
   }
-  removals = [];
-  ipremovals = [];
 }
 
-function sendToAllIncomingConnections(data) {
-  let removals = [];
-  let ipremovals = [];
-  // console.log(data);
-  incomingConnections.forEach((client) => {
-    try {
-      client.send(data);
-    } catch (e) {
-      log.error(e);
-      removals.push(client);
-      const ip = client._socket.remoteAddress;
-      const foundPeer = incomingPeers.find((peer) => peer.ip === ip);
-      ipremovals.push(foundPeer);
-    }
-  });
+function sendToAllIncomingConnections(data, wsList) {
+  try {
+    let removals = [];
+    let ipremovals = [];
+    // console.log(data);
+    // wsList is always a sublist of incomingConnections
+    const incConList = wsList || incomingConnections;
+    incConList.forEach((client) => {
+      try {
+        client.send(data);
+      } catch (e) {
+        log.error(e);
+        removals.push(client);
+        try {
+          const ip = client._socket.remoteAddress;
+          const foundPeer = incomingPeers.find((peer) => peer.ip === ip);
+          ipremovals.push(foundPeer);
+        } catch (err) {
+          log.error(err);
+        }
+      }
+    });
 
-  for (let i = 0; i < ipremovals.length; i += 1) {
-    const peerIndex = incomingPeers.indexOf(ipremovals[i]);
-    if (peerIndex > -1) {
-      incomingPeers.splice(peerIndex, 1);
+    for (let i = 0; i < ipremovals.length; i += 1) {
+      const peerIndex = incomingPeers.indexOf(ipremovals[i]);
+      if (peerIndex > -1) {
+        incomingPeers.splice(peerIndex, 1);
+      }
     }
-  }
-  for (let i = 0; i < removals.length; i += 1) {
-    const ocIndex = incomingConnections.indexOf(removals[i]);
-    if (ocIndex > -1) {
-      incomingConnections.splice(ocIndex, 1);
+    for (let i = 0; i < removals.length; i += 1) {
+      const ocIndex = incomingConnections.indexOf(removals[i]);
+      if (ocIndex > -1) {
+        incomingConnections.splice(ocIndex, 1);
+      }
     }
+    removals = [];
+    ipremovals = [];
+  } catch (error) {
+    log.error(error);
   }
-  removals = [];
-  ipremovals = [];
 }
 
 async function serialiseAndSignZelFluxBroadcast(dataToBroadcast, privatekey) {
@@ -273,7 +293,7 @@ async function serialiseAndSignZelFluxBroadcast(dataToBroadcast, privatekey) {
   return dataString;
 }
 
-async function handleZelAppRegisterMessage(message) {
+async function handleZelAppRegisterMessage(message, fromIP) {
   try {
     // check if we have it in database and if not add
     // if not in database, rebroadcast to outgoing connections only
@@ -283,10 +303,78 @@ async function handleZelAppRegisterMessage(message) {
     const rebroadcastToPeers = await zelappsService.storeZelAppTemporaryMessage(message.data, true);
     if (rebroadcastToPeers === true) {
       const messageString = serviceHelper.ensureString(message);
-      sendToAllPeers(messageString);
+      const wsListOut = outgoingConnections.filter((client) => client._socket.remoteAddress !== fromIP);
+      sendToAllPeers(messageString, wsListOut);
+      await serviceHelper.delay(2345);
+      const wsList = incomingConnections.filter((client) => client._socket.remoteAddress !== fromIP);
+      sendToAllIncomingConnections(messageString, wsList);
     }
   } catch (error) {
     log.error(error);
+  }
+}
+
+async function sendMessageToWS(message, ws) {
+  try {
+    const pongResponse = await serialiseAndSignZelFluxBroadcast(message);
+    ws.send(pongResponse);
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+async function respondWithAppMessage(message, ws) {
+  // check if we have it database of permanent zelappMessages
+  // eslint-disable-next-line global-require
+  const zelappsService = require('./zelappsService');
+  const permanentMessage = await zelappsService.checkZelAppMessageExistence(message.data.hash);
+  if (permanentMessage) {
+    // message exists in permanent storage. Create a message and broadcast it to the fromIP peer
+    // const permanentZelAppMessage = {
+    //   type: messageType,
+    //   version: typeVersion,
+    //   zelAppSpecifications: zelAppSpecFormatted,
+    //   hash: messageHASH,
+    //   timestamp,
+    //   signature,
+    //   txid,
+    //   height,
+    //   valueSat,
+    // };
+    const temporaryZelAppMessage = { // specification of temp message
+      type: permanentMessage.type,
+      version: permanentMessage.version,
+      zelAppSpecifications: permanentMessage.zelAppSpecifications,
+      hash: permanentMessage.hash,
+      timestamp: permanentMessage.timestamp,
+      signature: permanentMessage.signature,
+    };
+    sendMessageToWS(temporaryZelAppMessage, ws);
+  } else {
+    const existingTemporaryMessage = await zelappsService.checkZelAppTemporaryMessageExistence(message.data.hash);
+    if (existingTemporaryMessage) {
+      // a temporary zelappmessage looks like this:
+      // const newMessage = {
+      //   zelAppSpecifications: message.zelAppSpecifications,
+      //   type: message.type,
+      //   version: message.version,
+      //   hash: message.hash,
+      //   timestamp: message.timestamp,
+      //   signature: message.signature,
+      //   createdAt: new Date(message.timestamp),
+      //   expireAt: new Date(validTill),
+      // };
+      const temporaryZelAppMessage = { // specification of temp message
+        type: existingTemporaryMessage.type,
+        version: existingTemporaryMessage.version,
+        zelAppSpecifications: existingTemporaryMessage.zelAppSpecifications,
+        hash: existingTemporaryMessage.hash,
+        timestamp: existingTemporaryMessage.timestamp,
+        signature: existingTemporaryMessage.signature,
+      };
+      sendMessageToWS(temporaryZelAppMessage, ws);
+    }
+    // else do nothing. We do not have this message. And this Flux would be requesting it from other peers soon too.
   }
 }
 
@@ -309,9 +397,10 @@ function handleIncomingConnection(ws, req, expressWS) {
       try {
         const msgObj = serviceHelper.ensureObject(msg);
         if (msgObj.data.type === 'zelappregister') {
-          handleZelAppRegisterMessage(msgObj);
-        }
-        if (msgObj.data.type === 'HeartBeat' && msgObj.data.message === 'ping') { // we know that data exists
+          handleZelAppRegisterMessage(msgObj, peer.ip);
+        } else if (msgObj.data.type === 'zelapprequest') {
+          respondWithAppMessage(msgObj, ws);
+        } else if (msgObj.data.type === 'HeartBeat' && msgObj.data.message === 'ping') { // we know that data exists
           const newMessage = msgObj.data;
           newMessage.message = 'pong';
           const pongResponse = await serialiseAndSignZelFluxBroadcast(newMessage);
@@ -328,7 +417,7 @@ function handleIncomingConnection(ws, req, expressWS) {
             }
           }
         } else {
-          ws.send(`ZelFlux ${userconfig.initial.ipaddress} says message received!`);
+          ws.send(`Flux ${userconfig.initial.ipaddress} says message received!`);
         }
       } catch (e) {
         log.error(e);
@@ -341,7 +430,7 @@ function handleIncomingConnection(ws, req, expressWS) {
       // }
     } else if (messageOK === true) {
       try {
-        ws.send(`ZelFlux ${userconfig.initial.ipaddress} says message received but your message is outdated!`);
+        ws.send(`Flux ${userconfig.initial.ipaddress} says message received but your message is outdated!`);
       } catch (e) {
         log.error(e);
       }
@@ -408,7 +497,7 @@ async function broadcastMessageToOutgoingFromUser(req, res) {
 
   if (authorized === true) {
     broadcastMessageToOutgoing(data);
-    const message = serviceHelper.createSuccessMessage('Message successfully broadcasted to ZelFlux network');
+    const message = serviceHelper.createSuccessMessage('Message successfully broadcasted to Flux network');
     response = message;
   } else {
     response = serviceHelper.errUnauthorizedMessage();
@@ -431,7 +520,7 @@ async function broadcastMessageToOutgoingFromUserPost(req, res) {
       const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
       if (authorized === true) {
         broadcastMessageToOutgoing(processedBody);
-        const message = serviceHelper.createSuccessMessage('Message successfully broadcasted to ZelFlux network');
+        const message = serviceHelper.createSuccessMessage('Message successfully broadcasted to Flux network');
         response = message;
       } else {
         response = serviceHelper.errUnauthorizedMessage();
@@ -452,7 +541,7 @@ async function broadcastMessageToIncomingFromUser(req, res) {
 
   if (authorized === true) {
     broadcastMessageToIncoming(data);
-    const message = serviceHelper.createSuccessMessage('Message successfully broadcasted to ZelFlux network');
+    const message = serviceHelper.createSuccessMessage('Message successfully broadcasted to Flux network');
     response = message;
   } else {
     response = serviceHelper.errUnauthorizedMessage();
@@ -475,7 +564,7 @@ async function broadcastMessageToIncomingFromUserPost(req, res) {
       const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
       if (authorized === true) {
         broadcastMessageToIncoming(processedBody);
-        const message = serviceHelper.createSuccessMessage('Message successfully broadcasted to ZelFlux network');
+        const message = serviceHelper.createSuccessMessage('Message successfully broadcasted to Flux network');
         response = message;
       } else {
         response = serviceHelper.errUnauthorizedMessage();
@@ -497,7 +586,7 @@ async function broadcastMessageFromUser(req, res) {
   if (authorized === true) {
     broadcastMessageToOutgoing(data);
     broadcastMessageToIncoming(data);
-    const message = serviceHelper.createSuccessMessage('Message successfully broadcasted to ZelFlux network');
+    const message = serviceHelper.createSuccessMessage('Message successfully broadcasted to Flux network');
     response = message;
   } else {
     response = serviceHelper.errUnauthorizedMessage();
@@ -521,7 +610,7 @@ async function broadcastMessageFromUserPost(req, res) {
       if (authorized === true) {
         broadcastMessageToOutgoing(processedBody);
         broadcastMessageToIncoming(processedBody);
-        const message = serviceHelper.createSuccessMessage('Message successfully broadcasted to ZelFlux network');
+        const message = serviceHelper.createSuccessMessage('Message successfully broadcasted to Flux network');
         response = message;
       } else {
         response = serviceHelper.errUnauthorizedMessage();
@@ -565,7 +654,7 @@ async function initiateAndHandleConnection(ip) {
       rtt: null,
     };
     outgoingPeers.push(peer);
-    broadcastMessageToOutgoing('Hello ZelFlux');
+    broadcastMessageToOutgoing('Hello Flux');
     console.log(`#connectionsOut: ${outgoingConnections.length}`);
   });
 
@@ -595,16 +684,17 @@ async function initiateAndHandleConnection(ip) {
     const currentTimeStamp = Date.now(); // ms
     const messageOK = await verifyOriginalFluxBroadcast(evt.data, undefined, currentTimeStamp);
     if (messageOK === true) {
+      const { url } = websocket;
+      let conIP = url.split('/')[2];
+      conIP = conIP.split(`:${config.server.apiport}`).join('');
       const msgObj = serviceHelper.ensureObject(evt.data);
       if (msgObj.data.type === 'zelappregister') {
-        // do not interact on zelappregister message received from an outgoing connection
-      }
-      if (msgObj.data.type === 'HeartBeat' && msgObj.data.message === 'pong') {
+        handleZelAppRegisterMessage(msgObj.data, conIP);
+      } else if (msgObj.data.type === 'zelapprequest') {
+        respondWithAppMessage(msgObj, websocket);
+      } else if (msgObj.data.type === 'HeartBeat' && msgObj.data.message === 'pong') {
         const newerTimeStamp = Date.now(); // ms, get a bit newer time that has passed verification of broadcast
         const rtt = newerTimeStamp - msgObj.data.timestamp;
-        const { url } = websocket;
-        let conIP = url.split('/')[2];
-        conIP = conIP.split(`:${config.server.apiport}`).join('');
         const foundPeer = outgoingPeers.find((peer) => peer.ip === conIP);
         if (foundPeer) {
           const peerIndex = outgoingPeers.indexOf(foundPeer);
@@ -649,30 +739,29 @@ async function initiateAndHandleConnection(ip) {
 
 async function fluxDisovery() {
   const minPeers = 10;
+  const maxPeers = 20;
   const zl = await deterministicZelNodeList();
   const numberOfZelNodes = zl.length;
   const requiredNumberOfConnections = numberOfZelNodes / 100; // 1%
-  const minCon = Math.max(minPeers, requiredNumberOfConnections);
-  if (outgoingConnections.length < minCon) {
+  const maxNumberOfConnections = numberOfZelNodes / 50; // 2%
+  const minCon = Math.max(minPeers, requiredNumberOfConnections); // awlays maintain at least 10 or 1% of nodes whatever is higher
+  const maxCon = Math.max(maxPeers, maxNumberOfConnections); // have a maximum of 20 or 2% of nodes whatever is higher
+  // coonect a peer as maximum connections not yet established
+  if (outgoingConnections.length < maxCon) {
     let ip = await getRandomConnection();
     const clientExists = outgoingConnections.find((client) => client._socket.remoteAddress === ip);
     if (clientExists) {
       ip = null;
     }
     if (ip) {
-      log.info(`Adding ZelFlux peer: ${ip}`);
+      log.info(`Adding Flux peer: ${ip}`);
       initiateAndHandleConnection(ip);
     }
-    // connect another peer
-    setTimeout(() => {
-      fluxDisovery();
-    }, 1000);
-  } else {
-    // do new connections every 60 seconds
-    setTimeout(() => {
-      fluxDisovery();
-    }, 60000);
   }
+  // fast connect another peer as we do not have even enough connections to satisfy min or wait 1 min.
+  setTimeout(() => {
+    fluxDisovery();
+  }, outgoingConnections.length < minCon ? 1000 : 60 * 1000);
 }
 
 function connectedPeers(req, res) {
@@ -1065,14 +1154,13 @@ async function adjustFirewall() {
 }
 
 function isCommunicationEstablished(req, res) {
-  let message = serviceHelper.createErrorMessage('Communication to other ZelFluxes is not sufficient');
-
+  let message;
   if (outgoingPeers.length < 5) {
     message = serviceHelper.createErrorMessage('Not enough outgoing connections');
   } else if (incomingPeers.length < 2) {
     message = serviceHelper.createErrorMessage('Not enough incomming connections');
   } else {
-    message = serviceHelper.createSuccessMessage('Communication to ZelFlux network is properly established');
+    message = serviceHelper.createSuccessMessage('Communication to Flux network is properly established');
   }
   res.json(message);
 }
@@ -1091,7 +1179,11 @@ async function broadcastTemporaryZelAppMessage(message) {
   if (typeof message !== 'object' && typeof message.type !== 'string' && typeof message.version !== 'number' && typeof message.zelAppSpecifications !== 'object' && typeof message.signature !== 'string' && typeof message.timestamp !== 'number' && typeof message.hash !== 'string') {
     return new Error('Invalid ZelApp message for storing');
   }
+  // to all outoing
   await broadcastMessageToOutgoing(message);
+  await serviceHelper.delay(2345);
+  // to all incoming. Delay broadcast in case message is processing
+  await broadcastMessageToIncoming(message);
   return 0;
 }
 
@@ -1106,8 +1198,8 @@ function startFluxFunctions() {
     checkDeterministicNodesCollisions();
   }, 60000);
   log.info('Flux checks operational');
-  explorerService.initiateBlockProcessor(true);
-  log.info('Flux Block Explorer Service started');
+  // explorerService.initiateBlockProcessor(true);
+  // log.info('Flux Block Explorer Service started');
 }
 
 module.exports = {

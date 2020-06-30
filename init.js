@@ -6,7 +6,7 @@ const path = './config/userconfig.js';
 const goodchars = /^[1-9a-km-zA-HJ-NP-Z]+$/;
 if (fs.existsSync(path)) {
   console.log('Configuration file found. You can change your configuration in ./config/userconfig.js');
-  console.log('Starting ZelFlux...');
+  console.log('Starting Flux...');
   return;
 }
 
@@ -62,7 +62,7 @@ function showQuestions() {
       userconfig.end();
     });
     console.log('Configuration successful. Values saved and they can be changed in ./config/userconfig.js');
-    console.log('Starting ZelFlux...');
+    console.log('Starting Flux...');
     return 0;
   });
 }

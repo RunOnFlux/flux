@@ -6,7 +6,7 @@ const qs = require('qs');
 const WebSocket = require('ws');
 
 describe('getFluxMessageSignature', () => {
-  it('correctly signs zelflux message', async () => {
+  it('correctly signs Flux message', async () => {
     const message = 'abc';
     const privKey = '5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh';
     const signature = await communication.getFluxMessageSignature(message, privKey);
@@ -15,7 +15,7 @@ describe('getFluxMessageSignature', () => {
     expect(signature2).to.be.an('error');
   });
 
-  it('correctly verifies zelflux broadcast', async () => {
+  it('correctly verifies Flux broadcast', async () => {
     const timeStamp = Date.now();
     const version = 1;
     const privKey = '5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh';
@@ -68,7 +68,7 @@ describe('getFluxMessageSignature', () => {
   }).timeout(5000);
 
   it('establishes websocket connection and sends correct data', async () => {
-    const data = 'Hello ZelFlux testsuite!';
+    const data = 'Hello Flux testsuite!';
     const privKey = '5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh';
     const messageToSend = await communication.serialiseAndSignZelFluxBroadcast(data, privKey);
     console.log(messageToSend);
@@ -81,7 +81,7 @@ describe('getFluxMessageSignature', () => {
     websocket.on('message', (msg) => {
       console.log(msg);
       const msgZelFlux = msg.split(' ')[0];
-      expect(msgZelFlux).to.equal('ZelFlux');
+      expect(msgZelFlux).to.equal('Flux');
       websocket.close(1000);
     });
   });
