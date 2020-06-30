@@ -1198,8 +1198,8 @@ function startFluxFunctions() {
     checkDeterministicNodesCollisions();
   }, 60000);
   log.info('Flux checks operational');
-  explorerService.initiateBlockProcessor(true);
-  log.info('Flux Block Explorer Service started');
+  // explorerService.initiateBlockProcessor(true);
+  // log.info('Flux Block Explorer Service started');
 }
 
 module.exports = {
