@@ -5,8 +5,6 @@ const serviceHelper = require('./serviceHelper');
 const zelcashService = require('./zelcashService');
 const zelappsService = require('./zelappsService');
 
-const mongoUrl = `mongodb://${config.database.url}:${config.database.port}/`;
-
 const utxoIndexCollection = config.database.zelcash.collections.utxoIndex;
 const zelappsHashesCollection = config.database.zelcash.collections.zelappsHashes;
 const addressTransactionIndexCollection = config.database.zelcash.collections.addressTransactionIndex;
@@ -63,7 +61,6 @@ async function getSenderWithoutDelete(txid, vout) {
 
   // find the utxo from global utxo list
   const txContent = await serviceHelper.findOneInDatabase(database, utxoIndexCollection, query, projection).catch((error) => {
-    db.close();
     log.error(error);
     throw error;
   });
@@ -89,7 +86,6 @@ async function getSenderWithoutDelete(txid, vout) {
   return sender;
 }
 
-
 async function getSender(txid, vout) {
   const database = db.db(config.database.zelcash.database);
   const query = { $and: [{ txid }, { voutIndex: vout }] };
@@ -109,7 +105,6 @@ async function getSender(txid, vout) {
 
   // find and delete the utxo from global utxo list
   const txContent = await serviceHelper.findOneAndDeleteInDatabase(database, utxoIndexCollection, query, projection).catch((error) => {
-    db.close();
     log.error(error);
     throw error;
   });
@@ -172,7 +167,6 @@ async function getTransaction(hash) {
           };
           // put the utxo to our mongoDB utxoIndex collection.
           await serviceHelper.insertOneToDatabase(database, utxoIndexCollection, utxoDetail).catch((error) => {
-            db.close();
             log.error(error);
             throw error;
           });
@@ -259,16 +253,12 @@ function decodeMessage(asm) {
 async function processBlock(blockHeight) {
   try {
     // get Block information
-    const blockData = await getBlock(blockHeight).catch((error) => {
-      throw error;
-    });
+    const blockData = await getBlock(blockHeight);
     if (blockData.height % 50 === 0) {
       console.log(blockData.height);
     }
     // get Block transactions information
-    const transactions = await getBlockTransactions(blockData.tx).catch((error) => {
-      throw error;
-    });
+    const transactions = await getBlockTransactions(blockData.tx);
     // now we have verbose transactions of the block extended for senders - object of
     // utxoDetail = { txid, voutIndex, height, address, satoshis, scriptPubKey )
     // and can create addressTransactionIndex.
@@ -303,20 +293,14 @@ async function processBlock(blockHeight) {
           const query = { address };
           const update = { $set: { address }, $push: { transactions: transactionRecord } };
           const options = { upsert: true };
-          await serviceHelper.findOneAndUpdateInDatabase(database, addressTransactionIndexCollection, query, update, options).catch((error) => {
-            db.close();
-            throw error;
-          });
+          await serviceHelper.findOneAndUpdateInDatabase(database, addressTransactionIndexCollection, query, update, options);
         }));
         // MAY contain ZelApp transaction. Store it.
         if (isZelAppMessageValue > 0 && message.length === 64) {
           const zelappTxRecord = {
             txid: tx.txid, height: tx.height, zelapphash: message, value: isZelAppMessageValue,
           };
-          await serviceHelper.insertOneToDatabase(database, zelappsHashesCollection, zelappTxRecord).catch((error) => {
-            db.close();
-            throw error;
-          });
+          await serviceHelper.insertOneToDatabase(database, zelappsHashesCollection, zelappTxRecord);
           zelappsService.checkAndRequestZelApp(message, tx.txid, tx.height, isZelAppMessageValue);
         }
       }
@@ -339,10 +323,7 @@ async function processBlock(blockHeight) {
           lockedAmount: senderInfo.satoshis,
           height: tx.height,
         };
-        await serviceHelper.insertOneToDatabase(database, zelnodeTransactionCollection, zelnodeTxData).catch((error) => {
-          db.close();
-          throw error;
-        });
+        await serviceHelper.insertOneToDatabase(database, zelnodeTransactionCollection, zelnodeTxData);
       }
     }));
     // addressTransactionIndex shall contains object of address: address, transactions: [txids]
@@ -351,18 +332,9 @@ async function processBlock(blockHeight) {
     // }
     if (blockHeight % 100 === 0) {
       const database = db.db(config.database.zelcash.database);
-      const result = await serviceHelper.collectionStats(database, utxoIndexCollection).catch((error) => {
-        db.close();
-        throw error;
-      });
-      const resultB = await serviceHelper.collectionStats(database, addressTransactionIndexCollection).catch((error) => {
-        db.close();
-        throw error;
-      });
-      const resultC = await serviceHelper.collectionStats(database, zelnodeTransactionCollection).catch((error) => {
-        db.close();
-        throw error;
-      });
+      const result = await serviceHelper.collectionStats(database, utxoIndexCollection);
+      const resultB = await serviceHelper.collectionStats(database, addressTransactionIndexCollection);
+      const resultC = await serviceHelper.collectionStats(database, zelnodeTransactionCollection);
       log.info('UTXO', result.size, result.count, result.avgObjSize);
       log.info('ADDR', resultB.size, resultB.count, resultB.avgObjSize);
       log.info('ZELNODE', resultC.size, resultC.count, resultC.avgObjSize);
@@ -373,15 +345,11 @@ async function processBlock(blockHeight) {
     const query = { generalScannedHeight: { $gte: 0 } };
     const update = { $set: { generalScannedHeight: scannedHeight } };
     const options = { upsert: true };
-    await serviceHelper.findOneAndUpdateInDatabase(database, scannedHeightCollection, query, update, options).catch((error) => {
-      db.close();
-      throw error;
-    });
+    await serviceHelper.findOneAndUpdateInDatabase(database, scannedHeightCollection, query, update, options);
     if (blockProccessingCanContinue) {
       if (blockData.confirmations > 1) {
         processBlock(blockData.height + 1);
       } else {
-        db.close();
         setTimeout(() => {
           if (blockProccessingCanContinue) { // just a precaution because maybe it is just waiting
             // eslint-disable-next-line no-use-before-define
@@ -392,7 +360,6 @@ async function processBlock(blockHeight) {
         }, 5000);
       }
     } else {
-      db.close();
       blockProccessingCanContinue = true;
     }
   } catch (error) {
@@ -410,9 +377,7 @@ async function restoreDatabaseToBlockheightState(height) {
   if (!height) {
     throw new Error('No blockheight for restoring provided');
   }
-  const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
-    throw error;
-  });
+  const dbopen = serviceHelper.databaseConnection;
   const database = dbopen.db(config.database.zelcash.database);
 
   const query = { height: { $gt: height } };
@@ -451,9 +416,7 @@ async function restoreDatabaseToBlockheightState(height) {
 
 async function initiateBlockProcessor(restoreDatabase) {
   try {
-    db = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
-      throw error;
-    });
+    db = serviceHelper.databaseConnection;
     const database = db.db(config.database.zelcash.database);
     const query = {};
     const projection = {
@@ -482,25 +445,21 @@ async function initiateBlockProcessor(restoreDatabase) {
       console.log('dropping collections');
       const result = await serviceHelper.dropCollection(database, utxoIndexCollection).catch((error) => {
         if (error.message !== 'ns not found') {
-          db.close();
           throw error;
         }
       });
       const resultB = await serviceHelper.dropCollection(database, addressTransactionIndexCollection).catch((error) => {
         if (error.message !== 'ns not found') {
-          db.close();
           throw error;
         }
       });
       const resultC = await serviceHelper.dropCollection(database, zelnodeTransactionCollection).catch((error) => {
         if (error.message !== 'ns not found') {
-          db.close();
           throw error;
         }
       });
       const resultD = await serviceHelper.dropCollection(database, zelappsHashesCollection).catch((error) => {
         if (error.message !== 'ns not found') {
-          db.close();
           throw error;
         }
       });
@@ -535,10 +494,7 @@ async function initiateBlockProcessor(restoreDatabase) {
             const queryHeight = { generalScannedHeight: { $gte: 0 } };
             const update = { $set: { generalScannedHeight: scannedBlockHeight } };
             const options = { upsert: true };
-            await serviceHelper.findOneAndUpdateInDatabase(database, scannedHeightCollection, queryHeight, update, options).catch((error) => {
-              db.close();
-              throw error;
-            });
+            await serviceHelper.findOneAndUpdateInDatabase(database, scannedHeightCollection, queryHeight, update, options);
             log.info('Database restored OK');
           } else {
             // we are more than 100 blocks from zelcash. No need for deep restoring
@@ -552,7 +508,6 @@ async function initiateBlockProcessor(restoreDatabase) {
       }
       processBlock(scannedBlockHeight + 1);
     } else {
-      db.close();
       setTimeout(() => {
         initiateBlockProcessor(false);
       }, 5000);
@@ -566,12 +521,7 @@ async function initiateBlockProcessor(restoreDatabase) {
 }
 
 async function getAllUtxos(req, res) {
-  const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
-    res.json(errMessage);
-    log.error(error);
-    throw error;
-  });
+  const dbopen = serviceHelper.databaseConnection;
   const database = dbopen.db(config.database.zelcash.database);
   const query = {};
   const projection = {
@@ -587,24 +537,17 @@ async function getAllUtxos(req, res) {
     },
   };
   const results = await serviceHelper.findInDatabase(database, utxoIndexCollection, query, projection).catch((error) => {
-    dbopen.close();
     const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
     log.error(error);
     throw error;
   });
-  dbopen.close();
   const resMessage = serviceHelper.createDataMessage(results);
   return res.json(resMessage);
 }
 
 async function getAllZelNodeTransactions(req, res) {
-  const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
-    res.json(errMessage);
-    log.error(error);
-    throw error;
-  });
+  const dbopen = serviceHelper.databaseConnection;
   const database = dbopen.db(config.database.zelcash.database);
   const query = {};
   const projection = {
@@ -624,24 +567,17 @@ async function getAllZelNodeTransactions(req, res) {
     },
   };
   const results = await serviceHelper.findInDatabase(database, zelnodeTransactionCollection, query, projection).catch((error) => {
-    dbopen.close();
     const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
     log.error(error);
     throw error;
   });
-  dbopen.close();
   const resMessage = serviceHelper.createDataMessage(results);
   return res.json(resMessage);
 }
 
 async function getAllAddressesWithTransactions(req, res) {
-  const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
-    res.json(errMessage);
-    log.error(error);
-    throw error;
-  });
+  const dbopen = serviceHelper.databaseConnection;
   const database = dbopen.db(config.database.zelcash.database);
   const query = {};
   const projection = {
@@ -652,24 +588,17 @@ async function getAllAddressesWithTransactions(req, res) {
     },
   };
   const results = await serviceHelper.findInDatabase(database, addressTransactionIndexCollection, query, projection).catch((error) => {
-    dbopen.close();
     const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
     log.error(error);
     throw error;
   });
-  dbopen.close();
   const resMessage = serviceHelper.createDataMessage(results);
   return res.json(resMessage);
 }
 
 async function getAllAddresses(req, res) {
-  const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
-    res.json(errMessage);
-    log.error(error);
-    throw error;
-  });
+  const dbopen = serviceHelper.databaseConnection;
   const database = dbopen.db(config.database.zelcash.database);
   const query = {};
   const projection = {
@@ -679,13 +608,11 @@ async function getAllAddresses(req, res) {
     },
   };
   const results = await serviceHelper.findInDatabase(database, addressTransactionIndexCollection, query, projection).catch((error) => {
-    dbopen.close();
     const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
     log.error(error);
     throw error;
   });
-  dbopen.close();
   const resMessage = serviceHelper.createDataMessage(results);
   return res.json(resMessage);
 }
@@ -697,12 +624,7 @@ async function getAddressUtxos(req, res) {
     const errMessage = serviceHelper.createErrorMessage('No address provided');
     return res.json(errMessage);
   }
-  const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
-    res.json(errMessage);
-    log.error(error);
-    throw error;
-  });
+  const dbopen = serviceHelper.databaseConnection;
   const database = dbopen.db(config.database.zelcash.database);
   const query = { address };
   const projection = {
@@ -718,13 +640,11 @@ async function getAddressUtxos(req, res) {
     },
   };
   const results = await serviceHelper.findInDatabase(database, utxoIndexCollection, query, projection).catch((error) => {
-    dbopen.close();
     const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
     log.error(error);
     throw error;
   });
-  dbopen.close();
   const resMessage = serviceHelper.createDataMessage(results);
   return res.json(resMessage);
 }
@@ -750,12 +670,7 @@ async function getFilteredZelNodeTxs(req, res) {
     const errMessage = serviceHelper.createErrorMessage('It is possible to only filter via IP address, Zel address and Collateral hash.');
     return res.json(errMessage);
   }
-  const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
-    res.json(errMessage);
-    log.error(error);
-    throw error;
-  });
+  const dbopen = serviceHelper.databaseConnection;
   const database = dbopen.db(config.database.zelcash.database);
   const projection = {
     projection: {
@@ -774,13 +689,11 @@ async function getFilteredZelNodeTxs(req, res) {
     },
   };
   const results = await serviceHelper.findInDatabase(database, zelnodeTransactionCollection, query, projection).catch((error) => {
-    dbopen.close();
     const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
     log.error(error);
     throw error;
   });
-  dbopen.close();
   const resMessage = serviceHelper.createDataMessage(results);
   return res.json(resMessage);
 }
@@ -792,12 +705,7 @@ async function getAddressTransactions(req, res) {
     const errMessage = serviceHelper.createErrorMessage('No address provided');
     return res.json(errMessage);
   }
-  const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
-    res.json(errMessage);
-    log.error(error);
-    throw error;
-  });
+  const dbopen = serviceHelper.databaseConnection;
   const database = dbopen.db(config.database.zelcash.database);
   const query = { address };
   const projection = {
@@ -808,24 +716,17 @@ async function getAddressTransactions(req, res) {
     },
   };
   const result = await serviceHelper.findOneInDatabase(database, addressTransactionIndexCollection, query, projection).catch((error) => {
-    dbopen.close();
     const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
     log.error(error);
     throw error;
   });
-  dbopen.close();
   const resMessage = serviceHelper.createDataMessage(result);
   return res.json(resMessage);
 }
 
 async function getScannedHeight(req, res) {
-  const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
-    res.json(errMessage);
-    log.error(error);
-    throw error;
-  });
+  const dbopen = serviceHelper.databaseConnection;
   const database = dbopen.db(config.database.zelcash.database);
   const query = { generalScannedHeight: { $gte: 0 } };
   const projection = {
@@ -835,13 +736,11 @@ async function getScannedHeight(req, res) {
     },
   };
   const result = await serviceHelper.findOneInDatabase(database, scannedHeightCollection, query, projection).catch((error) => {
-    dbopen.close();
     log.error(error);
     const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
     throw error;
   });
-  dbopen.close();
   if (!result) {
     const errMessage = serviceHelper.createErrorMessage('Scanning not initiated');
     res.json(errMessage);
@@ -900,7 +799,6 @@ async function restartBlockProcessing(req, res) {
   }
 }
 
-
 async function reindexExplorer(req, res) {
   const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
   if (authorized === true) {
@@ -911,21 +809,15 @@ async function reindexExplorer(req, res) {
       if (response.status === 'error') {
         res.json(response);
       } else {
-        const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
-          const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
-          log.error(errMessage);
-          return res.json(errMessage);
-        });
+        const dbopen = serviceHelper.databaseConnection;
         const database = dbopen.db(config.database.zelcash.database);
         const resultOfDropping = await serviceHelper.dropCollection(database, scannedHeightCollection).catch((error) => {
           if (error.message !== 'ns not found') {
-            dbopen.close();
             log.error(error);
             const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
             res.json(errMessage);
           }
         });
-        dbopen.close();
         if (resultOfDropping === true || resultOfDropping === undefined) {
           initiateBlockProcessor(true);
           const message = serviceHelper.createSuccessMessage('Explorer database reindex initiated');
@@ -960,11 +852,7 @@ async function rescanExplorer(req, res) {
         if (response.status === 'error') {
           res.json(response);
         } else {
-          const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
-            const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
-            log.error(errMessage);
-            return res.json(errMessage);
-          });
+          const dbopen = serviceHelper.databaseConnection;
           const scannedHeight = serviceHelper.ensureNumber(blockheight);
           // update scanned Height in scannedBlockHeightCollection
           const database = dbopen.db(config.database.zelcash.database);
@@ -972,12 +860,10 @@ async function rescanExplorer(req, res) {
           const update = { $set: { generalScannedHeight: scannedHeight } };
           const options = { upsert: true };
           await serviceHelper.findOneAndUpdateInDatabase(database, scannedHeightCollection, query, update, options).catch((error) => {
-            dbopen.close();
             log.error(error);
             const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
             return res.json(errMessage);
           });
-          dbopen.close();
           initiateBlockProcessor(true);
           const message = serviceHelper.createSuccessMessage(`Explorer rescan from blockheight ${blockheight} initiated`);
           res.json(message);
@@ -997,12 +883,7 @@ async function getAddressBalance(req, res) {
     const errMessage = serviceHelper.createErrorMessage('No address provided');
     return res.json(errMessage);
   }
-  const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
-    res.json(errMessage);
-    log.error(error);
-    throw error;
-  });
+  const dbopen = serviceHelper.databaseConnection;
   const database = dbopen.db(config.database.zelcash.database);
   const query = { address };
   const projection = {
@@ -1018,13 +899,11 @@ async function getAddressBalance(req, res) {
     },
   };
   const results = await serviceHelper.findInDatabase(database, utxoIndexCollection, query, projection).catch((error) => {
-    dbopen.close();
     const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
     log.error(error);
     throw error;
   });
-  dbopen.close();
   let balance = 0;
   results.forEach((utxo) => {
     balance += utxo.satoshis;

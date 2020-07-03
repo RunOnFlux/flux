@@ -22,7 +22,6 @@ const cmdAsync = util.promisify(nodecmd.get);
 
 const docker = new Docker();
 
-const mongoUrl = `mongodb://${config.database.url}:${config.database.port}/`;
 const scannedHeightCollection = config.database.zelcash.collections.scannedHeight;
 const localZelAppsInformation = config.database.zelappslocal.collections.zelappsInformation;
 const globalZelAppsMessages = config.database.zelappsglobal.collections.zelappsMessages;
@@ -1028,9 +1027,7 @@ async function createZelFluxNetwork(req, res) {
 
 async function zelFluxUsage(req, res) {
   try {
-    const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
-      throw error;
-    });
+    const dbopen = serviceHelper.databaseConnection;
     const database = dbopen.db(config.database.zelcash.database);
     const query = { generalScannedHeight: { $gte: 0 } };
     const projection = {
@@ -1039,10 +1036,7 @@ async function zelFluxUsage(req, res) {
         generalScannedHeight: 1,
       },
     };
-    const result = await serviceHelper.findOneInDatabase(database, scannedHeightCollection, query, projection).catch((error) => {
-      dbopen.close();
-      throw error;
-    });
+    const result = await serviceHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
     if (!result) {
       log.error('Scanning not initiated');
     }
@@ -1085,10 +1079,7 @@ async function zelFluxUsage(req, res) {
         cpu: 1,
       },
     };
-    const zelappsResult = await serviceHelper.findInDatabase(zelappsDatabase, localZelAppsInformation, zelappsQuery, zelappsProjection).catch((error) => {
-      dbopen.close();
-      throw error;
-    });
+    const zelappsResult = await serviceHelper.findInDatabase(zelappsDatabase, localZelAppsInformation, zelappsQuery, zelappsProjection);
     let zelAppsCpusLocked = 0;
     zelappsResult.forEach((zelapp) => {
       zelAppsCpusLocked += serviceHelper.ensureNumber(zelapp.cpu) || 0;
@@ -1106,7 +1097,6 @@ async function zelFluxUsage(req, res) {
     // do an average of fiveMinUsage and cpuUsage;
     const avgOfUsage = ((fiveMinUsage + cpuUsage) / 2).toFixed(8);
     const response = serviceHelper.createDataMessage(avgOfUsage);
-    dbopen.close();
     return res ? res.json(response) : response;
   } catch (error) {
     log.error(error);
@@ -1121,9 +1111,7 @@ async function zelFluxUsage(req, res) {
 
 async function zelappsResources(req, res) {
   try {
-    const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
-      throw error;
-    });
+    const dbopen = serviceHelper.databaseConnection;
     const zelappsDatabase = dbopen.db(config.database.zelappslocal.database);
     const zelappsQuery = { cpu: { $gte: 0 } };
     const zelappsProjection = {
@@ -1134,11 +1122,7 @@ async function zelappsResources(req, res) {
         hdd: 1,
       },
     };
-    const zelappsResult = await serviceHelper.findInDatabase(zelappsDatabase, localZelAppsInformation, zelappsQuery, zelappsProjection).catch((error) => {
-      dbopen.close();
-      throw error;
-    });
-    dbopen.close();
+    const zelappsResult = await serviceHelper.findInDatabase(zelappsDatabase, localZelAppsInformation, zelappsQuery, zelappsProjection);
     let zelAppsCpusLocked = 0;
     let zelAppsRamLocked = 0;
     let zelAppsHddLocked = 0;
@@ -1397,17 +1381,12 @@ async function removeZelAppLocally(zelapp, res) {
 
     // first find the zelAppSpecifications in our database.
     // connect to mongodb
-    const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
-      throw error;
-    });
+    const dbopen = serviceHelper.databaseConnection;
 
     const zelappsDatabase = dbopen.db(config.database.zelappslocal.database);
     const zelappsQuery = { name: zelapp };
     const zelappsProjection = {};
-    const zelAppSpecifications = await serviceHelper.findOneInDatabase(zelappsDatabase, localZelAppsInformation, zelappsQuery, zelappsProjection).catch((error) => {
-      dbopen.close();
-      throw error;
-    });
+    const zelAppSpecifications = await serviceHelper.findOneInDatabase(zelappsDatabase, localZelAppsInformation, zelappsQuery, zelappsProjection);
     if (!zelAppSpecifications) {
       throw new Error('ZelApp not found');
     }
@@ -1555,10 +1534,7 @@ async function removeZelAppLocally(zelapp, res) {
     if (res) {
       res.write(serviceHelper.ensureString(databaseStatus));
     }
-    await serviceHelper.findOneAndDeleteInDatabase(zelappsDatabase, localZelAppsInformation, zelappsQuery, zelappsProjection).catch((error) => {
-      dbopen.close();
-      throw error;
-    });
+    await serviceHelper.findOneAndDeleteInDatabase(zelappsDatabase, localZelAppsInformation, zelappsQuery, zelappsProjection);
     const databaseStatus2 = {
       status: 'Database cleaned',
     };
@@ -1566,7 +1542,6 @@ async function removeZelAppLocally(zelapp, res) {
     if (res) {
       res.write(serviceHelper.ensureString(databaseStatus2));
     }
-    dbopen.close();
 
     const zelappRemovalResponse = serviceHelper.createDataMessage(`ZelApp ${zelapp} was successfuly removed`);
     log.info(zelappRemovalResponse);
@@ -1641,9 +1616,7 @@ async function registerZelAppLocally(zelAppSpecifications, res) {
     if (res) {
       res.write(serviceHelper.ensureString(dbOpenTest));
     }
-    const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
-      throw error;
-    });
+    const dbopen = serviceHelper.databaseConnection;
 
     const zelappsDatabase = dbopen.db(config.database.zelappslocal.database);
     const zelappsQuery = { name: zelappName };
@@ -1677,20 +1650,11 @@ async function registerZelAppLocally(zelAppSpecifications, res) {
     if (res) {
       res.write(serviceHelper.ensureString(checkDb));
     }
-    const zelappResult = await serviceHelper.findOneInDatabase(zelappsDatabase, localZelAppsInformation, zelappsQuery, zelappsProjection).catch((error) => {
-      dbopen.close();
-      throw error;
-    });
-
+    const zelappResult = await serviceHelper.findOneInDatabase(zelappsDatabase, localZelAppsInformation, zelappsQuery, zelappsProjection);
     if (!zelappResult) {
       // register the zelapp
-      await serviceHelper.insertOneToDatabase(zelappsDatabase, localZelAppsInformation, zelAppSpecifications).catch((error) => {
-        dbopen.close();
-        throw error;
-      });
-      dbopen.close();
+      await serviceHelper.insertOneToDatabase(zelappsDatabase, localZelAppsInformation, zelAppSpecifications);
     } else {
-      dbopen.close();
       throw new Error('ZelApp already installed');
     }
 
@@ -1755,7 +1719,6 @@ async function registerZelAppLocally(zelAppSpecifications, res) {
         if (res) {
           res.write(serviceHelper.ensureString(volumeOK));
         }
-
 
         const createZelApp = {
           status: 'Creating local ZelApp',
@@ -1938,12 +1901,7 @@ function checkHWParameters(zelAppSpecs) {
 }
 
 async function getZelAppsTemporaryMessages(req, res) {
-  const db = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
-    res.json(errMessage);
-    log.error(error);
-    throw error;
-  });
+  const db = serviceHelper.databaseConnection;
 
   const database = db.db(config.database.zelappsglobal.database);
   const query = {};
@@ -1952,10 +1910,8 @@ async function getZelAppsTemporaryMessages(req, res) {
     const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
     log.error(error);
-    db.close();
     throw error;
   });
-  db.close();
   const resultsResponse = serviceHelper.createDataMessage(results);
   res.json(resultsResponse);
 }
@@ -2086,10 +2042,7 @@ async function storeZelAppTemporaryMessage(message, furtherVerification = false)
   const receivedAt = Date.now();
   const validTill = receivedAt + (60 * 60 * 1000); // 60 minutes
 
-  const db = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
-    log.error(error);
-    throw error;
-  });
+  const db = serviceHelper.databaseConnection;
   const database = db.db(config.database.zelappsglobal.database);
   database.collection(globalZelAppsTempMessages).createIndex({ createdAt: 1 }, { expireAfterSeconds: 3600 });
   const newMessage = {
@@ -2107,7 +2060,6 @@ async function storeZelAppTemporaryMessage(message, furtherVerification = false)
   const projection = {};
   const result = await serviceHelper.findOneInDatabase(database, globalZelAppsTempMessages, query, projection).catch((error) => {
     log.error(error);
-    db.close();
     throw error;
   });
   if (result) {
@@ -2116,10 +2068,8 @@ async function storeZelAppTemporaryMessage(message, furtherVerification = false)
   }
   await serviceHelper.insertOneToDatabase(database, globalZelAppsTempMessages, value).catch((error) => {
     log.error(error);
-    db.close();
     throw error;
   });
-  db.close();
   // it is stored and rebroadcasted
   return true;
 }
@@ -2274,9 +2224,7 @@ async function registerZelAppGlobalyApi(req, res) {
       await verifyZelAppSpecifications(zelAppSpecFormatted);
 
       // check if name is not yet registered
-      const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
-        throw error;
-      });
+      const dbopen = serviceHelper.databaseConnection;
 
       const zelappsDatabase = dbopen.db(config.database.zelappsglobal.database);
       const zelappsQuery = { name: zelAppSpecFormatted.name };
@@ -2286,13 +2234,9 @@ async function registerZelAppGlobalyApi(req, res) {
           name: 1,
         },
       };
-      const zelappResult = await serviceHelper.findOneInDatabase(zelappsDatabase, globalZelAppsInformation, zelappsQuery, zelappsProjection).catch((error) => {
-        dbopen.close();
-        throw error;
-      });
+      const zelappResult = await serviceHelper.findOneInDatabase(zelappsDatabase, globalZelAppsInformation, zelappsQuery, zelappsProjection);
 
       if (zelappResult) {
-        dbopen.close();
         throw new Error(`ZelApp ${zelAppSpecFormatted.name} already registered. ZelApp has to be registered under different name.`);
       }
 
@@ -2304,13 +2248,9 @@ async function registerZelAppGlobalyApi(req, res) {
           name: 1,
         },
       };
-      const portResult = await serviceHelper.findOneInDatabase(zelappsDatabase, globalZelAppsInformation, portQuery, portProjection).catch((error) => {
-        dbopen.close();
-        throw error;
-      });
+      const portResult = await serviceHelper.findOneInDatabase(zelappsDatabase, globalZelAppsInformation, portQuery, portProjection);
 
       if (portResult) {
-        dbopen.close();
         throw new Error(`ZelApp ${zelAppSpecFormatted.name} port already registered. ZelApp has to be registered with different port.`);
       }
 
@@ -2473,18 +2413,12 @@ async function availableZelApps(req, res) {
 
 async function installedZelApps(req, res) {
   try {
-    const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
-      throw error;
-    });
+    const dbopen = serviceHelper.databaseConnection;
 
     const zelappsDatabase = dbopen.db(config.database.zelappslocal.database);
     const zelappsQuery = {};
     const zelappsProjection = {};
-    const zelApps = await serviceHelper.findInDatabase(zelappsDatabase, localZelAppsInformation, zelappsQuery, zelappsProjection).catch((error) => {
-      dbopen.close();
-      throw error;
-    });
-    dbopen.close();
+    const zelApps = await serviceHelper.findInDatabase(zelappsDatabase, localZelAppsInformation, zelappsQuery, zelappsProjection);
     const dataResponse = serviceHelper.createDataMessage(zelApps);
     return res.json(dataResponse);
   } catch (error) {
@@ -2529,25 +2463,18 @@ async function storeZelAppPermanentMessage(message) {
     return new Error('Invalid ZelApp message for storing');
   }
 
-  const db = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
-    log.error(error);
-    throw error;
-  });
+  const db = serviceHelper.databaseConnection;
   const database = db.db(config.database.zelappsglobal.database);
   await serviceHelper.insertOneToDatabase(database, globalZelAppsMessages, message).catch((error) => {
     log.error(error);
-    db.close();
     throw error;
   });
-  db.close();
   return true;
 }
 
 async function checkZelAppMessageExistence(zelapphash) {
   try {
-    const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
-      throw error;
-    });
+    const dbopen = serviceHelper.databaseConnection;
     const zelappsDatabase = dbopen.db(config.database.zelappsglobal.database);
     const zelappsQuery = { hash: zelapphash };
     const zelappsProjection = {};
@@ -2563,11 +2490,7 @@ async function checkZelAppMessageExistence(zelapphash) {
     //   height,
     //   valueSat,
     // };
-    const zelappResult = await serviceHelper.findOneInDatabase(zelappsDatabase, globalZelAppsMessages, zelappsQuery, zelappsProjection).catch((error) => {
-      dbopen.close();
-      throw error;
-    });
-    dbopen.close();
+    const zelappResult = await serviceHelper.findOneInDatabase(zelappsDatabase, globalZelAppsMessages, zelappsQuery, zelappsProjection);
     if (zelappResult) {
       return zelappResult;
     }
@@ -2580,9 +2503,7 @@ async function checkZelAppMessageExistence(zelapphash) {
 
 async function checkZelAppTemporaryMessageExistence(zelapphash) {
   try {
-    const dbopen = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
-      throw error;
-    });
+    const dbopen = serviceHelper.databaseConnection;
     const zelappsDatabase = dbopen.db(config.database.zelappsglobal.database);
     const zelappsQuery = { hash: zelapphash };
     const zelappsProjection = {};
@@ -2597,11 +2518,7 @@ async function checkZelAppTemporaryMessageExistence(zelapphash) {
     //   createdAt: new Date(message.timestamp),
     //   expireAt: new Date(validTill),
     // };
-    const zelappResult = await serviceHelper.findOneInDatabase(zelappsDatabase, globalZelAppsTempMessages, zelappsQuery, zelappsProjection).catch((error) => {
-      dbopen.close();
-      throw error;
-    });
-    dbopen.close();
+    const zelappResult = await serviceHelper.findOneInDatabase(zelappsDatabase, globalZelAppsTempMessages, zelappsQuery, zelappsProjection);
     if (zelappResult) {
       return zelappResult;
     }

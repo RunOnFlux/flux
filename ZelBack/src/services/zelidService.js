@@ -8,7 +8,6 @@ const serviceHelper = require('./serviceHelper');
 const zelappsService = require('./zelappsService');
 const zelfluxCommunication = require('./zelfluxCommunication');
 
-const mongoUrl = `mongodb://${config.database.url}:${config.database.port}/`;
 const goodchars = /^[1-9a-km-zA-HJ-NP-Z]+$/;
 
 async function loginPhrase(req, res) {
@@ -49,12 +48,7 @@ async function loginPhrase(req, res) {
        expireAt: 2019-08-09T13:23:41.335Z
      }
   ] */
-  const db = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
-    res.json(errMessage);
-    log.error(error);
-    throw error;
-  });
+  const db = serviceHelper.databaseConnection;
   const database = db.db(config.database.local.database);
   const collection = config.database.local.collections.activeLoginPhrases;
   database.collection(collection).createIndex({ createdAt: 1 }, { expireAfterSeconds: 900 });
@@ -68,10 +62,8 @@ async function loginPhrase(req, res) {
     const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
     log.error(error);
-    db.close();
     throw error;
   });
-  db.close();
   // all is ok
   const phraseResponse = serviceHelper.createDataMessage(phrase);
   res.json(phraseResponse);
@@ -83,12 +75,7 @@ async function emergencyPhrase(req, res) {
   const validTill = timestamp + (15 * 60 * 1000); // 15 minutes
   const phrase = timestamp + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
 
-  const db = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
-    res.json(errMessage);
-    log.error(error);
-    throw error;
-  });
+  const db = serviceHelper.databaseConnection;
   const database = db.db(config.database.local.database);
   const collection = config.database.local.collections.activeLoginPhrases;
   database.collection(collection).createIndex({ createdAt: 1 }, { expireAfterSeconds: 900 });
@@ -102,10 +89,8 @@ async function emergencyPhrase(req, res) {
     const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
     log.error(error);
-    db.close();
     throw error;
   });
-  db.close();
   const phraseResponse = serviceHelper.createDataMessage(phrase);
   res.json(phraseResponse);
 }
@@ -165,7 +150,7 @@ async function verifyLogin(req, res) {
     }
     // Basic checks passed. First check if message is in our activeLoginPhrases collection
 
-    const db = await serviceHelper.connectMongoDb(mongoUrl);
+    const db = serviceHelper.databaseConnection;
     const database = db.db(config.database.local.database);
     const collection = config.database.local.collections.activeLoginPhrases;
     const query = { loginPhrase: message };
@@ -214,10 +199,8 @@ async function verifyLogin(req, res) {
             const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
             res.json(errMessage);
             log.error(error);
-            db.close();
             throw error;
           });
-          db.close();
           const resData = {
             message: 'Successfully logged in',
             zelid: address,
@@ -229,15 +212,12 @@ async function verifyLogin(req, res) {
           return res.json(resMessage);
         }
         const errMessage = serviceHelper.createErrorMessage('Invalid signature');
-        db.close();
         return res.json(errMessage);
       }
       const errMessage = serviceHelper.createErrorMessage('Signed message is no longer valid. Please request a new one.');
-      db.close();
       return res.json(errMessage);
     }
     const errMessage = serviceHelper.createErrorMessage('Signed message is no longer valid. Please request a new one.');
-    db.close();
     return res.json(errMessage);
   });
 }
@@ -291,12 +271,7 @@ async function provideSign(req, res) {
     const validTill = timestamp + (15 * 60 * 1000); // 15 minutes
     const identifier = address + message.substr(message.length - 13);
 
-    const db = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
-      const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
-      res.json(errMessage);
-      log.error(error);
-      throw error;
-    });
+    const db = serviceHelper.databaseConnection;
     const database = db.db(config.database.local.database);
     const collection = config.database.local.collections.activeSignatures;
     database.collection(collection).createIndex({ createdAt: 1 }, { expireAfterSeconds: 900 });
@@ -311,10 +286,8 @@ async function provideSign(req, res) {
       const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
       res.json(errMessage);
       log.error(error);
-      db.close();
       throw error;
     });
-    db.close();
     // all is ok
     const phraseResponse = serviceHelper.createDataMessage(newSignature);
     return res.json(phraseResponse);
@@ -329,12 +302,7 @@ async function activeLoginPhrases(req, res) {
     throw error;
   });
   if (authorized === true) {
-    const db = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
-      const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
-      res.json(errMessage);
-      log.error(error);
-      throw error;
-    });
+    const db = serviceHelper.databaseConnection;
 
     const database = db.db(config.database.local.database);
     const collection = config.database.local.collections.activeLoginPhrases;
@@ -348,10 +316,8 @@ async function activeLoginPhrases(req, res) {
       const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
       res.json(errMessage);
       log.error(error);
-      db.close();
       throw error;
     });
-    db.close();
     const resultsResponse = serviceHelper.createDataMessage(results);
     res.json(resultsResponse);
   } else {
@@ -368,12 +334,7 @@ async function loggedUsers(req, res) {
     throw error;
   });
   if (authorized === true) {
-    const db = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
-      const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
-      res.json(errMessage);
-      log.error(error);
-      throw error;
-    });
+    const db = serviceHelper.databaseConnection;
 
     const database = db.db(config.database.local.database);
     const collection = config.database.local.collections.loggedUsers;
@@ -383,10 +344,8 @@ async function loggedUsers(req, res) {
       const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
       res.json(errMessage);
       log.error(error);
-      db.close();
       throw error;
     });
-    db.close();
     const resultsResponse = serviceHelper.createDataMessage(results);
     res.json(resultsResponse);
   } else {
@@ -403,12 +362,7 @@ async function loggedSessions(req, res) {
     throw error;
   });
   if (authorized === true) {
-    const db = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
-      const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
-      res.json(errMessage);
-      log.error(error);
-      throw error;
-    });
+    const db = serviceHelper.databaseConnection;
 
     const auth = serviceHelper.ensureObject(req.headers.zelidauth);
     const queryZelID = auth.zelid;
@@ -420,10 +374,8 @@ async function loggedSessions(req, res) {
       const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
       res.json(errMessage);
       log.error(error);
-      db.close();
       throw error;
     });
-    db.close();
     const resultsResponse = serviceHelper.createDataMessage(results);
     res.json(resultsResponse);
   } else {
@@ -441,12 +393,7 @@ async function logoutCurrentSession(req, res) {
   });
   if (authorized === true) {
     const auth = serviceHelper.ensureObject(req.headers.zelidauth);
-    const db = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
-      const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
-      res.json(errMessage);
-      log.error(error);
-      throw error;
-    });
+    const db = serviceHelper.databaseConnection;
     const database = db.db(config.database.local.database);
     const collection = config.database.local.collections.loggedUsers;
     const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
@@ -455,10 +402,8 @@ async function logoutCurrentSession(req, res) {
       const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
       res.json(errMessage);
       log.error(error);
-      db.close();
       throw error;
     });
-    db.close();
     // console.log(results)
     const message = serviceHelper.createSuccessMessage('Successfully logged out');
     res.json(message);
@@ -485,12 +430,7 @@ async function logoutSpecificSession(req, res) {
       const processedBody = serviceHelper.ensureObject(body);
       console.log(processedBody);
       const obtainedLoginPhrase = processedBody.loginPhrase;
-      const db = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
-        const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
-        res.json(errMessage);
-        log.error(error);
-        throw error;
-      });
+      const db = serviceHelper.databaseConnection;
       const database = db.db(config.database.local.database);
       const collection = config.database.local.collections.loggedUsers;
       const query = { loginPhrase: obtainedLoginPhrase };
@@ -499,10 +439,8 @@ async function logoutSpecificSession(req, res) {
         const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
         res.json(errMessage);
         log.error(error);
-        db.close();
         throw error;
       });
-      db.close();
       if (result.value === null) {
         const message = serviceHelper.createWarningMessage('Specified user was already logged out');
         return res.json(message);
@@ -524,12 +462,7 @@ async function logoutAllSessions(req, res) {
   });
   if (authorized === true) {
     const auth = serviceHelper.ensureObject(req.headers.zelidauth);
-    const db = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
-      const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
-      res.json(errMessage);
-      log.error(error);
-      throw error;
-    });
+    const db = serviceHelper.databaseConnection;
     const database = db.db(config.database.local.database);
     const collection = config.database.local.collections.loggedUsers;
     const query = { zelid: auth.zelid };
@@ -537,10 +470,8 @@ async function logoutAllSessions(req, res) {
       const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
       res.json(errMessage);
       log.error(error);
-      db.close();
       throw error;
     });
-    db.close();
     // console.log(result)
     const message = serviceHelper.createSuccessMessage('Successfully logged out all sessions');
     return res.json(message);
@@ -557,7 +488,7 @@ async function logoutAllUsers(req, res) {
     throw error;
   });
   if (authorized === true) {
-    const db = await serviceHelper.connectMongoDb(mongoUrl);
+    const db = serviceHelper.databaseConnection;
     const database = db.db(config.database.local.database);
     const collection = config.database.local.collections.loggedUsers;
     const query = {};
@@ -565,10 +496,8 @@ async function logoutAllUsers(req, res) {
       const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
       res.json(errMessage);
       log.error(error);
-      db.close();
       throw error;
     });
-    db.close();
     const message = serviceHelper.createSuccessMessage('Successfully logged out all users');
     return res.json(message);
   }
@@ -592,13 +521,7 @@ async function wsRespondLoginPhrase(ws, req) {
     connclosed = true;
   };
 
-  const db = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
-    ws.send(qs.stringify(errMessage));
-    ws.close(1011);
-    log.error(error);
-    throw error;
-  });
+  const db = serviceHelper.databaseConnection;
 
   const database = db.db(config.database.local.database);
   const collection = config.database.local.collections.loggedUsers;
@@ -637,7 +560,6 @@ async function wsRespondLoginPhrase(ws, req) {
           log.error(e);
         }
       }
-      db.close();
     } else {
       // check if this loginPhrase is still active. If so rerun this searching process
       const activeLoginPhrasesCollection = config.database.local.collections.activeLoginPhrases;
@@ -656,7 +578,6 @@ async function wsRespondLoginPhrase(ws, req) {
         }, 500);
       } else {
         const errMessage = serviceHelper.createErrorMessage('Signed message is no longer valid. Please request a new one.');
-        db.close();
         if (!connclosed) {
           try {
             ws.send(qs.stringify(errMessage));
@@ -687,13 +608,7 @@ async function wsRespondSignature(ws, req) {
     connclosed = true;
   };
 
-  const db = await serviceHelper.connectMongoDb(mongoUrl).catch((error) => {
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
-    ws.send(qs.stringify(errMessage));
-    ws.close(1011);
-    log.error(error);
-    throw error;
-  });
+  const db = serviceHelper.databaseConnection;
 
   const database = db.db(config.database.local.database);
   const collection = config.database.local.collections.activeSignatures;
@@ -719,7 +634,6 @@ async function wsRespondSignature(ws, req) {
           log.error(e);
         }
       }
-      db.close();
     } else {
       setTimeout(() => {
         if (!connclosed) {

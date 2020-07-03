@@ -853,7 +853,6 @@ function getIncomingConnectionsInfo(req, res) {
   res.json(response);
 }
 
-
 async function closeConnection(ip) {
   let message;
   const wsObj = await outgoingConnections.find((client) => client._socket.remoteAddress === ip);
@@ -1187,19 +1186,29 @@ async function broadcastTemporaryZelAppMessage(message) {
   return 0;
 }
 
-function startFluxFunctions() {
-  adjustFirewall();
-  fluxDisovery();
-  log.info('Flux Discovery started');
-  keepConnectionsAlive();
-  keepIncomingConnectionsAlive();
-  checkDeterministicNodesCollisions();
-  setInterval(() => {
+async function startFluxFunctions() {
+  try {
+    log.info('Initiating MongoDB connection');
+    await serviceHelper.initiateDB(); // either true or throws error
+    log.info('DB connected');
+    adjustFirewall();
+    fluxDisovery();
+    log.info('Flux Discovery started');
+    keepConnectionsAlive();
+    keepIncomingConnectionsAlive();
     checkDeterministicNodesCollisions();
-  }, 60000);
-  log.info('Flux checks operational');
-  // explorerService.initiateBlockProcessor(true);
-  // log.info('Flux Block Explorer Service started');
+    setInterval(() => {
+      checkDeterministicNodesCollisions();
+    }, 60000);
+    log.info('Flux checks operational');
+    // explorerService.initiateBlockProcessor(true);
+    // log.info('Flux Block Explorer Service started');
+  } catch (e) {
+    log.error(e);
+    setTimeout(() => {
+      startFluxFunctions();
+    }, 15000);
+  }
 }
 
 module.exports = {
