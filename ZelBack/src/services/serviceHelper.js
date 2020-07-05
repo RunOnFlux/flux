@@ -13,7 +13,11 @@ const log = require('../lib/log');
 const { MongoClient } = mongodb;
 const mongoUrl = `mongodb://${config.database.url}:${config.database.port}/`;
 
-let databaseConnection = null;
+let openDBConnection = null;
+
+function databaseConnection() {
+  return openDBConnection;
+}
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -116,13 +120,11 @@ async function connectMongoDb(url) {
     poolSize: 42,
   };
   const db = await MongoClient.connect(connectUrl, mongoSettings).catch((error) => { throw error; });
-  console.log(db);
   return db;
 }
 
 async function initiateDB() {
-  databaseConnection = await connectMongoDb();
-  console.log(databaseConnection);
+  openDBConnection = await connectMongoDb();
   return true;
 }
 
