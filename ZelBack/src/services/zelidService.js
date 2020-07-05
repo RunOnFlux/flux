@@ -11,88 +11,85 @@ const zelfluxCommunication = require('./zelfluxCommunication');
 const goodchars = /^[1-9a-km-zA-HJ-NP-Z]+$/;
 
 async function loginPhrase(req, res) {
-  // check docker availablility
-  await zelappsService.dockerListContainers(false).catch((error) => {
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
-    res.json(errMessage);
-    log.error(error);
-    throw error;
-  });
-  // check DOS state (contains zelcash checks)
-  const dosState = await zelfluxCommunication.getDOSState();
-  if (dosState.status === 'error') {
-    const errorMessage = 'Unable to check DOS state';
-    const errMessage = serviceHelper.createErrorMessage(errorMessage);
-    res.json(errMessage);
-    return;
-  }
-  if (dosState.status === 'success') {
-    if (dosState.data.dosState > 10 || dosState.data.dosMessage !== null) {
-      let errMessage = serviceHelper.createErrorMessage(dosState.data.dosMessage, 'DOS', dosState.data.dosState);
-      if (dosState.data.dosMessage !== 'Flux IP detection failed' && dosState.data.dosMessage !== 'Flux collision detection') {
-        errMessage = serviceHelper.createErrorMessage(dosState.data.dosMessage, 'CONNERROR', dosState.data.dosState);
-      }
+  try {
+    // check docker availablility
+    await zelappsService.dockerListContainers(false);
+    // check DOS state (contains zelcash checks)
+    const dosState = await zelfluxCommunication.getDOSState();
+    if (dosState.status === 'error') {
+      const errorMessage = 'Unable to check DOS state';
+      const errMessage = serviceHelper.createErrorMessage(errorMessage);
       res.json(errMessage);
       return;
     }
-  }
+    if (dosState.status === 'success') {
+      if (dosState.data.dosState > 10 || dosState.data.dosMessage !== null) {
+        let errMessage = serviceHelper.createErrorMessage(dosState.data.dosMessage, 'DOS', dosState.data.dosState);
+        if (dosState.data.dosMessage !== 'Flux IP detection failed' && dosState.data.dosMessage !== 'Flux collision detection') {
+          errMessage = serviceHelper.createErrorMessage(dosState.data.dosMessage, 'CONNERROR', dosState.data.dosState);
+        }
+        res.json(errMessage);
+        return;
+      }
+    }
 
-  const timestamp = new Date().getTime();
-  const validTill = timestamp + (15 * 60 * 1000); // 15 minutes
-  const phrase = timestamp + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+    const timestamp = new Date().getTime();
+    const validTill = timestamp + (15 * 60 * 1000); // 15 minutes
+    const phrase = timestamp + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
 
-  /* const activeLoginPhrases = [
-     {
-       loginPhrase: 1565356121335e9obp7h17bykbbvub0ts488wnnmd12fe1pq88mq0v,
-       createdAt: 2019-08-09T13:08:41.335Z,
-       expireAt: 2019-08-09T13:23:41.335Z
-     }
-  ] */
-  const db = serviceHelper.databaseConnection;
-  const database = db.db(config.database.local.database);
-  const collection = config.database.local.collections.activeLoginPhrases;
-  database.collection(collection).createIndex({ createdAt: 1 }, { expireAfterSeconds: 900 });
-  const newLoginPhrase = {
-    loginPhrase: phrase,
-    createdAt: new Date(timestamp),
-    expireAt: new Date(validTill),
-  };
-  const value = newLoginPhrase;
-  await serviceHelper.insertOneToDatabase(database, collection, value).catch((error) => {
+    /* const activeLoginPhrases = [
+       {
+         loginPhrase: 1565356121335e9obp7h17bykbbvub0ts488wnnmd12fe1pq88mq0v,
+         createdAt: 2019-08-09T13:08:41.335Z,
+         expireAt: 2019-08-09T13:23:41.335Z
+       }
+    ] */
+    const db = serviceHelper.databaseConnection;
+    const database = db.db(config.database.local.database);
+    const collection = config.database.local.collections.activeLoginPhrases;
+    database.collection(collection).createIndex({ createdAt: 1 }, { expireAfterSeconds: 900 });
+    const newLoginPhrase = {
+      loginPhrase: phrase,
+      createdAt: new Date(timestamp),
+      expireAt: new Date(validTill),
+    };
+    const value = newLoginPhrase;
+    await serviceHelper.insertOneToDatabase(database, collection, value);
+    // all is ok
+    const phraseResponse = serviceHelper.createDataMessage(phrase);
+    res.json(phraseResponse);
+  } catch (error) {
+    log.error(error);
     const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
-    log.error(error);
-    throw error;
-  });
-  // all is ok
-  const phraseResponse = serviceHelper.createDataMessage(phrase);
-  res.json(phraseResponse);
+  }
 }
 
 // loginPhrase without status checks
 async function emergencyPhrase(req, res) {
-  const timestamp = new Date().getTime();
-  const validTill = timestamp + (15 * 60 * 1000); // 15 minutes
-  const phrase = timestamp + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+  try {
+    const timestamp = new Date().getTime();
+    const validTill = timestamp + (15 * 60 * 1000); // 15 minutes
+    const phrase = timestamp + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
 
-  const db = serviceHelper.databaseConnection;
-  const database = db.db(config.database.local.database);
-  const collection = config.database.local.collections.activeLoginPhrases;
-  database.collection(collection).createIndex({ createdAt: 1 }, { expireAfterSeconds: 900 });
-  const newLoginPhrase = {
-    loginPhrase: phrase,
-    createdAt: new Date(timestamp),
-    expireAt: new Date(validTill),
-  };
-  const value = newLoginPhrase;
-  await serviceHelper.insertOneToDatabase(database, collection, value).catch((error) => {
+    const db = serviceHelper.databaseConnection;
+    const database = db.db(config.database.local.database);
+    const collection = config.database.local.collections.activeLoginPhrases;
+    database.collection(collection).createIndex({ createdAt: 1 }, { expireAfterSeconds: 900 });
+    const newLoginPhrase = {
+      loginPhrase: phrase,
+      createdAt: new Date(timestamp),
+      expireAt: new Date(validTill),
+    };
+    const value = newLoginPhrase;
+    await serviceHelper.insertOneToDatabase(database, collection, value);
+    const phraseResponse = serviceHelper.createDataMessage(phrase);
+    res.json(phraseResponse);
+  } catch (error) {
+    log.error(error);
     const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
-    log.error(error);
-    throw error;
-  });
-  const phraseResponse = serviceHelper.createDataMessage(phrase);
-  res.json(phraseResponse);
+  }
 }
 
 async function verifyLogin(req, res) {
@@ -327,88 +324,75 @@ async function activeLoginPhrases(req, res) {
 }
 
 async function loggedUsers(req, res) {
-  const authorized = await serviceHelper.verifyAdminSession(req.headers).catch((error) => {
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
-    res.json(errMessage);
-    log.error(error);
-    throw error;
-  });
-  if (authorized === true) {
-    const db = serviceHelper.databaseConnection;
-
-    const database = db.db(config.database.local.database);
-    const collection = config.database.local.collections.loggedUsers;
-    const query = {};
-    const projection = { projection: { _id: 0, zelid: 1, loginPhrase: 1 } };
-    const results = await serviceHelper.findInDatabase(database, collection, query, projection).catch((error) => {
-      const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+  try {
+    const authorized = await serviceHelper.verifyAdminSession(req.headers);
+    if (authorized === true) {
+      const db = serviceHelper.databaseConnection;
+      const database = db.db(config.database.local.database);
+      const collection = config.database.local.collections.loggedUsers;
+      const query = {};
+      const projection = { projection: { _id: 0, zelid: 1, loginPhrase: 1 } };
+      const results = await serviceHelper.findInDatabase(database, collection, query, projection);
+      const resultsResponse = serviceHelper.createDataMessage(results);
+      res.json(resultsResponse);
+    } else {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
       res.json(errMessage);
-      log.error(error);
-      throw error;
-    });
-    const resultsResponse = serviceHelper.createDataMessage(results);
-    res.json(resultsResponse);
-  } else {
-    const errMessage = serviceHelper.errUnauthorizedMessage();
+    }
+  } catch (error) {
+    log.error(error);
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
   }
 }
 
 async function loggedSessions(req, res) {
-  const authorized = await serviceHelper.verifyUserSession(req.headers).catch((error) => {
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
-    res.json(errMessage);
-    log.error(error);
-    throw error;
-  });
-  if (authorized === true) {
-    const db = serviceHelper.databaseConnection;
+  try {
+    const authorized = await serviceHelper.verifyUserSession(req.headers);
+    if (authorized === true) {
+      const db = serviceHelper.databaseConnection;
 
-    const auth = serviceHelper.ensureObject(req.headers.zelidauth);
-    const queryZelID = auth.zelid;
-    const database = db.db(config.database.local.database);
-    const collection = config.database.local.collections.loggedUsers;
-    const query = { zelid: queryZelID };
-    const projection = { projection: { _id: 0, zelid: 1, loginPhrase: 1 } };
-    const results = await serviceHelper.findInDatabase(database, collection, query, projection).catch((error) => {
-      const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+      const auth = serviceHelper.ensureObject(req.headers.zelidauth);
+      const queryZelID = auth.zelid;
+      const database = db.db(config.database.local.database);
+      const collection = config.database.local.collections.loggedUsers;
+      const query = { zelid: queryZelID };
+      const projection = { projection: { _id: 0, zelid: 1, loginPhrase: 1 } };
+      const results = await serviceHelper.findInDatabase(database, collection, query, projection);
+      const resultsResponse = serviceHelper.createDataMessage(results);
+      res.json(resultsResponse);
+    } else {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
       res.json(errMessage);
-      log.error(error);
-      throw error;
-    });
-    const resultsResponse = serviceHelper.createDataMessage(results);
-    res.json(resultsResponse);
-  } else {
-    const errMessage = serviceHelper.errUnauthorizedMessage();
+    }
+  } catch (error) {
+    log.error(error);
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
   }
 }
 
 async function logoutCurrentSession(req, res) {
-  const authorized = await serviceHelper.verifyUserSession(req.headers).catch((error) => {
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
-    res.json(errMessage);
-    log.error(error);
-    throw error;
-  });
-  if (authorized === true) {
-    const auth = serviceHelper.ensureObject(req.headers.zelidauth);
-    const db = serviceHelper.databaseConnection;
-    const database = db.db(config.database.local.database);
-    const collection = config.database.local.collections.loggedUsers;
-    const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
-    const projection = {};
-    await serviceHelper.findOneAndDeleteInDatabase(database, collection, query, projection).catch((error) => {
-      const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+  try {
+    const authorized = await serviceHelper.verifyUserSession(req.headers);
+    if (authorized === true) {
+      const auth = serviceHelper.ensureObject(req.headers.zelidauth);
+      const db = serviceHelper.databaseConnection;
+      const database = db.db(config.database.local.database);
+      const collection = config.database.local.collections.loggedUsers;
+      const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
+      const projection = {};
+      await serviceHelper.findOneAndDeleteInDatabase(database, collection, query, projection);
+      // console.log(results)
+      const message = serviceHelper.createSuccessMessage('Successfully logged out');
+      res.json(message);
+    } else {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
       res.json(errMessage);
-      log.error(error);
-      throw error;
-    });
-    // console.log(results)
-    const message = serviceHelper.createSuccessMessage('Successfully logged out');
-    res.json(message);
-  } else {
-    const errMessage = serviceHelper.errUnauthorizedMessage();
+    }
+  } catch (error) {
+    log.error(error);
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
   }
 }
@@ -454,55 +438,49 @@ async function logoutSpecificSession(req, res) {
 }
 
 async function logoutAllSessions(req, res) {
-  const authorized = await serviceHelper.verifyUserSession(req.headers).catch((error) => {
+  try {
+    const authorized = await serviceHelper.verifyUserSession(req.headers);
+    if (authorized === true) {
+      const auth = serviceHelper.ensureObject(req.headers.zelidauth);
+      const db = serviceHelper.databaseConnection;
+      const database = db.db(config.database.local.database);
+      const collection = config.database.local.collections.loggedUsers;
+      const query = { zelid: auth.zelid };
+      await serviceHelper.removeDocumentsFromCollection(database, collection, query);
+      // console.log(result)
+      const message = serviceHelper.createSuccessMessage('Successfully logged out all sessions');
+      res.json(message);
+    } else {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
     const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
-    log.error(error);
-    throw error;
-  });
-  if (authorized === true) {
-    const auth = serviceHelper.ensureObject(req.headers.zelidauth);
-    const db = serviceHelper.databaseConnection;
-    const database = db.db(config.database.local.database);
-    const collection = config.database.local.collections.loggedUsers;
-    const query = { zelid: auth.zelid };
-    await serviceHelper.removeDocumentsFromCollection(database, collection, query).catch((error) => {
-      const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
-      res.json(errMessage);
-      log.error(error);
-      throw error;
-    });
-    // console.log(result)
-    const message = serviceHelper.createSuccessMessage('Successfully logged out all sessions');
-    return res.json(message);
   }
-  const errMessage = serviceHelper.errUnauthorizedMessage();
-  return res.json(errMessage);
 }
 
 async function logoutAllUsers(req, res) {
-  const authorized = await serviceHelper.verifyAdminSession(req.headers).catch((error) => {
+  try {
+    const authorized = await serviceHelper.verifyAdminSession(req.headers);
+    if (authorized === true) {
+      const db = serviceHelper.databaseConnection;
+      const database = db.db(config.database.local.database);
+      const collection = config.database.local.collections.loggedUsers;
+      const query = {};
+      await serviceHelper.removeDocumentsFromCollection(database, collection, query);
+      const message = serviceHelper.createSuccessMessage('Successfully logged out all users');
+      res.json(message);
+    } else {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
     const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
-    log.error(error);
-    throw error;
-  });
-  if (authorized === true) {
-    const db = serviceHelper.databaseConnection;
-    const database = db.db(config.database.local.database);
-    const collection = config.database.local.collections.loggedUsers;
-    const query = {};
-    await serviceHelper.removeDocumentsFromCollection(database, collection, query).catch((error) => {
-      const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
-      res.json(errMessage);
-      log.error(error);
-      throw error;
-    });
-    const message = serviceHelper.createSuccessMessage('Successfully logged out all users');
-    return res.json(message);
   }
-  const errMessage = serviceHelper.errUnauthorizedMessage();
-  return res.json(errMessage);
 }
 
 async function wsRespondLoginPhrase(ws, req) {

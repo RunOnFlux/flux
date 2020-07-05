@@ -113,16 +113,16 @@ async function connectMongoDb(url) {
   const mongoSettings = {
     useNewUrlParser: true,
     useUnifiedTopology: true,
-    reconnectInterval: 10000, // wait for 10 seconds before retry
-    reconnectTries: Number.MAX_VALUE, // retry forever
     poolSize: 42,
   };
   const db = await MongoClient.connect(connectUrl, mongoSettings).catch((error) => { throw error; });
+  console.log(db);
   return db;
 }
 
 async function initiateDB() {
   databaseConnection = await connectMongoDb();
+  console.log(databaseConnection);
   return true;
 }
 
