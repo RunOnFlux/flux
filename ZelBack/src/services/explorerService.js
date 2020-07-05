@@ -10,20 +10,19 @@ const zelappsHashesCollection = config.database.zelcash.collections.zelappsHashe
 const addressTransactionIndexCollection = config.database.zelcash.collections.addressTransactionIndex;
 const scannedHeightCollection = config.database.zelcash.collections.scannedHeight;
 const zelnodeTransactionCollection = config.database.zelcash.collections.zelnodeTransactions;
-let db = null;
 let blockProccessingCanContinue = true;
 
-function getCollateralHash(hexOfZelNodeTx) {
-  const hex = hexOfZelNodeTx.slice(10, 74);
-  const buf = Buffer.from(hex, 'hex').reverse();
-  return buf.toString('hex');
-}
+// function getCollateralHash(hexOfZelNodeTx) {
+//   const hex = hexOfZelNodeTx.slice(10, 74);
+//   const buf = Buffer.from(hex, 'hex').reverse();
+//   return buf.toString('hex');
+// }
 
-function getCollateralIndex(hexOfZelNodeTx) {
-  const hex = hexOfZelNodeTx.slice(74, 82);
-  const buf = Buffer.from(hex, 'hex').reverse();
-  return parseInt(buf.toString('hex'), 16);
-}
+// function getCollateralIndex(hexOfZelNodeTx) {
+//   const hex = hexOfZelNodeTx.slice(74, 82);
+//   const buf = Buffer.from(hex, 'hex').reverse();
+//   return parseInt(buf.toString('hex'), 16);
+// }
 
 async function getSenderTransactionFromZelCash(txid) {
   const verbose = 1;
@@ -42,14 +41,26 @@ async function getSenderTransactionFromZelCash(txid) {
   throw txContent.data;
 }
 
-async function getSenderWithoutDelete(txid, vout) {
+async function getSenderForZelNodeTx(txid, vout) {
+  const db = serviceHelper.databaseConnection;
   const database = db.db(config.database.zelcash.database);
-  const query = { $and: [{ txid }, { voutIndex: vout }] };
+  const query = {
+    $and: [
+      { txid: { $regex: `^${txid}` } },
+      { voutIndex: vout },
+      {
+        $or: [
+          { satoshis: 1000000000000 },
+          { satoshis: 2500000000000 },
+          { satoshis: 10000000000000 },
+        ],
+      }],
+  };
   // we do not need other data as we are just asking what the sender address is.
   const projection = {
     projection: {
       _id: 0,
-      // txid: 1,
+      txid: 1,
       // voutIndex: 1,
       // height: 1,
       address: 1,
@@ -60,24 +71,47 @@ async function getSenderWithoutDelete(txid, vout) {
   };
 
   // find the utxo from global utxo list
-  const txContent = await serviceHelper.findOneInDatabase(database, utxoIndexCollection, query, projection).catch((error) => {
+  let txContent = await serviceHelper.findOneInDatabase(database, utxoIndexCollection, query, projection).catch((error) => {
     log.error(error);
     throw error;
   });
   if (!txContent) {
-    // we are spending it anyway so it wont affect users balance
-    log.info(`Transaction ${txid} ${vout} not found in database. Falling back to blockchain data`);
-    const zelcashSender = await getSenderTransactionFromZelCash(txid).catch((error) => {
+    log.info(`Transaction ${txid} ${vout} not found in database. Falling back to previous ZelNode transaction`);
+    const queryZelNode = {
+      $and: [
+        { collateralHash: { $regex: `^${txid}` } },
+        { collateralIndex: vout },
+        {
+          $or: [
+            { lockedAmount: 1000000000000 },
+            { lockedAmount: 2500000000000 },
+            { lockedAmount: 10000000000000 },
+          ],
+        }],
+    };
+    // we do not need other data as we are just asking what the sender address is.
+    const projectionZelNode = {
+      projection: {
+        _id: 0,
+        collateralHash: 1,
+        zelAddress: 1,
+        lockedAmount: 1,
+      },
+    };
+    // find previous zelnode transaction that
+    txContent = await serviceHelper.findOneInDatabase(database, zelnodeTransactionCollection, queryZelNode, projectionZelNode).catch((error) => {
       log.error(error);
       throw error;
     });
-    const senderData = zelcashSender.vout[vout];
+  }
+  if (!txContent) {
+    log.warn(`Transaction ${txid} ${vout} was not found anywhere. Uncomplete tx!`);
     const zelcashTxContent = {
-      // txid,
+      txid: undefined,
       // voutIndex: vout,
       // height: zelcashSender.height,
-      address: senderData.scriptPubKey.addresses[0], // always exists as it is utxo.
-      satoshis: senderData.valueSat,
+      address: undefined,
+      satoshis: undefined,
       // scriptPubKey: senderData.scriptPubKey.hex,
     };
     return zelcashTxContent;
@@ -87,6 +121,7 @@ async function getSenderWithoutDelete(txid, vout) {
 }
 
 async function getSender(txid, vout) {
+  const db = serviceHelper.databaseConnection;
   const database = db.db(config.database.zelcash.database);
   const query = { $and: [{ txid }, { voutIndex: vout }] };
   // we do not need other data as we are just asking what the sender address is.
@@ -130,98 +165,83 @@ async function getSender(txid, vout) {
   return sender;
 }
 
-async function getTransaction(hash) {
+async function processTransaction(txContent) {
+  const db = serviceHelper.databaseConnection;
   const database = db.db(config.database.zelcash.database);
   let transactionDetail = {};
-  const verbose = 1;
-  const req = {
-    params: {
-      txid: hash,
-      verbose,
-    },
-  };
-  const txContent = await zelcashService.getRawTransaction(req);
-  if (txContent.status === 'success') {
-    transactionDetail = txContent.data;
-    if (txContent.data.version < 5 && txContent.data.version > 0) {
-      // if transaction has no vouts, it cannot be an utxo. Do not store it.
-      await Promise.all(transactionDetail.vout.map(async (vout, index) => {
-        // we need only utxo related information
-        // TODO if tx.vin is type of coinbase!
-        let coinbase = false;
-        if (transactionDetail.vin[0]) {
-          if (transactionDetail.vin[0].coinbase) {
-            coinbase = true;
-          }
+  transactionDetail = txContent;
+  if (txContent.version < 5 && txContent.version > 0) {
+    // if transaction has no vouts, it cannot be an utxo. Do not store it.
+    await Promise.all(transactionDetail.vout.map(async (vout, index) => {
+      // we need only utxo related information
+      // TODO if tx.vin is type of coinbase!
+      let coinbase = false;
+      if (transactionDetail.vin[0]) {
+        if (transactionDetail.vin[0].coinbase) {
+          coinbase = true;
         }
-        // account for messages
-        if (vout.scriptPubKey.addresses) {
-          const utxoDetail = {
-            txid: txContent.data.txid,
-            voutIndex: index,
-            height: txContent.data.height,
-            address: vout.scriptPubKey.addresses[0],
-            satoshis: vout.valueSat,
-            scriptPubKey: vout.scriptPubKey.hex,
-            coinbase,
-          };
-          // put the utxo to our mongoDB utxoIndex collection.
-          await serviceHelper.insertOneToDatabase(database, utxoIndexCollection, utxoDetail).catch((error) => {
-            log.error(error);
-            throw error;
-          });
-        }
-      }));
-
-      // fetch senders from our mongoDatabase
-      const sendersToFetch = [];
-
-      txContent.data.vin.forEach((vin) => {
-        if (!vin.coinbase) {
-          // we need an address who sent those coins and amount of it.
-          sendersToFetch.push(vin);
-        }
-      });
-
-      const senders = []; // Can put just value and address
-      // parallel reading causes zelcash to fail with error 500
-      // await Promise.all(sendersToFetch.map(async (sender) => {
-      //   const senderInformation = await getSender(sender.txid, sender.vout);
-      //   senders.push(senderInformation);
-      // }));
-      // use sequential
-      // eslint-disable-next-line no-restricted-syntax
-      for (const sender of sendersToFetch) {
-        // eslint-disable-next-line no-await-in-loop
-        const senderInformation = await getSender(sender.txid, sender.vout);
-        senders.push(senderInformation);
       }
-      transactionDetail.senders = senders;
+      // account for messages
+      if (vout.scriptPubKey.addresses) {
+        const utxoDetail = {
+          txid: txContent.txid,
+          voutIndex: index,
+          height: txContent.height,
+          address: vout.scriptPubKey.addresses[0],
+          satoshis: vout.valueSat,
+          scriptPubKey: vout.scriptPubKey.hex,
+          coinbase,
+        };
+        // put the utxo to our mongoDB utxoIndex collection.
+        await serviceHelper.insertOneToDatabase(database, utxoIndexCollection, utxoDetail).catch((error) => {
+          log.error(error);
+          throw error;
+        });
+      }
+    }));
+
+    // fetch senders from our mongoDatabase
+    const sendersToFetch = [];
+
+    txContent.vin.forEach((vin) => {
+      if (!vin.coinbase) {
+        // we need an address who sent those coins and amount of it.
+        sendersToFetch.push(vin);
+      }
+    });
+
+    const senders = []; // Can put just value and address
+    // parallel reading causes zelcash to fail with error 500
+    // await Promise.all(sendersToFetch.map(async (sender) => {
+    //   const senderInformation = await getSender(sender.txid, sender.vout);
+    //   senders.push(senderInformation);
+    // }));
+    // use sequential
+    // eslint-disable-next-line no-restricted-syntax
+    for (const sender of sendersToFetch) {
+      // eslint-disable-next-line no-await-in-loop
+      const senderInformation = await getSender(sender.txid, sender.vout);
+      senders.push(senderInformation);
     }
-    // transactionDetail now contains senders. So then going through senders and vouts when generating indexes.
-    return transactionDetail;
+    transactionDetail.senders = senders;
   }
-  throw txContent.data;
+  // transactionDetail now contains senders. So then going through senders and vouts when generating indexes.
+  return transactionDetail;
 }
 
-async function getBlockTransactions(txidsArray) {
+async function processBlockTransactions(txs) {
   const transactions = [];
-  // parallel reading causes zelcash to fail with error 500
-  // await Promise.all(txidsArray.map(async (transaction) => {
-  //   const txContent = await getTransaction(transaction);
-  //   transactions.push(txContent);
-  // }));
   // eslint-disable-next-line no-restricted-syntax
-  for (const transaction of txidsArray) {
+  for (const transaction of txs) {
     // eslint-disable-next-line no-await-in-loop
-    const txContent = await getTransaction(transaction);
+    const txContent = await processTransaction(transaction);
     transactions.push(txContent);
   }
   return transactions;
 }
 
-async function getBlock(heightOrHash) {
-  const verbosity = 1;
+async function getVerboseBlock(heightOrHash) {
+  const verbosity = 2;
   const req = {
     params: {
       hashheight: heightOrHash,
@@ -252,19 +272,20 @@ function decodeMessage(asm) {
 
 async function processBlock(blockHeight) {
   try {
+    const db = serviceHelper.databaseConnection;
+    const database = db.db(config.database.zelcash.database);
     // get Block information
-    const blockData = await getBlock(blockHeight);
-    if (blockData.height % 50 === 0) {
-      console.log(blockData.height);
+    const blockDataVerbose = await getVerboseBlock(blockHeight);
+    if (blockDataVerbose.height % 50 === 0) {
+      console.log(blockDataVerbose.height);
     }
     // get Block transactions information
-    const transactions = await getBlockTransactions(blockData.tx);
+    const transactions = await processBlockTransactions(blockDataVerbose.tx);
     // now we have verbose transactions of the block extended for senders - object of
     // utxoDetail = { txid, voutIndex, height, address, satoshis, scriptPubKey )
     // and can create addressTransactionIndex.
     // amount in address can be calculated from utxos. We do not need to store it.
     await Promise.all(transactions.map(async (tx) => {
-      const database = db.db(config.database.zelcash.database);
       // normal transactions
       if (tx.version < 5 && tx.version > 0) {
         let message = '';
@@ -287,7 +308,7 @@ async function processBlock(blockHeight) {
           }
         });
         const addressesOK = [...new Set(addresses)];
-        const transactionRecord = { txid: tx.txid, height: tx.height };
+        const transactionRecord = { txid: tx.txid, height: blockDataVerbose.height };
         // update addresses from addressesOK array in our database. We need blockheight there too. transac
         await Promise.all(addressesOK.map(async (address) => {
           const query = { address };
@@ -298,18 +319,19 @@ async function processBlock(blockHeight) {
         // MAY contain ZelApp transaction. Store it.
         if (isZelAppMessageValue > 0 && message.length === 64) {
           const zelappTxRecord = {
-            txid: tx.txid, height: tx.height, zelapphash: message, value: isZelAppMessageValue,
+            txid: tx.txid, height: blockDataVerbose.height, zelapphash: message, value: isZelAppMessageValue,
           };
           await serviceHelper.insertOneToDatabase(database, zelappsHashesCollection, zelappTxRecord);
-          zelappsService.checkAndRequestZelApp(message, tx.txid, tx.height, isZelAppMessageValue);
+          zelappsService.checkAndRequestZelApp(message, tx.txid, blockDataVerbose.height, isZelAppMessageValue);
         }
       }
       // tx version 5 are zelnode transactions. Put them into zelnode
       if (tx.version === 5) {
-        // todo. We can get an address from getSender method too as that utxo was not spent yet.
-        const collateralHash = getCollateralHash(tx.hex);
-        const collateralIndex = getCollateralIndex(tx.hex);
-        const senderInfo = await getSenderWithoutDelete(collateralHash, collateralIndex);
+        // todo include to zelcash better information about hash and index and preferably address associated
+        const collateral = tx.collateral_output;
+        const partialCollateralHash = collateral.split('COutPoint(')[1].split(', ')[0];
+        const collateralIndex = collateral.split(', ')[1].split(')')[0];
+        const senderInfo = await getSenderForZelNodeTx(partialCollateralHash, collateralIndex);
         const zelnodeTxData = {
           txid: tx.txid,
           version: tx.version,
@@ -317,11 +339,11 @@ async function processBlock(blockHeight) {
           updateType: tx.update_type,
           ip: tx.ip,
           benchTier: tx.benchmark_tier,
-          collateralHash,
+          collateralHash: senderInfo.txid || senderInfo.collateralHash || partialCollateralHash,
           collateralIndex,
-          zelAddress: senderInfo.address,
-          lockedAmount: senderInfo.satoshis,
-          height: tx.height,
+          zelAddress: senderInfo.address || senderInfo.zelAddress,
+          lockedAmount: senderInfo.satoshis || senderInfo.lockedAmount,
+          height: blockDataVerbose.height,
         };
         await serviceHelper.insertOneToDatabase(database, zelnodeTransactionCollection, zelnodeTxData);
       }
@@ -331,7 +353,6 @@ async function processBlock(blockHeight) {
     //   console.log(transactions);
     // }
     if (blockHeight % 100 === 0) {
-      const database = db.db(config.database.zelcash.database);
       const result = await serviceHelper.collectionStats(database, utxoIndexCollection);
       const resultB = await serviceHelper.collectionStats(database, addressTransactionIndexCollection);
       const resultC = await serviceHelper.collectionStats(database, zelnodeTransactionCollection);
@@ -339,16 +360,15 @@ async function processBlock(blockHeight) {
       log.info('ADDR', resultB.size, resultB.count, resultB.avgObjSize);
       log.info('ZELNODE', resultC.size, resultC.count, resultC.avgObjSize);
     }
-    const scannedHeight = blockData.height;
+    const scannedHeight = blockDataVerbose.height;
     // update scanned Height in scannedBlockHeightCollection
-    const database = db.db(config.database.zelcash.database);
     const query = { generalScannedHeight: { $gte: 0 } };
     const update = { $set: { generalScannedHeight: scannedHeight } };
     const options = { upsert: true };
     await serviceHelper.findOneAndUpdateInDatabase(database, scannedHeightCollection, query, update, options);
     if (blockProccessingCanContinue) {
-      if (blockData.confirmations > 1) {
-        processBlock(blockData.height + 1);
+      if (blockDataVerbose.confirmations > 1) {
+        processBlock(blockDataVerbose.height + 1);
       } else {
         setTimeout(() => {
           if (blockProccessingCanContinue) { // just a precaution because maybe it is just waiting
@@ -416,7 +436,7 @@ async function restoreDatabaseToBlockheightState(height) {
 
 async function initiateBlockProcessor(restoreDatabase) {
   try {
-    db = serviceHelper.databaseConnection;
+    const db = serviceHelper.databaseConnection;
     const database = db.db(config.database.zelcash.database);
     const query = {};
     const projection = {
