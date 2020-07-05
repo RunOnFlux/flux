@@ -246,18 +246,18 @@ module.exports = (app, expressWs) => {
     zelappsService.getZelAppsTemporaryMessages(req, res);
   });
 
-  // app.get('/explorer/allutxos', (req, res) => {
-  //   explorerService.getAllUtxos(req, res);
-  // });
-  // app.get('/explorer/alladdresseswithtransactions', (req, res) => {
-  //   explorerService.getAllAddressesWithTransactions(req, res);
-  // });
-  // app.get('/explorer/alladdresses', (req, res) => {
-  //   explorerService.getAllAddresses(req, res);
-  // });
-  // app.get('/explorer/zelnodetransactions', (req, res) => {
-  //   explorerService.getAllZelNodeTransactions(req, res);
-  // });
+  app.get('/explorer/allutxos', (req, res) => {
+    explorerService.getAllUtxos(req, res);
+  });
+  app.get('/explorer/alladdresseswithtransactions', (req, res) => {
+    explorerService.getAllAddressesWithTransactions(req, res);
+  });
+  app.get('/explorer/alladdresses', (req, res) => {
+    explorerService.getAllAddresses(req, res);
+  });
+  app.get('/explorer/zelnodetransactions', (req, res) => {
+    explorerService.getAllZelNodeTransactions(req, res);
+  });
   // filter can be IP, address, collateralHash.
   app.get('/explorer/zelnodetxs/:filter?', (req, res) => {
     explorerService.getFilteredZelNodeTxs(req, res);

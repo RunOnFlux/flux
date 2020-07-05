@@ -9,7 +9,7 @@ const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const zelcashService = require('./zelcashService');
 const userconfig = require('../../../config/userconfig');
-// const explorerService = require('./explorerService');
+const explorerService = require('./explorerService');
 
 const outgoingConnections = []; // websocket list
 const outgoingPeers = []; // array of objects containing ip and rtt latency
@@ -1191,18 +1191,18 @@ async function startFluxFunctions() {
     log.info('Initiating MongoDB connection');
     await serviceHelper.initiateDB(); // either true or throws error
     log.info('DB connected');
-    adjustFirewall();
-    fluxDisovery();
-    log.info('Flux Discovery started');
-    keepConnectionsAlive();
-    keepIncomingConnectionsAlive();
-    checkDeterministicNodesCollisions();
-    setInterval(() => {
-      checkDeterministicNodesCollisions();
-    }, 60000);
+    // adjustFirewall();
+    // fluxDisovery();
+    // log.info('Flux Discovery started');
+    // keepConnectionsAlive();
+    // keepIncomingConnectionsAlive();
+    // checkDeterministicNodesCollisions();
+    // setInterval(() => {
+    //   checkDeterministicNodesCollisions();
+    // }, 60000);
     log.info('Flux checks operational');
-    // explorerService.initiateBlockProcessor(true);
-    // log.info('Flux Block Explorer Service started');
+    explorerService.initiateBlockProcessor(true);
+    log.info('Flux Block Explorer Service started');
   } catch (e) {
     log.error(e);
     setTimeout(() => {
