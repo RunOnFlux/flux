@@ -165,7 +165,7 @@ async function getSender(txid, vout) {
   return sender;
 }
 
-async function processTransaction(txContent) {
+async function processTransaction(txContent, height) {
   const db = serviceHelper.databaseConnection();
   const database = db.db(config.database.zelcash.database);
   let transactionDetail = {};
@@ -186,7 +186,7 @@ async function processTransaction(txContent) {
         const utxoDetail = {
           txid: txContent.txid,
           voutIndex: index,
-          height: txContent.height,
+          height,
           address: vout.scriptPubKey.addresses[0],
           satoshis: vout.valueSat,
           scriptPubKey: vout.scriptPubKey.hex,
@@ -229,12 +229,12 @@ async function processTransaction(txContent) {
   return transactionDetail;
 }
 
-async function processBlockTransactions(txs) {
+async function processBlockTransactions(txs, height) {
   const transactions = [];
   // eslint-disable-next-line no-restricted-syntax
   for (const transaction of txs) {
     // eslint-disable-next-line no-await-in-loop
-    const txContent = await processTransaction(transaction);
+    const txContent = await processTransaction(transaction, height);
     transactions.push(txContent);
   }
   return transactions;
@@ -280,7 +280,7 @@ async function processBlock(blockHeight) {
       console.log(blockDataVerbose.height);
     }
     // get Block transactions information
-    const transactions = await processBlockTransactions(blockDataVerbose.tx);
+    const transactions = await processBlockTransactions(blockDataVerbose.tx, blockDataVerbose.height);
     // now we have verbose transactions of the block extended for senders - object of
     // utxoDetail = { txid, voutIndex, height, address, satoshis, scriptPubKey )
     // and can create addressTransactionIndex.
@@ -348,6 +348,8 @@ async function processBlock(blockHeight) {
         await serviceHelper.insertOneToDatabase(database, zelnodeTransactionCollection, zelnodeTxData);
       }
     }));
+    console.log(blockDataVerbose.height);
+    console.log('done');
     // addressTransactionIndex shall contains object of address: address, transactions: [txids]
     // if (blockData.height % 999 === 0) {
     //   console.log(transactions);
