@@ -1027,7 +1027,7 @@ async function createZelFluxNetwork(req, res) {
 
 async function zelFluxUsage(req, res) {
   try {
-    const dbopen = serviceHelper.databaseConnection;
+    const dbopen = serviceHelper.databaseConnection();
     const database = dbopen.db(config.database.zelcash.database);
     const query = { generalScannedHeight: { $gte: 0 } };
     const projection = {
@@ -1111,7 +1111,7 @@ async function zelFluxUsage(req, res) {
 
 async function zelappsResources(req, res) {
   try {
-    const dbopen = serviceHelper.databaseConnection;
+    const dbopen = serviceHelper.databaseConnection();
     const zelappsDatabase = dbopen.db(config.database.zelappslocal.database);
     const zelappsQuery = { cpu: { $gte: 0 } };
     const zelappsProjection = {
@@ -1381,7 +1381,7 @@ async function removeZelAppLocally(zelapp, res) {
 
     // first find the zelAppSpecifications in our database.
     // connect to mongodb
-    const dbopen = serviceHelper.databaseConnection;
+    const dbopen = serviceHelper.databaseConnection();
 
     const zelappsDatabase = dbopen.db(config.database.zelappslocal.database);
     const zelappsQuery = { name: zelapp };
@@ -1616,7 +1616,7 @@ async function registerZelAppLocally(zelAppSpecifications, res) {
     if (res) {
       res.write(serviceHelper.ensureString(dbOpenTest));
     }
-    const dbopen = serviceHelper.databaseConnection;
+    const dbopen = serviceHelper.databaseConnection();
 
     const zelappsDatabase = dbopen.db(config.database.zelappslocal.database);
     const zelappsQuery = { name: zelappName };
@@ -1901,7 +1901,7 @@ function checkHWParameters(zelAppSpecs) {
 }
 
 async function getZelAppsTemporaryMessages(req, res) {
-  const db = serviceHelper.databaseConnection;
+  const db = serviceHelper.databaseConnection();
 
   const database = db.db(config.database.zelappsglobal.database);
   const query = {};
@@ -2042,7 +2042,7 @@ async function storeZelAppTemporaryMessage(message, furtherVerification = false)
   const receivedAt = Date.now();
   const validTill = receivedAt + (60 * 60 * 1000); // 60 minutes
 
-  const db = serviceHelper.databaseConnection;
+  const db = serviceHelper.databaseConnection();
   const database = db.db(config.database.zelappsglobal.database);
   database.collection(globalZelAppsTempMessages).createIndex({ createdAt: 1 }, { expireAfterSeconds: 3600 });
   const newMessage = {
@@ -2224,7 +2224,7 @@ async function registerZelAppGlobalyApi(req, res) {
       await verifyZelAppSpecifications(zelAppSpecFormatted);
 
       // check if name is not yet registered
-      const dbopen = serviceHelper.databaseConnection;
+      const dbopen = serviceHelper.databaseConnection();
 
       const zelappsDatabase = dbopen.db(config.database.zelappsglobal.database);
       const zelappsQuery = { name: zelAppSpecFormatted.name };
@@ -2413,7 +2413,7 @@ async function availableZelApps(req, res) {
 
 async function installedZelApps(req, res) {
   try {
-    const dbopen = serviceHelper.databaseConnection;
+    const dbopen = serviceHelper.databaseConnection();
 
     const zelappsDatabase = dbopen.db(config.database.zelappslocal.database);
     const zelappsQuery = {};
@@ -2463,7 +2463,7 @@ async function storeZelAppPermanentMessage(message) {
     return new Error('Invalid ZelApp message for storing');
   }
 
-  const db = serviceHelper.databaseConnection;
+  const db = serviceHelper.databaseConnection();
   const database = db.db(config.database.zelappsglobal.database);
   await serviceHelper.insertOneToDatabase(database, globalZelAppsMessages, message).catch((error) => {
     log.error(error);
@@ -2474,7 +2474,7 @@ async function storeZelAppPermanentMessage(message) {
 
 async function checkZelAppMessageExistence(zelapphash) {
   try {
-    const dbopen = serviceHelper.databaseConnection;
+    const dbopen = serviceHelper.databaseConnection();
     const zelappsDatabase = dbopen.db(config.database.zelappsglobal.database);
     const zelappsQuery = { hash: zelapphash };
     const zelappsProjection = {};
@@ -2503,7 +2503,7 @@ async function checkZelAppMessageExistence(zelapphash) {
 
 async function checkZelAppTemporaryMessageExistence(zelapphash) {
   try {
-    const dbopen = serviceHelper.databaseConnection;
+    const dbopen = serviceHelper.databaseConnection();
     const zelappsDatabase = dbopen.db(config.database.zelappsglobal.database);
     const zelappsQuery = { hash: zelapphash };
     const zelappsProjection = {};

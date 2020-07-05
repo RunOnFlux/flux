@@ -44,7 +44,7 @@ async function loginPhrase(req, res) {
          expireAt: 2019-08-09T13:23:41.335Z
        }
     ] */
-    const db = serviceHelper.databaseConnection;
+    const db = serviceHelper.databaseConnection();
     const database = db.db(config.database.local.database);
     const collection = config.database.local.collections.activeLoginPhrases;
     database.collection(collection).createIndex({ createdAt: 1 }, { expireAfterSeconds: 900 });
@@ -72,7 +72,7 @@ async function emergencyPhrase(req, res) {
     const validTill = timestamp + (15 * 60 * 1000); // 15 minutes
     const phrase = timestamp + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
 
-    const db = serviceHelper.databaseConnection;
+    const db = serviceHelper.databaseConnection();
     const database = db.db(config.database.local.database);
     const collection = config.database.local.collections.activeLoginPhrases;
     database.collection(collection).createIndex({ createdAt: 1 }, { expireAfterSeconds: 900 });
@@ -147,7 +147,7 @@ async function verifyLogin(req, res) {
     }
     // Basic checks passed. First check if message is in our activeLoginPhrases collection
 
-    const db = serviceHelper.databaseConnection;
+    const db = serviceHelper.databaseConnection();
     const database = db.db(config.database.local.database);
     const collection = config.database.local.collections.activeLoginPhrases;
     const query = { loginPhrase: message };
@@ -268,7 +268,7 @@ async function provideSign(req, res) {
     const validTill = timestamp + (15 * 60 * 1000); // 15 minutes
     const identifier = address + message.substr(message.length - 13);
 
-    const db = serviceHelper.databaseConnection;
+    const db = serviceHelper.databaseConnection();
     const database = db.db(config.database.local.database);
     const collection = config.database.local.collections.activeSignatures;
     database.collection(collection).createIndex({ createdAt: 1 }, { expireAfterSeconds: 900 });
@@ -299,7 +299,7 @@ async function activeLoginPhrases(req, res) {
     throw error;
   });
   if (authorized === true) {
-    const db = serviceHelper.databaseConnection;
+    const db = serviceHelper.databaseConnection();
 
     const database = db.db(config.database.local.database);
     const collection = config.database.local.collections.activeLoginPhrases;
@@ -327,7 +327,7 @@ async function loggedUsers(req, res) {
   try {
     const authorized = await serviceHelper.verifyAdminSession(req.headers);
     if (authorized === true) {
-      const db = serviceHelper.databaseConnection;
+      const db = serviceHelper.databaseConnection();
       const database = db.db(config.database.local.database);
       const collection = config.database.local.collections.loggedUsers;
       const query = {};
@@ -350,7 +350,7 @@ async function loggedSessions(req, res) {
   try {
     const authorized = await serviceHelper.verifyUserSession(req.headers);
     if (authorized === true) {
-      const db = serviceHelper.databaseConnection;
+      const db = serviceHelper.databaseConnection();
 
       const auth = serviceHelper.ensureObject(req.headers.zelidauth);
       const queryZelID = auth.zelid;
@@ -377,7 +377,7 @@ async function logoutCurrentSession(req, res) {
     const authorized = await serviceHelper.verifyUserSession(req.headers);
     if (authorized === true) {
       const auth = serviceHelper.ensureObject(req.headers.zelidauth);
-      const db = serviceHelper.databaseConnection;
+      const db = serviceHelper.databaseConnection();
       const database = db.db(config.database.local.database);
       const collection = config.database.local.collections.loggedUsers;
       const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
@@ -414,7 +414,7 @@ async function logoutSpecificSession(req, res) {
       const processedBody = serviceHelper.ensureObject(body);
       console.log(processedBody);
       const obtainedLoginPhrase = processedBody.loginPhrase;
-      const db = serviceHelper.databaseConnection;
+      const db = serviceHelper.databaseConnection();
       const database = db.db(config.database.local.database);
       const collection = config.database.local.collections.loggedUsers;
       const query = { loginPhrase: obtainedLoginPhrase };
@@ -442,7 +442,7 @@ async function logoutAllSessions(req, res) {
     const authorized = await serviceHelper.verifyUserSession(req.headers);
     if (authorized === true) {
       const auth = serviceHelper.ensureObject(req.headers.zelidauth);
-      const db = serviceHelper.databaseConnection;
+      const db = serviceHelper.databaseConnection();
       const database = db.db(config.database.local.database);
       const collection = config.database.local.collections.loggedUsers;
       const query = { zelid: auth.zelid };
@@ -465,7 +465,7 @@ async function logoutAllUsers(req, res) {
   try {
     const authorized = await serviceHelper.verifyAdminSession(req.headers);
     if (authorized === true) {
-      const db = serviceHelper.databaseConnection;
+      const db = serviceHelper.databaseConnection();
       const database = db.db(config.database.local.database);
       const collection = config.database.local.collections.loggedUsers;
       const query = {};
@@ -499,7 +499,7 @@ async function wsRespondLoginPhrase(ws, req) {
     connclosed = true;
   };
 
-  const db = serviceHelper.databaseConnection;
+  const db = serviceHelper.databaseConnection();
 
   const database = db.db(config.database.local.database);
   const collection = config.database.local.collections.loggedUsers;
@@ -586,7 +586,7 @@ async function wsRespondSignature(ws, req) {
     connclosed = true;
   };
 
-  const db = serviceHelper.databaseConnection;
+  const db = serviceHelper.databaseConnection();
 
   const database = db.db(config.database.local.database);
   const collection = config.database.local.collections.activeSignatures;

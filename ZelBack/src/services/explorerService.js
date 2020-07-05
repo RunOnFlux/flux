@@ -42,7 +42,7 @@ async function getSenderTransactionFromZelCash(txid) {
 }
 
 async function getSenderForZelNodeTx(txid, vout) {
-  const db = serviceHelper.databaseConnection;
+  const db = serviceHelper.databaseConnection();
   const database = db.db(config.database.zelcash.database);
   const query = {
     $and: [
@@ -121,7 +121,7 @@ async function getSenderForZelNodeTx(txid, vout) {
 }
 
 async function getSender(txid, vout) {
-  const db = serviceHelper.databaseConnection;
+  const db = serviceHelper.databaseConnection();
   const database = db.db(config.database.zelcash.database);
   const query = { $and: [{ txid }, { voutIndex: vout }] };
   // we do not need other data as we are just asking what the sender address is.
@@ -166,7 +166,7 @@ async function getSender(txid, vout) {
 }
 
 async function processTransaction(txContent) {
-  const db = serviceHelper.databaseConnection;
+  const db = serviceHelper.databaseConnection();
   const database = db.db(config.database.zelcash.database);
   let transactionDetail = {};
   transactionDetail = txContent;
@@ -272,7 +272,7 @@ function decodeMessage(asm) {
 
 async function processBlock(blockHeight) {
   try {
-    const db = serviceHelper.databaseConnection;
+    const db = serviceHelper.databaseConnection();
     const database = db.db(config.database.zelcash.database);
     // get Block information
     const blockDataVerbose = await getVerboseBlock(blockHeight);
@@ -397,7 +397,7 @@ async function restoreDatabaseToBlockheightState(height) {
   if (!height) {
     throw new Error('No blockheight for restoring provided');
   }
-  const dbopen = serviceHelper.databaseConnection;
+  const dbopen = serviceHelper.databaseConnection();
   const database = dbopen.db(config.database.zelcash.database);
 
   const query = { height: { $gt: height } };
@@ -436,7 +436,7 @@ async function restoreDatabaseToBlockheightState(height) {
 
 async function initiateBlockProcessor(restoreDatabase) {
   try {
-    const db = serviceHelper.databaseConnection;
+    const db = serviceHelper.databaseConnection();
     const database = db.db(config.database.zelcash.database);
     const query = {};
     const projection = {
@@ -541,7 +541,7 @@ async function initiateBlockProcessor(restoreDatabase) {
 }
 
 async function getAllUtxos(req, res) {
-  const dbopen = serviceHelper.databaseConnection;
+  const dbopen = serviceHelper.databaseConnection();
   const database = dbopen.db(config.database.zelcash.database);
   const query = {};
   const projection = {
@@ -567,7 +567,7 @@ async function getAllUtxos(req, res) {
 }
 
 async function getAllZelNodeTransactions(req, res) {
-  const dbopen = serviceHelper.databaseConnection;
+  const dbopen = serviceHelper.databaseConnection();
   const database = dbopen.db(config.database.zelcash.database);
   const query = {};
   const projection = {
@@ -597,7 +597,7 @@ async function getAllZelNodeTransactions(req, res) {
 }
 
 async function getAllAddressesWithTransactions(req, res) {
-  const dbopen = serviceHelper.databaseConnection;
+  const dbopen = serviceHelper.databaseConnection();
   const database = dbopen.db(config.database.zelcash.database);
   const query = {};
   const projection = {
@@ -618,7 +618,7 @@ async function getAllAddressesWithTransactions(req, res) {
 }
 
 async function getAllAddresses(req, res) {
-  const dbopen = serviceHelper.databaseConnection;
+  const dbopen = serviceHelper.databaseConnection();
   const database = dbopen.db(config.database.zelcash.database);
   const query = {};
   const projection = {
@@ -644,7 +644,7 @@ async function getAddressUtxos(req, res) {
     const errMessage = serviceHelper.createErrorMessage('No address provided');
     return res.json(errMessage);
   }
-  const dbopen = serviceHelper.databaseConnection;
+  const dbopen = serviceHelper.databaseConnection();
   const database = dbopen.db(config.database.zelcash.database);
   const query = { address };
   const projection = {
@@ -690,7 +690,7 @@ async function getFilteredZelNodeTxs(req, res) {
     const errMessage = serviceHelper.createErrorMessage('It is possible to only filter via IP address, Zel address and Collateral hash.');
     return res.json(errMessage);
   }
-  const dbopen = serviceHelper.databaseConnection;
+  const dbopen = serviceHelper.databaseConnection();
   const database = dbopen.db(config.database.zelcash.database);
   const projection = {
     projection: {
@@ -725,7 +725,7 @@ async function getAddressTransactions(req, res) {
     const errMessage = serviceHelper.createErrorMessage('No address provided');
     return res.json(errMessage);
   }
-  const dbopen = serviceHelper.databaseConnection;
+  const dbopen = serviceHelper.databaseConnection();
   const database = dbopen.db(config.database.zelcash.database);
   const query = { address };
   const projection = {
@@ -746,7 +746,7 @@ async function getAddressTransactions(req, res) {
 }
 
 async function getScannedHeight(req, res) {
-  const dbopen = serviceHelper.databaseConnection;
+  const dbopen = serviceHelper.databaseConnection();
   const database = dbopen.db(config.database.zelcash.database);
   const query = { generalScannedHeight: { $gte: 0 } };
   const projection = {
@@ -829,7 +829,7 @@ async function reindexExplorer(req, res) {
       if (response.status === 'error') {
         res.json(response);
       } else {
-        const dbopen = serviceHelper.databaseConnection;
+        const dbopen = serviceHelper.databaseConnection();
         const database = dbopen.db(config.database.zelcash.database);
         const resultOfDropping = await serviceHelper.dropCollection(database, scannedHeightCollection).catch((error) => {
           if (error.message !== 'ns not found') {
@@ -872,7 +872,7 @@ async function rescanExplorer(req, res) {
         if (response.status === 'error') {
           res.json(response);
         } else {
-          const dbopen = serviceHelper.databaseConnection;
+          const dbopen = serviceHelper.databaseConnection();
           const scannedHeight = serviceHelper.ensureNumber(blockheight);
           // update scanned Height in scannedBlockHeightCollection
           const database = dbopen.db(config.database.zelcash.database);
@@ -903,7 +903,7 @@ async function getAddressBalance(req, res) {
     const errMessage = serviceHelper.createErrorMessage('No address provided');
     return res.json(errMessage);
   }
-  const dbopen = serviceHelper.databaseConnection;
+  const dbopen = serviceHelper.databaseConnection();
   const database = dbopen.db(config.database.zelcash.database);
   const query = { address };
   const projection = {
