@@ -324,7 +324,7 @@ async function processBlock(blockHeight) {
         // todo include to zelcash better information about hash and index and preferably address associated
         const collateral = tx.collateral_output;
         const partialCollateralHash = collateral.split('COutPoint(')[1].split(', ')[0];
-        const collateralIndex = collateral.split(', ')[1].split(')')[0];
+        const collateralIndex = Number(collateral.split(', ')[1].split(')')[0]);
         const senderInfo = await getSenderForZelNodeTx(partialCollateralHash, collateralIndex);
         const zelnodeTxData = {
           txid: tx.txid,
