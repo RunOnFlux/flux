@@ -318,14 +318,8 @@ async function processBlock(blockHeight) {
           const update = { $set: { address }, $push: { transactions: transactionRecord }, $inc: { count: 1 } };
           const options = {
             upsert: true,
-            projection: {
-              _id: 0,
-              transactions: 0,
-              address: 0,
-              count: 0,
-            },
           };
-          await serviceHelper.findOneAndUpdateInDatabase(database, addressTransactionIndexCollection, query, update, options);
+          await serviceHelper.updateOneInDatabase(database, addressTransactionIndexCollection, query, update, options);
         }));
         // MAY contain ZelApp transaction. Store it.
         if (isZelAppMessageValue > 0 && message.length === 64) {
@@ -377,12 +371,8 @@ async function processBlock(blockHeight) {
     const update = { $set: { generalScannedHeight: scannedHeight } };
     const options = {
       upsert: true,
-      projection: {
-        _id: 0,
-        generalScannedHeight: 0,
-      },
     };
-    await serviceHelper.findOneAndUpdateInDatabase(database, scannedHeightCollection, query, update, options);
+    await serviceHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
     someBlockIsProcessing = false;
     if (blockProccessingCanContinue) {
       if (blockDataVerbose.confirmations > 1) {
@@ -536,12 +526,8 @@ async function initiateBlockProcessor(restoreDatabase) {
             const update = { $set: { generalScannedHeight: scannedBlockHeight } };
             const options = {
               upsert: true,
-              projection: {
-                _id: 0,
-                generalScannedHeight: 0,
-              },
             };
-            await serviceHelper.findOneAndUpdateInDatabase(database, scannedHeightCollection, queryHeight, update, options);
+            await serviceHelper.updateOneInDatabase(database, scannedHeightCollection, queryHeight, update, options);
             log.info('Database restored OK');
           } else {
             // we are more than 100 blocks from zelcash. No need for deep restoring
@@ -900,11 +886,8 @@ async function rescanExplorer(req, res) {
           const update = { $set: { generalScannedHeight: scannedHeight } };
           const options = {
             upsert: true,
-            projection: {
-              _id: 0,
-            },
           };
-          await serviceHelper.findOneAndUpdateInDatabase(database, scannedHeightCollection, query, update, options).catch((error) => {
+          await serviceHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options).catch((error) => {
             log.error(error);
             const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
             return res.json(errMessage);

@@ -154,8 +154,9 @@ async function insertOneToDatabase(database, collection, value) {
   return result;
 }
 
-async function updateOneInDatabase(database, collection, query, value) {
-  const result = await database.collection(collection).updateOne(query, { $set: value }).catch((error) => { throw error; });
+async function updateOneInDatabase(database, collection, query, update, options) {
+  const passedOptions = options || {};
+  const result = await database.collection(collection).updateOne(query, update, passedOptions).catch((error) => { throw error; });
   return result;
 }
 
