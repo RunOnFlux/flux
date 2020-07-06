@@ -311,8 +311,9 @@ async function processBlock(blockHeight) {
         const transactionRecord = { txid: tx.txid, height: blockDataVerbose.height };
         // update addresses from addressesOK array in our database. We need blockheight there too. transac
         await Promise.all(addressesOK.map(async (address) => {
-          const query = { address };
-          const update = { $set: { address }, $push: { transactions: transactionRecord } };
+          // maximum of 10000 txs per address in one document
+          const query = { address, count: { $lt: 3 } };
+          const update = { $set: { address }, $push: { transactions: transactionRecord }, $inc: { count: 1 } };
           const options = { upsert: true };
           await serviceHelper.findOneAndUpdateInDatabase(database, addressTransactionIndexCollection, query, update, options);
         }));
@@ -369,7 +370,7 @@ async function processBlock(blockHeight) {
     const options = { upsert: true };
     await serviceHelper.findOneAndUpdateInDatabase(database, scannedHeightCollection, query, update, options);
     if (blockProccessingCanContinue) {
-      if (blockDataVerbose.confirmations > 1) {
+      if (blockDataVerbose.confirmations > 1 && blockDataVerbose.height < 50) {
         processBlock(blockDataVerbose.height + 1);
       } else {
         setTimeout(() => {
@@ -607,6 +608,7 @@ async function getAllAddressesWithTransactions(req, res) {
       _id: 0,
       transactions: 1,
       address: 1,
+      count: 1,
     },
   };
   const results = await serviceHelper.findInDatabase(database, addressTransactionIndexCollection, query, projection).catch((error) => {
@@ -735,15 +737,16 @@ async function getAddressTransactions(req, res) {
       _id: 0,
       transactions: 1,
       address: 1,
+      count: 1,
     },
   };
-  const result = await serviceHelper.findOneInDatabase(database, addressTransactionIndexCollection, query, projection).catch((error) => {
+  const results = await serviceHelper.findInDatabase(database, addressTransactionIndexCollection, query, projection).catch((error) => {
     const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
     log.error(error);
     throw error;
   });
-  const resMessage = serviceHelper.createDataMessage(result);
+  const resMessage = serviceHelper.createDataMessage(results);
   return res.json(resMessage);
 }
 
