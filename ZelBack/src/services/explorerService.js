@@ -848,6 +848,7 @@ async function reindexExplorer(req, res) {
           }
         });
         if (resultOfDropping === true || resultOfDropping === undefined) {
+          blockProccessingCanContinue = true;
           initiateBlockProcessor(true);
           const message = serviceHelper.createSuccessMessage('Explorer database reindex initiated');
           res.json(message);
