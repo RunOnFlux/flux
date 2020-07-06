@@ -316,7 +316,15 @@ async function processBlock(blockHeight) {
           // maximum of 10000 txs per address in one document
           const query = { address, count: { $lt: 10000 } };
           const update = { $set: { address }, $push: { transactions: transactionRecord }, $inc: { count: 1 } };
-          const options = { upsert: true };
+          const options = {
+            upsert: true,
+            projection: {
+              _id: 0,
+              transactions: 0,
+              address: 0,
+              count: 0,
+            },
+          };
           await serviceHelper.findOneAndUpdateInDatabase(database, addressTransactionIndexCollection, query, update, options);
         }));
         // MAY contain ZelApp transaction. Store it.
@@ -367,7 +375,12 @@ async function processBlock(blockHeight) {
     // update scanned Height in scannedBlockHeightCollection
     const query = { generalScannedHeight: { $gte: 0 } };
     const update = { $set: { generalScannedHeight: scannedHeight } };
-    const options = { upsert: true };
+    const options = {
+      upsert: true,
+      projection: {
+        _id: 0,
+      },
+    };
     await serviceHelper.findOneAndUpdateInDatabase(database, scannedHeightCollection, query, update, options);
     someBlockIsProcessing = false;
     if (blockProccessingCanContinue) {
@@ -490,9 +503,11 @@ async function initiateBlockProcessor(restoreDatabase) {
       });
       console.log(result, resultB, resultC, resultD);
       database.collection(utxoIndexCollection).createIndex({ txid: 1, voutIndex: 1 }, { name: 'query for getting utxo' });
+      database.collection(utxoIndexCollection).createIndex({ txid: 1, voutIndex: 1, satoshis: 1 }, { name: 'query for getting utxo for zelnode tx' });
       database.collection(utxoIndexCollection).createIndex({ address: 1 }, { name: 'query for addresses utxo' });
       database.collection(utxoIndexCollection).createIndex({ scriptPubKey: 1 }, { name: 'query for scriptPubKey utxo' });
       database.collection(addressTransactionIndexCollection).createIndex({ address: 1 }, { name: 'query for addresses transactions' });
+      database.collection(addressTransactionIndexCollection).createIndex({ address: 1, count: 1 }, { name: 'query for addresses transactions with count' });
       database.collection(zelnodeTransactionCollection).createIndex({ ip: 1 }, { name: 'query for getting list of zelnode txs associated to IP address' });
       database.collection(zelnodeTransactionCollection).createIndex({ zelAddress: 1 }, { name: 'query for getting list of zelnode txs associated to ZEL address' });
       database.collection(zelnodeTransactionCollection).createIndex({ tier: 1 }, { name: 'query for getting list of zelnode txs according to benchmarking tier' });
@@ -518,7 +533,12 @@ async function initiateBlockProcessor(restoreDatabase) {
             await restoreDatabaseToBlockheightState(scannedBlockHeight);
             const queryHeight = { generalScannedHeight: { $gte: 0 } };
             const update = { $set: { generalScannedHeight: scannedBlockHeight } };
-            const options = { upsert: true };
+            const options = {
+              upsert: true,
+              projection: {
+                _id: 0,
+              },
+            };
             await serviceHelper.findOneAndUpdateInDatabase(database, scannedHeightCollection, queryHeight, update, options);
             log.info('Database restored OK');
           } else {
@@ -749,7 +769,6 @@ async function getScannedHeight(req, res) {
   const projection = {
     projection: {
       _id: 0,
-      generalScannedHeight: 1,
     },
   };
   const result = await serviceHelper.findOneInDatabase(database, scannedHeightCollection, query, projection).catch((error) => {
@@ -876,7 +895,12 @@ async function rescanExplorer(req, res) {
           const database = dbopen.db(config.database.zelcash.database);
           const query = { generalScannedHeight: { $gte: 0 } };
           const update = { $set: { generalScannedHeight: scannedHeight } };
-          const options = { upsert: true };
+          const options = {
+            upsert: true,
+            projection: {
+              _id: 0,
+            },
+          };
           await serviceHelper.findOneAndUpdateInDatabase(database, scannedHeightCollection, query, update, options).catch((error) => {
             log.error(error);
             const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
