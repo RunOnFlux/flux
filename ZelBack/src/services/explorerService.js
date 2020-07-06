@@ -11,6 +11,7 @@ const addressTransactionIndexCollection = config.database.zelcash.collections.ad
 const scannedHeightCollection = config.database.zelcash.collections.scannedHeight;
 const zelnodeTransactionCollection = config.database.zelcash.collections.zelnodeTransactions;
 let blockProccessingCanContinue = true;
+let someBlockIsProcessing = false;
 
 // function getCollateralHash(hexOfZelNodeTx) {
 //   const hex = hexOfZelNodeTx.slice(10, 74);
@@ -272,6 +273,7 @@ function decodeMessage(asm) {
 
 async function processBlock(blockHeight) {
   try {
+    someBlockIsProcessing = true;
     const db = serviceHelper.databaseConnection();
     const database = db.db(config.database.zelcash.database);
     // get Block information
@@ -369,6 +371,7 @@ async function processBlock(blockHeight) {
     const update = { $set: { generalScannedHeight: scannedHeight } };
     const options = { upsert: true };
     await serviceHelper.findOneAndUpdateInDatabase(database, scannedHeightCollection, query, update, options);
+    someBlockIsProcessing = false;
     if (blockProccessingCanContinue) {
       if (blockDataVerbose.confirmations > 1 && blockDataVerbose.height < 50) {
         processBlock(blockDataVerbose.height + 1);
@@ -386,6 +389,7 @@ async function processBlock(blockHeight) {
       blockProccessingCanContinue = true;
     }
   } catch (error) {
+    someBlockIsProcessing = false;
     log.error('Block processor encountered an error.');
     log.error(error);
     setImmediate(() => {
@@ -831,7 +835,7 @@ async function reindexExplorer(req, res) {
     blockProccessingCanContinue = false;
     const i = 0;
     checkBlockProcessingStopping(i, async (response) => {
-      if (response.status === 'error') {
+      if (response.status === 'error' && someBlockIsProcessing === true) {
         res.json(response);
       } else {
         const dbopen = serviceHelper.databaseConnection();
@@ -874,7 +878,7 @@ async function rescanExplorer(req, res) {
     const i = 0;
     if (blockheight) {
       checkBlockProcessingStopping(i, async (response) => {
-        if (response.status === 'error') {
+        if (response.status === 'error' && someBlockIsProcessing === true) {
           res.json(response);
         } else {
           const dbopen = serviceHelper.databaseConnection();
