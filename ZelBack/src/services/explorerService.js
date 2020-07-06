@@ -51,9 +51,9 @@ async function getSenderForZelNodeTx(txid, vout) {
       { voutIndex: vout },
       {
         $or: [
-          { satoshis: '1000000000000' },
-          { satoshis: '2500000000000' },
-          { satoshis: '10000000000000' },
+          { satoshis: Number('1000000000000') },
+          { satoshis: 482 },
+          { satoshis: Number('10000000000000') },
         ],
       }],
   };
@@ -84,9 +84,9 @@ async function getSenderForZelNodeTx(txid, vout) {
         { collateralIndex: vout },
         {
           $or: [
-            { lockedAmount: '1000000000000' },
-            { lockedAmount: '2500000000000' },
-            { lockedAmount: '10000000000000' },
+            { lockedAmount: Number('1000000000000') },
+            { lockedAmount: 538 },
+            { lockedAmount: Number('10000000000000') },
           ],
         }],
     };
