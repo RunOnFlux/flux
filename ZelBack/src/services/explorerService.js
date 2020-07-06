@@ -771,7 +771,7 @@ async function getScannedHeight(req, res) {
   const projection = {
     projection: {
       _id: 0,
-      generalScannedHeight: 0,
+      generalScannedHeight: 1, //
     },
   };
   const result = await serviceHelper.findOneInDatabase(database, scannedHeightCollection, query, projection).catch((error) => {
