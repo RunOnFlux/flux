@@ -373,7 +373,7 @@ async function processBlock(blockHeight) {
     await serviceHelper.findOneAndUpdateInDatabase(database, scannedHeightCollection, query, update, options);
     someBlockIsProcessing = false;
     if (blockProccessingCanContinue) {
-      if (blockDataVerbose.confirmations > 1 && blockDataVerbose.height < 100) {
+      if (blockDataVerbose.confirmations > 1 && blockDataVerbose.height < 500) {
         processBlock(blockDataVerbose.height + 1);
       } else {
         // setTimeout(() => {
