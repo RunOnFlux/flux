@@ -628,14 +628,8 @@ async function getAllAddressesWithTransactions(req, res) {
 async function getAllAddresses(req, res) {
   const dbopen = serviceHelper.databaseConnection();
   const database = dbopen.db(config.database.zelcash.database);
-  const query = {};
-  const projection = {
-    projection: {
-      _id: 0,
-      address: 1,
-    },
-  };
-  const results = await serviceHelper.findInDatabase(database, addressTransactionIndexCollection, query, projection).catch((error) => {
+  const variable = 'address';
+  const results = await serviceHelper.distinctDatabase(database, addressTransactionIndexCollection, variable).catch((error) => {
     const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
     log.error(error);
@@ -736,20 +730,15 @@ async function getAddressTransactions(req, res) {
   const dbopen = serviceHelper.databaseConnection();
   const database = dbopen.db(config.database.zelcash.database);
   const query = { address };
-  const projection = {
-    projection: {
-      _id: 0,
-      transactions: 1,
-      address: 1,
-      count: 1,
-    },
-  };
-  const results = await serviceHelper.findInDatabase(database, addressTransactionIndexCollection, query, projection).catch((error) => {
+  const distinct = 'transactions';
+  const results = await serviceHelper.distinctDatabase(database, addressTransactionIndexCollection, distinct, query).catch((error) => {
     const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
     log.error(error);
     throw error;
   });
+  // TODO FIX documentation. UPDATE for an amount of last txs needed.
+  // now we have array of transactions [{txid, height}, {}...]
   const resMessage = serviceHelper.createDataMessage(results);
   return res.json(resMessage);
 }

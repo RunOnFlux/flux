@@ -128,6 +128,11 @@ async function initiateDB() {
   return true;
 }
 
+async function distinctDatabase(database, collection, distinct, query) {
+  const results = await database.collection(collection).distinct(distinct, query).catch((error) => { throw error; });
+  return results;
+}
+
 async function findInDatabase(database, collection, query, projection) {
   const results = await database.collection(collection).find(query, projection).toArray().catch((error) => { throw error; });
   return results;
@@ -401,6 +406,7 @@ module.exports = {
   ensureObject,
   ensureString,
   connectMongoDb,
+  distinctDatabase,
   findInDatabase,
   findOneInDatabase,
   findOneAndUpdateInDatabase,
