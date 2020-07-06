@@ -314,7 +314,7 @@ async function processBlock(blockHeight) {
         // update addresses from addressesOK array in our database. We need blockheight there too. transac
         await Promise.all(addressesOK.map(async (address) => {
           // maximum of 10000 txs per address in one document
-          const query = { address, count: { $lt: 3 } };
+          const query = { address, count: { $lt: 10000 } };
           const update = { $set: { address }, $push: { transactions: transactionRecord }, $inc: { count: 1 } };
           const options = { upsert: true };
           await serviceHelper.findOneAndUpdateInDatabase(database, addressTransactionIndexCollection, query, update, options);
@@ -351,8 +351,6 @@ async function processBlock(blockHeight) {
         await serviceHelper.insertOneToDatabase(database, zelnodeTransactionCollection, zelnodeTxData);
       }
     }));
-    console.log(blockDataVerbose.height);
-    console.log('done');
     // addressTransactionIndex shall contains object of address: address, transactions: [txids]
     // if (blockData.height % 999 === 0) {
     //   console.log(transactions);
@@ -361,9 +359,9 @@ async function processBlock(blockHeight) {
       const result = await serviceHelper.collectionStats(database, utxoIndexCollection);
       const resultB = await serviceHelper.collectionStats(database, addressTransactionIndexCollection);
       const resultC = await serviceHelper.collectionStats(database, zelnodeTransactionCollection);
-      log.info('UTXO', result.size, result.count, result.avgObjSize);
-      log.info('ADDR', resultB.size, resultB.count, resultB.avgObjSize);
-      log.info('ZELNODE', resultC.size, resultC.count, resultC.avgObjSize);
+      log.info('UTXO documents', result.size, result.count, result.avgObjSize);
+      log.info('ADDR documents', resultB.size, resultB.count, resultB.avgObjSize);
+      log.info('ZELNODE documents', resultC.size, resultC.count, resultC.avgObjSize);
     }
     const scannedHeight = blockDataVerbose.height;
     // update scanned Height in scannedBlockHeightCollection
@@ -373,17 +371,17 @@ async function processBlock(blockHeight) {
     await serviceHelper.findOneAndUpdateInDatabase(database, scannedHeightCollection, query, update, options);
     someBlockIsProcessing = false;
     if (blockProccessingCanContinue) {
-      if (blockDataVerbose.confirmations > 1 && blockDataVerbose.height < 500) {
+      if (blockDataVerbose.confirmations > 1) {
         processBlock(blockDataVerbose.height + 1);
       } else {
-        // setTimeout(() => {
-        //   if (blockProccessingCanContinue) { // just a precaution because maybe it is just waiting
-        //     // eslint-disable-next-line no-use-before-define
-        //     initiateBlockProcessor(false);
-        //   } else {
-        //     blockProccessingCanContinue = true;
-        //   }
-        // }, 5000);
+        setTimeout(() => {
+          if (blockProccessingCanContinue) { // just a precaution because maybe it is just waiting
+            // eslint-disable-next-line no-use-before-define
+            initiateBlockProcessor(false);
+          } else {
+            blockProccessingCanContinue = true;
+          }
+        }, 5000);
       }
     } else {
       blockProccessingCanContinue = true;
