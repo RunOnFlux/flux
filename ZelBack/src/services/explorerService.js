@@ -493,12 +493,12 @@ async function initiateBlockProcessor(restoreDatabase) {
         }
       });
       console.log(result, resultB, resultC, resultD);
-      database.collection(utxoIndexCollection).createIndex({ txid: 1, voutIndex: 1 }, { name: 'query for getting utxo' });
-      database.collection(utxoIndexCollection).createIndex({ txid: 1, voutIndex: 1, satoshis: 1 }, { name: 'query for getting utxo for zelnode tx' });
+      database.collection(utxoIndexCollection).createIndex({ txid: 1, voutIndex: 1 }, { name: 'query for getting utxo', unique: true });
+      database.collection(utxoIndexCollection).createIndex({ txid: 1, voutIndex: 1, satoshis: 1 }, { name: 'query for getting utxo for zelnode tx', unique: true });
       database.collection(utxoIndexCollection).createIndex({ address: 1 }, { name: 'query for addresses utxo' });
       database.collection(utxoIndexCollection).createIndex({ scriptPubKey: 1 }, { name: 'query for scriptPubKey utxo' });
       database.collection(addressTransactionIndexCollection).createIndex({ address: 1 }, { name: 'query for addresses transactions' });
-      database.collection(addressTransactionIndexCollection).createIndex({ address: 1, count: 1 }, { name: 'query for addresses transactions with count' });
+      database.collection(addressTransactionIndexCollection).createIndex({ address: 1, count: 1 }, { name: 'query for addresses transactions with count', unique: true });
       database.collection(zelnodeTransactionCollection).createIndex({ ip: 1 }, { name: 'query for getting list of zelnode txs associated to IP address' });
       database.collection(zelnodeTransactionCollection).createIndex({ zelAddress: 1 }, { name: 'query for getting list of zelnode txs associated to ZEL address' });
       database.collection(zelnodeTransactionCollection).createIndex({ tier: 1 }, { name: 'query for getting list of zelnode txs according to benchmarking tier' });
