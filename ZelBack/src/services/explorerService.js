@@ -379,6 +379,7 @@ async function processBlock(blockHeight) {
       upsert: true,
       projection: {
         _id: 0,
+        generalScannedHeight: 0,
       },
     };
     await serviceHelper.findOneAndUpdateInDatabase(database, scannedHeightCollection, query, update, options);
@@ -537,6 +538,7 @@ async function initiateBlockProcessor(restoreDatabase) {
               upsert: true,
               projection: {
                 _id: 0,
+                generalScannedHeight: 0,
               },
             };
             await serviceHelper.findOneAndUpdateInDatabase(database, scannedHeightCollection, queryHeight, update, options);
@@ -769,6 +771,7 @@ async function getScannedHeight(req, res) {
   const projection = {
     projection: {
       _id: 0,
+      generalScannedHeight: 0,
     },
   };
   const result = await serviceHelper.findOneInDatabase(database, scannedHeightCollection, query, projection).catch((error) => {
