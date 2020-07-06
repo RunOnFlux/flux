@@ -49,7 +49,7 @@ async function getSenderForZelNodeTx(txid, vout) {
     $and: [
       { txid: new RegExp(`^${txid}`) },
       { voutIndex: vout },
-      { satoshis: { $gte: 10 * 1e3 * 1e8 } },
+      { satoshis: { $gte: 10 * 1e3 * 1e5 } },
       { satoshis: { $lte: 100 * 1e3 * 1e8 } },
     ],
   };
@@ -78,8 +78,7 @@ async function getSenderForZelNodeTx(txid, vout) {
       $and: [
         { collateralHash: new RegExp(`^${txid}`) },
         { collateralIndex: vout },
-        { satoshis: { $gte: 10 * 1e3 * 1e8 } },
-        { satoshis: { $lte: 100 * 1e3 * 1e8 } },
+        { satoshis: { $gte: 10 * 1e3 * 1e6 } },
       ],
     };
     // we do not need other data as we are just asking what the sender address is.
