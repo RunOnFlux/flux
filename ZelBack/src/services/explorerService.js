@@ -49,13 +49,9 @@ async function getSenderForZelNodeTx(txid, vout) {
     $and: [
       { txid: new RegExp(`^${txid}`) },
       { voutIndex: vout },
-      {
-        $or: [
-          { satoshis: 10 * 1e8 },
-          { satoshis: 25 * 1e11 },
-          { satoshis: 100 * 1e9 },
-        ],
-      }],
+      { satoshis: { $gte: 10 * 1e3 * 1e8 } },
+      { satoshis: { $lte: 100 * 1e3 * 1e8 } },
+    ],
   };
   // we do not need other data as we are just asking what the sender address is.
   const projection = {
@@ -82,13 +78,9 @@ async function getSenderForZelNodeTx(txid, vout) {
       $and: [
         { collateralHash: new RegExp(`^${txid}`) },
         { collateralIndex: vout },
-        {
-          $or: [
-            { lockedAmount: /^1000000000000/ },
-            { lockedAmount: 25 * 1e11 },
-            { lockedAmount: Number('10000000000000') },
-          ],
-        }],
+        { satoshis: { $gte: 10 * 1e3 * 1e8 } },
+        { satoshis: { $lte: 100 * 1e3 * 1e8 } },
+      ],
     };
     // we do not need other data as we are just asking what the sender address is.
     const projectionZelNode = {
