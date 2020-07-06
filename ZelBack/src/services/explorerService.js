@@ -373,14 +373,14 @@ async function processBlock(blockHeight) {
       if (blockDataVerbose.confirmations > 1 && blockDataVerbose.height < 50) {
         processBlock(blockDataVerbose.height + 1);
       } else {
-        setTimeout(() => {
-          if (blockProccessingCanContinue) { // just a precaution because maybe it is just waiting
-            // eslint-disable-next-line no-use-before-define
-            initiateBlockProcessor(false);
-          } else {
-            blockProccessingCanContinue = true;
-          }
-        }, 5000);
+        // setTimeout(() => {
+        //   if (blockProccessingCanContinue) { // just a precaution because maybe it is just waiting
+        //     // eslint-disable-next-line no-use-before-define
+        //     initiateBlockProcessor(false);
+        //   } else {
+        //     blockProccessingCanContinue = true;
+        //   }
+        // }, 5000);
       }
     } else {
       blockProccessingCanContinue = true;
