@@ -117,7 +117,7 @@ async function connectMongoDb(url) {
   const mongoSettings = {
     useNewUrlParser: true,
     useUnifiedTopology: true,
-    poolSize: 42,
+    poolSize: 10,
   };
   const db = await MongoClient.connect(connectUrl, mongoSettings).catch((error) => { throw error; });
   return db;
