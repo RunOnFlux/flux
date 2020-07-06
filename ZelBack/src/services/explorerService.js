@@ -47,7 +47,7 @@ async function getSenderForZelNodeTx(txid, vout) {
   const database = db.db(config.database.zelcash.database);
   const query = {
     $and: [
-      { txid: { $regex: `^${txid}` } },
+      { txid: new RegExp(`^${txid}`) },
       { voutIndex: vout },
       {
         $or: [
@@ -80,7 +80,7 @@ async function getSenderForZelNodeTx(txid, vout) {
     log.info(`Transaction ${txid} ${vout} not found in database. Falling back to previous ZelNode transaction`);
     const queryZelNode = {
       $and: [
-        { collateralHash: { $regex: `^${txid}` } },
+        { collateralHash: new RegExp(`^${txid}`) },
         { collateralIndex: vout },
         {
           $or: [
@@ -373,7 +373,7 @@ async function processBlock(blockHeight) {
     await serviceHelper.findOneAndUpdateInDatabase(database, scannedHeightCollection, query, update, options);
     someBlockIsProcessing = false;
     if (blockProccessingCanContinue) {
-      if (blockDataVerbose.confirmations > 1 && blockDataVerbose.height < 50) {
+      if (blockDataVerbose.confirmations > 1 && blockDataVerbose.height < 100) {
         processBlock(blockDataVerbose.height + 1);
       } else {
         // setTimeout(() => {
@@ -604,6 +604,7 @@ async function getAllZelNodeTransactions(req, res) {
 }
 
 async function getAllAddressesWithTransactions(req, res) {
+  // FIXME outputs all documents in the collection. We shall group same addresses. But this call is disabled and for testing purposes anyway
   const dbopen = serviceHelper.databaseConnection();
   const database = dbopen.db(config.database.zelcash.database);
   const query = {};
@@ -854,7 +855,7 @@ async function reindexExplorer(req, res) {
 }
 
 async function rescanExplorer(req, res) {
-  const authorized = true; // await serviceHelper.verifyPrivilege('zelteam', req);
+  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
   if (true) { // FIXME
     // since what blockheight
     let { blockheight } = req.params; // we accept both help/command and help?command=getinfo
