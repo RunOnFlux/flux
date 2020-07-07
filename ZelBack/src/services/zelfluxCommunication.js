@@ -1194,19 +1194,28 @@ async function startFluxFunctions() {
     log.info('Preparing local database...');
     const db = serviceHelper.databaseConnection();
     const database = db.db(config.database.local.database);
-    const resultOfDroppingLP = await serviceHelper.dropCollection(database, config.database.local.collections.activeLoginPhrases).catch((error) => {
+    await serviceHelper.dropCollection(database, config.database.local.collections.activeLoginPhrases).catch((error) => {
       if (error.message !== 'ns not found') {
         log.error(error);
       }
     });
-    const resultOfDroppingS = await serviceHelper.dropCollection(database, config.database.local.collections.activeSignatures).catch((error) => {
+    await serviceHelper.dropCollection(database, config.database.local.collections.activeSignatures).catch((error) => {
       if (error.message !== 'ns not found') {
         log.error(error);
       }
     });
-    log.info(`Preparation result: ${resultOfDroppingLP}, ${resultOfDroppingS}`);
-    await database.collection(config.database.local.collections.activeLoginPhrases).dropIndexes();
-    await database.collection(config.database.local.collections.activeSignatures).dropIndexes();
+    await database.collection(config.database.local.collections.activeLoginPhrases).dropIndexes().catch((error) => {
+      if (error.message !== 'ns not found') {
+        log.error(error);
+      }
+    });
+    console.log('ok');
+    await database.collection(config.database.local.collections.activeSignatures).dropIndexes().catch((error) => {
+      if (error.message !== 'ns not found') {
+        log.error(error);
+      }
+    });
+    console.log('ok2');
     await database.collection(config.database.local.collections.activeLoginPhrases).createIndex({ createdAt: 1 }, { expireAfterSeconds: 900 });
     await database.collection(config.database.local.collections.activeSignatures).createIndex({ createdAt: 1 }, { expireAfterSeconds: 900 });
     log.info('Local database prepared');
