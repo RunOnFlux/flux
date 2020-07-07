@@ -2044,7 +2044,7 @@ async function storeZelAppTemporaryMessage(message, furtherVerification = false)
 
   const db = serviceHelper.databaseConnection();
   const database = db.db(config.database.zelappsglobal.database);
-  database.collection(globalZelAppsTempMessages).createIndex({ createdAt: 1 }, { expireAfterSeconds: 3600 });
+  await database.collection(globalZelAppsTempMessages).createIndex({ createdAt: 1 }, { expireAfterSeconds: 3600 });
   const newMessage = {
     zelAppSpecifications: message.zelAppSpecifications,
     type: message.type,

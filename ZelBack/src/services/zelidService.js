@@ -47,7 +47,7 @@ async function loginPhrase(req, res) {
     const db = serviceHelper.databaseConnection();
     const database = db.db(config.database.local.database);
     const collection = config.database.local.collections.activeLoginPhrases;
-    database.collection(collection).createIndex({ createdAt: 1 }, { expireAfterSeconds: 900 });
+    await database.collection(collection).createIndex({ createdAt: 1 }, { expireAfterSeconds: 900 });
     const newLoginPhrase = {
       loginPhrase: phrase,
       createdAt: new Date(timestamp),
@@ -75,7 +75,7 @@ async function emergencyPhrase(req, res) {
     const db = serviceHelper.databaseConnection();
     const database = db.db(config.database.local.database);
     const collection = config.database.local.collections.activeLoginPhrases;
-    database.collection(collection).createIndex({ createdAt: 1 }, { expireAfterSeconds: 900 });
+    await database.collection(collection).createIndex({ createdAt: 1 }, { expireAfterSeconds: 900 });
     const newLoginPhrase = {
       loginPhrase: phrase,
       createdAt: new Date(timestamp),
@@ -271,7 +271,7 @@ async function provideSign(req, res) {
     const db = serviceHelper.databaseConnection();
     const database = db.db(config.database.local.database);
     const collection = config.database.local.collections.activeSignatures;
-    database.collection(collection).createIndex({ createdAt: 1 }, { expireAfterSeconds: 900 });
+    await database.collection(collection).createIndex({ createdAt: 1 }, { expireAfterSeconds: 900 });
     const newSignature = {
       signature,
       identifier,
