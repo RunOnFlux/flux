@@ -1194,16 +1194,17 @@ async function startFluxFunctions() {
     log.info('Preparing local database...');
     const db = serviceHelper.databaseConnection();
     const database = db.db(config.database.local.database);
-    await serviceHelper.dropCollection(database, config.database.local.collections.activeLoginPhrases).catch((error) => {
+    const resultOfDroppingLP = await serviceHelper.dropCollection(database, config.database.local.collections.activeLoginPhrases).catch((error) => {
       if (error.message !== 'ns not found') {
         log.error(error);
       }
     });
-    await serviceHelper.dropCollection(database, config.database.local.collections.activeSignatures).catch((error) => {
+    const resultOfDroppingS = await serviceHelper.dropCollection(database, config.database.local.collections.activeSignatures).catch((error) => {
       if (error.message !== 'ns not found') {
         log.error(error);
       }
     });
+    log.info(`Preparation result: ${resultOfDroppingLP}, ${resultOfDroppingS}`);
     await database.collection(config.database.local.collections.activeLoginPhrases).dropIndexes();
     await database.collection(config.database.local.collections.activeSignatures).dropIndexes();
     await database.collection(config.database.local.collections.activeLoginPhrases).createIndex({ createdAt: 1 }, { expireAfterSeconds: 900 });
