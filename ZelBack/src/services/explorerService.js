@@ -381,7 +381,7 @@ async function processBlock(blockHeight) {
         setTimeout(() => {
           if (blockProccessingCanContinue) { // just a precaution because maybe it is just waiting
             // eslint-disable-next-line no-use-before-define
-            initiateBlockProcessor(false);
+            initiateBlockProcessor(false, false);
           } else {
             blockProccessingCanContinue = true;
           }
@@ -397,7 +397,7 @@ async function processBlock(blockHeight) {
     setImmediate(() => {
       log.info('Reinitiating Block Processing');
       // eslint-disable-next-line no-use-before-define
-      initiateBlockProcessor(true);
+      initiateBlockProcessor(true, false);
     }, 3 * 60 * 1000);
   }
 }
@@ -443,7 +443,8 @@ async function restoreDatabaseToBlockheightState(height) {
   return true;
 }
 
-async function initiateBlockProcessor(restoreDatabase) {
+// do a deepRestore of 100 blocks if ZelCash daemon if enouncters an error (mostly zel daemon was down) or if its initial start of flux
+async function initiateBlockProcessor(restoreDatabase, deepRestore) {
   try {
     const db = serviceHelper.databaseConnection();
     const database = db.db(config.database.zelcash.database);
@@ -509,17 +510,11 @@ async function initiateBlockProcessor(restoreDatabase) {
       database.collection(zelappsHashesCollection).createIndex({ zelapphash: 1 }, { name: 'query for getting zelapphash' });
     }
     if (zelcashHeight > scannedBlockHeight) {
-      if (zelcashHeight === config.zelapps.epochstart) {
-        // needed to create index on nodes not syncing from scratch. Remove after zelapps epoch start passes.
-        database.collection(zelappsHashesCollection).createIndex({ txid: 1 }, { name: 'query for getting txid' });
-        database.collection(zelappsHashesCollection).createIndex({ height: 1 }, { name: 'query for getting height' });
-        database.collection(zelappsHashesCollection).createIndex({ zelapphash: 1 }, { name: 'query for getting zelapphash' });
-      }
       if (scannedBlockHeight !== 0 && restoreDatabase) {
         try {
           // adjust for initial reorg
-          if (zelcashHeight < scannedBlockHeight + 100) {
-            // we are less than 100 blocks from zelcash height. Do deep restoring
+          if (deepRestore) {
+            log.info('Deep restoring of databasa!');
             scannedBlockHeight = Math.max(scannedBlockHeight - 100, 0);
             await restoreDatabaseToBlockheightState(scannedBlockHeight);
             const queryHeight = { generalScannedHeight: { $gte: 0 } };
@@ -530,7 +525,7 @@ async function initiateBlockProcessor(restoreDatabase) {
             await serviceHelper.updateOneInDatabase(database, scannedHeightCollection, queryHeight, update, options);
             log.info('Database restored OK');
           } else {
-            // we are more than 100 blocks from zelcash. No need for deep restoring
+            log.info('Restoring database...');
             await restoreDatabaseToBlockheightState(scannedBlockHeight);
             log.info('Database restored OK');
           }
@@ -538,17 +533,52 @@ async function initiateBlockProcessor(restoreDatabase) {
           log.error('Error restoring database!');
           throw e;
         }
+      } else {
+        const zelcashGetChainTips = await zelcashService.getChainTips();
+        if (zelcashGetChainTips.status !== 'success') {
+          throw new Error(zelcashGetInfo.data);
+        }
+        const reorganisations = zelcashGetInfo.data;
+        // database can be off for up to 2 blocks compared to zel chain
+        const reorgDepth = scannedBlockHeight - 2;
+        const reorgs = reorganisations.filter((reorg) => reorg.status === 'valid-fork' && reorg.height === reorgDepth);
+        let rescanDepth = 0;
+        // if more valid forks on the same height. Restore from the longest one
+        reorgs.forEach((reorg) => {
+          if (reorg.branchlen > rescanDepth) {
+            rescanDepth = reorg.branchlen;
+          }
+        });
+        if (rescanDepth > 0) {
+          try {
+            // restore rescanDepth + 2 more blocks back
+            rescanDepth += 2;
+            log.warn(`Potential chain reorganisation spotted at height ${reorgDepth}. Rescanning last ${rescanDepth} blocks`);
+            scannedBlockHeight = Math.max(scannedBlockHeight - rescanDepth, 0);
+            await restoreDatabaseToBlockheightState(scannedBlockHeight);
+            const queryHeight = { generalScannedHeight: { $gte: 0 } };
+            const update = { $set: { generalScannedHeight: scannedBlockHeight } };
+            const options = {
+              upsert: true,
+            };
+            await serviceHelper.updateOneInDatabase(database, scannedHeightCollection, queryHeight, update, options);
+            log.info('Database restored OK');
+          } catch (e) {
+            log.error('Error restoring database!');
+            throw e;
+          }
+        }
       }
       processBlock(scannedBlockHeight + 1);
     } else {
       setTimeout(() => {
-        initiateBlockProcessor(false);
+        initiateBlockProcessor(false, false);
       }, 5000);
     }
   } catch (error) {
     log.error(error);
     setTimeout(() => {
-      initiateBlockProcessor(true);
+      initiateBlockProcessor(true, true);
     }, 15 * 60 * 1000);
   }
 }
@@ -814,7 +844,7 @@ async function restartBlockProcessing(req, res) {
     blockProccessingCanContinue = false;
     checkBlockProcessingStopping(i, async () => {
       blockProccessingCanContinue = true;
-      initiateBlockProcessor(true);
+      initiateBlockProcessor(true, false);
       const message = serviceHelper.createSuccessMessage('Block processing initiated');
       res.json(message);
     });
@@ -845,7 +875,7 @@ async function reindexExplorer(req, res) {
         });
         if (resultOfDropping === true || resultOfDropping === undefined) {
           blockProccessingCanContinue = true;
-          initiateBlockProcessor(true);
+          initiateBlockProcessor(true, false);
           const message = serviceHelper.createSuccessMessage('Explorer database reindex initiated');
           res.json(message);
         } else {
@@ -892,7 +922,7 @@ async function rescanExplorer(req, res) {
             const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
             return res.json(errMessage);
           });
-          initiateBlockProcessor(true);
+          initiateBlockProcessor(true, false);
           const message = serviceHelper.createSuccessMessage(`Explorer rescan from blockheight ${blockheight} initiated`);
           res.json(message);
         }
