@@ -536,9 +536,9 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore) {
       } else {
         const zelcashGetChainTips = await zelcashService.getChainTips();
         if (zelcashGetChainTips.status !== 'success') {
-          throw new Error(zelcashGetInfo.data);
+          throw new Error(zelcashGetChainTips.data);
         }
-        const reorganisations = zelcashGetInfo.data;
+        const reorganisations = zelcashGetChainTips.data;
         // database can be off for up to 2 blocks compared to zel chain
         const reorgDepth = scannedBlockHeight - 2;
         const reorgs = reorganisations.filter((reorg) => reorg.status === 'valid-fork' && reorg.height === reorgDepth);
