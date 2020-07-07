@@ -1202,7 +1202,7 @@ async function startFluxFunctions() {
     // }, 60000);
     log.info('Flux checks operational');
     explorerService.initiateBlockProcessor(true, true);
-    log.info('Flux Block Explorer Service started');
+    log.info('Flux Block Processing Service started');
   } catch (e) {
     log.error(e);
     setTimeout(() => {

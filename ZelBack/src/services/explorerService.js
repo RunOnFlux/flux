@@ -48,7 +48,7 @@ async function getSenderForZelNodeTx(txid, vout) {
   const query = {
     $and: [
       { txid: new RegExp(`^${txid}`) },
-      { voutIndex: vout },
+      { vout },
       {
         $or: [
           { satoshis: 1000000000000 },
@@ -62,7 +62,7 @@ async function getSenderForZelNodeTx(txid, vout) {
     projection: {
       _id: 0,
       txid: 1,
-      // voutIndex: 1,
+      // vout: 1,
       // height: 1,
       address: 1,
       satoshis: 1,
@@ -109,7 +109,7 @@ async function getSenderForZelNodeTx(txid, vout) {
     log.warn(`Transaction ${txid} ${vout} was not found anywhere. Uncomplete tx!`);
     const zelcashTxContent = {
       txid: undefined,
-      // voutIndex: vout,
+      // vout,
       // height: zelcashSender.height,
       address: undefined,
       satoshis: undefined,
@@ -124,13 +124,13 @@ async function getSenderForZelNodeTx(txid, vout) {
 async function getSender(txid, vout) {
   const db = serviceHelper.databaseConnection();
   const database = db.db(config.database.zelcash.database);
-  const query = { $and: [{ txid }, { voutIndex: vout }] };
+  const query = { $and: [{ txid }, { vout }] };
   // we do not need other data as we are just asking what the sender address is.
   const projection = {
     projection: {
       _id: 0,
       // txid: 1,
-      // voutIndex: 1,
+      // vout: 1,
       // height: 1,
       address: 1,
       // satoshis: 1,
@@ -154,7 +154,7 @@ async function getSender(txid, vout) {
     const senderData = zelcashSender.vout[vout];
     const zelcashTxContent = {
       // txid,
-      // voutIndex: vout,
+      // vout,
       // height: zelcashSender.height,
       address: senderData.scriptPubKey.addresses[0], // always exists as it is utxo.
       // satoshis: senderData.valueSat,
@@ -186,7 +186,7 @@ async function processTransaction(txContent, height) {
       if (vout.scriptPubKey.addresses) {
         const utxoDetail = {
           txid: txContent.txid,
-          voutIndex: index,
+          vout: index,
           height,
           address: vout.scriptPubKey.addresses[0],
           satoshis: vout.valueSat,
@@ -284,7 +284,7 @@ async function processBlock(blockHeight) {
     // get Block transactions information
     const transactions = await processBlockTransactions(blockDataVerbose.tx, blockDataVerbose.height);
     // now we have verbose transactions of the block extended for senders - object of
-    // utxoDetail = { txid, voutIndex, height, address, satoshis, scriptPubKey )
+    // utxoDetail = { txid, vout, height, address, satoshis, scriptPubKey )
     // and can create addressTransactionIndex.
     // amount in address can be calculated from utxos. We do not need to store it.
     await Promise.all(transactions.map(async (tx) => {
@@ -494,8 +494,8 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore) {
         }
       });
       console.log(result, resultB, resultC, resultD);
-      database.collection(utxoIndexCollection).createIndex({ txid: 1, voutIndex: 1 }, { name: 'query for getting utxo', unique: true });
-      database.collection(utxoIndexCollection).createIndex({ txid: 1, voutIndex: 1, satoshis: 1 }, { name: 'query for getting utxo for zelnode tx', unique: true });
+      database.collection(utxoIndexCollection).createIndex({ txid: 1, vout: 1 }, { name: 'query for getting utxo', unique: true });
+      database.collection(utxoIndexCollection).createIndex({ txid: 1, vout: 1, satoshis: 1 }, { name: 'query for getting utxo for zelnode tx', unique: true });
       database.collection(utxoIndexCollection).createIndex({ address: 1 }, { name: 'query for addresses utxo' });
       database.collection(utxoIndexCollection).createIndex({ scriptPubKey: 1 }, { name: 'query for scriptPubKey utxo' });
       database.collection(addressTransactionIndexCollection).createIndex({ address: 1 }, { name: 'query for addresses transactions' });
@@ -514,7 +514,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore) {
         try {
           // adjust for initial reorg
           if (deepRestore) {
-            log.info('Deep restoring of databasa!');
+            log.info('Deep restoring of database...');
             scannedBlockHeight = Math.max(scannedBlockHeight - 100, 0);
             await restoreDatabaseToBlockheightState(scannedBlockHeight);
             const queryHeight = { generalScannedHeight: { $gte: 0 } };
@@ -553,7 +553,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore) {
           try {
             // restore rescanDepth + 2 more blocks back
             rescanDepth += 2;
-            log.warn(`Potential chain reorganisation spotted at height ${reorgDepth}. Rescanning last ${rescanDepth} blocks`);
+            log.warn(`Potential chain reorganisation spotted at height ${reorgDepth}. Rescanning last ${rescanDepth} blocks...`);
             scannedBlockHeight = Math.max(scannedBlockHeight - rescanDepth, 0);
             await restoreDatabaseToBlockheightState(scannedBlockHeight);
             const queryHeight = { generalScannedHeight: { $gte: 0 } };
@@ -591,7 +591,7 @@ async function getAllUtxos(req, res) {
     projection: {
       _id: 0,
       txid: 1,
-      voutIndex: 1,
+      vout: 1,
       height: 1,
       address: 1,
       satoshis: 1,
@@ -690,7 +690,7 @@ async function getAddressUtxos(req, res) {
     projection: {
       _id: 0,
       txid: 1,
-      voutIndex: 1,
+      vout: 1,
       height: 1,
       address: 1,
       satoshis: 1,
@@ -948,7 +948,7 @@ async function getAddressBalance(req, res) {
     projection: {
       _id: 0,
       // txid: 1,
-      // voutIndex: 1,
+      // vout: 1,
       // height: 1,
       // address: 1,
       satoshis: 1,
