@@ -1204,18 +1204,6 @@ async function startFluxFunctions() {
         log.error(error);
       }
     });
-    await database.collection(config.database.local.collections.activeLoginPhrases).dropIndexes().catch((error) => {
-      if (error.message !== 'ns not found') {
-        log.error(error);
-      }
-    });
-    console.log('ok');
-    await database.collection(config.database.local.collections.activeSignatures).dropIndexes().catch((error) => {
-      if (error.message !== 'ns not found') {
-        log.error(error);
-      }
-    });
-    console.log('ok2');
     await database.collection(config.database.local.collections.activeLoginPhrases).createIndex({ createdAt: 1 }, { expireAfterSeconds: 900 });
     await database.collection(config.database.local.collections.activeSignatures).createIndex({ createdAt: 1 }, { expireAfterSeconds: 900 });
     log.info('Local database prepared');

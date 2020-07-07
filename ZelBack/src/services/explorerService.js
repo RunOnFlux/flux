@@ -495,11 +495,6 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore) {
       });
       console.log(result, resultB, resultC, resultD);
 
-      await database.collection(utxoIndexCollection).dropIndexes();
-      await database.collection(addressTransactionIndexCollection).dropIndexes();
-      await database.collection(zelnodeTransactionCollection).dropIndexes();
-      await database.collection(zelappsHashesCollection).dropIndexes();
-
       await database.collection(utxoIndexCollection).createIndex({ txid: 1, vout: 1 }, { name: 'query for getting utxo', unique: true });
       await database.collection(utxoIndexCollection).createIndex({ txid: 1, vout: 1, satoshis: 1 }, { name: 'query for getting utxo for zelnode tx', unique: true });
       await database.collection(utxoIndexCollection).createIndex({ address: 1 }, { name: 'query for addresses utxo' });
