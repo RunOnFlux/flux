@@ -197,7 +197,7 @@ async function verifyAdminSession(headers) {
       console.log(auth.signature);
       console.log(userconfig.initial.zelid);
       if (auth.zelid === userconfig.initial.zelid) {
-        const db = databaseConnection;
+        const db = databaseConnection();
         const database = db.db(config.database.local.database);
         const collection = config.database.local.collections.loggedUsers;
         const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
@@ -236,7 +236,7 @@ async function verifyUserSession(headers) {
     const auth = ensureObject(headers.zelidauth);
     console.log(auth);
     if (auth.zelid && auth.signature) {
-      const db = databaseConnection;
+      const db = databaseConnection();
       const database = db.db(config.database.local.database);
       const collection = config.database.local.collections.loggedUsers;
       const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
@@ -272,7 +272,7 @@ async function verifyZelTeamSession(headers) {
     const auth = ensureObject(headers.zelidauth);
     if (auth.zelid && auth.signature) {
       if (auth.zelid === config.zelTeamZelId || auth.zelid === userconfig.initial.zelid) { // admin is considered as zelTeam
-        const db = databaseConnection;
+        const db = databaseConnection();
         const database = db.db(config.database.local.database);
         const collection = config.database.local.collections.loggedUsers;
         const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
