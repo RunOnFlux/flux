@@ -1207,15 +1207,15 @@ async function startFluxFunctions() {
     await database.collection(config.database.local.collections.activeLoginPhrases).createIndex({ createdAt: 1 }, { expireAfterSeconds: 900 });
     await database.collection(config.database.local.collections.activeSignatures).createIndex({ createdAt: 1 }, { expireAfterSeconds: 900 });
     log.info('Local database prepared');
-    // adjustFirewall();
-    // fluxDisovery();
-    // log.info('Flux Discovery started');
-    // keepConnectionsAlive();
-    // keepIncomingConnectionsAlive();
-    // checkDeterministicNodesCollisions();
-    // setInterval(() => {
-    //   checkDeterministicNodesCollisions();
-    // }, 60000);
+    adjustFirewall();
+    fluxDisovery();
+    log.info('Flux Discovery started');
+    keepConnectionsAlive();
+    keepIncomingConnectionsAlive();
+    checkDeterministicNodesCollisions();
+    setInterval(() => {
+      checkDeterministicNodesCollisions();
+    }, 60000);
     log.info('Flux checks operational');
     explorerService.initiateBlockProcessor(true, true);
     log.info('Flux Block Processing Service started');

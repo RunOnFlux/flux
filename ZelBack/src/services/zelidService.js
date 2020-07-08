@@ -295,7 +295,7 @@ async function activeLoginPhrases(req, res) {
     log.error(error);
     throw error;
   });
-  if (true) { // FIXME
+  if (authorized === true) {
     const db = serviceHelper.databaseConnection();
 
     const database = db.db(config.database.local.database);
