@@ -5,11 +5,11 @@ const expect = chai.expect;
 
 // describe('checkAndRequestZelApp', () => {
 //   it('signs checks and requests app properly', async () => {
-//     const apphash = 'abc';
+//     const hash = 'abc';
 //     const txid = '5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh';
 //     const height = 33;
 //     valueSat = 33 * 1e8;
-//     const abc = await appService.checkAndRequestZelApp(apphash, txid, height, valueSat);
+//     const abc = await appService.checkAndRequestZelApp(hash, txid, height, valueSat);
 //     expect(abc).to.equal('abc');
 //   });
 // });

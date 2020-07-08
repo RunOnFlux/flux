@@ -324,7 +324,7 @@ async function processBlock(blockHeight) {
         // MAY contain ZelApp transaction. Store it.
         if (isZelAppMessageValue > 0 && message.length === 64) {
           const zelappTxRecord = {
-            txid: tx.txid, height: blockDataVerbose.height, apphash: message, value: isZelAppMessageValue,
+            txid: tx.txid, height: blockDataVerbose.height, hash: message, value: isZelAppMessageValue,
           };
           await serviceHelper.insertOneToDatabase(database, zelappsHashesCollection, zelappTxRecord);
           zelappsService.checkAndRequestZelApp(message, tx.txid, blockDataVerbose.height, isZelAppMessageValue);
@@ -508,7 +508,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore) {
       await database.collection(zelnodeTransactionCollection).createIndex({ collateralHash: 1, collateralIndex: 1 }, { name: 'query for getting list of zelnode txs associated to specific collateral' });
       await database.collection(zelappsHashesCollection).createIndex({ txid: 1 }, { name: 'query for getting txid' });
       await database.collection(zelappsHashesCollection).createIndex({ height: 1 }, { name: 'query for getting height' });
-      await database.collection(zelappsHashesCollection).createIndex({ apphash: 1 }, { name: 'query for getting apphash' });
+      await database.collection(zelappsHashesCollection).createIndex({ hash: 1 }, { name: 'query for getting app hash' });
 
       const databaseGlobal = db.db(config.database.zelappsglobal.database);
       log.info('Preparing apps collections');

@@ -2471,11 +2471,11 @@ async function storeZelAppPermanentMessage(message) {
   return true;
 }
 
-async function checkZelAppMessageExistence(apphash) {
+async function checkZelAppMessageExistence(hash) {
   try {
     const dbopen = serviceHelper.databaseConnection();
     const zelappsDatabase = dbopen.db(config.database.zelappsglobal.database);
-    const zelappsQuery = { hash: apphash };
+    const zelappsQuery = { hash };
     const zelappsProjection = {};
     // a permanent global zelappmessage looks like this:
     // const permanentZelAppMessage = {
@@ -2500,11 +2500,11 @@ async function checkZelAppMessageExistence(apphash) {
   }
 }
 
-async function checkZelAppTemporaryMessageExistence(apphash) {
+async function checkZelAppTemporaryMessageExistence(hash) {
   try {
     const dbopen = serviceHelper.databaseConnection();
     const zelappsDatabase = dbopen.db(config.database.zelappsglobal.database);
-    const zelappsQuery = { hash: apphash };
+    const zelappsQuery = { hash };
     const zelappsProjection = {};
     // a temporary zelappmessage looks like this:
     // const newMessage = {
@@ -2529,14 +2529,14 @@ async function checkZelAppTemporaryMessageExistence(apphash) {
 }
 
 // hash of zelapp information, txid it was in, height of blockchain containing the txid
-async function checkAndRequestZelApp(apphash, txid, height, valueSat, i = 0) {
+async function checkAndRequestZelApp(hash, txid, height, valueSat, i = 0) {
   try {
-    const appMessageExists = await checkZelAppMessageExistence(apphash);
+    const appMessageExists = await checkZelAppMessageExistence(hash);
     if (appMessageExists === false) { // otherwise do nothing
       // we surely do not have that message in permanent storaage.
       // check temporary message storage
       // if we have it in temporary storage, get the temporary message
-      const tempMessage = await checkZelAppTemporaryMessageExistence(apphash);
+      const tempMessage = await checkZelAppTemporaryMessageExistence(hash);
       if (tempMessage) {
         // check if value is optimal or higher
         const appPrice = appPricePerMonth(tempMessage.zelAppSpecifications);
@@ -2557,12 +2557,12 @@ async function checkAndRequestZelApp(apphash, txid, height, valueSat, i = 0) {
         } // else do nothing
       } else {
         // request the message and broadcast the message further to our connected peers.
-        requestZelAppMessage(apphash);
+        requestZelAppMessage(hash);
         // rerun this after 1 min delay
         // stop this loop after 1 hour, as it might be a scammy message or simply this message is nowhere on the network
         if (i < 60) {
           await serviceHelper.delay(60 * 1000);
-          checkAndRequestZelApp(apphash, txid, height, valueSat, i + 1);
+          checkAndRequestZelApp(hash, txid, height, valueSat, i + 1);
         }
         // TODO additional constant requesting of missing zelapp messages
       }
