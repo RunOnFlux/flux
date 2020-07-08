@@ -5,11 +5,11 @@ const expect = chai.expect;
 
 // describe('checkAndRequestZelApp', () => {
 //   it('signs checks and requests app properly', async () => {
-//     const zelapphash = 'abc';
+//     const apphash = 'abc';
 //     const txid = '5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh';
 //     const height = 33;
 //     valueSat = 33 * 1e8;
-//     const abc = await appService.checkAndRequestZelApp(zelapphash, txid, height, valueSat);
+//     const abc = await appService.checkAndRequestZelApp(apphash, txid, height, valueSat);
 //     expect(abc).to.equal('abc');
 //   });
 // });
@@ -246,7 +246,7 @@ describe('checkHWParameters', () => {
       timestamp,
       signature,
     }
-    expect(await appService.verifyZelAppHash(message)).to.be.equal(true);
+    expect(await appService.verifyAppHash(message)).to.be.equal(true);
   });
 
   it('Message is correctly signed', async () => {

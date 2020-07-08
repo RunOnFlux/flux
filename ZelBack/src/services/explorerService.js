@@ -324,7 +324,7 @@ async function processBlock(blockHeight) {
         // MAY contain ZelApp transaction. Store it.
         if (isZelAppMessageValue > 0 && message.length === 64) {
           const zelappTxRecord = {
-            txid: tx.txid, height: blockDataVerbose.height, zelapphash: message, value: isZelAppMessageValue,
+            txid: tx.txid, height: blockDataVerbose.height, apphash: message, value: isZelAppMessageValue,
           };
           await serviceHelper.insertOneToDatabase(database, zelappsHashesCollection, zelappTxRecord);
           zelappsService.checkAndRequestZelApp(message, tx.txid, blockDataVerbose.height, isZelAppMessageValue);
@@ -472,7 +472,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore) {
     // get scanned height from our database;
     // get height from blockchain?
     if (scannedBlockHeight === 0) {
-      console.log('dropping collections');
+      log.info('Preparing zelcash collections');
       const result = await serviceHelper.dropCollection(database, utxoIndexCollection).catch((error) => {
         if (error.message !== 'ns not found') {
           throw error;
@@ -493,7 +493,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore) {
           throw error;
         }
       });
-      console.log(result, resultB, resultC, resultD);
+      log.info(result, resultB, resultC, resultD);
 
       await database.collection(utxoIndexCollection).createIndex({ txid: 1, vout: 1 }, { name: 'query for getting utxo', unique: true });
       await database.collection(utxoIndexCollection).createIndex({ txid: 1, vout: 1, satoshis: 1 }, { name: 'query for getting utxo for zelnode tx', unique: true });
@@ -508,7 +508,35 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore) {
       await database.collection(zelnodeTransactionCollection).createIndex({ collateralHash: 1, collateralIndex: 1 }, { name: 'query for getting list of zelnode txs associated to specific collateral' });
       await database.collection(zelappsHashesCollection).createIndex({ txid: 1 }, { name: 'query for getting txid' });
       await database.collection(zelappsHashesCollection).createIndex({ height: 1 }, { name: 'query for getting height' });
-      await database.collection(zelappsHashesCollection).createIndex({ zelapphash: 1 }, { name: 'query for getting zelapphash' });
+      await database.collection(zelappsHashesCollection).createIndex({ apphash: 1 }, { name: 'query for getting apphash' });
+
+      const databaseGlobal = db.db(config.database.zelappsglobal.database);
+      log.info('Preparing apps collections');
+      // in the future we may want to decide to drop these collections and rebuild them with syncing. Disabled for now.
+      // const resultE = await serviceHelper.dropCollection(databaseGlobal, config.database.zelappsglobal.collections.zelappsMessages).catch((error) => {
+      //   if (error.message !== 'ns not found') {
+      //     throw error;
+      //   }
+      // });
+      // const resultF = await serviceHelper.dropCollection(databaseGlobal, config.database.zelappsglobal.collections.zelappsInformation).catch((error) => {
+      //   if (error.message !== 'ns not found') {
+      //     throw error;
+      //   }
+      // });
+      await databaseGlobal.collection(config.database.zelappsglobal.collections.zelappsMessages).createIndex({ hash: 1 }, { name: 'query for getting zelapp message based on hash' });
+      await databaseGlobal.collection(config.database.zelappsglobal.collections.zelappsMessages).createIndex({ txid: 1 }, { name: 'query for getting zelapp message based on txid' });
+      await databaseGlobal.collection(config.database.zelappsglobal.collections.zelappsMessages).createIndex({ height: 1 }, { name: 'query for getting zelapp message based on txid' });
+      await databaseGlobal.collection(config.database.zelappsglobal.collections.zelappsMessages).createIndex({ 'zelAppSpecifications.name': 1 }, { name: 'query for getting zelapp message based on zelapp specs name' });
+      await databaseGlobal.collection(config.database.zelappsglobal.collections.zelappsMessages).createIndex({ 'zelAppSpecifications.owner': 1 }, { name: 'query for getting zelapp message based on zelapp specs owner' });
+      await databaseGlobal.collection(config.database.zelappsglobal.collections.zelappsMessages).createIndex({ 'zelAppSpecifications.repotag': 1 }, { name: 'query for getting zelapp message based on image' });
+      await databaseGlobal.collection(config.database.zelappsglobal.collections.zelappsInformation).createIndex({ name: 1 }, { name: 'query for getting zelapp based on zelapp specs name' });
+      await databaseGlobal.collection(config.database.zelappsglobal.collections.zelappsInformation).createIndex({ owner: 1 }, { name: 'query for getting zelapp based on zelapp specs owner' });
+      await databaseGlobal.collection(config.database.zelappsglobal.collections.zelappsInformation).createIndex({ repotag: 1 }, { name: 'query for getting zelapp based on image' });
+      await databaseGlobal.collection(config.database.zelappsglobal.collections.zelappsInformation).createIndex({ height: 1 }, { name: 'query for getting zelapp based on last height update' }); // we need to know the height of app adjustment
+      await databaseGlobal.collection(config.database.zelappsglobal.collections.zelappsInformation).createIndex({ hash: 1 }, { name: 'query for getting zelapp based on last hash' }); // we need to know the hash of the last message update which is the true identifier
+      // what if 2 app adjustment come in the same block?
+      // log.info(resultE, resultF);
+      log.info('Preparation done');
     }
     if (zelcashHeight > scannedBlockHeight) {
       if (scannedBlockHeight !== 0 && restoreDatabase) {

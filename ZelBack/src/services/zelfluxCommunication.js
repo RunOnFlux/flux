@@ -1207,6 +1207,11 @@ async function startFluxFunctions() {
     await database.collection(config.database.local.collections.activeLoginPhrases).createIndex({ createdAt: 1 }, { expireAfterSeconds: 900 });
     await database.collection(config.database.local.collections.activeSignatures).createIndex({ createdAt: 1 }, { expireAfterSeconds: 900 });
     log.info('Local database prepared');
+    log.info('Preparing temporary database...');
+    // no need to drop temporary messages
+    const databaseTemp = db.db(config.database.zelappsglobal.database);
+    await databaseTemp.collection(config.database.zelappsglobal.collections.zelappsTemporaryMessages).createIndex({ createdAt: 1 }, { expireAfterSeconds: 3600 });
+    log.info('Temporary database prepared');
     adjustFirewall();
     fluxDisovery();
     log.info('Flux Discovery started');

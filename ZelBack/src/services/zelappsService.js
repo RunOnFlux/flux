@@ -1923,7 +1923,7 @@ async function messageHash(message) {
   return crypto.createHash('sha256').update(message).digest('hex');
 }
 
-async function verifyZelAppHash(message) {
+async function verifyAppHash(message) {
   /* message object
   * @param type string
   * @param version number
@@ -2035,7 +2035,7 @@ async function storeZelAppTemporaryMessage(message, furtherVerification = false)
   // data shall already be verified by the broadcasting node. But verify all again.
   if (furtherVerification) {
     await verifyZelAppSpecifications(message.zelAppSpecifications);
-    await verifyZelAppHash(message);
+    await verifyAppHash(message);
     await verifyZelAppMessageSignature(message.type, message.version, message.zelAppSpecifications, message.timestamp, message.signature);
   }
 
@@ -2044,7 +2044,6 @@ async function storeZelAppTemporaryMessage(message, furtherVerification = false)
 
   const db = serviceHelper.databaseConnection();
   const database = db.db(config.database.zelappsglobal.database);
-  await database.collection(globalZelAppsTempMessages).createIndex({ createdAt: 1 }, { expireAfterSeconds: 3600 });
   const newMessage = {
     zelAppSpecifications: message.zelAppSpecifications,
     type: message.type,
@@ -2472,11 +2471,11 @@ async function storeZelAppPermanentMessage(message) {
   return true;
 }
 
-async function checkZelAppMessageExistence(zelapphash) {
+async function checkZelAppMessageExistence(apphash) {
   try {
     const dbopen = serviceHelper.databaseConnection();
     const zelappsDatabase = dbopen.db(config.database.zelappsglobal.database);
-    const zelappsQuery = { hash: zelapphash };
+    const zelappsQuery = { hash: apphash };
     const zelappsProjection = {};
     // a permanent global zelappmessage looks like this:
     // const permanentZelAppMessage = {
@@ -2501,11 +2500,11 @@ async function checkZelAppMessageExistence(zelapphash) {
   }
 }
 
-async function checkZelAppTemporaryMessageExistence(zelapphash) {
+async function checkZelAppTemporaryMessageExistence(apphash) {
   try {
     const dbopen = serviceHelper.databaseConnection();
     const zelappsDatabase = dbopen.db(config.database.zelappsglobal.database);
-    const zelappsQuery = { hash: zelapphash };
+    const zelappsQuery = { hash: apphash };
     const zelappsProjection = {};
     // a temporary zelappmessage looks like this:
     // const newMessage = {
@@ -2530,14 +2529,14 @@ async function checkZelAppTemporaryMessageExistence(zelapphash) {
 }
 
 // hash of zelapp information, txid it was in, height of blockchain containing the txid
-async function checkAndRequestZelApp(zelapphash, txid, height, valueSat, i = 0) {
+async function checkAndRequestZelApp(apphash, txid, height, valueSat, i = 0) {
   try {
-    const appMessageExists = await checkZelAppMessageExistence(zelapphash);
+    const appMessageExists = await checkZelAppMessageExistence(apphash);
     if (appMessageExists === false) { // otherwise do nothing
       // we surely do not have that message in permanent storaage.
       // check temporary message storage
       // if we have it in temporary storage, get the temporary message
-      const tempMessage = await checkZelAppTemporaryMessageExistence(zelapphash);
+      const tempMessage = await checkZelAppTemporaryMessageExistence(apphash);
       if (tempMessage) {
         // check if value is optimal or higher
         const appPrice = appPricePerMonth(tempMessage.zelAppSpecifications);
@@ -2558,12 +2557,12 @@ async function checkAndRequestZelApp(zelapphash, txid, height, valueSat, i = 0) 
         } // else do nothing
       } else {
         // request the message and broadcast the message further to our connected peers.
-        requestZelAppMessage(zelapphash);
+        requestZelAppMessage(apphash);
         // rerun this after 1 min delay
         // stop this loop after 1 hour, as it might be a scammy message or simply this message is nowhere on the network
         if (i < 60) {
           await serviceHelper.delay(60 * 1000);
-          checkAndRequestZelApp(zelapphash, txid, height, valueSat, i + 1);
+          checkAndRequestZelApp(apphash, txid, height, valueSat, i + 1);
         }
         // TODO additional constant requesting of missing zelapp messages
       }
@@ -2663,6 +2662,6 @@ module.exports = {
   verifyRepository,
   checkHWParameters,
   messageHash,
-  verifyZelAppHash,
+  verifyAppHash,
   verifyZelAppMessageSignature,
 };
