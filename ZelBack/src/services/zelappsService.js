@@ -1923,6 +1923,38 @@ async function messageHash(message) {
   return crypto.createHash('sha256').update(message).digest('hex');
 }
 
+async function getZelAppsPermanentMessages(req, res) {
+  const db = serviceHelper.databaseConnection();
+
+  const database = db.db(config.database.zelappsglobal.database);
+  const query = {};
+  const projection = { projection: { _id: 0 } };
+  const results = await serviceHelper.findInDatabase(database, globalZelAppsMessages, query, projection).catch((error) => {
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+    log.error(error);
+    throw error;
+  });
+  const resultsResponse = serviceHelper.createDataMessage(results);
+  res.json(resultsResponse);
+}
+
+async function getGlobalZelAppsSpecifications(req, res) {
+  const db = serviceHelper.databaseConnection();
+
+  const database = db.db(config.database.zelappsglobal.database);
+  const query = {};
+  const projection = { projection: { _id: 0 } };
+  const results = await serviceHelper.findInDatabase(database, globalZelAppsInformation, query, projection).catch((error) => {
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+    log.error(error);
+    throw error;
+  });
+  const resultsResponse = serviceHelper.createDataMessage(results);
+  res.json(resultsResponse);
+}
+
 async function verifyAppHash(message) {
   /* message object
   * @param type string
@@ -2471,6 +2503,53 @@ async function storeZelAppPermanentMessage(message) {
   return true;
 }
 
+async function updateZelAppSpecifications(zelAppSpecs, i = 0) {
+  try {
+    // zelAppSpecs: {
+    //   version: 1,
+    //   name: 'FoldingAtHome',
+    //   description: 'Folding @ Home is cool :)',
+    //   repotag: 'yurinnick/folding-at-home:latest',
+    //   owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+    //   port: 30001,
+    //   enviromentParameters: '["USER=foldingUser", "TEAM=262156", "ENABLE_GPU=false", "ENABLE_SMP=true"]', // []
+    //   commands: '["--allow","0/0","--web-allow","0/0"]', // []
+    //   containerPort: 7396,
+    //   containerData: '/config',
+    //   cpu: 0.5,
+    //   ram: 500,
+    //   hdd: 5,
+    //   tiered: true,
+    //   cpubasic: 0.5,
+    //   rambasic: 500,
+    //   hddbasic: 5,
+    //   cpusuper: 1,
+    //   ramsuper: 1000,
+    //   hddsuper: 5,
+    //   cpubamf: 2,
+    //   rambamf: 2000,
+    //   hddbamf: 5,
+    //   hash: hash of message that has these paramenters,
+    //   height: height containing the message
+    // };
+    const db = serviceHelper.databaseConnection();
+    const database = db.db(config.database.zelappsglobal.database);
+
+    const query = { name: zelAppSpecs.name };
+    const update = { $set: zelAppSpecs };
+    const options = {
+      upsert: true,
+    };
+    await serviceHelper.updateOneInDatabase(database, globalZelAppsInformation, query, update, options);
+  } catch (error) {
+    log.error(error);
+    if (i < 60) {
+      await serviceHelper.delay(60 * 1000);
+      updateZelAppSpecifications(zelAppSpecs, i + 1);
+    }
+  }
+}
+
 async function checkZelAppMessageExistence(hash) {
   try {
     const dbopen = serviceHelper.databaseConnection();
@@ -2539,7 +2618,7 @@ async function checkAndRequestZelApp(hash, txid, height, valueSat, i = 0) {
       const tempMessage = await checkZelAppTemporaryMessageExistence(hash);
       if (tempMessage) {
         // check if value is optimal or higher
-        const appPrice = appPricePerMonth(tempMessage.zelAppSpecifications);
+        const appPrice = await appPricePerMonth(tempMessage.zelAppSpecifications);
         if (valueSat >= appPrice * 1e8) {
           // if all ok. store it as permanent zelapp message
           const permanentZelAppMessage = {
@@ -2553,7 +2632,13 @@ async function checkAndRequestZelApp(hash, txid, height, valueSat, i = 0) {
             height: serviceHelper.ensureNumber(height),
             valueSat: serviceHelper.ensureNumber(valueSat),
           };
-          storeZelAppPermanentMessage(permanentZelAppMessage);
+          await storeZelAppPermanentMessage(permanentZelAppMessage);
+          const updateForSpecifications = permanentZelAppMessage.zelAppSpecifications;
+          updateForSpecifications.hash = permanentZelAppMessage.hash;
+          updateForSpecifications.height = permanentZelAppMessage.height;
+          // object of zelAppSpecifications extended for hash and height
+          // do not await this
+          updateZelAppSpecifications(updateForSpecifications);
         } // else do nothing
       } else {
         // request the message and broadcast the message further to our connected peers.
@@ -2658,6 +2743,8 @@ module.exports = {
   registrationInformation,
   appPricePerMonth,
   getZelAppsTemporaryMessages,
+  getZelAppsPermanentMessages,
+  getGlobalZelAppsSpecifications,
   storeZelAppTemporaryMessage,
   verifyRepository,
   checkHWParameters,

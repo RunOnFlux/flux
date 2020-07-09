@@ -245,6 +245,12 @@ module.exports = (app, expressWs) => {
   app.get('/zelapps/temporarymessages', (req, res) => {
     zelappsService.getZelAppsTemporaryMessages(req, res);
   });
+  app.get('/zelapps/permanentmessages', (req, res) => {
+    zelappsService.getZelAppsPermanentMessages(req, res);
+  });
+  app.get('/zelapps/globalspecifications', (req, res) => {
+    zelappsService.getGlobalZelAppsSpecifications(req, res);
+  });
 
   // app.get('/explorer/allutxos', (req, res) => {
   //   explorerService.getAllUtxos(req, res);
