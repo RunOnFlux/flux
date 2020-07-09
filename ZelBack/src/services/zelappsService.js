@@ -2538,7 +2538,19 @@ async function updateZelAppSpecifications(zelAppSpecs, i = 0) {
     const options = {
       upsert: true,
     };
-    await serviceHelper.updateOneInDatabase(database, globalZelAppsInformation, query, update, options);
+    const projection = {
+      projection: {
+        _id: 0,
+      },
+    };
+    const zelappInfo = await serviceHelper.findOneInDatabase(database, globalZelAppsInformation, query, projection);
+    if (zelappInfo) {
+      if (zelappInfo.height < zelAppSpecs.height) {
+        await serviceHelper.updateOneInDatabase(database, globalZelAppsInformation, query, update, options);
+      }
+    } else {
+      await serviceHelper.updateOneInDatabase(database, globalZelAppsInformation, query, update, options);
+    }
   } catch (error) {
     log.error(error);
     if (i < 60) {
@@ -2546,6 +2558,58 @@ async function updateZelAppSpecifications(zelAppSpecs, i = 0) {
       updateZelAppSpecifications(zelAppSpecs, i + 1);
     }
   }
+}
+
+async function updateZelAppSpecsForRescanReindex(zelAppSpecs) {
+  // zelAppSpecs: {
+  //   version: 1,
+  //   name: 'FoldingAtHome',
+  //   description: 'Folding @ Home is cool :)',
+  //   repotag: 'yurinnick/folding-at-home:latest',
+  //   owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+  //   port: 30001,
+  //   enviromentParameters: '["USER=foldingUser", "TEAM=262156", "ENABLE_GPU=false", "ENABLE_SMP=true"]', // []
+  //   commands: '["--allow","0/0","--web-allow","0/0"]', // []
+  //   containerPort: 7396,
+  //   containerData: '/config',
+  //   cpu: 0.5,
+  //   ram: 500,
+  //   hdd: 5,
+  //   tiered: true,
+  //   cpubasic: 0.5,
+  //   rambasic: 500,
+  //   hddbasic: 5,
+  //   cpusuper: 1,
+  //   ramsuper: 1000,
+  //   hddsuper: 5,
+  //   cpubamf: 2,
+  //   rambamf: 2000,
+  //   hddbamf: 5,
+  //   hash: hash of message that has these paramenters,
+  //   height: height containing the message
+  // };
+  const db = serviceHelper.databaseConnection();
+  const database = db.db(config.database.zelappsglobal.database);
+
+  const query = { name: zelAppSpecs.name };
+  const update = { $set: zelAppSpecs };
+  const options = {
+    upsert: true,
+  };
+  const projection = {
+    projection: {
+      _id: 0,
+    },
+  };
+  const zelappInfo = await serviceHelper.findOneInDatabase(database, globalZelAppsInformation, query, projection);
+  if (zelappInfo) {
+    if (zelappInfo.height < zelAppSpecs.height) {
+      await serviceHelper.updateOneInDatabase(database, globalZelAppsInformation, query, update, options);
+    }
+  } else {
+    await serviceHelper.updateOneInDatabase(database, globalZelAppsInformation, query, update, options);
+  }
+  return true;
 }
 
 async function checkZelAppMessageExistence(hash) {
@@ -2705,13 +2769,71 @@ function registrationInformation(req, res) {
   }
 }
 
-// async function reindexGlobalAppsInformation() {
-//   // function that drops global zelapps information and goes over all global zelapps messages and reconsturcts the index. Further creates database indexes
-// }
+// function that drops global zelapps information and goes over all global zelapps messages and reconsturcts the global zelapps information. Further creates database indexes
+async function reindexGlobalAppsInformation() {
+  try {
+    const db = serviceHelper.databaseConnection();
+    const database = db.db(config.database.zelappsglobal.database);
+    await serviceHelper.dropCollection(database, globalZelAppsInformation).catch((error) => {
+      if (error.message !== 'ns not found') {
+        throw error;
+      }
+    });
+    await database.collection(globalZelAppsInformation).createIndex({ name: 1 }, { name: 'query for getting zelapp based on zelapp specs name' });
+    await database.collection(globalZelAppsInformation).createIndex({ owner: 1 }, { name: 'query for getting zelapp based on zelapp specs owner' });
+    await database.collection(globalZelAppsInformation).createIndex({ repotag: 1 }, { name: 'query for getting zelapp based on image' });
+    await database.collection(globalZelAppsInformation).createIndex({ height: 1 }, { name: 'query for getting zelapp based on last height update' }); // we need to know the height of app adjustment
+    await database.collection(globalZelAppsInformation).createIndex({ hash: 1 }, { name: 'query for getting zelapp based on last hash' }); // we need to know the hash of the last message update which is the true identifier
+    const query = {};
+    const projection = { projection: { _id: 0 } };
+    const results = await serviceHelper.findInDatabase(database, globalZelAppsMessages, query, projection);
+    // eslint-disable-next-line no-restricted-syntax
+    for (const message of results) {
+      const updateForSpecifications = message.zelAppSpecifications;
+      updateForSpecifications.hash = message.hash;
+      updateForSpecifications.height = message.height;
+      // eslint-disable-next-line no-await-in-loop
+      await updateZelAppSpecsForRescanReindex(updateForSpecifications);
+    }
+    return true;
+  } catch (error) {
+    log.error(error);
+    throw error;
+  }
+}
 
-// async function rescanGlobalAppsInformation() {
-//   // function goes over all global zelapps messages and updates global zelapps infromation database
-// }
+// function goes over all global zelapps messages and updates global zelapps infromation database
+async function rescanGlobalAppsInformation(height = 0, removeLastInformation = false) {
+  try {
+    const db = serviceHelper.databaseConnection();
+    const database = db.db(config.database.zelappsglobal.database);
+    await serviceHelper.dropCollection(database, globalZelAppsInformation).catch((error) => {
+      if (error.message !== 'ns not found') {
+        throw error;
+      }
+    });
+    const query = { height: { $gte: height } };
+    const projection = { projection: { _id: 0 } };
+    const results = await serviceHelper.findInDatabase(database, globalZelAppsMessages, query, projection);
+
+    if (removeLastInformation === true) {
+      await serviceHelper.removeDocumentsFromCollection(database, globalZelAppsInformation, query);
+    }
+
+    // eslint-disable-next-line no-restricted-syntax
+    for (const message of results) {
+      const updateForSpecifications = message.zelAppSpecifications;
+      updateForSpecifications.hash = message.hash;
+      updateForSpecifications.height = message.height;
+      // eslint-disable-next-line no-await-in-loop
+      await updateZelAppSpecsForRescanReindex(updateForSpecifications);
+    }
+    return true;
+  } catch (error) {
+    log.error(error);
+    throw error;
+  }
+}
 
 module.exports = {
   dockerListContainers,
@@ -2757,4 +2879,6 @@ module.exports = {
   messageHash,
   verifyAppHash,
   verifyZelAppMessageSignature,
+  reindexGlobalAppsInformation,
+  rescanGlobalAppsInformation,
 };
