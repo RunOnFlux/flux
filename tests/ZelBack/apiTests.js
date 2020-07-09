@@ -16,6 +16,7 @@ describe('loading express', function () {
   after(function (done) {
     server.close(done);
   });
+  beforeEach(done => setTimeout(done, 500));
   it('/zelflux/version', function testSlash(done) {
     request(server)
       .get('/zelflux/version')
