@@ -5,7 +5,6 @@ const chai = require('chai');
 const expect = chai.expect;
 const app = require('../../ZelBack/src/lib/server.js');
 const log = require('../../ZelBack/src/lib/log');
-const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const packageJson = require('../../package.json');
 const { version } = packageJson;
 
@@ -16,10 +15,13 @@ const server = app.listen(config.server.apiport, () => {
 describe('loading express', function () {
   after(function (done) {
     server.close(done);
+    setTimeout(() => {
+      process.exit();
+    }, 10000);
   });
-  beforeEach(done => {
-    serviceHelper.initiateDB();
-    setTimeout(done, 500);
+  before(async () => {
+    const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+    await serviceHelper.initiateDB();
   });
   it('/zelflux/version', function testSlash(done) {
     request(server)

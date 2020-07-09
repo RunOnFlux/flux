@@ -1,3 +1,4 @@
+process.env.NODE_CONFIG_DIR = `${process.cwd()}/ZelBack/config/`;
 const communication = require('../../ZelBack/src/services/zelfluxCommunication');
 const zelnodeList = require('./data/listzelnodes.json')
 const chai = require('chai');
