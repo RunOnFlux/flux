@@ -2431,10 +2431,8 @@ async function availableZelApps(req, res) {
       ],
       containerPort: 7396,
       containerData: '/config',
-      // below not part of message data. Signature from above data
-      signature: 'todo',
-      // txid of transaction that brings the hash message to zel blockchain
-      txid: 'todo',
+      hash: 'abcd', // hash of app message
+      height: 'abcd', // height of tx on which it was
     },
   ];
 
@@ -2618,7 +2616,7 @@ async function checkAndRequestZelApp(hash, txid, height, valueSat, i = 0) {
       const tempMessage = await checkZelAppTemporaryMessageExistence(hash);
       if (tempMessage) {
         // check if value is optimal or higher
-        const appPrice = await appPricePerMonth(tempMessage.zelAppSpecifications);
+        const appPrice = appPricePerMonth(tempMessage.zelAppSpecifications);
         if (valueSat >= appPrice * 1e8) {
           // if all ok. store it as permanent zelapp message
           const permanentZelAppMessage = {
@@ -2649,7 +2647,7 @@ async function checkAndRequestZelApp(hash, txid, height, valueSat, i = 0) {
           await serviceHelper.delay(60 * 1000);
           checkAndRequestZelApp(hash, txid, height, valueSat, i + 1);
         }
-        // TODO additional constant requesting of missing zelapp messages
+        // additional requesting of missing zelapp messages is done on rescans
       }
     }
   } catch (error) {
@@ -2706,6 +2704,14 @@ function registrationInformation(req, res) {
     res.json(errorResponse);
   }
 }
+
+// async function reindexGlobalAppsInformation() {
+//   // function that drops global zelapps information and goes over all global zelapps messages and reconsturcts the index. Further creates database indexes
+// }
+
+// async function rescanGlobalAppsInformation() {
+//   // function goes over all global zelapps messages and updates global zelapps infromation database
+// }
 
 module.exports = {
   dockerListContainers,

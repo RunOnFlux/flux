@@ -607,7 +607,7 @@ module.exports = (app, expressWs) => {
     zelbenchService.restartNodeBenchmarks(req, res);
   });
 
-  app.get('/explorer/reindex', (req, res) => {
+  app.get('/explorer/reindex/:reindexapps?', (req, res) => {
     explorerService.reindexExplorer(req, res);
   });
   app.get('/explorer/restart', (req, res) => {
@@ -616,7 +616,7 @@ module.exports = (app, expressWs) => {
   app.get('/explorer/stop', (req, res) => {
     explorerService.stopBlockProcessing(req, res);
   });
-  app.get('/explorer/rescan/:blockheight?', (req, res) => {
+  app.get('/explorer/rescan/:blockheight?/:rescanapps?', (req, res) => {
     explorerService.rescanExplorer(req, res);
   });
 

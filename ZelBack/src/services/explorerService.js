@@ -175,7 +175,6 @@ async function processTransaction(txContent, height) {
     // if transaction has no vouts, it cannot be an utxo. Do not store it.
     await Promise.all(transactionDetail.vout.map(async (vout, index) => {
       // we need only utxo related information
-      // TODO if tx.vin is type of coinbase!
       let coinbase = false;
       if (transactionDetail.vin[0]) {
         if (transactionDetail.vin[0].coinbase) {
@@ -306,7 +305,7 @@ async function processBlock(blockHeight) {
             }
           }
           if (receiver.scriptPubKey.asm) {
-            message = decodeMessage(receiver.scriptPubKey.asm); // TODO adding messages to database so we can then get all messages from blockchain
+            message = decodeMessage(receiver.scriptPubKey.asm);
           }
         });
         const addressesOK = [...new Set(addresses)];
@@ -402,7 +401,7 @@ async function processBlock(blockHeight) {
   }
 }
 
-async function restoreDatabaseToBlockheightState(height) {
+async function restoreDatabaseToBlockheightState(height, rescanGlobalApps = false) {
   if (!height) {
     throw new Error('No blockheight for restoring provided');
   }
@@ -440,11 +439,25 @@ async function restoreDatabaseToBlockheightState(height) {
     log.error(error);
     throw error;
   });
+  if (rescanGlobalApps === true) {
+    const databaseGlobal = database.db(config.database.zelappsglobal.database);
+    log.info('Rescanning Apps!');
+    await serviceHelper.removeDocumentsFromCollection(databaseGlobal, config.database.zelappsglobal.collections.zelappsMessages, query).catch((error) => {
+      log.error(error);
+      throw error;
+    });
+    await serviceHelper.removeDocumentsFromCollection(databaseGlobal, config.database.zelappsglobal.collections.zelappsInformation, query).catch((error) => {
+      log.error(error);
+      throw error;
+    });
+  }
+  log.info('Rescan completed');
   return true;
 }
 
 // do a deepRestore of 100 blocks if ZelCash daemon if enouncters an error (mostly zel daemon was down) or if its initial start of flux
-async function initiateBlockProcessor(restoreDatabase, deepRestore) {
+// use reindexGlobalApps with caution!!!
+async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRescanGlobalApps) {
   try {
     const db = serviceHelper.databaseConnection();
     const database = db.db(config.database.zelcash.database);
@@ -512,17 +525,19 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore) {
 
       const databaseGlobal = db.db(config.database.zelappsglobal.database);
       log.info('Preparing apps collections');
-      // in the future we may want to decide to drop these collections and rebuild them with syncing. Disabled for now.
-      // const resultE = await serviceHelper.dropCollection(databaseGlobal, config.database.zelappsglobal.collections.zelappsMessages).catch((error) => {
-      //   if (error.message !== 'ns not found') {
-      //     throw error;
-      //   }
-      // });
-      // const resultF = await serviceHelper.dropCollection(databaseGlobal, config.database.zelappsglobal.collections.zelappsInformation).catch((error) => {
-      //   if (error.message !== 'ns not found') {
-      //     throw error;
-      //   }
-      // });
+      if (reindexOrRescanGlobalApps === true) {
+        const resultE = await serviceHelper.dropCollection(databaseGlobal, config.database.zelappsglobal.collections.zelappsMessages).catch((error) => {
+          if (error.message !== 'ns not found') {
+            throw error;
+          }
+        });
+        const resultF = await serviceHelper.dropCollection(databaseGlobal, config.database.zelappsglobal.collections.zelappsInformation).catch((error) => {
+          if (error.message !== 'ns not found') {
+            throw error;
+          }
+        });
+        log.info(resultE, resultF);
+      }
       await databaseGlobal.collection(config.database.zelappsglobal.collections.zelappsMessages).createIndex({ hash: 1 }, { name: 'query for getting zelapp message based on hash' });
       await databaseGlobal.collection(config.database.zelappsglobal.collections.zelappsMessages).createIndex({ txid: 1 }, { name: 'query for getting zelapp message based on txid' });
       await databaseGlobal.collection(config.database.zelappsglobal.collections.zelappsMessages).createIndex({ height: 1 }, { name: 'query for getting zelapp message based on txid' });
@@ -539,13 +554,13 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore) {
       log.info('Preparation done');
     }
     if (zelcashHeight > scannedBlockHeight) {
-      if (scannedBlockHeight !== 0 && restoreDatabase) {
+      if (scannedBlockHeight !== 0 && restoreDatabase === true) {
         try {
           // adjust for initial reorg
-          if (deepRestore) {
+          if (deepRestore === true) {
             log.info('Deep restoring of database...');
             scannedBlockHeight = Math.max(scannedBlockHeight - 100, 0);
-            await restoreDatabaseToBlockheightState(scannedBlockHeight);
+            await restoreDatabaseToBlockheightState(scannedBlockHeight, reindexOrRescanGlobalApps);
             const queryHeight = { generalScannedHeight: { $gte: 0 } };
             const update = { $set: { generalScannedHeight: scannedBlockHeight } };
             const options = {
@@ -555,7 +570,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore) {
             log.info('Database restored OK');
           } else {
             log.info('Restoring database...');
-            await restoreDatabaseToBlockheightState(scannedBlockHeight);
+            await restoreDatabaseToBlockheightState(scannedBlockHeight, reindexOrRescanGlobalApps);
             log.info('Database restored OK');
           }
         } catch (e) {
@@ -584,7 +599,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore) {
             rescanDepth += 2;
             log.warn(`Potential chain reorganisation spotted at height ${reorgDepth}. Rescanning last ${rescanDepth} blocks...`);
             scannedBlockHeight = Math.max(scannedBlockHeight - rescanDepth, 0);
-            await restoreDatabaseToBlockheightState(scannedBlockHeight);
+            await restoreDatabaseToBlockheightState(scannedBlockHeight, reindexOrRescanGlobalApps);
             const queryHeight = { generalScannedHeight: { $gte: 0 } };
             const update = { $set: { generalScannedHeight: scannedBlockHeight } };
             const options = {
@@ -889,6 +904,9 @@ async function reindexExplorer(req, res) {
     // stop block processing
     blockProccessingCanContinue = false;
     const i = 0;
+    let { reindexapps } = req.params;
+    reindexapps = reindexapps || req.query.rescanapps || false;
+    reindexapps = serviceHelper.ensureBoolean(reindexapps);
     checkBlockProcessingStopping(i, async (response) => {
       if (response.status === 'error' && someBlockIsProcessing === true) {
         res.json(response);
@@ -904,7 +922,7 @@ async function reindexExplorer(req, res) {
         });
         if (resultOfDropping === true || resultOfDropping === undefined) {
           blockProccessingCanContinue = true;
-          initiateBlockProcessor(true, false);
+          initiateBlockProcessor(true, false, reindexapps); // restore database and possibly do reindex of apps
           const message = serviceHelper.createSuccessMessage('Explorer database reindex initiated');
           res.json(message);
         } else {
@@ -929,6 +947,9 @@ async function rescanExplorer(req, res) {
       const errMessage = serviceHelper.createErrorMessage('No blockheight provided');
       res.json(errMessage);
     }
+    let { rescanapps } = req.params;
+    rescanapps = rescanapps || req.query.rescanapps || false;
+    rescanapps = serviceHelper.ensureBoolean(rescanapps);
     // stop block processing
     blockProccessingCanContinue = false;
     const i = 0;
@@ -951,7 +972,7 @@ async function rescanExplorer(req, res) {
             const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
             return res.json(errMessage);
           });
-          initiateBlockProcessor(true, false);
+          initiateBlockProcessor(true, false, rescanapps); // restore database and possibly do rescan of apps
           const message = serviceHelper.createSuccessMessage(`Explorer rescan from blockheight ${blockheight} initiated`);
           res.json(message);
         }
