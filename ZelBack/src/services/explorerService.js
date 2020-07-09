@@ -938,48 +938,61 @@ async function reindexExplorer(req, res) {
 }
 
 async function rescanExplorer(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
-  if (authorized === true) {
-    // since what blockheight
-    let { blockheight } = req.params; // we accept both help/command and help?command=getinfo
-    blockheight = blockheight || req.query.blockheight;
-    if (!blockheight) {
-      const errMessage = serviceHelper.createErrorMessage('No blockheight provided');
-      res.json(errMessage);
-    }
-    let { rescanapps } = req.params;
-    rescanapps = rescanapps || req.query.rescanapps || false;
-    rescanapps = serviceHelper.ensureBoolean(rescanapps);
-    // stop block processing
-    blockProccessingCanContinue = false;
-    const i = 0;
-    if (blockheight) {
+  try {
+    const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+    if (authorized === true) {
+      // since what blockheight
+      let { blockheight } = req.params; // we accept both help/command and help?command=getinfo
+      blockheight = blockheight || req.query.blockheight;
+      if (!blockheight) {
+        const errMessage = serviceHelper.createErrorMessage('No blockheight provided');
+        res.json(errMessage);
+      }
+      blockheight = serviceHelper.ensureNumber(blockheight);
+      const dbopen = serviceHelper.databaseConnection();
+      const database = dbopen.db(config.database.zelcash.database);
+      const query = { generalScannedHeight: { $gte: 0 } };
+      const projection = {
+        projection: {
+          _id: 0,
+          generalScannedHeight: 1,
+        },
+      };
+      const currentHeight = await serviceHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
+      if (!currentHeight) {
+        throw new Error('No scanned height found');
+      }
+      if (currentHeight.generalScannedHeight <= blockheight) {
+        throw new Error('Block height shall be lower than currently scanned');
+      }
+      let { rescanapps } = req.params;
+      rescanapps = rescanapps || req.query.rescanapps || false;
+      rescanapps = serviceHelper.ensureBoolean(rescanapps);
+      // stop block processing
+      blockProccessingCanContinue = false;
+      const i = 0;
       checkBlockProcessingStopping(i, async (response) => {
         if (response.status === 'error' && someBlockIsProcessing === true) {
           res.json(response);
         } else {
-          const dbopen = serviceHelper.databaseConnection();
-          const scannedHeight = serviceHelper.ensureNumber(blockheight);
-          // update scanned Height in scannedBlockHeightCollection
-          const database = dbopen.db(config.database.zelcash.database);
-          const query = { generalScannedHeight: { $gte: 0 } };
-          const update = { $set: { generalScannedHeight: scannedHeight } };
+          const update = { $set: { generalScannedHeight: blockheight } };
           const options = {
             upsert: true,
           };
-          await serviceHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options).catch((error) => {
-            log.error(error);
-            const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
-            return res.json(errMessage);
-          });
+          // update scanned Height in scannedBlockHeightCollection
+          await serviceHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
           initiateBlockProcessor(true, false, rescanapps); // restore database and possibly do rescan of apps
           const message = serviceHelper.createSuccessMessage(`Explorer rescan from blockheight ${blockheight} initiated`);
           res.json(message);
         }
       });
+    } else {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
     }
-  } else {
-    const errMessage = serviceHelper.errUnauthorizedMessage();
+  } catch (error) {
+    log.error(error);
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
   }
 }
