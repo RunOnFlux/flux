@@ -5,11 +5,13 @@ const chai = require('chai');
 const expect = chai.expect;
 const app = require('../../ZelBack/src/lib/server.js');
 const log = require('../../ZelBack/src/lib/log');
+const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const packageJson = require('../../package.json');
 const { version } = packageJson;
 
 const server = app.listen(config.server.apiport, () => {
   log.info(`ZelBack listening on port ${config.server.apiport}!`);
+  serviceHelper.initiateDB();
 });
 
 describe('loading express', function () {
