@@ -13,4 +13,11 @@ export default {
   getScannedHeight() {
     return Api().get('/explorer/scannedheight');
   },
+  reindexFlux(zelidauthHeader) {
+    return Api().get('/explorer/reindex', {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    });
+  },
 };
