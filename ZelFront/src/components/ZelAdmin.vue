@@ -60,6 +60,12 @@
       >
         Rebuild ZelFront
       </ElButton>
+      <ElButton
+        class="generalButton"
+        @click="reindexFlux()"
+      >
+        Reindex Flux databases
+      </ElButton>
     </div>
     <div v-if="zelAdminSection === 'managezelcash'">
       <ElButton
@@ -142,6 +148,7 @@ import zelIDService from '@/services/ZelIDService';
 import ZelNodeService from '@/services/ZelNodeService';
 import ZelCashService from '@/services/ZelCashService';
 import ZelBenchService from '@/services/ZelBenchService';
+import ExplorerService from '@/services/ExplorerService';
 
 const qs = require('qs');
 
@@ -360,6 +367,27 @@ export default {
           console.log(response);
           if (response.data.status === 'error') {
             vue.$message.error(response.data.data.message);
+          }
+        })
+        .catch((e) => {
+          console.log(e);
+          console.log(e.code);
+          vue.$message.error(e.toString());
+        });
+    },
+    reindexFlux() {
+      const zelidauth = localStorage.getItem('zelidauth');
+      const auth = qs.parse(zelidauth);
+      console.log(auth);
+      vue.$message.success('Flux databases will begin to reindex soon');
+      ExplorerService.reindexFlux(zelidauth)
+        .then((response) => {
+          console.log(response);
+          if (response.data.status === 'error') {
+            vue.$message.error(response.data.data.message);
+          }
+          if (response.data.status === 'success') {
+            vue.$message.success(response.data.data.message);
           }
         })
         .catch((e) => {
