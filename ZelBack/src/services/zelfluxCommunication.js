@@ -9,7 +9,7 @@ const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const zelcashService = require('./zelcashService');
 const userconfig = require('../../../config/userconfig');
-// const explorerService = require('./explorerService');
+const explorerService = require('./explorerService');
 
 const outgoingConnections = []; // websocket list
 const outgoingPeers = []; // array of objects containing ip and rtt latency
@@ -853,7 +853,6 @@ function getIncomingConnectionsInfo(req, res) {
   res.json(response);
 }
 
-
 async function closeConnection(ip) {
   let message;
   const wsObj = await outgoingConnections.find((client) => client._socket.remoteAddress === ip);
@@ -1187,19 +1186,50 @@ async function broadcastTemporaryZelAppMessage(message) {
   return 0;
 }
 
-function startFluxFunctions() {
-  adjustFirewall();
-  fluxDisovery();
-  log.info('Flux Discovery started');
-  keepConnectionsAlive();
-  keepIncomingConnectionsAlive();
-  checkDeterministicNodesCollisions();
-  setInterval(() => {
+async function startFluxFunctions() {
+  try {
+    log.info('Initiating MongoDB connection');
+    await serviceHelper.initiateDB(); // either true or throws error
+    log.info('DB connected');
+    log.info('Preparing local database...');
+    const db = serviceHelper.databaseConnection();
+    const database = db.db(config.database.local.database);
+    await serviceHelper.dropCollection(database, config.database.local.collections.activeLoginPhrases).catch((error) => {
+      if (error.message !== 'ns not found') {
+        log.error(error);
+      }
+    });
+    await serviceHelper.dropCollection(database, config.database.local.collections.activeSignatures).catch((error) => {
+      if (error.message !== 'ns not found') {
+        log.error(error);
+      }
+    });
+    await database.collection(config.database.local.collections.activeLoginPhrases).createIndex({ createdAt: 1 }, { expireAfterSeconds: 900 });
+    await database.collection(config.database.local.collections.activeSignatures).createIndex({ createdAt: 1 }, { expireAfterSeconds: 900 });
+    log.info('Local database prepared');
+    log.info('Preparing temporary database...');
+    // no need to drop temporary messages
+    const databaseTemp = db.db(config.database.zelappsglobal.database);
+    await databaseTemp.collection(config.database.zelappsglobal.collections.zelappsTemporaryMessages).createIndex({ createdAt: 1 }, { expireAfterSeconds: 3600 });
+    log.info('Temporary database prepared');
+    adjustFirewall();
+    fluxDisovery();
+    log.info('Flux Discovery started');
+    keepConnectionsAlive();
+    keepIncomingConnectionsAlive();
     checkDeterministicNodesCollisions();
-  }, 60000);
-  log.info('Flux checks operational');
-  // explorerService.initiateBlockProcessor(true);
-  // log.info('Flux Block Explorer Service started');
+    setInterval(() => {
+      checkDeterministicNodesCollisions();
+    }, 60000);
+    log.info('Flux checks operational');
+    explorerService.initiateBlockProcessor(true, true);
+    log.info('Flux Block Processing Service started');
+  } catch (e) {
+    log.error(e);
+    setTimeout(() => {
+      startFluxFunctions();
+    }, 15000);
+  }
 }
 
 module.exports = {

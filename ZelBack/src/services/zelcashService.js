@@ -593,7 +593,6 @@ async function getMiningInfo(req, res) {
 
   response = await executeCall(rpccall);
 
-
   return res ? res.json(response) : response;
 }
 

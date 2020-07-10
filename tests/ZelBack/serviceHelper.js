@@ -1,3 +1,4 @@
+process.env.NODE_CONFIG_DIR = `${process.cwd()}/ZelBack/config/`;
 const helper = require("../../ZelBack/src/services/serviceHelper");
 const chai = require('chai');
 const expect = chai.expect;

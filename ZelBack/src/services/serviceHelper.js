@@ -13,6 +13,12 @@ const log = require('../lib/log');
 const { MongoClient } = mongodb;
 const mongoUrl = `mongodb://${config.database.url}:${config.database.port}/`;
 
+let openDBConnection = null;
+
+function databaseConnection() {
+  return openDBConnection;
+}
+
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -111,9 +117,20 @@ async function connectMongoDb(url) {
   const mongoSettings = {
     useNewUrlParser: true,
     useUnifiedTopology: true,
+    poolSize: 10,
   };
   const db = await MongoClient.connect(connectUrl, mongoSettings).catch((error) => { throw error; });
   return db;
+}
+
+async function initiateDB() {
+  openDBConnection = await connectMongoDb();
+  return true;
+}
+
+async function distinctDatabase(database, collection, distinct, query) {
+  const results = await database.collection(collection).distinct(distinct, query).catch((error) => { throw error; });
+  return results;
 }
 
 async function findInDatabase(database, collection, query, projection) {
@@ -137,8 +154,9 @@ async function insertOneToDatabase(database, collection, value) {
   return result;
 }
 
-async function updateOneInDatabase(database, collection, query, value) {
-  const result = await database.collection(collection).updateOne(query, { $set: value }).catch((error) => { throw error; });
+async function updateOneInDatabase(database, collection, query, update, options) {
+  const passedOptions = options || {};
+  const result = await database.collection(collection).updateOne(query, update, passedOptions).catch((error) => { throw error; });
   return result;
 }
 
@@ -179,18 +197,14 @@ async function verifyAdminSession(headers) {
       console.log(auth.signature);
       console.log(userconfig.initial.zelid);
       if (auth.zelid === userconfig.initial.zelid) {
-        const db = await connectMongoDb(mongoUrl).catch((error) => { throw error; });
+        const db = databaseConnection();
         const database = db.db(config.database.local.database);
         const collection = config.database.local.collections.loggedUsers;
         const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
         const projection = {};
-        const result = await findOneInDatabase(database, collection, query, projection).catch((error) => {
-          db.close();
-          throw error;
-        });
+        const result = await findOneInDatabase(database, collection, query, projection);
         const loggedUser = result;
         // console.log(result)
-        db.close();
         if (loggedUser) {
           // check if signature corresponds to message with that zelid
           let valid = false;
@@ -222,18 +236,14 @@ async function verifyUserSession(headers) {
     const auth = ensureObject(headers.zelidauth);
     console.log(auth);
     if (auth.zelid && auth.signature) {
-      const db = await connectMongoDb(mongoUrl).catch((error) => { throw error; });
+      const db = databaseConnection();
       const database = db.db(config.database.local.database);
       const collection = config.database.local.collections.loggedUsers;
       const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
       const projection = {};
-      const result = await findOneInDatabase(database, collection, query, projection).catch((error) => {
-        db.close();
-        throw error;
-      });
+      const result = await findOneInDatabase(database, collection, query, projection);
       const loggedUser = result;
       // console.log(result)
-      db.close();
       if (loggedUser) {
         // check if signature corresponds to message with that zelid
         let valid = false;
@@ -262,17 +272,13 @@ async function verifyZelTeamSession(headers) {
     const auth = ensureObject(headers.zelidauth);
     if (auth.zelid && auth.signature) {
       if (auth.zelid === config.zelTeamZelId || auth.zelid === userconfig.initial.zelid) { // admin is considered as zelTeam
-        const db = await connectMongoDb(mongoUrl).catch((error) => { throw error; });
+        const db = databaseConnection();
         const database = db.db(config.database.local.database);
         const collection = config.database.local.collections.loggedUsers;
         const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
         const projection = {};
-        const result = await findOneInDatabase(database, collection, query, projection).catch((error) => {
-          db.close();
-          throw error;
-        });
+        const result = await findOneInDatabase(database, collection, query, projection);
         const loggedUser = result;
-        db.close();
         if (loggedUser) {
           // check if signature corresponds to message with that zelid
           let valid = false;
@@ -401,6 +407,7 @@ module.exports = {
   ensureObject,
   ensureString,
   connectMongoDb,
+  distinctDatabase,
   findInDatabase,
   findOneInDatabase,
   findOneAndUpdateInDatabase,
@@ -425,4 +432,6 @@ module.exports = {
   axiosGet,
   verifyZelID,
   delay,
+  initiateDB,
+  databaseConnection,
 };

@@ -15,6 +15,13 @@ const server = app.listen(config.server.apiport, () => {
 describe('loading express', function () {
   after(function (done) {
     server.close(done);
+    setTimeout(() => {
+      process.exit();
+    }, 10000);
+  });
+  before(async () => {
+    const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+    await serviceHelper.initiateDB();
   });
   it('/zelflux/version', function testSlash(done) {
     request(server)
