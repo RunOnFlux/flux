@@ -12,6 +12,7 @@ const scannedHeightCollection = config.database.zelcash.collections.scannedHeigh
 const zelnodeTransactionCollection = config.database.zelcash.collections.zelnodeTransactions;
 let blockProccessingCanContinue = true;
 let someBlockIsProcessing = false;
+let isInInitiationOfBP = false;
 let initBPfromNoBlockTimeout;
 let initBPfromErrorTimeout;
 
@@ -277,30 +278,18 @@ async function processBlock(blockHeight) {
     someBlockIsProcessing = true;
     const db = serviceHelper.databaseConnection();
     const database = db.db(config.database.zelcash.database);
-    if (!blockProccessingCanContinue) {
-      throw new Error('Force stop block processing');
-    }
     // get Block information
     const blockDataVerbose = await getVerboseBlock(blockHeight);
-    if (!blockProccessingCanContinue) {
-      throw new Error('Force stop block processing');
-    }
     if (blockDataVerbose.height % 50 === 0) {
       console.log(blockDataVerbose.height);
     }
     // get Block transactions information
     const transactions = await processBlockTransactions(blockDataVerbose.tx, blockDataVerbose.height);
-    if (!blockProccessingCanContinue) {
-      throw new Error('Force stop block processing');
-    }
     // now we have verbose transactions of the block extended for senders - object of
     // utxoDetail = { txid, vout, height, address, satoshis, scriptPubKey )
     // and can create addressTransactionIndex.
     // amount in address can be calculated from utxos. We do not need to store it.
     await Promise.all(transactions.map(async (tx) => {
-      if (!blockProccessingCanContinue) {
-        throw new Error('Force stop block processing');
-      }
       // normal transactions
       if (tx.version < 5 && tx.version > 0) {
         let message = '';
@@ -327,9 +316,6 @@ async function processBlock(blockHeight) {
         // update addresses from addressesOK array in our database. We need blockheight there too. transac
         await Promise.all(addressesOK.map(async (address) => {
           // maximum of 10000 txs per address in one document
-          if (!blockProccessingCanContinue) {
-            throw new Error('Force stop block processing');
-          }
           const query = { address, count: { $lt: 10000 } };
           const update = { $set: { address }, $push: { transactions: transactionRecord }, $inc: { count: 1 } };
           const options = {
@@ -397,8 +383,6 @@ async function processBlock(blockHeight) {
         // eslint-disable-next-line no-use-before-define
         initiateBlockProcessor(false, false);
       }
-    } else {
-      blockProccessingCanContinue = true;
     }
   } catch (error) {
     someBlockIsProcessing = false;
@@ -407,8 +391,6 @@ async function processBlock(blockHeight) {
     if (blockProccessingCanContinue) {
       // eslint-disable-next-line no-use-before-define
       initiateBlockProcessor(true, false);
-    } else {
-      blockProccessingCanContinue = true;
     }
   }
 }
@@ -471,6 +453,10 @@ async function restoreDatabaseToBlockheightState(height, rescanGlobalApps = fals
 // use reindexGlobalApps with caution!!!
 async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRescanGlobalApps) {
   try {
+    if (isInInitiationOfBP) {
+      return;
+    }
+    isInInitiationOfBP = true;
     const db = serviceHelper.databaseConnection();
     const database = db.db(config.database.zelcash.database);
     const query = {};
@@ -481,9 +467,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
       },
     };
     let scannedBlockHeight = 0;
-    const scannedBlockHeightsResult = await serviceHelper.findInDatabase(database, scannedHeightCollection, query, projection).catch((error) => {
-      throw error;
-    });
+    const scannedBlockHeightsResult = await serviceHelper.findInDatabase(database, scannedHeightCollection, query, projection);
     if (scannedBlockHeightsResult[0]) {
       scannedBlockHeight = scannedBlockHeightsResult[0].generalScannedHeight;
     }
@@ -493,10 +477,6 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
       zelcashHeight = zelcashGetInfo.data.blocks;
     } else {
       throw new Error(zelcashGetInfo.data);
-    }
-    if (!blockProccessingCanContinue) {
-      blockProccessingCanContinue = true;
-      return;
     }
     // get scanned height from our database;
     // get height from blockchain?
@@ -569,10 +549,6 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
       // log.info(resultE, resultF);
       log.info('Preparation done');
     }
-    if (!blockProccessingCanContinue) {
-      blockProccessingCanContinue = true;
-      return;
-    }
     if (zelcashHeight > scannedBlockHeight) {
       if (scannedBlockHeight !== 0 && restoreDatabase === true) {
         try {
@@ -633,22 +609,17 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
           }
         }
       }
-      if (!blockProccessingCanContinue) {
-        blockProccessingCanContinue = true;
-        return;
-      }
+      isInInitiationOfBP = false;
       processBlock(scannedBlockHeight + 1);
     } else {
+      isInInitiationOfBP = false;
       initBPfromNoBlockTimeout = setTimeout(() => {
         initiateBlockProcessor(false, false);
       }, 5000);
     }
   } catch (error) {
-    if (!blockProccessingCanContinue) {
-      blockProccessingCanContinue = true;
-      return;
-    }
     log.error(error);
+    isInInitiationOfBP = false;
     initBPfromErrorTimeout = setTimeout(() => {
       initiateBlockProcessor(true, true);
     }, 15 * 60 * 1000);
@@ -878,8 +849,12 @@ async function getScannedHeight(req, res) {
 }
 
 async function checkBlockProcessingStopped(i, callback) {
-  if (blockProccessingCanContinue === true || someBlockIsProcessing === false) {
+  blockProccessingCanContinue = false;
+  clearTimeout(initBPfromErrorTimeout);
+  clearTimeout(initBPfromNoBlockTimeout);
+  if (someBlockIsProcessing === false && isInInitiationOfBP === false) {
     const succMessage = serviceHelper.createSuccessMessage('Block processing is stopped');
+    blockProccessingCanContinue = true;
     callback(succMessage);
   } else {
     setTimeout(() => {
@@ -898,9 +873,6 @@ async function stopBlockProcessing(req, res) {
   const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
   if (authorized === true) {
     const i = 0;
-    blockProccessingCanContinue = false;
-    clearTimeout(initBPfromErrorTimeout);
-    clearTimeout(initBPfromNoBlockTimeout);
     checkBlockProcessingStopped(i, async (response) => {
       // put blockProccessingCanContinue status to true.
       res.json(response);
@@ -915,11 +887,7 @@ async function restartBlockProcessing(req, res) {
   const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
   if (authorized === true) {
     const i = 0;
-    blockProccessingCanContinue = false;
-    clearTimeout(initBPfromErrorTimeout);
-    clearTimeout(initBPfromNoBlockTimeout);
     checkBlockProcessingStopped(i, async () => {
-      blockProccessingCanContinue = true;
       initiateBlockProcessor(true, false);
       const message = serviceHelper.createSuccessMessage('Block processing initiated');
       res.json(message);
@@ -934,9 +902,6 @@ async function reindexExplorer(req, res) {
   const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
   if (authorized === true) {
     // stop block processing
-    blockProccessingCanContinue = false;
-    clearTimeout(initBPfromErrorTimeout);
-    clearTimeout(initBPfromNoBlockTimeout);
     const i = 0;
     let { reindexapps } = req.params;
     reindexapps = reindexapps || req.query.rescanapps || false;
@@ -955,7 +920,6 @@ async function reindexExplorer(req, res) {
           }
         });
         if (resultOfDropping === true || resultOfDropping === undefined) {
-          blockProccessingCanContinue = true;
           initiateBlockProcessor(true, false, reindexapps); // restore database and possibly do reindex of apps
           const message = serviceHelper.createSuccessMessage('Explorer database reindex initiated');
           res.json(message);
@@ -1003,9 +967,6 @@ async function rescanExplorer(req, res) {
       rescanapps = rescanapps || req.query.rescanapps || false;
       rescanapps = serviceHelper.ensureBoolean(rescanapps);
       // stop block processing
-      blockProccessingCanContinue = false;
-      clearTimeout(initBPfromErrorTimeout);
-      clearTimeout(initBPfromNoBlockTimeout);
       const i = 0;
       checkBlockProcessingStopped(i, async (response) => {
         if (response.status === 'error') {
