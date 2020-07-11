@@ -1212,15 +1212,15 @@ async function startFluxFunctions() {
     const databaseTemp = db.db(config.database.zelappsglobal.database);
     await databaseTemp.collection(config.database.zelappsglobal.collections.zelappsTemporaryMessages).createIndex({ createdAt: 1 }, { expireAfterSeconds: 3600 });
     log.info('Temporary database prepared');
-    // adjustFirewall();
-    // fluxDisovery();
-    // log.info('Flux Discovery started');
-    // keepConnectionsAlive();
-    // keepIncomingConnectionsAlive();
-    // checkDeterministicNodesCollisions();
-    // setInterval(() => {
-    //   checkDeterministicNodesCollisions();
-    // }, 60000);
+    adjustFirewall();
+    fluxDisovery();
+    log.info('Flux Discovery started');
+    keepConnectionsAlive();
+    keepIncomingConnectionsAlive();
+    checkDeterministicNodesCollisions();
+    setInterval(() => {
+      checkDeterministicNodesCollisions();
+    }, 60000);
     log.info('Flux checks operational');
     explorerService.initiateBlockProcessor(true, true);
     log.info('Flux Block Processing Service started');
