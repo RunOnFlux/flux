@@ -13,6 +13,7 @@ const zelnodeTransactionCollection = config.database.zelcash.collections.zelnode
 let blockProccessingCanContinue = true;
 let someBlockIsProcessing = false;
 let isInInitiationOfBP = false;
+let operationBlocked = false;
 let initBPfromNoBlockTimeout;
 let initBPfromErrorTimeout;
 
@@ -909,16 +910,22 @@ async function reindexExplorer(req, res) {
     checkBlockProcessingStopped(i, async (response) => {
       if (response.status === 'error') {
         res.json(response);
+      } else if (operationBlocked) {
+        const errMessage = serviceHelper.createErrorMessage('Operation blocked');
+        res.json(errMessage);
       } else {
+        operationBlocked = true;
         const dbopen = serviceHelper.databaseConnection();
         const database = dbopen.db(config.database.zelcash.database);
         const resultOfDropping = await serviceHelper.dropCollection(database, scannedHeightCollection).catch((error) => {
           if (error.message !== 'ns not found') {
+            operationBlocked = false;
             log.error(error);
             const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
             res.json(errMessage);
           }
         });
+        operationBlocked = false;
         if (resultOfDropping === true || resultOfDropping === undefined) {
           initiateBlockProcessor(true, false, reindexapps); // restore database and possibly do reindex of apps
           const message = serviceHelper.createSuccessMessage('Explorer database reindex initiated');
@@ -972,12 +979,17 @@ async function rescanExplorer(req, res) {
         if (response.status === 'error') {
           res.json(response);
         } else {
+          if (operationBlocked) {
+            throw new Error('Operation blocked');
+          }
+          operationBlocked = true;
           const update = { $set: { generalScannedHeight: blockheight } };
           const options = {
             upsert: true,
           };
           // update scanned Height in scannedBlockHeightCollection
           await serviceHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
+          operationBlocked = false;
           initiateBlockProcessor(true, false, rescanapps); // restore database and possibly do rescan of apps
           const message = serviceHelper.createSuccessMessage(`Explorer rescan from blockheight ${blockheight} initiated`);
           res.json(message);
@@ -988,6 +1000,7 @@ async function rescanExplorer(req, res) {
       res.json(errMessage);
     }
   } catch (error) {
+    operationBlocked = false;
     log.error(error);
     const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
