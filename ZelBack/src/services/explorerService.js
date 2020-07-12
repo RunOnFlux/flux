@@ -325,7 +325,7 @@ async function processBlock(blockHeight) {
           await serviceHelper.updateOneInDatabase(database, addressTransactionIndexCollection, query, update, options);
         }));
         // MAY contain ZelApp transaction. Store it.
-        if (isZelAppMessageValue > 0 && message.length === 64) {
+        if (isZelAppMessageValue > 0 && message.length === 64 && blockDataVerbose.height >= config.zelapps.epochstart) {
           const zelappTxRecord = {
             txid: tx.txid, height: blockDataVerbose.height, hash: message, value: isZelAppMessageValue,
           };

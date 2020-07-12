@@ -55,8 +55,8 @@ module.exports = {
       ram: 1 * 5, // per 100mb,
       hdd: 0.5 * 5, // per 1gb,
     },
-    address: 't1...', // apps registration address
-    epochstart: 1000000, // zelapps epoch blockheight start
+    address: 't1TH5KaFi9CbMQasGB294yYgoWAuzXNfRMR', // apps registration address
+    epochstart: 640000, // zelapps epoch blockheight start
     portMin: 30001, // originally should have been from 30000 but we got temporary folding there
     portMax: 39999,
     maxImageSize: 300000000, // 300mb
