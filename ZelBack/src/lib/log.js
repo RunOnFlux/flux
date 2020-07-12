@@ -8,7 +8,8 @@ function getFilesizeInBytes(filename) {
     const stats = fs.statSync(filename);
     const fileSizeInBytes = stats.size;
     return fileSizeInBytes;
-  } catch {
+  } catch (e) {
+    console.log(e);
     return 0;
   }
 }
