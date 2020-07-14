@@ -28,6 +28,8 @@ const globalZelAppsMessages = config.database.zelappsglobal.collections.zelappsM
 const globalZelAppsInformation = config.database.zelappsglobal.collections.zelappsInformation;
 const globalZelAppsTempMessages = config.database.zelappsglobal.collections.zelappsTemporaryMessages;
 
+const zelappsHashesCollection = config.database.zelcash.collections.zelappsHashes;
+
 function getZelAppIdentifier(zelappName) {
   // this id is used for volumes, docker names so we know it reall belongs to zelflux
   if (zelappName.startsWith('zel')) {
@@ -2669,6 +2671,16 @@ async function checkZelAppTemporaryMessageExistence(hash) {
   }
 }
 
+async function zelappHashHasMessage(hash) {
+  const db = serviceHelper.databaseConnection();
+  const database = db.db(config.database.zelcash.database);
+  const query = { hash };
+  const update = { $set: { message: true } };
+  const options = {};
+  await serviceHelper.updateOneInDatabase(database, zelappsHashesCollection, query, update, options);
+  return true;
+}
+
 // hash of zelapp information, txid it was in, height of blockchain containing the txid
 async function checkAndRequestZelApp(hash, txid, height, valueSat, i = 0) {
   try {
@@ -2695,6 +2707,8 @@ async function checkAndRequestZelApp(hash, txid, height, valueSat, i = 0) {
             valueSat: serviceHelper.ensureNumber(valueSat),
           };
           await storeZelAppPermanentMessage(permanentZelAppMessage);
+          // await update zelapphashes that we already have it stored
+          await zelappHashHasMessage(hash);
           const updateForSpecifications = permanentZelAppMessage.zelAppSpecifications;
           updateForSpecifications.hash = permanentZelAppMessage.hash;
           updateForSpecifications.height = permanentZelAppMessage.height;
@@ -2713,6 +2727,9 @@ async function checkAndRequestZelApp(hash, txid, height, valueSat, i = 0) {
         }
         // additional requesting of missing zelapp messages is done on rescans
       }
+    } else {
+      // update zelapphashes that we already have it stored
+      await zelappHashHasMessage(hash);
     }
   } catch (error) {
     log.error(error);

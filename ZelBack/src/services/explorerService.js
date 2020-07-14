@@ -325,9 +325,9 @@ async function processBlock(blockHeight) {
           await serviceHelper.updateOneInDatabase(database, addressTransactionIndexCollection, query, update, options);
         }));
         // MAY contain ZelApp transaction. Store it.
-        if (isZelAppMessageValue > 0 && message.length === 64 && blockDataVerbose.height >= config.zelapps.epochstart) {
+        if (isZelAppMessageValue >= 10 && message.length === 64 && blockDataVerbose.height >= config.zelapps.epochstart) { // min of 10 zel had to be paid for us bothering checking
           const zelappTxRecord = {
-            txid: tx.txid, height: blockDataVerbose.height, hash: message, value: isZelAppMessageValue,
+            txid: tx.txid, height: blockDataVerbose.height, hash: message, value: isZelAppMessageValue, message: false, // message is boolean saying if we already have it stored as permanent message
           };
           await serviceHelper.insertOneToDatabase(database, zelappsHashesCollection, zelappTxRecord);
           zelappsService.checkAndRequestZelApp(message, tx.txid, blockDataVerbose.height, isZelAppMessageValue);
