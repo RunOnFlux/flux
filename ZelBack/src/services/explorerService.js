@@ -435,7 +435,7 @@ async function restoreDatabaseToBlockheightState(height, rescanGlobalApps = fals
     throw error;
   });
   if (rescanGlobalApps === true) {
-    const databaseGlobal = database.db(config.database.zelappsglobal.database);
+    const databaseGlobal = dbopen.db(config.database.zelappsglobal.database);
     log.info('Rescanning Apps!');
     await serviceHelper.removeDocumentsFromCollection(databaseGlobal, config.database.zelappsglobal.collections.zelappsMessages, query).catch((error) => {
       log.error(error);
