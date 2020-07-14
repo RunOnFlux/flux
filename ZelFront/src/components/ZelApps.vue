@@ -573,7 +573,7 @@ export default {
       tier: '',
       output: '',
       fluxCommunication: false,
-      zelAppRegistrationSpecification: {
+      zelAppRegistrationSpecificationB: {
         version: 1,
         name: '',
         description: '',
@@ -598,9 +598,9 @@ export default {
         rambamf: null,
         hddbamf: null,
       },
-      zelAppRegistrationSpecificationB: {
+      zelAppRegistrationSpecification: {
         version: 1,
-        name: 'FoldingAtHome',
+        name: 'tralalafolding',
         description: 'Folding @ Home is cool :)',
         repotag: 'yurinnick/folding-at-home:latest',
         owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
@@ -612,7 +612,7 @@ export default {
         cpu: 0.5,
         ram: 500,
         hdd: 5,
-        tiered: true,
+        tiered: false,
         cpubasic: 0.5,
         rambasic: 500,
         hddbasic: 5,
