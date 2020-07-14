@@ -832,7 +832,7 @@ async function getScannedHeight(req, res) {
   const projection = {
     projection: {
       _id: 0,
-      generalScannedHeight: 1, //
+      generalScannedHeight: 1,
     },
   };
   const result = await serviceHelper.findOneInDatabase(database, scannedHeightCollection, query, projection).catch((error) => {
@@ -964,13 +964,13 @@ async function rescanExplorer(req, res) {
           generalScannedHeight: 1,
         },
       };
-      const currentHeight = await serviceHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
-      if (!currentHeight) {
-        throw new Error('No scanned height found');
-      }
-      if (currentHeight.generalScannedHeight <= blockheight) {
-        throw new Error('Block height shall be lower than currently scanned');
-      }
+      // const currentHeight = await serviceHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
+      // if (!currentHeight) {
+      //   throw new Error('No scanned height found');
+      // }
+      // if (currentHeight.generalScannedHeight <= blockheight) {
+      //   throw new Error('Block height shall be lower than currently scanned');
+      // }
       let { rescanapps } = req.params;
       rescanapps = rescanapps || req.query.rescanapps || false;
       rescanapps = serviceHelper.ensureBoolean(rescanapps);
