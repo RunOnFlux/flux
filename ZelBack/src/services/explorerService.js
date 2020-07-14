@@ -460,7 +460,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
     isInInitiationOfBP = true;
     const db = serviceHelper.databaseConnection();
     const database = db.db(config.database.zelcash.database);
-    const query = {};
+    const query = { generalScannedHeight: { $gte: 0 } };
     const projection = {
       projection: {
         _id: 0,
@@ -468,9 +468,9 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
       },
     };
     let scannedBlockHeight = 0;
-    const scannedBlockHeightsResult = await serviceHelper.findInDatabase(database, scannedHeightCollection, query, projection);
-    if (scannedBlockHeightsResult[0]) {
-      scannedBlockHeight = scannedBlockHeightsResult[0].generalScannedHeight;
+    const currentHeight = await serviceHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
+    if (currentHeight && currentHeight.generalScannedHeight) {
+      scannedBlockHeight = currentHeight.generalScannedHeight;
     }
     const zelcashGetInfo = await zelcashService.getInfo();
     let zelcashHeight = 0;
@@ -575,7 +575,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
           log.error('Error restoring database!');
           throw e;
         }
-      } else {
+      } else if (scannedBlockHeight > 600000) {
         const zelcashGetChainTips = await zelcashService.getChainTips();
         if (zelcashGetChainTips.status !== 'success') {
           throw new Error(zelcashGetChainTips.data);
@@ -964,13 +964,13 @@ async function rescanExplorer(req, res) {
           generalScannedHeight: 1,
         },
       };
-      // const currentHeight = await serviceHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
-      // if (!currentHeight) {
-      //   throw new Error('No scanned height found');
-      // }
-      // if (currentHeight.generalScannedHeight <= blockheight) {
-      //   throw new Error('Block height shall be lower than currently scanned');
-      // }
+      const currentHeight = await serviceHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
+      if (!currentHeight) {
+        throw new Error('No scanned height found');
+      }
+      if (currentHeight.generalScannedHeight <= blockheight) {
+        throw new Error('Block height shall be lower than currently scanned');
+      }
       let { rescanapps } = req.params;
       rescanapps = rescanapps || req.query.rescanapps || false;
       rescanapps = serviceHelper.ensureBoolean(rescanapps);
