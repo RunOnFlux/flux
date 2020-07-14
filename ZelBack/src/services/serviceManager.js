@@ -33,7 +33,7 @@ async function startFluxFunctions() {
     await databaseTemp.collection(config.database.zelappsglobal.collections.zelappsTemporaryMessages).createIndex({ createdAt: 1 }, { expireAfterSeconds: 3600 });
     log.info('Temporary database prepared');
     zelfluxCommunication.adjustFirewall();
-    zelfluxCommunication.fluxDisovery();
+    // zelfluxCommunication.fluxDisovery();
     log.info('Flux Discovery started');
     zelfluxCommunication.keepConnectionsAlive();
     zelfluxCommunication.keepIncomingConnectionsAlive();
