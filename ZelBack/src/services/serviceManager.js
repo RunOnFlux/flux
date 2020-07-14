@@ -33,7 +33,7 @@ async function startFluxFunctions() {
     await databaseTemp.collection(config.database.zelappsglobal.collections.zelappsTemporaryMessages).createIndex({ createdAt: 1 }, { expireAfterSeconds: 3600 });
     log.info('Temporary database prepared');
     zelfluxCommunication.adjustFirewall();
-    // zelfluxCommunication.fluxDisovery();
+    zelfluxCommunication.fluxDisovery();
     log.info('Flux Discovery started');
     zelfluxCommunication.keepConnectionsAlive();
     zelfluxCommunication.keepIncomingConnectionsAlive();
@@ -43,9 +43,9 @@ async function startFluxFunctions() {
     }, 60000);
     log.info('Flux checks operational');
     explorerService.initiateBlockProcessor(true, true);
-    setInterval(() => { // every one hour
+    setInterval(() => { // every 8 mins (4 blocks)
       zelappsService.continuousZelAppHashesCheck();
-    }, 0.5 * 60 * 1000);
+    }, 8 * 60 * 1000);
     log.info('Flux Block Processing Service started');
   } catch (e) {
     log.error(e);

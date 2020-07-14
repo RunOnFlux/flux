@@ -2503,7 +2503,7 @@ async function storeZelAppPermanentMessage(message) {
   return true;
 }
 
-async function updateZelAppSpecifications(zelAppSpecs, i = 0) {
+async function updateZelAppSpecifications(zelAppSpecs) {
   try {
     // zelAppSpecs: {
     //   version: 1,
@@ -2554,11 +2554,10 @@ async function updateZelAppSpecifications(zelAppSpecs, i = 0) {
       await serviceHelper.updateOneInDatabase(database, globalZelAppsInformation, query, update, options);
     }
   } catch (error) {
+    // retry
     log.error(error);
-    if (i < 60) {
-      await serviceHelper.delay(60 * 1000);
-      updateZelAppSpecifications(zelAppSpecs, i + 1);
-    }
+    await serviceHelper.delay(60 * 1000);
+    updateZelAppSpecifications(zelAppSpecs);
   }
 }
 
@@ -2684,6 +2683,8 @@ async function zelappHashHasMessage(hash) {
 // hash of zelapp information, txid it was in, height of blockchain containing the txid
 async function checkAndRequestZelApp(hash, txid, height, valueSat, i = 0) {
   try {
+    const randomDelay = Math.floor((Math.random() * 1280)) + 420;
+    await serviceHelper.delay(randomDelay);
     const appMessageExists = await checkZelAppMessageExistence(hash);
     if (appMessageExists === false) { // otherwise do nothing
       // we surely do not have that message in permanent storaage.
@@ -2720,8 +2721,8 @@ async function checkAndRequestZelApp(hash, txid, height, valueSat, i = 0) {
         // request the message and broadcast the message further to our connected peers.
         requestZelAppMessage(hash);
         // rerun this after 1 min delay
-        // stop this loop after 1 hour, as it might be a scammy message or simply this message is nowhere on the network
-        if (i < 60) {
+        // stop this loop after 7 mins, as it might be a scammy message or simply this message is nowhere on the network, we dont have connections etc. We also have continous checkup for it every 8 min
+        if (i < 7) {
           await serviceHelper.delay(60 * 1000);
           checkAndRequestZelApp(hash, txid, height, valueSat, i + 1);
         }

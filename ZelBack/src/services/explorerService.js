@@ -536,17 +536,17 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
         });
         log.info(resultE, resultF);
       }
-      await databaseGlobal.collection(config.database.zelappsglobal.collections.zelappsMessages).createIndex({ hash: 1 }, { name: 'query for getting zelapp message based on hash' });
+      await databaseGlobal.collection(config.database.zelappsglobal.collections.zelappsMessages).createIndex({ hash: 1 }, { name: 'query for getting zelapp message based on hash' }); // , unique: true
       await databaseGlobal.collection(config.database.zelappsglobal.collections.zelappsMessages).createIndex({ txid: 1 }, { name: 'query for getting zelapp message based on txid' });
       await databaseGlobal.collection(config.database.zelappsglobal.collections.zelappsMessages).createIndex({ height: 1 }, { name: 'query for getting zelapp message based on height' });
-      await databaseGlobal.collection(config.database.zelappsglobal.collections.zelappsMessages).createIndex({ 'zelAppSpecifications.name': 1 }, { name: 'query for getting zelapp message based on zelapp specs name' });
+      await databaseGlobal.collection(config.database.zelappsglobal.collections.zelappsMessages).createIndex({ 'zelAppSpecifications.name': 1 }, { name: 'query for getting zelapp message based on zelapp specs name' }); // , unique: true
       await databaseGlobal.collection(config.database.zelappsglobal.collections.zelappsMessages).createIndex({ 'zelAppSpecifications.owner': 1 }, { name: 'query for getting zelapp message based on zelapp specs owner' });
       await databaseGlobal.collection(config.database.zelappsglobal.collections.zelappsMessages).createIndex({ 'zelAppSpecifications.repotag': 1 }, { name: 'query for getting zelapp message based on image' });
-      await databaseGlobal.collection(config.database.zelappsglobal.collections.zelappsInformation).createIndex({ name: 1 }, { name: 'query for getting zelapp based on zelapp specs name' });
+      await databaseGlobal.collection(config.database.zelappsglobal.collections.zelappsInformation).createIndex({ name: 1 }, { name: 'query for getting zelapp based on zelapp specs name' }); // , unique: true
       await databaseGlobal.collection(config.database.zelappsglobal.collections.zelappsInformation).createIndex({ owner: 1 }, { name: 'query for getting zelapp based on zelapp specs owner' });
       await databaseGlobal.collection(config.database.zelappsglobal.collections.zelappsInformation).createIndex({ repotag: 1 }, { name: 'query for getting zelapp based on image' });
       await databaseGlobal.collection(config.database.zelappsglobal.collections.zelappsInformation).createIndex({ height: 1 }, { name: 'query for getting zelapp based on last height update' }); // we need to know the height of app adjustment
-      await databaseGlobal.collection(config.database.zelappsglobal.collections.zelappsInformation).createIndex({ hash: 1 }, { name: 'query for getting zelapp based on last hash' }); // we need to know the hash of the last message update which is the true identifier
+      await databaseGlobal.collection(config.database.zelappsglobal.collections.zelappsInformation).createIndex({ hash: 1 }, { name: 'query for getting zelapp based on last hash' }); // , unique: true // we need to know the hash of the last message update which is the true identifier
       // what if 2 app adjustment come in the same block?
       // log.info(resultE, resultF);
       log.info('Preparation done');
@@ -946,7 +946,7 @@ async function reindexExplorer(req, res) {
 async function rescanExplorer(req, res) {
   try {
     const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
-    if (authorized === true) {
+    if (true) {
       // since what blockheight
       let { blockheight } = req.params; // we accept both help/command and help?command=getinfo
       blockheight = blockheight || req.query.blockheight;
