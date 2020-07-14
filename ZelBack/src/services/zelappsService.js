@@ -2880,6 +2880,30 @@ async function continuousZelAppHashesCheck() {
   }
 }
 
+async function getZelAppHashes(req, res) {
+  const dbopen = serviceHelper.databaseConnection();
+  const database = dbopen.db(config.database.zelcash.database);
+  const query = {};
+  const projection = {
+    projection: {
+      _id: 0,
+      txid: 1,
+      hash: 1,
+      height: 1,
+      value: 1,
+      message: 1,
+    },
+  };
+  const results = await serviceHelper.findInDatabase(database, zelappsHashesCollection, query, projection).catch((error) => {
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+    log.error(error);
+    throw error;
+  });
+  const resultsResponse = serviceHelper.createDataMessage(results);
+  res.json(resultsResponse);
+}
+
 module.exports = {
   dockerListContainers,
   zelAppPull,
@@ -2927,4 +2951,5 @@ module.exports = {
   reindexGlobalAppsInformation,
   rescanGlobalAppsInformation,
   continuousZelAppHashesCheck,
+  getZelAppHashes,
 };
