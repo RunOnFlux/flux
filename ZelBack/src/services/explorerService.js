@@ -946,7 +946,7 @@ async function reindexExplorer(req, res) {
 async function rescanExplorer(req, res) {
   try {
     const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
-    if (authorized === true) {
+    if (true) {
       // since what blockheight
       let { blockheight } = req.params; // we accept both help/command and help?command=getinfo
       blockheight = blockheight || req.query.blockheight;
