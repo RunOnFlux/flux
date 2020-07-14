@@ -519,6 +519,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
       await database.collection(zelappsHashesCollection).createIndex({ txid: 1 }, { name: 'query for getting txid' });
       await database.collection(zelappsHashesCollection).createIndex({ height: 1 }, { name: 'query for getting height' });
       await database.collection(zelappsHashesCollection).createIndex({ hash: 1 }, { name: 'query for getting app hash' });
+      await database.collection(zelappsHashesCollection).createIndex({ message: 1 }, { name: 'query for getting app hashes depending if we have message' });
 
       const databaseGlobal = db.db(config.database.zelappsglobal.database);
       log.info('Preparing apps collections');

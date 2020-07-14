@@ -2852,6 +2852,34 @@ async function rescanGlobalAppsInformation(height = 0, removeLastInformation = f
   }
 }
 
+async function continuousZelAppHashesCheck() {
+  try {
+    // get zelapp hashes that do not have a message;
+    const dbopen = serviceHelper.databaseConnection();
+    const database = dbopen.db(config.database.zelcash.database);
+    const query = { message: false };
+    const projection = {
+      projection: {
+        _id: 0,
+        txid: 1,
+        hash: 1,
+        height: 1,
+        value: 1,
+        message: 1,
+      },
+    };
+    const results = await serviceHelper.findInDatabase(database, zelappsHashesCollection, query, projection);
+    // eslint-disable-next-line no-restricted-syntax
+    for (const result of results) {
+      checkAndRequestZelApp(result.hash, result.txid, result.height, result.value);
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay(1234);
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
 module.exports = {
   dockerListContainers,
   zelAppPull,
@@ -2898,4 +2926,5 @@ module.exports = {
   verifyZelAppMessageSignature,
   reindexGlobalAppsInformation,
   rescanGlobalAppsInformation,
+  continuousZelAppHashesCheck,
 };
