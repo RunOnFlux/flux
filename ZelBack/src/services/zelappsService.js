@@ -2854,6 +2854,7 @@ async function rescanGlobalAppsInformation(height = 0, removeLastInformation = f
 
 async function continuousZelAppHashesCheck() {
   try {
+    log.info('Requesting missing ZelApp messages');
     // get zelapp hashes that do not have a message;
     const dbopen = serviceHelper.databaseConnection();
     const database = dbopen.db(config.database.zelcash.database);
