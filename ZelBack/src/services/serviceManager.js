@@ -43,10 +43,9 @@ async function startFluxFunctions() {
     }, 60000);
     log.info('Flux checks operational');
     explorerService.initiateBlockProcessor(true, true);
-    zelappsService.continuousZelAppHashesCheck();
     setInterval(() => { // every one hour
       zelappsService.continuousZelAppHashesCheck();
-    }, 60 * 60 * 1000);
+    }, 5 * 60 * 1000);
     log.info('Flux Block Processing Service started');
   } catch (e) {
     log.error(e);
