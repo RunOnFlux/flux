@@ -575,7 +575,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
           log.error('Error restoring database!');
           throw e;
         }
-      } else if (scannedBlockHeight > 600000) {
+      } else if (scannedBlockHeight > config.zelcash.chainValidHeight) {
         const zelcashGetChainTips = await zelcashService.getChainTips();
         if (zelcashGetChainTips.status !== 'success') {
           throw new Error(zelcashGetChainTips.data);
@@ -946,7 +946,7 @@ async function reindexExplorer(req, res) {
 async function rescanExplorer(req, res) {
   try {
     const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
-    if (true) {
+    if (authorized === true) {
       // since what blockheight
       let { blockheight } = req.params; // we accept both help/command and help?command=getinfo
       blockheight = blockheight || req.query.blockheight;

@@ -47,6 +47,9 @@ module.exports = {
     porttestnet: 26225,
     rpcporttestnet: 26224,
   },
+  zelcash: {
+    chainValidHeight: 640000,
+  },
   zelTeamZelId: '132hG26CFTNhLM3MRsLEJhp9DpBrK6vg5N',
   zelapps: {
     // in zel per month
