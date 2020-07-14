@@ -30,7 +30,7 @@ async function startFluxFunctions() {
     log.info('Preparing temporary database...');
     // no need to drop temporary messages
     const databaseTemp = db.db(config.database.zelappsglobal.database);
-    await databaseTemp.collection(config.database.zelappsglobal.collections.zelappsTemporaryMessages).createIndex({ createdAt: 1 }, { expireAfterSeconds: 3600 });
+    await databaseTemp.collection(config.database.zelappsglobal.collections.zelappsTemporaryMessages).createIndex({ receivedAt: 1 }, { expireAfterSeconds: 3600 });
     log.info('Temporary database prepared');
     zelfluxCommunication.adjustFirewall();
     zelfluxCommunication.fluxDisovery();
