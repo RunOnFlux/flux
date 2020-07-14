@@ -688,7 +688,7 @@ async function initiateAndHandleConnection(ip) {
       conIP = conIP.split(`:${config.server.apiport}`).join('');
       const msgObj = serviceHelper.ensureObject(evt.data);
       if (msgObj.data.type === 'zelappregister') {
-        handleZelAppRegisterMessage(msgObj.data, conIP);
+        handleZelAppRegisterMessage(msgObj, conIP);
       } else if (msgObj.data.type === 'zelapprequest') {
         respondWithAppMessage(msgObj, websocket);
       } else if (msgObj.data.type === 'HeartBeat' && msgObj.data.message === 'pong') {
