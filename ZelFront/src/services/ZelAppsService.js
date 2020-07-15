@@ -92,6 +92,9 @@ export default {
   zelappsRegInformation() {
     return Api().get('/zelapps/registrationinformation');
   },
+  globalZelAppSpecifications() {
+    return Api().get('/zelapps/globalspecifications');
+  },
   justAPI() {
     return Api();
   },

@@ -77,7 +77,7 @@
               sortable
             >
               <template slot-scope="scope">
-                {{ scope.row.name.substr(3, scope.row.name.length) }}
+                {{ getZelAppName(scope.row.name) }}
               </template>
             </el-table-column>
             <el-table-column
@@ -164,7 +164,86 @@
               sortable
             >
               <template slot-scope="scope">
-                {{ scope.row.name.substr(3, scope.row.name.length) }}
+                {{ getZelAppName(scope.row.name) }}
+              </template>
+            </el-table-column>
+            <el-table-column
+              label="Image"
+              prop="repotag"
+              sortable
+            >
+            </el-table-column>
+            <el-table-column
+              label="Owner"
+              prop="owner"
+              sortable
+            >
+            </el-table-column>
+            <el-table-column
+              label="Port"
+              prop="port"
+              sortable
+            >
+            </el-table-column>
+            <el-table-column
+              label="CPU"
+              prop="cpu"
+              sortable
+            >
+              <template slot-scope="scope">
+                {{ resolveCpu(scope.row) }}
+              </template>
+            </el-table-column>
+            <el-table-column
+              label="RAM"
+              prop="ram"
+              sortable
+            >
+              <template slot-scope="scope">
+                {{ resolveRam(scope.row) }}
+              </template>
+            </el-table-column>
+            <el-table-column
+              label="HDD"
+              prop="hdd"
+              sortable
+            >
+              <template slot-scope="scope">
+                {{ resolveHdd(scope.row) }}
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-tab-pane>
+      </el-tabs>
+      <br>
+      <div class='actionCenter'>
+        <el-input
+          v-if="output"
+          type="textarea"
+          autosize
+          v-model="stringOutput"
+        >
+        </el-input>
+      </div>
+    </div>
+    <div v-if="zelAppsSection === 'globalzelapps'">
+      <el-tabs v-model="activeNameGlobal">
+        <el-tab-pane
+          label="Available"
+          name="available"
+        >
+          <el-table
+            :data="globalZelAppSpecs.data"
+            empty-text="No global ZelApp"
+            style="width: 100%"
+          >
+            <el-table-column
+              label="Name"
+              prop="name"
+              sortable
+            >
+              <template slot-scope="scope">
+                {{ getZelAppName(scope.row.name) }}
               </template>
             </el-table-column>
             <el-table-column
@@ -554,6 +633,7 @@ export default {
   data() {
     return {
       activeName: 'running',
+      activeNameGlobal: 'available',
       getRunningZelAppsResponse: {
         status: '',
         data: '',
@@ -567,6 +647,10 @@ export default {
         data: '',
       },
       availableZelApps: {
+        status: '',
+        data: '',
+      },
+      globalZelAppSpecs: {
         status: '',
         data: '',
       },
@@ -664,8 +748,8 @@ export default {
           ram: 1 * 5, // per 100mb,
           hdd: 0.5 * 5, // per 1gb,
         },
-        address: 't1TH5KaFi9CbMQasGB294yYgoWAuzXNfRMR', // apps registration address
-        epochstart: 640000, // zelapps epoch blockheight start
+        address: 't1...', // apps registration address
+        epochstart: 690000, // zelapps epoch blockheight start
         portMin: 30001, // originally should have been from 30000 but we got temporary folding there
         portMax: 39999,
       },
@@ -714,10 +798,9 @@ export default {
       switch (val) {
         case 'localzelapps':
           this.zelappsGetListRunningZelApps();
-          // vue.$message.info('ZelApps coming soon!');
           break;
         case 'globalzelapps':
-          vue.$message.info('ZelApps coming soon!');
+          this.zelappsGetListGlobalZelApps();
           break;
         case 'registerzelapp':
           this.registrationInformation();
@@ -776,10 +859,9 @@ export default {
     switch (this.zelAppsSection) {
       case 'localzelapps':
         this.zelappsGetListRunningZelApps();
-        // vue.$message.info('ZelApps coming soon!');
         break;
       case 'globalzelapps':
-        vue.$message.info('ZelApps coming soon!');
+        this.zelappsGetListGlobalZelApps();
         break;
       case 'registerzelapp':
         this.registrationInformation();
@@ -790,6 +872,11 @@ export default {
     }
   },
   methods: {
+    async zelappsGetListGlobalZelApps() {
+      const response = await ZelAppsService.globalZelAppSpecifications();
+      this.globalZelAppSpecs.status = response.data.status;
+      this.globalZelAppSpecs.data = response.data.data;
+    },
     async zelappsGetAvailableZelApps() {
       const response = await ZelAppsService.availableZelApps();
       this.availableZelApps.status = response.data.status;
@@ -1282,6 +1369,13 @@ export default {
     },
     onOpen(evt) {
       console.log(evt);
+    },
+    getZelAppName(zelappName) {
+      // this id is used for volumes, docker names so we know it reall belongs to zelflux
+      if (zelappName.startsWith('zel')) {
+        return zelappName.substr(3, zelappName.length);
+      }
+      return zelappName;
     },
   },
 };

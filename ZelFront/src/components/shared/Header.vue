@@ -165,9 +165,7 @@
         </el-menu-item>
         <!--<el-menu-item index="10-4">Active Login Phrases</el-menu-item>-->
       </el-submenu>
-      <el-menu-item
-        index="50"
-      >
+      <el-menu-item index="50">
         Very Basic Explorer
       </el-menu-item>
       <el-menu-item
@@ -257,6 +255,9 @@ export default {
           break;
         case '3-1':
           this.$store.commit('setZelAppsSection', 'localzelapps');
+          break;
+        case '3-2':
+          this.$store.commit('setZelAppsSection', 'globalzelapps');
           break;
         case '3-3':
           this.$store.commit('setZelAppsSection', 'registerzelapp');
