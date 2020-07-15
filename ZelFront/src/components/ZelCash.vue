@@ -137,7 +137,9 @@ export default {
     },
     async restartZelCashDaemon() {
       const zelidauth = localStorage.getItem('zelidauth');
+      vue.$message.success('Restarting ZelCash...');
       const response = await ZelCashService.restart(zelidauth);
+      console.log(response);
       vue.$message({
         type: response.data.status,
         message: response.data.data.message || response.data.data,

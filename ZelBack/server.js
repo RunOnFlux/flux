@@ -6,7 +6,7 @@ const config = require('config');
 // const path = require('path');
 const app = require('./src/lib/server.js');
 const log = require('./src/lib/log');
-const communication = require('./src/services/zelfluxCommunication');
+const serviceManager = require('./src/services/serviceManager');
 
 // const key = fs.readFileSync(path.join(__dirname, '../certs/selfsigned.key'), 'utf8');
 // const cert = fs.readFileSync(path.join(__dirname, '../certs/selfsigned.crt'), 'utf8');
@@ -19,5 +19,5 @@ const communication = require('./src/services/zelfluxCommunication');
 
 app.listen(config.server.apiport, () => {
   log.info(`ZelBack listening on port ${config.server.apiport}!`);
-  communication.startFluxFunctions();
+  serviceManager.startFluxFunctions();
 });

@@ -47,6 +47,9 @@ module.exports = {
     porttestnet: 26225,
     rpcporttestnet: 26224,
   },
+  zelcash: {
+    chainValidHeight: 640000,
+  },
   zelTeamZelId: '132hG26CFTNhLM3MRsLEJhp9DpBrK6vg5N',
   zelapps: {
     // in zel per month
@@ -56,7 +59,7 @@ module.exports = {
       hdd: 0.5 * 5, // per 1gb,
     },
     address: 't1...', // apps registration address
-    epochstart: 1000000, // zelapps epoch blockheight start
+    epochstart: 690000, // zelapps epoch blockheight start
     portMin: 30001, // originally should have been from 30000 but we got temporary folding there
     portMax: 39999,
     maxImageSize: 300000000, // 300mb

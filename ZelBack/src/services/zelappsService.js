@@ -28,6 +28,8 @@ const globalZelAppsMessages = config.database.zelappsglobal.collections.zelappsM
 const globalZelAppsInformation = config.database.zelappsglobal.collections.zelappsInformation;
 const globalZelAppsTempMessages = config.database.zelappsglobal.collections.zelappsTemporaryMessages;
 
+const zelappsHashesCollection = config.database.zelcash.collections.zelappsHashes;
+
 function getZelAppIdentifier(zelappName) {
   // this id is used for volumes, docker names so we know it reall belongs to zelflux
   if (zelappName.startsWith('zel')) {
@@ -2501,7 +2503,7 @@ async function storeZelAppPermanentMessage(message) {
   return true;
 }
 
-async function updateZelAppSpecifications(zelAppSpecs, i = 0) {
+async function updateZelAppSpecifications(zelAppSpecs) {
   try {
     // zelAppSpecs: {
     //   version: 1,
@@ -2552,11 +2554,10 @@ async function updateZelAppSpecifications(zelAppSpecs, i = 0) {
       await serviceHelper.updateOneInDatabase(database, globalZelAppsInformation, query, update, options);
     }
   } catch (error) {
+    // retry
     log.error(error);
-    if (i < 60) {
-      await serviceHelper.delay(60 * 1000);
-      updateZelAppSpecifications(zelAppSpecs, i + 1);
-    }
+    await serviceHelper.delay(60 * 1000);
+    updateZelAppSpecifications(zelAppSpecs);
   }
 }
 
@@ -2669,9 +2670,21 @@ async function checkZelAppTemporaryMessageExistence(hash) {
   }
 }
 
+async function zelappHashHasMessage(hash) {
+  const db = serviceHelper.databaseConnection();
+  const database = db.db(config.database.zelcash.database);
+  const query = { hash };
+  const update = { $set: { message: true } };
+  const options = {};
+  await serviceHelper.updateOneInDatabase(database, zelappsHashesCollection, query, update, options);
+  return true;
+}
+
 // hash of zelapp information, txid it was in, height of blockchain containing the txid
 async function checkAndRequestZelApp(hash, txid, height, valueSat, i = 0) {
   try {
+    const randomDelay = Math.floor((Math.random() * 1280)) + 420;
+    await serviceHelper.delay(randomDelay);
     const appMessageExists = await checkZelAppMessageExistence(hash);
     if (appMessageExists === false) { // otherwise do nothing
       // we surely do not have that message in permanent storaage.
@@ -2695,6 +2708,8 @@ async function checkAndRequestZelApp(hash, txid, height, valueSat, i = 0) {
             valueSat: serviceHelper.ensureNumber(valueSat),
           };
           await storeZelAppPermanentMessage(permanentZelAppMessage);
+          // await update zelapphashes that we already have it stored
+          await zelappHashHasMessage(hash);
           const updateForSpecifications = permanentZelAppMessage.zelAppSpecifications;
           updateForSpecifications.hash = permanentZelAppMessage.hash;
           updateForSpecifications.height = permanentZelAppMessage.height;
@@ -2706,13 +2721,16 @@ async function checkAndRequestZelApp(hash, txid, height, valueSat, i = 0) {
         // request the message and broadcast the message further to our connected peers.
         requestZelAppMessage(hash);
         // rerun this after 1 min delay
-        // stop this loop after 1 hour, as it might be a scammy message or simply this message is nowhere on the network
-        if (i < 60) {
+        // stop this loop after 7 mins, as it might be a scammy message or simply this message is nowhere on the network, we dont have connections etc. We also have continous checkup for it every 8 min
+        if (i < 7) {
           await serviceHelper.delay(60 * 1000);
           checkAndRequestZelApp(hash, txid, height, valueSat, i + 1);
         }
         // additional requesting of missing zelapp messages is done on rescans
       }
+    } else {
+      // update zelapphashes that we already have it stored
+      await zelappHashHasMessage(hash);
     }
   } catch (error) {
     log.error(error);
@@ -2835,6 +2853,59 @@ async function rescanGlobalAppsInformation(height = 0, removeLastInformation = f
   }
 }
 
+async function continuousZelAppHashesCheck() {
+  try {
+    log.info('Requesting missing ZelApp messages');
+    // get zelapp hashes that do not have a message;
+    const dbopen = serviceHelper.databaseConnection();
+    const database = dbopen.db(config.database.zelcash.database);
+    const query = { message: false };
+    const projection = {
+      projection: {
+        _id: 0,
+        txid: 1,
+        hash: 1,
+        height: 1,
+        value: 1,
+        message: 1,
+      },
+    };
+    const results = await serviceHelper.findInDatabase(database, zelappsHashesCollection, query, projection);
+    // eslint-disable-next-line no-restricted-syntax
+    for (const result of results) {
+      checkAndRequestZelApp(result.hash, result.txid, result.height, result.value);
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay(1234);
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+async function getZelAppHashes(req, res) {
+  const dbopen = serviceHelper.databaseConnection();
+  const database = dbopen.db(config.database.zelcash.database);
+  const query = {};
+  const projection = {
+    projection: {
+      _id: 0,
+      txid: 1,
+      hash: 1,
+      height: 1,
+      value: 1,
+      message: 1,
+    },
+  };
+  const results = await serviceHelper.findInDatabase(database, zelappsHashesCollection, query, projection).catch((error) => {
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+    log.error(error);
+    throw error;
+  });
+  const resultsResponse = serviceHelper.createDataMessage(results);
+  res.json(resultsResponse);
+}
+
 module.exports = {
   dockerListContainers,
   zelAppPull,
@@ -2881,4 +2952,6 @@ module.exports = {
   verifyZelAppMessageSignature,
   reindexGlobalAppsInformation,
   rescanGlobalAppsInformation,
+  continuousZelAppHashesCheck,
+  getZelAppHashes,
 };
