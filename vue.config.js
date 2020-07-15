@@ -1,6 +1,7 @@
 const path = require('path');
-// ideally https://github.com/webpack-contrib/compression-webpack-plugin#using-brotli from nodejs 11.7.0
-// const BrotliPlugin = require('brotli-webpack-plugin');
+// ideally
+// https://github.com/webpack-contrib/compression-webpack-plugin#using-brotli
+// from nodejs 11.7.0 const BrotliPlugin = require('brotli-webpack-plugin');
 // const CompressionPlugin = require('compression-webpack-plugin');
 // const zopfli = require('@gfx/zopfli');
 
@@ -26,27 +27,22 @@ const plugins = [];
 // }
 
 module.exports = {
-  chainWebpack: (config) => {
-    config
-      .entry('app')
-      .clear()
-      .add('./ZelFront/src/main.js')
-      .end();
-    config.resolve.alias
-      .set('@', path.join(__dirname, './ZelFront/src'));
+  chainWebpack : (config) => {
+    config.entry('app').clear().add('./ZelFront/src/main.js').end();
+    config.resolve.alias.set('@', path.join(__dirname, './ZelFront/src'));
   },
-  outputDir: path.join(__dirname, './ZelFront/dist'),
-  pages: {
-    index: {
+  outputDir : path.join(__dirname, './ZelFront/dist'),
+  pages : {
+    index : {
       // entry for the page
-      entry: 'ZelFront/src/main.js',
+      entry : 'ZelFront/src/main.js',
       // the source template
-      template: 'ZelFront/public/index.html',
+      template : 'ZelFront/public/index.html',
       // output as dist/index.html
-      filename: 'index.html',
+      filename : 'index.html',
     },
   },
-  configureWebpack: {
+  configureWebpack : {
     plugins,
   },
 };
