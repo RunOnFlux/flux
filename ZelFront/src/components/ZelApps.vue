@@ -212,6 +212,20 @@
                 {{ resolveHdd(scope.row) }}
               </template>
             </el-table-column>
+            <el-table-column
+              label="Install"
+              prop="install"
+              sortable
+            >
+              <template slot-scope="scope">
+                <ElButton
+                  class="generalButton"
+                  @click="installFoldingAtHome(scope.row.name)"
+                >
+                  Install
+                </ElButton>
+              </template>
+            </el-table-column>
           </el-table>
         </el-tab-pane>
       </el-tabs>
@@ -289,20 +303,6 @@
             >
               <template slot-scope="scope">
                 {{ resolveHdd(scope.row) }}
-              </template>
-            </el-table-column>
-            <el-table-column
-              label="Install"
-              prop="install"
-              sortable
-            >
-              <template slot-scope="scope">
-                <ElButton
-                  class="generalButton"
-                  @click="installFoldingAtHome(scope.row.name)"
-                >
-                  Install
-                </ElButton>
               </template>
             </el-table-column>
           </el-table>
