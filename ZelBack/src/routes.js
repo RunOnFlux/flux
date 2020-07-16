@@ -254,6 +254,9 @@ module.exports = (app, expressWs) => {
   app.get('/zelapps/hashes', (req, res) => {
     zelappsService.getZelAppHashes(req, res);
   });
+  app.get('/zelapps/locations', (req, res) => {
+    zelappsService.getZelAppsLocations(req, res);
+  });
 
   // app.get('/explorer/allutxos', (req, res) => {
   //   explorerService.getAllUtxos(req, res);

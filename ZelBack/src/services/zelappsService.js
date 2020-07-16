@@ -23,12 +23,13 @@ const cmdAsync = util.promisify(nodecmd.get);
 const docker = new Docker();
 
 const scannedHeightCollection = config.database.zelcash.collections.scannedHeight;
+const zelappsHashesCollection = config.database.zelcash.collections.zelappsHashes;
+
 const localZelAppsInformation = config.database.zelappslocal.collections.zelappsInformation;
 const globalZelAppsMessages = config.database.zelappsglobal.collections.zelappsMessages;
 const globalZelAppsInformation = config.database.zelappsglobal.collections.zelappsInformation;
 const globalZelAppsTempMessages = config.database.zelappsglobal.collections.zelappsTemporaryMessages;
-
-const zelappsHashesCollection = config.database.zelcash.collections.zelappsHashes;
+const globalZelAppsLocations = config.database.zelappsglobal.collections.zelappsLocations;
 
 function getZelAppIdentifier(zelappName) {
   // this id is used for volumes, docker names so we know it reall belongs to zelflux
@@ -2091,18 +2092,56 @@ async function storeZelAppTemporaryMessage(message, furtherVerification = false)
   const value = newMessage;
   const query = { hash: newMessage.hash };
   const projection = {};
-  const result = await serviceHelper.findOneInDatabase(database, globalZelAppsTempMessages, query, projection).catch((error) => {
-    log.error(error);
-    throw error;
-  });
+  const result = await serviceHelper.findOneInDatabase(database, globalZelAppsTempMessages, query, projection);
   if (result) {
     // it is already stored
     return false;
   }
-  await serviceHelper.insertOneToDatabase(database, globalZelAppsTempMessages, value).catch((error) => {
-    log.error(error);
-    throw error;
-  });
+  await serviceHelper.insertOneToDatabase(database, globalZelAppsTempMessages, value);
+  // it is stored and rebroadcasted
+  return true;
+}
+
+async function storeZelAppRunningMessage(message) {
+  /* message object
+  * @param type string
+  * @param version number
+  * @param hash string
+  * @param broadcastedAt number
+  * @param name string
+  * @param ip string
+  */
+  if (typeof message !== 'object' && typeof message.type !== 'string' && typeof message.version !== 'number' && typeof message.broadcastedAt !== 'number' && typeof message.hash !== 'string' && typeof message.name !== 'string' && typeof message.ip !== 'string') {
+    return new Error('Invalid ZelApp Running message for storing');
+  }
+
+  const validTill = message.broadcastedAt + (3900 * 1000); // 3900 seconds
+
+  const db = serviceHelper.databaseConnection();
+  const database = db.db(config.database.zelappsglobal.database);
+  const newZelAppRunningMessage = {
+    name: message.name,
+    hash: message.hash, // hash of application specifics that are running
+    ip: message.ip,
+    broadcastedAt: new Date(message.broadcastedAt),
+    expireAt: new Date(validTill),
+  };
+
+  // indexes over name, hash, ip. Then name + ip and name + ip + broadcastedAt.
+  const queryFind = { name: newZelAppRunningMessage.name, ip: newZelAppRunningMessage.ip, broadcastedAt: newZelAppRunningMessage.broadcastedAt };
+  const projection = { _id: 0 };
+  // we already have the exact same data
+  const result = await serviceHelper.findOneInDatabase(database, globalZelAppsLocations, queryFind, projection);
+  if (result) {
+    // it is already stored
+    return false;
+  }
+  const queryUpdate = { name: newZelAppRunningMessage.name, ip: newZelAppRunningMessage.ip };
+  const update = { $set: newZelAppRunningMessage };
+  const options = {
+    upsert: true,
+  };
+  await serviceHelper.updateOneInDatabase(database, globalZelAppsLocations, queryUpdate, update, options);
   // it is stored and rebroadcasted
   return true;
 }
@@ -2820,6 +2859,28 @@ async function reindexGlobalAppsInformation() {
   }
 }
 
+// function that drops information about running zelapps and rebuildsindexes
+async function reindexGlobalAppsLocation() {
+  try {
+    const db = serviceHelper.databaseConnection();
+    const database = db.db(config.database.zelappsglobal.database);
+    await serviceHelper.dropCollection(database, globalZelAppsLocations).catch((error) => {
+      if (error.message !== 'ns not found') {
+        throw error;
+      }
+    });
+    await database.collection(globalZelAppsLocations).createIndex({ name: 1 }, { name: 'query for getting zelapp location based on zelapp specs name' });
+    await database.collection(globalZelAppsLocations).createIndex({ hash: 1 }, { name: 'query for getting zelapp location based on zelapp hash' });
+    await database.collection(globalZelAppsLocations).createIndex({ ip: 1 }, { name: 'query for getting zelapp location based on ip' });
+    await database.collection(globalZelAppsLocations).createIndex({ name: 1, ip: 1 }, { name: 'query for getting app based on ip and name' });
+    await database.collection(globalZelAppsLocations).createIndex({ name: 1, ip: 1, broadcastedAt: 1 }, { name: 'query for getting app to ensure we possess a message' });
+    return true;
+  } catch (error) {
+    log.error(error);
+    throw error;
+  }
+}
+
 // function goes over all global zelapps messages and updates global zelapps infromation database
 async function rescanGlobalAppsInformation(height = 0, removeLastInformation = false) {
   try {
@@ -2906,6 +2967,30 @@ async function getZelAppHashes(req, res) {
   res.json(resultsResponse);
 }
 
+async function getZelAppsLocations(req, res) {
+  const dbopen = serviceHelper.databaseConnection();
+  const database = dbopen.db(config.database.zelappsglobal.database);
+  const query = {};
+  const projection = {
+    projection: {
+      _id: 0,
+      name: 1,
+      hash: 1,
+      ip: 1,
+      broadcastedAt: 1,
+      expireAt: 1,
+    },
+  };
+  const results = await serviceHelper.findInDatabase(database, globalZelAppsLocations, query, projection).catch((error) => {
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+    log.error(error);
+    throw error;
+  });
+  const resultsResponse = serviceHelper.createDataMessage(results);
+  res.json(resultsResponse);
+}
+
 module.exports = {
   dockerListContainers,
   zelAppPull,
@@ -2954,4 +3039,7 @@ module.exports = {
   rescanGlobalAppsInformation,
   continuousZelAppHashesCheck,
   getZelAppHashes,
+  getZelAppsLocations,
+  storeZelAppRunningMessage,
+  reindexGlobalAppsLocation,
 };

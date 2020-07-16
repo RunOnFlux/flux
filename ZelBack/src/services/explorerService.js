@@ -534,7 +534,12 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
             throw error;
           }
         });
-        log.info(resultE, resultF);
+        const resultG = await serviceHelper.dropCollection(databaseGlobal, config.database.zelappsglobal.collections.zelappsLocations).catch((error) => {
+          if (error.message !== 'ns not found') {
+            throw error;
+          }
+        });
+        log.info(resultE, resultF, resultG);
       }
       await databaseGlobal.collection(config.database.zelappsglobal.collections.zelappsMessages).createIndex({ hash: 1 }, { name: 'query for getting zelapp message based on hash' }); // , unique: true
       await databaseGlobal.collection(config.database.zelappsglobal.collections.zelappsMessages).createIndex({ txid: 1 }, { name: 'query for getting zelapp message based on txid' });
@@ -547,6 +552,11 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
       await databaseGlobal.collection(config.database.zelappsglobal.collections.zelappsInformation).createIndex({ repotag: 1 }, { name: 'query for getting zelapp based on image' });
       await databaseGlobal.collection(config.database.zelappsglobal.collections.zelappsInformation).createIndex({ height: 1 }, { name: 'query for getting zelapp based on last height update' }); // we need to know the height of app adjustment
       await databaseGlobal.collection(config.database.zelappsglobal.collections.zelappsInformation).createIndex({ hash: 1 }, { name: 'query for getting zelapp based on last hash' }); // , unique: true // we need to know the hash of the last message update which is the true identifier
+      await database.collection(config.database.zelappsglobal.collections.zelappsLocations).createIndex({ name: 1 }, { name: 'query for getting zelapp location based on zelapp specs name' });
+      await database.collection(config.database.zelappsglobal.collections.zelappsLocations).createIndex({ hash: 1 }, { name: 'query for getting zelapp location based on zelapp hash' });
+      await database.collection(config.database.zelappsglobal.collections.zelappsLocations).createIndex({ ip: 1 }, { name: 'query for getting zelapp location based on ip' });
+      await database.collection(config.database.zelappsglobal.collections.zelappsLocations).createIndex({ name: 1, ip: 1 }, { name: 'query for getting app based on ip and name' });
+      await database.collection(config.database.zelappsglobal.collections.zelappsLocations).createIndex({ name: 1, ip: 1, broadcastedAt: 1 }, { name: 'query for getting app to ensure we possess a message' });
       // what if 2 app adjustment come in the same block?
       // log.info(resultE, resultF);
       log.info('Preparation done');

@@ -32,6 +32,10 @@ async function startFluxFunctions() {
     const databaseTemp = db.db(config.database.zelappsglobal.database);
     await databaseTemp.collection(config.database.zelappsglobal.collections.zelappsTemporaryMessages).createIndex({ receivedAt: 1 }, { expireAfterSeconds: 3600 });
     log.info('Temporary database prepared');
+    log.info('Preparing zelapps locations');
+    // more than 1 hour. Meaning we have not received status message for a long time. So that node is no longer on a network or app is down.
+    await databaseTemp.collection(config.database.zelappsglobal.collections.zelappsLocations).createIndex({ broadcastedAt: 1 }, { expireAfterSeconds: 3900 });
+    log.info('ZelApps locations prepared');
     zelfluxCommunication.adjustFirewall();
     zelfluxCommunication.fluxDisovery();
     log.info('Flux Discovery started');
