@@ -2376,9 +2376,10 @@ async function temporaryZelAppRegisterFunctionForFoldingAtHome(req, res) {
     if (authorized) {
       // ram is specified in MB, hdd specified in GB
       const zelAppSpecifications = {
-        repotag: 'yurinnick/folding-at-home:latest',
         name: 'zelFoldingAtHome', // corresponds to docker name and this name is stored in zelapps mongo database
         description: 'Folding @ Home is cool :)',
+        repotag: 'yurinnick/folding-at-home:latest',
+        owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
         port: 30000,
         tiered: true,
         cpu: 0.5, // true resource registered for app. If not tiered only this is available
@@ -2402,6 +2403,8 @@ async function temporaryZelAppRegisterFunctionForFoldingAtHome(req, res) {
         ],
         containerPort: 7396,
         containerData: '/config',
+        hash: 'ahashofappmessage', // hash of app message
+        height: 1, // height of tx on which it was
       };
 
       // get our tier and adjust true resource registered
@@ -2442,13 +2445,11 @@ async function availableZelApps(req, res) {
   // calls to global mongo db
   // simulate a similar response
   const zelapps = [
-    {
+    { // zelapp specifications
       name: 'zelFoldingAtHome',
       description: 'Folding @ Home is cool :)',
       repotag: 'yurinnick/folding-at-home:latest',
       owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-      timestamp: 1587181519000,
-      validTill: 1608263119000,
       tiered: true,
       port: 30000,
       cpu: 0.5,
@@ -2472,8 +2473,8 @@ async function availableZelApps(req, res) {
       ],
       containerPort: 7396,
       containerData: '/config',
-      hash: 'abcd', // hash of app message
-      height: 'abcd', // height of tx on which it was
+      hash: 'ahashofappmessage', // hash of app message
+      height: 1, // height of tx on which it was
     },
   ];
 
