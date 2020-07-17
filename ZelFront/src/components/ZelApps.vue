@@ -965,7 +965,7 @@ export default {
       }
     },
     async installFoldingAtHome(zelapp) { // todo rewrite to installZelApp later
-      console.log(zelapp);
+      const appName = zelapp;
       const self = this;
       this.output = '';
       vue.$message.success('Installing ZelApp');
@@ -980,7 +980,7 @@ export default {
           self.output = JSON.parse(`[${progressEvent.target.response.replace(/}{/g, '},{')}]`);
         },
       };
-      const response = await ZelAppsService.justAPI().get('/zelapps/zelapptemporarylocalregister/foldingathome', axiosConfig);
+      const response = await ZelAppsService.justAPI().get(`/zelapps/zelapptemporarylocalregister/${appName}`, axiosConfig);
       if (response.data.status === 'error') {
         vue.$message.error(response.data.data);
       } else {
