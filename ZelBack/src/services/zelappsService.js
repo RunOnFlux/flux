@@ -1192,7 +1192,7 @@ async function createZelAppVolume(zelAppSpecifications, res) {
     throw new Error('Unable to obtain locked system resources by ZelApps. Aborting.');
   }
   const hddLockedByApps = resourcesLocked.data.zelAppsHddLocked;
-  const availableSpaceForZelApps = useableSpaceOnNode - hddLockedByApps;
+  const availableSpaceForZelApps = useableSpaceOnNode - hddLockedByApps + zelAppSpecifications.hdd; // because our application is already accounted in locked resources
   // bigger or equal so we have the 1 gb free...
   if (zelAppSpecifications.hdd >= availableSpaceForZelApps) {
     throw new Error('Insufficient space on ZelNode to spawn an application');
@@ -2032,6 +2032,9 @@ async function verifyZelAppSpecifications(zelAppSpecifications) {
   if (!zelAppSpecifications.name.match(/^[a-zA-Z0-9]+$/)) {
     throw new Error('ZelApp name contains special characters. Only a-z, A-Z and 0-9 are allowed');
   }
+  if (zelAppSpecifications.name.startsWith('zel')) {
+    throw new Error('ZelApp name can not start with zel');
+  }
   if (zelAppSpecifications.description.length > 256) {
     throw new Error('Description is too long. Maximum of 256 characters is allowed');
   }
@@ -2049,6 +2052,11 @@ async function verifyZelAppSpecifications(zelAppSpecifications) {
   // check if containerPort makes sense
   if (zelAppSpecifications.containerPort < 0 || zelAppSpecifications.containerPort > 65535) {
     throw new Error('Container Port is not within system limits 0-65535');
+  }
+
+  // check wheter shared Folder is not root
+  if (zelAppSpecifications.containerData.length < 2) {
+    throw new Error('ZelApp container data folder not specified. If no data folder is whished, use /tmp');
   }
 
   // check repotag if available for download

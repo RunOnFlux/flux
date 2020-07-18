@@ -1256,6 +1256,9 @@ export default {
         if (!name.match(/^[a-zA-Z0-9]+$/)) {
           throw new Error('ZelApp name contains special characters. Only a-z, A-Z and 0-9 are allowed');
         }
+        if (name.startsWith('zel')) {
+          throw new Error('ZelApp name can not start with zel');
+        }
         if (description.length > 256) {
           throw new Error('Description is too long. Maximum of 256 characters is allowed');
         }
@@ -1273,6 +1276,11 @@ export default {
         // check if containerPort makes sense
         if (zelAppSpecFormatted.containerPort < 0 || zelAppSpecFormatted.containerPort > 65535) {
           throw new Error('Container Port is not within system limits 0-65535');
+        }
+
+        // check wheter shared Folder is not root
+        if (containerData.length < 2) {
+          throw new Error('ZelApp container data folder not specified. If no data folder is whished, use /tmp');
         }
 
         // check repotag if available for download

@@ -32,6 +32,12 @@ module.exports = (app, expressWs) => {
   app.get('/zelcash/getzelnodecount', (req, res) => {
     zelcashService.getZelNodeCount(req, res);
   });
+  app.get('/zelcash/getdoslist', (req, res) => {
+    zelcashService.getDOSList(req, res);
+  });
+  app.get('/zelcash/getstartlist', (req, res) => {
+    zelcashService.getStartList(req, res);
+  });
   app.get('/zelcash/getzelnodescores/:blocks?', (req, res) => { // defaults to 10
     zelcashService.getZelNodeScores(req, res);
   });
