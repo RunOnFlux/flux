@@ -1192,7 +1192,7 @@ async function createZelAppVolume(zelAppSpecifications, res) {
     throw new Error('Unable to obtain locked system resources by ZelApps. Aborting.');
   }
   const hddLockedByApps = resourcesLocked.data.zelAppsHddLocked;
-  const availableSpaceForZelApps = useableSpaceOnNode - hddLockedByApps;
+  const availableSpaceForZelApps = useableSpaceOnNode - hddLockedByApps + zelAppSpecifications.hdd; // because our application is already accounted in locked resources
   // bigger or equal so we have the 1 gb free...
   if (zelAppSpecifications.hdd >= availableSpaceForZelApps) {
     throw new Error('Insufficient space on ZelNode to spawn an application');
