@@ -34,7 +34,7 @@
               <template slot-scope="scope">
                 <ElButton
                   class="generalButton"
-                  @click="openZelApp(scope.row.Names[0].substr(1, scope.row.Names[0].length))"
+                  @click="openZelApp(scope.row.Names[0].substr(4, scope.row.Names[0].length))"
                 >
                   Visit
                 </ElButton>
@@ -965,7 +965,7 @@ export default {
       }
     },
     async installFoldingAtHome(zelapp) { // todo rewrite to installZelApp later
-      console.log(zelapp);
+      const appName = zelapp;
       const self = this;
       this.output = '';
       vue.$message.success('Installing ZelApp');
@@ -980,7 +980,7 @@ export default {
           self.output = JSON.parse(`[${progressEvent.target.response.replace(/}{/g, '},{')}]`);
         },
       };
-      const response = await ZelAppsService.justAPI().get('/zelapps/zelapptemporarylocalregister/foldingathome', axiosConfig);
+      const response = await ZelAppsService.justAPI().get(`/zelapps/zelapptemporarylocalregister/${appName}`, axiosConfig);
       if (response.data.status === 'error') {
         vue.$message.error(response.data.data);
       } else {
@@ -1007,7 +1007,10 @@ export default {
       return this.installedZelApps.data.find((zelapp) => zelapp.name === zelappName);
     },
     openZelApp(name) {
-      const zelappInfo = this.installedZelApp(name);
+      let zelappInfo = this.installedZelApp(name);
+      if (!zelappInfo) {
+        zelappInfo = this.installedZelApp(`zel${name}`);
+      }
       if (zelappInfo) {
         const backendURL = store.get('backendURL') || `http://${this.userconfig.externalip}:${this.config.apiPort}`;
         const ip = backendURL.split(':')[1].split('//')[1];
