@@ -677,8 +677,17 @@ module.exports = (app, expressWs) => {
   app.get('/zelapps/zelappimageremove/:image?', (req, res) => {
     zelappsService.zelAppImageRemove(req, res);
   });
-  app.get('/zelapps/zelapptemporarylocalregister/foldingathome', (req, res) => {
+  app.get('/zelapps/zelapptemporarylocalregister/zelFoldingAtHome', (req, res) => {
     zelappsService.temporaryZelAppRegisterFunctionForFoldingAtHome(req, res);
+  });
+  app.get('/zelapps/zelapptemporarylocalregister/dibi-UND', (req, res) => {
+    zelappsService.temporaryZelAppRegisterFunctionForDibiFetch(req, res);
+  });
+  app.get('/zelapps/zelapptemporarylocalregister/SuperMario', (req, res) => {
+    zelappsService.temporaryZelAppRegisterFunctionForSuperMario(req, res);
+  });
+  app.get('/zelapps/zelapptemporarylocalregister/PacMan', (req, res) => {
+    zelappsService.temporaryZelAppRegisterFunctionForPacMan(req, res);
   });
   app.get('/zelapps/createzelfluxnetwork', (req, res) => {
     zelappsService.createZelFluxNetwork(req, res);
