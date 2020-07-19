@@ -836,28 +836,27 @@ async function getAddressTransactions(req, res) {
 }
 
 async function getScannedHeight(req, res) {
-  const dbopen = serviceHelper.databaseConnection();
-  const database = dbopen.db(config.database.zelcash.database);
-  const query = { generalScannedHeight: { $gte: 0 } };
-  const projection = {
-    projection: {
-      _id: 0,
-      generalScannedHeight: 1,
-    },
-  };
-  const result = await serviceHelper.findOneInDatabase(database, scannedHeightCollection, query, projection).catch((error) => {
+  try {
+    const dbopen = serviceHelper.databaseConnection();
+    const database = dbopen.db(config.database.zelcash.database);
+    const query = { generalScannedHeight: { $gte: 0 } };
+    const projection = {
+      projection: {
+        _id: 0,
+        generalScannedHeight: 1,
+      },
+    };
+    const result = await serviceHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
+    if (!result) {
+      throw new Error('Scanning not initiated');
+    }
+    const resMessage = serviceHelper.createDataMessage(result);
+    res.json(resMessage);
+  } catch (error) {
     log.error(error);
     const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
-    throw error;
-  });
-  if (!result) {
-    const errMessage = serviceHelper.createErrorMessage('Scanning not initiated');
-    res.json(errMessage);
-    throw new Error('Scanning not initiated');
   }
-  const resMessage = serviceHelper.createDataMessage(result);
-  return res.json(resMessage);
 }
 
 async function checkBlockProcessingStopped(i, callback) {

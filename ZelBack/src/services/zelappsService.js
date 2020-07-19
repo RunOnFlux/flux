@@ -1183,7 +1183,7 @@ async function createZelAppVolume(zelAppSpecifications, res) {
     }
   });
   console.log(okVolumes);
-  // todo get tier
+
   const tier = await zelnodeTier();
   const totalSpaceOnNode = config.fluxSpecifics.hdd[tier];
   const useableSpaceOnNode = totalSpaceOnNode - config.lockedSystemResources.hdd;
@@ -1387,6 +1387,11 @@ async function removeZelAppLocally(zelapp, res) {
     const dbopen = serviceHelper.databaseConnection();
 
     const zelappsDatabase = dbopen.db(config.database.zelappslocal.database);
+    // temporary fix!
+    if (zelapp === 'FoldingAtHome') {
+      // eslint-disable-next-line no-param-reassign
+      zelapp = 'zelFoldingAthome';
+    }
     const zelappsQuery = { name: zelapp };
     const zelappsProjection = {};
     const zelAppSpecifications = await serviceHelper.findOneInDatabase(zelappsDatabase, localZelAppsInformation, zelappsQuery, zelappsProjection);
@@ -1597,7 +1602,46 @@ async function removeZelAppLocallyApi(req, res) {
   }
 }
 
+async function checkZelAppRequirements(zelAppSpecs) {
+  // ZelAppSpecs has hdd, cpu and ram assigned to correct tier
+  const tier = await zelnodeTier();
+  const resourcesLocked = await zelappsResources();
+  if (resourcesLocked.status !== 'success') {
+    throw new Error('Unable to obtain locked system resources by ZelApps. Aborting.');
+  }
+
+  const totalSpaceOnNode = config.fluxSpecifics.hdd[tier];
+  const useableSpaceOnNode = totalSpaceOnNode - config.lockedSystemResources.hdd;
+  const hddLockedByApps = resourcesLocked.data.zelAppsHddLocked;
+  const availableSpaceForZelApps = useableSpaceOnNode - hddLockedByApps + zelAppSpecs.hdd;
+  // bigger or equal so we have the 1 gb free...
+  if (zelAppSpecs.hdd >= availableSpaceForZelApps) {
+    throw new Error('Insufficient space on ZelNode to spawn an application');
+  }
+
+  const totalCpuOnNode = config.fluxSpecifics.cpu[tier];
+  const useableCpuOnNode = totalCpuOnNode - config.lockedSystemResources.cpu;
+  const cpuLockedByApps = resourcesLocked.data.zelAppsCpusLocked * 10;
+  const adjustedZelAppCpu = zelAppSpecs.cpu * 10;
+  const availableCpuForZelApps = useableCpuOnNode - cpuLockedByApps + adjustedZelAppCpu;
+  // bigger or equal so we have the 1 gb free...
+  if (adjustedZelAppCpu >= availableCpuForZelApps) {
+    throw new Error('Insufficient CPU power on ZelNode to spawn an application');
+  }
+
+  const totalRamOnNode = config.fluxSpecifics.ram[tier];
+  const useableRamOnNode = totalRamOnNode - config.lockedSystemResources.ram;
+  const ramLockedByApps = resourcesLocked.data.zelAppsRamLocked;
+  const availableRamForZelApps = useableRamOnNode - ramLockedByApps + zelAppSpecs.ram;
+  // bigger or equal so we have the 1 gb free...
+  if (zelAppSpecs.ram >= availableRamForZelApps) {
+    throw new Error('Insufficient RAM on ZelNode to spawn an application');
+  }
+  return true;
+}
+
 async function registerZelAppLocally(zelAppSpecifications, res) {
+  // cpu, ram, hdd were assigned to correct tiered specs.
   // TODOs
   // get applications specifics from zelapp messages database
   // check if hash is in blockchain
@@ -1667,6 +1711,19 @@ async function registerZelAppLocally(zelAppSpecifications, res) {
     log.info(zelAppInstallation);
     if (res) {
       res.write(serviceHelper.ensureString(zelAppInstallation));
+    }
+
+    const checkParameters = {
+      status: 'Checking ZelApp requirements...',
+    };
+    log.info(checkParameters);
+    if (res) {
+      res.write(serviceHelper.ensureString(checkParameters));
+    }
+
+    const requirementsOK = await checkZelAppRequirements(zelAppSpecifications);
+    if (requirementsOK !== true) {
+      throw new Error('Flux does not meet ZelApp requirements.');
     }
 
     // pull image
@@ -1943,19 +2000,19 @@ async function getZelAppsPermanentMessages(req, res) {
 }
 
 async function getGlobalZelAppsSpecifications(req, res) {
-  const db = serviceHelper.databaseConnection();
-
-  const database = db.db(config.database.zelappsglobal.database);
-  const query = {};
-  const projection = { projection: { _id: 0 } };
-  const results = await serviceHelper.findInDatabase(database, globalZelAppsInformation, query, projection).catch((error) => {
+  try {
+    const db = serviceHelper.databaseConnection();
+    const database = db.db(config.database.zelappsglobal.database);
+    const query = {};
+    const projection = { projection: { _id: 0 } };
+    const results = await serviceHelper.findInDatabase(database, globalZelAppsInformation, query, projection);
+    const resultsResponse = serviceHelper.createDataMessage(results);
+    res.json(resultsResponse);
+  } catch (error) {
+    log.error(error);
     const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
-    log.error(error);
-    throw error;
-  });
-  const resultsResponse = serviceHelper.createDataMessage(results);
-  res.json(resultsResponse);
+  }
 }
 
 async function verifyAppHash(message) {
@@ -2373,8 +2430,8 @@ async function temporaryZelAppRegisterFunctionForFoldingAtHome(req, res) {
   // when a launch folding button is clicked
   // check what tier our node is
   // if bamf limit to - 2 cores, 4 GB ram, super 1 core, 1 gb ram, basic 0.5 core, 0.5gb ram;
-  // data storage let be ~/zelflux/ZelApp/zelFoldingAtHome
-  // name of docker let be zelFoldingAtHome
+  // data storage let be ~/zelflux/ZelApp/zelFoldingAtHomeB
+  // name of docker let be zelFoldingAtHomeB
   // Flux uses port range for apps 30000 - 39999. Allowing up to 10k apps.
   // port this temporary folding at home let be a unique 30000
   // as according to specifications ports are asssigned from lowest possible number ();
@@ -2384,7 +2441,7 @@ async function temporaryZelAppRegisterFunctionForFoldingAtHome(req, res) {
     if (authorized) {
       // ram is specified in MB, hdd specified in GB
       const zelAppSpecifications = {
-        name: 'zelFoldingAtHome', // corresponds to docker name and this name is stored in zelapps mongo database
+        name: 'FoldingAtHomeB', // corresponds to docker name and this name is stored in zelapps mongo database
         description: 'Folding @ Home is cool :)',
         repotag: 'yurinnick/folding-at-home:latest',
         owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
@@ -2454,7 +2511,7 @@ async function availableZelApps(req, res) {
   // simulate a similar response
   const zelapps = [
     { // zelapp specifications
-      name: 'zelFoldingAtHome',
+      name: 'FoldingAtHomeB',
       description: 'Folding @ Home is cool :)',
       repotag: 'yurinnick/folding-at-home:latest',
       owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
@@ -2555,7 +2612,7 @@ async function updateZelAppSpecifications(zelAppSpecs) {
   try {
     // zelAppSpecs: {
     //   version: 1,
-    //   name: 'FoldingAtHome',
+    //   name: 'FoldingAtHomeB',
     //   description: 'Folding @ Home is cool :)',
     //   repotag: 'yurinnick/folding-at-home:latest',
     //   owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
@@ -2612,7 +2669,7 @@ async function updateZelAppSpecifications(zelAppSpecs) {
 async function updateZelAppSpecsForRescanReindex(zelAppSpecs) {
   // zelAppSpecs: {
   //   version: 1,
-  //   name: 'FoldingAtHome',
+  //   name: 'FoldingAtHomeB',
   //   description: 'Folding @ Home is cool :)',
   //   repotag: 'yurinnick/folding-at-home:latest',
   //   owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
@@ -3000,6 +3057,210 @@ async function getZelAppsLocations(req, res) {
   res.json(resultsResponse);
 }
 
+async function checkSynced() {
+  try {
+    // check if flux database is synced with zelcash database (equal or -1 inheight)
+    const zelcashGetInfo = await zelcashService.getInfo();
+    let zelcashHeight;
+    if (zelcashGetInfo.status === 'success') {
+      zelcashHeight = zelcashGetInfo.data.blocks;
+    } else {
+      throw new Error(zelcashGetInfo.data.data);
+    }
+    const dbopen = serviceHelper.databaseConnection();
+    const database = dbopen.db(config.database.zelcash.database);
+    const query = { generalScannedHeight: { $gte: 0 } };
+    const projection = {
+      projection: {
+        _id: 0,
+        generalScannedHeight: 1,
+      },
+    };
+    const result = await serviceHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
+    if (!result) {
+      throw new Error('Scanning not initiated');
+    }
+    const explorerHeight = serviceHelper.ensureNumber(result.generalScannedHeight);
+
+    if (explorerHeight + 1 === zelcashHeight || explorerHeight === zelcashHeight) {
+      return true;
+    }
+    return false;
+  } catch (e) {
+    log.error(e);
+    return false;
+  }
+}
+
+async function getAllGlobalApplicationsNames() {
+  try {
+    const db = serviceHelper.databaseConnection();
+    const database = db.db(config.database.zelappsglobal.database);
+    const query = {};
+    const projection = { projection: { _id: 0, name: 1 } };
+    const results = await serviceHelper.findInDatabase(database, globalZelAppsInformation, query, projection);
+    return results;
+  } catch (error) {
+    log.error(error);
+    return [];
+  }
+}
+
+async function getRunningAppList(appName) {
+  console.log(appName);
+  const dbopen = serviceHelper.databaseConnection();
+  const database = dbopen.db(config.database.zelappsglobal.database);
+  const query = { name: appName };
+  const projection = {
+    projection: {
+      _id: 0,
+      name: 1,
+      hash: 1,
+      ip: 1,
+      broadcastedAt: 1,
+      expireAt: 1,
+    },
+  };
+  const results = await serviceHelper.findInDatabase(database, globalZelAppsLocations, query, projection);
+  return results;
+}
+
+async function getApplicationSpecifications(appName) {
+  // zelAppSpecs: {
+  //   version: 1,
+  //   name: 'FoldingAtHomeB',
+  //   description: 'Folding @ Home is cool :)',
+  //   repotag: 'yurinnick/folding-at-home:latest',
+  //   owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+  //   port: 30001,
+  //   enviromentParameters: '["USER=foldingUser", "TEAM=262156", "ENABLE_GPU=false", "ENABLE_SMP=true"]', // []
+  //   commands: '["--allow","0/0","--web-allow","0/0"]', // []
+  //   containerPort: 7396,
+  //   containerData: '/config',
+  //   cpu: 0.5,
+  //   ram: 500,
+  //   hdd: 5,
+  //   tiered: true,
+  //   cpubasic: 0.5,
+  //   rambasic: 500,
+  //   hddbasic: 5,
+  //   cpusuper: 1,
+  //   ramsuper: 1000,
+  //   hddsuper: 5,
+  //   cpubamf: 2,
+  //   rambamf: 2000,
+  //   hddbamf: 5,
+  //   hash: hash of message that has these paramenters,
+  //   height: height containing the message
+  // };
+  const db = serviceHelper.databaseConnection();
+  const database = db.db(config.database.zelappsglobal.database);
+
+  const query = { name: appName };
+  const projection = {
+    projection: {
+      _id: 0,
+    },
+  };
+  const zelappInfo = await serviceHelper.findOneInDatabase(database, globalZelAppsInformation, query, projection);
+  return zelappInfo;
+}
+
+async function trySpawningGlobalApplication() {
+  try {
+    // how do we continue with this function function?
+    // we have globalapplication specifics list
+    // check if we are synced
+    const synced = await checkSynced();
+    if (synced !== true) {
+      throw new Error('Flux not yet synced');
+    }
+    // get all the applications list names
+    const globalAppNames = await getAllGlobalApplicationsNames();
+    // pick a random one
+    const numberOfGlobalApps = globalAppNames.length;
+    const randomAppnumber = Math.floor((Math.random() * numberOfGlobalApps));
+    const randomApp = globalAppNames[randomAppnumber];
+    if (!randomApp) {
+      throw new Error('No application specifications found');
+    }
+    // check if there is < 5 instances of nodes running the app
+    const runningAppList = await getRunningAppList(randomApp);
+    if (runningAppList.length >= 5) {
+      throw new Error(`Application ${randomApp} is already spawned on ${runningAppList.length} instances`);
+    }
+    // get my external IP and check that it is longer than 5 in length.
+    const benchmarkResponse = await zelcashService.getBenchmarks();
+    let myIP = null;
+    if (benchmarkResponse.status === 'success') {
+      const benchmarkResponseData = JSON.parse(benchmarkResponse.data);
+      if (benchmarkResponseData.ipaddress) {
+        myIP = benchmarkResponseData.ipaddress.length > 5 ? benchmarkResponseData.ipaddress : null;
+      }
+    }
+    if (myIP === null) {
+      throw new Error('Unable to detect Flux IP address');
+    }
+    // check if app not running on this device
+    if (runningAppList.find((document) => document.ip === myIP)) {
+      throw new Error(`Application ${randomApp} already running on this Flux`);
+    }
+    // second check if app is running on this node
+    const runningApps = await listRunningZelApps();
+    if (runningApps.status !== 'success') {
+      throw new Error('Unable to check running apps on this Flux');
+    }
+    if (runningApps.data.find((app) => app.Names[0].substr(4, app.Names[0].length) === randomApp)) {
+      throw new Error(`${randomApp} application is already running on this Flux`);
+    }
+    // check if node is capable to run it according to specifications
+    // get app specifications
+    const appSpecifications = await getApplicationSpecifications(randomApp);
+    if (!appSpecifications) {
+      log.error(`Specifications for application ${randomApp} were not found!`);
+      throw new Error(`Specifications for application ${randomApp} were not found!`);
+    }
+    // run the verification
+    // get tier and adjust specifications
+    const tier = await zelnodeTier();
+    if (appSpecifications.tiered) {
+      const hddTier = `hdd${tier}`;
+      const ramTier = `ram${tier}`;
+      const cpuTier = `cpu${tier}`;
+      appSpecifications.cpu = appSpecifications[cpuTier] || appSpecifications.cpu;
+      appSpecifications.ram = appSpecifications[ramTier] || appSpecifications.ram;
+      appSpecifications.hdd = appSpecifications[hddTier] || appSpecifications.hdd;
+    }
+    // verify requirements
+    const requirementsOK = await checkZelAppRequirements(appSpecifications);
+    if (requirementsOK !== true) {
+      throw new Error('Flux does not meet ZelApp requirements.');
+    }
+
+    // if all ok Check hashes comparison if its out turn to start the app. 1% probability.
+    const randomNumber = Math.floor((Math.random() * config.zelapps.installation.probability));
+    if (randomNumber !== 0) {
+      throw new Error('Other Fluxes are evaluating application installation');
+    }
+    // an application was selected and checked that it can run on this node. try to install and run it locally
+    // install the app
+    await registerZelAppLocally(appSpecifications);
+
+    await serviceHelper.delay(10 * config.zelapps.installation.delay * 1000);
+
+    throw new Error('Reinitiating possible app installation');
+  } catch (error) {
+    log.info(error);
+    await serviceHelper.delay(config.zelapps.installation.delay * 1000);
+    trySpawningGlobalApplication();
+  }
+}
+
+async function notifyPeersOfRunningApps() {
+  // get list of locally installed apps. Store them in database as running and send info to our peers.
+  // check if they are running?
+}
+
 module.exports = {
   dockerListContainers,
   zelAppPull,
@@ -3051,4 +3312,9 @@ module.exports = {
   getZelAppsLocations,
   storeZelAppRunningMessage,
   reindexGlobalAppsLocation,
+  checkSynced,
+  getRunningAppList,
+  trySpawningGlobalApplication,
+  getApplicationSpecifications,
+  notifyPeersOfRunningApps,
 };

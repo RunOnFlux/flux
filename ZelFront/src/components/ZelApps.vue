@@ -370,7 +370,7 @@
             <el-input
               placeholder="Port on which application will be available"
               type="number"
-              min="30001"
+              min="31000"
               max="39999"
               v-model="zelAppRegistrationSpecification.port"
             >
@@ -688,7 +688,7 @@ export default {
         description: 'Folding @ Home is cool :)',
         repotag: 'yurinnick/folding-at-home:latest',
         owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-        port: 30001,
+        port: 31000,
         enviromentParameters: '["USER=foldingUser", "TEAM=262156", "ENABLE_GPU=false", "ENABLE_SMP=true"]', // []
         commands: '["--allow","0/0","--web-allow","0/0"]', // []
         containerPort: 7396,
@@ -750,7 +750,7 @@ export default {
         },
         address: 't1...', // apps registration address
         epochstart: 690000, // zelapps epoch blockheight start
-        portMin: 30001, // originally should have been from 30000 but we got temporary folding there
+        portMin: 31000, // originally should have been from 30000 but we got temporary folding there
         portMax: 39999,
       },
       websocket: null,

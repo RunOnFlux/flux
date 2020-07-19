@@ -61,9 +61,13 @@ module.exports = {
     },
     address: 't1...', // apps registration address
     epochstart: 690000, // zelapps epoch blockheight start
-    portMin: 30001, // originally should have been from 30000 but we got temporary folding there
+    portMin: 31000, // originally should have been from 30000 but we got temporary folding there
     portMax: 39999,
     maxImageSize: 300000000, // 300mb
+    installation: {
+      probability: 100, // 1 to 100
+      delay: 30, // in seconds
+    },
   },
   lockedSystemResources: {
     cpu: 10, // 1 cpu core
