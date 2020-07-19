@@ -68,6 +68,8 @@ module.exports = {
       probability: 100, // 1 to 100
       delay: 30, // in seconds
     },
+    blocksLasting: 22000, // registered app will live for 22000 of blocks 44000 minutes ~= 1 month
+    // every 100 blocks we run a check that deletes apps specifications and stops/removes the application from existence if it has been lastly updated more than 22k blocks ago
   },
   lockedSystemResources: {
     cpu: 10, // 1 cpu core
