@@ -2535,8 +2535,8 @@ async function availableZelApps(req, res) {
       ],
       containerPort: 7396,
       containerData: '/config',
-      hash: 'ahashofappmessage', // hash of app message
-      height: 1, // height of tx on which it was
+      hash: 'localappinstancehashABCDE', // hash of app message
+      height: 0, // height of tx on which it was
     },
   ];
 
@@ -2553,7 +2553,7 @@ async function installedZelApps(req, res) {
     const zelappsProjection = {};
     const zelApps = await serviceHelper.findInDatabase(zelappsDatabase, localZelAppsInformation, zelappsQuery, zelappsProjection);
     const dataResponse = serviceHelper.createDataMessage(zelApps);
-    return res.json(dataResponse);
+    return res ? res.json(dataResponse) : dataResponse;
   } catch (error) {
     log.error(error);
     const errorResponse = serviceHelper.createErrorMessage(
@@ -2561,7 +2561,7 @@ async function installedZelApps(req, res) {
       error.name,
       error.code,
     );
-    return res.json(errorResponse);
+    return res ? res.json(errorResponse) : errorResponse;
   }
 }
 
@@ -3250,9 +3250,96 @@ async function trySpawningGlobalApplication() {
   }
 }
 
-async function notifyPeersOfRunningApps() {
-  // get list of locally installed apps. Store them in database as running and send info to our peers.
-  // check if they are running?
+async function checkAndNotifyPeersOfRunningApps() {
+  try {
+    // get my external IP and check that it is longer than 5 in length.
+    const benchmarkResponse = await zelcashService.getBenchmarks();
+    let myIP = null;
+    if (benchmarkResponse.status === 'success') {
+      const benchmarkResponseData = JSON.parse(benchmarkResponse.data);
+      if (benchmarkResponseData.ipaddress) {
+        myIP = benchmarkResponseData.ipaddress.length > 5 ? benchmarkResponseData.ipaddress : null;
+      }
+    }
+    if (myIP === null) {
+      throw new Error('Unable to detect Flux IP address');
+    }
+    // get list of locally installed apps. Store them in database as running and send info to our peers.
+    // check if they are running?
+    const installedAppsRes = await installedZelApps();
+    if (installedAppsRes.status !== 'success') {
+      throw new Error('Failed to get installed Apps');
+    }
+    const runningAppsRes = await listRunningZelApps();
+    if (runningAppsRes.status !== 'success') {
+      throw new Error('Unable to check running Apps');
+    }
+    const installedApps = installedAppsRes.data;
+    const runningApps = runningAppsRes.data;
+    const installedAppsNames = installedApps.map((app) => app.name);
+    const runningAppsNames = runningApps.map((app) => app.Names[0].substr(4, app.Names[0].length));
+    // installed always is bigger array than running
+    const runningSet = new Set(runningAppsNames);
+    const stoppedApps = installedAppsNames.filter((installedApp) => !runningSet.has(installedApp));
+    // check if stoppedApp is a global application present in specifics. If so, try to start it.
+    // eslint-disable-next-line no-restricted-syntax
+    for (const stoppedApp of stoppedApps) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const appDetails = await getApplicationSpecifications(stoppedApp);
+        if (appDetails) {
+          log.warn(`${stoppedApp} is stopped but shall be running. Starting...`);
+          // it is a stopped global zelapp. Try to run it. TODO If Fail remove but in better way
+          const zelappId = getZelAppIdentifier(stoppedApp);
+          // eslint-disable-next-line no-await-in-loop
+          const zelapp = await zelAppDockerStart(zelappId);
+          if (!zelapp) {
+            // removeZelAppLocally(stoppedApp);
+          }
+        }
+      } catch (err) {
+        log.error(err);
+        // removeZelAppLocally(stoppedApp);
+      }
+    }
+    const installedAndRunning = installedApps.filter((installedApp) => runningAppsNames.includes(installedApp.name));
+    // eslint-disable-next-line no-restricted-syntax
+    for (const application of installedAndRunning) {
+      log.info(`${application} is running properly. Broadcasting status.`);
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        // we can distinguish pure local apps from global with hash and height
+        const broadcastedAt = new Date().getTime();
+        const newZelAppRunningMessage = {
+          type: 'zelapprunning',
+          version: 1,
+          name: application.name,
+          hash: application.hash, // hash of application specifics that are running
+          ip: myIP,
+          broadcastedAt,
+        };
+
+        // store it in local database first
+        // eslint-disable-next-line no-await-in-loop
+        await storeZelAppRunningMessage(newZelAppRunningMessage);
+        // eslint-disable-next-line no-await-in-loop
+        await serviceHelper.delay(2345);
+        // eslint-disable-next-line no-await-in-loop
+        await zelfluxCommunication.broadcastMessageToOutgoing(newZelAppRunningMessage);
+        // eslint-disable-next-line no-await-in-loop
+        await serviceHelper.delay(2345);
+        // eslint-disable-next-line no-await-in-loop
+        await zelfluxCommunication.broadcastMessageToIncoming(newZelAppRunningMessage);
+        // broadcast messages about running apps to all peers
+      } catch (err) {
+        log.error(err);
+        // removeZelAppLocally(stoppedApp);
+      }
+    }
+    log.info('Running Apps broadcasted');
+  } catch (error) {
+    log.error(error);
+  }
 }
 
 module.exports = {
@@ -3310,5 +3397,5 @@ module.exports = {
   getRunningAppList,
   trySpawningGlobalApplication,
   getApplicationSpecifications,
-  notifyPeersOfRunningApps,
+  checkAndNotifyPeersOfRunningApps,
 };

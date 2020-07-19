@@ -50,6 +50,9 @@ async function startFluxFunctions() {
     setInterval(() => { // every 8 mins (4 blocks)
       zelappsService.continuousZelAppHashesCheck();
     }, 8 * 60 * 1000);
+    setInterval(() => { // every 4 mins (2 blocks)
+      zelappsService.checkAndNotifyPeersOfRunningApps();
+    }, 4 * 60 * 1000);
     log.info('Flux Block Processing Service started');
   } catch (e) {
     log.error(e);
