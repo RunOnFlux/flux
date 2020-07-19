@@ -3191,7 +3191,8 @@ async function getAllGlobalApplicationsNames() {
     const query = {};
     const projection = { projection: { _id: 0, name: 1 } };
     const results = await serviceHelper.findInDatabase(database, globalZelAppsInformation, query, projection);
-    return results;
+    const names = results.map((result) => result.name);
+    return names;
   } catch (error) {
     log.error(error);
     return [];
