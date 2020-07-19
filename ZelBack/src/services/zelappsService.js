@@ -3292,10 +3292,7 @@ async function checkAndNotifyPeersOfRunningApps() {
           // it is a stopped global zelapp. Try to run it. TODO If Fail remove but in better way
           const zelappId = getZelAppIdentifier(stoppedApp);
           // eslint-disable-next-line no-await-in-loop
-          const zelapp = await zelAppDockerStart(zelappId);
-          if (!zelapp) {
-            // removeZelAppLocally(stoppedApp);
-          }
+          await zelAppDockerStart(zelappId);
         }
       } catch (err) {
         log.error(err);
