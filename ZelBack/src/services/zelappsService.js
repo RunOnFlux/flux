@@ -1721,10 +1721,7 @@ async function registerZelAppLocally(zelAppSpecifications, res) {
       res.write(serviceHelper.ensureString(checkParameters));
     }
 
-    const requirementsOK = await checkZelAppRequirements(zelAppSpecifications);
-    if (requirementsOK !== true) {
-      throw new Error('Flux does not meet ZelApp requirements.');
-    }
+    await checkZelAppRequirements(zelAppSpecifications);
 
     // pull image
     // eslint-disable-next-line no-unused-vars
@@ -3232,10 +3229,7 @@ async function trySpawningGlobalApplication() {
       appSpecifications.hdd = appSpecifications[hddTier] || appSpecifications.hdd;
     }
     // verify requirements
-    const requirementsOK = await checkZelAppRequirements(appSpecifications);
-    if (requirementsOK !== true) {
-      throw new Error('Flux does not meet ZelApp requirements.');
-    }
+    await checkZelAppRequirements(appSpecifications);
 
     // if all ok Check hashes comparison if its out turn to start the app. 1% probability.
     const randomNumber = Math.floor((Math.random() * config.zelapps.installation.probability));
