@@ -3621,7 +3621,7 @@ async function checkAndNotifyPeersOfRunningApps() {
     const installedAndRunning = installedApps.filter((installedApp) => runningAppsNames.includes(installedApp.name));
     // eslint-disable-next-line no-restricted-syntax
     for (const application of installedAndRunning) {
-      log.info(`${application} is running properly. Broadcasting status.`);
+      log.info(`${application.name} is running properly. Broadcasting status.`);
       try {
         // eslint-disable-next-line no-await-in-loop
         // we can distinguish pure local apps from global with hash and height
