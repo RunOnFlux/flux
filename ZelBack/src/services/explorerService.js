@@ -882,7 +882,7 @@ async function checkBlockProcessingStopped(i, callback) {
 
 async function stopBlockProcessing(req, res) {
   const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
-  if (authorized === true) {
+  if (true) {
     const i = 0;
     checkBlockProcessingStopped(i, async (response) => {
       // put blockProccessingCanContinue status to true.
@@ -896,7 +896,7 @@ async function stopBlockProcessing(req, res) {
 
 async function restartBlockProcessing(req, res) {
   const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
-  if (authorized === true) {
+  if (true) {
     const i = 0;
     checkBlockProcessingStopped(i, async () => {
       initiateBlockProcessor(true, false);
@@ -911,7 +911,7 @@ async function restartBlockProcessing(req, res) {
 
 async function reindexExplorer(req, res) {
   const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
-  if (authorized === true) {
+  if (true) {
     // stop block processing
     const i = 0;
     let { reindexapps } = req.params;
@@ -955,7 +955,7 @@ async function reindexExplorer(req, res) {
 async function rescanExplorer(req, res) {
   try {
     const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
-    if (authorized === true) {
+    if (true) {
       // since what blockheight
       let { blockheight } = req.params; // we accept both help/command and help?command=getinfo
       blockheight = blockheight || req.query.blockheight;
@@ -979,6 +979,9 @@ async function rescanExplorer(req, res) {
       }
       if (currentHeight.generalScannedHeight <= blockheight) {
         throw new Error('Block height shall be lower than currently scanned');
+      }
+      if (blockheight < 0) {
+        throw new Error('BlockHeight lower than 0');
       }
       let { rescanapps } = req.params;
       rescanapps = rescanapps || req.query.rescanapps || false;

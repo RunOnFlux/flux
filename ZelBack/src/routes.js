@@ -683,6 +683,15 @@ module.exports = (app, expressWs) => {
   app.get('/zelapps/createzelfluxnetwork', (req, res) => {
     zelappsService.createZelFluxNetwork(req, res);
   });
+  app.get('/zelapps/resacnglobalappsinformation/:blockheight?/:removelastinformation?', (req, res) => { // todo post, privileges
+    zelappsService.rescanGlobalAppsInformationAPI(req, res);
+  });
+  app.get('/zelapps/reindexglobalappsinformation', (req, res) => { // todo post, privileges
+    zelappsService.reindexGlobalAppsInformationAPI(req, res);
+  });
+  app.get('/zelapps/reindexglobalappslocation', (req, res) => { // todo post, privileges
+    zelappsService.reindexGlobalAppsLocationAPI(req, res);
+  });
 
   // POST PUBLIC methods route
   app.post('/zelid/verifylogin', (req, res) => {

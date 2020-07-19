@@ -59,13 +59,13 @@ module.exports = {
       ram: 1 * 5, // per 100mb,
       hdd: 0.5 * 5, // per 1gb,
     },
-    address: 't1...', // apps registration address
-    epochstart: 690000, // zelapps epoch blockheight start
+    address: 't1Pb6GxM85aHEtUjp226ZmfcZJ4rtcjbtiA', // apps registration address
+    epochstart: 645700, // zelapps epoch blockheight start
     portMin: 31000, // originally should have been from 30000 but we got temporary folding there
     portMax: 39999,
     maxImageSize: 300000000, // 300mb
     installation: {
-      probability: 100, // 1 to 100
+      probability: 3, // 1 to 100
       delay: 30, // in seconds
     },
     blocksLasting: 22000, // registered app will live for 22000 of blocks 44000 minutes ~= 1 month

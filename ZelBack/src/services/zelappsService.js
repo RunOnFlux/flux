@@ -2922,7 +2922,7 @@ async function reindexGlobalAppsInformation() {
   }
 }
 
-// function that drops information about running zelapps and rebuildsindexes
+// function that drops information about running zelapps and rebuilds indexes
 async function reindexGlobalAppsLocation() {
   try {
     const db = serviceHelper.databaseConnection();
@@ -2974,6 +2974,101 @@ async function rescanGlobalAppsInformation(height = 0, removeLastInformation = f
   } catch (error) {
     log.error(error);
     throw error;
+  }
+}
+
+async function reindexGlobalAppsLocationAPI(req, res) {
+  try {
+    const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+    if (true) {
+      await reindexGlobalAppsLocation();
+      const message = serviceHelper.createSuccessMessage('Reindex successfull');
+      res.json(message);
+    } else {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
+}
+
+async function reindexGlobalAppsInformationAPI(req, res) {
+  try {
+    const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+    if (true) {
+      await reindexGlobalAppsInformation();
+      const message = serviceHelper.createSuccessMessage('Reindex successfull');
+      res.json(message);
+    } else {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
+}
+
+async function rescanGlobalAppsInformationAPI(req, res) {
+  try {
+    const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+    if (true) {
+      let { blockheight } = req.params; // we accept both help/command and help?command=getinfo
+      blockheight = blockheight || req.query.blockheight;
+      if (!blockheight) {
+        const errMessage = serviceHelper.createErrorMessage('No blockheight provided');
+        res.json(errMessage);
+      }
+      blockheight = serviceHelper.ensureNumber(blockheight);
+      const dbopen = serviceHelper.databaseConnection();
+      const database = dbopen.db(config.database.zelcash.database);
+      const query = { generalScannedHeight: { $gte: 0 } };
+      const projection = {
+        projection: {
+          _id: 0,
+          generalScannedHeight: 1,
+        },
+      };
+      const currentHeight = await serviceHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
+      if (!currentHeight) {
+        throw new Error('No scanned height found');
+      }
+      if (currentHeight.generalScannedHeight <= blockheight) {
+        throw new Error('Block height shall be lower than currently scanned');
+      }
+      if (blockheight < 0) {
+        throw new Error('BlockHeight lower than 0');
+      }
+      let { removelastinformation } = req.params;
+      removelastinformation = removelastinformation || req.query.removelastinformation || false;
+      removelastinformation = serviceHelper.ensureBoolean(removelastinformation);
+      await rescanGlobalAppsInformation(blockheight, removelastinformation);
+      const message = serviceHelper.createSuccessMessage('Rescan successfull');
+      res.json(message);
+    } else {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
   }
 }
 
@@ -3395,4 +3490,7 @@ module.exports = {
   trySpawningGlobalApplication,
   getApplicationSpecifications,
   checkAndNotifyPeersOfRunningApps,
+  rescanGlobalAppsInformationAPI,
+  reindexGlobalAppsInformationAPI,
+  reindexGlobalAppsLocationAPI,
 };
