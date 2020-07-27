@@ -220,7 +220,7 @@
               <template slot-scope="scope">
                 <ElButton
                   class="generalButton"
-                  @click="installFoldingAtHome(scope.row.name)"
+                  @click="installTemporaryLocalApp(scope.row.name)"
                 >
                   Install
                 </ElButton>
@@ -964,13 +964,13 @@ export default {
         }
       }
     },
-    async installFoldingAtHome(zelapp) { // todo rewrite to installZelApp later
+    async installTemporaryLocalApp(zelapp) { // todo rewrite to installZelApp later
       const appName = zelapp;
       const self = this;
       this.output = '';
       vue.$message.success('Installing ZelApp');
       const zelidauth = localStorage.getItem('zelidauth');
-      // const response = await ZelAppsService.installFoldingAtHome(zelidauth, zelapp);
+      // const response = await ZelAppsService.installTemporaryLocalApp(zelidauth, zelapp);
       const axiosConfig = {
         headers: {
           zelidauth,
@@ -980,7 +980,7 @@ export default {
           self.output = JSON.parse(`[${progressEvent.target.response.replace(/}{/g, '},{')}]`);
         },
       };
-      const response = await ZelAppsService.justAPI().get(`/zelapps/zelapptemporarylocalregister/${appName}`, axiosConfig);
+      const response = await ZelAppsService.justAPI().get(`/zelapps/installtemporarylocalapp/${appName}`, axiosConfig);
       if (response.data.status === 'error') {
         vue.$message.error(response.data.data);
       } else {

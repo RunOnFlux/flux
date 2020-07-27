@@ -59,17 +59,6 @@ export default {
     };
     return Api().get(`/zelapps/zelapplog/${zelapp}`, axiosConfig);
   },
-  installFoldingAtHome(zelidauthHeader) {
-    const axiosConfig = {
-      headers: {
-        zelidauth: zelidauthHeader,
-      },
-      onDownloadProgress(progressEvent) {
-        console.log(progressEvent);
-      },
-    };
-    return Api().get('/zelapps/zelapptemporarylocalregister/foldingathome', axiosConfig);
-  },
   registerZelApp(zelidauthHeader, data) {
     const axiosConfig = {
       headers: {
