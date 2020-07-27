@@ -3266,7 +3266,10 @@ async function trySpawningGlobalApplication() {
     // check if we are synced
     const synced = await checkSynced();
     if (synced !== true) {
-      throw new Error('Flux not yet synced');
+      log.info('Flux not yet synced');
+      await serviceHelper.delay(config.zelapps.installation.delay * 1000);
+      trySpawningGlobalApplication();
+      return;
     }
     // get all the applications list names
     const globalAppNames = await getAllGlobalApplicationsNames();
@@ -3275,13 +3278,19 @@ async function trySpawningGlobalApplication() {
     const randomAppnumber = Math.floor((Math.random() * numberOfGlobalApps));
     const randomApp = globalAppNames[randomAppnumber];
     if (!randomApp) {
-      throw new Error('No application specifications found');
+      log.info('No application specifications found');
+      await serviceHelper.delay(config.zelapps.installation.delay * 1000);
+      trySpawningGlobalApplication();
+      return;
     }
     // check if there is < 5 instances of nodes running the app
     // TODO evaluate if its not better to check locally running applications!
     const runningAppList = await getRunningAppList(randomApp);
     if (runningAppList.length >= 5) {
-      throw new Error(`Application ${randomApp} is already spawned on ${runningAppList.length} instances`);
+      log.info(`Application ${randomApp} is already spawned on ${runningAppList.length} instances`);
+      await serviceHelper.delay(config.zelapps.installation.delay * 1000);
+      trySpawningGlobalApplication();
+      return;
     }
     // get my external IP and check that it is longer than 5 in length.
     const benchmarkResponse = await zelcashService.getBenchmarks();
@@ -3297,7 +3306,10 @@ async function trySpawningGlobalApplication() {
     }
     // check if app not running on this device
     if (runningAppList.find((document) => document.ip === myIP)) {
-      throw new Error(`Application ${randomApp} already running on this Flux`);
+      log.info(`Application ${randomApp} is reported as already running on this Flux`);
+      await serviceHelper.delay(config.zelapps.installation.delay * 1000);
+      trySpawningGlobalApplication();
+      return;
     }
     // second check if app is running on this node
     const runningApps = await listRunningZelApps();
@@ -3305,13 +3317,15 @@ async function trySpawningGlobalApplication() {
       throw new Error('Unable to check running apps on this Flux');
     }
     if (runningApps.data.find((app) => app.Names[0].substr(4, app.Names[0].length) === randomApp)) {
-      throw new Error(`${randomApp} application is already running on this Flux`);
+      log.info(`${randomApp} application is already running on this Flux`);
+      await serviceHelper.delay(config.zelapps.installation.delay * 1000);
+      trySpawningGlobalApplication();
+      return;
     }
     // check if node is capable to run it according to specifications
     // get app specifications
     const appSpecifications = await getApplicationSpecifications(randomApp);
     if (!appSpecifications) {
-      log.error(`Specifications for application ${randomApp} were not found!`);
       throw new Error(`Specifications for application ${randomApp} were not found!`);
     }
     // run the verification
@@ -3331,17 +3345,20 @@ async function trySpawningGlobalApplication() {
     // if all ok Check hashes comparison if its out turn to start the app. 1% probability.
     const randomNumber = Math.floor((Math.random() * config.zelapps.installation.probability));
     if (randomNumber !== 0) {
-      throw new Error('Other Fluxes are evaluating application installation');
+      log.info('Other Fluxes are evaluating application installation');
+      await serviceHelper.delay(config.zelapps.installation.delay * 1000);
+      trySpawningGlobalApplication();
+      return;
     }
     // an application was selected and checked that it can run on this node. try to install and run it locally
     // install the app
     await registerZelAppLocally(appSpecifications);
 
     await serviceHelper.delay(10 * config.zelapps.installation.delay * 1000);
-
-    throw new Error('Reinitiating possible app installation');
+    log.info('Reinitiating possible app installation');
+    trySpawningGlobalApplication();
   } catch (error) {
-    log.info(error);
+    log.error(error);
     await serviceHelper.delay(config.zelapps.installation.delay * 1000);
     trySpawningGlobalApplication();
   }
