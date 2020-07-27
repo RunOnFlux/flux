@@ -367,6 +367,9 @@ async function processBlock(blockHeight) {
       log.info('UTXO documents', result.size, result.count, result.avgObjSize);
       log.info('ADDR documents', resultB.size, resultB.count, resultB.avgObjSize);
       log.info('ZELNODE documents', resultC.size, resultC.count, resultC.avgObjSize);
+      if (blockDataVerbose.height >= config.zelapps.epochstart) {
+        zelappsService.expireGlobalApplications();
+      }
     }
     const scannedHeight = blockDataVerbose.height;
     // update scanned Height in scannedBlockHeightCollection

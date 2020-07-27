@@ -3278,6 +3278,7 @@ async function trySpawningGlobalApplication() {
       throw new Error('No application specifications found');
     }
     // check if there is < 5 instances of nodes running the app
+    // TODO evaluate if its not better to check locally running applications!
     const runningAppList = await getRunningAppList(randomApp);
     if (runningAppList.length >= 5) {
       throw new Error(`Application ${randomApp} is already spawned on ${runningAppList.length} instances`);
@@ -3435,6 +3436,66 @@ async function checkAndNotifyPeersOfRunningApps() {
   }
 }
 
+async function expireGlobalApplications() {
+  // function to expire global applications. Find applications that are lower than blocksLasting
+  // check if synced
+  try {
+    const synced = await checkSynced();
+    if (synced !== true) {
+      log.info('Application expiration paused. Not yet synced');
+    }
+    // get current height
+    const dbopen = serviceHelper.databaseConnection();
+    const database = dbopen.db(config.database.zelcash.database);
+    const query = { generalScannedHeight: { $gte: 0 } };
+    const projection = {
+      projection: {
+        _id: 0,
+        generalScannedHeight: 1,
+      },
+    };
+    const result = await serviceHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
+    if (!result) {
+      throw new Error('Scanning not initiated');
+    }
+    const explorerHeight = serviceHelper.ensureNumber(result.generalScannedHeight);
+    const expirationHeight = explorerHeight - config.zelapps.blocksLasting;
+    // get global applications specification that have up to date data
+    // find applications that have specifications height lower than expirationHeight
+    const databaseZelApps = dbopen.db(config.database.zelappsglobal.database);
+    const queryZelApps = { height: { $lt: expirationHeight } };
+    const projectionZelApps = { projection: { _id: 0, name: 1 } };
+    const results = await serviceHelper.findInDatabase(databaseZelApps, globalZelAppsInformation, queryZelApps, projectionZelApps);
+    const appNamesToExpire = results.map((res) => res.name);
+    // remove appNamesToExpire apps from global database
+    // eslint-disable-next-line no-restricted-syntax
+    for (const appName of appNamesToExpire) {
+      const queryDeleteApp = { name: appName };
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.findOneAndDeleteInDatabase(databaseZelApps, globalZelAppsInformation, queryDeleteApp, projectionZelApps);
+    }
+
+    // get list of locally installed apps.
+    const installedAppsRes = await installedZelApps();
+    if (installedAppsRes.status !== 'success') {
+      throw new Error('Failed to get installed Apps');
+    }
+    const installedApps = installedAppsRes.data;
+    const appsToRemove = installedApps.filter((app) => appNamesToExpire.includes(app.name));
+    const appsToRemoveNames = appsToRemove.map((app) => app.name);
+    // remove appsToRemoveNames apps from locally running
+    // eslint-disable-next-line no-restricted-syntax
+    for (const appName of appsToRemoveNames) {
+      removeZelAppLocally(appName);
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay(6 * 60 * 1000); // wait for 6 mins so we dont have more removals at the same time
+    }
+    // TODO think about continous check for removal locally installed apps
+  } catch (error) {
+    log.error(error);
+  }
+}
+
 module.exports = {
   dockerListContainers,
   zelAppPull,
@@ -3494,4 +3555,5 @@ module.exports = {
   rescanGlobalAppsInformationAPI,
   reindexGlobalAppsInformationAPI,
   reindexGlobalAppsLocationAPI,
+  expireGlobalApplications,
 };
