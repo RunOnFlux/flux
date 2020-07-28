@@ -2361,7 +2361,7 @@ async function registerZelAppGlobalyApi(req, res) {
       const dbopen = serviceHelper.databaseConnection();
 
       const zelappsDatabase = dbopen.db(config.database.zelappsglobal.database);
-      const zelappsQuery = { name: zelAppSpecFormatted.name };
+      const zelappsQuery = { name: new RegExp(zelAppSpecFormatted.name, 'i') }; // case insensitive
       const zelappsProjection = {
         projection: {
           _id: 0,
