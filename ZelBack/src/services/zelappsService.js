@@ -1413,7 +1413,9 @@ async function removeZelAppLocally(zelapp, res) {
         error.name,
         error.code,
       );
-      res.write(serviceHelper.ensureString(errorResponse));
+      if (res) {
+        res.write(serviceHelper.ensureString(errorResponse));
+      }
     });
     const stopStatus2 = {
       status: 'ZelApp stopped',
@@ -2980,7 +2982,7 @@ async function rescanGlobalAppsInformation(height = 0, removeLastInformation = f
 async function reindexGlobalAppsLocationAPI(req, res) {
   try {
     const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
-    if (true) {
+    if (authorized === true) {
       await reindexGlobalAppsLocation();
       const message = serviceHelper.createSuccessMessage('Reindex successfull');
       res.json(message);
@@ -3002,7 +3004,7 @@ async function reindexGlobalAppsLocationAPI(req, res) {
 async function reindexGlobalAppsInformationAPI(req, res) {
   try {
     const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
-    if (true) {
+    if (authorized === true) {
       await reindexGlobalAppsInformation();
       const message = serviceHelper.createSuccessMessage('Reindex successfull');
       res.json(message);
@@ -3024,7 +3026,7 @@ async function reindexGlobalAppsInformationAPI(req, res) {
 async function rescanGlobalAppsInformationAPI(req, res) {
   try {
     const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
-    if (true) {
+    if (authorized === true) {
       let { blockheight } = req.params; // we accept both help/command and help?command=getinfo
       blockheight = blockheight || req.query.blockheight;
       if (!blockheight) {
@@ -3403,14 +3405,16 @@ async function checkAndNotifyPeersOfRunningApps() {
         const appDetails = await getApplicationSpecifications(stoppedApp);
         if (appDetails) {
           log.warn(`${stoppedApp} is stopped but shall be running. Starting...`);
-          // it is a stopped global zelapp. Try to run it. TODO If Fail remove but in better way
+          // it is a stopped global zelapp. Try to run it.
           const zelappId = getZelAppIdentifier(stoppedApp);
           // eslint-disable-next-line no-await-in-loop
           await zelAppDockerStart(zelappId);
         }
       } catch (err) {
         log.error(err);
-        // removeZelAppLocally(stoppedApp);
+        // already checked for mongo ok, zelcash ok, docker ok.
+        // eslint-disable-next-line no-await-in-loop
+        await removeZelAppLocally(stoppedApp);
       }
     }
     const installedAndRunning = installedApps.filter((installedApp) => runningAppsNames.includes(installedApp.name));
@@ -3503,7 +3507,8 @@ async function expireGlobalApplications() {
     // remove appsToRemoveNames apps from locally running
     // eslint-disable-next-line no-restricted-syntax
     for (const appName of appsToRemoveNames) {
-      removeZelAppLocally(appName);
+      // eslint-disable-next-line no-await-in-loop
+      await removeZelAppLocally(appName);
       // eslint-disable-next-line no-await-in-loop
       await serviceHelper.delay(6 * 60 * 1000); // wait for 6 mins so we dont have more removals at the same time
     }

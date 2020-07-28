@@ -408,7 +408,7 @@ function handleIncomingConnection(ws, req, expressWS) {
   };
   incomingPeers.push(peer);
   // verify data integrity, if not signed, close connection
-  ws.on('message', async (msg) => { // TODO move to message handling infcoming connection function
+  ws.on('message', async (msg) => {
     const currentTimeStamp = Date.now(); // ms
     console.log(msg);
     const messageOK = await verifyFluxBroadcast(msg, undefined, currentTimeStamp);
@@ -657,7 +657,6 @@ async function getRandomConnection() {
   // const ip = zelnodeList[randomNode];
 
   // TODO checks for ipv4, ipv6, tor
-  // TODO check for if its mine address
   if (ip === userconfig.initial.ipaddress || ip === myFluxIP) {
     return null;
   }
