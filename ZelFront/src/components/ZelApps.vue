@@ -34,7 +34,7 @@
               <template slot-scope="scope">
                 <ElButton
                   class="generalButton"
-                  @click="openZelApp(scope.row.Names[0].substr(1, scope.row.Names[0].length))"
+                  @click="openZelApp(scope.row.Names[0].substr(4, scope.row.Names[0].length))"
                 >
                   Visit
                 </ElButton>
@@ -220,7 +220,7 @@
               <template slot-scope="scope">
                 <ElButton
                   class="generalButton"
-                  @click="installFoldingAtHome(scope.row.name)"
+                  @click="installTemporaryLocalApp(scope.row.name)"
                 >
                   Install
                 </ElButton>
@@ -370,7 +370,7 @@
             <el-input
               placeholder="Port on which application will be available"
               type="number"
-              min="30001"
+              min="31000"
               max="39999"
               v-model="zelAppRegistrationSpecification.port"
             >
@@ -688,7 +688,7 @@ export default {
         description: 'Folding @ Home is cool :)',
         repotag: 'yurinnick/folding-at-home:latest',
         owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-        port: 30001,
+        port: 31000,
         enviromentParameters: '["USER=foldingUser", "TEAM=262156", "ENABLE_GPU=false", "ENABLE_SMP=true"]', // []
         commands: '["--allow","0/0","--web-allow","0/0"]', // []
         containerPort: 7396,
@@ -750,7 +750,7 @@ export default {
         },
         address: 't1...', // apps registration address
         epochstart: 690000, // zelapps epoch blockheight start
-        portMin: 30001, // originally should have been from 30000 but we got temporary folding there
+        portMin: 31000, // originally should have been from 30000 but we got temporary folding there
         portMax: 39999,
       },
       websocket: null,
@@ -964,13 +964,13 @@ export default {
         }
       }
     },
-    async installFoldingAtHome(zelapp) { // todo rewrite to installZelApp later
-      console.log(zelapp);
+    async installTemporaryLocalApp(zelapp) { // todo rewrite to installZelApp later
+      const appName = zelapp;
       const self = this;
       this.output = '';
       vue.$message.success('Installing ZelApp');
       const zelidauth = localStorage.getItem('zelidauth');
-      // const response = await ZelAppsService.installFoldingAtHome(zelidauth, zelapp);
+      // const response = await ZelAppsService.installTemporaryLocalApp(zelidauth, zelapp);
       const axiosConfig = {
         headers: {
           zelidauth,
@@ -980,7 +980,7 @@ export default {
           self.output = JSON.parse(`[${progressEvent.target.response.replace(/}{/g, '},{')}]`);
         },
       };
-      const response = await ZelAppsService.justAPI().get('/zelapps/zelapptemporarylocalregister/foldingathome', axiosConfig);
+      const response = await ZelAppsService.justAPI().get(`/zelapps/installtemporarylocalapp/${appName}`, axiosConfig);
       if (response.data.status === 'error') {
         vue.$message.error(response.data.data);
       } else {
@@ -1007,7 +1007,10 @@ export default {
       return this.installedZelApps.data.find((zelapp) => zelapp.name === zelappName);
     },
     openZelApp(name) {
-      const zelappInfo = this.installedZelApp(name);
+      let zelappInfo = this.installedZelApp(name);
+      if (!zelappInfo) {
+        zelappInfo = this.installedZelApp(`zel${name}`);
+      }
       if (zelappInfo) {
         const backendURL = store.get('backendURL') || `http://${this.userconfig.externalip}:${this.config.apiPort}`;
         const ip = backendURL.split(':')[1].split('//')[1];
@@ -1253,6 +1256,9 @@ export default {
         if (!name.match(/^[a-zA-Z0-9]+$/)) {
           throw new Error('ZelApp name contains special characters. Only a-z, A-Z and 0-9 are allowed');
         }
+        if (name.startsWith('zel')) {
+          throw new Error('ZelApp name can not start with zel');
+        }
         if (description.length > 256) {
           throw new Error('Description is too long. Maximum of 256 characters is allowed');
         }
@@ -1270,6 +1276,11 @@ export default {
         // check if containerPort makes sense
         if (zelAppSpecFormatted.containerPort < 0 || zelAppSpecFormatted.containerPort > 65535) {
           throw new Error('Container Port is not within system limits 0-65535');
+        }
+
+        // check wheter shared Folder is not root
+        if (containerData.length < 2) {
+          throw new Error('ZelApp container data folder not specified. If no data folder is whished, use /tmp');
         }
 
         // check repotag if available for download

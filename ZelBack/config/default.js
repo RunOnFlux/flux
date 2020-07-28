@@ -38,6 +38,7 @@ module.exports = {
         zelappsMessages: 'zelappsmessages', // storage for all zelapps messages done on zelcash network
         zelappsInformation: 'zelappsinformation', // stores actual state of zelapp configuration info - initial state and its overwrites with update messages
         zelappsTemporaryMessages: 'zelappstemporarymessages', // storages for all zelapps messages that are not yet confirmed on the zelcash network
+        zelappsLocations: 'zelappslocation', // stores location of zelapps as documents containing name, hash, ip, obtainedAt
       },
     },
   },
@@ -60,9 +61,15 @@ module.exports = {
     },
     address: 't1...', // apps registration address
     epochstart: 690000, // zelapps epoch blockheight start
-    portMin: 30001, // originally should have been from 30000 but we got temporary folding there
+    portMin: 31000, // originally should have been from 30000 but we got temporary folding there
     portMax: 39999,
     maxImageSize: 300000000, // 300mb
+    installation: {
+      probability: 100,
+      delay: 120, // in seconds
+    },
+    blocksLasting: 22000, // registered app will live for 22000 of blocks 44000 minutes ~= 1 month
+    // every 100 blocks we run a check that deletes apps specifications and stops/removes the application from existence if it has been lastly updated more than 22k blocks ago
   },
   lockedSystemResources: {
     cpu: 10, // 1 cpu core

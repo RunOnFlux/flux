@@ -295,11 +295,32 @@ async function serialiseAndSignZelFluxBroadcast(dataToBroadcast, privatekey) {
 async function handleZelAppRegisterMessage(message, fromIP) {
   try {
     // check if we have it in database and if not add
-    // if not in database, rebroadcast to outgoing connections only
+    // if not in database, rebroadcast to all connections
     // do furtherVerification of message
     // eslint-disable-next-line global-require
     const zelappsService = require('./zelappsService');
     const rebroadcastToPeers = await zelappsService.storeZelAppTemporaryMessage(message.data, true);
+    if (rebroadcastToPeers === true) {
+      const messageString = serviceHelper.ensureString(message);
+      const wsListOut = outgoingConnections.filter((client) => client._socket.remoteAddress !== fromIP);
+      sendToAllPeers(messageString, wsListOut);
+      await serviceHelper.delay(2345);
+      const wsList = incomingConnections.filter((client) => client._socket.remoteAddress !== fromIP);
+      sendToAllIncomingConnections(messageString, wsList);
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+async function handleZelAppRunningMessage(message, fromIP) {
+  try {
+    // check if we have it exactly like that in database and if not, update
+    // if not in database, rebroadcast to all connections
+    // do furtherVerification of message
+    // eslint-disable-next-line global-require
+    const zelappsService = require('./zelappsService');
+    const rebroadcastToPeers = await zelappsService.storeZelAppRunningMessage(message.data, true);
     if (rebroadcastToPeers === true) {
       const messageString = serviceHelper.ensureString(message);
       const wsListOut = outgoingConnections.filter((client) => client._socket.remoteAddress !== fromIP);
@@ -387,7 +408,7 @@ function handleIncomingConnection(ws, req, expressWS) {
   };
   incomingPeers.push(peer);
   // verify data integrity, if not signed, close connection
-  ws.on('message', async (msg) => { // TODO move to message handling infcoming connection function
+  ws.on('message', async (msg) => {
     const currentTimeStamp = Date.now(); // ms
     console.log(msg);
     const messageOK = await verifyFluxBroadcast(msg, undefined, currentTimeStamp);
@@ -399,6 +420,8 @@ function handleIncomingConnection(ws, req, expressWS) {
           handleZelAppRegisterMessage(msgObj, peer.ip);
         } else if (msgObj.data.type === 'zelapprequest') {
           respondWithAppMessage(msgObj, ws);
+        } else if (msgObj.data.type === 'zelapprunning') {
+          handleZelAppRunningMessage(msgObj, ws);
         } else if (msgObj.data.type === 'HeartBeat' && msgObj.data.message === 'ping') { // we know that data exists
           const newMessage = msgObj.data;
           newMessage.message = 'pong';
@@ -634,7 +657,6 @@ async function getRandomConnection() {
   // const ip = zelnodeList[randomNode];
 
   // TODO checks for ipv4, ipv6, tor
-  // TODO check for if its mine address
   if (ip === userconfig.initial.ipaddress || ip === myFluxIP) {
     return null;
   }
@@ -691,6 +713,8 @@ async function initiateAndHandleConnection(ip) {
         handleZelAppRegisterMessage(msgObj, conIP);
       } else if (msgObj.data.type === 'zelapprequest') {
         respondWithAppMessage(msgObj, websocket);
+      } else if (msgObj.data.type === 'zelapprunning') {
+        handleZelAppRunningMessage(msgObj, websocket);
       } else if (msgObj.data.type === 'HeartBeat' && msgObj.data.message === 'pong') {
         const newerTimeStamp = Date.now(); // ms, get a bit newer time that has passed verification of broadcast
         const rtt = newerTimeStamp - msgObj.data.timestamp;
@@ -1185,6 +1209,28 @@ async function broadcastTemporaryZelAppMessage(message) {
   return 0;
 }
 
+async function broadcastZelAppRunningMessage(message) {
+  /* message object
+  * @param type string
+  * @param version number
+  * @param broadcastedAt number
+  * @param name string
+  * @param hash string
+  * @param ip string
+  */
+  console.log(message);
+  // no verification of message before broadcasting. Broadcasting happens always after data have been verified and are stored in our db. It is up to receiving node to verify it and store and rebroadcast.
+  if (typeof message !== 'object' && typeof message.type !== 'string' && typeof message.version !== 'number' && typeof message.broadcastedAt !== 'number' && typeof message.name !== 'string' && typeof message.hash !== 'string' && typeof message.ip !== 'string') {
+    return new Error('Invalid ZelApp Running message for storing');
+  }
+  // to all outoing
+  await broadcastMessageToOutgoing(message);
+  await serviceHelper.delay(2345);
+  // to all incoming. Delay broadcast in case message is processing
+  await broadcastMessageToIncoming(message);
+  return 0;
+}
+
 module.exports = {
   getFluxMessageSignature,
   verifyOriginalFluxBroadcast,
@@ -1217,6 +1263,7 @@ module.exports = {
   incomingPeers,
   isCommunicationEstablished,
   broadcastTemporaryZelAppMessage,
+  broadcastZelAppRunningMessage,
   keepIncomingConnectionsAlive,
   keepConnectionsAlive,
   adjustFirewall,

@@ -191,6 +191,22 @@ async function getZelNodeCount(req, res) {
   return res ? res.json(response) : response;
 }
 
+async function getDOSList(req, res) {
+  const rpccall = 'getdostlist';
+
+  response = await executeCall(rpccall);
+
+  return res ? res.json(response) : response;
+}
+
+async function getStartList(req, res) {
+  const rpccall = 'getstartlist';
+
+  response = await executeCall(rpccall);
+
+  return res ? res.json(response) : response;
+}
+
 async function getZelNodeOutputs(req, res) {
   const authorized = await serviceHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
@@ -2660,6 +2676,8 @@ module.exports = {
   zelNodeCurrentWinner,
   zelNodeDebug,
   znsync,
+  getDOSList,
+  getStartList,
 
   // == Blockchain ==
   getBestBlockHash,

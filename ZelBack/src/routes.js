@@ -32,6 +32,12 @@ module.exports = (app, expressWs) => {
   app.get('/zelcash/getzelnodecount', (req, res) => {
     zelcashService.getZelNodeCount(req, res);
   });
+  app.get('/zelcash/getdoslist', (req, res) => {
+    zelcashService.getDOSList(req, res);
+  });
+  app.get('/zelcash/getstartlist', (req, res) => {
+    zelcashService.getStartList(req, res);
+  });
   app.get('/zelcash/getzelnodescores/:blocks?', (req, res) => { // defaults to 10
     zelcashService.getZelNodeScores(req, res);
   });
@@ -253,6 +259,9 @@ module.exports = (app, expressWs) => {
   });
   app.get('/zelapps/hashes', (req, res) => {
     zelappsService.getZelAppHashes(req, res);
+  });
+  app.get('/zelapps/locations', (req, res) => {
+    zelappsService.getZelAppsLocations(req, res);
   });
 
   // app.get('/explorer/allutxos', (req, res) => {
@@ -668,11 +677,20 @@ module.exports = (app, expressWs) => {
   app.get('/zelapps/zelappimageremove/:image?', (req, res) => {
     zelappsService.zelAppImageRemove(req, res);
   });
-  app.get('/zelapps/zelapptemporarylocalregister/foldingathome', (req, res) => {
+  app.get('/zelapps/installtemporarylocalapp/zelFoldingAtHome', (req, res) => {
     zelappsService.temporaryZelAppRegisterFunctionForFoldingAtHome(req, res);
   });
   app.get('/zelapps/createzelfluxnetwork', (req, res) => {
     zelappsService.createZelFluxNetwork(req, res);
+  });
+  app.get('/zelapps/resacnglobalappsinformation/:blockheight?/:removelastinformation?', (req, res) => { // todo post, privileges
+    zelappsService.rescanGlobalAppsInformationAPI(req, res);
+  });
+  app.get('/zelapps/reindexglobalappsinformation', (req, res) => { // todo post, privileges
+    zelappsService.reindexGlobalAppsInformationAPI(req, res);
+  });
+  app.get('/zelapps/reindexglobalappslocation', (req, res) => { // todo post, privileges
+    zelappsService.reindexGlobalAppsLocationAPI(req, res);
   });
 
   // POST PUBLIC methods route
