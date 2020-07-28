@@ -680,6 +680,15 @@ module.exports = (app, expressWs) => {
   app.get('/zelapps/installtemporarylocalapp/zelFoldingAtHome', (req, res) => {
     zelappsService.temporaryZelAppRegisterFunctionForFoldingAtHome(req, res);
   });
+  app.get('/zelapps/installtemporarylocalapp/dibi-UND', (req, res) => {
+    zelappsService.temporaryZelAppRegisterFunctionForDibiFetch(req, res);
+  });
+  app.get('/zelapps/installtemporarylocalapp/SuperMario', (req, res) => {
+    zelappsService.temporaryZelAppRegisterFunctionForSuperMario(req, res);
+  });
+  app.get('/zelapps/installtemporarylocalapp/PacMan', (req, res) => {
+    zelappsService.temporaryZelAppRegisterFunctionForPacMan(req, res);
+  });
   app.get('/zelapps/createzelfluxnetwork', (req, res) => {
     zelappsService.createZelFluxNetwork(req, res);
   });
