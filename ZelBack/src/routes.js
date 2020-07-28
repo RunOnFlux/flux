@@ -683,7 +683,7 @@ module.exports = (app, expressWs) => {
   app.get('/zelapps/createzelfluxnetwork', (req, res) => {
     zelappsService.createZelFluxNetwork(req, res);
   });
-  app.get('/zelapps/resacnglobalappsinformation/:blockheight?/:removelastinformation?', (req, res) => { // todo post, privileges
+  app.get('/zelapps/rescanglobalappsinformation/:blockheight?/:removelastinformation?', (req, res) => { // todo post, privileges
     zelappsService.rescanGlobalAppsInformationAPI(req, res);
   });
   app.get('/zelapps/reindexglobalappsinformation', (req, res) => { // todo post, privileges
