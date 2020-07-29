@@ -1,6 +1,6 @@
 {
   "name": "zelflux",
-  "version": "0.68.0",
+  "version": "0.69.0",
   "description": "Flux - Node Daemon. The entrace to the Flux network.",
   "repository": {
     "type": "git",
