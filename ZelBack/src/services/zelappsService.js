@@ -2181,6 +2181,14 @@ async function storeZelAppRunningMessage(message) {
 
   const validTill = message.broadcastedAt + (3900 * 1000); // 3900 seconds
 
+  if (validTill < new Date().getTime()) {
+    // reject old message
+    return false;
+  }
+
+  const randomDelay = Math.floor((Math.random() * 1280)) + 240;
+  await serviceHelper.delay(randomDelay);
+
   const db = serviceHelper.databaseConnection();
   const database = db.db(config.database.zelappsglobal.database);
   const newZelAppRunningMessage = {
