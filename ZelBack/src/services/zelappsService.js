@@ -2181,6 +2181,14 @@ async function storeZelAppRunningMessage(message) {
 
   const validTill = message.broadcastedAt + (3900 * 1000); // 3900 seconds
 
+  if (validTill < new Date().getTime()) {
+    // reject old message
+    return false;
+  }
+
+  const randomDelay = Math.floor((Math.random() * 1280)) + 240;
+  await serviceHelper.delay(randomDelay);
+
   const db = serviceHelper.databaseConnection();
   const database = db.db(config.database.zelappsglobal.database);
   const newZelAppRunningMessage = {
@@ -2505,6 +2513,178 @@ async function temporaryZelAppRegisterFunctionForFoldingAtHome(req, res) {
   }
 }
 
+async function temporaryZelAppRegisterFunctionForDibiFetch(req, res) {
+  try {
+    const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+    if (authorized) {
+      // ram is specified in MB, hdd specified in GB
+      const zelAppSpecifications = {
+        name: 'dibi-UND', // corresponds to docker name and this name is stored in zelapps mongo database
+        description: 'dibi fetch basic description',
+        repotag: 't1dev/dibi-fetch:latest',
+        owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+        port: 30003,
+        tiered: false,
+        cpu: 0.2, // true resource registered for app. If not tiered only this is available
+        ram: 200, // true resource registered for app
+        hdd: 1, // true resource registered for app
+        enviromentParameters: [],
+        commands: [],
+        containerPort: 80,
+        containerData: '/app',
+        hash: 'ahashofappmessage', // hash of app message
+        height: 2, // height of tx on which it was
+      };
+
+      // get our tier and adjust true resource registered
+      if (zelAppSpecifications.tiered) {
+        const tier = await zelnodeTier();
+        if (tier === 'basic') {
+          zelAppSpecifications.cpu = zelAppSpecifications.cpubasic || zelAppSpecifications.cpu;
+          zelAppSpecifications.ram = zelAppSpecifications.rambasic || zelAppSpecifications.ram;
+        } else if (tier === 'super') {
+          zelAppSpecifications.cpu = zelAppSpecifications.cpusuper || zelAppSpecifications.cpu;
+          zelAppSpecifications.ram = zelAppSpecifications.ramsuper || zelAppSpecifications.ram;
+        } else if (tier === 'bamf') {
+          zelAppSpecifications.cpu = zelAppSpecifications.cpubamf || zelAppSpecifications.cpu;
+          zelAppSpecifications.ram = zelAppSpecifications.rambamf || zelAppSpecifications.ram;
+        } else {
+          throw new Error('Unrecognised ZelNode tier');
+        }
+      }
+
+      res.setHeader('Content-Type', 'application/json');
+      registerZelAppLocally(zelAppSpecifications, res);
+    } else {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
+}
+
+
+async function temporaryZelAppRegisterFunctionForSuperMario(req, res) {
+  try {
+    const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+    if (authorized) {
+      // ram is specified in MB, hdd specified in GB
+      const zelAppSpecifications = {
+        name: 'SuperMario', // corresponds to docker name and this name is stored in zelapps mongo database
+        description: 'LoL SuperMario',
+        repotag: 'pengbai/docker-supermario:latest',
+        owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+        port: 30001,
+        tiered: false,
+        cpu: 0.2, // true resource registered for app. If not tiered only this is available
+        ram: 200, // true resource registered for app
+        hdd: 1, // true resource registered for app
+        enviromentParameters: [],
+        commands: [],
+        containerPort: 8080,
+        containerData: '/tmp', // cannot be root todo in verification
+        hash: 'ahashofappmessage', // hash of app message
+        height: 3, // height of tx on which it was
+      };
+
+      // get our tier and adjust true resource registered
+      if (zelAppSpecifications.tiered) {
+        const tier = await zelnodeTier();
+        if (tier === 'basic') {
+          zelAppSpecifications.cpu = zelAppSpecifications.cpubasic || zelAppSpecifications.cpu;
+          zelAppSpecifications.ram = zelAppSpecifications.rambasic || zelAppSpecifications.ram;
+        } else if (tier === 'super') {
+          zelAppSpecifications.cpu = zelAppSpecifications.cpusuper || zelAppSpecifications.cpu;
+          zelAppSpecifications.ram = zelAppSpecifications.ramsuper || zelAppSpecifications.ram;
+        } else if (tier === 'bamf') {
+          zelAppSpecifications.cpu = zelAppSpecifications.cpubamf || zelAppSpecifications.cpu;
+          zelAppSpecifications.ram = zelAppSpecifications.rambamf || zelAppSpecifications.ram;
+        } else {
+          throw new Error('Unrecognised ZelNode tier');
+        }
+      }
+
+      res.setHeader('Content-Type', 'application/json');
+      registerZelAppLocally(zelAppSpecifications, res);
+    } else {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
+}
+
+async function temporaryZelAppRegisterFunctionForPacMan(req, res) {
+  try {
+    const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+    if (authorized) {
+      // ram is specified in MB, hdd specified in GB
+      const zelAppSpecifications = {
+        name: 'PacMan', // corresponds to docker name and this name is stored in zelapps mongo database
+        description: 'LoL PacMan',
+        repotag: 'uzyexe/pacman:latest',
+        owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+        port: 30002,
+        tiered: false,
+        cpu: 0.2, // true resource registered for app. If not tiered only this is available
+        ram: 200, // true resource registered for app
+        hdd: 1, // true resource registered for app
+        enviromentParameters: [],
+        commands: [],
+        containerPort: 80,
+        containerData: '/tmp', // cannot be root todo in verification
+        hash: 'ahashofappmessage', // hash of app message
+        height: 4, // height of tx on which it was
+      };
+
+      // get our tier and adjust true resource registered
+      if (zelAppSpecifications.tiered) {
+        const tier = await zelnodeTier();
+        if (tier === 'basic') {
+          zelAppSpecifications.cpu = zelAppSpecifications.cpubasic || zelAppSpecifications.cpu;
+          zelAppSpecifications.ram = zelAppSpecifications.rambasic || zelAppSpecifications.ram;
+        } else if (tier === 'super') {
+          zelAppSpecifications.cpu = zelAppSpecifications.cpusuper || zelAppSpecifications.cpu;
+          zelAppSpecifications.ram = zelAppSpecifications.ramsuper || zelAppSpecifications.ram;
+        } else if (tier === 'bamf') {
+          zelAppSpecifications.cpu = zelAppSpecifications.cpubamf || zelAppSpecifications.cpu;
+          zelAppSpecifications.ram = zelAppSpecifications.rambamf || zelAppSpecifications.ram;
+        } else {
+          throw new Error('Unrecognised ZelNode tier');
+        }
+      }
+
+      res.setHeader('Content-Type', 'application/json');
+      registerZelAppLocally(zelAppSpecifications, res);
+    } else {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
+}
+
 async function availableZelApps(req, res) {
   // calls to global mongo db
   // simulate a similar response
@@ -2540,6 +2720,57 @@ async function availableZelApps(req, res) {
       hash: 'localappinstancehashABCDE', // hash of app message
       height: 0, // height of tx on which it was
     },
+    // {
+    //   name: 'SuperMario', // corresponds to docker name and this name is stored in zelapps mongo database
+    //   description: 'LoL SuperMario',
+    //   repotag: 'pengbai/docker-supermario:latest',
+    //   owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+    //   port: 30001,
+    //   tiered: false,
+    //   cpu: 0.2, // true resource registered for app. If not tiered only this is available
+    //   ram: 200, // true resource registered for app
+    //   hdd: 1, // true resource registered for app
+    //   enviromentParameters: [],
+    //   commands: [],
+    //   containerPort: 8080,
+    //   containerData: '/tmp', // cannot be root todo in verification
+    //   hash: 'ahashofappmessage', // hash of app message
+    //   height: 3, // height of tx on which it was
+    // },
+    // {
+    //   name: 'PacMan', // corresponds to docker name and this name is stored in zelapps mongo database
+    //   description: 'LoL PacMan',
+    //   repotag: 'uzyexe/pacman:latest',
+    //   owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+    //   port: 30002,
+    //   tiered: false,
+    //   cpu: 0.2, // true resource registered for app. If not tiered only this is available
+    //   ram: 200, // true resource registered for app
+    //   hdd: 1, // true resource registered for app
+    //   enviromentParameters: [],
+    //   commands: [],
+    //   containerPort: 80,
+    //   containerData: '/tmp', // cannot be root todo in verification
+    //   hash: 'ahashofappmessage', // hash of app message
+    //   height: 4, // height of tx on which it was
+    // },
+    // {
+    //   name: 'dibi-UND', // corresponds to docker name and this name is stored in zelapps mongo database
+    //   description: 'dibi fetch basic description',
+    //   repotag: 't1dev/dibi-fetch:latest',
+    //   owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+    //   port: 30003,
+    //   tiered: false,
+    //   cpu: 0.2, // true resource registered for app. If not tiered only this is available
+    //   ram: 200, // true resource registered for app
+    //   hdd: 1, // true resource registered for app
+    //   enviromentParameters: [],
+    //   commands: [],
+    //   containerPort: 80,
+    //   containerData: '/app', // cannot be root todo in verification
+    //   hash: 'ahashofappmessage', // hash of app message
+    //   height: 2, // height of tx on which it was
+    // },
   ];
 
   const dataResponse = serviceHelper.createDataMessage(zelapps);
@@ -3578,4 +3809,7 @@ module.exports = {
   reindexGlobalAppsInformationAPI,
   reindexGlobalAppsLocationAPI,
   expireGlobalApplications,
+  temporaryZelAppRegisterFunctionForSuperMario,
+  temporaryZelAppRegisterFunctionForPacMan,
+  temporaryZelAppRegisterFunctionForDibiFetch,
 };

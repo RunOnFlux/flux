@@ -186,15 +186,18 @@ async function verifyTimestampInFluxBroadcast(data, currentTimeStamp) {
   return false;
 }
 
-function sendToAllPeers(data, wsList) {
+async function sendToAllPeers(data, wsList) {
   try {
     let removals = [];
     let ipremovals = [];
     // console.log(data);
     // wsList is always a sublist of outgoingConnections
     const outConList = wsList || outgoingConnections;
-    outConList.forEach((client) => {
+    // eslint-disable-next-line no-restricted-syntax
+    for (const client of outConList) {
       try {
+        // eslint-disable-next-line no-await-in-loop
+        await serviceHelper.delay(100);
         client.send(data);
       } catch (e) {
         log.error(e);
@@ -207,7 +210,7 @@ function sendToAllPeers(data, wsList) {
           log.error(err);
         }
       }
-    });
+    }
 
     for (let i = 0; i < ipremovals.length; i += 1) {
       const peerIndex = outgoingPeers.indexOf(ipremovals[i]);
@@ -228,15 +231,18 @@ function sendToAllPeers(data, wsList) {
   }
 }
 
-function sendToAllIncomingConnections(data, wsList) {
+async function sendToAllIncomingConnections(data, wsList) {
   try {
     let removals = [];
     let ipremovals = [];
     // console.log(data);
     // wsList is always a sublist of incomingConnections
     const incConList = wsList || incomingConnections;
-    incConList.forEach((client) => {
+    // eslint-disable-next-line no-restricted-syntax
+    for (const client of incConList) {
       try {
+        // eslint-disable-next-line no-await-in-loop
+        await serviceHelper.delay(100);
         client.send(data);
       } catch (e) {
         log.error(e);
@@ -249,7 +255,7 @@ function sendToAllIncomingConnections(data, wsList) {
           log.error(err);
         }
       }
-    });
+    }
 
     for (let i = 0; i < ipremovals.length; i += 1) {
       const peerIndex = incomingPeers.indexOf(ipremovals[i]);
