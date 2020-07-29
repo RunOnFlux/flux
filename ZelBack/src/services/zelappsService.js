@@ -2200,7 +2200,7 @@ async function storeZelAppRunningMessage(message) {
   };
 
   // indexes over name, hash, ip. Then name + ip and name + ip + broadcastedAt.
-  const queryFind = { name: newZelAppRunningMessage.name, ip: newZelAppRunningMessage.ip, broadcastedAt: newZelAppRunningMessage.broadcastedAt };
+  const queryFind = { name: newZelAppRunningMessage.name, ip: newZelAppRunningMessage.ip, broadcastedAt: { $gte: newZelAppRunningMessage.broadcastedAt } };
   const projection = { _id: 0 };
   // we already have the exact same data
   const result = await serviceHelper.findOneInDatabase(database, globalZelAppsLocations, queryFind, projection);
