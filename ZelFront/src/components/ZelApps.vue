@@ -240,7 +240,7 @@
         </el-input>
       </div>
     </div>
-    <div v-if="zelAppsSection === 'activeapps'">
+    <div v-if="zelAppsSection === 'globalzelapps'">
       <el-tabs v-model="activeNameGlobal">
         <el-tab-pane
           label="Active Apps"
@@ -277,6 +277,60 @@
                   @click="openGlobalZelApp(scope.row.name)"
                 >
                   Visit
+                </ElButton>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-tab-pane>
+        <el-tab-pane
+          label="My Apps"
+          name="myeapps"
+        >
+          <el-table
+            :data="myGlobalApps"
+            empty-text="No global ZelApp"
+            style="width: 100%"
+          >
+            <el-table-column
+              label="Name"
+              prop="name"
+              sortable
+            >
+              <template slot-scope="scope">
+                {{ getZelAppName(scope.row.name) }}
+              </template>
+            </el-table-column>
+            <el-table-column
+              label="Description"
+              prop="description"
+              sortable
+            >
+            </el-table-column>
+            <el-table-column
+              label="Visit"
+              prop="visit"
+              sortable
+            >
+              <template slot-scope="scope">
+                <ElButton
+                  class="generalButton"
+                  @click="openGlobalZelApp(scope.row.name)"
+                >
+                  Visit
+                </ElButton>
+              </template>
+            </el-table-column>
+            <el-table-column
+              label="Manage"
+              prop="manage"
+              sortable
+            >
+              <template slot-scope="scope">
+                <ElButton
+                  class="generalButton"
+                  @click="openAppManagement(scope.row.name)"
+                >
+                  Manage
                 </ElButton>
               </template>
             </el-table-column>
@@ -737,6 +791,14 @@ export default {
       'userconfig',
       'zelAppsSection',
     ]),
+    myGlobalApps() {
+      const zelidauth = localStorage.getItem('zelidauth');
+      const auth = qs.parse(zelidauth);
+      if (this.globalZelAppSpecs.data) {
+        return this.globalZelAppSpecs.data.filter((app) => app.owner === auth.zelid);
+      }
+      return [];
+    },
     stringOutput() {
       let string = '';
       this.output.forEach((output) => {
@@ -849,6 +911,7 @@ export default {
   methods: {
     async zelappsGetListGlobalZelApps() {
       const response = await ZelAppsService.globalZelAppSpecifications();
+      console.log(response);
       this.globalZelAppSpecs.status = response.data.status;
       this.globalZelAppSpecs.data = response.data.data;
     },
@@ -1313,10 +1376,11 @@ export default {
       console.log(response);
       if (response.data.status === 'success') {
         const zelappLocations = response.data.data;
-        const ip = zelappLocations[0];
-        if (!ip) {
+        const location = zelappLocations[0];
+        if (!location) {
           vue.$message.error('Application is awaiting launching...');
         } else {
+          const { ip } = location;
           const appSpecs = this.globalZelAppSpecs.data.find((app) => app.name === zelappName);
           const { port } = appSpecs;
           const url = `http://${ip}:${port}`;
@@ -1325,6 +1389,10 @@ export default {
       } else {
         vue.$message.error(response.data.data);
       }
+    },
+    async openAppManagement(zelappName) {
+      console.log(zelappName);
+      vue.$message.success('Management coming soon!');
     },
     async register() {
       const zelidauth = localStorage.getItem('zelidauth');
