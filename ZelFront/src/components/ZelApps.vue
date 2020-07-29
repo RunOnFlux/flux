@@ -240,11 +240,11 @@
         </el-input>
       </div>
     </div>
-    <div v-if="zelAppsSection === 'globalzelapps'">
+    <div v-if="zelAppsSection === 'activeapps'">
       <el-tabs v-model="activeNameGlobal">
         <el-tab-pane
-          label="Available"
-          name="available"
+          label="Active Apps"
+          name="activeapps"
         >
           <el-table
             :data="globalZelAppSpecs.data"
@@ -261,48 +261,23 @@
               </template>
             </el-table-column>
             <el-table-column
-              label="Image"
-              prop="repotag"
+              label="Description"
+              prop="description"
               sortable
             >
             </el-table-column>
             <el-table-column
-              label="Owner"
-              prop="owner"
-              sortable
-            >
-            </el-table-column>
-            <el-table-column
-              label="Port"
-              prop="port"
-              sortable
-            >
-            </el-table-column>
-            <el-table-column
-              label="CPU"
-              prop="cpu"
+              label="Visit"
+              prop="visit"
               sortable
             >
               <template slot-scope="scope">
-                {{ resolveCpu(scope.row) }}
-              </template>
-            </el-table-column>
-            <el-table-column
-              label="RAM"
-              prop="ram"
-              sortable
-            >
-              <template slot-scope="scope">
-                {{ resolveRam(scope.row) }}
-              </template>
-            </el-table-column>
-            <el-table-column
-              label="HDD"
-              prop="hdd"
-              sortable
-            >
-              <template slot-scope="scope">
-                {{ resolveHdd(scope.row) }}
+                <ElButton
+                  class="generalButton"
+                  @click="openGlobalZelApp(scope.row.name)"
+                >
+                  Visit
+                </ElButton>
               </template>
             </el-table-column>
           </el-table>
@@ -633,7 +608,7 @@ export default {
   data() {
     return {
       activeName: 'running',
-      activeNameGlobal: 'available',
+      activeNameGlobal: 'activeapps',
       getRunningZelAppsResponse: {
         status: '',
         data: '',
@@ -1327,6 +1302,26 @@ export default {
         this.zelapps.epochstart = data.epochstart;
         this.zelapps.portMin = data.portMin;
         this.zelapps.portMax = data.portMax;
+      } else {
+        vue.$message.error(response.data.data);
+      }
+    },
+    async openGlobalZelApp(zelappName) {
+      const response = await ZelAppsService.getZelAppLocation(zelappName).catch((error) => {
+        vue.$message.error(error.message || error);
+      });
+      console.log(response);
+      if (response.data.status === 'success') {
+        const zelappLocations = response.data.data;
+        const ip = zelappLocations[0];
+        if (!ip) {
+          vue.$message.error('Application is awaiting launching...');
+        } else {
+          const appSpecs = this.globalZelAppSpecs.data.find((app) => app.name === zelappName);
+          const { port } = appSpecs;
+          const url = `http://${ip}:${port}`;
+          this.openSite(url);
+        }
       } else {
         vue.$message.error(response.data.data);
       }

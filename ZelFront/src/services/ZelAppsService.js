@@ -81,6 +81,9 @@ export default {
   zelappsRegInformation() {
     return Api().get('/zelapps/registrationinformation');
   },
+  getZelAppLocation(name) {
+    return Api().get(`/zelapps/location/${name}`);
+  },
   globalZelAppSpecifications() {
     return Api().get('/zelapps/globalspecifications');
   },
