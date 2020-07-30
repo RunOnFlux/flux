@@ -46,6 +46,9 @@
     </div>
     <div v-if="zelAdminSection === 'manageflux'">
       <el-dialog
+        :close-on-click-modal="false"
+        :close-on-press-escape="false"
+        :show-close="false"
         title="Flux is updating"
         :visible.sync="updateDialogVisible"
         width="50%"
