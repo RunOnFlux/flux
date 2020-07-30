@@ -87,6 +87,20 @@ export default {
   globalZelAppSpecifications() {
     return Api().get('/zelapps/globalspecifications');
   },
+  reindexGlobalApps(zelidauthHeader) {
+    return Api().get('/zelapps/reindexglobalappsinformation', {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    });
+  },
+  rescanGlobalApps(zelidauthHeader, height, removelastinformation) {
+    return Api().get(`/zelapps/rescanglobalappsinformation/${height}/${removelastinformation}`, {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    });
+  },
   justAPI() {
     return Api();
   },

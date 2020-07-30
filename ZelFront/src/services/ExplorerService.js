@@ -27,4 +27,18 @@ export default {
       },
     });
   },
+  rescanExplorer(zelidauthHeader, height) {
+    return Api().get(`/explorer/rescan/${height}/false`, {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    });
+  },
+  rescanFlux(zelidauthHeader, height) {
+    return Api().get(`/explorer/rescan/${height}/true`, {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    });
+  },
 };

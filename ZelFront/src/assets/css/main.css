@@ -313,3 +313,7 @@ h4 {
 .zeladminsection .el-button {
   margin: 10px;
 }
+
+.zeladminsection .el-switch {
+  margin-left: 10px;
+}

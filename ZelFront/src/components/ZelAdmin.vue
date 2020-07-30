@@ -45,6 +45,13 @@
       </ElButton>
     </div>
     <div v-if="zelAdminSection === 'manageflux'">
+      <el-dialog
+        title="Flux is updating"
+        :visible.sync="updateDialogVisible"
+        width="50%"
+      >
+        <el-progress :percentage="updateProgress"></el-progress>
+      </el-dialog>
       <el-popconfirm
         confirmButtonText='OK'
         cancelButtonText='No, Thanks'
@@ -57,6 +64,7 @@
           Update Flux
         </ElButton>
       </el-popconfirm>
+      <br>
       <el-popconfirm
         confirmButtonText='Rebuild!'
         cancelButtonText='No, Thanks'
@@ -69,6 +77,7 @@
           Rebuild ZelFront
         </ElButton>
       </el-popconfirm>
+      <br>
       <el-popconfirm
         confirmButtonText='Reindex Flux!'
         cancelButtonText='No, Thanks'
@@ -93,14 +102,177 @@
           Reindex Explorer databases
         </ElButton>
       </el-popconfirm>
+      <br>
+      BlockHeight:
+      <el-input-number
+        controls-position="right"
+        placeholder="insert blockheight"
+        v-model="rescanFluxHeight"
+        :min="0"
+        :max="1000000"
+      ></el-input-number>
+      <el-popconfirm
+        confirmButtonText='Rescan Flux!'
+        cancelButtonText='No, Thanks'
+        icon="el-icon-info"
+        iconColor="red"
+        title="Rescans ALL Flux databases and rebuilds them from scratch"
+        @onConfirm="rescanFlux()"
+      >
+        <ElButton slot="reference">
+          Rescan Flux databases
+        </ElButton>
+      </el-popconfirm>
+      BlockHeight:
+      <el-input-number
+        controls-position="right"
+        placeholder="insert blockheight"
+        v-model="rescanExplorerHeight"
+        :min="0"
+        :max="1000000"
+      ></el-input-number>
+      <el-popconfirm
+        confirmButtonText='Rescan Explorer!'
+        cancelButtonText='No, Thanks'
+        icon="el-icon-info"
+        iconColor="red"
+        title="Rescans Explorer tied databases and rebuilds them from scratch"
+        @onConfirm="rescanExplorer()"
+      >
+        <ElButton slot="reference">
+          Rescan Explorer databases
+        </ElButton>
+      </el-popconfirm>
+      <br>
+      BlockHeight:
+      <el-input-number
+        controls-position="right"
+        placeholder="insert blockheight"
+        v-model="rescanGlobalAppsHeight"
+        :min="0"
+        :max="1000000"
+      ></el-input-number>
+      <el-tooltip
+        :content="removeLastInformation ? 'Remove last app information' : 'Do NOT remove last app information'"
+        placement="top"
+      >
+        <el-switch
+          v-model="removeLastInformation"
+          active-color="#13ce66"
+          inactive-color="#ff4949"
+        >
+        </el-switch>
+      </el-tooltip>
+      <el-popconfirm
+        confirmButtonText='Rescan Global Apps!'
+        cancelButtonText='No, Thanks'
+        icon="el-icon-info"
+        iconColor="red"
+        title="Rescans Global Applications from stored permanent messages given a blockheight."
+        @onConfirm="rescanGlobalApps()"
+      >
+        <ElButton slot="reference">
+          Rescan Global Apps Information
+        </ElButton>
+      </el-popconfirm>
+      <br>
+      <el-popconfirm
+        confirmButtonText='Reindex Global Apps!'
+        cancelButtonText='No, Thanks'
+        icon="el-icon-info"
+        iconColor="red"
+        title="Reindexes Global Applications from stored permanent messages"
+        @onConfirm="reindexGlobalApps()"
+      >
+        <ElButton slot="reference">
+          Reindex Global Apps Information
+        </ElButton>
+      </el-popconfirm>
     </div>
     <div v-if="zelAdminSection === 'managezelcash'">
-      <ElButton @click="updateZelCash()">
-        Update ZelCash
-      </ElButton>
-      <ElButton @click="reindexZelCash()">
-        Reindex ZelCash
-      </ElButton>
+      <el-popconfirm
+        confirmButtonText='Update Zel daemon'
+        cancelButtonText='No, Thanks'
+        icon="el-icon-info"
+        iconColor="orange"
+        title="Updates Zel daemon to the latest version"
+        @onConfirm="updateZelCash()"
+      >
+        <ElButton slot="reference">
+          Update ZelCash
+        </ElButton>
+      </el-popconfirm>
+      <br>
+      <el-popconfirm
+        confirmButtonText='Start Zel daemon'
+        cancelButtonText='No, Thanks'
+        icon="el-icon-info"
+        iconColor="green"
+        title="Starts Zel daemon"
+        @onConfirm="startZelCash()"
+      >
+        <ElButton slot="reference">
+          Start ZelCash
+        </ElButton>
+      </el-popconfirm>
+      <el-popconfirm
+        confirmButtonText='Stop Zel daemon'
+        cancelButtonText='No, Thanks'
+        icon="el-icon-info"
+        iconColor="red"
+        title="Stops Zel daemon"
+        @onConfirm="stopZelCash()"
+      >
+        <ElButton slot="reference">
+          Stop ZelCash
+        </ElButton>
+      </el-popconfirm>
+      <el-popconfirm
+        confirmButtonText='Restart Zel daemon'
+        cancelButtonText='No, Thanks'
+        icon="el-icon-info"
+        iconColor="orange"
+        title="Restarts Zel daemon"
+        @onConfirm="restartZelCash()"
+      >
+        <ElButton slot="reference">
+          Restart ZelCash
+        </ElButton>
+      </el-popconfirm>
+      <br>
+      BlockHeight:
+      <el-input-number
+        controls-position="right"
+        placeholder="insert blockheight"
+        v-model="rescanZelCashHeight"
+        :min="0"
+        :max="1000000"
+      ></el-input-number>
+      <el-popconfirm
+        confirmButtonText='Rescan Zel blockhain data'
+        cancelButtonText='No, Thanks'
+        icon="el-icon-info"
+        iconColor="red"
+        title="Reindexes Zel daemon"
+        @onConfirm="rescanZelCash()"
+      >
+        <ElButton slot="reference">
+          Rescan ZelCash
+        </ElButton>
+      </el-popconfirm>
+      <br>
+      <el-popconfirm
+        confirmButtonText='Reindex Zel blockhain data'
+        cancelButtonText='No, Thanks'
+        icon="el-icon-info"
+        iconColor="red"
+        title="Reindexes Zel daemon"
+        @onConfirm="reindexZelCash()"
+      >
+        <ElButton slot="reference">
+          Reindex ZelCash
+        </ElButton>
+      </el-popconfirm>
     </div>
     <div v-if="zelAdminSection === 'managezelbench'">
       <ElButton @click="updateZelBench()">
@@ -164,6 +336,7 @@ import ZelNodeService from '@/services/ZelNodeService';
 import ZelCashService from '@/services/ZelCashService';
 import ZelBenchService from '@/services/ZelBenchService';
 import ExplorerService from '@/services/ExplorerService';
+import ZelAppsService from '@/services/ZelAppsService';
 
 const qs = require('qs');
 
@@ -176,6 +349,13 @@ export default {
     return {
       filterLoggedUsers: '',
       loggedUsersTable: [],
+      updateDialogVisible: false,
+      updateProgress: 0,
+      rescanZelCashHeight: 0,
+      rescanFluxHeight: 0,
+      rescanExplorerHeight: 0,
+      rescanGlobalAppsHeight: 0,
+      removeLastInformation: false,
     };
   },
   computed: {
@@ -259,14 +439,42 @@ export default {
           console.log(response);
           if (response.data.version !== self.zelfluxVersion) {
             vue.$message.success('Flux is now updating in the background');
+            self.updateDialogVisible = true;
+            self.updateProgress = 5;
+            const interval = setInterval(() => {
+              if (self.updateProgress === 99) {
+                self.updateProgress += 1;
+              } else {
+                self.updateProgress += 2;
+              }
+              if (self.updateProgress >= 100) {
+                clearInterval(interval);
+                vue.$message.success('Update completed. Flux will now reload');
+                setTimeout(() => {
+                  if (self.updateDialogVisible) {
+                    window.location.reload(true);
+                  }
+                }, 5000);
+              }
+              if (!self.updateDialogVisible) {
+                clearInterval(interval);
+                self.updateProgress = 0;
+              }
+            }, 1000);
             ZelNodeService.updateZelFlux(zelidauth)
               .then((responseB) => {
                 console.log(responseB);
                 if (responseB.data.status === 'error') {
                   vue.$message.error(responseB.data.data.message);
                 }
+                if (responseB.data.data.code === 401) {
+                  self.updateDialogVisible = false;
+                  self.updateProgress = 0;
+                }
               })
               .catch((e) => {
+                self.updateDialogVisible = false;
+                self.updateProgress = 0;
                 console.log(e);
                 console.log(e.code);
                 vue.$message.error(e.toString());
@@ -319,13 +527,80 @@ export default {
           vue.$message.error('Error connecting to ZelCash daemon');
         });
     },
+    startZelCash() {
+      vue.$message.warning('ZelCash will start');
+      const zelidauth = localStorage.getItem('zelidauth');
+      ZelCashService.start(zelidauth)
+        .then((response) => {
+          if (response.data.status === 'error') {
+            vue.$message.error(response.data.data.message);
+          } else {
+            vue.$message.success(response.data.data.message);
+          }
+        })
+        .catch((error) => {
+          console.log(error);
+          vue.$message.error('Error while trying to start ZelCash');
+        });
+    },
+    stopZelCash() {
+      vue.$message.warning('ZelCash will be stopped');
+      const zelidauth = localStorage.getItem('zelidauth');
+      ZelCashService.stopZelCash(zelidauth)
+        .then((response) => {
+          if (response.data.status === 'error') {
+            vue.$message.error(response.data.data.message);
+          } else {
+            vue.$message.success(response.data.data.message);
+          }
+        })
+        .catch((error) => {
+          console.log(error);
+          vue.$message.error('Error while trying to stop ZelCash');
+        });
+    },
+    restartZelCash() {
+      vue.$message.warning('ZelCash will now restart');
+      const zelidauth = localStorage.getItem('zelidauth');
+      ZelCashService.restart(zelidauth)
+        .then((response) => {
+          if (response.data.status === 'error') {
+            vue.$message.error(response.data.data.message);
+          } else {
+            vue.$message.success(response.data.data.message);
+          }
+        })
+        .catch((error) => {
+          console.log(error);
+          vue.$message.error('Error while trying to restart ZelCash');
+        });
+    },
+    rescanZelCash() {
+      vue.$message.warning('ZelCash will now rescan. This will take up to an hour.');
+      const zelidauth = localStorage.getItem('zelidauth');
+      const blockheight = this.rescanZelCashHeight > 0 ? this.rescanZelCashHeight : 0;
+      ZelCashService.rescanZelCash(zelidauth, blockheight)
+        .then((response) => {
+          if (response.data.status === 'error') {
+            vue.$message.error(response.data.data.message);
+          } else {
+            vue.$message.success(response.data.data.message);
+          }
+        })
+        .catch((error) => {
+          console.log(error);
+          vue.$message.error('Error while trying to rescan ZelCash');
+        });
+    },
     reindexZelCash() {
+      vue.$message.warning('ZelCash will now reindex. This will take several hours.');
       const zelidauth = localStorage.getItem('zelidauth');
       ZelNodeService.reindexZelCash(zelidauth)
         .then((response) => {
-          vue.$message.success('ZelCash is now reindexing. This will take several hours.');
           if (response.data.status === 'error') {
             vue.$message.error(response.data.data.message);
+          } else {
+            vue.$message.success(response.data.data.message);
           }
         })
         .catch((error) => {
@@ -390,6 +665,40 @@ export default {
           vue.$message.error(e.toString());
         });
     },
+    rescanExplorer() {
+      vue.$message.warning('Explorer will now rescan');
+      const zelidauth = localStorage.getItem('zelidauth');
+      const blockheight = this.rescanExplorerHeight > 0 ? this.rescanExplorerHeight : 0;
+      ExplorerService.rescanExplorer(zelidauth, blockheight)
+        .then((response) => {
+          if (response.data.status === 'error') {
+            vue.$message.error(response.data.data.message);
+          } else {
+            vue.$message.success(response.data.data.message);
+          }
+        })
+        .catch((error) => {
+          console.log(error);
+          vue.$message.error('Error while trying to rescan Explorer');
+        });
+    },
+    rescanFlux() {
+      vue.$message.warning('Flux will now rescan');
+      const zelidauth = localStorage.getItem('zelidauth');
+      const blockheight = this.rescanFluxHeight > 0 ? this.rescanFluxHeight : 0;
+      ExplorerService.rescanFlux(zelidauth, blockheight)
+        .then((response) => {
+          if (response.data.status === 'error') {
+            vue.$message.error(response.data.data.message);
+          } else {
+            vue.$message.success(response.data.data.message);
+          }
+        })
+        .catch((error) => {
+          console.log(error);
+          vue.$message.error('Error while trying to rescan Flux');
+        });
+    },
     reindexExplorer() {
       const zelidauth = localStorage.getItem('zelidauth');
       const auth = qs.parse(zelidauth);
@@ -417,6 +726,49 @@ export default {
       console.log(auth);
       vue.$message.success('Flux databases will begin to reindex soon');
       ExplorerService.reindexFlux(zelidauth)
+        .then((response) => {
+          console.log(response);
+          if (response.data.status === 'error') {
+            vue.$message.error(response.data.data.message);
+          }
+          if (response.data.status === 'success') {
+            vue.$message.success(response.data.data.message);
+          }
+        })
+        .catch((e) => {
+          console.log(e);
+          console.log(e.code);
+          vue.$message.error(e.toString());
+        });
+    },
+    reindexGlobalApps() {
+      const zelidauth = localStorage.getItem('zelidauth');
+      const auth = qs.parse(zelidauth);
+      console.log(auth);
+      vue.$message.success('Global Applications information will reindex soon');
+      ZelAppsService.reindexGlobalApps(zelidauth)
+        .then((response) => {
+          console.log(response);
+          if (response.data.status === 'error') {
+            vue.$message.error(response.data.data.message);
+          }
+          if (response.data.status === 'success') {
+            vue.$message.success(response.data.data.message);
+          }
+        })
+        .catch((e) => {
+          console.log(e);
+          console.log(e.code);
+          vue.$message.error(e.toString());
+        });
+    },
+    rescanGlobalApps() {
+      const zelidauth = localStorage.getItem('zelidauth');
+      const auth = qs.parse(zelidauth);
+      console.log(auth);
+      vue.$message.success('Global Applications information will reindex soon');
+      const blockheight = this.rescanExplorerHeight > 0 ? this.rescanExplorerHeight : 0;
+      ZelAppsService.rescanGlobalApps(zelidauth, blockheight, this.removeLastInformation)
         .then((response) => {
           console.log(response);
           if (response.data.status === 'error') {

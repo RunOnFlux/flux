@@ -26,8 +26,29 @@ export default {
       },
     });
   },
+  start(zelidauthHeader) {
+    return Api().get('/zelcash/start', {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    });
+  },
   restart(zelidauthHeader) {
     return Api().get('/zelcash/restart', {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    });
+  },
+  stopZelCash(zelidauthHeader) {
+    return Api().get('/zelcash/stop', {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    });
+  },
+  rescanZelCash(zelidauthHeader, height) {
+    return Api().get(`/zelcash/rescan/${height}`, {
       headers: {
         zelidauth: zelidauthHeader,
       },

@@ -695,13 +695,13 @@ module.exports = (app, expressWs) => {
   app.get('/zelapps/createzelfluxnetwork', (req, res) => {
     zelappsService.createZelFluxNetwork(req, res);
   });
-  app.get('/zelapps/rescanglobalappsinformation/:blockheight?/:removelastinformation?', (req, res) => { // todo post, privileges
+  app.get('/zelapps/rescanglobalappsinformation/:blockheight?/:removelastinformation?', (req, res) => {
     zelappsService.rescanGlobalAppsInformationAPI(req, res);
   });
-  app.get('/zelapps/reindexglobalappsinformation', (req, res) => { // todo post, privileges
+  app.get('/zelapps/reindexglobalappsinformation', (req, res) => {
     zelappsService.reindexGlobalAppsInformationAPI(req, res);
   });
-  app.get('/zelapps/reindexglobalappslocation', (req, res) => { // todo post, privileges
+  app.get('/zelapps/reindexglobalappslocation', (req, res) => {
     zelappsService.reindexGlobalAppsLocationAPI(req, res);
   });
 
