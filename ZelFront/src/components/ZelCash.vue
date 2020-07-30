@@ -38,7 +38,6 @@
       class="restartSection"
     >
       <ElButton
-        class="generalButton"
         @click="restartZelCashDaemon()"
       >
         Restart ZelCash

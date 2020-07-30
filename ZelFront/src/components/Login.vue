@@ -53,7 +53,6 @@
         </ElInput>
       </ElFormItem>
       <ElButton
-        class="generalButton"
         @click="login()"
       >
         Login

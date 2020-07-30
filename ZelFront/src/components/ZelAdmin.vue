@@ -40,52 +40,70 @@
           </template>
         </el-table-column>
       </el-table>
-      <ElButton
-        class="generalButton"
-        @click="logoutAllSessions()"
-      >
+      <ElButton @click="logoutAllSessions()">
         Logout all sessions
       </ElButton>
     </div>
     <div v-if="zelAdminSection === 'manageflux'">
-      <ElButton
-        class="generalButton"
-        @click="updateZelFlux()"
+      <el-popconfirm
+        confirmButtonText='OK'
+        cancelButtonText='No, Thanks'
+        icon="el-icon-info"
+        iconColor="orange"
+        title="Flux will now begin updating itself."
+        @onConfirm="updateZelFlux()"
       >
-        Update Flux
-      </ElButton>
-      <ElButton
-        class="generalButton"
-        @click="rebuildZelFront()"
+        <ElButton slot="reference">
+          Update Flux
+        </ElButton>
+      </el-popconfirm>
+      <el-popconfirm
+        confirmButtonText='Rebuild!'
+        cancelButtonText='No, Thanks'
+        icon="el-icon-info"
+        iconColor="red"
+        title="Rebuilds Flux User Interface. Useful for resolving minor UI issues."
+        @onConfirm="rebuildZelFront()"
       >
-        Rebuild ZelFront
-      </ElButton>
-      <ElButton
-        class="generalButton"
-        @click="reindexFlux()"
+        <ElButton slot="reference">
+          Rebuild ZelFront
+        </ElButton>
+      </el-popconfirm>
+      <el-popconfirm
+        confirmButtonText='Reindex Flux!'
+        cancelButtonText='No, Thanks'
+        icon="el-icon-info"
+        iconColor="red"
+        title="Reindexes ALL Flux databases and rebuilds them from scratch"
+        @onConfirm="reindexFlux()"
       >
-        Reindex Flux databases
-      </ElButton>
+        <ElButton slot="reference">
+          Reindex Flux databases
+        </ElButton>
+      </el-popconfirm>
+      <el-popconfirm
+        confirmButtonText='Reindex Explorer!'
+        cancelButtonText='No, Thanks'
+        icon="el-icon-info"
+        iconColor="red"
+        title="Reindexes Explorer tied databases and rebuilds them from scratch"
+        @onConfirm="reindexExplorer()"
+      >
+        <ElButton slot="reference">
+          Reindex Explorer databases
+        </ElButton>
+      </el-popconfirm>
     </div>
     <div v-if="zelAdminSection === 'managezelcash'">
-      <ElButton
-        class="generalButton"
-        @click="updateZelCash()"
-      >
+      <ElButton @click="updateZelCash()">
         Update ZelCash
       </ElButton>
-      <ElButton
-        class="generalButton"
-        @click="reindexZelCash()"
-      >
+      <ElButton @click="reindexZelCash()">
         Reindex ZelCash
       </ElButton>
     </div>
     <div v-if="zelAdminSection === 'managezelbench'">
-      <ElButton
-        class="generalButton"
-        @click="updateZelBench()"
-      >
+      <ElButton @click="updateZelBench()">
         Update ZelBench
       </ElButton>
     </div>
@@ -129,10 +147,7 @@
           </template>
         </el-table-column>
       </el-table>
-      <ElButton
-        class="generalButton"
-        @click="logOutAllUsers()"
-      >
+      <ElButton @click="logOutAllUsers()">
         Logout all Users
       </ElButton>
     </div>
@@ -367,6 +382,27 @@ export default {
           console.log(response);
           if (response.data.status === 'error') {
             vue.$message.error(response.data.data.message);
+          }
+        })
+        .catch((e) => {
+          console.log(e);
+          console.log(e.code);
+          vue.$message.error(e.toString());
+        });
+    },
+    reindexExplorer() {
+      const zelidauth = localStorage.getItem('zelidauth');
+      const auth = qs.parse(zelidauth);
+      console.log(auth);
+      vue.$message.success('Explorer databases will begin to reindex soon');
+      ExplorerService.reindexExplorer(zelidauth)
+        .then((response) => {
+          console.log(response);
+          if (response.data.status === 'error') {
+            vue.$message.error(response.data.data.message);
+          }
+          if (response.data.status === 'success') {
+            vue.$message.success(response.data.data.message);
           }
         })
         .catch((e) => {

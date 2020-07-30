@@ -307,3 +307,9 @@ h4 {
   overflow: hidden;
   border: 1px solid #333;
 }
+
+/* */
+
+.zeladminsection .el-button {
+  margin: 10px;
+}

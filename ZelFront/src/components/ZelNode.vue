@@ -145,7 +145,6 @@
             </ElFormItem>
 
             <ElButton
-              class="generalButton"
               @click="connectPeer()"
             >
               Connect to Peer

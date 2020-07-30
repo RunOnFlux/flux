@@ -33,7 +33,6 @@
             >
               <template slot-scope="scope">
                 <ElButton
-                  class="generalButton"
                   @click="openZelApp(scope.row.Names[0].substr(4, scope.row.Names[0].length))"
                 >
                   Visit
@@ -47,17 +46,10 @@
             >
               <template slot-scope="scope">
                 <ElButton
-                  class="generalButton"
                   @click="stopZelApp(scope.row.Names[0].substr(1, scope.row.Names[0].length))"
                 >
                   Stop
                 </ElButton>
-                <!-- <ElButton
-                  class="generalButton"
-                  @click="restartZelApp(scope.row.Names[0].substr(1, scope.row.Names[0].length))"
-                >
-                  Restart
-                </ElButton> -->
               </template>
             </el-table-column>
           </el-table>
@@ -120,13 +112,11 @@
             >
               <template slot-scope="scope">
                 <ElButton
-                  class="generalButton"
                   @click="startZelApp(scope.row.name)"
                 >
                   Start
                 </ElButton>
                 <ElButton
-                  class="generalButton"
                   @click="restartZelApp(scope.row.name)"
                 >
                   Restart
@@ -140,7 +130,6 @@
             >
               <template slot-scope="scope">
                 <ElButton
-                  class="generalButton"
                   @click="removeZelApp(scope.row.name)"
                 >
                   Remove
@@ -219,7 +208,6 @@
             >
               <template slot-scope="scope">
                 <ElButton
-                  class="generalButton"
                   @click="installTemporaryLocalApp(scope.row.name)"
                 >
                   Install
@@ -273,7 +261,6 @@
             >
               <template slot-scope="scope">
                 <ElButton
-                  class="generalButton"
                   @click="openGlobalZelApp(scope.row.name)"
                 >
                   Visit
@@ -313,7 +300,6 @@
             >
               <template slot-scope="scope">
                 <ElButton
-                  class="generalButton"
                   @click="openGlobalZelApp(scope.row.name)"
                 >
                   Visit
@@ -327,7 +313,6 @@
             >
               <template slot-scope="scope">
                 <ElButton
-                  class="generalButton"
                   @click="openAppManagement(scope.row.name)"
                 >
                   Manage
@@ -579,7 +564,6 @@
         </el-form>
         <div>
           <ElButton
-            class="generalButton"
             @click="checkFluxSpecificationsAndFormatMessage"
           >
             Compute Registration Message
@@ -622,7 +606,6 @@
           Price per Month: {{ appPricePerMonth }} ZEL
           <br><br>
           <ElButton
-            class="generalButton"
             @click="register"
           >
             Register ZelApp
