@@ -63,7 +63,7 @@
 
     <div v-if="zelBenchSection === 'getbenchmarks'">
       <div>
-        <p>Output from Get Benchmarks command:</p>
+        <p>Output from Get Benchmarks command</p>
       </div>
       <div>
         <p>
@@ -97,7 +97,7 @@
     </div>
     <div v-if="zelBenchSection === 'getinfo'">
       <div>
-        <p>Output from Get Info command:</p>
+        <p>Output from Get Info command</p>
       </div>
       <div>
         <p>
@@ -105,6 +105,80 @@
         </p>
         <p>
           RPC port: {{ callResponse.data.rpcport }}
+        </p>
+      </div>
+    </div>
+    <div v-if="zelBenchSection === 'getstatus'">
+      <div>
+        <p>Output from Get Status command</p>
+      </div>
+      <div>
+        <p>
+          Status: {{ callResponse.data.status }}
+        </p>
+        <p>
+          Benchmarking: {{ callResponse.data.benchmarking }}
+        </p>
+        <p>
+          ZelBack: {{ callResponse.data.zelback }}
+        </p>
+      </div>
+    </div>
+    <div v-if="zelBenchSection === 'restartnodebenchmarks'">
+      <div>
+        <p>Following action will trigger a complete new test of node benchmarking</p>
+      </div>
+      <div>
+        <el-popconfirm
+          confirmButtonText='Restart Benchmarks'
+          cancelButtonText='No, Thanks'
+          icon="el-icon-info"
+          iconColor="orange"
+          title="Runs a complete new test of node benchmarking"
+          @onConfirm="restartBenchmarks()"
+        >
+          <ElButton slot="reference">
+            Restart Benchmarks
+          </ElButton>
+        </el-popconfirm>
+      </div>
+    </div>
+    <div v-if="zelBenchSection === 'signzelnodetransaction'">
+      <div>
+        <p>Following action signs hex of a valid zelnode transaction</p>
+      </div>
+      <div>
+        <el-input
+          type="textarea"
+          placeholder="Please insert hex of ZelNode transaction to sign"
+          autosize
+          v-model="hexZelNodeTransaction"
+        >
+        </el-input>
+      </div>
+      <div>
+        <el-popconfirm
+          confirmButtonText='Sign Transaction'
+          cancelButtonText='No, Thanks'
+          icon="el-icon-info"
+          iconColor="orange"
+          title="Signs valid hex of ZelNode transaction"
+          @onConfirm="signZelNodeTransaction()"
+        >
+          <ElButton slot="reference">
+            Sign Transaction
+          </ElButton>
+        </el-popconfirm>
+      </div>
+      <div v-if="callResponse.status === 'success'">
+        <p>
+          Status: {{ callResponse.data.status }}
+        </p>
+        <p v-if="callResponse.data.tier">
+          Tier: {{ callResponse.data.tier }}
+        </p>
+        <p v-if="callResponse.data.hex">
+          Hex: {{ callResponse.data.hex }}
         </p>
       </div>
     </div>
@@ -183,6 +257,7 @@ export default {
         status: '',
         data: '',
       },
+      hexZelNodeTransaction: '',
     };
   },
   computed: {
@@ -209,6 +284,13 @@ export default {
           break;
         case 'getinfo':
           this.zelbenchGetInfo();
+          break;
+        case 'getstatus':
+          this.zelbenchGetStatus();
+          break;
+        case 'restartnodebenchmarks':
+          break;
+        case 'signzelnodetransaction':
           break;
         case 'help':
           this.zelbenchHelp();
@@ -239,6 +321,13 @@ export default {
         break;
       case 'help':
         this.zelbenchHelp();
+        break;
+      case 'getstatus':
+        this.zelbenchGetStatus();
+        break;
+      case 'restartnodebenchmarks':
+        break;
+      case 'signzelnodetransaction':
         break;
       case 'restart':
         break;
@@ -350,6 +439,49 @@ export default {
         .catch((error) => {
           console.log(error);
           vue.$message.error('Error while trying to restart ZelBench');
+        });
+    },
+    async zelbenchGetStatus() {
+      const response = await ZelBenchService.getStatus();
+      this.callResponse.status = response.data.status;
+      this.callResponse.data = response.data.data;
+    },
+    restartBenchmarks() {
+      vue.$message.warning('Initiating new benchmarks...');
+      const zelidauth = localStorage.getItem('zelidauth');
+      ZelBenchService.restartNodeBenchmarks(zelidauth)
+        .then((response) => {
+          console.log(response);
+          if (response.data.status === 'error') {
+            vue.$message.error(response.data.data.message || response.data.data);
+          } else {
+            vue.$message.success(response.data.data.message || response.data.data);
+          }
+        })
+        .catch((error) => {
+          console.log(error);
+          vue.$message.error('Error while trying to run new benchmarks');
+        });
+    },
+    signZelNodeTransaction() {
+      const zelidauth = localStorage.getItem('zelidauth');
+      if (!this.hexZelNodeTransaction) {
+        vue.$message.error('No ZelNode transaction hex provided');
+        return;
+      }
+      ZelBenchService.signZelNodeTransaction(zelidauth, this.hexZelNodeTransaction)
+        .then((response) => {
+          console.log(response);
+          if (response.data.status === 'error') {
+            vue.$message.error(response.data.data.message || response.data.data);
+          } else {
+            this.callResponse.status = response.data.status;
+            this.callResponse.data = response.data.data;
+          }
+        })
+        .catch((error) => {
+          console.log(error);
+          vue.$message.error('Error while trying to sign ZelNode transaction');
         });
     },
   },
