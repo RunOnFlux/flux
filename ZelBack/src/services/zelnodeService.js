@@ -111,6 +111,47 @@ async function updateZelBench(req, res) {
 }
 
 // eslint-disable-next-line consistent-return
+async function startZelBench(req, res) {
+  const authorized = await serviceHelper.verifyZelTeamSession(req.headers);
+  if (authorized === true) {
+    const exec = 'zelbenchd -daemon';
+    cmd.get(exec, (err, data) => {
+      if (err) {
+        const errMessage = serviceHelper.createErrorMessage(`Error starting ZelBench: ${err.message}`, err.name, err.code);
+        return res.json(errMessage);
+      }
+      console.log(data);
+      const message = serviceHelper.createSuccessMessage('ZelBench successfully started');
+      return res.json(message);
+    });
+  } else {
+    const errMessage = serviceHelper.errUnauthorizedMessage();
+    return res.json(errMessage);
+  }
+}
+
+// eslint-disable-next-line consistent-return
+async function restartZelBench(req, res) {
+  const authorized = await serviceHelper.verifyZelTeamSession(req.headers);
+  if (authorized === true) {
+    const zelnodedpath = path.join(__dirname, '../../../helpers');
+    const exec = `cd ${zelnodedpath} && sh restartZelBench.sh`;
+    cmd.get(exec, (err) => {
+      if (err) {
+        const errMessage = serviceHelper.createErrorMessage(`Error restarting ZelBench: ${err.message}`, err.name, err.code);
+        return res.json(errMessage);
+      }
+      const message = serviceHelper.createSuccessMessage('ZelBench successfully restarted');
+      return res.json(message);
+    });
+  } else {
+    const errMessage = serviceHelper.errUnauthorizedMessage();
+    console.log(errMessage);
+    return res.json(errMessage);
+  }
+}
+
+// eslint-disable-next-line consistent-return
 async function startZelCash(req, res) {
   const authorized = await serviceHelper.verifyZelTeamSession(req.headers);
   if (authorized === true) {
@@ -357,4 +398,6 @@ module.exports = {
   zelfluxErrorLog,
   getZelFluxTimezone,
   getZelFluxInfo,
+  startZelBench,
+  restartZelBench,
 };

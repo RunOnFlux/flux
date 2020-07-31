@@ -1,6 +1,21 @@
 import Api from '@/services/Api';
 
 export default {
+  // actually zelnode service
+  start(zelidauthHeader) {
+    return Api().get('/zelbench/start', {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    });
+  },
+  restart(zelidauthHeader) {
+    return Api().get('/zelbench/restart', {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    });
+  },
   // == Benchmarks ==
   getStatus() {
     return Api().get('/zelbench/getstatus');

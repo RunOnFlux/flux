@@ -342,9 +342,68 @@
       </el-popconfirm>
     </div>
     <div v-if="zelAdminSection === 'managezelbench'">
-      <ElButton @click="updateZelBench()">
-        Update ZelBench
-      </ElButton>
+      <el-popconfirm
+        confirmButtonText='Update ZelBench'
+        cancelButtonText='No, Thanks'
+        icon="el-icon-info"
+        iconColor="orange"
+        title="Updates Zel daemon to the latest version"
+        @onConfirm="updateZelBench()"
+      >
+        <ElButton slot="reference">
+          Update ZelBench
+        </ElButton>
+      </el-popconfirm>
+      <br>
+      <el-popconfirm
+        confirmButtonText='Start ZelBench daemon'
+        cancelButtonText='No, Thanks'
+        icon="el-icon-info"
+        iconColor="green"
+        title="Starts ZelBench daemon"
+        @onConfirm="startZelBench()"
+      >
+        <ElButton slot="reference">
+          Start ZelBench
+        </ElButton>
+      </el-popconfirm>
+      <el-popconfirm
+        confirmButtonText='Stop ZelBench daemon'
+        cancelButtonText='No, Thanks'
+        icon="el-icon-info"
+        iconColor="red"
+        title="Stops Zel daemon"
+        @onConfirm="stopZelBench()"
+      >
+        <ElButton slot="reference">
+          Stop ZelBench
+        </ElButton>
+      </el-popconfirm>
+      <el-popconfirm
+        confirmButtonText='Restart ZelBench daemon'
+        cancelButtonText='No, Thanks'
+        icon="el-icon-info"
+        iconColor="orange"
+        title="Restarts ZelBench daemon"
+        @onConfirm="restartZelBench()"
+      >
+        <ElButton slot="reference">
+          Restart ZelBench
+        </ElButton>
+      </el-popconfirm>
+      <br>
+      <el-popconfirm
+        confirmButtonText='Restart Benchmarks'
+        cancelButtonText='No, Thanks'
+        icon="el-icon-info"
+        iconColor="orange"
+        title="Runs a complete new test of node benchmarking"
+        @onConfirm="restartBenchmarks()"
+      >
+        <ElButton slot="reference">
+          Restart Benchmarks
+        </ElButton>
+      </el-popconfirm>
     </div>
     <div v-if="zelAdminSection === 'manageusers'">
       <el-table
@@ -557,7 +616,7 @@ export default {
               .then((responseB) => {
                 console.log(responseB);
                 if (responseB.data.status === 'error') {
-                  vue.$message.error(responseB.data.data.message);
+                  vue.$message.error(responseB.data.data.message || responseB.data.data);
                 }
                 if (responseB.data.data.code === 401) {
                   self.updateDialogVisible = false;
@@ -597,7 +656,7 @@ export default {
                   .then((responseUpdateZelCash) => {
                     console.log(responseUpdateZelCash);
                     if (responseUpdateZelCash.data.status === 'error') {
-                      vue.$message.error(responseUpdateZelCash.data.data.message);
+                      vue.$message.error(responseUpdateZelCash.data.data.message || responseUpdateZelCash.data.data);
                     }
                   })
                   .catch((e) => {
@@ -625,9 +684,9 @@ export default {
       ZelCashService.start(zelidauth)
         .then((response) => {
           if (response.data.status === 'error') {
-            vue.$message.error(response.data.data.message);
+            vue.$message.error(response.data.data.message || response.data.data);
           } else {
-            vue.$message.success(response.data.data.message);
+            vue.$message.success(response.data.data.message || response.data.data);
           }
         })
         .catch((error) => {
@@ -641,9 +700,9 @@ export default {
       ZelCashService.stopZelCash(zelidauth)
         .then((response) => {
           if (response.data.status === 'error') {
-            vue.$message.error(response.data.data.message);
+            vue.$message.error(response.data.data.message || response.data.data);
           } else {
-            vue.$message.success(response.data.data.message);
+            vue.$message.success(response.data.data.message || response.data.data);
           }
         })
         .catch((error) => {
@@ -657,14 +716,79 @@ export default {
       ZelCashService.restart(zelidauth)
         .then((response) => {
           if (response.data.status === 'error') {
-            vue.$message.error(response.data.data.message);
+            vue.$message.error(response.data.data.message || response.data.data);
           } else {
-            vue.$message.success(response.data.data.message);
+            vue.$message.success(response.data.data.message || response.data.data);
           }
         })
         .catch((error) => {
           console.log(error);
           vue.$message.error('Error while trying to restart ZelCash');
+        });
+    },
+    startZelBench() {
+      vue.$message.warning('ZelBench will start');
+      const zelidauth = localStorage.getItem('zelidauth');
+      ZelBenchService.start(zelidauth)
+        .then((response) => {
+          if (response.data.status === 'error') {
+            vue.$message.error(response.data.data.message || response.data.data);
+          } else {
+            vue.$message.success(response.data.data.message || response.data.data);
+          }
+        })
+        .catch((error) => {
+          console.log(error);
+          vue.$message.error('Error while trying to start ZelBench');
+        });
+    },
+    stopZelBench() {
+      vue.$message.warning('ZelBench will be stopped');
+      const zelidauth = localStorage.getItem('zelidauth');
+      ZelBenchService.stop(zelidauth)
+        .then((response) => {
+          if (response.data.status === 'error') {
+            vue.$message.error(response.data.data.message || response.data.data);
+          } else {
+            vue.$message.success(response.data.data.message || response.data.data);
+          }
+        })
+        .catch((error) => {
+          console.log(error);
+          vue.$message.error('Error while trying to stop ZelBench');
+        });
+    },
+    restartZelBench() {
+      vue.$message.warning('ZelBench will now restart');
+      const zelidauth = localStorage.getItem('zelidauth');
+      ZelBenchService.restart(zelidauth)
+        .then((response) => {
+          if (response.data.status === 'error') {
+            vue.$message.error(response.data.data.message || response.data.data);
+          } else {
+            vue.$message.success(response.data.data.message || response.data.data);
+          }
+        })
+        .catch((error) => {
+          console.log(error);
+          vue.$message.error('Error while trying to restart ZelBench');
+        });
+    },
+    restartBenchmarks() {
+      vue.$message.warning('Initiating new benchmarks...');
+      const zelidauth = localStorage.getItem('zelidauth');
+      ZelBenchService.restartNodeBenchmarks(zelidauth)
+        .then((response) => {
+          console.log(response);
+          if (response.data.status === 'error') {
+            vue.$message.error(response.data.data.message || response.data.data);
+          } else {
+            vue.$message.success(response.data.data.message || response.data.data);
+          }
+        })
+        .catch((error) => {
+          console.log(error);
+          vue.$message.error('Error while trying to run new benchmarks');
         });
     },
     rescanZelCash() {
@@ -674,9 +798,9 @@ export default {
       ZelCashService.rescanZelCash(zelidauth, blockheight)
         .then((response) => {
           if (response.data.status === 'error') {
-            vue.$message.error(response.data.data.message);
+            vue.$message.error(response.data.data.message || response.data.data);
           } else {
-            vue.$message.success(response.data.data.message);
+            vue.$message.success(response.data.data.message || response.data.data);
           }
         })
         .catch((error) => {
@@ -690,9 +814,9 @@ export default {
       ZelNodeService.reindexZelCash(zelidauth)
         .then((response) => {
           if (response.data.status === 'error') {
-            vue.$message.error(response.data.data.message);
+            vue.$message.error(response.data.data.message || response.data.data);
           } else {
-            vue.$message.success(response.data.data.message);
+            vue.$message.success(response.data.data.message || response.data.data);
           }
         })
         .catch((error) => {
@@ -717,7 +841,7 @@ export default {
                   .then((responseUpdateZelBench) => {
                     console.log(responseUpdateZelBench);
                     if (responseUpdateZelBench.data.status === 'error') {
-                      vue.$message.error(responseUpdateZelBench.data.data.message);
+                      vue.$message.error(responseUpdateZelBench.data.data.message || responseUpdateZelBench.data.data);
                     }
                   })
                   .catch((e) => {
@@ -748,7 +872,7 @@ export default {
         .then((response) => {
           console.log(response);
           if (response.data.status === 'error') {
-            vue.$message.error(response.data.data.message);
+            vue.$message.error(response.data.data.message || response.data.data);
           }
         })
         .catch((e) => {
@@ -764,9 +888,9 @@ export default {
       ExplorerService.rescanExplorer(zelidauth, blockheight)
         .then((response) => {
           if (response.data.status === 'error') {
-            vue.$message.error(response.data.data.message);
+            vue.$message.error(response.data.data.message || response.data.data);
           } else {
-            vue.$message.success(response.data.data.message);
+            vue.$message.success(response.data.data.message || response.data.data);
           }
         })
         .catch((error) => {
@@ -781,9 +905,9 @@ export default {
       ExplorerService.rescanFlux(zelidauth, blockheight)
         .then((response) => {
           if (response.data.status === 'error') {
-            vue.$message.error(response.data.data.message);
+            vue.$message.error(response.data.data.message || response.data.data);
           } else {
-            vue.$message.success(response.data.data.message);
+            vue.$message.success(response.data.data.message || response.data.data);
           }
         })
         .catch((error) => {
@@ -800,10 +924,10 @@ export default {
         .then((response) => {
           console.log(response);
           if (response.data.status === 'error') {
-            vue.$message.error(response.data.data.message);
+            vue.$message.error(response.data.data.message || response.data.data);
           }
           if (response.data.status === 'success') {
-            vue.$message.success(response.data.data.message);
+            vue.$message.success(response.data.data.message || response.data.data);
           }
         })
         .catch((e) => {
@@ -821,10 +945,10 @@ export default {
         .then((response) => {
           console.log(response);
           if (response.data.status === 'error') {
-            vue.$message.error(response.data.data.message);
+            vue.$message.error(response.data.data.message || response.data.data);
           }
           if (response.data.status === 'success') {
-            vue.$message.success(response.data.data.message);
+            vue.$message.success(response.data.data.message || response.data.data);
           }
         })
         .catch((e) => {
@@ -842,10 +966,10 @@ export default {
         .then((response) => {
           console.log(response);
           if (response.data.status === 'error') {
-            vue.$message.error(response.data.data.message);
+            vue.$message.error(response.data.data.message || response.data.data);
           }
           if (response.data.status === 'success') {
-            vue.$message.success(response.data.data.message);
+            vue.$message.success(response.data.data.message || response.data.data);
           }
         })
         .catch((e) => {
@@ -861,10 +985,10 @@ export default {
         .then((response) => {
           console.log(response);
           if (response.data.status === 'error') {
-            vue.$message.error(response.data.data.message);
+            vue.$message.error(response.data.data.message || response.data.data);
           }
           if (response.data.status === 'success') {
-            vue.$message.success(response.data.data.message);
+            vue.$message.success(response.data.data.message || response.data.data);
           }
         })
         .catch((e) => {
@@ -881,10 +1005,10 @@ export default {
         .then((response) => {
           console.log(response);
           if (response.data.status === 'error') {
-            vue.$message.error(response.data.data.message);
+            vue.$message.error(response.data.data.message || response.data.data);
           }
           if (response.data.status === 'success') {
-            vue.$message.success(response.data.data.message);
+            vue.$message.success(response.data.data.message || response.data.data);
           }
         })
         .catch((e) => {
@@ -900,10 +1024,10 @@ export default {
         .then((response) => {
           console.log(response);
           if (response.data.status === 'error') {
-            vue.$message.error(response.data.data.message);
+            vue.$message.error(response.data.data.message || response.data.data);
           }
           if (response.data.status === 'success') {
-            vue.$message.success(response.data.data.message);
+            vue.$message.success(response.data.data.message || response.data.data);
           }
         })
         .catch((e) => {
@@ -917,10 +1041,10 @@ export default {
         .then((response) => {
           console.log(response);
           if (response.data.status === 'error') {
-            vue.$message.error(response.data.data.message);
+            vue.$message.error(response.data.data.message || response.data.data);
           }
           if (response.data.status === 'success') {
-            vue.$message.success(response.data.data.message);
+            vue.$message.success(response.data.data.message || response.data.data);
           }
         })
         .catch((e) => {
@@ -999,12 +1123,12 @@ export default {
         .then((response) => {
           console.log(response);
           if (response.data.status === 'error') {
-            vue.$message.error(response.data.data.message);
+            vue.$message.error(response.data.data.message || response.data.data);
           } else {
             localStorage.removeItem('zelidauth');
             this.$store.commit('setZelCashSection', 'getinfo');
             this.$store.commit('setPrivilage', 'none');
-            vue.$message.success(response.data.data.message);
+            vue.$message.success(response.data.data.message || response.data.data);
           }
         })
         .catch((e) => {
@@ -1020,12 +1144,12 @@ export default {
         .then((response) => {
           console.log(response);
           if (response.data.status === 'error') {
-            vue.$message.error(response.data.data.message);
+            vue.$message.error(response.data.data.message || response.data.data);
           } else {
             localStorage.removeItem('zelidauth');
             this.$store.commit('setZelCashSection', 'getinfo');
             this.$store.commit('setPrivilage', 'none');
-            vue.$message.success(response.data.data.message);
+            vue.$message.success(response.data.data.message || response.data.data);
           }
         })
         .catch((e) => {
@@ -1042,7 +1166,7 @@ export default {
           console.log(response);
           this.loggedUsersTable = response.data.data;
           if (response.data.status === 'error') {
-            vue.$message.error(response.data.data.message);
+            vue.$message.error(response.data.data.message || response.data.data);
           }
         })
         .catch((e) => {
@@ -1059,7 +1183,7 @@ export default {
           console.log(response);
           this.loggedUsersTable = response.data.data;
           if (response.data.status === 'error') {
-            vue.$message.error(response.data.data.message);
+            vue.$message.error(response.data.data.message || response.data.data);
           }
         })
         .catch((e) => {
@@ -1077,9 +1201,9 @@ export default {
         .then((response) => {
           console.log(response);
           if (response.data.status === 'error') {
-            vue.$message.error(response.data.data.message);
+            vue.$message.error(response.data.data.message || response.data.data);
           } else {
-            vue.$message.success(response.data.data.message);
+            vue.$message.success(response.data.data.message || response.data.data);
             if (row.loginPhrase === auth.loginPhrase) {
               localStorage.removeItem('zelidauth');
               this.$store.commit('setZelCashSection', 'getinfo');

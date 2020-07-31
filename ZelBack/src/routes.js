@@ -531,12 +531,6 @@ module.exports = (app, expressWs) => {
     zelidService.logoutAllUsers(req, res);
   });
 
-  app.get('/zelnode/startzelcash', (req, res) => {
-    zelnodeService.startZelCash(req, res);
-  });
-  app.get('/zelnode/restartzelcash', (req, res) => {
-    zelnodeService.restartZelCash(req, res);
-  });
   app.get('/zelnode/reindexzelcash', (req, res) => {
     zelnodeService.reindexZelCash(req, res);
   });
@@ -568,6 +562,18 @@ module.exports = (app, expressWs) => {
     zelcashService.stopZelBenchD(req, res);
   });
 
+  app.get('/zelnode/startzelbench', (req, res) => {
+    zelnodeService.startZelBench(req, res);
+  });
+  app.get('/zelnode/restartzelbench', (req, res) => {
+    zelnodeService.restartZelBench(req, res);
+  });
+  app.get('/zelnode/startzelcash', (req, res) => {
+    zelnodeService.startZelCash(req, res);
+  });
+  app.get('/zelnode/restartzelcash', (req, res) => {
+    zelnodeService.restartZelCash(req, res);
+  });
   app.get('/zelnode/updatezelflux', (req, res) => { // method shall be called only if zelflux version is obsolete.
     zelnodeService.updateZelFlux(req, res);
   });
@@ -618,6 +624,12 @@ module.exports = (app, expressWs) => {
     zelfluxCommunication.isCommunicationEstablished(req, res);
   });
 
+  app.get('/zelbench/start', (req, res) => {
+    zelnodeService.startZelBench(req, res);
+  });
+  app.get('/zelbench/restart', (req, res) => {
+    zelnodeService.restartZelBench(req, res);
+  });
   app.get('/zelbench/restartnodebenchmarks', (req, res) => {
     zelbenchService.restartNodeBenchmarks(req, res);
   });
