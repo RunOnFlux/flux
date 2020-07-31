@@ -41,4 +41,18 @@ export default {
       },
     });
   },
+  restartBlockProcessing(zelidauthHeader) {
+    return Api().get('/explorer/restart', {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    });
+  },
+  stopBlockProcessing(zelidauthHeader) {
+    return Api().get('/explorer/stop', {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    });
+  },
 };

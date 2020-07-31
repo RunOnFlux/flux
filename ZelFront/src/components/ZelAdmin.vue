@@ -28,21 +28,46 @@
             />
           </template>
           <template slot-scope="scope">
-            <i
-              v-if="scope.row.loginPhrase === currentLoginPhrase"
-              class="el-icon-warning"
-            ></i>&nbsp;
-            <el-button
-              size="mini"
-              type="danger"
-              @click="logoutSpecificSession(scope.$index, scope.row)"
-            >Log Out</el-button>
+            <el-tooltip
+              content="Currently logged and used session by you"
+              placement="top"
+            >
+              <i
+                v-if="scope.row.loginPhrase === currentLoginPhrase"
+                class="el-icon-warning"
+              ></i>&nbsp;
+            </el-tooltip>
+            <el-popconfirm
+              confirmButtonText='Log Out!'
+              cancelButtonText='No, Thanks'
+              icon="el-icon-info"
+              iconColor="red"
+              title="This action will log out your selected session."
+              @onConfirm="logoutSpecificSession(scope.$index, scope.row)"
+            >
+              <ElButton
+                size="mini"
+                type="danger"
+                slot="reference"
+              >
+                Log Out
+              </ElButton>
+            </el-popconfirm>
           </template>
         </el-table-column>
       </el-table>
-      <ElButton @click="logoutAllSessions()">
-        Logout all sessions
-      </ElButton>
+      <el-popconfirm
+        confirmButtonText='Log Out all sessions!'
+        cancelButtonText='No, Thanks'
+        icon="el-icon-info"
+        iconColor="red"
+        title="This action will log out ALL your sessions include the one currently used!"
+        @onConfirm="logoutAllSessions()"
+      >
+        <ElButton slot="reference">
+          Log Out all sessions
+        </ElButton>
+      </el-popconfirm>
     </div>
     <div v-if="zelAdminSection === 'manageflux'">
       <el-dialog
@@ -126,6 +151,7 @@
           Rescan Flux databases
         </ElButton>
       </el-popconfirm>
+      <br>
       BlockHeight:
       <el-input-number
         controls-position="right"
@@ -184,11 +210,49 @@
         cancelButtonText='No, Thanks'
         icon="el-icon-info"
         iconColor="red"
-        title="Reindexes Global Applications from stored permanent messages"
+        title="Reindexes Global Application Speicifications from stored permanent messages"
         @onConfirm="reindexGlobalApps()"
       >
         <ElButton slot="reference">
           Reindex Global Apps Information
+        </ElButton>
+      </el-popconfirm>
+      <br>
+      <el-popconfirm
+        confirmButtonText='Reindex Locations!'
+        cancelButtonText='No, Thanks'
+        icon="el-icon-info"
+        iconColor="red"
+        title="Reindexes that drops information about where each application on the network is located and rebuilds collection indexes. Locations will be rebuild from incoming messages."
+        @onConfirm="reindexLocations()"
+      >
+        <ElButton slot="reference">
+          Reindex Global Apps Locations
+        </ElButton>
+      </el-popconfirm>
+      <br>
+      <el-popconfirm
+        confirmButtonText='Restart Block Processing!'
+        cancelButtonText='No, Thanks'
+        icon="el-icon-info"
+        iconColor="red"
+        title="This will restart Flux block processing which is a crucial process for Explorer and Apps functionality. Use with caution!"
+        @onConfirm="restartBlockProcessing()"
+      >
+        <ElButton slot="reference">
+          Restart Block Processing
+        </ElButton>
+      </el-popconfirm>
+      <el-popconfirm
+        confirmButtonText='Stop Block Processing!'
+        cancelButtonText='No, Thanks'
+        icon="el-icon-info"
+        iconColor="red"
+        title="This will stop Flux block processing which is a crucial process for Explorer and Apps functionality. Your node may go offline if block processing is not running!"
+        @onConfirm="stopBlockProcessing()"
+      >
+        <ElButton slot="reference">
+          Stop Block Processing
         </ElButton>
       </el-popconfirm>
     </div>
@@ -310,21 +374,46 @@
             />
           </template>
           <template slot-scope="scope">
-            <i
-              v-if="scope.row.loginPhrase === currentLoginPhrase"
-              class="el-icon-warning"
-            ></i>&nbsp;
-            <el-button
-              size="mini"
-              type="danger"
-              @click="logoutSpecificSession(scope.$index, scope.row)"
-            >Log Out</el-button>
+            <el-tooltip
+              content="Currently logged and used session by you"
+              placement="top"
+            >
+              <i
+                v-if="scope.row.loginPhrase === currentLoginPhrase"
+                class="el-icon-warning"
+              ></i>&nbsp;
+            </el-tooltip>
+            <el-popconfirm
+              confirmButtonText='Log Out!'
+              cancelButtonText='No, Thanks'
+              icon="el-icon-info"
+              iconColor="red"
+              title="This action will log out selected user session."
+              @onConfirm="logoutSpecificSession(scope.$index, scope.row)"
+            >
+              <ElButton
+                size="mini"
+                type="danger"
+                slot="reference"
+              >
+                Log Out
+              </ElButton>
+            </el-popconfirm>
           </template>
         </el-table-column>
       </el-table>
-      <ElButton @click="logOutAllUsers()">
-        Logout all Users
-      </ElButton>
+      <el-popconfirm
+        confirmButtonText='Log Out all users!'
+        cancelButtonText='No, Thanks'
+        icon="el-icon-info"
+        iconColor="red"
+        title="This action will log out ALL users including you!"
+        @onConfirm="logOutAllUsers()"
+      >
+        <ElButton slot="reference">
+          Log Out all users
+        </ElButton>
+      </el-popconfirm>
     </div>
   </div>
 </template>
@@ -765,6 +854,23 @@ export default {
           vue.$message.error(e.toString());
         });
     },
+    reindexLocations() {
+      const zelidauth = localStorage.getItem('zelidauth');
+      vue.$message.warning('Global Applications location will reindex soon...');
+      ZelAppsService.reindexLocations(zelidauth)
+        .then((response) => {
+          console.log(response);
+          if (response.data.status === 'error') {
+            vue.$message.error(response.data.data.message);
+          }
+          if (response.data.status === 'success') {
+            vue.$message.success(response.data.data.message);
+          }
+        })
+        .catch((e) => {
+          vue.$message.error(e.toString());
+        });
+    },
     rescanGlobalApps() {
       const zelidauth = localStorage.getItem('zelidauth');
       const auth = qs.parse(zelidauth);
@@ -784,6 +890,40 @@ export default {
         .catch((e) => {
           console.log(e);
           console.log(e.code);
+          vue.$message.error(e.toString());
+        });
+    },
+    restartBlockProcessing() {
+      const zelidauth = localStorage.getItem('zelidauth');
+      vue.$message.warning('Restarting block processing...');
+      ZelAppsService.restartBlockProcessing(zelidauth)
+        .then((response) => {
+          console.log(response);
+          if (response.data.status === 'error') {
+            vue.$message.error(response.data.data.message);
+          }
+          if (response.data.status === 'success') {
+            vue.$message.success(response.data.data.message);
+          }
+        })
+        .catch((e) => {
+          vue.$message.error(e.toString());
+        });
+    },
+    stopBlockProcessing() {
+      const zelidauth = localStorage.getItem('zelidauth');
+      vue.$message.warning('Stopping block processing...');
+      ZelAppsService.stopBlockProcessing(zelidauth)
+        .then((response) => {
+          console.log(response);
+          if (response.data.status === 'error') {
+            vue.$message.error(response.data.data.message);
+          }
+          if (response.data.status === 'success') {
+            vue.$message.success(response.data.data.message);
+          }
+        })
+        .catch((e) => {
           vue.$message.error(e.toString());
         });
     },

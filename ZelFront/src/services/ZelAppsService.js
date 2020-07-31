@@ -94,6 +94,13 @@ export default {
       },
     });
   },
+  reindexLocations(zelidauthHeader) {
+    return Api().get('/zelapps/reindexglobalappslocation', {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    });
+  },
   rescanGlobalApps(zelidauthHeader, height, removelastinformation) {
     return Api().get(`/zelapps/rescanglobalappsinformation/${height}/${removelastinformation}`, {
       headers: {
