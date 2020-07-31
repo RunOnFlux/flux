@@ -124,6 +124,7 @@
           Download Debug File
         </ElButton>
       </el-popconfirm>
+      <br><br>
       <div>
         <div>
           <p>Following action will show last 100 lines of zelbench debug file</p>
@@ -140,7 +141,14 @@
             Show Debug File
           </ElButton>
         </el-popconfirm>
-        {{ callResponse.data }}
+        <br><br>
+        <el-input
+          v-if="callResponse.data.message"
+          type="textarea"
+          autosize
+          v-model="zelbenchDebugTail"
+        >
+        </el-input>
       </div>
     </div>
     <div v-if="callResponse.status === 'error'">
@@ -183,6 +191,12 @@ export default {
       'userconfig',
       'zelBenchSection',
     ]),
+    zelbenchDebugTail() {
+      if (this.callResponse.data.message) {
+        return this.callResponse.data.message.split('\n').reverse().filter((el) => el !== '').join('\n');
+      }
+      return this.callResponse.data;
+    },
   },
   watch: {
     zelBenchSection(val, oldVal) {
