@@ -184,7 +184,7 @@
     </div>
     <div v-if="zelBenchSection === 'debug'">
       <div>
-        <p>Following action will download zelbench debug file. This may take a few minutes depending on file size</p>
+        <p>Following action will download ZelBench debug file. This may take a few minutes depending on file size</p>
       </div>
       <el-popconfirm
         confirmButtonText='Download Debug'
@@ -198,10 +198,15 @@
           Download Debug File
         </ElButton>
       </el-popconfirm>
+      <p v-if="total && downloaded">
+        {{ (downloaded / 1e6).toFixed(2) + " / " + (total / 1e6).toFixed(2) }} MB
+        <br>
+        {{ ((downloaded / total) * 100).toFixed(2) + "%" }}
+      </p>
       <br><br>
       <div>
         <div>
-          <p>Following action will show last 100 lines of zelbench debug file</p>
+          <p>Following action will show last 100 lines of ZelBench debug file</p>
         </div>
         <el-popconfirm
           confirmButtonText='Show Debug'
@@ -258,6 +263,8 @@ export default {
         data: '',
       },
       hexZelNodeTransaction: '',
+      total: '',
+      downloaded: '',
     };
   },
   computed: {
@@ -409,6 +416,7 @@ export default {
         });
     },
     async downloadZelBenchDebugFile() {
+      const self = this;
       const zelidauth = localStorage.getItem('zelidauth');
       // const response = await ZelAppsService.installTemporaryLocalApp(zelidauth, zelapp);
       const axiosConfig = {
@@ -416,6 +424,10 @@ export default {
           zelidauth,
         },
         responseType: 'blob',
+        onDownloadProgress(progressEvent) {
+          self.downloaded = progressEvent.loaded;
+          self.total = progressEvent.total;
+        },
       };
       const response = await ZelBenchService.justAPI().get('/zelnode/zelbenchdebug', axiosConfig);
       const url = window.URL.createObjectURL(new Blob([response.data]));

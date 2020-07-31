@@ -57,6 +57,14 @@ export default {
   getBlock(height, verbosity) {
     return Api().get(`/zelcash/getblock/${height}/${verbosity}`);
   },
+  // DEBUG
+  tailZelCashDebug(zelidauthHeader) {
+    return Api().get('/zelnode/tailzelcashdebug', {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    });
+  },
   // just api
   justAPI() {
     return Api();

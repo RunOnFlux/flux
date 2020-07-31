@@ -111,6 +111,12 @@
           <template slot="title">Wallet</template>
           <el-menu-item index="1-8-1">Get Info</el-menu-item>
         </el-submenu>
+        <el-menu-item
+          v-if="privilage === 'zelteam' || privilage === 'admin'"
+          index="1-9"
+        >
+          Debug
+        </el-menu-item>
       </el-submenu>
       <el-submenu
         v-if="privilage === 'user' || privilage === 'admin' || privilage === 'zelteam'"
@@ -308,6 +314,9 @@ export default {
           break;
         case '1-1-7':
           this.$store.commit('setZelCashSection', 'restart');
+          break;
+        case '1-9':
+          this.$store.commit('setZelCashSection', 'debug');
           break;
         case '2-1-1':
           this.$store.commit('setZelBenchSection', 'help');

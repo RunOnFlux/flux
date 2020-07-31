@@ -37,11 +37,57 @@
       v-if="zelCashSection === 'restart'"
       class="restartSection"
     >
-      <ElButton
-        @click="restartZelCashDaemon()"
-      >
+      <ElButton @click="restartZelCashDaemon()">
         Restart ZelCash
       </ElButton>
+    </div>
+    <div v-if="zelCashSection === 'debug'">
+      <div>
+        <p>Following action will download ZelCash debug file. This may take a few minutes depending on file size</p>
+      </div>
+      <el-popconfirm
+        confirmButtonText='Download Debug'
+        cancelButtonText='No, Thanks'
+        icon="el-icon-info"
+        iconColor="red"
+        title="Download ZelCash Debug file?"
+        @onConfirm="downloadZelCashDebugFile()"
+      >
+        <ElButton slot="reference">
+          Download Debug File
+        </ElButton>
+      </el-popconfirm>
+      <p v-if="total && downloaded">
+        {{ (downloaded / 1e6).toFixed(2) + " / " + (total / 1e6).toFixed(2) }} MB
+        <br>
+        {{ ((downloaded / total) * 100).toFixed(2) + "%" }}
+      </p>
+      <br><br>
+      <div>
+        <div>
+          <p>Following action will show last 100 lines of ZelCash debug file</p>
+        </div>
+        <el-popconfirm
+          confirmButtonText='Show Debug'
+          cancelButtonText='No, Thanks'
+          icon="el-icon-info"
+          iconColor="red"
+          title="Show ZelCash Debug file?"
+          @onConfirm="tailZelCashDebug()"
+        >
+          <ElButton slot="reference">
+            Show Debug File
+          </ElButton>
+        </el-popconfirm>
+        <br><br>
+        <el-input
+          v-if="callResponse.data.message"
+          type="textarea"
+          autosize
+          v-model="zelcashDebugTail"
+        >
+        </el-input>
+      </div>
     </div>
     <div v-if="callResponse.status === 'error'">
       <p>
@@ -73,6 +119,8 @@ export default {
         data: '',
         zelnodeStatus: 'Checking status...',
       },
+      total: '',
+      downloaded: '',
     };
   },
   computed: {
@@ -81,6 +129,12 @@ export default {
       'userconfig',
       'zelCashSection',
     ]),
+    zelcashDebugTail() {
+      if (this.callResponse.data.message) {
+        return this.callResponse.data.message.split('\n').reverse().filter((el) => el !== '').join('\n');
+      }
+      return this.callResponse.data;
+    },
   },
   watch: {
     zelCashSection(val, oldVal) {
@@ -96,6 +150,8 @@ export default {
           this.zelcashHelp();
           break;
         case 'restart':
+          break;
+        case 'debug':
           break;
         case null:
           console.log('ZelCash Section hidden');
@@ -115,6 +171,8 @@ export default {
         this.zelcashHelp();
         break;
       case 'restart':
+        break;
+      case 'debug':
         break;
       case null:
         console.log('ZelCash Section hidden');
@@ -159,6 +217,45 @@ export default {
           this.getZelNodeStatusResponse.zelnodeStatus = 'ZelNode is not confirmed. Flux is running with limited capabilities.';
         }
       }
+    },
+    async downloadZelCashDebugFile() {
+      const self = this;
+      const zelidauth = localStorage.getItem('zelidauth');
+      const axiosConfig = {
+        headers: {
+          zelidauth,
+        },
+        responseType: 'blob',
+        onDownloadProgress(progressEvent) {
+          self.downloaded = progressEvent.loaded;
+          self.total = progressEvent.total;
+        },
+      };
+      console.log('abc');
+      const response = await ZelCashService.justAPI().get('/zelnode/zelcashdebug', axiosConfig);
+      console.log(response);
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', 'debug.log');
+      document.body.appendChild(link);
+      link.click();
+    },
+    tailZelCashDebug() {
+      const zelidauth = localStorage.getItem('zelidauth');
+      ZelCashService.tailZelCashDebug(zelidauth)
+        .then((response) => {
+          if (response.data.status === 'error') {
+            vue.$message.error(response.data.data.message || response.data.data);
+          } else {
+            this.callResponse.status = response.data.status;
+            this.callResponse.data = response.data.data;
+          }
+        })
+        .catch((error) => {
+          console.log(error);
+          vue.$message.error('Error while trying to restart ZelCash');
+        });
     },
   },
 };
