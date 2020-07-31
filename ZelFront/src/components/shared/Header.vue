@@ -45,7 +45,7 @@
           </el-menu-item>
           <el-menu-item
             index="1-1-5"
-            v-if="privilage === 'admin'"
+            v-if="privilage === 'admin' || privilage === 'zelteam'"
           >
             Start
           </el-menu-item>
@@ -57,7 +57,7 @@
           </el-menu-item>
           <el-menu-item
             index="1-1-7"
-            v-if="privilage === 'admin'"
+            v-if="privilage === 'admin' || privilage === 'zelteam'"
           >
             Restart
           </el-menu-item>
@@ -117,20 +117,85 @@
         index="2"
         :popper-append-to-body=true
       >
-        <template slot="title">Flux</template>
-        <el-menu-item index="2-1">Node Status</el-menu-item>
-        <el-menu-item index="2-2">Flux Network</el-menu-item>
-        <el-menu-item index="2-3">Flux Messages</el-menu-item>
+        <template slot="title">ZelBench</template>
+        <el-submenu
+          :popper-append-to-body=true
+          index="2-1"
+        >
+          <template slot="title">Control</template>
+          <el-menu-item index="2-1-1">Help</el-menu-item>
+          <el-menu-item
+            index="2-1-2"
+            v-if="privilage === 'admin' || privilage === 'zelteam'"
+          >
+            Start
+          </el-menu-item>
+          <el-menu-item
+            index="2-1-3"
+            v-if="privilage === 'admin'"
+          >
+            Stop
+          </el-menu-item>
+          <el-menu-item
+            index="2-1-4"
+            v-if="privilage === 'admin' || privilage === 'zelteam'"
+          >
+            Restart
+          </el-menu-item>
+        </el-submenu>
+        <el-submenu
+          :popper-append-to-body=true
+          index="2-2"
+        >
+          <template slot="title">ZelNode</template>
+          <el-menu-item index="2-2-1">Get Benchmarks</el-menu-item>
+          <el-menu-item index="2-2-2">Get Info</el-menu-item>
+        </el-submenu>
+        <el-submenu
+          :popper-append-to-body=true
+          index="2-3"
+        >
+          <template slot="title">Benchmarks</template>
+          <el-menu-item index="2-3-1">Get Status</el-menu-item>
+          <el-menu-item
+            index="2-3-2"
+            v-if="privilage === 'admin' || privilage === 'zelteam'"
+          >
+            Restart Node Benchmarks
+          </el-menu-item>
+          <el-menu-item
+            index="2-3-3"
+            v-if="privilage === 'admin'"
+          >
+            Sign ZelNode Transaction
+          </el-menu-item>
+        </el-submenu>
+        <el-menu-item
+          v-if="privilage === 'zelteam' || privilage === 'admin'"
+          index="2-4"
+        >
+          Debug
+        </el-menu-item>
       </el-submenu>
       <el-submenu
         v-if="privilage === 'user' || privilage === 'admin' || privilage === 'zelteam'"
         index="3"
         :popper-append-to-body=true
       >
+        <template slot="title">Flux</template>
+        <el-menu-item index="3-1">Node Status</el-menu-item>
+        <el-menu-item index="3-2">Flux Network</el-menu-item>
+        <el-menu-item index="3-3">Flux Messages</el-menu-item>
+      </el-submenu>
+      <el-submenu
+        v-if="privilage === 'user' || privilage === 'admin' || privilage === 'zelteam'"
+        index="4"
+        :popper-append-to-body=true
+      >
         <template slot="title">ZelApps</template>
-        <el-menu-item index="3-1">Local ZelApps</el-menu-item>
-        <el-menu-item index="3-2">Global ZelApps</el-menu-item>
-        <el-menu-item index="3-3">Register ZelApp</el-menu-item>
+        <el-menu-item index="4-1">Local ZelApps</el-menu-item>
+        <el-menu-item index="4-2">Global ZelApps</el-menu-item>
+        <el-menu-item index="4-3">Register ZelApp</el-menu-item>
       </el-submenu>
       <el-submenu
         v-if="privilage === 'user' || privilage === 'admin' || privilage === 'zelteam'"
@@ -244,22 +309,52 @@ export default {
         case '1-1-7':
           this.$store.commit('setZelCashSection', 'restart');
           break;
-        case '2-1':
-          this.$store.commit('setZelNodeSection', 'getinfo');
+        case '2-1-1':
+          this.$store.commit('setZelBenchSection', 'help');
           break;
-        case '2-2':
-          this.$store.commit('setZelNodeSection', 'network');
+        case '2-1-2':
+          this.$store.commit('setZelBenchSection', 'start');
           break;
-        case '2-3':
-          this.$store.commit('setZelNodeSection', 'messages');
+        case '2-1-3':
+          this.$store.commit('setZelBenchSection', 'stop');
+          break;
+        case '2-1-4':
+          this.$store.commit('setZelBenchSection', 'restart');
+          break;
+        case '2-2-1':
+          this.$store.commit('setZelBenchSection', 'getbenchmarks');
+          break;
+        case '2-2-2':
+          this.$store.commit('setZelBenchSection', 'getinfo');
+          break;
+        case '2-3-1':
+          this.$store.commit('setZelBenchSection', 'getstatus');
+          break;
+        case '2-3-2':
+          this.$store.commit('setZelBenchSection', 'restartnodebenchmarks');
+          break;
+        case '2-3-3':
+          this.$store.commit('setZelBenchSection', 'signzelnodetransaction');
+          break;
+        case '2-4':
+          this.$store.commit('setZelBenchSection', 'debug');
           break;
         case '3-1':
-          this.$store.commit('setZelAppsSection', 'localzelapps');
+          this.$store.commit('setZelNodeSection', 'getinfo');
           break;
         case '3-2':
-          this.$store.commit('setZelAppsSection', 'globalzelapps');
+          this.$store.commit('setZelNodeSection', 'network');
           break;
         case '3-3':
+          this.$store.commit('setZelNodeSection', 'messages');
+          break;
+        case '4-1':
+          this.$store.commit('setZelAppsSection', 'localzelapps');
+          break;
+        case '4-2':
+          this.$store.commit('setZelAppsSection', 'globalzelapps');
+          break;
+        case '4-3':
           this.$store.commit('setZelAppsSection', 'registerzelapp');
           break;
         case '10-1':

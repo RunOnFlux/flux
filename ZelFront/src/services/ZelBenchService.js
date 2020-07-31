@@ -52,4 +52,16 @@ export default {
   getInfo() {
     return Api().get('/zelbench/getinfo');
   },
+  // DEBUG
+  tailZelBenchDebug(zelidauthHeader) {
+    return Api().get('/zelnode/tailzelbenchdebug', {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    });
+  },
+  // just api
+  justAPI() {
+    return Api();
+  },
 };

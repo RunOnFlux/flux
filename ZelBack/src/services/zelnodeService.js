@@ -264,6 +264,50 @@ async function zelbenchDebug(req, res) {
   return res.sendFile(filepath);
 }
 
+async function tailZelCashDebug(req, res) {
+  const authorized = await serviceHelper.verifyZelTeamSession(req.headers);
+  if (authorized === true) {
+    const homeDirPath = path.join(__dirname, '../../../../');
+    const datadir = zelcashService.getConfigValue('datadir') || `${homeDirPath}.zelcash`;
+    const filepath = `${datadir}/debug.log`;
+    const exec = `tail -n 100 ${filepath}`;
+    cmd.get(exec, (err, data) => {
+      if (err) {
+        const errMessage = serviceHelper.createErrorMessage(`Error obtaining ZelBench debug file: ${err.message}`, err.name, err.code);
+        res.json(errMessage);
+        return;
+      }
+      const message = serviceHelper.createSuccessMessage(data);
+      res.json(message);
+    });
+  } else {
+    const errMessage = serviceHelper.errUnauthorizedMessage();
+    res.json(errMessage);
+  }
+}
+
+async function tailZelBenchDebug(req, res) {
+  const authorized = await serviceHelper.verifyZelTeamSession(req.headers);
+  if (authorized === true) {
+    const homeDirPath = path.join(__dirname, '../../../../');
+    const datadir = `${homeDirPath}.zelbenchmark`;
+    const filepath = `${datadir}/debug.log`;
+    const exec = `tail -n 100 ${filepath}`;
+    cmd.get(exec, (err, data) => {
+      if (err) {
+        const errMessage = serviceHelper.createErrorMessage(`Error obtaining ZelBench debug file: ${err.message}`, err.name, err.code);
+        res.json(errMessage);
+        return;
+      }
+      const message = serviceHelper.createSuccessMessage(data);
+      res.json(message);
+    });
+  } else {
+    const errMessage = serviceHelper.errUnauthorizedMessage();
+    res.json(errMessage);
+  }
+}
+
 async function zelfluxErrorLog(req, res) {
   const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
   if (!authorized) {
@@ -400,4 +444,6 @@ module.exports = {
   getZelFluxInfo,
   startZelBench,
   restartZelBench,
+  tailZelCashDebug,
+  tailZelBenchDebug,
 };

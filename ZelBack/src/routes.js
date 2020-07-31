@@ -595,6 +595,12 @@ module.exports = (app, expressWs) => {
   app.get('/zelnode/zelbenchdebug', (req, res) => {
     zelnodeService.zelbenchDebug(req, res);
   });
+  app.get('/zelnode/tailzelcashdebug', (req, res) => {
+    zelnodeService.tailZelCashDebug(req, res);
+  });
+  app.get('/zelnode/tailzelbenchdebug', (req, res) => {
+    zelnodeService.tailZelBenchDebug(req, res);
+  });
   app.get('/zelnode/zelfluxerrorlog', (req, res) => {
     zelnodeService.zelfluxErrorLog(req, res);
   });

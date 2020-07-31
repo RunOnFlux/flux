@@ -19,6 +19,7 @@ export default new Vuex.Store({
     },
     privilage: 'none', // user, admin, zelteam
     zelCashSection: 'getinfo',
+    zelBenchSection: null,
     zelNodeSection: null,
     zelAdminSection: null,
     zelAppsSection: null,
@@ -34,6 +35,16 @@ export default new Vuex.Store({
     setZelCashSection(state, section) {
       state.zelCashSection = section;
       // we always want to reset the other sections to null state
+      state.zelBenchSection = null;
+      state.zelNodeSection = null;
+      state.zelAdminSection = null;
+      state.zelAppsSection = null;
+      state.explorerSection = null;
+    },
+    setZelBenchSection(state, section) {
+      state.zelBenchSection = section;
+      // we always want to reset the other sections to null state
+      state.zelCashSection = null;
       state.zelNodeSection = null;
       state.zelAdminSection = null;
       state.zelAppsSection = null;
@@ -43,6 +54,7 @@ export default new Vuex.Store({
       state.zelNodeSection = section;
       // we always want to reset the other sections to null state
       state.zelCashSection = null;
+      state.zelBenchSection = null;
       state.zelAdminSection = null;
       state.zelAppsSection = null;
       state.explorerSection = null;
@@ -51,6 +63,7 @@ export default new Vuex.Store({
       state.zelAdminSection = section;
       // we always want to reset the other sections to null state
       state.zelCashSection = null;
+      state.zelBenchSection = null;
       state.zelNodeSection = null;
       state.zelAppsSection = null;
       state.explorerSection = null;
@@ -59,6 +72,7 @@ export default new Vuex.Store({
       state.zelAppsSection = section;
       // we always want to reset the other sections to null state
       state.zelCashSection = null;
+      state.zelBenchSection = null;
       state.zelNodeSection = null;
       state.zelAdminSection = null;
       state.explorerSection = null;
@@ -67,6 +81,7 @@ export default new Vuex.Store({
       state.explorerSection = section;
       // we always want to reset the other sections to null state
       state.zelCashSection = null;
+      state.zelBenchSection = null;
       state.zelNodeSection = null;
       state.zelAdminSection = null;
       state.zelAppsSection = null;

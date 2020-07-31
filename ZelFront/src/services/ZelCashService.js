@@ -57,4 +57,8 @@ export default {
   getBlock(height, verbosity) {
     return Api().get(`/zelcash/getblock/${height}/${verbosity}`);
   },
+  // just api
+  justAPI() {
+    return Api();
+  },
 };
