@@ -32,9 +32,7 @@
               sortable
             >
               <template slot-scope="scope">
-                <ElButton
-                  @click="openZelApp(scope.row.Names[0].substr(4, scope.row.Names[0].length))"
-                >
+                <ElButton @click="openZelApp(scope.row.Names[0].substr(4, scope.row.Names[0].length))">
                   Visit
                 </ElButton>
               </template>
@@ -45,11 +43,18 @@
               sortable
             >
               <template slot-scope="scope">
-                <ElButton
-                  @click="stopZelApp(scope.row.Names[0].substr(1, scope.row.Names[0].length))"
+                <el-popconfirm
+                  confirmButtonText='Stop'
+                  cancelButtonText='No, Thanks'
+                  icon="el-icon-info"
+                  iconColor="red"
+                  title="Stops Application"
+                  @onConfirm="stopZelApp(scope.row.Names[0].substr(1, scope.row.Names[0].length))"
                 >
-                  Stop
-                </ElButton>
+                  <ElButton slot="reference">
+                    Stop
+                  </ElButton>
+                </el-popconfirm>
               </template>
             </el-table-column>
           </el-table>
@@ -111,16 +116,30 @@
               sortable
             >
               <template slot-scope="scope">
-                <ElButton
-                  @click="startZelApp(scope.row.name)"
+                <el-popconfirm
+                  confirmButtonText='Start'
+                  cancelButtonText='No, Thanks'
+                  icon="el-icon-info"
+                  iconColor="green"
+                  title="Starts Application"
+                  @onConfirm="startZelApp(scope.row.name)"
                 >
-                  Start
-                </ElButton>
-                <ElButton
-                  @click="restartZelApp(scope.row.name)"
+                  <ElButton slot="reference">
+                    Start
+                  </ElButton>
+                </el-popconfirm>
+                <el-popconfirm
+                  confirmButtonText='Restart'
+                  cancelButtonText='No, Thanks'
+                  icon="el-icon-info"
+                  iconColor="orange"
+                  title="Retarts Application"
+                  @onConfirm="restartZelApp(scope.row.name)"
                 >
-                  Restart
-                </ElButton>
+                  <ElButton slot="reference">
+                    Restart
+                  </ElButton>
+                </el-popconfirm>
               </template>
             </el-table-column>
             <el-table-column
@@ -129,11 +148,18 @@
               sortable
             >
               <template slot-scope="scope">
-                <ElButton
-                  @click="removeZelApp(scope.row.name)"
+                <el-popconfirm
+                  confirmButtonText='Remove'
+                  cancelButtonText='No, Thanks'
+                  icon="el-icon-info"
+                  iconColor="red"
+                  title="Removes Application"
+                  @onConfirm="removeZelApp(scope.row.name)"
                 >
-                  Remove
-                </ElButton>
+                  <ElButton slot="reference">
+                    Remove
+                  </ElButton>
+                </el-popconfirm>
               </template>
             </el-table-column>
           </el-table>
@@ -207,11 +233,18 @@
               sortable
             >
               <template slot-scope="scope">
-                <ElButton
-                  @click="installTemporaryLocalApp(scope.row.name)"
+                <el-popconfirm
+                  confirmButtonText='Install'
+                  cancelButtonText='No, Thanks'
+                  icon="el-icon-info"
+                  iconColor="green"
+                  title="Installs Application"
+                  @onConfirm="installTemporaryLocalApp(scope.row.name)"
                 >
-                  Install
-                </ElButton>
+                  <ElButton slot="reference">
+                    Install
+                  </ElButton>
+                </el-popconfirm>
               </template>
             </el-table-column>
           </el-table>
@@ -260,9 +293,7 @@
               sortable
             >
               <template slot-scope="scope">
-                <ElButton
-                  @click="openGlobalZelApp(scope.row.name)"
-                >
+                <ElButton @click="openGlobalZelApp(scope.row.name)">
                   Visit
                 </ElButton>
               </template>
@@ -299,9 +330,7 @@
               sortable
             >
               <template slot-scope="scope">
-                <ElButton
-                  @click="openGlobalZelApp(scope.row.name)"
-                >
+                <ElButton @click="openGlobalZelApp(scope.row.name)">
                   Visit
                 </ElButton>
               </template>
@@ -312,9 +341,7 @@
               sortable
             >
               <template slot-scope="scope">
-                <ElButton
-                  @click="openAppManagement(scope.row.name)"
-                >
+                <ElButton @click="openAppManagement(scope.row.name)">
                   Manage
                 </ElButton>
               </template>
@@ -563,9 +590,7 @@
           </div>
         </el-form>
         <div>
-          <ElButton
-            @click="checkFluxSpecificationsAndFormatMessage"
-          >
+          <ElButton @click="checkFluxSpecificationsAndFormatMessage">
             Compute Registration Message
           </ElButton>
         </div>
@@ -605,9 +630,7 @@
           <br><br>
           Price per Month: {{ appPricePerMonth }} ZEL
           <br><br>
-          <ElButton
-            @click="register"
-          >
+          <ElButton @click="register">
             Register ZelApp
           </ElButton>
           <br><br>
@@ -648,23 +671,23 @@ export default {
       activeNameGlobal: 'activeapps',
       getRunningZelAppsResponse: {
         status: '',
-        data: '',
+        data: [],
       },
       getAllZelAppsResponse: {
         status: '',
-        data: '',
+        data: [],
       },
       installedZelApps: {
         status: '',
-        data: '',
+        data: [],
       },
       availableZelApps: {
         status: '',
-        data: '',
+        data: [],
       },
       globalZelAppSpecs: {
         status: '',
-        data: '',
+        data: [],
       },
       tier: '',
       output: '',

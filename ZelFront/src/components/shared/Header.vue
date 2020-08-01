@@ -191,7 +191,7 @@
         <template slot="title">Flux</template>
         <el-menu-item index="3-1">Node Status</el-menu-item>
         <el-menu-item index="3-2">Flux Network</el-menu-item>
-        <el-menu-item index="3-3">Flux Messages</el-menu-item>
+        <!-- <el-menu-item index="3-3">Flux Messages</el-menu-item> -->
       </el-submenu>
       <el-submenu
         v-if="privilage === 'user' || privilage === 'admin' || privilage === 'zelteam'"

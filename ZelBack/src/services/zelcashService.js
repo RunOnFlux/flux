@@ -56,6 +56,11 @@ async function getInfo(req, res) {
 
   response = await executeCall(rpccall);
 
+  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  if (authorized !== true) {
+    delete response.balance;
+  }
+
   return res ? res.json(response) : response;
 }
 
