@@ -1,4 +1,4 @@
-import Api from '@/services/Api';
+import Api, { sourceCancelToken } from '@/services/Api';
 
 export default {
   // actually zelnode service
@@ -63,5 +63,9 @@ export default {
   // just api
   justAPI() {
     return Api();
+  },
+  // cancelToken
+  cancelToken() {
+    return sourceCancelToken;
   },
 };

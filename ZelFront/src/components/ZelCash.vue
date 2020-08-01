@@ -58,9 +58,20 @@
         </ElButton>
       </el-popconfirm>
       <p v-if="total && downloaded">
-        {{ (downloaded / 1e6).toFixed(2) + " / " + (total / 1e6).toFixed(2) }} MB
-        <br>
-        {{ ((downloaded / total) * 100).toFixed(2) + "%" }}
+        {{ (downloaded / 1e6).toFixed(2) + " / " + (total / 1e6).toFixed(2) }} MB - {{ ((downloaded / total) * 100).toFixed(2) + "%" }}
+        <el-tooltip
+          content="Cancel Download"
+          placement="top"
+        >
+          <el-button
+            v-if="total && downloaded && total !== downloaded"
+            type="danger"
+            icon="el-icon-close"
+            circle
+            size="mini"
+            @click="cancelDownload"
+          ></el-button>
+        </el-tooltip>
       </p>
       <br><br>
       <div>
@@ -121,6 +132,7 @@ export default {
       },
       total: '',
       downloaded: '',
+      abortToken: {},
     };
   },
   computed: {
@@ -218,8 +230,14 @@ export default {
         }
       }
     },
+    cancelDownload() {
+      this.abortToken.cancel('User download cancelled');
+      this.downloaded = '';
+      this.total = '';
+    },
     async downloadZelCashDebugFile() {
       const self = this;
+      self.abortToken = ZelCashService.cancelToken();
       const zelidauth = localStorage.getItem('zelidauth');
       const axiosConfig = {
         headers: {
@@ -230,6 +248,7 @@ export default {
           self.downloaded = progressEvent.loaded;
           self.total = progressEvent.total;
         },
+        cancelToken: self.abortToken.token,
       };
       console.log('abc');
       const response = await ZelCashService.justAPI().get('/zelnode/zelcashdebug', axiosConfig);

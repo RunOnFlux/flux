@@ -199,9 +199,20 @@
         </ElButton>
       </el-popconfirm>
       <p v-if="total && downloaded">
-        {{ (downloaded / 1e6).toFixed(2) + " / " + (total / 1e6).toFixed(2) }} MB
-        <br>
-        {{ ((downloaded / total) * 100).toFixed(2) + "%" }}
+        {{ (downloaded / 1e6).toFixed(2) + " / " + (total / 1e6).toFixed(2) }} MB - {{ ((downloaded / total) * 100).toFixed(2) + "%" }}
+        <el-tooltip
+          content="Cancel Download"
+          placement="top"
+        >
+          <el-button
+            v-if="total && downloaded && total !== downloaded"
+            type="danger"
+            icon="el-icon-close"
+            circle
+            size="mini"
+            @click="cancelDownload"
+          ></el-button>
+        </el-tooltip>
       </p>
       <br><br>
       <div>
@@ -265,6 +276,7 @@ export default {
       hexZelNodeTransaction: '',
       total: '',
       downloaded: '',
+      abortToken: {},
     };
   },
   computed: {
@@ -415,8 +427,14 @@ export default {
           vue.$message.error('Error while trying to restart ZelBench');
         });
     },
+    cancelDownload() {
+      this.abortToken.cancel('User download cancelled');
+      this.downloaded = '';
+      this.total = '';
+    },
     async downloadZelBenchDebugFile() {
       const self = this;
+      self.abortToken = ZelBenchService.cancelToken();
       const zelidauth = localStorage.getItem('zelidauth');
       // const response = await ZelAppsService.installTemporaryLocalApp(zelidauth, zelapp);
       const axiosConfig = {
@@ -428,6 +446,7 @@ export default {
           self.downloaded = progressEvent.loaded;
           self.total = progressEvent.total;
         },
+        cancelToken: self.abortToken.token,
       };
       const response = await ZelBenchService.justAPI().get('/zelnode/zelbenchdebug', axiosConfig);
       const url = window.URL.createObjectURL(new Blob([response.data]));
