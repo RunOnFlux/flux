@@ -270,6 +270,10 @@ export default {
   name: 'ZelNode',
   data() {
     return {
+      callResponse: { // general
+        status: '',
+        data: '',
+      },
       getInfoResponse: {
         status: '',
         data: '',
@@ -493,9 +497,7 @@ export default {
         },
         cancelToken: self.abortToken.token,
       };
-      console.log('abc');
       const response = await ZelFluxService.justAPI().get('/zelnode/zelfluxerrorlog', axiosConfig);
-      console.log(response);
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
