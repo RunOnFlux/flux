@@ -544,7 +544,7 @@ export default {
         })
         .catch((error) => {
           console.log(error);
-          vue.$message.error('Error while trying to restart ZelBench');
+          vue.$message.error('Error while trying to get latest debug of ZelBench');
         });
     },
     async zelbenchGetStatus() {

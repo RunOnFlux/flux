@@ -604,6 +604,9 @@ module.exports = (app, expressWs) => {
   app.get('/zelnode/zelfluxerrorlog', (req, res) => {
     zelnodeService.zelfluxErrorLog(req, res);
   });
+  app.get('/zelnode/tailzelfluxerrorlog', (req, res) => {
+    zelnodeService.tailFluxErrorLog(req, res);
+  });
 
   app.get('/zelflux/broadcastmessage/:data?', (req, res) => {
     zelfluxCommunication.broadcastMessageFromUser(req, res);

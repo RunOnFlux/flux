@@ -321,6 +321,28 @@ async function zelfluxErrorLog(req, res) {
   return res.sendFile(filepath);
 }
 
+async function tailFluxErrorLog(req, res) {
+  const authorized = await serviceHelper.verifyZelTeamSession(req.headers);
+  if (authorized === true) {
+    const homeDirPath = path.join(__dirname, '../../../../');
+    const datadir = `${homeDirPath}zelflux`;
+    const filepath = `${datadir}/error.log`;
+    const exec = `tail -n 100 ${filepath}`;
+    cmd.get(exec, (err, data) => {
+      if (err) {
+        const errMessage = serviceHelper.createErrorMessage(`Error obtaining Flux error file: ${err.message}`, err.name, err.code);
+        res.json(errMessage);
+        return;
+      }
+      const message = serviceHelper.createSuccessMessage(data);
+      res.json(message);
+    });
+  } else {
+    const errMessage = serviceHelper.errUnauthorizedMessage();
+    res.json(errMessage);
+  }
+}
+
 function getZelFluxTimezone(req, res) {
   try {
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -446,4 +468,5 @@ module.exports = {
   restartZelBench,
   tailZelCashDebug,
   tailZelBenchDebug,
+  tailFluxErrorLog,
 };

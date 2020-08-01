@@ -1,4 +1,4 @@
-import Api from '@/services/Api';
+import Api, { sourceCancelToken } from '@/services/Api';
 
 export default {
   getZelFluxVersion() {
@@ -45,5 +45,21 @@ export default {
         zelidauth: zelidauthHeader,
       },
     });
+  },
+  // DEBUG
+  tailFluxDebug(zelidauthHeader) {
+    return Api().get('/zelnode/tailzelfluxerrorlog', {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    });
+  },
+  // just api
+  justAPI() {
+    return Api();
+  },
+  // cancelToken
+  cancelToken() {
+    return sourceCancelToken;
   },
 };
