@@ -58,7 +58,7 @@ async function getInfo(req, res) {
 
   const authorized = await serviceHelper.verifyPrivilege('admin', req);
   if (authorized !== true) {
-    delete response.balance;
+    delete response.data.balance;
   }
 
   return res ? res.json(response) : response;
