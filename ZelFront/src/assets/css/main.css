@@ -310,11 +310,13 @@ h4 {
 
 /* */
 
+.zelcashsection .el-button,
 .zelbenchsection .el-button,
 .zeladminsection .el-button {
   margin: 10px;
 }
 
+.zelcashsection .el-button,
 .zelbenchsection .el-button,
 .zeladminsection .el-switch {
   margin-left: 10px;
