@@ -31,7 +31,46 @@
       v-if="zelCashSection === 'help'"
       class="helpSection"
     >
-      {{ callResponse.data || 'Obtaining help section...' }}
+      <div>
+        <p>Help section output is listed below. Click on a command to find more specifics about it</p>
+      </div>
+      <div
+        class="helpSectionData"
+        v-if="callResponse.data"
+      >
+        <el-collapse
+          accordion
+          v-model="activeHelpNames"
+          @change="zelcashHelpSpecific"
+        >
+          <div
+            v-for="help of helpResponse"
+            :key=help
+          >
+            <div v-if="help.startsWith('=')">
+              <br>
+              <h2>
+                {{ help.split(' ')[1] }}
+              </h2>
+            </div>
+            <el-collapse-item
+              :name="help"
+              v-if="!help.startsWith('=')"
+            >
+              <template slot="title">
+                <p>
+                  <b>{{ help }}</b>
+                </p>
+              </template>
+              <p class="helpSpecific">{{ currentHelpResponse || 'Loading help message...' }}</p>
+            </el-collapse-item>
+          </div>
+        </el-collapse>
+
+      </div>
+      <div v-else>
+        Obtaining help section...
+      </div>
     </div>
     <div
       v-if="zelCashSection === 'restart'"
@@ -133,6 +172,8 @@ export default {
       total: '',
       downloaded: '',
       abortToken: {},
+      activeHelpNames: '',
+      currentHelpResponse: '',
     };
   },
   computed: {
@@ -146,6 +187,12 @@ export default {
         return this.callResponse.data.message.split('\n').reverse().filter((el) => el !== '').join('\n');
       }
       return this.callResponse.data;
+    },
+    helpResponse() {
+      if (this.callResponse.data) {
+        return this.callResponse.data.split('\n').filter((el) => el !== '').map((el) => (el.startsWith('=') ? el : el.split(' ')[0]));
+      }
+      return [];
     },
   },
   watch: {
@@ -203,6 +250,37 @@ export default {
       const response = await ZelCashService.help();
       this.callResponse.status = response.data.status;
       this.callResponse.data = response.data.data;
+    },
+    async zelcashHelpSpecific() {
+      this.currentHelpResponse = '';
+      const response = await ZelCashService.helpSpecific(this.activeHelpNames);
+      const modifiedHelp = response.data.data.split('\n');
+      const ml = modifiedHelp.length;
+      let spaces = 0;
+      for (let i = 0; i < ml; i += 1) {
+        let whiteSpaceAdd = '';
+        if (modifiedHelp[i].trim() === '{' || modifiedHelp[i].trim() === '[') {
+          spaces += 4;
+          for (let j = 0; j < spaces; j += 1) {
+            whiteSpaceAdd += '\u00A0';
+          }
+          modifiedHelp[i] = whiteSpaceAdd + modifiedHelp[i];
+          spaces += 4;
+        } else if (modifiedHelp[i].trim() === '}' || modifiedHelp[i].trim() === ']') {
+          spaces -= 4;
+          for (let j = 0; j < spaces; j += 1) {
+            whiteSpaceAdd += '\u00A0';
+          }
+          modifiedHelp[i] = whiteSpaceAdd + modifiedHelp[i];
+          spaces -= 4;
+        } else {
+          for (let j = 0; j < spaces; j += 1) {
+            whiteSpaceAdd += '\u00A0';
+          }
+          modifiedHelp[i] = whiteSpaceAdd + modifiedHelp[i];
+        }
+      }
+      this.currentHelpResponse = modifiedHelp.join('\n');
     },
     async restartZelCashDaemon() {
       const zelidauth = localStorage.getItem('zelidauth');

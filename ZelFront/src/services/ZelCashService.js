@@ -4,6 +4,9 @@ export default {
   help() {
     return Api().get('/zelcash/help');
   },
+  helpSpecific(command) {
+    return Api().get(`/zelcash/help/${command}`);
+  },
   getInfo() {
     return Api().get('/zelcash/getinfo');
   },

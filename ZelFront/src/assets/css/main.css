@@ -319,3 +319,11 @@ h4 {
 .zeladminsection .el-switch {
   margin-left: 10px;
 }
+
+.helpSectionData {
+  text-align: left;
+}
+
+.helpSpecific {
+  margin-left: 30px;
+}

@@ -317,7 +317,7 @@ module.exports = (app, expressWs) => {
   app.get('/zelbench/getstatus', (req, res) => {
     zelbenchService.getStatus(req, res);
   });
-  app.get('/zelbench/help', (req, res) => {
+  app.get('/zelbench/help/:command?', (req, res) => {
     zelbenchService.help(req, res);
   });
   app.get('/zelbench/getbenchmarks', (req, res) => {

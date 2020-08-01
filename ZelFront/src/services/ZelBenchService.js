@@ -35,6 +35,9 @@ export default {
     });
   },
   // == Control ==
+  helpSpecific(command) {
+    return Api().get(`/zelbench/help/${command}`);
+  },
   help() {
     return Api().get('/zelbench/help');
   },

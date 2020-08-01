@@ -5,9 +5,45 @@
       class="helpSection"
     >
       <div>
-        <p>Help section output is listed below. Click on a command to find more specifics about it:</p>
+        <p>Help section output is listed below. Click on a command to find more specifics about it</p>
       </div>
-      {{ callResponse.data || 'Obtaining help section...' }}
+      <div
+        class="helpSectionData"
+        v-if="callResponse.data"
+      >
+        <el-collapse
+          accordion
+          v-model="activeHelpNames"
+          @change="zelbenchHelpSpecific"
+        >
+          <div
+            v-for="help of helpResponse"
+            :key=help
+          >
+            <div v-if="help.startsWith('=')">
+              <br>
+              <h2>
+                {{ help.split(' ')[1] }}
+              </h2>
+            </div>
+            <el-collapse-item
+              :name="help"
+              v-if="!help.startsWith('=')"
+            >
+              <template slot="title">
+                <p>
+                  {{ help }}
+                </p>
+              </template>
+              <p class="helpSpecific">{{ currentHelpResponse || 'Loading help message...' }}</p>
+            </el-collapse-item>
+          </div>
+        </el-collapse>
+
+      </div>
+      <div v-else>
+        Obtaining help section...
+      </div>
     </div>
     <div v-if="zelBenchSection === 'start'">
       <div>
@@ -277,6 +313,8 @@ export default {
       total: '',
       downloaded: '',
       abortToken: {},
+      activeHelpNames: '',
+      currentHelpResponse: '',
     };
   },
   computed: {
@@ -290,6 +328,12 @@ export default {
         return this.callResponse.data.message.split('\n').reverse().filter((el) => el !== '').join('\n');
       }
       return this.callResponse.data;
+    },
+    helpResponse() {
+      if (this.callResponse.data) {
+        return this.callResponse.data.split('\n').filter((el) => el !== '').map((el) => (el.startsWith('=') ? el : el.split(' ')[0]));
+      }
+      return [];
     },
   },
   watch: {
@@ -378,6 +422,37 @@ export default {
       const response = await ZelBenchService.help();
       this.callResponse.status = response.data.status;
       this.callResponse.data = response.data.data;
+    },
+    async zelbenchHelpSpecific() {
+      this.currentHelpResponse = '';
+      const response = await ZelBenchService.helpSpecific(this.activeHelpNames);
+      const modifiedHelp = response.data.data.split('\n');
+      const ml = modifiedHelp.length;
+      let spaces = 0;
+      for (let i = 0; i < ml; i += 1) {
+        let whiteSpaceAdd = '';
+        if (modifiedHelp[i].trim().startsWith('{') || modifiedHelp[i].trim().startsWith('[')) {
+          spaces += 4;
+          for (let j = 0; j < spaces; j += 1) {
+            whiteSpaceAdd += '\u00A0';
+          }
+          modifiedHelp[i] = whiteSpaceAdd + modifiedHelp[i];
+          spaces += 4;
+        } else if (modifiedHelp[i].trim().startsWith('}') || modifiedHelp[i].trim().startsWith(']')) {
+          spaces -= 4;
+          for (let j = 0; j < spaces; j += 1) {
+            whiteSpaceAdd += '\u00A0';
+          }
+          modifiedHelp[i] = whiteSpaceAdd + modifiedHelp[i];
+          spaces -= 4;
+        } else {
+          for (let j = 0; j < spaces; j += 1) {
+            whiteSpaceAdd += '\u00A0';
+          }
+          modifiedHelp[i] = whiteSpaceAdd + modifiedHelp[i];
+        }
+      }
+      this.currentHelpResponse = modifiedHelp.join('\n');
     },
     startZelBench() {
       vue.$message.warning('ZelBench will start');
