@@ -18,7 +18,7 @@ export default new Vuex.Store({
       zelTeamZelId: config.zelTeamZelId,
     },
     privilage: 'none', // user, admin, zelteam
-    zelCashSection: 'getinfo',
+    zelCashSection: 'welcomeinfo',
     zelBenchSection: null,
     zelNodeSection: null,
     zelAdminSection: null,

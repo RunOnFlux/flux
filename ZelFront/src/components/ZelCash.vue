@@ -1,6 +1,6 @@
 <template>
   <div class="zelcashsection">
-    <div v-if="zelCashSection === 'getinfo'">
+    <div v-if="zelCashSection === 'welcomeinfo'">
       <div class="status">
         <h4>
           ZelNode owner Zel ID: {{ userconfig.zelid }}
@@ -25,6 +25,58 @@
             Error: {{ callResponse.data.errors }}
           </p>
         </div>
+      </div>
+    </div>
+    <div v-if="zelCashSection === 'getinfo'">
+      <div>
+        <p>Output from Get Info command</p>
+      </div>
+      <div>
+        <p>
+          ZelCash version: {{ callResponse.data.version }}
+        </p>
+        <p>
+          Protocol version: {{ callResponse.data.protocolversion }}
+        </p>
+        <p>
+          Wallet version: {{ callResponse.data.walletversion }}
+        </p>
+        <p v-if="callResponse.data.balance">
+          Balance: {{ callResponse.data.balance }} ZEL
+        </p>
+        <p>
+          Blocks: {{ callResponse.data.blocks }}
+        </p>
+        <p>
+          Time Offset: {{ callResponse.data.timeoffset }}
+        </p>
+        <p>
+          Connections: {{ callResponse.data.connections }}
+        </p>
+        <p>
+          Proxy: {{ callResponse.data.proxy }}
+        </p>
+        <p>
+          Difficulty: {{ callResponse.data.difficulty }}
+        </p>
+        <p>
+          Testnet: {{ callResponse.data.testnet }}
+        </p>
+        <p>
+          Key Pool Oldest: {{ new Date(callResponse.data.keypoololdest * 1000).toLocaleString('en-GB', timeoptions) }}
+        </p>
+        <p>
+          Key Pool Size: {{ callResponse.data.keypoolsize }}
+        </p>
+        <p>
+          Pay TX Fee: {{ callResponse.data.paytxfee }}
+        </p>
+        <p>
+          Relay Fee: {{ callResponse.data.relayfee }}
+        </p>
+        <p v-if="callResponse.data.errors != ''">
+          Error: {{ callResponse.data.errors }}
+        </p>
       </div>
     </div>
     <div
@@ -72,13 +124,410 @@
         Obtaining help section...
       </div>
     </div>
-    <div
-      v-if="zelCashSection === 'restart'"
-      class="restartSection"
-    >
-      <ElButton @click="restartZelCashDaemon()">
-        Restart ZelCash
-      </ElButton>
+    <div v-if="zelCashSection === 'rescanblockchain'">
+      <div>
+        <p>Click on Rescan ZelCash button to Rescan ZelCash Blockchain</p>
+      </div>
+      BlockHeight:
+      <el-input-number
+        controls-position="right"
+        placeholder="insert blockheight"
+        v-model="rescanZelCashHeight"
+        :min="0"
+        :max="1000000"
+      ></el-input-number>
+      <el-popconfirm
+        confirmButtonText='Rescan ZelCash blockhain data'
+        cancelButtonText='No, Thanks'
+        icon="el-icon-info"
+        iconColor="red"
+        title="Reindexes ZelCash daemon"
+        @onConfirm="rescanZelCash()"
+      >
+        <ElButton slot="reference">
+          Rescan ZelCash
+        </ElButton>
+      </el-popconfirm>
+    </div>
+    <div v-if="zelCashSection === 'reindexblockchain'">
+      <div>
+        <p>Click on Reindex ZelCash button to Reindex ZelCash Blockchain</p>
+      </div>
+      <el-popconfirm
+        confirmButtonText='Reindex'
+        cancelButtonText='No, Thanks'
+        icon="el-icon-info"
+        iconColor="red"
+        title="Reindex ZelCash Blockchain"
+        @onConfirm="reindexZelCash()"
+      >
+        <ElButton slot="reference">
+          Reindex ZelCash
+        </ElButton>
+      </el-popconfirm>
+    </div>
+    <div v-if="zelCashSection === 'start'">
+      <div>
+        <p>Click on Start ZelCash button to Start ZelCash daemon</p>
+      </div>
+      <el-popconfirm
+        confirmButtonText='Start ZelCash daemon'
+        cancelButtonText='No, Thanks'
+        icon="el-icon-info"
+        iconColor="green"
+        title="Starts ZelCash daemon"
+        @onConfirm="startZelCash()"
+      >
+        <ElButton slot="reference">
+          Start ZelCash
+        </ElButton>
+      </el-popconfirm>
+    </div>
+    <div v-if="zelCashSection === 'restart'">
+      <div>
+        <p>Click on Restart ZelCash button to restart ZelCash daemon</p>
+      </div>
+      <el-popconfirm
+        confirmButtonText='Restart ZelCash daemon'
+        cancelButtonText='No, Thanks'
+        icon="el-icon-info"
+        iconColor="orange"
+        title="Restarts ZelCash daemon"
+        @onConfirm="restartZelCash()"
+      >
+        <ElButton slot="reference">
+          Restart ZelCash
+        </ElButton>
+      </el-popconfirm>
+    </div>
+    <div v-if="zelCashSection === 'stop'">
+      <div>
+        <p>Click on Stop ZelCash button to stop ZelCash daemon</p>
+      </div>
+      <el-popconfirm
+        confirmButtonText='Stop ZelCash daemon'
+        cancelButtonText='No, Thanks'
+        icon="el-icon-info"
+        iconColor="red"
+        title="Stops ZelCash daemon"
+        @onConfirm="stopZelCash()"
+      >
+        <ElButton slot="reference">
+          Stop ZelCash
+        </ElButton>
+      </el-popconfirm>
+    </div>
+    <!-- ZELNODE SECTION -->
+    <div v-if="zelCashSection === 'getzelnodestatus'">
+      <div>
+        <p>Output from Get ZelNode Status command</p>
+      </div>
+      <div>
+        <p>
+          Status: {{ callResponse.data.status }}
+        </p>
+        <p>
+          Collateral: {{ callResponse.data.collateral }}
+        </p>
+        <p v-if="callResponse.data.txhash">
+          TX Hash: {{ callResponse.data.txhash }}
+        </p>
+        <p v-if="callResponse.data.outidx">
+          Output ID: {{ callResponse.data.outidx }}
+        </p>
+        <p v-if="callResponse.data.ip">
+          IP: {{ callResponse.data.ip }}
+        </p>
+        <p v-if="callResponse.data.network">
+          Network: {{ callResponse.data.network }}
+        </p>
+        <p v-if="callResponse.data.added_height">
+          Added Height: {{ callResponse.data.added_height }}
+        </p>
+        <p v-if="callResponse.data.confirmed_height">
+          Confirmed Height: {{ callResponse.data.proxy }}
+        </p>
+        <p v-if="callResponse.data.last_confirmed_height">
+          Last Confirmed Height: {{ callResponse.data.last_confirmed_height }}
+        </p>
+        <p v-if="callResponse.data.last_paid_height">
+          Last Paid Height: {{ callResponse.data.last_paid_height }}
+        </p>
+        <p v-if="callResponse.data.tier">
+          Tier: {{ callResponse.data.tier }}
+        </p>
+        <p v-if="callResponse.data.payment_address">
+          Payment Address: {{ callResponse.data.payment_address }}
+        </p>
+        <p v-if="callResponse.data.pubkey">
+          Public Key: {{ callResponse.data.pubkey }}
+        </p>
+        <p v-if="callResponse.data.activesince">
+          Active Since: {{ callResponse.data.activesince }}
+        </p>
+        <p v-if="callResponse.data.lastpaid">
+          Last Paid: {{ callResponse.data.lastpaid }}
+        </p>
+      </div>
+    </div>
+    <div v-if="zelCashSection === 'listzelnodes'">
+      <el-table
+        :data="zelnodeList"
+        style="width: 100%"
+      >
+        <el-table-column type="expand">
+          <template slot-scope="props">
+            <p>Collateral: {{ props.row.collateral }}</p>
+            <p>Last Paid: {{ new Date(props.row.lastpaid * 1000).toLocaleString('en-GB', timeoptions) }}</p>
+            <p>Active Since: {{ new Date(props.row.activesince * 1000).toLocaleString('en-GB', timeoptions) }}</p>
+            <p>Last Paid Height: {{ props.row.last_paid_height }}</p>
+            <p>Confirmed Height: {{ props.row.confirmed_height }}</p>
+            <p>Last Confirmed Height: {{ props.row.last_confirmed_height }}</p>
+            <p>Rank: {{ props.row.rank }}</p>
+          </template>
+        </el-table-column>
+        <el-table-column
+          label="Address"
+          prop="payment_address"
+        >
+        </el-table-column>
+        <el-table-column
+          label="IP"
+          prop="ip"
+        >
+        </el-table-column>
+        <el-table-column
+          label="Tier"
+          prop="tier"
+        >
+        </el-table-column>
+        <el-table-column
+          label="Added Height"
+          prop="added_height"
+        >
+        </el-table-column>
+        <el-table-column align="right">
+          <template
+            slot="header"
+            slot-scope="scope"
+          >
+            <el-input
+              v-if="scope"
+              v-model="filterZelNodes"
+              size="mini"
+              placeholder="Type to search"
+            />
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
+    <div v-if="zelCashSection === 'viewdeterministiczelnodelist'">
+      <el-table
+        :data="zelnodeList"
+        style="width: 100%"
+      >
+        <el-table-column type="expand">
+          <template slot-scope="props">
+            <p>Collateral: {{ props.row.collateral }}</p>
+            <p>TX Hash: {{ props.row.txhash }}</p>
+            <p>Output ID: {{ props.row.outidx }}</p>
+            <p>Public Key: {{ props.row.pubkey }}</p>
+            <p>Network: {{ props.row.network }}</p>
+            <p>Last Paid: {{ new Date(props.row.lastpaid * 1000).toLocaleString('en-GB', timeoptions) }}</p>
+            <p>Active Since: {{ new Date(props.row.activesince * 1000).toLocaleString('en-GB', timeoptions) }}</p>
+            <p>Last Paid Height: {{ props.row.last_paid_height }}</p>
+            <p>Confirmed Height: {{ props.row.confirmed_height }}</p>
+            <p>Last Confirmed Height: {{ props.row.last_confirmed_height }}</p>
+            <p>Rank: {{ props.row.rank }}</p>
+          </template>
+        </el-table-column>
+        <el-table-column
+          label="Address"
+          prop="payment_address"
+        >
+        </el-table-column>
+        <el-table-column
+          label="IP"
+          prop="ip"
+        >
+        </el-table-column>
+        <el-table-column
+          label="Tier"
+          prop="tier"
+        >
+        </el-table-column>
+        <el-table-column
+          label="Added Height"
+          prop="added_height"
+        >
+        </el-table-column>
+        <el-table-column align="right">
+          <template
+            slot="header"
+            slot-scope="scope"
+          >
+            <el-input
+              v-if="scope"
+              v-model="filterZelNodes"
+              size="mini"
+              placeholder="Type to search"
+            />
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
+    <div v-if="zelCashSection === 'getzelnodecount'">
+      <div>
+        <p>Output from Get ZelNode Count command</p>
+      </div>
+      <div>
+        <p>
+          Total: {{ callResponse.data.total }}
+        </p>
+        <p>
+          Stable: {{ callResponse.data.stable }}
+        </p>
+        <p>
+          BASIC Tier: {{ callResponse.data['basic-enabled'] }}
+        </p>
+        <p>
+          SUPER Tier: {{ callResponse.data['super-enabled'] }}
+        </p>
+        <p>
+          BAMF Tier: {{ callResponse.data['bamf-enabled'] }}
+        </p>
+        <p>
+          IPv4: {{ callResponse.data.ipv4 }}
+        </p>
+        <p>
+          IPv6: {{ callResponse.data.ipv6 }}
+        </p>
+        <p>
+          Tor: {{ callResponse.data.onion }}
+        </p>
+      </div>
+    </div>
+    <div v-if="zelCashSection === 'getstartlist'">
+      <el-table
+        empty-text="No ZelNode in Start state"
+        :data="zelnodeList"
+        style="width: 100%"
+      >
+        <el-table-column type="expand">
+          <template slot-scope="props">
+            <p>Collateral: {{ props.row.collateral }}</p>
+          </template>
+        </el-table-column>
+        <el-table-column
+          label="Address"
+          prop="payment_address"
+        >
+        </el-table-column>
+        <el-table-column
+          label="Added Height"
+          prop="added_height"
+        >
+        </el-table-column>
+        <el-table-column
+          label="Expires In Blocks"
+          prop="expires_in"
+        >
+        </el-table-column>
+        <el-table-column align="right">
+          <template
+            slot="header"
+            slot-scope="scope"
+          >
+            <el-input
+              v-if="scope"
+              v-model="filterZelNodes"
+              size="mini"
+              placeholder="Type to search"
+            />
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
+    <div v-if="zelCashSection === 'getdoslist'">
+      <el-table
+        empty-text="No ZelNode in DOS state"
+        :data="zelnodeList"
+        style="width: 100%"
+      >
+        <el-table-column type="expand">
+          <template slot-scope="props">
+            <p>Collateral: {{ props.row.collateral }}</p>
+          </template>
+        </el-table-column>
+        <el-table-column
+          label="Address"
+          prop="payment_address"
+        >
+        </el-table-column>
+        <el-table-column
+          label="Added Height"
+          prop="added_height"
+        >
+        </el-table-column>
+        <el-table-column
+          label="Eligible In Blocks"
+          prop="eligible_in"
+        >
+        </el-table-column>
+        <el-table-column align="right">
+          <template
+            slot="header"
+            slot-scope="scope"
+          >
+            <el-input
+              v-if="scope"
+              v-model="filterZelNodes"
+              size="mini"
+              placeholder="Type to search"
+            />
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
+    <div v-if="zelCashSection === 'zelnodecurrentwinner'">
+      <p>
+        Current ZelNode winners that will be paid in next ZelCash block
+      </p>
+      <el-table
+        empty-text="No Data"
+        :data="zelnodeWinners"
+        style="width: 100%"
+      >
+        <el-table-column type="expand">
+          <template slot-scope="props">
+            <p>Collateral: {{ props.row.collateral }}</p>
+            <p>Last Paid Height: {{ props.row.last_paid_height }}</p>
+            <p>Confirmed Height: {{ props.row.confirmed_height }}</p>
+            <p>Last Confirmed Height: {{ props.row.last_confirmed_height }}</p>
+          </template>
+        </el-table-column>
+        <el-table-column
+          label="Address"
+          prop="payment_address"
+        >
+        </el-table-column>
+        <el-table-column
+          label="IP"
+          prop="ip"
+        >
+        </el-table-column>
+        <el-table-column
+          label="Tier"
+          prop="tier"
+        >
+        </el-table-column>
+        <el-table-column
+          label="Added Height"
+          prop="added_height"
+        >
+        </el-table-column>
+
+      </el-table>
     </div>
     <div v-if="zelCashSection === 'debug'">
       <div>
@@ -152,6 +601,7 @@ import Vuex, { mapState } from 'vuex';
 import Vue from 'vue';
 
 import ZelCashService from '@/services/ZelCashService';
+import ZelNodeService from '@/services/ZelNodeService';
 
 Vue.use(Vuex);
 const vue = new Vue();
@@ -160,6 +610,13 @@ export default {
   name: 'ZelCash',
   data() {
     return {
+      timeoptions: {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      },
       callResponse: { // general
         status: '',
         data: '',
@@ -174,6 +631,8 @@ export default {
       abortToken: {},
       activeHelpNames: '',
       currentHelpResponse: '',
+      rescanZelCashHeight: 0,
+      filterZelNodes: '',
     };
   },
   computed: {
@@ -194,6 +653,24 @@ export default {
       }
       return [];
     },
+    zelnodeList() {
+      if (this.callResponse.data) {
+        const filteredList = this.callResponse.data.filter((data) => JSON.stringify(data).toLowerCase().includes(this.filterZelNodes.toLowerCase()));
+        return filteredList;
+      }
+      return [];
+    },
+    zelnodeWinners() {
+      if (this.callResponse.data) {
+        const keys = Object.keys(this.callResponse.data);
+        const winnersArray = [];
+        keys.forEach((key) => {
+          winnersArray.push(this.callResponse.data[key]);
+        });
+        return winnersArray;
+      }
+      return [];
+    },
   },
   watch: {
     zelCashSection(val, oldVal) {
@@ -201,16 +678,44 @@ export default {
       this.callResponse.status = '';
       this.callResponse.data = '';
       switch (val) {
+        case 'welcomeinfo':
+          this.zelcashGetInfo();
+          this.zelcashWelcomeGetZelNodeStatus();
+          break;
         case 'getinfo':
           this.zelcashGetInfo();
-          this.zelcashGetZelNodeStatus();
           break;
         case 'help':
           this.zelcashHelp();
           break;
+        case 'stop':
+          break;
+        case 'start':
+          break;
         case 'restart':
           break;
         case 'debug':
+          break;
+        case 'getzelnodestatus':
+          this.zelcashGetZelNodeStatus();
+          break;
+        case 'listzelnodes':
+          this.zelcashListZelNodes();
+          break;
+        case 'viewdeterministiczelnodelist':
+          this.zelcashViewDeterministicZelNodeList();
+          break;
+        case 'getzelnodecount':
+          this.zelcashGetZelNodeCount();
+          break;
+        case 'getstartlist':
+          this.zelcashGetStartList();
+          break;
+        case 'getdoslist':
+          this.zelcashGetDOSList();
+          break;
+        case 'zelnodecurrentwinner':
+          this.zelcashZelNodeCurrentWinner();
           break;
         case null:
           console.log('ZelCash Section hidden');
@@ -222,16 +727,44 @@ export default {
   },
   mounted() {
     switch (this.zelCashSection) {
+      case 'welcomeinfo':
+        this.zelcashGetInfo();
+        this.zelcashWelcomeGetZelNodeStatus();
+        break;
       case 'getinfo':
         this.zelcashGetInfo();
-        this.zelcashGetZelNodeStatus();
         break;
       case 'help':
         this.zelcashHelp();
         break;
+      case 'stop':
+        break;
+      case 'start':
+        break;
       case 'restart':
         break;
       case 'debug':
+        break;
+      case 'getzelnodestatus':
+        this.zelcashGetZelNodeStatus();
+        break;
+      case 'listzelnodes':
+        this.zelcashListZelNodes();
+        break;
+      case 'viewdeterministiczelnodelist':
+        this.zelcashViewDeterministicZelNodeList();
+        break;
+      case 'getzelnodecount':
+        this.zelcashGetZelNodeCount();
+        break;
+      case 'getstartlist':
+        this.zelcashGetStartList();
+        break;
+      case 'getdoslist':
+        this.zelcashGetDOSList();
+        break;
+      case 'zelnodecurrentwinner':
+        this.zelcashZelNodeCurrentWinner();
         break;
       case null:
         console.log('ZelCash Section hidden');
@@ -282,18 +815,78 @@ export default {
       }
       this.currentHelpResponse = modifiedHelp.join('\n');
     },
-    async restartZelCashDaemon() {
+    startZelCash() {
+      vue.$message.warning('ZelCash will start');
       const zelidauth = localStorage.getItem('zelidauth');
-      vue.$message.success('Restarting ZelCash...');
-      const response = await ZelCashService.restart(zelidauth);
-      console.log(response);
-      vue.$message({
-        type: response.data.status,
-        message: response.data.data.message || response.data.data,
-      });
+      ZelCashService.start(zelidauth)
+        .then((response) => {
+          vue.$message({
+            type: response.data.status,
+            message: response.data.data.message || response.data.data,
+          });
+        })
+        .catch(() => {
+          vue.$message.error('Error while trying to start ZelCash');
+        });
     },
-    async zelcashGetZelNodeStatus() {
-      // TODO more code statuses?
+    stopZelCash() {
+      vue.$message.warning('ZelCash will be stopped');
+      const zelidauth = localStorage.getItem('zelidauth');
+      ZelCashService.stopZelCash(zelidauth)
+        .then((response) => {
+          vue.$message({
+            type: response.data.status,
+            message: response.data.data.message || response.data.data,
+          });
+        })
+        .catch(() => {
+          vue.$message.error('Error while trying to stop ZelCash');
+        });
+    },
+    restartZelCash() {
+      vue.$message.warning('ZelCash will now restart');
+      const zelidauth = localStorage.getItem('zelidauth');
+      ZelCashService.restart(zelidauth)
+        .then((response) => {
+          vue.$message({
+            type: response.data.status,
+            message: response.data.data.message || response.data.data,
+          });
+        })
+        .catch(() => {
+          vue.$message.error('Error while trying to restart ZelCash');
+        });
+    },
+    rescanZelCash() {
+      vue.$message.warning('ZelCash will now rescan. This will take up to an hour.');
+      const zelidauth = localStorage.getItem('zelidauth');
+      const blockheight = this.rescanZelCashHeight > 0 ? this.rescanZelCashHeight : 0;
+      ZelCashService.rescanZelCash(zelidauth, blockheight)
+        .then((response) => {
+          vue.$message({
+            type: response.data.status,
+            message: response.data.data.message || response.data.data,
+          });
+        })
+        .catch(() => {
+          vue.$message.error('Error while trying to rescan ZelCash');
+        });
+    },
+    reindexZelCash() {
+      vue.$message.warning('ZelCash will now reindex. This will take several hours.');
+      const zelidauth = localStorage.getItem('zelidauth');
+      ZelNodeService.reindexZelCash(zelidauth)
+        .then((response) => {
+          vue.$message({
+            type: response.data.status,
+            message: response.data.data.message || response.data.data,
+          });
+        })
+        .catch(() => {
+          vue.$message.error('Error while trying to reindex ZelCash');
+        });
+    },
+    async zelcashWelcomeGetZelNodeStatus() {
       const response = await ZelCashService.getZelNodeStatus();
       this.getZelNodeStatusResponse.status = response.data.status;
       this.getZelNodeStatusResponse.data = response.data.data;
@@ -307,6 +900,41 @@ export default {
           this.getZelNodeStatusResponse.zelnodeStatus = 'ZelNode is not confirmed. Flux is running with limited capabilities.';
         }
       }
+    },
+    async zelcashGetZelNodeStatus() {
+      const response = await ZelCashService.getZelNodeStatus();
+      this.callResponse.status = response.data.status;
+      this.callResponse.data = response.data.data;
+    },
+    async zelcashListZelNodes() {
+      const response = await ZelCashService.listZelNodes();
+      this.callResponse.status = response.data.status;
+      this.callResponse.data = response.data.data;
+    },
+    async zelcashViewDeterministicZelNodeList() {
+      const response = await ZelCashService.viewDeterministicZelNodeList();
+      this.callResponse.status = response.data.status;
+      this.callResponse.data = response.data.data;
+    },
+    async zelcashGetZelNodeCount() {
+      const response = await ZelCashService.getZelNodeCount();
+      this.callResponse.status = response.data.status;
+      this.callResponse.data = response.data.data;
+    },
+    async zelcashGetStartList() {
+      const response = await ZelCashService.getStartList();
+      this.callResponse.status = response.data.status;
+      this.callResponse.data = response.data.data;
+    },
+    async zelcashDOSList() {
+      const response = await ZelCashService.getDOSList();
+      this.callResponse.status = response.data.status;
+      this.callResponse.data = response.data.data;
+    },
+    async zelcashZelNodeCurrentWinner() {
+      const response = await ZelCashService.zelnodeCurrentWinner();
+      this.callResponse.status = response.data.status;
+      this.callResponse.data = response.data.data;
     },
     cancelDownload() {
       this.abortToken.cancel('User download cancelled');

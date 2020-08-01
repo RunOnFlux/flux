@@ -88,7 +88,7 @@
         cancelButtonText='No, Thanks'
         icon="el-icon-info"
         iconColor="red"
-        title="Stops Zel daemon"
+        title="Stops ZelBench daemon"
         @onConfirm="stopZelBench()"
       >
         <ElButton slot="reference">

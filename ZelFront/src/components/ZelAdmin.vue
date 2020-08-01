@@ -258,11 +258,11 @@
     </div>
     <div v-if="zelAdminSection === 'managezelcash'">
       <el-popconfirm
-        confirmButtonText='Update Zel daemon'
+        confirmButtonText='Update ZelCash daemon'
         cancelButtonText='No, Thanks'
         icon="el-icon-info"
         iconColor="orange"
-        title="Updates Zel daemon to the latest version"
+        title="Updates ZelCash daemon to the latest version"
         @onConfirm="updateZelCash()"
       >
         <ElButton slot="reference">
@@ -271,11 +271,11 @@
       </el-popconfirm>
       <br>
       <el-popconfirm
-        confirmButtonText='Start Zel daemon'
+        confirmButtonText='Start ZelCash daemon'
         cancelButtonText='No, Thanks'
         icon="el-icon-info"
         iconColor="green"
-        title="Starts Zel daemon"
+        title="Starts ZelCash daemon"
         @onConfirm="startZelCash()"
       >
         <ElButton slot="reference">
@@ -283,11 +283,11 @@
         </ElButton>
       </el-popconfirm>
       <el-popconfirm
-        confirmButtonText='Stop Zel daemon'
+        confirmButtonText='Stop ZelCash daemon'
         cancelButtonText='No, Thanks'
         icon="el-icon-info"
         iconColor="red"
-        title="Stops Zel daemon"
+        title="Stops ZelCash daemon"
         @onConfirm="stopZelCash()"
       >
         <ElButton slot="reference">
@@ -295,11 +295,11 @@
         </ElButton>
       </el-popconfirm>
       <el-popconfirm
-        confirmButtonText='Restart Zel daemon'
+        confirmButtonText='Restart ZelCash daemon'
         cancelButtonText='No, Thanks'
         icon="el-icon-info"
         iconColor="orange"
-        title="Restarts Zel daemon"
+        title="Restarts ZelCash daemon"
         @onConfirm="restartZelCash()"
       >
         <ElButton slot="reference">
@@ -316,11 +316,11 @@
         :max="1000000"
       ></el-input-number>
       <el-popconfirm
-        confirmButtonText='Rescan Zel blockhain data'
+        confirmButtonText='Rescan ZelCash blockhain data'
         cancelButtonText='No, Thanks'
         icon="el-icon-info"
         iconColor="red"
-        title="Reindexes Zel daemon"
+        title="Reindexes ZelCash daemon"
         @onConfirm="rescanZelCash()"
       >
         <ElButton slot="reference">
@@ -329,11 +329,11 @@
       </el-popconfirm>
       <br>
       <el-popconfirm
-        confirmButtonText='Reindex Zel blockhain data'
+        confirmButtonText='Reindex ZelCash blockhain data'
         cancelButtonText='No, Thanks'
         icon="el-icon-info"
         iconColor="red"
-        title="Reindexes Zel daemon"
+        title="Reindexes ZelCash daemon"
         @onConfirm="reindexZelCash()"
       >
         <ElButton slot="reference">
@@ -372,7 +372,7 @@
         cancelButtonText='No, Thanks'
         icon="el-icon-info"
         iconColor="red"
-        title="Stops Zel daemon"
+        title="Stops ZelBench daemon"
         @onConfirm="stopZelBench()"
       >
         <ElButton slot="reference">

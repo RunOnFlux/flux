@@ -67,7 +67,13 @@
           index="1-2"
         >
           <template slot="title">ZelNode</template>
-          <el-menu-item index="1-2-1">Get Info</el-menu-item>
+          <el-menu-item index="1-2-1">Get ZelNode Status</el-menu-item>
+          <el-menu-item index="1-2-2">List ZelNodes</el-menu-item>
+          <el-menu-item index="1-2-3">View Deterministic ZelNode List</el-menu-item>
+          <el-menu-item index="1-2-4">Get ZelNode Count</el-menu-item>
+          <el-menu-item index="1-2-5">Get Start List</el-menu-item>
+          <el-menu-item index="1-2-6">Get DOS List</el-menu-item>
+          <el-menu-item index="1-2-7">ZelNode Current Winner</el-menu-item>
         </el-submenu>
         <el-submenu
           :popper-append-to-body=true
@@ -304,7 +310,7 @@ export default {
       console.log(key);
       switch (key) {
         case '0':
-          this.$store.commit('setZelCashSection', 'getinfo');
+          this.$store.commit('setZelCashSection', 'welcomeinfo');
           break;
         case '1-1-1':
           this.$store.commit('setZelCashSection', 'getinfo');
@@ -312,8 +318,41 @@ export default {
         case '1-1-2':
           this.$store.commit('setZelCashSection', 'help');
           break;
+        case '1-1-3':
+          this.$store.commit('setZelCashSection', 'rescanblockchain');
+          break;
+        case '1-1-4':
+          this.$store.commit('setZelCashSection', 'reindexblockchain');
+          break;
+        case '1-1-5':
+          this.$store.commit('setZelCashSection', 'start');
+          break;
+        case '1-1-6':
+          this.$store.commit('setZelCashSection', 'stop');
+          break;
         case '1-1-7':
           this.$store.commit('setZelCashSection', 'restart');
+          break;
+        case '1-2-1':
+          this.$store.commit('setZelCashSection', 'getzelnodestatus');
+          break;
+        case '1-2-2':
+          this.$store.commit('setZelCashSection', 'listzelnodes');
+          break;
+        case '1-2-3':
+          this.$store.commit('setZelCashSection', 'viewdeterministiczelnodelist');
+          break;
+        case '1-2-4':
+          this.$store.commit('setZelCashSection', 'getzelnodecount');
+          break;
+        case '1-2-5':
+          this.$store.commit('setZelCashSection', 'getstartlist');
+          break;
+        case '1-2-6':
+          this.$store.commit('setZelCashSection', 'getdoslist');
+          break;
+        case '1-2-7':
+          this.$store.commit('setZelCashSection', 'zelnodecurrentwinner');
           break;
         case '1-9':
           this.$store.commit('setZelCashSection', 'debug');
@@ -398,7 +437,7 @@ export default {
       const auth = qs.parse(zelidauth);
       localStorage.removeItem('zelidauth');
       this.$store.commit('setPrivilage', 'none');
-      this.$store.commit('setZelCashSection', 'getinfo');
+      this.$store.commit('setZelCashSection', 'welcomeinfo');
       console.log(auth);
       zelIDService.logoutCurrentSession(zelidauth)
         .then((response) => {

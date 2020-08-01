@@ -22,6 +22,18 @@ export default {
   viewDeterministicZelNodeList() {
     return Api().get('/zelcash/viewdeterministiczelnodelist');
   },
+  getZelNodeCount() {
+    return Api().get('/zelcash/getzelnodecount');
+  },
+  getStartList() {
+    return Api().get('/zelcash/getstartlist');
+  },
+  getDOSTList() {
+    return Api().get('/zelcash/getdoslist');
+  },
+  zelnodeCurrentWinner() {
+    return Api().get('/zelcash/zelnodecurrentwinner');
+  },
   listZelNodeConf(zelidauthHeader) {
     return Api().get('/zelcash/listzelnodeconf', {
       headers: {
