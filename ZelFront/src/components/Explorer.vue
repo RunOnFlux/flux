@@ -398,6 +398,7 @@ export default {
       blocks: [],
       searchBar: '',
       blocksWithTransaction: {},
+      address: '',
       addressWithTransactions: {},
       height: 0,
       transactionDetail: {},
@@ -416,23 +417,7 @@ export default {
   watch: {
     explorerSection(val, oldVal) {
       console.log(val, oldVal);
-      switch (val) {
-        case 'explorer':
-          this.zelcashGetInfo();
-          this.getSyncedHeight();
-          break;
-        case 'block':
-          // nothing to do
-          break;
-        case 'address':
-          // nothing to do
-          break;
-        case 'transaction':
-          // nothing to do
-          break;
-        default:
-          console.log('Explorer Section: Unrecognized method'); // should not be visible if everything works correctly
-      }
+      this.switcher(val);
     },
     searchBar(val) {
       if (parseInt(val, 10) > 0 && parseInt(val, 10).toString().length === val.length) {
@@ -447,7 +432,15 @@ export default {
     },
     activeName(val, oldVal) {
       console.log(val, oldVal);
-      switch (val) {
+      this.switcher(val);
+    },
+  },
+  mounted() {
+    this.switcher(this.explorerSection);
+  },
+  methods: {
+    switcher(value) {
+      switch (value) {
         case 'explorer':
           this.zelcashGetInfo();
           this.getSyncedHeight();
@@ -462,30 +455,9 @@ export default {
           // nothing to do
           break;
         default:
-          console.log('Explorer Section: Unrecognized method'); // should not be visible if everything works correctly
+          console.log('Explorer Section: Unrecognized method');
       }
     },
-  },
-  mounted() {
-    switch (this.explorerSection) {
-      case 'explorer':
-        this.zelcashGetInfo();
-        this.getSyncedHeight();
-        break;
-      case 'block':
-        // nothing to do
-        break;
-      case 'address':
-        // nothing to do
-        break;
-      case 'transaction':
-        // nothing to do
-        break;
-      default:
-        console.log('Explorer Section: Unrecognized method');
-    }
-  },
-  methods: {
     existInArray(array, element) {
       for (let i = 0; i < array.length; i += 1) {
         if (array[i] === element) {
@@ -652,11 +624,13 @@ export default {
         console.log(responseAddr);
         console.log(responseBalance);
         if (responseAddr.data.status === 'success' && responseBalance.data.status === 'success' && responseAddr.data.data !== null) {
-          this.address = responseAddr.data.data.address;
-          this.addressWithTransactions[address] = responseAddr.data.data;
+          this.address = address;
+          this.addressWithTransactions[address] = {};
+          this.addressWithTransactions[address].transactions = responseAddr.data.data;
+          this.addressWithTransactions[address].address = address;
           this.addressWithTransactions[address].balance = responseBalance.data.data;
           this.addressWithTransactions[address].zelnodeTxs = [];
-          this.getAddressTransactions(responseAddr.data.data.transactions, address);
+          this.getAddressTransactions(responseAddr.data.data, address);
           const responseZelNodeTxs = await ExplorerService.getZelNodeTransactions(address);
           if (responseZelNodeTxs.data.status === 'success') {
             this.addressWithTransactions[address].zelnodeTxs = responseZelNodeTxs.data.data;

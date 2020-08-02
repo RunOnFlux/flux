@@ -315,7 +315,15 @@ export default {
   watch: {
     zelNodeSection(val, oldVal) {
       console.log(val, oldVal);
-      switch (val) {
+      this.switcher(val);
+    },
+  },
+  mounted() {
+    this.switcher(this.zelNodeSection);
+  },
+  methods: {
+    switcher(value) {
+      switch (value) {
         case 'getinfo':
           this.zelcashGetInfo();
           this.zelcashGetZelNodeStatus();
@@ -333,33 +341,9 @@ export default {
           console.log('ZelNode Section hidden');
           break;
         default:
-          console.log('ZelNode Section: Unrecognized method'); // should not be visible if everything works correctly
+          console.log('ZelNode Section: Unrecognized method');
       }
     },
-  },
-  mounted() {
-    switch (this.zelNodeSection) {
-      case 'getinfo':
-        this.zelcashGetInfo();
-        this.zelcashGetZelNodeStatus();
-        break;
-      case 'network':
-        this.zelfluxConnectedPeersInfo();
-        this.zelfluxIncomingConnectionsInfo();
-        break;
-      case 'messages':
-        this.broadcastMessage();
-        break;
-      case 'debug':
-        break;
-      case null:
-        console.log('ZelNode Section hidden');
-        break;
-      default:
-        console.log('ZelNode Section: Unrecognized method');
-    }
-  },
-  methods: {
     async zelcashGetInfo() {
       const response = await ZelCashService.getInfo();
       this.getInfoResponse.status = response.data.status;

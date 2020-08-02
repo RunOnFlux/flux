@@ -341,12 +341,23 @@ export default {
       console.log(val, oldVal);
       this.callResponse.status = '';
       this.callResponse.data = '';
-      switch (val) {
+      this.switcher(val);
+    },
+  },
+  mounted() {
+    this.switcher(this.zelBenchSection);
+  },
+  methods: {
+    switcher(value) {
+      switch (value) {
         case 'getbenchmarks':
           this.zelbenchGetBenchmarks();
           break;
         case 'getinfo':
           this.zelbenchGetInfo();
+          break;
+        case 'help':
+          this.zelbenchHelp();
           break;
         case 'getstatus':
           this.zelbenchGetStatus();
@@ -354,9 +365,6 @@ export default {
         case 'restartnodebenchmarks':
           break;
         case 'signzelnodetransaction':
-          break;
-        case 'help':
-          this.zelbenchHelp();
           break;
         case 'restart':
           break;
@@ -370,44 +378,9 @@ export default {
           console.log('ZelBench Section hidden');
           break;
         default:
-          console.log('ZelBench Section: Unrecognized method'); // should not be seeable if all works correctly
+          console.log('ZelBench Section: Unrecognized method');
       }
     },
-  },
-  mounted() {
-    switch (this.zelBenchSection) {
-      case 'getbenchmarks':
-        this.zelbenchGetBenchmarks();
-        break;
-      case 'getinfo':
-        this.zelbenchGetInfo();
-        break;
-      case 'help':
-        this.zelbenchHelp();
-        break;
-      case 'getstatus':
-        this.zelbenchGetStatus();
-        break;
-      case 'restartnodebenchmarks':
-        break;
-      case 'signzelnodetransaction':
-        break;
-      case 'restart':
-        break;
-      case 'stop':
-        break;
-      case 'start':
-        break;
-      case 'debug':
-        break;
-      case null:
-        console.log('ZelBench Section hidden');
-        break;
-      default:
-        console.log('ZelBench Section: Unrecognized method');
-    }
-  },
-  methods: {
     async zelbenchGetBenchmarks() {
       const response = await ZelBenchService.getBenchmarks();
       this.callResponse.status = response.data.status;

@@ -677,7 +677,15 @@ export default {
       console.log(val, oldVal);
       this.callResponse.status = '';
       this.callResponse.data = '';
-      switch (val) {
+      this.switcher(val);
+    },
+  },
+  mounted() {
+    this.switcher(this.zelCashSection);
+  },
+  methods: {
+    switcher(value) {
+      switch (value) {
         case 'welcomeinfo':
           this.zelcashGetInfo();
           this.zelcashWelcomeGetZelNodeStatus();
@@ -721,59 +729,9 @@ export default {
           console.log('ZelCash Section hidden');
           break;
         default:
-          console.log('ZelCash Section: Unrecognized method'); // should not be seeable if all works correctly
+          console.log('ZelCash Section: Unrecognized method');
       }
     },
-  },
-  mounted() {
-    switch (this.zelCashSection) {
-      case 'welcomeinfo':
-        this.zelcashGetInfo();
-        this.zelcashWelcomeGetZelNodeStatus();
-        break;
-      case 'getinfo':
-        this.zelcashGetInfo();
-        break;
-      case 'help':
-        this.zelcashHelp();
-        break;
-      case 'stop':
-        break;
-      case 'start':
-        break;
-      case 'restart':
-        break;
-      case 'debug':
-        break;
-      case 'getzelnodestatus':
-        this.zelcashGetZelNodeStatus();
-        break;
-      case 'listzelnodes':
-        this.zelcashListZelNodes();
-        break;
-      case 'viewdeterministiczelnodelist':
-        this.zelcashViewDeterministicZelNodeList();
-        break;
-      case 'getzelnodecount':
-        this.zelcashGetZelNodeCount();
-        break;
-      case 'getstartlist':
-        this.zelcashGetStartList();
-        break;
-      case 'getdoslist':
-        this.zelcashGetDOSList();
-        break;
-      case 'zelnodecurrentwinner':
-        this.zelcashZelNodeCurrentWinner();
-        break;
-      case null:
-        console.log('ZelCash Section hidden');
-        break;
-      default:
-        console.log('ZelCash Section: Unrecognized method');
-    }
-  },
-  methods: {
     async zelcashGetInfo() {
       const response = await ZelCashService.getInfo();
       this.callResponse.status = response.data.status;

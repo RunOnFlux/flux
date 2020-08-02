@@ -527,10 +527,16 @@ export default {
   watch: {
     zelAdminSection(val, oldVal) {
       console.log(val, oldVal);
-      switch (val) {
+      this.switcher(val);
+    },
+  },
+  mounted() {
+    this.switcher(this.zelAdminSection);
+  },
+  methods: {
+    switcher(value) {
+      switch (value) {
         case 'loggedsessions':
-          this.loggedUsersTable = [];
-          this.filterLoggedUsers = '';
           this.loggedSessions();
           break;
         case 'manageflux':
@@ -543,43 +549,15 @@ export default {
           this.checkZelBenchVersion();
           break;
         case 'manageusers':
-          this.loggedUsersTable = [];
-          this.filterLoggedUsers = '';
           this.loggedUsers();
           break;
         case null:
-          console.log('Admin Section hidden');
+          console.log('zelAdmin Section hidden');
           break;
         default:
-          console.log('Admin Section: Unrecognized method'); // should not be seeable if all works correctly
+          console.log('zelAdmin Section: Unrecognized method'); // should not be seeable if all works correctly
       }
     },
-  },
-  mounted() {
-    switch (this.zelAdminSection) {
-      case 'loggedsessions':
-        this.loggedSessions();
-        break;
-      case 'manageflux':
-        this.getLatestZelFluxVersion();
-        break;
-      case 'managezelcash':
-        this.checkZelCashVersion();
-        break;
-      case 'managezelbench':
-        this.checkZelBenchVersion();
-        break;
-      case 'manageusers':
-        this.loggedUsers();
-        break;
-      case null:
-        console.log('zelAdmin Section hidden');
-        break;
-      default:
-        console.log('zelAdmin Section: Unrecognized method'); // should not be seeable if all works correctly
-    }
-  },
-  methods: {
     updateZelFlux() {
       const zelidauth = localStorage.getItem('zelidauth');
       const auth = qs.parse(zelidauth);

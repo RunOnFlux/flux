@@ -856,25 +856,7 @@ export default {
     activeName(val, oldVal) {
       console.log(val, oldVal);
       this.output = '';
-      switch (val) {
-        case 'running':
-          this.zelappsGetListRunningZelApps();
-          break;
-        case 'all':
-          this.zelappsGetListAllZelApps();
-          break;
-        case 'installed':
-          this.zelappsGetInstalledZelApps();
-          break;
-        case 'available':
-          this.zelappsGetAvailableZelApps();
-          break;
-        case 'stopped':
-          // getting all and checking state?
-          break;
-        default:
-          console.log('ZelApps Section: Unrecognized method'); // should not be visible if everything works correctly
-      }
+      this.switcher(val);
     },
     zelAppRegistrationSpecification: {
       handler(val, oldVal) {
@@ -899,22 +881,25 @@ export default {
     console.log(auth);
     this.getZelNodeStatus();
     this.zelappsGetInstalledZelApps();
-    switch (this.zelAppsSection) {
-      case 'localzelapps':
-        this.zelappsGetListRunningZelApps();
-        break;
-      case 'globalzelapps':
-        this.zelappsGetListGlobalZelApps();
-        break;
-      case 'registerzelapp':
-        this.registrationInformation();
-        this.checkFluxCommunication();
-        break;
-      default:
-        console.log('ZelApps Section: Unrecognized method');
-    }
+    this.switcher(this.zelAppsSection);
   },
   methods: {
+    switcher(value) {
+      switch (value) {
+        case 'localzelapps':
+          this.zelappsGetListRunningZelApps();
+          break;
+        case 'globalzelapps':
+          this.zelappsGetListGlobalZelApps();
+          break;
+        case 'registerzelapp':
+          this.registrationInformation();
+          this.checkFluxCommunication();
+          break;
+        default:
+          console.log('ZelApps Section: Unrecognized method');
+      }
+    },
     async zelappsGetListGlobalZelApps() {
       const response = await ZelAppsService.globalZelAppSpecifications();
       console.log(response);
