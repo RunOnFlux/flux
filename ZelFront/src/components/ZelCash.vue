@@ -526,8 +526,42 @@
           prop="added_height"
         >
         </el-table-column>
-
       </el-table>
+    </div>
+    <!-- BENCHMARKS -->
+    <div v-if="zelCashSection === 'getbenchmarks'">
+      <div>
+        <p>Output from Get Benchmarks command</p>
+      </div>
+      <div>
+        <p>
+          Status: {{ callResponse.data.status }}
+        </p>
+        <p>
+          Time: {{ new Date(callResponse.data.time * 1000).toLocaleString('en-GB', timeoptions) }}
+        </p>
+        <p>
+          IP address: {{ callResponse.data.ipaddress }}
+        </p>
+        <p>
+          CPU cores: {{ callResponse.data.cores }}
+        </p>
+        <p>
+          RAM (GB): {{ callResponse.data.ram }}
+        </p>
+        <p>
+          SSD (GB): {{ callResponse.data.ssd }}
+        </p>
+        <p>
+          HDD (GB): {{ callResponse.data.hdd }}
+        </p>
+        <p>
+          Write Speed (MB/s): {{ callResponse.data.ddwrite }}
+        </p>
+        <p>
+          CPU Speed (eps): {{ callResponse.data.eps }}
+        </p>
+      </div>
     </div>
     <div v-if="zelCashSection === 'debug'">
       <div>
@@ -725,6 +759,9 @@ export default {
         case 'zelnodecurrentwinner':
           this.zelcashZelNodeCurrentWinner();
           break;
+        case 'getbenchmarks':
+          this.zelcashGetBenchmarks();
+          break;
         case null:
           console.log('ZelCash Section hidden');
           break;
@@ -734,13 +771,21 @@ export default {
     },
     async zelcashGetInfo() {
       const response = await ZelCashService.getInfo();
-      this.callResponse.status = response.data.status;
-      this.callResponse.data = response.data.data;
+      if (response.data.status === 'error') {
+        vue.$message.error(response.data.data.message || response.data.data);
+      } else {
+        this.callResponse.status = response.data.status;
+        this.callResponse.data = response.data.data;
+      }
     },
     async zelcashHelp() {
       const response = await ZelCashService.help();
-      this.callResponse.status = response.data.status;
-      this.callResponse.data = response.data.data;
+      if (response.data.status === 'error') {
+        vue.$message.error(response.data.data.message || response.data.data);
+      } else {
+        this.callResponse.status = response.data.status;
+        this.callResponse.data = response.data.data;
+      }
     },
     async zelcashHelpSpecific() {
       this.currentHelpResponse = '';
@@ -861,38 +906,75 @@ export default {
     },
     async zelcashGetZelNodeStatus() {
       const response = await ZelCashService.getZelNodeStatus();
-      this.callResponse.status = response.data.status;
-      this.callResponse.data = response.data.data;
+      if (response.data.status === 'error') {
+        vue.$message.error(response.data.data.message || response.data.data);
+      } else {
+        this.callResponse.status = response.data.status;
+        this.callResponse.data = response.data.data;
+      }
     },
     async zelcashListZelNodes() {
       const response = await ZelCashService.listZelNodes();
-      this.callResponse.status = response.data.status;
-      this.callResponse.data = response.data.data;
+      if (response.data.status === 'error') {
+        vue.$message.error(response.data.data.message || response.data.data);
+      } else {
+        this.callResponse.status = response.data.status;
+        this.callResponse.data = response.data.data;
+      }
     },
     async zelcashViewDeterministicZelNodeList() {
       const response = await ZelCashService.viewDeterministicZelNodeList();
-      this.callResponse.status = response.data.status;
-      this.callResponse.data = response.data.data;
+      if (response.data.status === 'error') {
+        vue.$message.error(response.data.data.message || response.data.data);
+      } else {
+        this.callResponse.status = response.data.status;
+        this.callResponse.data = response.data.data;
+      }
     },
     async zelcashGetZelNodeCount() {
       const response = await ZelCashService.getZelNodeCount();
-      this.callResponse.status = response.data.status;
-      this.callResponse.data = response.data.data;
+      if (response.data.status === 'error') {
+        vue.$message.error(response.data.data.message || response.data.data);
+      } else {
+        this.callResponse.status = response.data.status;
+        this.callResponse.data = response.data.data;
+      }
     },
     async zelcashGetStartList() {
       const response = await ZelCashService.getStartList();
-      this.callResponse.status = response.data.status;
-      this.callResponse.data = response.data.data;
+      if (response.data.status === 'error') {
+        vue.$message.error(response.data.data.message || response.data.data);
+      } else {
+        this.callResponse.status = response.data.status;
+        this.callResponse.data = response.data.data;
+      }
     },
-    async zelcashDOSList() {
+    async zelcashGetDOSList() {
       const response = await ZelCashService.getDOSList();
-      this.callResponse.status = response.data.status;
-      this.callResponse.data = response.data.data;
+      if (response.data.status === 'error') {
+        vue.$message.error(response.data.data.message || response.data.data);
+      } else {
+        this.callResponse.status = response.data.status;
+        this.callResponse.data = response.data.data;
+      }
     },
     async zelcashZelNodeCurrentWinner() {
       const response = await ZelCashService.zelnodeCurrentWinner();
-      this.callResponse.status = response.data.status;
-      this.callResponse.data = response.data.data;
+      if (response.data.status === 'error') {
+        vue.$message.error(response.data.data.message || response.data.data);
+      } else {
+        this.callResponse.status = response.data.status;
+        this.callResponse.data = response.data.data;
+      }
+    },
+    async zelcashGetBenchmarks() {
+      const response = await ZelCashService.getBenchmarks();
+      if (response.data.status === 'error') {
+        vue.$message.error(response.data.data.message || response.data.data);
+      } else {
+        this.callResponse.status = response.data.status;
+        this.callResponse.data = JSON.parse(response.data.data);
+      }
     },
     cancelDownload() {
       this.abortToken.cancel('User download cancelled');

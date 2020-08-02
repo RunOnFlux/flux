@@ -28,11 +28,14 @@ export default {
   getStartList() {
     return Api().get('/zelcash/getstartlist');
   },
-  getDOSTList() {
+  getDOSList() {
     return Api().get('/zelcash/getdoslist');
   },
   zelnodeCurrentWinner() {
     return Api().get('/zelcash/zelnodecurrentwinner');
+  },
+  getBenchmarks() {
+    return Api().get('/zelcash/getbenchmarks');
   },
   listZelNodeConf(zelidauthHeader) {
     return Api().get('/zelcash/listzelnodeconf', {

@@ -197,7 +197,7 @@ async function getZelNodeCount(req, res) {
 }
 
 async function getDOSList(req, res) {
-  const rpccall = 'getdostlist';
+  const rpccall = 'getdoslist';
 
   response = await executeCall(rpccall);
 

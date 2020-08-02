@@ -383,18 +383,30 @@ export default {
     },
     async zelbenchGetBenchmarks() {
       const response = await ZelBenchService.getBenchmarks();
-      this.callResponse.status = response.data.status;
-      this.callResponse.data = response.data.data;
+      if (response.data.status === 'error') {
+        vue.$message.error(response.data.data.message || response.data.data);
+      } else {
+        this.callResponse.status = response.data.status;
+        this.callResponse.data = response.data.data;
+      }
     },
     async zelbenchGetInfo() {
       const response = await ZelBenchService.getInfo();
-      this.callResponse.status = response.data.status;
-      this.callResponse.data = response.data.data;
+      if (response.data.status === 'error') {
+        vue.$message.error(response.data.data.message || response.data.data);
+      } else {
+        this.callResponse.status = response.data.status;
+        this.callResponse.data = response.data.data;
+      }
     },
     async zelbenchHelp() {
       const response = await ZelBenchService.help();
-      this.callResponse.status = response.data.status;
-      this.callResponse.data = response.data.data;
+      if (response.data.status === 'error') {
+        vue.$message.error(response.data.data.message || response.data.data);
+      } else {
+        this.callResponse.status = response.data.status;
+        this.callResponse.data = response.data.data;
+      }
     },
     async zelbenchHelpSpecific() {
       this.currentHelpResponse = '';
@@ -522,8 +534,12 @@ export default {
     },
     async zelbenchGetStatus() {
       const response = await ZelBenchService.getStatus();
-      this.callResponse.status = response.data.status;
-      this.callResponse.data = response.data.data;
+      if (response.data.status === 'error') {
+        vue.$message.error(response.data.data.message || response.data.data);
+      } else {
+        this.callResponse.status = response.data.status;
+        this.callResponse.data = response.data.data;
+      }
     },
     restartBenchmarks() {
       vue.$message.warning('Initiating new benchmarks...');

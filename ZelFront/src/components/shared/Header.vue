@@ -79,47 +79,67 @@
           :popper-append-to-body=true
           index="1-3"
         >
-          <template slot="title">BlockChain</template>
-          <el-menu-item index="1-3-1">Get Info</el-menu-item>
+          <template slot="title">Benchmarks</template>
+          <el-menu-item index="1-3-1">Get Benchmarks</el-menu-item>
+          <el-menu-item index="1-3-2">Get ZelBench Status</el-menu-item>
+          <el-menu-item
+            index="1-3-3"
+            v-if="privilage === 'admin' || privilage === 'zelteam'"
+          >
+            Start ZelBench
+          </el-menu-item>
+          <el-menu-item
+            index="1-3-4"
+            v-if="privilage === 'admin' || privilage === 'zelteam'"
+          >
+            Stop ZelBench
+          </el-menu-item>
         </el-submenu>
         <el-submenu
           :popper-append-to-body=true
           index="1-4"
         >
-          <template slot="title">Mining</template>
+          <template slot="title">BlockChain</template>
           <el-menu-item index="1-4-1">Get Info</el-menu-item>
         </el-submenu>
         <el-submenu
           :popper-append-to-body=true
           index="1-5"
         >
-          <template slot="title">Network</template>
+          <template slot="title">Mining</template>
           <el-menu-item index="1-5-1">Get Info</el-menu-item>
         </el-submenu>
         <el-submenu
           :popper-append-to-body=true
           index="1-6"
         >
-          <template slot="title">Raw Transactions</template>
+          <template slot="title">Network</template>
           <el-menu-item index="1-6-1">Get Info</el-menu-item>
         </el-submenu>
         <el-submenu
           :popper-append-to-body=true
           index="1-7"
         >
-          <template slot="title">Utilities</template>
+          <template slot="title">Raw Transactions</template>
           <el-menu-item index="1-7-1">Get Info</el-menu-item>
         </el-submenu>
         <el-submenu
           :popper-append-to-body=true
           index="1-8"
         >
-          <template slot="title">Wallet</template>
+          <template slot="title">Utilities</template>
           <el-menu-item index="1-8-1">Get Info</el-menu-item>
+        </el-submenu>
+        <el-submenu
+          :popper-append-to-body=true
+          index="1-9"
+        >
+          <template slot="title">Wallet</template>
+          <el-menu-item index="1-9-1">Get Info</el-menu-item>
         </el-submenu>
         <el-menu-item
           v-if="privilage === 'zelteam' || privilage === 'admin'"
-          index="1-9"
+          index="1-10"
         >
           Debug
         </el-menu-item>
@@ -354,7 +374,19 @@ export default {
         case '1-2-7':
           this.$store.commit('setZelCashSection', 'zelnodecurrentwinner');
           break;
-        case '1-9':
+        case '1-3-1':
+          this.$store.commit('setZelCashSection', 'getbenchmarks');
+          break;
+        case '1-3-2':
+          this.$store.commit('setZelCashSection', 'getbenchstatus');
+          break;
+        case '1-3-3':
+          this.$store.commit('setZelCashSection', 'startzelbenchd');
+          break;
+        case '1-3-4':
+          this.$store.commit('setZelCashSection', 'stopzelbenchd');
+          break;
+        case '1-10':
           this.$store.commit('setZelCashSection', 'debug');
           break;
         case '2-1-1':
