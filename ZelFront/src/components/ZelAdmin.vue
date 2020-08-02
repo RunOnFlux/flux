@@ -998,7 +998,7 @@ export default {
     restartBlockProcessing() {
       const zelidauth = localStorage.getItem('zelidauth');
       vue.$message.warning('Restarting block processing...');
-      ZelAppsService.restartBlockProcessing(zelidauth)
+      ExplorerService.restartBlockProcessing(zelidauth)
         .then((response) => {
           console.log(response);
           if (response.data.status === 'error') {
@@ -1015,7 +1015,7 @@ export default {
     stopBlockProcessing() {
       const zelidauth = localStorage.getItem('zelidauth');
       vue.$message.warning('Stopping block processing...');
-      ZelAppsService.stopBlockProcessing(zelidauth)
+      ExplorerService.stopBlockProcessing(zelidauth)
         .then((response) => {
           console.log(response);
           if (response.data.status === 'error') {
