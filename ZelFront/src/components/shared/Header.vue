@@ -81,7 +81,7 @@
         >
           <template slot="title">Benchmarks</template>
           <el-menu-item index="1-3-1">Get Benchmarks</el-menu-item>
-          <el-menu-item index="1-3-2">Get ZelBench Status</el-menu-item>
+          <el-menu-item index="1-3-2">Get Bench Status</el-menu-item>
           <el-menu-item
             index="1-3-3"
             v-if="privilage === 'admin' || privilage === 'zelteam'"
@@ -100,42 +100,42 @@
           index="1-4"
         >
           <template slot="title">BlockChain</template>
-          <el-menu-item index="1-4-1">Get Info</el-menu-item>
+          <el-menu-item index="1-4-1">Get BlockChain Info</el-menu-item>
         </el-submenu>
         <el-submenu
           :popper-append-to-body=true
           index="1-5"
         >
           <template slot="title">Mining</template>
-          <el-menu-item index="1-5-1">Get Info</el-menu-item>
+          <el-menu-item index="1-5-1">Get Mining Info</el-menu-item>
         </el-submenu>
         <el-submenu
           :popper-append-to-body=true
           index="1-6"
         >
           <template slot="title">Network</template>
-          <el-menu-item index="1-6-1">Get Info</el-menu-item>
+          <el-menu-item index="1-6-1">Get Network Info</el-menu-item>
         </el-submenu>
         <el-submenu
           :popper-append-to-body=true
           index="1-7"
         >
           <template slot="title">Raw Transactions</template>
-          <el-menu-item index="1-7-1">Get Info</el-menu-item>
+          <el-menu-item index="1-7-1">Get Raw Transaction</el-menu-item>
         </el-submenu>
         <el-submenu
           :popper-append-to-body=true
           index="1-8"
         >
-          <template slot="title">Utilities</template>
-          <el-menu-item index="1-8-1">Get Info</el-menu-item>
+          <template slot="title">Util</template>
+          <el-menu-item index="1-8-1">Validate Address</el-menu-item>
         </el-submenu>
         <el-submenu
           :popper-append-to-body=true
           index="1-9"
         >
           <template slot="title">Wallet</template>
-          <el-menu-item index="1-9-1">Get Info</el-menu-item>
+          <el-menu-item index="1-9-1">Get Wallet Info</el-menu-item>
         </el-submenu>
         <el-menu-item
           v-if="privilage === 'zelteam' || privilage === 'admin'"
@@ -385,6 +385,24 @@ export default {
           break;
         case '1-3-4':
           this.$store.commit('setZelCashSection', 'stopzelbenchd');
+          break;
+        case '1-4-1':
+          this.$store.commit('setZelCashSection', 'getblockchaininfo');
+          break;
+        case '1-5-1':
+          this.$store.commit('setZelCashSection', 'getmininginfo');
+          break;
+        case '1-6-1':
+          this.$store.commit('setZelCashSection', 'getnetworkinfo');
+          break;
+        case '1-7-1':
+          this.$store.commit('setZelCashSection', 'getrawtransaction');
+          break;
+        case '1-8-1':
+          this.$store.commit('setZelCashSection', 'validateaddress');
+          break;
+        case '1-9-1':
+          this.$store.commit('setZelCashSection', 'getwalletinfo');
           break;
         case '1-10':
           this.$store.commit('setZelCashSection', 'debug');

@@ -37,6 +37,46 @@ export default {
   getBenchmarks() {
     return Api().get('/zelcash/getbenchmarks');
   },
+  getBenchStatus() {
+    return Api().get('/zelcash/getbenchstatus');
+  },
+  startZelBench(zelidauthHeader) {
+    return Api().get('/zelcash/startzelbenchd', {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    });
+  },
+  stopZelBench(zelidauthHeader) {
+    return Api().get('/zelcash/stopzelbenchd', {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    });
+  },
+  getBlockchainInfo() {
+    return Api().get('/zelcash/getblockchaininfo');
+  },
+  getMiningInfo() {
+    return Api().get('/zelcash/getmininginfo');
+  },
+  getNetworkInfo() {
+    return Api().get('/zelcash/getnetworkinfo');
+  },
+  validateAddress(zelidauthHeader, address) {
+    return Api().get(`/zelcash/validateaddress/${address}`, {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    });
+  },
+  getWalletInfo(zelidauthHeader) {
+    return Api().get('/zelcash/getwalletinfo', {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    });
+  },
   listZelNodeConf(zelidauthHeader) {
     return Api().get('/zelcash/listzelnodeconf', {
       headers: {

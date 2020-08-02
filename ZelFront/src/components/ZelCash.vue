@@ -563,6 +563,173 @@
         </p>
       </div>
     </div>
+    <div v-if="zelCashSection === 'getbenchstatus'">
+      <div>
+        <p>Output from Get Bench Status command</p>
+      </div>
+      <div>
+        <p>
+          Status: {{ callResponse.data.status }}
+        </p>
+        <p>
+          Benchmarking: {{ callResponse.data.benchmarking }}
+        </p>
+        <p>
+          ZelBack: {{ callResponse.data.zelback }}
+        </p>
+      </div>
+    </div>
+    <div v-if="zelCashSection === 'startzelbenchd'">
+      <div>
+        <p>Click on Start ZelBench button to Start ZelBench Daemon</p>
+      </div>
+      <el-popconfirm
+        confirmButtonText='Start'
+        cancelButtonText='No, Thanks'
+        icon="el-icon-info"
+        iconColor="green"
+        title="Start ZelBench Daemon"
+        @onConfirm="zelcashStartZelBenchd()"
+      >
+        <ElButton slot="reference">
+          Start ZelBench
+        </ElButton>
+      </el-popconfirm>
+    </div>
+    <div v-if="zelCashSection === 'stopzelbenchd'">
+      <div>
+        <p>Click on Stop ZelBench button to Stop ZelBench Daemon</p>
+      </div>
+      <el-popconfirm
+        confirmButtonText='Stop'
+        cancelButtonText='No, Thanks'
+        icon="el-icon-info"
+        iconColor="red"
+        title="Stop ZelBench Daemon"
+        @onConfirm="zelcashStopZelBenchd()"
+      >
+        <ElButton slot="reference">
+          Stop ZelBench
+        </ElButton>
+      </el-popconfirm>
+    </div>
+    <!-- BLOCKCHAIN -->
+    <div v-if="zelCashSection === 'getblockchaininfo'">
+      <div>
+        <p>Output from Get Blockchain Info command</p>
+      </div>
+      <div>
+        <el-input
+          type="textarea"
+          autosize
+          readonly
+          v-model="callResponse.data"
+        >
+        </el-input>
+      </div>
+    </div>
+    <!-- MINING -->
+    <div v-if="zelCashSection === 'getmininginfo'">
+      <div>
+        <p>Output from Get Mining Info command</p>
+      </div>
+      <div>
+        <el-input
+          type="textarea"
+          autosize
+          readonly
+          v-model="callResponse.data"
+        >
+        </el-input>
+      </div>
+    </div>
+    <!-- NETWORK -->
+    <div v-if="zelCashSection === 'getnetworkinfo'">
+      <div>
+        <p>Output from Get Network Info command</p>
+      </div>
+      <div>
+        <el-input
+          type="textarea"
+          autosize
+          readonly
+          v-model="callResponse.data"
+        >
+        </el-input>
+      </div>
+    </div>
+    <!-- RAW TRANSACTION -->
+    <div v-if="zelCashSection === 'getrawtransaction'">
+      <div>
+        <p>Please paste a transaction ID into input field below to get it's raw transaction</p>
+      </div>
+      <div>
+        <el-input
+          placeholder="Insert TXID"
+          v-model="generalInput"
+        >
+        </el-input>
+      </div>
+      <div>
+        <ElButton @click="zelcashGetRawTransaction()">
+          Get Transaction
+        </ElButton>
+      </div>
+      <div>
+        <el-input
+          v-if="callResponse.data"
+          type="textarea"
+          autosize
+          readonly
+          v-model="callResponse.data"
+        >
+        </el-input>
+      </div>
+    </div>
+    <!-- UTIL -->
+    <div v-if="zelCashSection === 'validateaddress'">
+      <div>
+        <p>Please paste a transparent ZelCash address to display information about it</p>
+      </div>
+      <div>
+        <el-input
+          placeholder="Insert transparent ZelCash address"
+          v-model="generalInput"
+        >
+        </el-input>
+      </div>
+      <div>
+        <ElButton @click="zelcashValidateAddress()">
+          Validate Address
+        </ElButton>
+      </div>
+      <div>
+        <el-input
+          v-if="callResponse.data"
+          type="textarea"
+          autosize
+          readonly
+          v-model="callResponse.data"
+        >
+        </el-input>
+      </div>
+    </div>
+    <!-- WALLET -->
+    <div v-if="zelCashSection === 'getwalletinfo'">
+      <div>
+        <p>Output from Get Wallet Info command</p>
+      </div>
+      <div>
+        <el-input
+          type="textarea"
+          autosize
+          readonly
+          v-model="callResponse.data"
+        >
+        </el-input>
+      </div>
+    </div>
+    <!-- DEBUG -->
     <div v-if="zelCashSection === 'debug'">
       <div>
         <p>Following action will download ZelCash debug file. This may take a few minutes depending on file size</p>
@@ -651,6 +818,7 @@ export default {
         hour: '2-digit',
         minute: '2-digit',
       },
+      generalInput: '', // general
       callResponse: { // general
         status: '',
         data: '',
@@ -711,6 +879,7 @@ export default {
       console.log(val, oldVal);
       this.callResponse.status = '';
       this.callResponse.data = '';
+      this.generalInput = '';
       this.switcher(val);
     },
   },
@@ -762,6 +931,29 @@ export default {
         case 'getbenchmarks':
           this.zelcashGetBenchmarks();
           break;
+        case 'getbenchstatus':
+          this.zelcashGetBenchStatus();
+          break;
+        case 'startzelbenchd':
+          break;
+        case 'stopzelbenchd':
+          break;
+        case 'getblockchaininfo':
+          this.zelcashGetBlockchainInfo();
+          break;
+        case 'getmininginfo':
+          this.zelcashGetMiningInfo();
+          break;
+        case 'getnetworkinfo':
+          this.zelcashGetNetworkInfo();
+          break;
+        case 'getrawtransaction':
+          break;
+        case 'validateaddress':
+          break;
+        case 'getwalletinfo':
+          this.zelcashGetWalletInfo();
+          break;
         case null:
           console.log('ZelCash Section hidden');
           break;
@@ -790,33 +982,37 @@ export default {
     async zelcashHelpSpecific() {
       this.currentHelpResponse = '';
       const response = await ZelCashService.helpSpecific(this.activeHelpNames);
-      const modifiedHelp = response.data.data.split('\n');
-      const ml = modifiedHelp.length;
-      let spaces = 0;
-      for (let i = 0; i < ml; i += 1) {
-        let whiteSpaceAdd = '';
-        if (modifiedHelp[i].trim() === '{' || modifiedHelp[i].trim() === '[') {
-          spaces += 4;
-          for (let j = 0; j < spaces; j += 1) {
-            whiteSpaceAdd += '\u00A0';
+      if (response.data.status === 'error') {
+        vue.$message.error(response.data.data.message || response.data.data);
+      } else {
+        const modifiedHelp = response.data.data.split('\n');
+        const ml = modifiedHelp.length;
+        let spaces = 0;
+        for (let i = 0; i < ml; i += 1) {
+          let whiteSpaceAdd = '';
+          if (modifiedHelp[i].trim() === '{' || modifiedHelp[i].trim() === '[') {
+            spaces += 4;
+            for (let j = 0; j < spaces; j += 1) {
+              whiteSpaceAdd += '\u00A0';
+            }
+            modifiedHelp[i] = whiteSpaceAdd + modifiedHelp[i];
+            spaces += 4;
+          } else if (modifiedHelp[i].trim() === '}' || modifiedHelp[i].trim() === ']') {
+            spaces -= 4;
+            for (let j = 0; j < spaces; j += 1) {
+              whiteSpaceAdd += '\u00A0';
+            }
+            modifiedHelp[i] = whiteSpaceAdd + modifiedHelp[i];
+            spaces -= 4;
+          } else {
+            for (let j = 0; j < spaces; j += 1) {
+              whiteSpaceAdd += '\u00A0';
+            }
+            modifiedHelp[i] = whiteSpaceAdd + modifiedHelp[i];
           }
-          modifiedHelp[i] = whiteSpaceAdd + modifiedHelp[i];
-          spaces += 4;
-        } else if (modifiedHelp[i].trim() === '}' || modifiedHelp[i].trim() === ']') {
-          spaces -= 4;
-          for (let j = 0; j < spaces; j += 1) {
-            whiteSpaceAdd += '\u00A0';
-          }
-          modifiedHelp[i] = whiteSpaceAdd + modifiedHelp[i];
-          spaces -= 4;
-        } else {
-          for (let j = 0; j < spaces; j += 1) {
-            whiteSpaceAdd += '\u00A0';
-          }
-          modifiedHelp[i] = whiteSpaceAdd + modifiedHelp[i];
         }
+        this.currentHelpResponse = modifiedHelp.join('\n');
       }
-      this.currentHelpResponse = modifiedHelp.join('\n');
     },
     startZelCash() {
       vue.$message.warning('ZelCash will start');
@@ -904,6 +1100,7 @@ export default {
         }
       }
     },
+    // ZELNODE
     async zelcashGetZelNodeStatus() {
       const response = await ZelCashService.getZelNodeStatus();
       if (response.data.status === 'error') {
@@ -967,6 +1164,7 @@ export default {
         this.callResponse.data = response.data.data;
       }
     },
+    // BENCHMARKS
     async zelcashGetBenchmarks() {
       const response = await ZelCashService.getBenchmarks();
       if (response.data.status === 'error') {
@@ -976,6 +1174,106 @@ export default {
         this.callResponse.data = JSON.parse(response.data.data);
       }
     },
+    async zelcashGetBenchStatus() {
+      const response = await ZelCashService.getBenchStatus();
+      if (response.data.status === 'error') {
+        vue.$message.error(response.data.data.message || response.data.data);
+      } else {
+        this.callResponse.status = response.data.status;
+        this.callResponse.data = JSON.parse(response.data.data);
+      }
+    },
+    zelcashStartZelBenchd() {
+      vue.$message.warning('ZelBench will now try to start');
+      const zelidauth = localStorage.getItem('zelidauth');
+      ZelCashService.startZelBench(zelidauth)
+        .then((response) => {
+          vue.$message({
+            type: response.data.status,
+            message: response.data.data.message || response.data.data,
+          });
+        })
+        .catch(() => {
+          vue.$message.error('Error while trying to start ZelBench');
+        });
+    },
+    zelcashStopZelBenchd() {
+      vue.$message.warning('ZelBench will now try to stop');
+      const zelidauth = localStorage.getItem('zelidauth');
+      ZelCashService.stopZelBench(zelidauth)
+        .then((response) => {
+          vue.$message({
+            type: response.data.status,
+            message: response.data.data.message || response.data.data,
+          });
+        })
+        .catch(() => {
+          vue.$message.error('Error while trying to stop ZelBench');
+        });
+    },
+    // BLOCKCHAIN
+    async zelcashGetBlockchainInfo() {
+      const response = await ZelCashService.getBlockchainInfo();
+      if (response.data.status === 'error') {
+        vue.$message.error(response.data.data.message || response.data.data);
+      } else {
+        this.callResponse.status = response.data.status;
+        this.callResponse.data = JSON.stringify(response.data.data, undefined, '\t');
+      }
+    },
+    // MINING
+    async zelcashGetMiningInfo() {
+      const response = await ZelCashService.getMiningInfo();
+      if (response.data.status === 'error') {
+        vue.$message.error(response.data.data.message || response.data.data);
+      } else {
+        this.callResponse.status = response.data.status;
+        this.callResponse.data = JSON.stringify(response.data.data, undefined, '\t');
+      }
+    },
+    // NETWORK
+    async zelcashGetNetworkInfo() {
+      const response = await ZelCashService.getNetworkInfo();
+      if (response.data.status === 'error') {
+        vue.$message.error(response.data.data.message || response.data.data);
+      } else {
+        this.callResponse.status = response.data.status;
+        this.callResponse.data = JSON.stringify(response.data.data, undefined, '\t');
+      }
+    },
+    // RAW TRANSACTION
+    async zelcashGetRawTransaction() {
+      const response = await ZelCashService.getRawTransaction(this.generalInput, 1);
+      if (response.data.status === 'error') {
+        vue.$message.error(response.data.data.message || response.data.data);
+      } else {
+        this.callResponse.status = response.data.status;
+        this.callResponse.data = JSON.stringify(response.data.data, undefined, '\t');
+      }
+    },
+    // UTIL
+    async zelcashValidateAddress() {
+      const zelidauth = localStorage.getItem('zelidauth');
+      const response = await ZelCashService.validateAddress(zelidauth, this.generalInput);
+      if (response.data.status === 'error') {
+        vue.$message.error(response.data.data.message || response.data.data);
+      } else {
+        this.callResponse.status = response.data.status;
+        this.callResponse.data = JSON.stringify(response.data.data, undefined, '\t');
+      }
+    },
+    // WALLET
+    async zelcashGetWalletInfo() {
+      const zelidauth = localStorage.getItem('zelidauth');
+      const response = await ZelCashService.getWalletInfo(zelidauth);
+      if (response.data.status === 'error') {
+        vue.$message.error(response.data.data.message || response.data.data);
+      } else {
+        this.callResponse.status = response.data.status;
+        this.callResponse.data = JSON.stringify(response.data.data, undefined, '\t');
+      }
+    },
+    // DEBUG
     cancelDownload() {
       this.abortToken.cancel('User download cancelled');
       this.downloaded = '';

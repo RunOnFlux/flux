@@ -1289,6 +1289,12 @@ async function validateAddress(req, res) {
   }
   response = await executeCall(rpccall, rpcparameters);
 
+  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  if (authorized !== true) {
+    delete response.data.ismine;
+    delete response.data.iswatchonly;
+  }
+
   return res ? res.json(response) : response;
 }
 
