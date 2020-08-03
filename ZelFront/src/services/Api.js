@@ -12,8 +12,9 @@ const backendURL = store.get('backendURL') || `http://${externalip}:${port}`;
 
 const sourceCancelToken = axios.CancelToken.source();
 
-export {sourceCancelToken};
+export { sourceCancelToken };
 
-export default () => axios.create({
-  baseURL : backendURL,
-});
+export default () =>
+  axios.create({
+    baseURL: backendURL,
+  });
