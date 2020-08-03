@@ -28,6 +28,7 @@ a:hover {
 hr {
   height: 1px;
   background-color: rgba(255, 255, 255, 0.6);
+  margin: 30px;
 }
 
 ::-webkit-scrollbar {
@@ -306,4 +307,28 @@ h4 {
   height: 55px;
   overflow: hidden;
   border: 1px solid #333;
+}
+
+/* */
+
+.zelnodesection .el-button,
+.zelcashsection .el-button,
+.zelbenchsection .el-button,
+.zeladminsection .el-button {
+  margin: 10px;
+}
+
+.zelnodesection .el-switch,
+.zelcashsection .el-switch,
+.zelbenchsection .el-switch,
+.zeladminsection .el-switch {
+  margin-left: 10px;
+}
+
+.helpSectionData {
+  text-align: left;
+}
+
+.helpSpecific {
+  margin-left: 30px;
 }

@@ -3382,6 +3382,40 @@ async function getZelAppsLocations(req, res) {
   res.json(resultsResponse);
 }
 
+async function getZelAppsLocation(req, res) {
+  try {
+    let { zelapp } = req.params;
+    zelapp = zelapp || req.query.zelapp;
+    if (!zelapp) {
+      throw new Error('No ZelApp name specified');
+    }
+    const dbopen = serviceHelper.databaseConnection();
+    const database = dbopen.db(config.database.zelappsglobal.database);
+    const query = { name: new RegExp(`^${zelapp}$`, 'i') }; // case insensitive
+    const projection = {
+      projection: {
+        _id: 0,
+        name: 1,
+        hash: 1,
+        ip: 1,
+        broadcastedAt: 1,
+        expireAt: 1,
+      },
+    };
+    const results = await serviceHelper.findInDatabase(database, globalZelAppsLocations, query, projection);
+    const resultsResponse = serviceHelper.createDataMessage(results);
+    res.json(resultsResponse);
+  } catch (error) {
+    log.error(error);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
+}
+
 async function checkSynced() {
   try {
     // check if flux database is synced with zelcash database (equal or -1 inheight)
@@ -3797,6 +3831,7 @@ module.exports = {
   rescanGlobalAppsInformation,
   continuousZelAppHashesCheck,
   getZelAppHashes,
+  getZelAppsLocation,
   getZelAppsLocations,
   storeZelAppRunningMessage,
   reindexGlobalAppsLocation,

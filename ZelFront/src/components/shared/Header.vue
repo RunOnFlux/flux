@@ -45,7 +45,7 @@
           </el-menu-item>
           <el-menu-item
             index="1-1-5"
-            v-if="privilage === 'admin'"
+            v-if="privilage === 'admin' || privilage === 'zelteam'"
           >
             Start
           </el-menu-item>
@@ -57,7 +57,7 @@
           </el-menu-item>
           <el-menu-item
             index="1-1-7"
-            v-if="privilage === 'admin'"
+            v-if="privilage === 'admin' || privilage === 'zelteam'"
           >
             Restart
           </el-menu-item>
@@ -67,70 +67,167 @@
           index="1-2"
         >
           <template slot="title">ZelNode</template>
-          <el-menu-item index="1-2-1">Get Info</el-menu-item>
+          <el-menu-item index="1-2-1">Get ZelNode Status</el-menu-item>
+          <el-menu-item index="1-2-2">List ZelNodes</el-menu-item>
+          <el-menu-item index="1-2-3">View Deterministic ZelNode List</el-menu-item>
+          <el-menu-item index="1-2-4">Get ZelNode Count</el-menu-item>
+          <el-menu-item index="1-2-5">Get Start List</el-menu-item>
+          <el-menu-item index="1-2-6">Get DOS List</el-menu-item>
+          <el-menu-item index="1-2-7">ZelNode Current Winner</el-menu-item>
         </el-submenu>
         <el-submenu
           :popper-append-to-body=true
           index="1-3"
         >
-          <template slot="title">BlockChain</template>
-          <el-menu-item index="1-3-1">Get Info</el-menu-item>
+          <template slot="title">Benchmarks</template>
+          <el-menu-item index="1-3-1">Get Benchmarks</el-menu-item>
+          <el-menu-item index="1-3-2">Get Bench Status</el-menu-item>
+          <el-menu-item
+            index="1-3-3"
+            v-if="privilage === 'admin' || privilage === 'zelteam'"
+          >
+            Start ZelBench
+          </el-menu-item>
+          <el-menu-item
+            index="1-3-4"
+            v-if="privilage === 'admin' || privilage === 'zelteam'"
+          >
+            Stop ZelBench
+          </el-menu-item>
         </el-submenu>
         <el-submenu
           :popper-append-to-body=true
           index="1-4"
         >
-          <template slot="title">Mining</template>
-          <el-menu-item index="1-4-1">Get Info</el-menu-item>
+          <template slot="title">BlockChain</template>
+          <el-menu-item index="1-4-1">Get BlockChain Info</el-menu-item>
         </el-submenu>
         <el-submenu
           :popper-append-to-body=true
           index="1-5"
         >
-          <template slot="title">Network</template>
-          <el-menu-item index="1-5-1">Get Info</el-menu-item>
+          <template slot="title">Mining</template>
+          <el-menu-item index="1-5-1">Get Mining Info</el-menu-item>
         </el-submenu>
         <el-submenu
           :popper-append-to-body=true
           index="1-6"
         >
-          <template slot="title">Raw Transactions</template>
-          <el-menu-item index="1-6-1">Get Info</el-menu-item>
+          <template slot="title">Network</template>
+          <el-menu-item index="1-6-1">Get Network Info</el-menu-item>
         </el-submenu>
         <el-submenu
           :popper-append-to-body=true
           index="1-7"
         >
-          <template slot="title">Utilities</template>
-          <el-menu-item index="1-7-1">Get Info</el-menu-item>
+          <template slot="title">Raw Transactions</template>
+          <el-menu-item index="1-7-1">Get Raw Transaction</el-menu-item>
         </el-submenu>
         <el-submenu
           :popper-append-to-body=true
           index="1-8"
         >
-          <template slot="title">Wallet</template>
-          <el-menu-item index="1-8-1">Get Info</el-menu-item>
+          <template slot="title">Util</template>
+          <el-menu-item index="1-8-1">Validate Address</el-menu-item>
         </el-submenu>
+        <el-submenu
+          :popper-append-to-body=true
+          index="1-9"
+        >
+          <template slot="title">Wallet</template>
+          <el-menu-item index="1-9-1">Get Wallet Info</el-menu-item>
+        </el-submenu>
+        <el-menu-item
+          v-if="privilage === 'zelteam' || privilage === 'admin'"
+          index="1-10"
+        >
+          Debug
+        </el-menu-item>
       </el-submenu>
       <el-submenu
         v-if="privilage === 'user' || privilage === 'admin' || privilage === 'zelteam'"
         index="2"
         :popper-append-to-body=true
       >
-        <template slot="title">Flux</template>
-        <el-menu-item index="2-1">Node Status</el-menu-item>
-        <el-menu-item index="2-2">Flux Network</el-menu-item>
-        <el-menu-item index="2-3">Flux Messages</el-menu-item>
+        <template slot="title">ZelBench</template>
+        <el-submenu
+          :popper-append-to-body=true
+          index="2-1"
+        >
+          <template slot="title">Control</template>
+          <el-menu-item index="2-1-1">Help</el-menu-item>
+          <el-menu-item
+            index="2-1-2"
+            v-if="privilage === 'admin' || privilage === 'zelteam'"
+          >
+            Start
+          </el-menu-item>
+          <el-menu-item
+            index="2-1-3"
+            v-if="privilage === 'admin'"
+          >
+            Stop
+          </el-menu-item>
+          <el-menu-item
+            index="2-1-4"
+            v-if="privilage === 'admin' || privilage === 'zelteam'"
+          >
+            Restart
+          </el-menu-item>
+        </el-submenu>
+        <el-submenu
+          :popper-append-to-body=true
+          index="2-2"
+        >
+          <template slot="title">ZelNode</template>
+          <el-menu-item index="2-2-1">Get Benchmarks</el-menu-item>
+          <el-menu-item index="2-2-2">Get Info</el-menu-item>
+        </el-submenu>
+        <el-submenu
+          :popper-append-to-body=true
+          index="2-3"
+        >
+          <template slot="title">Benchmarks</template>
+          <el-menu-item index="2-3-1">Get Status</el-menu-item>
+          <el-menu-item
+            index="2-3-2"
+            v-if="privilage === 'admin' || privilage === 'zelteam'"
+          >
+            Restart Node Benchmarks
+          </el-menu-item>
+          <el-menu-item
+            index="2-3-3"
+            v-if="privilage === 'admin'"
+          >
+            Sign ZelNode Transaction
+          </el-menu-item>
+        </el-submenu>
+        <el-menu-item
+          v-if="privilage === 'zelteam' || privilage === 'admin'"
+          index="2-4"
+        >
+          Debug
+        </el-menu-item>
       </el-submenu>
       <el-submenu
         v-if="privilage === 'user' || privilage === 'admin' || privilage === 'zelteam'"
         index="3"
         :popper-append-to-body=true
       >
+        <template slot="title">Flux</template>
+        <el-menu-item index="3-1">Node Status</el-menu-item>
+        <el-menu-item index="3-2">Flux Network</el-menu-item>
+        <el-menu-item index="3-3">Debug</el-menu-item>
+      </el-submenu>
+      <el-submenu
+        v-if="privilage === 'user' || privilage === 'admin' || privilage === 'zelteam'"
+        index="4"
+        :popper-append-to-body=true
+      >
         <template slot="title">ZelApps</template>
-        <el-menu-item index="3-1">Local ZelApps</el-menu-item>
-        <el-menu-item index="3-2">Global ZelApps</el-menu-item>
-        <el-menu-item index="3-3">Register ZelApp</el-menu-item>
+        <el-menu-item index="4-1">Local ZelApps</el-menu-item>
+        <el-menu-item index="4-2">Global ZelApps</el-menu-item>
+        <el-menu-item index="4-3">Register ZelApp</el-menu-item>
       </el-submenu>
       <el-submenu
         v-if="privilage === 'user' || privilage === 'admin' || privilage === 'zelteam'"
@@ -233,7 +330,7 @@ export default {
       console.log(key);
       switch (key) {
         case '0':
-          this.$store.commit('setZelCashSection', 'getinfo');
+          this.$store.commit('setZelCashSection', 'welcomeinfo');
           break;
         case '1-1-1':
           this.$store.commit('setZelCashSection', 'getinfo');
@@ -241,25 +338,121 @@ export default {
         case '1-1-2':
           this.$store.commit('setZelCashSection', 'help');
           break;
+        case '1-1-3':
+          this.$store.commit('setZelCashSection', 'rescanblockchain');
+          break;
+        case '1-1-4':
+          this.$store.commit('setZelCashSection', 'reindexblockchain');
+          break;
+        case '1-1-5':
+          this.$store.commit('setZelCashSection', 'start');
+          break;
+        case '1-1-6':
+          this.$store.commit('setZelCashSection', 'stop');
+          break;
         case '1-1-7':
           this.$store.commit('setZelCashSection', 'restart');
           break;
-        case '2-1':
-          this.$store.commit('setZelNodeSection', 'getinfo');
+        case '1-2-1':
+          this.$store.commit('setZelCashSection', 'getzelnodestatus');
           break;
-        case '2-2':
-          this.$store.commit('setZelNodeSection', 'network');
+        case '1-2-2':
+          this.$store.commit('setZelCashSection', 'listzelnodes');
           break;
-        case '2-3':
-          this.$store.commit('setZelNodeSection', 'messages');
+        case '1-2-3':
+          this.$store.commit('setZelCashSection', 'viewdeterministiczelnodelist');
+          break;
+        case '1-2-4':
+          this.$store.commit('setZelCashSection', 'getzelnodecount');
+          break;
+        case '1-2-5':
+          this.$store.commit('setZelCashSection', 'getstartlist');
+          break;
+        case '1-2-6':
+          this.$store.commit('setZelCashSection', 'getdoslist');
+          break;
+        case '1-2-7':
+          this.$store.commit('setZelCashSection', 'zelnodecurrentwinner');
+          break;
+        case '1-3-1':
+          this.$store.commit('setZelCashSection', 'getbenchmarks');
+          break;
+        case '1-3-2':
+          this.$store.commit('setZelCashSection', 'getbenchstatus');
+          break;
+        case '1-3-3':
+          this.$store.commit('setZelCashSection', 'startzelbenchd');
+          break;
+        case '1-3-4':
+          this.$store.commit('setZelCashSection', 'stopzelbenchd');
+          break;
+        case '1-4-1':
+          this.$store.commit('setZelCashSection', 'getblockchaininfo');
+          break;
+        case '1-5-1':
+          this.$store.commit('setZelCashSection', 'getmininginfo');
+          break;
+        case '1-6-1':
+          this.$store.commit('setZelCashSection', 'getnetworkinfo');
+          break;
+        case '1-7-1':
+          this.$store.commit('setZelCashSection', 'getrawtransaction');
+          break;
+        case '1-8-1':
+          this.$store.commit('setZelCashSection', 'validateaddress');
+          break;
+        case '1-9-1':
+          this.$store.commit('setZelCashSection', 'getwalletinfo');
+          break;
+        case '1-10':
+          this.$store.commit('setZelCashSection', 'debug');
+          break;
+        case '2-1-1':
+          this.$store.commit('setZelBenchSection', 'help');
+          break;
+        case '2-1-2':
+          this.$store.commit('setZelBenchSection', 'start');
+          break;
+        case '2-1-3':
+          this.$store.commit('setZelBenchSection', 'stop');
+          break;
+        case '2-1-4':
+          this.$store.commit('setZelBenchSection', 'restart');
+          break;
+        case '2-2-1':
+          this.$store.commit('setZelBenchSection', 'getbenchmarks');
+          break;
+        case '2-2-2':
+          this.$store.commit('setZelBenchSection', 'getinfo');
+          break;
+        case '2-3-1':
+          this.$store.commit('setZelBenchSection', 'getstatus');
+          break;
+        case '2-3-2':
+          this.$store.commit('setZelBenchSection', 'restartnodebenchmarks');
+          break;
+        case '2-3-3':
+          this.$store.commit('setZelBenchSection', 'signzelnodetransaction');
+          break;
+        case '2-4':
+          this.$store.commit('setZelBenchSection', 'debug');
           break;
         case '3-1':
-          this.$store.commit('setZelAppsSection', 'localzelapps');
+          this.$store.commit('setZelNodeSection', 'getinfo');
           break;
         case '3-2':
-          this.$store.commit('setZelAppsSection', 'globalzelapps');
+          this.$store.commit('setZelNodeSection', 'network');
           break;
         case '3-3':
+          this.$store.commit('setZelNodeSection', 'debug');
+          break;
+        case '4-1':
+          this.$store.commit('setZelAppsSection', 'localzelapps');
+          break;
+        case '4-2':
+          this.$store.commit('setZelAppsSection', 'globalzelapps');
+          break;
+        case '4-3':
           this.$store.commit('setZelAppsSection', 'registerzelapp');
           break;
         case '10-1':
@@ -294,7 +487,7 @@ export default {
       const auth = qs.parse(zelidauth);
       localStorage.removeItem('zelidauth');
       this.$store.commit('setPrivilage', 'none');
-      this.$store.commit('setZelCashSection', 'getinfo');
+      this.$store.commit('setZelCashSection', 'welcomeinfo');
       console.log(auth);
       zelIDService.logoutCurrentSession(zelidauth)
         .then((response) => {

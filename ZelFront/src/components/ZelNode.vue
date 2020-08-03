@@ -128,11 +128,8 @@
               </template>
             </el-table-column>
           </el-table>
-          <br>
           <hr>
-          <br>
           Force a connection to a peer
-          <br>
           <ElForm class="loginForm">
             <ElFormItem>
               <ElInput
@@ -144,10 +141,7 @@
               </ElInput>
             </ElFormItem>
 
-            <ElButton
-              class="generalButton"
-              @click="connectPeer()"
-            >
+            <ElButton @click="connectPeer()">
               Connect to Peer
             </ElButton>
           </ElForm>
@@ -197,6 +191,65 @@
         </el-tab-pane>
       </el-tabs>
     </div>
+    <div v-if="zelNodeSection === 'debug'">
+      <div>
+        <p>Following action will download Flux debug file. This may take a few minutes depending on file size</p>
+      </div>
+      <el-popconfirm
+        confirmButtonText='Download Debug'
+        cancelButtonText='No, Thanks'
+        icon="el-icon-info"
+        iconColor="red"
+        title="Download Flux Debug file?"
+        @onConfirm="downloadFluxDebugFile()"
+      >
+        <ElButton slot="reference">
+          Download Debug File
+        </ElButton>
+      </el-popconfirm>
+      <p v-if="total && downloaded">
+        {{ (downloaded / 1e6).toFixed(2) + " / " + (total / 1e6).toFixed(2) }} MB - {{ ((downloaded / total) * 100).toFixed(2) + "%" }}
+        <el-tooltip
+          content="Cancel Download"
+          placement="top"
+        >
+          <el-button
+            v-if="total && downloaded && total !== downloaded"
+            type="danger"
+            icon="el-icon-close"
+            circle
+            size="mini"
+            @click="cancelDownload"
+          ></el-button>
+        </el-tooltip>
+      </p>
+      <br><br>
+      <div>
+        <div>
+          <p>Following action will show last 100 lines of Flux debug file</p>
+        </div>
+        <el-popconfirm
+          confirmButtonText='Show Debug'
+          cancelButtonText='No, Thanks'
+          icon="el-icon-info"
+          iconColor="red"
+          title="Show Flux Debug file?"
+          @onConfirm="tailFluxDebug()"
+        >
+          <ElButton slot="reference">
+            Show Debug File
+          </ElButton>
+        </el-popconfirm>
+        <br><br>
+        <el-input
+          v-if="callResponse.data.message"
+          type="textarea"
+          autosize
+          v-model="fluxDebugTail"
+        >
+        </el-input>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -214,6 +267,10 @@ export default {
   name: 'ZelNode',
   data() {
     return {
+      callResponse: { // general
+        status: '',
+        data: '',
+      },
       getInfoResponse: {
         status: '',
         data: '',
@@ -228,6 +285,9 @@ export default {
       incomingConnections: [],
       filterConnectedPeer: '',
       connectPeerIP: '',
+      total: '',
+      downloaded: '',
+      abortToken: {},
     };
   },
   computed: {
@@ -236,6 +296,12 @@ export default {
       'userconfig',
       'zelNodeSection',
     ]),
+    fluxDebugTail() {
+      if (this.callResponse.data.message) {
+        return this.callResponse.data.message.split('\n').reverse().filter((el) => el !== '').join('\n');
+      }
+      return this.callResponse.data;
+    },
     connectedPeersFilter() {
       return this.connectedPeers.filter((data) => !this.filterConnectedPeer || data.ip.toLowerCase().includes(this.filterConnectedPeer.toLowerCase()));
     },
@@ -246,7 +312,15 @@ export default {
   watch: {
     zelNodeSection(val, oldVal) {
       console.log(val, oldVal);
-      switch (val) {
+      this.switcher(val);
+    },
+  },
+  mounted() {
+    this.switcher(this.zelNodeSection);
+  },
+  methods: {
+    switcher(value) {
+      switch (value) {
         case 'getinfo':
           this.zelcashGetInfo();
           this.zelcashGetZelNodeStatus();
@@ -258,35 +332,15 @@ export default {
         case 'messages':
           this.broadcastMessage();
           break;
+        case 'debug':
+          break;
         case null:
           console.log('ZelNode Section hidden');
           break;
         default:
-          console.log('ZelNode Section: Unrecognized method'); // should not be visible if everything works correctly
+          console.log('ZelNode Section: Unrecognized method');
       }
     },
-  },
-  mounted() {
-    switch (this.zelNodeSection) {
-      case 'getinfo':
-        this.zelcashGetInfo();
-        this.zelcashGetZelNodeStatus();
-        break;
-      case 'network':
-        this.zelfluxConnectedPeersInfo();
-        this.zelfluxIncomingConnectionsInfo();
-        break;
-      case 'messages':
-        this.broadcastMessage();
-        break;
-      case null:
-        console.log('ZelNode Section hidden');
-        break;
-      default:
-        console.log('ZelNode Section: Unrecognized method');
-    }
-  },
-  methods: {
     async zelcashGetInfo() {
       const response = await ZelCashService.getInfo();
       this.getInfoResponse.status = response.data.status;
@@ -402,6 +456,50 @@ export default {
         .catch((e) => {
           console.log(e);
           vue.$message.error(e.toString());
+        });
+    },
+    cancelDownload() {
+      this.abortToken.cancel('User download cancelled');
+      this.downloaded = '';
+      this.total = '';
+    },
+    async downloadFluxDebugFile() {
+      const self = this;
+      self.abortToken = ZelFluxService.cancelToken();
+      const zelidauth = localStorage.getItem('zelidauth');
+      const axiosConfig = {
+        headers: {
+          zelidauth,
+        },
+        responseType: 'blob',
+        onDownloadProgress(progressEvent) {
+          self.downloaded = progressEvent.loaded;
+          self.total = progressEvent.total;
+        },
+        cancelToken: self.abortToken.token,
+      };
+      const response = await ZelFluxService.justAPI().get('/zelnode/zelfluxerrorlog', axiosConfig);
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', 'debug.log');
+      document.body.appendChild(link);
+      link.click();
+    },
+    tailFluxDebug() {
+      const zelidauth = localStorage.getItem('zelidauth');
+      ZelFluxService.tailFluxDebug(zelidauth)
+        .then((response) => {
+          if (response.data.status === 'error') {
+            vue.$message.error(response.data.data.message || response.data.data);
+          } else {
+            this.callResponse.status = response.data.status;
+            this.callResponse.data = response.data.data;
+          }
+        })
+        .catch((error) => {
+          console.log(error);
+          vue.$message.error('Error while trying to get latest debug of Flux');
         });
     },
   },

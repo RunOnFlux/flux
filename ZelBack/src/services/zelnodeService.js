@@ -111,6 +111,47 @@ async function updateZelBench(req, res) {
 }
 
 // eslint-disable-next-line consistent-return
+async function startZelBench(req, res) {
+  const authorized = await serviceHelper.verifyZelTeamSession(req.headers);
+  if (authorized === true) {
+    const exec = 'zelbenchd -daemon';
+    cmd.get(exec, (err, data) => {
+      if (err) {
+        const errMessage = serviceHelper.createErrorMessage(`Error starting ZelBench: ${err.message}`, err.name, err.code);
+        return res.json(errMessage);
+      }
+      console.log(data);
+      const message = serviceHelper.createSuccessMessage('ZelBench successfully started');
+      return res.json(message);
+    });
+  } else {
+    const errMessage = serviceHelper.errUnauthorizedMessage();
+    return res.json(errMessage);
+  }
+}
+
+// eslint-disable-next-line consistent-return
+async function restartZelBench(req, res) {
+  const authorized = await serviceHelper.verifyZelTeamSession(req.headers);
+  if (authorized === true) {
+    const zelnodedpath = path.join(__dirname, '../../../helpers');
+    const exec = `cd ${zelnodedpath} && sh restartZelBench.sh`;
+    cmd.get(exec, (err) => {
+      if (err) {
+        const errMessage = serviceHelper.createErrorMessage(`Error restarting ZelBench: ${err.message}`, err.name, err.code);
+        return res.json(errMessage);
+      }
+      const message = serviceHelper.createSuccessMessage('ZelBench successfully restarted');
+      return res.json(message);
+    });
+  } else {
+    const errMessage = serviceHelper.errUnauthorizedMessage();
+    console.log(errMessage);
+    return res.json(errMessage);
+  }
+}
+
+// eslint-disable-next-line consistent-return
 async function startZelCash(req, res) {
   const authorized = await serviceHelper.verifyZelTeamSession(req.headers);
   if (authorized === true) {
@@ -223,6 +264,50 @@ async function zelbenchDebug(req, res) {
   return res.sendFile(filepath);
 }
 
+async function tailZelCashDebug(req, res) {
+  const authorized = await serviceHelper.verifyZelTeamSession(req.headers);
+  if (authorized === true) {
+    const homeDirPath = path.join(__dirname, '../../../../');
+    const datadir = zelcashService.getConfigValue('datadir') || `${homeDirPath}.zelcash`;
+    const filepath = `${datadir}/debug.log`;
+    const exec = `tail -n 100 ${filepath}`;
+    cmd.get(exec, (err, data) => {
+      if (err) {
+        const errMessage = serviceHelper.createErrorMessage(`Error obtaining ZelBench debug file: ${err.message}`, err.name, err.code);
+        res.json(errMessage);
+        return;
+      }
+      const message = serviceHelper.createSuccessMessage(data);
+      res.json(message);
+    });
+  } else {
+    const errMessage = serviceHelper.errUnauthorizedMessage();
+    res.json(errMessage);
+  }
+}
+
+async function tailZelBenchDebug(req, res) {
+  const authorized = await serviceHelper.verifyZelTeamSession(req.headers);
+  if (authorized === true) {
+    const homeDirPath = path.join(__dirname, '../../../../');
+    const datadir = `${homeDirPath}.zelbenchmark`;
+    const filepath = `${datadir}/debug.log`;
+    const exec = `tail -n 100 ${filepath}`;
+    cmd.get(exec, (err, data) => {
+      if (err) {
+        const errMessage = serviceHelper.createErrorMessage(`Error obtaining ZelBench debug file: ${err.message}`, err.name, err.code);
+        res.json(errMessage);
+        return;
+      }
+      const message = serviceHelper.createSuccessMessage(data);
+      res.json(message);
+    });
+  } else {
+    const errMessage = serviceHelper.errUnauthorizedMessage();
+    res.json(errMessage);
+  }
+}
+
 async function zelfluxErrorLog(req, res) {
   const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
   if (!authorized) {
@@ -234,6 +319,28 @@ async function zelfluxErrorLog(req, res) {
   const filepath = `${datadir}/error.log`;
 
   return res.sendFile(filepath);
+}
+
+async function tailFluxErrorLog(req, res) {
+  const authorized = await serviceHelper.verifyZelTeamSession(req.headers);
+  if (authorized === true) {
+    const homeDirPath = path.join(__dirname, '../../../../');
+    const datadir = `${homeDirPath}zelflux`;
+    const filepath = `${datadir}/error.log`;
+    const exec = `tail -n 100 ${filepath}`;
+    cmd.get(exec, (err, data) => {
+      if (err) {
+        const errMessage = serviceHelper.createErrorMessage(`Error obtaining Flux error file: ${err.message}`, err.name, err.code);
+        res.json(errMessage);
+        return;
+      }
+      const message = serviceHelper.createSuccessMessage(data);
+      res.json(message);
+    });
+  } else {
+    const errMessage = serviceHelper.errUnauthorizedMessage();
+    res.json(errMessage);
+  }
 }
 
 function getZelFluxTimezone(req, res) {
@@ -357,4 +464,9 @@ module.exports = {
   zelfluxErrorLog,
   getZelFluxTimezone,
   getZelFluxInfo,
+  startZelBench,
+  restartZelBench,
+  tailZelCashDebug,
+  tailZelBenchDebug,
+  tailFluxErrorLog,
 };

@@ -32,10 +32,7 @@
               sortable
             >
               <template slot-scope="scope">
-                <ElButton
-                  class="generalButton"
-                  @click="openZelApp(scope.row.Names[0].substr(4, scope.row.Names[0].length))"
-                >
+                <ElButton @click="openZelApp(scope.row.Names[0].substr(4, scope.row.Names[0].length))">
                   Visit
                 </ElButton>
               </template>
@@ -46,18 +43,18 @@
               sortable
             >
               <template slot-scope="scope">
-                <ElButton
-                  class="generalButton"
-                  @click="stopZelApp(scope.row.Names[0].substr(1, scope.row.Names[0].length))"
+                <el-popconfirm
+                  confirmButtonText='Stop'
+                  cancelButtonText='No, Thanks'
+                  icon="el-icon-info"
+                  iconColor="red"
+                  title="Stops Application"
+                  @onConfirm="stopZelApp(scope.row.Names[0].substr(1, scope.row.Names[0].length))"
                 >
-                  Stop
-                </ElButton>
-                <!-- <ElButton
-                  class="generalButton"
-                  @click="restartZelApp(scope.row.Names[0].substr(1, scope.row.Names[0].length))"
-                >
-                  Restart
-                </ElButton> -->
+                  <ElButton slot="reference">
+                    Stop
+                  </ElButton>
+                </el-popconfirm>
               </template>
             </el-table-column>
           </el-table>
@@ -119,18 +116,30 @@
               sortable
             >
               <template slot-scope="scope">
-                <ElButton
-                  class="generalButton"
-                  @click="startZelApp(scope.row.name)"
+                <el-popconfirm
+                  confirmButtonText='Start'
+                  cancelButtonText='No, Thanks'
+                  icon="el-icon-info"
+                  iconColor="green"
+                  title="Starts Application"
+                  @onConfirm="startZelApp(scope.row.name)"
                 >
-                  Start
-                </ElButton>
-                <ElButton
-                  class="generalButton"
-                  @click="restartZelApp(scope.row.name)"
+                  <ElButton slot="reference">
+                    Start
+                  </ElButton>
+                </el-popconfirm>
+                <el-popconfirm
+                  confirmButtonText='Restart'
+                  cancelButtonText='No, Thanks'
+                  icon="el-icon-info"
+                  iconColor="orange"
+                  title="Retarts Application"
+                  @onConfirm="restartZelApp(scope.row.name)"
                 >
-                  Restart
-                </ElButton>
+                  <ElButton slot="reference">
+                    Restart
+                  </ElButton>
+                </el-popconfirm>
               </template>
             </el-table-column>
             <el-table-column
@@ -139,12 +148,18 @@
               sortable
             >
               <template slot-scope="scope">
-                <ElButton
-                  class="generalButton"
-                  @click="removeZelApp(scope.row.name)"
+                <el-popconfirm
+                  confirmButtonText='Remove'
+                  cancelButtonText='No, Thanks'
+                  icon="el-icon-info"
+                  iconColor="red"
+                  title="Removes Application"
+                  @onConfirm="removeZelApp(scope.row.name)"
                 >
-                  Remove
-                </ElButton>
+                  <ElButton slot="reference">
+                    Remove
+                  </ElButton>
+                </el-popconfirm>
               </template>
             </el-table-column>
           </el-table>
@@ -218,12 +233,18 @@
               sortable
             >
               <template slot-scope="scope">
-                <ElButton
-                  class="generalButton"
-                  @click="installTemporaryLocalApp(scope.row.name)"
+                <el-popconfirm
+                  confirmButtonText='Install'
+                  cancelButtonText='No, Thanks'
+                  icon="el-icon-info"
+                  iconColor="green"
+                  title="Installs Application"
+                  @onConfirm="installTemporaryLocalApp(scope.row.name)"
                 >
-                  Install
-                </ElButton>
+                  <ElButton slot="reference">
+                    Install
+                  </ElButton>
+                </el-popconfirm>
               </template>
             </el-table-column>
           </el-table>
@@ -243,8 +264,8 @@
     <div v-if="zelAppsSection === 'globalzelapps'">
       <el-tabs v-model="activeNameGlobal">
         <el-tab-pane
-          label="Available"
-          name="available"
+          label="Active Apps"
+          name="activeapps"
         >
           <el-table
             :data="globalZelAppSpecs.data"
@@ -261,48 +282,68 @@
               </template>
             </el-table-column>
             <el-table-column
-              label="Image"
-              prop="repotag"
+              label="Description"
+              prop="description"
               sortable
             >
             </el-table-column>
             <el-table-column
-              label="Owner"
-              prop="owner"
-              sortable
-            >
-            </el-table-column>
-            <el-table-column
-              label="Port"
-              prop="port"
-              sortable
-            >
-            </el-table-column>
-            <el-table-column
-              label="CPU"
-              prop="cpu"
+              label="Visit"
+              prop="visit"
               sortable
             >
               <template slot-scope="scope">
-                {{ resolveCpu(scope.row) }}
+                <ElButton @click="openGlobalZelApp(scope.row.name)">
+                  Visit
+                </ElButton>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-tab-pane>
+        <el-tab-pane
+          label="My Apps"
+          name="myeapps"
+        >
+          <el-table
+            :data="myGlobalApps"
+            empty-text="No global ZelApp"
+            style="width: 100%"
+          >
+            <el-table-column
+              label="Name"
+              prop="name"
+              sortable
+            >
+              <template slot-scope="scope">
+                {{ getZelAppName(scope.row.name) }}
               </template>
             </el-table-column>
             <el-table-column
-              label="RAM"
-              prop="ram"
+              label="Description"
+              prop="description"
+              sortable
+            >
+            </el-table-column>
+            <el-table-column
+              label="Visit"
+              prop="visit"
               sortable
             >
               <template slot-scope="scope">
-                {{ resolveRam(scope.row) }}
+                <ElButton @click="openGlobalZelApp(scope.row.name)">
+                  Visit
+                </ElButton>
               </template>
             </el-table-column>
             <el-table-column
-              label="HDD"
-              prop="hdd"
+              label="Manage"
+              prop="manage"
               sortable
             >
               <template slot-scope="scope">
-                {{ resolveHdd(scope.row) }}
+                <ElButton @click="openAppManagement(scope.row.name)">
+                  Manage
+                </ElButton>
               </template>
             </el-table-column>
           </el-table>
@@ -549,10 +590,7 @@
           </div>
         </el-form>
         <div>
-          <ElButton
-            class="generalButton"
-            @click="checkFluxSpecificationsAndFormatMessage"
-          >
+          <ElButton @click="checkFluxSpecificationsAndFormatMessage">
             Compute Registration Message
           </ElButton>
         </div>
@@ -592,10 +630,7 @@
           <br><br>
           Price per Month: {{ appPricePerMonth }} ZEL
           <br><br>
-          <ElButton
-            class="generalButton"
-            @click="register"
-          >
+          <ElButton @click="register">
             Register ZelApp
           </ElButton>
           <br><br>
@@ -633,26 +668,26 @@ export default {
   data() {
     return {
       activeName: 'running',
-      activeNameGlobal: 'available',
+      activeNameGlobal: 'activeapps',
       getRunningZelAppsResponse: {
         status: '',
-        data: '',
+        data: [],
       },
       getAllZelAppsResponse: {
         status: '',
-        data: '',
+        data: [],
       },
       installedZelApps: {
         status: '',
-        data: '',
+        data: [],
       },
       availableZelApps: {
         status: '',
-        data: '',
+        data: [],
       },
       globalZelAppSpecs: {
         status: '',
-        data: '',
+        data: [],
       },
       tier: '',
       output: '',
@@ -762,6 +797,14 @@ export default {
       'userconfig',
       'zelAppsSection',
     ]),
+    myGlobalApps() {
+      const zelidauth = localStorage.getItem('zelidauth');
+      const auth = qs.parse(zelidauth);
+      if (this.globalZelAppSpecs.data) {
+        return this.globalZelAppSpecs.data.filter((app) => app.owner === auth.zelid);
+      }
+      return [];
+    },
     stringOutput() {
       let string = '';
       this.output.forEach((output) => {
@@ -813,25 +856,7 @@ export default {
     activeName(val, oldVal) {
       console.log(val, oldVal);
       this.output = '';
-      switch (val) {
-        case 'running':
-          this.zelappsGetListRunningZelApps();
-          break;
-        case 'all':
-          this.zelappsGetListAllZelApps();
-          break;
-        case 'installed':
-          this.zelappsGetInstalledZelApps();
-          break;
-        case 'available':
-          this.zelappsGetAvailableZelApps();
-          break;
-        case 'stopped':
-          // getting all and checking state?
-          break;
-        default:
-          console.log('ZelApps Section: Unrecognized method'); // should not be visible if everything works correctly
-      }
+      this.switcher(val);
     },
     zelAppRegistrationSpecification: {
       handler(val, oldVal) {
@@ -856,24 +881,28 @@ export default {
     console.log(auth);
     this.getZelNodeStatus();
     this.zelappsGetInstalledZelApps();
-    switch (this.zelAppsSection) {
-      case 'localzelapps':
-        this.zelappsGetListRunningZelApps();
-        break;
-      case 'globalzelapps':
-        this.zelappsGetListGlobalZelApps();
-        break;
-      case 'registerzelapp':
-        this.registrationInformation();
-        this.checkFluxCommunication();
-        break;
-      default:
-        console.log('ZelApps Section: Unrecognized method');
-    }
+    this.switcher(this.zelAppsSection);
   },
   methods: {
+    switcher(value) {
+      switch (value) {
+        case 'localzelapps':
+          this.zelappsGetListRunningZelApps();
+          break;
+        case 'globalzelapps':
+          this.zelappsGetListGlobalZelApps();
+          break;
+        case 'registerzelapp':
+          this.registrationInformation();
+          this.checkFluxCommunication();
+          break;
+        default:
+          console.log('ZelApps Section: Unrecognized method');
+      }
+    },
     async zelappsGetListGlobalZelApps() {
       const response = await ZelAppsService.globalZelAppSpecifications();
+      console.log(response);
       this.globalZelAppSpecs.status = response.data.status;
       this.globalZelAppSpecs.data = response.data.data;
     },
@@ -1330,6 +1359,31 @@ export default {
       } else {
         vue.$message.error(response.data.data);
       }
+    },
+    async openGlobalZelApp(zelappName) {
+      const response = await ZelAppsService.getZelAppLocation(zelappName).catch((error) => {
+        vue.$message.error(error.message || error);
+      });
+      console.log(response);
+      if (response.data.status === 'success') {
+        const zelappLocations = response.data.data;
+        const location = zelappLocations[0];
+        if (!location) {
+          vue.$message.error('Application is awaiting launching...');
+        } else {
+          const { ip } = location;
+          const appSpecs = this.globalZelAppSpecs.data.find((app) => app.name === zelappName);
+          const { port } = appSpecs;
+          const url = `http://${ip}:${port}`;
+          this.openSite(url);
+        }
+      } else {
+        vue.$message.error(response.data.data);
+      }
+    },
+    async openAppManagement(zelappName) {
+      console.log(zelappName);
+      vue.$message.success('Management coming soon!');
     },
     async register() {
       const zelidauth = localStorage.getItem('zelidauth');

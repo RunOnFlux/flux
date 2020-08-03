@@ -10,6 +10,9 @@
       <div v-if="zelCashSection !== null">
         <ZelCash />
       </div>
+      <div v-if="zelBenchSection !== null">
+        <ZelBench />
+      </div>
       <div v-if="zelNodeSection !== null">
         <ZelNode />
       </div>
@@ -59,6 +62,9 @@
           <div v-if="zelCashSection !== null">
             <ZelCash />
           </div>
+          <div v-if="zelBenchSection !== null">
+            <ZelBench />
+          </div>
           <div v-if="zelNodeSection !== null">
             <ZelNode />
           </div>
@@ -99,6 +105,7 @@ const Header = () => import('@/components/shared/Header.vue');
 const Footer = () => import('@/components/shared/Footer.vue');
 const Login = () => import('@/components/Login.vue');
 const ZelCash = () => import('@/components/ZelCash.vue');
+const ZelBench = () => import('@/components/ZelBench.vue');
 const ZelNode = () => import('@/components/ZelNode.vue');
 const ZelAdmin = () => import('@/components/ZelAdmin.vue');
 const ZelApps = () => import('@/components/ZelApps.vue');
@@ -112,7 +119,7 @@ const vue = new Vue();
 export default {
   name: 'MainPage',
   components: {
-    Header, Footer, Login, ZelCash, ZelNode, ZelAdmin, ZelApps, Explorer,
+    Header, Footer, Login, ZelCash, ZelBench, ZelNode, ZelAdmin, ZelApps, Explorer,
   },
   data() {
     return {
@@ -130,6 +137,7 @@ export default {
       'config',
       'privilage',
       'zelCashSection',
+      'zelBenchSection',
       'zelNodeSection',
       'zelAdminSection',
       'zelAppsSection',

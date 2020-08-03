@@ -1,6 +1,21 @@
-import Api from '@/services/Api';
+import Api, { sourceCancelToken } from '@/services/Api';
 
 export default {
+  // actually zelnode service
+  start(zelidauthHeader) {
+    return Api().get('/zelbench/start', {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    });
+  },
+  restart(zelidauthHeader) {
+    return Api().get('/zelbench/restart', {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    });
+  },
   // == Benchmarks ==
   getStatus() {
     return Api().get('/zelbench/getstatus');
@@ -20,6 +35,9 @@ export default {
     });
   },
   // == Control ==
+  helpSpecific(command) {
+    return Api().get(`/zelbench/help/${command}`);
+  },
   help() {
     return Api().get('/zelbench/help');
   },
@@ -36,5 +54,21 @@ export default {
   },
   getInfo() {
     return Api().get('/zelbench/getinfo');
+  },
+  // DEBUG
+  tailZelBenchDebug(zelidauthHeader) {
+    return Api().get('/zelnode/tailzelbenchdebug', {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    });
+  },
+  // just api
+  justAPI() {
+    return Api();
+  },
+  // cancelToken
+  cancelToken() {
+    return sourceCancelToken;
   },
 };

@@ -56,6 +56,11 @@ async function getInfo(req, res) {
 
   response = await executeCall(rpccall);
 
+  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  if (authorized !== true) {
+    delete response.data.balance;
+  }
+
   return res ? res.json(response) : response;
 }
 
@@ -192,7 +197,7 @@ async function getZelNodeCount(req, res) {
 }
 
 async function getDOSList(req, res) {
-  const rpccall = 'getdostlist';
+  const rpccall = 'getdoslist';
 
   response = await executeCall(rpccall);
 
@@ -1283,6 +1288,12 @@ async function validateAddress(req, res) {
     rpcparameters = [zelcashaddress];
   }
   response = await executeCall(rpccall, rpcparameters);
+
+  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  if (authorized !== true) {
+    delete response.data.ismine;
+    delete response.data.iswatchonly;
+  }
 
   return res ? res.json(response) : response;
 }
