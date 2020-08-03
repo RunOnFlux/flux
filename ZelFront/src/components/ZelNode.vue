@@ -128,11 +128,8 @@
               </template>
             </el-table-column>
           </el-table>
-          <br>
           <hr>
-          <br>
           Force a connection to a peer
-          <br>
           <ElForm class="loginForm">
             <ElFormItem>
               <ElInput

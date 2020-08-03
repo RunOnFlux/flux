@@ -70,6 +70,9 @@
       </el-popconfirm>
     </div>
     <div v-if="zelAdminSection === 'manageflux'">
+      <p>
+        Update your Flux to the latest version. Every Flux has to run the newest version to stay on par with the network.
+      </p>
       <el-dialog
         :close-on-click-modal="false"
         :close-on-press-escape="false"
@@ -92,7 +95,10 @@
           Update Flux
         </ElButton>
       </el-popconfirm>
-      <br>
+      <hr>
+      <p>
+        This option rebuilds Flux User Interface. Shall be used only in situation when UI does not rebuild properly to latest Flux version.
+      </p>
       <el-popconfirm
         confirmButtonText='Rebuild!'
         cancelButtonText='No, Thanks'
@@ -105,7 +111,10 @@
           Rebuild ZelFront
         </ElButton>
       </el-popconfirm>
-      <br>
+      <hr>
+      <p>
+        Options to reindex Flux databases and so rebuild them from scratch. Reindexing may take several hours and shall be used only when an unrecoverable error is present in databases.
+      </p>
       <el-popconfirm
         confirmButtonText='Reindex Flux!'
         cancelButtonText='No, Thanks'
@@ -130,7 +139,11 @@
           Reindex Explorer databases
         </ElButton>
       </el-popconfirm>
-      <br>
+      <hr>
+      <p>
+        Options to rescan Flux databases from a given blockheight and rebuild them since. Rescanning may take several hours and shall be used only when an unrecoverable error is present in databases with a known blockheight.
+        Rescanning Flux databases is a deeper option than just explorer databases and so while rescanning entire Flux databases, explorer parst will be rescanned as well.
+      </p>
       BlockHeight:
       <el-input-number
         controls-position="right"
@@ -172,7 +185,11 @@
           Rescan Explorer databases
         </ElButton>
       </el-popconfirm>
-      <br>
+      <hr>
+      <p>
+        Options to rescan Flux Global Application Database from a given blockheight and rebuild them since. Rescanning may take several hours and shall be used only when an unrecoverable error is present in databases with a known blockheight.
+        If remove Last Information is wished. The current specifics will be dropped instead making it more deep option.
+      </p>
       BlockHeight:
       <el-input-number
         controls-position="right"
@@ -204,7 +221,10 @@
           Rescan Global Apps Information
         </ElButton>
       </el-popconfirm>
-      <br>
+      <hr>
+      <p>
+        Reindexes Flux Global Application Database and rebuilds them entirely from stored permanent messages. Reindexing may take a few hours and shall be used only when an unrecoverable error is present.
+      </p>
       <el-popconfirm
         confirmButtonText='Reindex Global Apps!'
         cancelButtonText='No, Thanks'
@@ -217,7 +237,10 @@
           Reindex Global Apps Information
         </ElButton>
       </el-popconfirm>
-      <br>
+      <hr>
+      <p>
+        Reindexes Flux Global Application Locations and rebuilds them from newly incoming messages. Shall be used only when index has inconsistencies.
+      </p>
       <el-popconfirm
         confirmButtonText='Reindex Locations!'
         cancelButtonText='No, Thanks'
@@ -230,7 +253,10 @@
           Reindex Global Apps Locations
         </ElButton>
       </el-popconfirm>
-      <br>
+      <hr>
+      <p>
+        These options manage Flux block processing which is a crucial process for Explorer and Apps functionality. Useful when Block Processing encounters an error and is stuck. Use with caution!
+      </p>
       <el-popconfirm
         confirmButtonText='Restart Block Processing!'
         cancelButtonText='No, Thanks'
@@ -257,6 +283,9 @@
       </el-popconfirm>
     </div>
     <div v-if="zelAdminSection === 'managezelcash'">
+      <p>
+        An easy way to update your ZelCash daemon to the latest version. ZelCash will be automatically started once update is done.
+      </p>
       <el-popconfirm
         confirmButtonText='Update ZelCash daemon'
         cancelButtonText='No, Thanks'
@@ -269,7 +298,10 @@
           Update ZelCash
         </ElButton>
       </el-popconfirm>
-      <br>
+      <hr>
+      <p>
+        Here you can manage your ZelCash daemon process.
+      </p>
       <el-popconfirm
         confirmButtonText='Start ZelCash daemon'
         cancelButtonText='No, Thanks'
@@ -306,7 +338,10 @@
           Restart ZelCash
         </ElButton>
       </el-popconfirm>
-      <br>
+      <hr>
+      <p>
+        Choose a blockheight to rescan ZelCash from and click on Rescan ZelCash to begin rescanning.
+      </p>
       BlockHeight:
       <el-input-number
         controls-position="right"
@@ -320,14 +355,17 @@
         cancelButtonText='No, Thanks'
         icon="el-icon-info"
         iconColor="red"
-        title="Reindexes ZelCash daemon"
+        title="Rescan ZelCash daemon"
         @onConfirm="rescanZelCash()"
       >
         <ElButton slot="reference">
           Rescan ZelCash
         </ElButton>
       </el-popconfirm>
-      <br>
+      <hr>
+      <p>
+        This option reindexes ZelCash blockchain data. It will take several hours to finish the operation.
+      </p>
       <el-popconfirm
         confirmButtonText='Reindex ZelCash blockhain data'
         cancelButtonText='No, Thanks'
@@ -342,6 +380,9 @@
       </el-popconfirm>
     </div>
     <div v-if="zelAdminSection === 'managezelbench'">
+      <p>
+        An easy way to update your ZelBench daemon to the latest version. ZelBench will be automatically started once update is done.
+      </p>
       <el-popconfirm
         confirmButtonText='Update ZelBench'
         cancelButtonText='No, Thanks'
@@ -354,7 +395,10 @@
           Update ZelBench
         </ElButton>
       </el-popconfirm>
-      <br>
+      <hr>
+      <p>
+        Here you can manage your ZelBench daemon process.
+      </p>
       <el-popconfirm
         confirmButtonText='Start ZelBench daemon'
         cancelButtonText='No, Thanks'
@@ -391,7 +435,10 @@
           Restart ZelBench
         </ElButton>
       </el-popconfirm>
-      <br>
+      <hr>
+      <p>
+        Option to trigger a complete new run of node benchmarking. Useful when your node falls down in category or fails benchmarking tests.
+      </p>
       <el-popconfirm
         confirmButtonText='Restart Benchmarks'
         cancelButtonText='No, Thanks'
