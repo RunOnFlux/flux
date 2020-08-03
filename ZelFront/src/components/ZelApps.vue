@@ -838,25 +838,31 @@ export default {
   watch: {
     zelAppsSection(val, oldVal) {
       console.log(val, oldVal);
-      switch (val) {
-        case 'localzelapps':
-          this.zelappsGetListRunningZelApps();
-          break;
-        case 'globalzelapps':
-          this.zelappsGetListGlobalZelApps();
-          break;
-        case 'registerzelapp':
-          this.registrationInformation();
-          this.checkFluxCommunication();
-          break;
-        default:
-          console.log('ZelApps Section: Unrecognized method'); // should not be visible if everything works correctly
-      }
+      this.switcher(val);
     },
     activeName(val, oldVal) {
       console.log(val, oldVal);
       this.output = '';
       this.switcher(val);
+      switch (val) {
+        case 'running':
+          this.zelappsGetListRunningZelApps();
+          break;
+        case 'all':
+          this.zelappsGetListAllZelApps();
+          break;
+        case 'installed':
+          this.zelappsGetInstalledZelApps();
+          break;
+        case 'available':
+          this.zelappsGetAvailableZelApps();
+          break;
+        case 'stopped':
+          // getting all and checking state?
+          break;
+        default:
+          console.log('ZelApps Section: Unrecognized method'); // should not be visible if everything works correctly
+      }
     },
     zelAppRegistrationSpecification: {
       handler(val, oldVal) {
