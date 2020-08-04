@@ -1864,12 +1864,6 @@ async function registerZelAppLocally(zelAppSpecifications, res) {
           removeZelAppLocally(zelappName, res);
         });
         if (!zelapp) {
-          const removeStatus = serviceHelper.createErrorMessage('Error occured. Initiating ZelApp removal');
-          log.info(removeStatus);
-          if (res) {
-            res.write(serviceHelper.ensureString(removeStatus));
-          }
-          removeZelAppLocally(zelappName, res);
           return;
         }
         const zelappResponse = serviceHelper.createDataMessage(zelapp);
@@ -2531,7 +2525,7 @@ async function temporaryZelAppRegisterFunctionForDibiFetch(req, res) {
         enviromentParameters: [],
         commands: [],
         containerPort: 80,
-        containerData: '/app',
+        containerData: '/tmp',
         hash: 'ahashofappmessage', // hash of app message
         height: 2, // height of tx on which it was
       };
@@ -2569,7 +2563,6 @@ async function temporaryZelAppRegisterFunctionForDibiFetch(req, res) {
     res.json(errorResponse);
   }
 }
-
 
 async function temporaryZelAppRegisterFunctionForSuperMario(req, res) {
   try {
@@ -2767,7 +2760,7 @@ async function availableZelApps(req, res) {
     //   enviromentParameters: [],
     //   commands: [],
     //   containerPort: 80,
-    //   containerData: '/app', // cannot be root todo in verification
+    //   containerData: '/tmp', // cannot be root todo in verification
     //   hash: 'ahashofappmessage', // hash of app message
     //   height: 2, // height of tx on which it was
     // },
