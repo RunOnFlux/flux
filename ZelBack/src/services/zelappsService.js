@@ -2564,7 +2564,6 @@ async function temporaryZelAppRegisterFunctionForDibiFetch(req, res) {
   }
 }
 
-
 async function temporaryZelAppRegisterFunctionForSuperMario(req, res) {
   try {
     const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
