@@ -55,9 +55,12 @@ async function getInfo(req, res) {
   const rpccall = 'getInfo';
 
   response = await executeCall(rpccall);
-
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
-  if (authorized !== true) {
+  if (res) {
+    const authorized = await serviceHelper.verifyPrivilege('admin', req);
+    if (authorized !== true) {
+      delete response.data.balance;
+    }
+  } else {
     delete response.data.balance;
   }
 
@@ -1289,8 +1292,13 @@ async function validateAddress(req, res) {
   }
   response = await executeCall(rpccall, rpcparameters);
 
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
-  if (authorized !== true) {
+  if (res) {
+    const authorized = await serviceHelper.verifyPrivilege('admin', req);
+    if (authorized !== true) {
+      delete response.data.ismine;
+      delete response.data.iswatchonly;
+    }
+  } else {
     delete response.data.ismine;
     delete response.data.iswatchonly;
   }
