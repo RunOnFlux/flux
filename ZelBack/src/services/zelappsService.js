@@ -2525,7 +2525,7 @@ async function temporaryZelAppRegisterFunctionForDibiFetch(req, res) {
         enviromentParameters: [],
         commands: [],
         containerPort: 80,
-        containerData: '/app',
+        containerData: '/tmp',
         hash: 'ahashofappmessage', // hash of app message
         height: 2, // height of tx on which it was
       };
@@ -2761,7 +2761,7 @@ async function availableZelApps(req, res) {
       enviromentParameters: [],
       commands: [],
       containerPort: 80,
-      containerData: '/app', // cannot be root todo in verification
+      containerData: '/tmp', // cannot be root todo in verification
       hash: 'ahashofappmessage', // hash of app message
       height: 2, // height of tx on which it was
     },
