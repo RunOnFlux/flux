@@ -2714,57 +2714,57 @@ async function availableZelApps(req, res) {
       hash: 'localappinstancehashABCDE', // hash of app message
       height: 0, // height of tx on which it was
     },
-    {
-      name: 'SuperMario', // corresponds to docker name and this name is stored in zelapps mongo database
-      description: 'LoL SuperMario',
-      repotag: 'pengbai/docker-supermario:latest',
-      owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-      port: 30001,
-      tiered: false,
-      cpu: 0.2, // true resource registered for app. If not tiered only this is available
-      ram: 200, // true resource registered for app
-      hdd: 1, // true resource registered for app
-      enviromentParameters: [],
-      commands: [],
-      containerPort: 8080,
-      containerData: '/tmp', // cannot be root todo in verification
-      hash: 'ahashofappmessage', // hash of app message
-      height: 3, // height of tx on which it was
-    },
-    {
-      name: 'PacMan', // corresponds to docker name and this name is stored in zelapps mongo database
-      description: 'LoL PacMan',
-      repotag: 'uzyexe/pacman:latest',
-      owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-      port: 30002,
-      tiered: false,
-      cpu: 0.2, // true resource registered for app. If not tiered only this is available
-      ram: 200, // true resource registered for app
-      hdd: 1, // true resource registered for app
-      enviromentParameters: [],
-      commands: [],
-      containerPort: 80,
-      containerData: '/tmp', // cannot be root todo in verification
-      hash: 'ahashofappmessage', // hash of app message
-      height: 4, // height of tx on which it was
-    },
-    {
-      name: 'dibi-UND', // corresponds to docker name and this name is stored in zelapps mongo database
-      description: 'dibi fetch basic description',
-      repotag: 't1dev/dibi-fetch:latest',
-      owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-      port: 30003,
-      tiered: false,
-      cpu: 0.2, // true resource registered for app. If not tiered only this is available
-      ram: 200, // true resource registered for app
-      hdd: 1, // true resource registered for app
-      enviromentParameters: [],
-      commands: [],
-      containerPort: 80,
-      containerData: '/tmp', // cannot be root todo in verification
-      hash: 'ahashofappmessage', // hash of app message
-      height: 2, // height of tx on which it was
-    },
+    // {
+    //   name: 'SuperMario', // corresponds to docker name and this name is stored in zelapps mongo database
+    //   description: 'LoL SuperMario',
+    //   repotag: 'pengbai/docker-supermario:latest',
+    //   owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+    //   port: 30001,
+    //   tiered: false,
+    //   cpu: 0.2, // true resource registered for app. If not tiered only this is available
+    //   ram: 200, // true resource registered for app
+    //   hdd: 1, // true resource registered for app
+    //   enviromentParameters: [],
+    //   commands: [],
+    //   containerPort: 8080,
+    //   containerData: '/tmp', // cannot be root todo in verification
+    //   hash: 'ahashofappmessage', // hash of app message
+    //   height: 3, // height of tx on which it was
+    // },
+    // {
+    //   name: 'PacMan', // corresponds to docker name and this name is stored in zelapps mongo database
+    //   description: 'LoL PacMan',
+    //   repotag: 'uzyexe/pacman:latest',
+    //   owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+    //   port: 30002,
+    //   tiered: false,
+    //   cpu: 0.2, // true resource registered for app. If not tiered only this is available
+    //   ram: 200, // true resource registered for app
+    //   hdd: 1, // true resource registered for app
+    //   enviromentParameters: [],
+    //   commands: [],
+    //   containerPort: 80,
+    //   containerData: '/tmp', // cannot be root todo in verification
+    //   hash: 'ahashofappmessage', // hash of app message
+    //   height: 4, // height of tx on which it was
+    // },
+    // {
+    //   name: 'dibi-UND', // corresponds to docker name and this name is stored in zelapps mongo database
+    //   description: 'dibi fetch basic description',
+    //   repotag: 't1dev/dibi-fetch:latest',
+    //   owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+    //   port: 30003,
+    //   tiered: false,
+    //   cpu: 0.2, // true resource registered for app. If not tiered only this is available
+    //   ram: 200, // true resource registered for app
+    //   hdd: 1, // true resource registered for app
+    //   enviromentParameters: [],
+    //   commands: [],
+    //   containerPort: 80,
+    //   containerData: '/tmp', // cannot be root todo in verification
+    //   hash: 'ahashofappmessage', // hash of app message
+    //   height: 2, // height of tx on which it was
+    // },
   ];
 
   const dataResponse = serviceHelper.createDataMessage(zelapps);
