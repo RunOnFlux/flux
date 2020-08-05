@@ -264,16 +264,8 @@ async function zelAppPull(req, res) {
 }
 
 async function listRunningZelApps(req, res) {
-  let zelapps = await dockerListContainers(false).catch((error) => {
-    const errMessage = serviceHelper.createErrorMessage(
-      error.message,
-      error.name,
-      error.code,
-    );
-    log.error(error);
-    return res ? res.json(errMessage) : errMessage;
-  });
   try {
+    let zelapps = await dockerListContainers(false);
     if (zelapps.length > 0) {
       zelapps = zelapps.filter((zelapp) => zelapp.Names[0].substr(1, 3) === 'zel');
     }
@@ -301,16 +293,8 @@ async function listRunningZelApps(req, res) {
 }
 
 async function listAllZelApps(req, res) {
-  let zelapps = await dockerListContainers(true).catch((error) => {
-    const errMessage = serviceHelper.createErrorMessage(
-      error.message,
-      error.name,
-      error.code,
-    );
-    log.error(error);
-    return res ? res.json(errMessage) : errMessage;
-  });
   try {
+    let zelapps = await dockerListContainers(true);
     if (zelapps.length > 0) {
       zelapps = zelapps.filter((zelapp) => zelapp.Names[0].substr(1, 3) === 'zel');
     }
