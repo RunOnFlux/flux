@@ -365,7 +365,7 @@ async function verifyAppOwnerSession(headers, appName) {
   if (headers && headers.zelidauth && appName) {
     const auth = ensureObject(headers.zelidauth);
     if (auth.zelid && auth.signature) {
-      const ownerZelID = getApplicationOwner(appName);
+      const ownerZelID = await getApplicationOwner(appName);
       if (auth.zelid === ownerZelID) {
         const db = databaseConnection();
         const database = db.db(config.database.local.database);

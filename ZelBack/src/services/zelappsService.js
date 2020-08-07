@@ -3511,8 +3511,8 @@ async function getApplicationSpecificationAPI(req, res) {
       throw new Error('No Application Name specified');
     }
     const specifications = await getApplicationSpecifications(appname);
-    const specResponse = serviceHelper.createDataMessage(specifications);
-    if (specResponse) {
+    if (specifications) {
+      const specResponse = serviceHelper.createDataMessage(specifications);
       res.json(specResponse);
     }
     throw new Error('Application not found');
@@ -3535,8 +3535,8 @@ async function getApplicationOwnerAPI(req, res) {
       throw new Error('No Application Name specified');
     }
     const owner = await serviceHelper.getApplicationOwner(appname);
-    const ownerResponse = serviceHelper.createDataMessage(owner);
-    if (ownerResponse) {
+    if (owner) {
+      const ownerResponse = serviceHelper.createDataMessage(owner);
       res.json(ownerResponse);
     }
     throw new Error('Application not found');
