@@ -307,6 +307,10 @@
               </el-menu-item>
               <el-menu-item index="3">
                 <i class="el-icon-location-outline"></i>
+                <span>Processes</span>
+              </el-menu-item>
+              <el-menu-item index="4">
+                <i class="el-icon-location-outline"></i>
                 <span>Running Instances</span>
               </el-menu-item>
             </el-menu>
@@ -1485,6 +1489,9 @@ export default {
           this.getApplicationLogs();
           break;
         case '3':
+          this.getApplicationProcesses();
+          break;
+        case '4':
           this.getApplicationLocations();
           break;
         default:
@@ -1580,6 +1587,17 @@ export default {
     async getApplicationLogs() {
       const zelidauth = localStorage.getItem('zelidauth');
       const response = await ZelAppsService.getZelAppLogs(zelidauth, this.managedApplication);
+      console.log(response);
+      if (response.data.status === 'error') {
+        vue.$customMes.error(response.data.data.message || response.data.data);
+      } else {
+        this.callResponse.status = response.data.status;
+        this.callResponse.data = response.data.data;
+      }
+    },
+    async getApplicationProcesses() {
+      const zelidauth = localStorage.getItem('zelidauth');
+      const response = await ZelAppsService.getZelAppTop(zelidauth, this.managedApplication);
       console.log(response);
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);

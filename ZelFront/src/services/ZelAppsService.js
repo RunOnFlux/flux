@@ -48,15 +48,6 @@ export default {
     };
     return Api().get(`/zelapps/zelappremove/${zelapp}`, axiosConfig);
   },
-  zelAppLogs(zelidauthHeader, zelapp) {
-    console.log(zelapp);
-    const axiosConfig = {
-      headers: {
-        zelidauth: zelidauthHeader,
-      },
-    };
-    return Api().get('/zelapps/zelapptop', axiosConfig);
-  },
   registerZelApp(zelidauthHeader, data) {
     const axiosConfig = {
       headers: {
@@ -92,6 +83,14 @@ export default {
     return Api().get(`/zelapps/appowner/${name}`);
   },
   getZelAppLogs(zelidauthHeader, zelapp) {
+    const axiosConfig = {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    };
+    return Api().get(`/zelapps/zelapplog/${zelapp}`, axiosConfig);
+  },
+  getZelAppTop(zelidauthHeader, zelapp) {
     const axiosConfig = {
       headers: {
         zelidauth: zelidauthHeader,

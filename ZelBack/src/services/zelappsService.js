@@ -191,17 +191,12 @@ function dockerContainerExec(container, cmd, env, res, callback) {
   }
 }
 
-async function dockerContainerLogs(idOrName, callback) {
+async function dockerContainerLogs(idOrName, res, callback) {
   try {
     // container ID or name
     const containers = await dockerListContainers(true);
     const myContainer = containers.find((container) => (container.Names[0] === getZelAppDockerNameIdentifier(idOrName) || container.Id === idOrName));
     const dockerContainer = docker.getContainer(myContainer.Id);
-    const logStream = new stream.PassThrough();
-    let logStreamData = '';
-    logStream.on('data', (chunk) => {
-      logStreamData += chunk.toString('utf8');
-    });
 
     dockerContainer.logs(
       {
@@ -210,25 +205,23 @@ async function dockerContainerLogs(idOrName, callback) {
         stderr: true,
       },
       (err, mystream) => {
+        function onFinished(error, output) {
+          if (error) {
+            callback(err);
+          } else {
+            callback(null, output);
+          }
+        }
+        function onProgress(event) {
+          if (res) {
+            res.write(serviceHelper.ensureString(event));
+          }
+          log.info(event);
+        }
         if (err) {
           callback(err);
         } else {
-          try {
-            dockerContainer.modem.demuxStream(mystream, logStream, logStream);
-            mystream.on('end', () => {
-              logStream.end();
-              callback(null, logStreamData);
-            });
-
-            setTimeout(() => {
-              mystream.destroy();
-            }, 2000);
-          } catch (error) {
-            throw new Error({
-              message:
-                'An error obtaining log data of an application has occured',
-            });
-          }
+          docker.modem.followProgress(mystream, onFinished, onProgress);
         }
       },
     );
@@ -804,7 +797,7 @@ async function zelAppLog(req, res) {
     }
     const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, appname);
     if (authorized) {
-      dockerContainerLogs(appname, (error, dataLog) => {
+      dockerContainerLogs(appname, res, (error, dataLog) => {
         if (error) {
           throw error;
         } else {
