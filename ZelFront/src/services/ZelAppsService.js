@@ -87,6 +87,20 @@ export default {
   globalZelAppSpecifications() {
     return Api().get('/zelapps/globalappsspecifications');
   },
+  getZelAppSpecifics(name) {
+    return Api().get(`/zelapps/appspecifications/${name}`);
+  },
+  getZelAppOwner(name) {
+    return Api().get(`/zelapps/appowner/${name}`);
+  },
+  getZelAppLogs(zelidauthHeader, zelapp) {
+    const axiosConfig = {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    };
+    return Api().get(`/zelapps/zelapplog/${zelapp}`, axiosConfig);
+  },
   reindexGlobalApps(zelidauthHeader) {
     return Api().get('/zelapps/reindexglobalappsinformation', {
       headers: {

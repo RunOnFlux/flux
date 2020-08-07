@@ -662,9 +662,9 @@ module.exports = (app, expressWs) => {
     explorerService.rescanExplorer(req, res);
   });
 
-  app.get('/zelapps/zelapppull/:repotag?', (req, res) => { // TODO make me post, needs redoing
-    zelappsService.zelAppPull(req, res);
-  });
+  // app.get('/zelapps/zelapppull/:repotag?', (req, res) => { // TODO make me post, needs redoing
+  //   zelappsService.zelAppPull(req, res);
+  // });
   app.get('/zelapps/zelappstart/:container?', (req, res) => {
     zelappsService.zelAppStart(req, res);
   });
@@ -674,12 +674,12 @@ module.exports = (app, expressWs) => {
   app.get('/zelapps/restartzelapp/:container?', (req, res) => {
     zelappsService.zelAppRestart(req, res);
   });
-  app.get('/zelapps/zelappkill/:container?', (req, res) => {
-    zelappsService.zelAppKill(req, res);
-  });
-  app.get('/zelapps/zelappcontainerremove/:container?', (req, res) => {
-    zelappsService.zelAppRemove(req, res);
-  });
+  // app.get('/zelapps/zelappkill/:container?', (req, res) => {
+  //   zelappsService.zelAppKill(req, res);
+  // });
+  // app.get('/zelapps/zelappcontainerremove/:container?', (req, res) => {
+  //   zelappsService.zelAppRemove(req, res);
+  // });
   app.get('/zelapps/zelapppause/:container?', (req, res) => {
     zelappsService.zelAppPause(req, res);
   });
@@ -704,9 +704,9 @@ module.exports = (app, expressWs) => {
   app.get('/zelapps/zelappremove/:zelapp?', (req, res) => {
     zelappsService.removeZelAppLocallyApi(req, res);
   });
-  app.get('/zelapps/zelappimageremove/:image?', (req, res) => {
-    zelappsService.zelAppImageRemove(req, res);
-  });
+  // app.get('/zelapps/zelappimageremove/:image?', (req, res) => {
+  //   zelappsService.zelAppImageRemove(req, res);
+  // });
   app.get('/zelapps/installtemporarylocalapp/zelFoldingAtHome', (req, res) => {
     zelappsService.temporaryZelAppRegisterFunctionForFoldingAtHome(req, res);
   });

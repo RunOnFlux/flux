@@ -399,6 +399,44 @@ async function verifyAppOwnerSession(headers, appName) {
   return false;
 }
 
+async function verifyAppOwnerOrHigherSession(headers, appName) {
+  if (headers && headers.zelidauth && appName) {
+    const auth = ensureObject(headers.zelidauth);
+    if (auth.zelid && auth.signature) {
+      const ownerZelID = await getApplicationOwner(appName);
+      if (auth.zelid === ownerZelID || auth.zelid === config.zelTeamZelId || auth.zelid === userconfig.initial.zelid) {
+        const db = databaseConnection();
+        const database = db.db(config.database.local.database);
+        const collection = config.database.local.collections.loggedUsers;
+        const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
+        const projection = {};
+        const result = await findOneInDatabase(database, collection, query, projection);
+        const loggedUser = result;
+        if (loggedUser) {
+          // check if signature corresponds to message with that zelid
+          let valid = false;
+          try {
+            valid = bitcoinMessage.verify(loggedUser.loginPhrase, auth.zelid, auth.signature);
+          } catch (error) {
+            return false;
+          }
+          if (valid) {
+            // now we know this is indeed a logged application owner
+            return true;
+          }
+        } else {
+          return false;
+        }
+      } else {
+        return false;
+      }
+    } else {
+      return false;
+    }
+  }
+  return false;
+}
+
 async function verifyPrivilege(privilege, req, appName) {
   let authorized;
   switch (privilege) {
@@ -411,11 +449,14 @@ async function verifyPrivilege(privilege, req, appName) {
     case 'adminandzelteam':
       authorized = await verifyAdminAndZelTeamSession(req.headers).catch((error) => { throw error; });
       break;
-    case 'user':
-      authorized = await verifyUserSession(req.headers).catch((error) => { throw error; });
+    case 'appownerabove':
+      authorized = await verifyAppOwnerOrHigherSession(req.headers, appName).catch((error) => { throw error; });
       break;
     case 'appowner':
       authorized = await verifyAppOwnerSession(req.headers, appName).catch((error) => { throw error; });
+      break;
+    case 'user':
+      authorized = await verifyUserSession(req.headers).catch((error) => { throw error; });
       break;
     default:
       authorized = false;
@@ -523,6 +564,7 @@ module.exports = {
   verifyUserSession,
   verifyZelTeamSession,
   verifyAdminAndZelTeamSession,
+  verifyAppOwnerOrHigherSession,
   verifyAppOwnerSession,
   verifyPrivilege,
   signMessage,

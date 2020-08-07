@@ -312,7 +312,7 @@
             </el-menu>
           </el-aside>
           <el-main>
-            CONTENT
+            {{ callResponse.data }}
           </el-main>
         </el-container>
       </div>
@@ -859,6 +859,11 @@ export default {
       websocket: null,
       managedApplication: '',
       activeIndex: '1',
+      selectedAppOwner: '',
+      callResponse: { // general
+        status: '',
+        data: '',
+      },
     };
   },
   computed: {
@@ -1461,6 +1466,8 @@ export default {
     openAppManagement(zelappName) {
       console.log(zelappName);
       this.managedApplication = zelappName;
+      this.getAppOwner();
+      this.getApplicationSpecifics();
       this.activeIndex = '1';
       // vue.$customMes.success('Management coming soon!');
     },
@@ -1473,13 +1480,13 @@ export default {
       console.log(key);
       switch (key) {
         case '1':
-          vue.$customMes.info('Feature coming soon0!');
+          this.getApplicationSpecifics();
           break;
         case '2':
-          vue.$customMes.info('Feature coming soon1!');
+          this.getApplicationLogs();
           break;
         case '3':
-          vue.$customMes.info('Feature coming soon2!');
+          this.getApplicationLocations();
           break;
         default:
           vue.$customMes.info('Feature coming soon!');
@@ -1542,6 +1549,45 @@ export default {
         return zelappName.substr(3, zelappName.length);
       }
       return zelappName;
+    },
+    async getAppOwner() {
+      const response = await ZelAppsService.getZelAppOwner(this.managedApplication);
+      console.log(response);
+      if (response.data.status === 'error') {
+        vue.$customMes.error(response.data.data.message || response.data.data);
+      }
+      this.selectedAppOwner = response.data.data;
+    },
+    async getApplicationSpecifics() {
+      const response = await ZelAppsService.getZelAppSpecifics(this.managedApplication);
+      console.log(response);
+      if (response.data.status === 'error') {
+        vue.$customMes.error(response.data.data.message || response.data.data);
+      } else {
+        this.callResponse.status = response.data.status;
+        this.callResponse.data = response.data.data;
+      }
+    },
+    async getApplicationLocations() {
+      const response = await ZelAppsService.getZelAppLocation(this.managedApplication);
+      console.log(response);
+      if (response.data.status === 'error') {
+        vue.$customMes.error(response.data.data.message || response.data.data);
+      } else {
+        this.callResponse.status = response.data.status;
+        this.callResponse.data = response.data.data;
+      }
+    },
+    async getApplicationLogs() {
+      const zelidauth = localStorage.getItem('zelidauth');
+      const response = await ZelAppsService.getZelAppLogs(zelidauth, this.managedApplication);
+      console.log(response);
+      if (response.data.status === 'error') {
+        vue.$customMes.error(response.data.data.message || response.data.data);
+      } else {
+        this.callResponse.status = response.data.status;
+        this.callResponse.data = response.data.data;
+      }
     },
   },
 };

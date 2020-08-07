@@ -84,7 +84,7 @@ async function dockerListImages() {
 async function dockerContainerInspect(idOrName) {
   // container ID or name
   const containers = await dockerListContainers(true);
-  const myContainer = containers.find((container) => (serviceHelper.ensureString(container.Names).includes(idOrName) || serviceHelper.ensureString(container.Id).includes(idOrName)));
+  const myContainer = containers.find((container) => (container.Names[0] === getZelAppIdentifier(idOrName) || container.Id === idOrName));
   const dockerContainer = docker.getContainer(myContainer.Id);
   const response = await dockerContainer.inspect().catch((error) => {
     throw error;
@@ -186,7 +186,7 @@ async function dockerContainerLogs(idOrName, callback) {
   try {
     // container ID or name
     const containers = await dockerListContainers(true);
-    const myContainer = containers.find((container) => (serviceHelper.ensureString(container.Names).includes(idOrName) || serviceHelper.ensureString(container.Id).includes(idOrName)));
+    const myContainer = containers.find((container) => (container.Names[0] === getZelAppIdentifier(idOrName) || container.Id === idOrName));
     const dockerContainer = docker.getContainer(myContainer.Id);
     const logStream = new stream.PassThrough();
     let logStreamData = '';
@@ -415,7 +415,7 @@ async function zelAppDockerStart(idOrName) {
   try {
     // container ID or name
     const containers = await dockerListContainers(true);
-    const myContainer = containers.find((container) => (serviceHelper.ensureString(container.Names).includes(idOrName) || serviceHelper.ensureString(container.Id).includes(idOrName)));
+    const myContainer = containers.find((container) => (container.Names[0] === getZelAppIdentifier(idOrName) || container.Id === idOrName));
     const dockerContainer = docker.getContainer(myContainer.Id);
 
     await dockerContainer.start();
@@ -429,7 +429,7 @@ async function zelAppDockerStart(idOrName) {
 async function zelAppDockerStop(idOrName) {
   // container ID or name
   const containers = await dockerListContainers(true);
-  const myContainer = containers.find((container) => (serviceHelper.ensureString(container.Names).includes(idOrName) || serviceHelper.ensureString(container.Id).includes(idOrName)));
+  const myContainer = containers.find((container) => (container.Names[0] === getZelAppIdentifier(idOrName) || container.Id === idOrName));
   const dockerContainer = docker.getContainer(myContainer.Id);
 
   await dockerContainer.stop().catch((error) => {
@@ -442,7 +442,7 @@ async function zelAppDockerStop(idOrName) {
 async function zelAppDockerRestart(idOrName) {
   // container ID or name
   const containers = await dockerListContainers(true);
-  const myContainer = containers.find((container) => (serviceHelper.ensureString(container.Names).includes(idOrName) || serviceHelper.ensureString(container.Id).includes(idOrName)));
+  const myContainer = containers.find((container) => (container.Names[0] === getZelAppIdentifier(idOrName) || container.Id === idOrName));
   const dockerContainer = docker.getContainer(myContainer.Id);
 
   await dockerContainer.restart().catch((error) => {
@@ -455,7 +455,7 @@ async function zelAppDockerRestart(idOrName) {
 async function zelAppDockerKill(idOrName) {
   // container ID or name
   const containers = await dockerListContainers(true);
-  const myContainer = containers.find((container) => (serviceHelper.ensureString(container.Names).includes(idOrName) || serviceHelper.ensureString(container.Id).includes(idOrName)));
+  const myContainer = containers.find((container) => (container.Names[0] === getZelAppIdentifier(idOrName) || container.Id === idOrName));
   const dockerContainer = docker.getContainer(myContainer.Id);
 
   await dockerContainer.kill().catch((error) => {
@@ -468,7 +468,7 @@ async function zelAppDockerKill(idOrName) {
 async function zelAppDockerRemove(idOrName) {
   // container ID or name
   const containers = await dockerListContainers(true);
-  const myContainer = containers.find((container) => (serviceHelper.ensureString(container.Names).includes(idOrName) || serviceHelper.ensureString(container.Id).includes(idOrName)));
+  const myContainer = containers.find((container) => (container.Names[0] === getZelAppIdentifier(idOrName) || container.Id === idOrName));
   const dockerContainer = docker.getContainer(myContainer.Id);
 
   await dockerContainer.remove().catch((error) => {
@@ -492,7 +492,7 @@ async function zelAppDockerImageRemove(idOrName) {
 async function zelAppDockerPause(idOrName) {
   // container ID or name
   const containers = await dockerListContainers(true);
-  const myContainer = containers.find((container) => (serviceHelper.ensureString(container.Names).includes(idOrName) || serviceHelper.ensureString(container.Id).includes(idOrName)));
+  const myContainer = containers.find((container) => (container.Names[0] === getZelAppIdentifier(idOrName) || container.Id === idOrName));
   const dockerContainer = docker.getContainer(myContainer.Id);
 
   await dockerContainer.pause().catch((error) => {
@@ -505,7 +505,7 @@ async function zelAppDockerPause(idOrName) {
 async function zelAppDockerUnpase(idOrName) {
   // container ID or name
   const containers = await dockerListContainers(true);
-  const myContainer = containers.find((container) => (serviceHelper.ensureString(container.Names).includes(idOrName) || serviceHelper.ensureString(container.Id).includes(idOrName)));
+  const myContainer = containers.find((container) => (container.Names[0] === getZelAppIdentifier(idOrName) || container.Id === idOrName));
   const dockerContainer = docker.getContainer(myContainer.Id);
 
   await dockerContainer.unpause().catch((error) => {
@@ -518,7 +518,7 @@ async function zelAppDockerUnpase(idOrName) {
 async function zelAppDockerTop(idOrName) {
   // container ID or name
   const containers = await dockerListContainers(true);
-  const myContainer = containers.find((container) => (serviceHelper.ensureString(container.Names).includes(idOrName) || serviceHelper.ensureString(container.Id).includes(idOrName)));
+  const myContainer = containers.find((container) => (container.Names[0] === getZelAppIdentifier(idOrName) || container.Id === idOrName));
   const dockerContainer = docker.getContainer(myContainer.Id);
 
   const processes = await dockerContainer.top().catch((error) => {
@@ -529,7 +529,7 @@ async function zelAppDockerTop(idOrName) {
 }
 
 async function zelAppStart(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
+  const authorized = await serviceHelper.verifyPrivilege('appownerabove', req);
   if (!authorized) {
     const errMessage = serviceHelper.errUnauthorizedMessage();
     return res.json(errMessage);
@@ -555,7 +555,7 @@ async function zelAppStart(req, res) {
 }
 
 async function zelAppStop(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
+  const authorized = await serviceHelper.verifyPrivilege('appownerabove', req);
   if (!authorized) {
     const errMessage = serviceHelper.errUnauthorizedMessage();
     return res.json(errMessage);
@@ -583,7 +583,7 @@ async function zelAppStop(req, res) {
 }
 
 async function zelAppRestart(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
+  const authorized = await serviceHelper.verifyPrivilege('appownerabove', req);
   if (!authorized) {
     const errMessage = serviceHelper.errUnauthorizedMessage();
     return res.json(errMessage);
@@ -695,7 +695,7 @@ async function zelAppImageRemove(req, res) {
 }
 
 async function zelAppPause(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
+  const authorized = await serviceHelper.verifyPrivilege('appownerabove', req);
   if (!authorized) {
     const errMessage = serviceHelper.errUnauthorizedMessage();
     return res.json(errMessage);
@@ -723,7 +723,7 @@ async function zelAppPause(req, res) {
 }
 
 async function zelAppUnpause(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
+  const authorized = await serviceHelper.verifyPrivilege('appownerabove', req);
   if (!authorized) {
     const errMessage = serviceHelper.errUnauthorizedMessage();
     return res.json(errMessage);
@@ -751,7 +751,7 @@ async function zelAppUnpause(req, res) {
 }
 
 async function zelAppTop(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
+  const authorized = await serviceHelper.verifyPrivilege('appownerabove', req);
   if (!authorized) {
     const errMessage = serviceHelper.errUnauthorizedMessage();
     return res.json(errMessage);
@@ -781,7 +781,7 @@ async function zelAppTop(req, res) {
 
 async function zelAppLog(req, res) {
   try {
-    const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
+    const authorized = await serviceHelper.verifyPrivilege('appownerabove', req);
     if (authorized) {
       let { container } = req.params;
       container = container || req.query.container;
@@ -814,7 +814,7 @@ async function zelAppLog(req, res) {
 }
 
 async function zelAppInspect(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
+  const authorized = await serviceHelper.verifyPrivilege('appownerabove', req);
   if (!authorized) {
     const errMessage = serviceHelper.errUnauthorizedMessage();
     return res.json(errMessage);
@@ -844,7 +844,7 @@ async function zelAppInspect(req, res) {
 }
 
 async function zelAppUpdate(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
+  const authorized = await serviceHelper.verifyPrivilege('appownerabove', req);
   if (!authorized) {
     const errMessage = serviceHelper.errUnauthorizedMessage();
     return res.json(errMessage);
@@ -900,7 +900,7 @@ async function zelAppUpdate(req, res) {
 // todo needs post
 async function zelAppExec(req, res) {
   try {
-    const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
+    const authorized = await serviceHelper.verifyPrivilege('appownerabove', req);
     if (authorized) {
       let { container } = req.params;
       container = container || req.query.container;
