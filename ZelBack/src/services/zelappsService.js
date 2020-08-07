@@ -239,7 +239,7 @@ async function dockerContainerLogs(idOrName, lines) {
     tail: lines,
   };
   const logs = await dockerContainer.logs(options);
-  return logs;
+  return logs.toString();
 }
 
 async function zelAppPull(req, res) {
