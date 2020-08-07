@@ -198,9 +198,7 @@ async function dockerContainerLogs(idOrName, res, callback) {
     const myContainer = containers.find((container) => (container.Names[0] === getZelAppDockerNameIdentifier(idOrName) || container.Id === idOrName));
     const dockerContainer = docker.getContainer(myContainer.Id);
     const logStream = new stream.PassThrough();
-    let logStreamData = '';
     logStream.on('data', (chunk) => {
-      logStreamData += chunk.toString('utf8');
       res.write(serviceHelper.ensureString(chunk.toString('utf8')));
     });
 
@@ -218,7 +216,7 @@ async function dockerContainerLogs(idOrName, res, callback) {
             dockerContainer.modem.demuxStream(mystream, logStream, logStream);
             mystream.on('end', () => {
               logStream.end();
-              callback(null, logStreamData);
+              callback(null);
             });
 
             setTimeout(() => {
@@ -804,12 +802,11 @@ async function zelAppLog(req, res) {
     // const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, appname);
     if (true) {
       res.setHeader('Content-Type', 'application/json');
-      dockerContainerLogs(appname, res, (error, dataLog) => {
+      dockerContainerLogs(appname, res, (error) => {
         if (error) {
           throw error;
         } else {
-          const containerLogResponse = serviceHelper.createDataMessage(dataLog);
-          res.json(containerLogResponse);
+          res.end();
         }
       });
     } else {
