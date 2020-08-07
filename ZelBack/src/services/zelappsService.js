@@ -234,7 +234,7 @@ async function dockerContainerLogs(idOrName, res, callback) {
       },
     );
   } catch (error) {
-    callback(err);
+    callback(error);
   }
 }
 
@@ -803,6 +803,7 @@ async function zelAppLog(req, res) {
     }
     // const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, appname);
     if (true) {
+      res.setHeader('Content-Type', 'application/json');
       dockerContainerLogs(appname, res, (error, dataLog) => {
         if (error) {
           throw error;
