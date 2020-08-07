@@ -197,6 +197,10 @@ async function dockerContainerLogs(idOrName, res, callback) {
     const containers = await dockerListContainers(true);
     const myContainer = containers.find((container) => (container.Names[0] === getZelAppDockerNameIdentifier(idOrName) || container.Id === idOrName));
     const dockerContainer = docker.getContainer(myContainer.Id);
+    const logStream = new stream.PassThrough();
+    logStream.on('data', (chunk) => {
+      res.write(serviceHelper.ensureString(chunk.toString('utf8')));
+    });
 
     dockerContainer.logs(
       {
@@ -205,23 +209,25 @@ async function dockerContainerLogs(idOrName, res, callback) {
         stderr: true,
       },
       (err, mystream) => {
-        function onFinished(error, output) {
-          if (error) {
-            callback(err);
-          } else {
-            callback(null, output);
-          }
-        }
-        function onProgress(event) {
-          if (res) {
-            res.write(serviceHelper.ensureString(event));
-          }
-          log.info(event);
-        }
         if (err) {
           callback(err);
         } else {
-          docker.modem.followProgress(mystream, onFinished, onProgress);
+          try {
+            dockerContainer.modem.demuxStream(mystream, logStream, logStream);
+            mystream.on('end', () => {
+              logStream.end();
+              callback();
+            });
+
+            setTimeout(() => {
+              mystream.destroy();
+            }, 2000);
+          } catch (error) {
+            throw new Error({
+              message:
+                'An error obtaining log data of an application has occured',
+            });
+          }
         }
       },
     );
@@ -797,12 +803,11 @@ async function zelAppLog(req, res) {
     }
     // const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, appname);
     if (true) {
-      dockerContainerLogs(appname, res, (error, dataLog) => {
+      dockerContainerLogs(appname, res, (error) => {
         if (error) {
           throw error;
         } else {
-          const containerLogResponse = serviceHelper.createDataMessage(dataLog);
-          res.json(containerLogResponse);
+          res.end();
         }
       });
     } else {
