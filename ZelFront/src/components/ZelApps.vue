@@ -288,7 +288,7 @@
         <el-container>
           <el-aside width="192px">
             <el-menu
-              :default-active="activeIndex"
+              :default-active="managementMenuItem"
               mode="vertical"
               class="mobilemenu"
               @select="handleSelect"
@@ -301,7 +301,7 @@
                 <i class="el-icon-info"></i>
                 <span>Information</span>
               </el-menu-item>
-              <el-menu-item index="2">
+              <el-menu-item index="applogs">
                 <i class="el-icon-document"></i>
                 <span>Log file</span>
               </el-menu-item>
@@ -316,7 +316,53 @@
             </el-menu>
           </el-aside>
           <el-main>
+            <div v-if="managementMenuItem == 'applogs'">
+              <div>
+                <p>Following action will download Log file from your Application debug file. This may take a few minutes depending on file size</p>
+              </div>
+              <el-popconfirm
+                confirmButtonText='Download Log'
+                cancelButtonText='No, Thanks'
+                icon="el-icon-info"
+                iconColor="orange"
+                title="Download Log file?"
+                @onConfirm="downloadApplicationLog()"
+              >
+                <ElButton slot="reference">
+                  Download Log File
+                </ElButton>
+              </el-popconfirm>
+              <p v-if="total && downloaded">
+                {{ (downloaded / 1e6).toFixed(2) + " / " + (total / 1e6).toFixed(2) }} MB - {{ ((downloaded / total) * 100).toFixed(2) + "%" }}
+                <el-tooltip
+                  content="Cancel Download"
+                  placement="top"
+                >
+                  <el-button
+                    v-if="total && downloaded && total !== downloaded"
+                    type="danger"
+                    icon="el-icon-close"
+                    circle
+                    size="mini"
+                    @click="cancelDownload"
+                  ></el-button>
+                </el-tooltip>
+              </p>
+              <br><br>
+              <div>
+                <p>Below is an output of last 100 lines of log file</p>
+              </div>
+              <el-input
+                v-if="callResponse.data"
+                type="textarea"
+                autosize
+                v-model="asciResponse"
+              >
+              </el-input>
+            </div>
+            <div v-else>
             {{ callResponse.data }}
+            </div>
           </el-main>
         </el-container>
       </div>
@@ -862,12 +908,15 @@ export default {
       },
       websocket: null,
       managedApplication: '',
-      activeIndex: '1',
+      managementMenuItem: '1',
       selectedAppOwner: '',
       callResponse: { // general
         status: '',
         data: '',
       },
+      total: '',
+      downloaded: '',
+      abortToken: {},
     };
   },
   computed: {
@@ -877,6 +926,12 @@ export default {
       'zelAppsSection',
       'privilage',
     ]),
+    asciResponse() {
+      if (typeof this.callResponse.data === 'string') {
+        return this.callResponse.data.replace(/[^\x20-\x7E \t\r\n\v\f]/g, '');
+      }
+      return '';
+    },
     myGlobalApps() {
       const zelidauth = localStorage.getItem('zelidauth');
       const auth = qs.parse(zelidauth);
@@ -921,6 +976,7 @@ export default {
       this.switcher(val);
     },
     activeName(val, oldVal) {
+      this.callResponse.data = '';
       console.log(val, oldVal);
       this.output = '';
       switch (val) {
@@ -1468,10 +1524,11 @@ export default {
     },
     openAppManagement(zelappName) {
       console.log(zelappName);
+      this.callResponse.data = '';
       this.managedApplication = zelappName;
       this.getAppOwner();
       this.getApplicationSpecifics();
-      this.activeIndex = '1';
+      this.managementMenuItem = '1';
       // vue.$customMes.success('Management coming soon!');
     },
     goBackToZelApps() {
@@ -1479,13 +1536,15 @@ export default {
     },
     handleSelect(key, keyPath) {
       this.showMenu = false;
+      this.managementMenuItem = key;
+      this.callResponse.data = '';
       console.log(key, keyPath);
       console.log(key);
       switch (key) {
         case '1':
           this.getApplicationSpecifics();
           break;
-        case '2':
+        case 'applogs':
           this.getApplicationLogs();
           break;
         case '3':
@@ -1605,6 +1664,34 @@ export default {
         this.callResponse.status = response.data.status;
         this.callResponse.data = response.data.data;
       }
+    },
+    cancelDownload() {
+      this.abortToken.cancel('User download cancelled');
+      this.downloaded = '';
+      this.total = '';
+    },
+    async downloadApplicationLog() {
+      const self = this;
+      self.abortToken = ZelCashService.cancelToken();
+      const zelidauth = localStorage.getItem('zelidauth');
+      const axiosConfig = {
+        headers: {
+          zelidauth,
+        },
+        responseType: 'blob',
+        onDownloadProgress(progressEvent) {
+          self.downloaded = progressEvent.loaded;
+          self.total = progressEvent.total;
+        },
+        cancelToken: self.abortToken.token,
+      };
+      const response = await ZelCashService.justAPI().get(`/zelapps/zelapplog/${this.managedApplication}`, axiosConfig);
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', 'app.log');
+      document.body.appendChild(link);
+      link.click();
     },
   },
 };
