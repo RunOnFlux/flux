@@ -332,3 +332,11 @@ h4 {
 .helpSpecific {
   margin-left: 30px;
 }
+
+.pageheader {
+  margin-top: -35px;
+}
+
+.el-page-header__content {
+  color: white;
+}

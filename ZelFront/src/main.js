@@ -11,6 +11,10 @@ import store from './store';
 Vue.config.productionTip = false;
 
 Vue.use(ElementUI, { locale });
+// const customMessageOptions = {
+//   offset: 50,
+// };
+// Vue.prototype.$mes = (option) => Vue.prototype.$message({ ...customMessageOptions, ...option });
 
 new Vue({
   router,

@@ -85,7 +85,7 @@ export default {
     return Api().get(`/zelapps/location/${name}`);
   },
   globalZelAppSpecifications() {
-    return Api().get('/zelapps/globalspecifications');
+    return Api().get('/zelapps/globalappsspecifications');
   },
   reindexGlobalApps(zelidauthHeader) {
     return Api().get('/zelapps/reindexglobalappsinformation', {

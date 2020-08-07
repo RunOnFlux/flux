@@ -254,8 +254,14 @@ module.exports = (app, expressWs) => {
   app.get('/zelapps/permanentmessages', (req, res) => {
     zelappsService.getZelAppsPermanentMessages(req, res);
   });
-  app.get('/zelapps/globalspecifications', (req, res) => {
+  app.get('/zelapps/globalappsspecifications', (req, res) => {
     zelappsService.getGlobalZelAppsSpecifications(req, res);
+  });
+  app.get('/zelapps/appspecifications/:appname?', (req, res) => {
+    zelappsService.getApplicationSpecificationAPI(req, res);
+  });
+  app.get('/zelapps/appowner/:appname?', (req, res) => {
+    zelappsService.getApplicationOwnerAPI(req, res);
   });
   app.get('/zelapps/hashes', (req, res) => {
     zelappsService.getZelAppHashes(req, res);

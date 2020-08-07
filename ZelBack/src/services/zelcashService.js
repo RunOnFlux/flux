@@ -860,7 +860,7 @@ async function listBanned(req, res) {
 }
 
 async function ping(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+  const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
   if (authorized === true) {
     const rpccall = 'ping';
 
@@ -2483,7 +2483,7 @@ async function zcBenchmark(req, res) {
   benchmarktype = benchmarktype || req.query.benchmarktype;
   let { samplecount } = req.params;
   samplecount = samplecount || req.query.samplecount;
-  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+  const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
   if (authorized === true) {
     const rpccall = 'zcbenchmark';
     let rpcparameters = [];
@@ -2617,7 +2617,7 @@ async function zcRawReceivePost(req, res) {
 }
 
 async function zcSampleJoinSplit(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+  const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
   if (authorized === true) {
     const rpccall = 'zcsamplejoinsplit';
     response = await executeCall(rpccall);
@@ -2646,7 +2646,7 @@ async function getBenchStatus(req, res) {
 }
 
 async function startZelBenchD(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+  const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
   if (authorized === true) {
     const rpccall = 'startzelbenchd';
     response = await executeCall(rpccall);
@@ -2658,7 +2658,7 @@ async function startZelBenchD(req, res) {
 }
 
 async function stopZelBenchD(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+  const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
   if (authorized === true) {
     const rpccall = 'stopzelbenchd';
     response = await executeCall(rpccall);

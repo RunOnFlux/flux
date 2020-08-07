@@ -1,7 +1,10 @@
 <template>
   <div>
     <div v-if="zelAppsSection === 'localzelapps'">
-      <el-tabs v-model="activeName">
+      <el-tabs
+        v-if="!managedApplication"
+        v-model="activeName"
+      >
         <el-tab-pane
           label="Running"
           name="running"
@@ -38,6 +41,7 @@
               </template>
             </el-table-column>
             <el-table-column
+              v-if="privilage === 'zelteam' || privilage === 'admin'"
               label="Actions"
               prop="actions"
               sortable
@@ -111,6 +115,7 @@
               </template>
             </el-table-column>
             <el-table-column
+              v-if="privilage === 'zelteam' || privilage === 'admin'"
               label="Actions"
               prop="actions"
               sortable
@@ -143,6 +148,7 @@
               </template>
             </el-table-column>
             <el-table-column
+              v-if="privilage === 'zelteam' || privilage === 'admin'"
               label="Remove"
               prop="remove"
               sortable
@@ -158,6 +164,27 @@
                 >
                   <ElButton slot="reference">
                     Remove
+                  </ElButton>
+                </el-popconfirm>
+              </template>
+            </el-table-column>
+            <el-table-column
+              v-if="privilage === 'zelteam' || privilage === 'admin'"
+              label="Manage"
+              prop="manage"
+              sortable
+            >
+              <template slot-scope="scope">
+                <el-popconfirm
+                  confirmButtonText='Manage!'
+                  cancelButtonText='No, Thanks'
+                  icon="el-icon-info"
+                  iconColor="green"
+                  title="Opens Application management centre"
+                  @onConfirm="openAppManagement(scope.row.name)"
+                >
+                  <ElButton slot="reference">
+                    Manage
                   </ElButton>
                 </el-popconfirm>
               </template>
@@ -228,6 +255,7 @@
               </template>
             </el-table-column>
             <el-table-column
+              v-if="privilage === 'zelteam' || privilage === 'admin'"
               label="Install"
               prop="install"
               sortable
@@ -250,10 +278,50 @@
           </el-table>
         </el-tab-pane>
       </el-tabs>
-      <br>
-      <div class='actionCenter'>
+      <div v-if="managedApplication">
+        <el-page-header
+          class="pageheader"
+          @back="goBackToZelApps"
+          :content="managedApplication"
+        >
+        </el-page-header>
+        <el-container>
+          <el-aside width="192px">
+            <el-menu
+              :default-active="activeIndex"
+              mode="vertical"
+              class="mobilemenu"
+              @select="handleSelect"
+              :unique-opened=true
+              background-color="#333333"
+              text-color="#fff"
+              active-text-color="#ffd04b"
+            >
+              <el-menu-item index="1">
+                <i class="el-icon-info"></i>
+                <span>Information</span>
+              </el-menu-item>
+              <el-menu-item index="2">
+                <i class="el-icon-document"></i>
+                <span>Log file</span>
+              </el-menu-item>
+              <el-menu-item index="3">
+                <i class="el-icon-location-outline"></i>
+                <span>Running Instances</span>
+              </el-menu-item>
+            </el-menu>
+          </el-aside>
+          <el-main>
+            CONTENT
+          </el-main>
+        </el-container>
+      </div>
+      <div
+        v-if="output"
+        class='actionCenter'
+      >
+        <br>
         <el-input
-          v-if="output"
           type="textarea"
           autosize
           v-model="stringOutput"
@@ -306,7 +374,7 @@
         >
           <el-table
             :data="myGlobalApps"
-            empty-text="No global ZelApp"
+            empty-text="No global ZelApp owned"
             style="width: 100%"
           >
             <el-table-column
@@ -789,6 +857,8 @@ export default {
         portMax: 39999,
       },
       websocket: null,
+      managedApplication: '',
+      activeIndex: '1',
     };
   },
   computed: {
@@ -796,6 +866,7 @@ export default {
       'config',
       'userconfig',
       'zelAppsSection',
+      'privilage',
     ]),
     myGlobalApps() {
       const zelidauth = localStorage.getItem('zelidauth');
@@ -1387,9 +1458,33 @@ export default {
         vue.$message.error(response.data.data);
       }
     },
-    async openAppManagement(zelappName) {
+    openAppManagement(zelappName) {
       console.log(zelappName);
-      vue.$message.success('Management coming soon!');
+      this.managedApplication = zelappName;
+      this.activeIndex = '1';
+      // vue.$message.success('Management coming soon!');
+    },
+    goBackToZelApps() {
+      this.managedApplication = '';
+    },
+    handleSelect(key, keyPath) {
+      this.showMenu = false;
+      console.log(key, keyPath);
+      console.log(key);
+      switch (key) {
+        case '1':
+          vue.$message.info('Feature coming soon0!');
+          break;
+        case '2':
+          vue.$message.info('Feature coming soon1!');
+          break;
+        case '3':
+          vue.$message.info('Feature coming soon2!');
+          break;
+        default:
+          vue.$message.info('Feature coming soon!');
+          console.log('Menu: Unrecognized method');
+      }
     },
     async register() {
       const zelidauth = localStorage.getItem('zelidauth');

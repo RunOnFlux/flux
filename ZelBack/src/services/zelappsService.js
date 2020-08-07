@@ -232,7 +232,7 @@ async function dockerContainerLogs(idOrName, callback) {
 
 async function zelAppPull(req, res) {
   try {
-    const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+    const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
     if (authorized) {
       let { repotag } = req.params;
       repotag = repotag || req.query.repotag;
@@ -529,7 +529,7 @@ async function zelAppDockerTop(idOrName) {
 }
 
 async function zelAppStart(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+  const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
   if (!authorized) {
     const errMessage = serviceHelper.errUnauthorizedMessage();
     return res.json(errMessage);
@@ -555,7 +555,7 @@ async function zelAppStart(req, res) {
 }
 
 async function zelAppStop(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+  const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
   if (!authorized) {
     const errMessage = serviceHelper.errUnauthorizedMessage();
     return res.json(errMessage);
@@ -583,7 +583,7 @@ async function zelAppStop(req, res) {
 }
 
 async function zelAppRestart(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+  const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
   if (!authorized) {
     const errMessage = serviceHelper.errUnauthorizedMessage();
     return res.json(errMessage);
@@ -611,7 +611,7 @@ async function zelAppRestart(req, res) {
 }
 
 async function zelAppKill(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+  const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
   if (!authorized) {
     const errMessage = serviceHelper.errUnauthorizedMessage();
     return res.json(errMessage);
@@ -639,7 +639,7 @@ async function zelAppKill(req, res) {
 }
 
 async function zelAppRemove(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+  const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
   if (!authorized) {
     const errMessage = serviceHelper.errUnauthorizedMessage();
     return res.json(errMessage);
@@ -667,7 +667,7 @@ async function zelAppRemove(req, res) {
 }
 
 async function zelAppImageRemove(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+  const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
   if (!authorized) {
     const errMessage = serviceHelper.errUnauthorizedMessage();
     return res.json(errMessage);
@@ -695,7 +695,7 @@ async function zelAppImageRemove(req, res) {
 }
 
 async function zelAppPause(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+  const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
   if (!authorized) {
     const errMessage = serviceHelper.errUnauthorizedMessage();
     return res.json(errMessage);
@@ -723,7 +723,7 @@ async function zelAppPause(req, res) {
 }
 
 async function zelAppUnpause(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+  const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
   if (!authorized) {
     const errMessage = serviceHelper.errUnauthorizedMessage();
     return res.json(errMessage);
@@ -751,7 +751,7 @@ async function zelAppUnpause(req, res) {
 }
 
 async function zelAppTop(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+  const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
   if (!authorized) {
     const errMessage = serviceHelper.errUnauthorizedMessage();
     return res.json(errMessage);
@@ -781,7 +781,7 @@ async function zelAppTop(req, res) {
 
 async function zelAppLog(req, res) {
   try {
-    const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+    const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
     if (authorized) {
       let { container } = req.params;
       container = container || req.query.container;
@@ -814,7 +814,7 @@ async function zelAppLog(req, res) {
 }
 
 async function zelAppInspect(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+  const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
   if (!authorized) {
     const errMessage = serviceHelper.errUnauthorizedMessage();
     return res.json(errMessage);
@@ -844,7 +844,7 @@ async function zelAppInspect(req, res) {
 }
 
 async function zelAppUpdate(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+  const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
   if (!authorized) {
     const errMessage = serviceHelper.errUnauthorizedMessage();
     return res.json(errMessage);
@@ -900,7 +900,7 @@ async function zelAppUpdate(req, res) {
 // todo needs post
 async function zelAppExec(req, res) {
   try {
-    const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+    const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
     if (authorized) {
       let { container } = req.params;
       container = container || req.query.container;
@@ -992,7 +992,7 @@ async function createFluxNetwork() {
 }
 
 async function createZelFluxNetwork(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+  const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
   if (!authorized) {
     const errMessage = serviceHelper.errUnauthorizedMessage();
     return res.json(errMessage);
@@ -1559,7 +1559,7 @@ async function removeZelAppLocally(zelapp, res) {
 
 async function removeZelAppLocallyApi(req, res) {
   try {
-    const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+    const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
     if (!authorized) {
       const errMessage = serviceHelper.errUnauthorizedMessage();
       res.json(errMessage);
@@ -2422,7 +2422,7 @@ async function temporaryZelAppRegisterFunctionForFoldingAtHome(req, res) {
   // as according to specifications ports are asssigned from lowest possible number ();
   // if not exists create zelflux network for docker on gateway ip docker network create --subnet=172.16.0.0/16 --gateway=172.16.0.1 zelfluxDockerNetwork
   try {
-    const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+    const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
     if (authorized) {
       // ram is specified in MB, hdd specified in GB
       const zelAppSpecifications = {
@@ -2493,7 +2493,7 @@ async function temporaryZelAppRegisterFunctionForFoldingAtHome(req, res) {
 
 async function temporaryZelAppRegisterFunctionForDibiFetch(req, res) {
   try {
-    const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+    const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
     if (authorized) {
       // ram is specified in MB, hdd specified in GB
       const zelAppSpecifications = {
@@ -2550,7 +2550,7 @@ async function temporaryZelAppRegisterFunctionForDibiFetch(req, res) {
 
 async function temporaryZelAppRegisterFunctionForSuperMario(req, res) {
   try {
-    const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+    const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
     if (authorized) {
       // ram is specified in MB, hdd specified in GB
       const zelAppSpecifications = {
@@ -2607,7 +2607,7 @@ async function temporaryZelAppRegisterFunctionForSuperMario(req, res) {
 
 async function temporaryZelAppRegisterFunctionForPacMan(req, res) {
   try {
-    const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+    const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
     if (authorized) {
       // ram is specified in MB, hdd specified in GB
       const zelAppSpecifications = {
@@ -3189,7 +3189,7 @@ async function rescanGlobalAppsInformation(height = 0, removeLastInformation = f
 
 async function reindexGlobalAppsLocationAPI(req, res) {
   try {
-    const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+    const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
     if (authorized === true) {
       await reindexGlobalAppsLocation();
       const message = serviceHelper.createSuccessMessage('Reindex successfull');
@@ -3211,7 +3211,7 @@ async function reindexGlobalAppsLocationAPI(req, res) {
 
 async function reindexGlobalAppsInformationAPI(req, res) {
   try {
-    const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+    const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
     if (authorized === true) {
       await reindexGlobalAppsInformation();
       const message = serviceHelper.createSuccessMessage('Reindex successfull');
@@ -3233,7 +3233,7 @@ async function reindexGlobalAppsInformationAPI(req, res) {
 
 async function rescanGlobalAppsInformationAPI(req, res) {
   try {
-    const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+    const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
     if (authorized === true) {
       let { blockheight } = req.params; // we accept both help/command and help?command=getinfo
       blockheight = blockheight || req.query.blockheight;
@@ -3501,6 +3501,48 @@ async function getApplicationSpecifications(appName) {
   };
   const zelappInfo = await serviceHelper.findOneInDatabase(database, globalZelAppsInformation, query, projection);
   return zelappInfo;
+}
+
+async function getApplicationSpecificationAPI(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname;
+    if (!appname) {
+      throw new Error('No Application Name specified');
+    }
+    const specifications = await getApplicationSpecifications(appname);
+    const specResponse = serviceHelper.createDataMessage(specifications);
+    res.json(specResponse);
+  } catch (error) {
+    log.error(error);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
+}
+
+async function getApplicationOwnerAPI(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname;
+    if (!appname) {
+      throw new Error('No Application Name specified');
+    }
+    const owner = await serviceHelper.getApplicationOwner(appname);
+    const specResponse = serviceHelper.createDataMessage(owner);
+    res.json(specResponse);
+  } catch (error) {
+    log.error(error);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
 }
 
 async function trySpawningGlobalApplication() {
@@ -3816,6 +3858,8 @@ module.exports = {
   getRunningAppList,
   trySpawningGlobalApplication,
   getApplicationSpecifications,
+  getApplicationSpecificationAPI,
+  getApplicationOwnerAPI,
   checkAndNotifyPeersOfRunningApps,
   rescanGlobalAppsInformationAPI,
   reindexGlobalAppsInformationAPI,
