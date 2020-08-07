@@ -95,7 +95,7 @@
           Update Flux
         </ElButton>
       </el-popconfirm>
-      <hr>
+      <el-divider></el-divider>
       <p>
         This option rebuilds Flux User Interface. Shall be used only in situation when UI does not rebuild properly to latest Flux version.
       </p>
@@ -111,7 +111,7 @@
           Rebuild ZelFront
         </ElButton>
       </el-popconfirm>
-      <hr>
+      <el-divider></el-divider>
       <p>
         Options to reindex Flux databases and so rebuild them from scratch. Reindexing may take several hours and shall be used only when an unrecoverable error is present in databases.
       </p>
@@ -139,7 +139,7 @@
           Reindex Explorer databases
         </ElButton>
       </el-popconfirm>
-      <hr>
+      <el-divider></el-divider>
       <p>
         Options to rescan Flux databases from a given blockheight and rebuild them since. Rescanning may take several hours and shall be used only when an unrecoverable error is present in databases with a known blockheight.
         Rescanning Flux databases is a deeper option than just explorer databases and so while rescanning entire Flux databases, explorer parst will be rescanned as well.
@@ -185,7 +185,7 @@
           Rescan Explorer databases
         </ElButton>
       </el-popconfirm>
-      <hr>
+      <el-divider></el-divider>
       <p>
         Options to rescan Flux Global Application Database from a given blockheight and rebuild them since. Rescanning may take several hours and shall be used only when an unrecoverable error is present in databases with a known blockheight.
         If remove Last Information is wished. The current specifics will be dropped instead making it more deep option.
@@ -221,7 +221,7 @@
           Rescan Global Apps Information
         </ElButton>
       </el-popconfirm>
-      <hr>
+      <el-divider></el-divider>
       <p>
         Reindexes Flux Global Application Database and rebuilds them entirely from stored permanent messages. Reindexing may take a few hours and shall be used only when an unrecoverable error is present.
       </p>
@@ -237,7 +237,7 @@
           Reindex Global Apps Information
         </ElButton>
       </el-popconfirm>
-      <hr>
+      <el-divider></el-divider>
       <p>
         Reindexes Flux Global Application Locations and rebuilds them from newly incoming messages. Shall be used only when index has inconsistencies.
       </p>
@@ -253,7 +253,7 @@
           Reindex Global Apps Locations
         </ElButton>
       </el-popconfirm>
-      <hr>
+      <el-divider></el-divider>
       <p>
         These options manage Flux block processing which is a crucial process for Explorer and Apps functionality. Useful when Block Processing encounters an error and is stuck. Use with caution!
       </p>
@@ -298,7 +298,7 @@
           Update ZelCash
         </ElButton>
       </el-popconfirm>
-      <hr>
+      <el-divider></el-divider>
       <p>
         Here you can manage your ZelCash daemon process.
       </p>
@@ -338,7 +338,7 @@
           Restart ZelCash
         </ElButton>
       </el-popconfirm>
-      <hr>
+      <el-divider></el-divider>
       <p>
         Choose a blockheight to rescan ZelCash from and click on Rescan ZelCash to begin rescanning.
       </p>
@@ -362,7 +362,7 @@
           Rescan ZelCash
         </ElButton>
       </el-popconfirm>
-      <hr>
+      <el-divider></el-divider>
       <p>
         This option reindexes ZelCash blockchain data. It will take several hours to finish the operation.
       </p>
@@ -395,7 +395,7 @@
           Update ZelBench
         </ElButton>
       </el-popconfirm>
-      <hr>
+      <el-divider></el-divider>
       <p>
         Here you can manage your ZelBench daemon process.
       </p>
@@ -435,7 +435,7 @@
           Restart ZelBench
         </ElButton>
       </el-popconfirm>
-      <hr>
+      <el-divider></el-divider>
       <p>
         Option to trigger a complete new run of node benchmarking. Useful when your node falls down in category or fails benchmarking tests.
       </p>

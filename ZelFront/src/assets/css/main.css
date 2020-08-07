@@ -25,12 +25,6 @@ a:hover {
   color: #fff;
 }
 
-hr {
-  height: 1px;
-  background-color: rgba(255, 255, 255, 0.6);
-  margin: 30px;
-}
-
 ::-webkit-scrollbar {
   height: 8px;
   width: 6px;
@@ -339,4 +333,12 @@ h4 {
 
 .el-page-header__content {
   color: white;
+}
+
+.el-divider--horizontal {
+  height: 2px;
+  margin-left: 5%;
+  margin-top: 30px;
+  margin-bottom: 30px;
+  width: 90%;
 }

@@ -128,7 +128,7 @@
               </template>
             </el-table-column>
           </el-table>
-          <hr>
+          <el-divider></el-divider>
           Force a connection to a peer
           <ElForm class="loginForm">
             <ElFormItem>
