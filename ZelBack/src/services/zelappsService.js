@@ -39,6 +39,15 @@ function getZelAppIdentifier(zelappName) {
   return `zel${zelappName}`;
 }
 
+function getZelAppDockerNameIdentifier(zelappName) {
+  // this id is used for volumes, docker names so we know it reall belongs to zelflux
+  const name = getZelAppIdentifier(zelappName);
+  if (name.startsWith('/')) {
+    return name;
+  }
+  return `/${name}`;
+}
+
 function getCollateralInfo(collateralOutpoint) {
   const a = collateralOutpoint;
   const b = a.split(', ');
@@ -84,7 +93,7 @@ async function dockerListImages() {
 async function dockerContainerInspect(idOrName) {
   // container ID or name
   const containers = await dockerListContainers(true);
-  const myContainer = containers.find((container) => (container.Names[0] === getZelAppIdentifier(idOrName) || container.Id === idOrName));
+  const myContainer = containers.find((container) => (container.Names[0] === getZelAppDockerNameIdentifier(idOrName) || container.Id === idOrName));
   const dockerContainer = docker.getContainer(myContainer.Id);
   const response = await dockerContainer.inspect().catch((error) => {
     throw error;
@@ -186,7 +195,7 @@ async function dockerContainerLogs(idOrName, callback) {
   try {
     // container ID or name
     const containers = await dockerListContainers(true);
-    const myContainer = containers.find((container) => (container.Names[0] === getZelAppIdentifier(idOrName) || container.Id === idOrName));
+    const myContainer = containers.find((container) => (container.Names[0] === getZelAppDockerNameIdentifier(idOrName) || container.Id === idOrName));
     const dockerContainer = docker.getContainer(myContainer.Id);
     const logStream = new stream.PassThrough();
     let logStreamData = '';
@@ -415,7 +424,7 @@ async function zelAppDockerStart(idOrName) {
   try {
     // container ID or name
     const containers = await dockerListContainers(true);
-    const myContainer = containers.find((container) => (container.Names[0] === getZelAppIdentifier(idOrName) || container.Id === idOrName));
+    const myContainer = containers.find((container) => (container.Names[0] === getZelAppDockerNameIdentifier(idOrName) || container.Id === idOrName));
     const dockerContainer = docker.getContainer(myContainer.Id);
 
     await dockerContainer.start();
@@ -429,7 +438,7 @@ async function zelAppDockerStart(idOrName) {
 async function zelAppDockerStop(idOrName) {
   // container ID or name
   const containers = await dockerListContainers(true);
-  const myContainer = containers.find((container) => (container.Names[0] === getZelAppIdentifier(idOrName) || container.Id === idOrName));
+  const myContainer = containers.find((container) => (container.Names[0] === getZelAppDockerNameIdentifier(idOrName) || container.Id === idOrName));
   const dockerContainer = docker.getContainer(myContainer.Id);
 
   await dockerContainer.stop().catch((error) => {
@@ -442,7 +451,7 @@ async function zelAppDockerStop(idOrName) {
 async function zelAppDockerRestart(idOrName) {
   // container ID or name
   const containers = await dockerListContainers(true);
-  const myContainer = containers.find((container) => (container.Names[0] === getZelAppIdentifier(idOrName) || container.Id === idOrName));
+  const myContainer = containers.find((container) => (container.Names[0] === getZelAppDockerNameIdentifier(idOrName) || container.Id === idOrName));
   const dockerContainer = docker.getContainer(myContainer.Id);
 
   await dockerContainer.restart().catch((error) => {
@@ -455,7 +464,7 @@ async function zelAppDockerRestart(idOrName) {
 async function zelAppDockerKill(idOrName) {
   // container ID or name
   const containers = await dockerListContainers(true);
-  const myContainer = containers.find((container) => (container.Names[0] === getZelAppIdentifier(idOrName) || container.Id === idOrName));
+  const myContainer = containers.find((container) => (container.Names[0] === getZelAppDockerNameIdentifier(idOrName) || container.Id === idOrName));
   const dockerContainer = docker.getContainer(myContainer.Id);
 
   await dockerContainer.kill().catch((error) => {
@@ -468,7 +477,7 @@ async function zelAppDockerKill(idOrName) {
 async function zelAppDockerRemove(idOrName) {
   // container ID or name
   const containers = await dockerListContainers(true);
-  const myContainer = containers.find((container) => (container.Names[0] === getZelAppIdentifier(idOrName) || container.Id === idOrName));
+  const myContainer = containers.find((container) => (container.Names[0] === getZelAppDockerNameIdentifier(idOrName) || container.Id === idOrName));
   const dockerContainer = docker.getContainer(myContainer.Id);
 
   await dockerContainer.remove().catch((error) => {
@@ -492,7 +501,7 @@ async function zelAppDockerImageRemove(idOrName) {
 async function zelAppDockerPause(idOrName) {
   // container ID or name
   const containers = await dockerListContainers(true);
-  const myContainer = containers.find((container) => (container.Names[0] === getZelAppIdentifier(idOrName) || container.Id === idOrName));
+  const myContainer = containers.find((container) => (container.Names[0] === getZelAppDockerNameIdentifier(idOrName) || container.Id === idOrName));
   const dockerContainer = docker.getContainer(myContainer.Id);
 
   await dockerContainer.pause().catch((error) => {
@@ -505,7 +514,7 @@ async function zelAppDockerPause(idOrName) {
 async function zelAppDockerUnpase(idOrName) {
   // container ID or name
   const containers = await dockerListContainers(true);
-  const myContainer = containers.find((container) => (container.Names[0] === getZelAppIdentifier(idOrName) || container.Id === idOrName));
+  const myContainer = containers.find((container) => (container.Names[0] === getZelAppDockerNameIdentifier(idOrName) || container.Id === idOrName));
   const dockerContainer = docker.getContainer(myContainer.Id);
 
   await dockerContainer.unpause().catch((error) => {
@@ -518,7 +527,7 @@ async function zelAppDockerUnpase(idOrName) {
 async function zelAppDockerTop(idOrName) {
   // container ID or name
   const containers = await dockerListContainers(true);
-  const myContainer = containers.find((container) => (container.Names[0] === getZelAppIdentifier(idOrName) || container.Id === idOrName));
+  const myContainer = containers.find((container) => (container.Names[0] === getZelAppDockerNameIdentifier(idOrName) || container.Id === idOrName));
   const dockerContainer = docker.getContainer(myContainer.Id);
 
   const processes = await dockerContainer.top().catch((error) => {
