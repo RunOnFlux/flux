@@ -668,7 +668,7 @@ module.exports = (app, expressWs) => {
   app.get('/zelapps/zelappstop/:appname?', (req, res) => {
     zelappsService.zelAppStop(req, res);
   });
-  app.get('/zelapps/restartzelapp/:appname?', (req, res) => {
+  app.get('/zelapps/zelapprestart/:appname?', (req, res) => {
     zelappsService.zelAppRestart(req, res);
   });
   app.get('/zelapps/zelapppause/:appname?', (req, res) => {
