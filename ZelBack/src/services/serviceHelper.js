@@ -192,7 +192,7 @@ async function getApplicationOwner(appName) {
   const db = databaseConnection();
   const database = db.db(config.database.zelappsglobal.database);
 
-  const query = { name: appName };
+  const query = { name: new RegExp(`^${appName}$`, 'i') };
   const projection = {
     projection: {
       _id: 0,
@@ -201,7 +201,10 @@ async function getApplicationOwner(appName) {
   };
   const globalZelAppsInformation = config.database.zelappsglobal.collections.zelappsInformation;
   const appSpecs = await findOneInDatabase(database, globalZelAppsInformation, query, projection);
-  return appSpecs.owner;
+  if (appSpecs) {
+    return appSpecs.owner;
+  }
+  return null;
 }
 
 // Verification functions

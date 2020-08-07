@@ -3493,7 +3493,7 @@ async function getApplicationSpecifications(appName) {
   const db = serviceHelper.databaseConnection();
   const database = db.db(config.database.zelappsglobal.database);
 
-  const query = { name: appName };
+  const query = { name: new RegExp(`^${appName}$`, 'i') };
   const projection = {
     projection: {
       _id: 0,
@@ -3512,7 +3512,10 @@ async function getApplicationSpecificationAPI(req, res) {
     }
     const specifications = await getApplicationSpecifications(appname);
     const specResponse = serviceHelper.createDataMessage(specifications);
-    res.json(specResponse);
+    if (specResponse) {
+      res.json(specResponse);
+    }
+    throw new Error('Application not found');
   } catch (error) {
     log.error(error);
     const errorResponse = serviceHelper.createErrorMessage(
@@ -3532,8 +3535,11 @@ async function getApplicationOwnerAPI(req, res) {
       throw new Error('No Application Name specified');
     }
     const owner = await serviceHelper.getApplicationOwner(appname);
-    const specResponse = serviceHelper.createDataMessage(owner);
-    res.json(specResponse);
+    const ownerResponse = serviceHelper.createDataMessage(owner);
+    if (ownerResponse) {
+      res.json(ownerResponse);
+    }
+    throw new Error('Application not found');
   } catch (error) {
     log.error(error);
     const errorResponse = serviceHelper.createErrorMessage(
