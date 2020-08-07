@@ -57,16 +57,12 @@ function getCollateralInfo(collateralOutpoint) {
 }
 
 async function dockerCreateNetwork(options) {
-  const network = await docker.createNetwork(options).catch((error) => {
-    throw error;
-  });
+  const network = await docker.createNetwork(options);
   return network;
 }
 
 async function dockerNetworkInspect(netw) {
-  const network = await netw.inspect().catch((error) => {
-    throw error;
-  });
+  const network = await netw.inspect();
   return network;
 }
 
@@ -77,16 +73,12 @@ async function dockerListContainers(all, limit, size, filter) {
     size,
     filter,
   };
-  const containers = await docker.listContainers(options).catch((error) => {
-    throw error;
-  });
+  const containers = await docker.listContainers(options);
   return containers;
 }
 
 async function dockerListImages() {
-  const containers = await docker.listImages().catch((error) => {
-    throw error;
-  });
+  const containers = await docker.listImages();
   return containers;
 }
 
@@ -95,9 +87,7 @@ async function dockerContainerInspect(idOrName) {
   const containers = await dockerListContainers(true);
   const myContainer = containers.find((container) => (container.Names[0] === getZelAppDockerNameIdentifier(idOrName) || container.Id === idOrName));
   const dockerContainer = docker.getContainer(myContainer.Id);
-  const response = await dockerContainer.inspect().catch((error) => {
-    throw error;
-  });
+  const response = await dockerContainer.inspect();
   return response;
 }
 
@@ -191,7 +181,7 @@ function dockerContainerExec(container, cmd, env, res, callback) {
   }
 }
 
-async function dockerContainerLogs(idOrName, res, callback) {
+async function dockerContainerLogsStream(idOrName, res, callback) {
   try {
     // container ID or name
     const containers = await dockerListContainers(true);
@@ -234,6 +224,22 @@ async function dockerContainerLogs(idOrName, res, callback) {
   } catch (error) {
     callback(error);
   }
+}
+
+async function dockerContainerLogs(idOrName, lines) {
+  // container ID or name
+  const containers = await dockerListContainers(true);
+  const myContainer = containers.find((container) => (container.Names[0] === getZelAppDockerNameIdentifier(idOrName) || container.Id === idOrName));
+  const dockerContainer = docker.getContainer(myContainer.Id);
+
+  const options = {
+    follow: false,
+    stdout: true,
+    stderr: true,
+    tail: lines,
+  };
+  const logs = await dockerContainer.logs(options);
+  return logs;
 }
 
 async function zelAppPull(req, res) {
@@ -796,13 +802,44 @@ async function zelAppLog(req, res) {
     let { appname } = req.params;
     appname = appname || req.query.appname;
 
+    let { lines } = req.params;
+    lines = lines || req.query.lines || 'all';
+
     if (!appname) {
       throw new Error('No ZelApp specified');
     }
-    // const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, appname);
-    if (true) {
+    const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, appname);
+    if (authorized === true) {
+      const logs = await dockerContainerLogs(appname, lines);
+      const dataMessage = serviceHelper.createDataMessage(logs);
+      res.json(dataMessage);
+    } else {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
+}
+
+async function zelAppLogStream(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname;
+
+    if (!appname) {
+      throw new Error('No ZelApp specified');
+    }
+    const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, appname);
+    if (authorized === true) {
       res.setHeader('Content-Type', 'application/json');
-      dockerContainerLogs(appname, res, (error) => {
+      dockerContainerLogsStream(appname, res, (error) => {
         if (error) {
           throw error;
         } else {
@@ -3833,6 +3870,7 @@ module.exports = {
   zelAppUnpause,
   zelAppTop,
   zelAppLog,
+  zelAppLogStream,
   zelAppInspect,
   zelAppUpdate,
   zelAppExec,

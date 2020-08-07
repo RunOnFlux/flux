@@ -82,13 +82,13 @@ export default {
   getZelAppOwner(name) {
     return Api().get(`/zelapps/appowner/${name}`);
   },
-  getZelAppLogs(zelidauthHeader, zelapp) {
+  getZelAppLogsTail(zelidauthHeader, zelapp) {
     const axiosConfig = {
       headers: {
         zelidauth: zelidauthHeader,
       },
     };
-    return Api().get(`/zelapps/zelapplog/${zelapp}`, axiosConfig);
+    return Api().get(`/zelapps/zelapplog/${zelapp}/100`, axiosConfig);
   },
   getZelAppTop(zelidauthHeader, zelapp) {
     const axiosConfig = {

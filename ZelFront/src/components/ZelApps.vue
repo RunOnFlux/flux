@@ -1586,7 +1586,7 @@ export default {
     },
     async getApplicationLogs() {
       const zelidauth = localStorage.getItem('zelidauth');
-      const response = await ZelAppsService.getZelAppLogs(zelidauth, this.managedApplication);
+      const response = await ZelAppsService.getZelAppLogsTail(zelidauth, this.managedApplication);
       console.log(response);
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);

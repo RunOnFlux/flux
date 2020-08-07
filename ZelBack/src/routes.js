@@ -680,7 +680,7 @@ module.exports = (app, expressWs) => {
   app.get('/zelapps/zelapptop/:appname?', (req, res) => {
     zelappsService.zelAppTop(req, res);
   });
-  app.get('/zelapps/zelapplog/:appname?', (req, res) => {
+  app.get('/zelapps/zelapplog/:appname?/:lines?', (req, res) => {
     zelappsService.zelAppLog(req, res);
   });
   app.get('/zelapps/zelappinspect/:appname?', (req, res) => { // TODO this shall require app owner privilege for all information
