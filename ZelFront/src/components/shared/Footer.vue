@@ -71,7 +71,7 @@ export default {
       .catch((e) => {
         console.log(e);
         console.log(e.code);
-        vue.$message.error(e.toString());
+        vue.$customMes.error(e.toString());
       });
   },
   methods: {
@@ -81,14 +81,14 @@ export default {
         .then((response) => {
           console.log(response);
           if (response.data.version !== self.zelfluxVersion) {
-            vue.$message.warning('Flux needs to be updated!');
+            vue.$customMes.warning('Flux needs to be updated!');
           } else {
-            vue.$message.success('Flux is up to date');
+            vue.$customMes.success('Flux is up to date');
           }
         })
         .catch((error) => {
           console.log(error);
-          vue.$message.error('Error verifying recent version');
+          vue.$customMes.error('Error verifying recent version');
         });
     },
     changeBackendURL(value) {

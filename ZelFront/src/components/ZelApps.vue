@@ -1007,45 +1007,45 @@ export default {
     },
     async stopZelApp(zelapp) {
       this.output = '';
-      vue.$message.success('Stopping ZelApp');
+      vue.$customMes.success('Stopping ZelApp');
       const zelidauth = localStorage.getItem('zelidauth');
       const response = await ZelAppsService.stopZelApp(zelidauth, zelapp);
       if (response.data.status === 'success') {
-        vue.$message.success(response.data.data.messsage || response.data.data);
+        vue.$customMes.success(response.data.data.messsage || response.data.data);
       } else {
-        vue.$message.error(response.data.data.messsage || response.data.data);
+        vue.$customMes.error(response.data.data.messsage || response.data.data);
       }
       this.zelappsGetListRunningZelApps();
       console.log(response);
     },
     async startZelApp(zelapp) {
       this.output = '';
-      vue.$message.success('Starting ZelApp');
+      vue.$customMes.success('Starting ZelApp');
       const zelidauth = localStorage.getItem('zelidauth');
       const response = await ZelAppsService.startZelApp(zelidauth, zelapp);
       if (response.data.status === 'success') {
-        vue.$message.success(response.data.data.messsage || response.data.data);
+        vue.$customMes.success(response.data.data.messsage || response.data.data);
       } else {
-        vue.$message.error(response.data.data.messsage || response.data.data);
+        vue.$customMes.error(response.data.data.messsage || response.data.data);
       }
       console.log(response);
     },
     async restartZelApp(zelapp) {
       this.output = '';
-      vue.$message.success('Restarting ZelApp');
+      vue.$customMes.success('Restarting ZelApp');
       const zelidauth = localStorage.getItem('zelidauth');
       const response = await ZelAppsService.restartZelApp(zelidauth, zelapp);
       if (response.data.status === 'success') {
-        vue.$message.success(response.data.data.messsage || response.data.data);
+        vue.$customMes.success(response.data.data.messsage || response.data.data);
       } else {
-        vue.$message.error(response.data.data.messsage || response.data.data);
+        vue.$customMes.error(response.data.data.messsage || response.data.data);
       }
       console.log(response);
     },
     async removeZelApp(zelapp) {
       const self = this;
       this.output = '';
-      vue.$message.success('Removing ZelApp');
+      vue.$customMes.success('Removing ZelApp');
       const zelidauth = localStorage.getItem('zelidauth');
       // const response = await ZelAppsService.installFoldingAtHome(zelidauth, zelapp);
       const axiosConfig = {
@@ -1059,14 +1059,14 @@ export default {
       };
       const response = await ZelAppsService.justAPI().get(`/zelapps/zelappremove/${zelapp}`, axiosConfig);
       if (response.data.status === 'error') {
-        vue.$message.error(response.data.data);
+        vue.$customMes.error(response.data.data);
       } else {
         this.zelappsGetInstalledZelApps();
         this.output = JSON.parse(`[${response.data.replace(/}{/g, '},{')}]`);
         if (this.output[this.output.length - 1].status === 'error') {
-          vue.$message.error(this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
+          vue.$customMes.error(this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         } else {
-          vue.$message.success(this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
+          vue.$customMes.success(this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         }
       }
     },
@@ -1074,7 +1074,7 @@ export default {
       const appName = zelapp;
       const self = this;
       this.output = '';
-      vue.$message.success('Installing ZelApp');
+      vue.$customMes.success('Installing ZelApp');
       const zelidauth = localStorage.getItem('zelidauth');
       // const response = await ZelAppsService.installTemporaryLocalApp(zelidauth, zelapp);
       const axiosConfig = {
@@ -1088,7 +1088,7 @@ export default {
       };
       const response = await ZelAppsService.justAPI().get(`/zelapps/installtemporarylocalapp/${appName}`, axiosConfig);
       if (response.data.status === 'error') {
-        vue.$message.error(response.data.data);
+        vue.$customMes.error(response.data.data);
       } else {
         console.log(response);
         this.output = JSON.parse(`[${response.data.replace(/}{/g, '},{')}]`);
@@ -1097,15 +1097,15 @@ export default {
           if (this.output[i] && this.output[i].data && this.output[i].data.message && this.output[i].data.message.includes('Error occured')) {
             // error is defined one line above
             if (this.output[i - 1] && this.output[i - 1].data) {
-              vue.$message.error(this.output[i - 1].data.message || this.output[i - 1].data);
+              vue.$customMes.error(this.output[i - 1].data.message || this.output[i - 1].data);
               return;
             }
           }
         }
         if (this.output[this.output.length - 1].status === 'error') {
-          vue.$message.error(this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
+          vue.$customMes.error(this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         } else {
-          vue.$message.success(this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
+          vue.$customMes.success(this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         }
       }
     },
@@ -1123,7 +1123,7 @@ export default {
         const url = `http://${ip}:${zelappInfo.port}`;
         this.openSite(url);
       } else {
-        vue.$message.error('Unable to open ZelApp :(');
+        vue.$customMes.error('Unable to open ZelApp :(');
       }
     },
     async getZelNodeStatus() {
@@ -1397,7 +1397,7 @@ export default {
             repotag: zelAppSpecFormatted.repotag,
           };
           const resDocker = await ZelAppsService.chekcDockerExistance(zelidauth, data).catch((error) => {
-            vue.$message.error(error.message || error);
+            vue.$customMes.error(error.message || error);
           });
           console.log(resDocker);
           if (resDocker.data.status === 'error') {
@@ -1411,7 +1411,7 @@ export default {
         this.dataToSign = this.type + this.version + JSON.stringify(zelAppSpecFormatted) + this.timestamp;
       } catch (error) {
         console.log(error.message);
-        vue.$message.error(error.message || error);
+        vue.$customMes.error(error.message || error);
       }
     },
     async checkFluxCommunication() {
@@ -1419,7 +1419,7 @@ export default {
       if (response.data.status === 'success') {
         this.fluxCommunication = true;
       } else {
-        vue.$message.error(response.data.data);
+        vue.$customMes.error(response.data.data);
       }
     },
     async registrationInformation() {
@@ -1434,19 +1434,19 @@ export default {
         this.zelapps.portMin = data.portMin;
         this.zelapps.portMax = data.portMax;
       } else {
-        vue.$message.error(response.data.data);
+        vue.$customMes.error(response.data.data);
       }
     },
     async openGlobalZelApp(zelappName) {
       const response = await ZelAppsService.getZelAppLocation(zelappName).catch((error) => {
-        vue.$message.error(error.message || error);
+        vue.$customMes.error(error.message || error);
       });
       console.log(response);
       if (response.data.status === 'success') {
         const zelappLocations = response.data.data;
         const location = zelappLocations[0];
         if (!location) {
-          vue.$message.error('Application is awaiting launching...');
+          vue.$customMes.error('Application is awaiting launching...');
         } else {
           const { ip } = location;
           const appSpecs = this.globalZelAppSpecs.data.find((app) => app.name === zelappName);
@@ -1455,14 +1455,14 @@ export default {
           this.openSite(url);
         }
       } else {
-        vue.$message.error(response.data.data);
+        vue.$customMes.error(response.data.data);
       }
     },
     openAppManagement(zelappName) {
       console.log(zelappName);
       this.managedApplication = zelappName;
       this.activeIndex = '1';
-      // vue.$message.success('Management coming soon!');
+      // vue.$customMes.success('Management coming soon!');
     },
     goBackToZelApps() {
       this.managedApplication = '';
@@ -1473,16 +1473,16 @@ export default {
       console.log(key);
       switch (key) {
         case '1':
-          vue.$message.info('Feature coming soon0!');
+          vue.$customMes.info('Feature coming soon0!');
           break;
         case '2':
-          vue.$message.info('Feature coming soon1!');
+          vue.$customMes.info('Feature coming soon1!');
           break;
         case '3':
-          vue.$message.info('Feature coming soon2!');
+          vue.$customMes.info('Feature coming soon2!');
           break;
         default:
-          vue.$message.info('Feature coming soon!');
+          vue.$customMes.info('Feature coming soon!');
           console.log('Menu: Unrecognized method');
       }
     },
@@ -1496,14 +1496,14 @@ export default {
         signature: this.signature,
       };
       const response = await ZelAppsService.registerZelApp(zelidauth, data).catch((error) => {
-        vue.$message.error(error.message || error);
+        vue.$customMes.error(error.message || error);
       });
       console.log(response);
       if (response.data.status === 'success') {
         this.registrationHash = response.data.data;
-        vue.$message.success(response.data.data);
+        vue.$customMes.success(response.data.data);
       } else {
-        vue.$message.error(response.data.data);
+        vue.$customMes.error(response.data.data);
       }
     },
     initiateSignWS() {

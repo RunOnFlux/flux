@@ -11,10 +11,14 @@ import store from './store';
 Vue.config.productionTip = false;
 
 Vue.use(ElementUI, { locale });
-// const customMessageOptions = {
-//   offset: 50,
-// };
-// Vue.prototype.$mes = (option) => Vue.prototype.$message({ ...customMessageOptions, ...option });
+const customMessageOptions = {
+  offset: 65,
+};
+Vue.prototype.$customMes = (options) => Vue.prototype.$message({ ...customMessageOptions, ...options });
+Vue.prototype.$customMes.success = (mes) => Vue.prototype.$message.success({ ...customMessageOptions, message: mes });
+Vue.prototype.$customMes.error = (mes) => Vue.prototype.$message.error({ ...customMessageOptions, message: mes });
+Vue.prototype.$customMes.warning = (mes) => Vue.prototype.$message.warning({ ...customMessageOptions, message: mes });
+Vue.prototype.$customMes.info = (mes) => Vue.prototype.$message.info({ ...customMessageOptions, message: mes });
 
 new Vue({
   router,
