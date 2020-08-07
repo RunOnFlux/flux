@@ -919,7 +919,6 @@ export default {
     activeName(val, oldVal) {
       console.log(val, oldVal);
       this.output = '';
-      this.switcher(val);
       switch (val) {
         case 'running':
           this.zelappsGetListRunningZelApps();
