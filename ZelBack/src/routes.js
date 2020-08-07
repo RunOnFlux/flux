@@ -683,15 +683,15 @@ module.exports = (app, expressWs) => {
   app.get('/zelapps/zelapplog/:appname?/:lines?', (req, res) => {
     zelappsService.zelAppLog(req, res);
   });
-  app.get('/zelapps/zelappinspect/:appname?', (req, res) => { // TODO this shall require app owner privilege for all information
+  app.get('/zelapps/zelappinspect/:appname?', (req, res) => {
     zelappsService.zelAppInspect(req, res);
   });
-  app.get('/zelapps/zelappupdate/:appname?/:cpus?/:memory?', (req, res) => { // TODO this shall require app owner privilege for all information
-    zelappsService.zelAppUpdate(req, res);
-  });
-  app.get('/zelapps/zelappexec/:appname?/:cmd?/:env?', (req, res) => { // todo post, privileges
-    zelappsService.zelAppExec(req, res);
-  });
+  // app.get('/zelapps/zelappupdate/:appname?/:cpus?/:memory?', (req, res) => { // TODO this shall require app owner privilege for all information
+  //   zelappsService.zelAppUpdate(req, res);
+  // });
+  // app.get('/zelapps/zelappexec/:appname?/:cmd?/:env?', (req, res) => { // todo post, privileges
+  //   zelappsService.zelAppExec(req, res);
+  // });
   app.get('/zelapps/zelappremove/:zelapp?', (req, res) => {
     zelappsService.removeZelAppLocallyApi(req, res);
   });

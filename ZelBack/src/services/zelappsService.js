@@ -862,33 +862,30 @@ async function zelAppLogStream(req, res) {
 }
 
 async function zelAppInspect(req, res) {
-  let { appname } = req.params;
-  appname = appname || req.query.appname;
-
-  const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, appname);
-  if (!authorized) {
-    const errMessage = serviceHelper.errUnauthorizedMessage();
-    return res.json(errMessage);
-  }
-  if (!appname) {
-    const errMessage = serviceHelper.createErrorMessage('No ZelApp specified');
-    return res.json(errMessage);
-  }
-
-  const response = await dockerContainerInspect(appname).catch(
-    (error) => {
-      const errMessage = serviceHelper.createErrorMessage(
-        error.message,
-        error.name,
-        error.code,
-      );
-      log.error(error);
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname;
+    if (!appname) {
+      throw new Error('No ZelApp specified');
+    }
+    const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, appname);
+    if (authorized === true) {
+      const response = await dockerContainerInspect(appname);
+      const zelappResponse = serviceHelper.createDataMessage(response);
+      res.json(zelappResponse);
+    } else {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
       res.json(errMessage);
-      throw error;
-    },
-  );
-  const zelappResponse = serviceHelper.createDataMessage(response);
-  return res ? res.json(zelappResponse) : zelappResponse;
+    }
+  } catch (error) {
+    log.error(error);
+    const errMessage = serviceHelper.createErrorMessage(
+      error.message,
+      error.name,
+      error.code,
+    );
+    res.json(errMessage);
+  }
 }
 
 async function zelAppUpdate(req, res) {
