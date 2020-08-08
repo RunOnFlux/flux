@@ -759,7 +759,20 @@
             with following message:
             {{ registrationHash }}
             <br><br>
-            Transaction must be mined by {{ validTill }}
+            Transaction must be mined by {{ new Date(validTill).toLocaleString('en-GB', timeoptions) }}
+          </div>
+          <div v-if="registrationHash">
+            Pay with ZelCore
+            <br>
+            <a
+              @click="initiateSignWS"
+              :href="'zel:?action=pay&coin=zelcash&address=' + zelapps.address + '&amount=' + appPricePerMonth + '&message=' + registrationHash + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Fzelcash%2Fzelflux%2Fmaster%2FZelFront%2Fsrc%2Fassets%2Fimg%2Fflux_banner.png'"
+            >
+              <img
+                class="zelidLogin"
+                src="@/assets/img/zelID.svg"
+              />
+            </a>
           </div>
         </div>
       </div>
@@ -785,6 +798,13 @@ export default {
   name: 'ZelApps',
   data() {
     return {
+      timeoptions: {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      },
       activeName: 'running',
       activeNameGlobal: 'activeapps',
       getRunningZelAppsResponse: {
@@ -966,7 +986,7 @@ export default {
       return Math.ceil(cpuTotal + ramTotal + hddTotal);
     },
     validTill() {
-      const expTime = this.timestamp + 60 * 1000 * 1000;
+      const expTime = this.timestamp + 60 * 60 * 1000; // 1 hour
       return expTime;
     },
   },
@@ -1123,7 +1143,7 @@ export default {
       };
       const response = await ZelAppsService.justAPI().get(`/zelapps/zelappremove/${zelapp}`, axiosConfig);
       if (response.data.status === 'error') {
-        vue.$customMes.error(response.data.data);
+        vue.$customMes.error(response.data.data.message || response.data.data);
       } else {
         this.zelappsGetInstalledZelApps();
         this.output = JSON.parse(`[${response.data.replace(/}{/g, '},{')}]`);
@@ -1152,7 +1172,7 @@ export default {
       };
       const response = await ZelAppsService.justAPI().get(`/zelapps/installtemporarylocalapp/${appName}`, axiosConfig);
       if (response.data.status === 'error') {
-        vue.$customMes.error(response.data.data);
+        vue.$customMes.error(response.data.data.message || response.data.data);
       } else {
         console.log(response);
         this.output = JSON.parse(`[${response.data.replace(/}{/g, '},{')}]`);
@@ -1483,7 +1503,7 @@ export default {
       if (response.data.status === 'success') {
         this.fluxCommunication = true;
       } else {
-        vue.$customMes.error(response.data.data);
+        vue.$customMes.error(response.data.data.message || response.data.data);
       }
     },
     async registrationInformation() {
@@ -1498,7 +1518,7 @@ export default {
         this.zelapps.portMin = data.portMin;
         this.zelapps.portMax = data.portMax;
       } else {
-        vue.$customMes.error(response.data.data);
+        vue.$customMes.error(response.data.data.message || response.data.data);
       }
     },
     async openGlobalZelApp(zelappName) {
@@ -1519,7 +1539,7 @@ export default {
           this.openSite(url);
         }
       } else {
-        vue.$customMes.error(response.data.data);
+        vue.$customMes.error(response.data.data.message || response.data.data);
       }
     },
     openAppManagement(zelappName) {
@@ -1573,9 +1593,9 @@ export default {
       console.log(response);
       if (response.data.status === 'success') {
         this.registrationHash = response.data.data;
-        vue.$customMes.success(response.data.data);
+        vue.$customMes.success(response.data.data.message || response.data.data);
       } else {
-        vue.$customMes.error(response.data.data);
+        vue.$customMes.error(response.data.data.message || response.data.data);
       }
     },
     initiateSignWS() {
