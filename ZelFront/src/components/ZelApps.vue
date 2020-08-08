@@ -297,21 +297,29 @@
               text-color="#fff"
               active-text-color="#ffd04b"
             >
-              <el-menu-item index="1">
+              <el-menu-item index="appspecifics">
                 <i class="el-icon-info"></i>
+                <span>Specifications</span>
+              </el-menu-item>
+              <el-menu-item index="appinspect">
+                <i class="el-icon-magic-stick"></i>
                 <span>Information</span>
               </el-menu-item>
               <el-menu-item index="applogs">
                 <i class="el-icon-document"></i>
                 <span>Log file</span>
               </el-menu-item>
-              <el-menu-item index="3">
+              <el-menu-item index="appprocesses">
                 <i class="el-icon-location-outline"></i>
                 <span>Processes</span>
               </el-menu-item>
-              <el-menu-item index="4">
+              <el-menu-item index="appinstances">
                 <i class="el-icon-location-outline"></i>
                 <span>Running Instances</span>
+              </el-menu-item>
+              <el-menu-item index="appcontrol">
+                <i class="el-icon-s-operation"></i>
+                <span>Control</span>
               </el-menu-item>
             </el-menu>
           </el-aside>
@@ -361,7 +369,7 @@
               </el-input>
             </div>
             <div v-else>
-            {{ callResponse.data }}
+              {{ callResponse.data }}
             </div>
           </el-main>
         </el-container>
@@ -928,7 +936,7 @@ export default {
       },
       websocket: null,
       managedApplication: '',
-      managementMenuItem: '1',
+      managementMenuItem: 'appspecifics',
       selectedAppOwner: '',
       callResponse: { // general
         status: '',
@@ -1548,8 +1556,7 @@ export default {
       this.managedApplication = zelappName;
       this.getAppOwner();
       this.getApplicationSpecifics();
-      this.managementMenuItem = '1';
-      // vue.$customMes.success('Management coming soon!');
+      this.managementMenuItem = 'appspecifics';
     },
     goBackToZelApps() {
       this.managedApplication = '';
@@ -1561,16 +1568,19 @@ export default {
       console.log(key, keyPath);
       console.log(key);
       switch (key) {
-        case '1':
+        case 'appspecifics':
           this.getApplicationSpecifics();
+          break;
+        case 'appinspect':
+          this.getApplicationInspect();
           break;
         case 'applogs':
           this.getApplicationLogs();
           break;
-        case '3':
+        case 'appprocesses':
           this.getApplicationProcesses();
           break;
-        case '4':
+        case 'appinstances':
           this.getApplicationLocations();
           break;
         default:
@@ -1666,6 +1676,17 @@ export default {
     async getApplicationLogs() {
       const zelidauth = localStorage.getItem('zelidauth');
       const response = await ZelAppsService.getZelAppLogsTail(zelidauth, this.managedApplication);
+      console.log(response);
+      if (response.data.status === 'error') {
+        vue.$customMes.error(response.data.data.message || response.data.data);
+      } else {
+        this.callResponse.status = response.data.status;
+        this.callResponse.data = response.data.data;
+      }
+    },
+    async getApplicationInspect() {
+      const zelidauth = localStorage.getItem('zelidauth');
+      const response = await ZelAppsService.getZelAppInspect(zelidauth, this.managedApplication);
       console.log(response);
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
