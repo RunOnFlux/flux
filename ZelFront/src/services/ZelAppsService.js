@@ -29,6 +29,22 @@ export default {
     };
     return Api().get(`/zelapps/zelappstart/${zelapp}`, axiosConfig);
   },
+  pauseZelApp(zelidauthHeader, zelapp) {
+    const axiosConfig = {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    };
+    return Api().get(`/zelapps/zelapppause/${zelapp}`, axiosConfig);
+  },
+  unpauseZelApp(zelidauthHeader, zelapp) {
+    const axiosConfig = {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    };
+    return Api().get(`/zelapps/zelappunpause/${zelapp}`, axiosConfig);
+  },
   restartZelApp(zelidauthHeader, zelapp) {
     const axiosConfig = {
       headers: {
@@ -97,6 +113,14 @@ export default {
       },
     };
     return Api().get(`/zelapps/zelapptop/${zelapp}`, axiosConfig);
+  },
+  getZelAppInspect(zelidauthHeader, zelapp) {
+    const axiosConfig = {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    };
+    return Api().get(`/zelapps/zelappinspect/${zelapp}`, axiosConfig);
   },
   reindexGlobalApps(zelidauthHeader) {
     return Api().get('/zelapps/reindexglobalappsinformation', {
