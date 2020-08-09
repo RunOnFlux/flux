@@ -304,6 +304,7 @@ async function listRunningZelApps(req, res) {
   }
 }
 
+// shall be identical to installedZelApps. But this is docker response
 async function listAllZelApps(req, res) {
   try {
     let zelapps = await dockerListContainers(true);
@@ -2798,6 +2799,7 @@ async function availableZelApps(req, res) {
   return res.json(dataResponse);
 }
 
+// shall be identical to listAllZelApps. . But this is database response
 async function installedZelApps(req, res) {
   try {
     const dbopen = serviceHelper.databaseConnection();

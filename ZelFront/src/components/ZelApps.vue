@@ -282,7 +282,7 @@
         <el-page-header
           class="pageheader"
           @back="goBackToZelApps"
-          :content="managedApplication"
+          :content="applicationManagementAndStatus"
         >
         </el-page-header>
         <el-container>
@@ -367,6 +367,91 @@
                 v-model="asciResponse"
               >
               </el-input>
+            </div>
+            <div v-else-if="managementMenuItem == 'appcontrol'">
+              <p>
+                General options to control running status of ZelApp.
+              </p>
+              <el-popconfirm
+                confirmButtonText='Start'
+                cancelButtonText='No, Thanks'
+                icon="el-icon-info"
+                iconColor="green"
+                title="Starts ZelApp"
+                @onConfirm="startZelApp(managedApplication)"
+              >
+                <ElButton slot="reference">
+                  Start ZelApp
+                </ElButton>
+              </el-popconfirm>
+              <el-popconfirm
+                confirmButtonText='Stop'
+                cancelButtonText='No, Thanks'
+                icon="el-icon-info"
+                iconColor="red"
+                title="Stops ZelApp"
+                @onConfirm="stopZelApp(managedApplication)"
+              >
+                <ElButton slot="reference">
+                  Stop ZelApp
+                </ElButton>
+              </el-popconfirm>
+              <el-popconfirm
+                confirmButtonText='Restart'
+                cancelButtonText='No, Thanks'
+                icon="el-icon-info"
+                iconColor="orange"
+                title="Restarts ZelApp"
+                @onConfirm="restartZelApp(managedApplication)"
+              >
+                <ElButton slot="reference">
+                  Restart ZelApp
+                </ElButton>
+              </el-popconfirm>
+              <el-divider></el-divider>
+              <p>
+                The Pause command suspends all processes in the specified ZelApp.
+              </p>
+              <el-popconfirm
+                confirmButtonText='Pause'
+                cancelButtonText='No, Thanks'
+                icon="el-icon-info"
+                iconColor="orange"
+                title="Pauses ZelApp"
+                @onConfirm="pauseZelApp(managedApplication)"
+              >
+                <ElButton slot="reference">
+                  Pause ZelApp
+                </ElButton>
+              </el-popconfirm>
+              <el-popconfirm
+                confirmButtonText='Unpause'
+                cancelButtonText='No, Thanks'
+                icon="el-icon-info"
+                iconColor="orange"
+                title="Unpauses ZelApp"
+                @onConfirm="unpauseZelApp(managedApplication)"
+              >
+                <ElButton slot="reference">
+                  Unpause ZelApp
+                </ElButton>
+              </el-popconfirm>
+              <el-divider></el-divider>
+              <p>
+                Stops, Uninstalls and Removes all ZelApp data from this specific ZelNode.
+              </p>
+              <el-popconfirm
+                confirmButtonText='Remove'
+                cancelButtonText='No, Thanks'
+                icon="el-icon-info"
+                iconColor="red"
+                title="Removes ZelApp"
+                @onConfirm="removeZelApp(managedApplication)"
+              >
+                <ElButton slot="reference">
+                  Remove ZelApp
+                </ElButton>
+              </el-popconfirm>
             </div>
             <div v-else>
               {{ callResponse.data }}
@@ -475,8 +560,11 @@
           </el-table>
         </el-tab-pane>
       </el-tabs>
-      <br>
-      <div class='actionCenter'>
+      <div
+        v-if="output"
+        class='actionCenter'
+      >
+        <br>
         <el-input
           v-if="output"
           type="textarea"
@@ -954,6 +1042,19 @@ export default {
       'zelAppsSection',
       'privilage',
     ]),
+    applicationManagementAndStatus() {
+      console.log(this.getAllZelAppsResponse);
+      const zelappInfo = this.getAllZelAppsResponse.data.find((zelapp) => zelapp.Names[0] === this.getZelAppDockerNameIdentifier()) || {};
+      const appInfo = {
+        name: this.managedApplication,
+        state: zelappInfo.State || 'Unknown state',
+        status: zelappInfo.Status || 'Unkown status',
+      };
+      appInfo.state = appInfo.state.charAt(0).toUpperCase() + appInfo.state.slice(1);
+      appInfo.status = appInfo.status.charAt(0).toUpperCase() + appInfo.status.slice(1);
+      const niceString = `${appInfo.name} - ${appInfo.state} - ${appInfo.status}`;
+      return niceString;
+    },
     asciResponse() {
       if (typeof this.callResponse.data === 'string') {
         return this.callResponse.data.replace(/[^\x20-\x7E \t\r\n\v\f]/g, '');
@@ -1016,6 +1117,7 @@ export default {
           break;
         case 'installed':
           this.zelappsGetInstalledZelApps();
+          this.zelappsGetListAllZelApps();
           break;
         case 'available':
           this.zelappsGetAvailableZelApps();
@@ -1103,10 +1205,11 @@ export default {
       const zelidauth = localStorage.getItem('zelidauth');
       const response = await ZelAppsService.stopZelApp(zelidauth, zelapp);
       if (response.data.status === 'success') {
-        vue.$customMes.success(response.data.data.messsage || response.data.data);
+        vue.$customMes.success(response.data.data.message || response.data.data);
       } else {
-        vue.$customMes.error(response.data.data.messsage || response.data.data);
+        vue.$customMes.error(response.data.data.message || response.data.data);
       }
+      this.zelappsGetListAllZelApps();
       this.zelappsGetListRunningZelApps();
       console.log(response);
     },
@@ -1116,10 +1219,11 @@ export default {
       const zelidauth = localStorage.getItem('zelidauth');
       const response = await ZelAppsService.startZelApp(zelidauth, zelapp);
       if (response.data.status === 'success') {
-        vue.$customMes.success(response.data.data.messsage || response.data.data);
+        vue.$customMes.success(response.data.data.message || response.data.data);
       } else {
-        vue.$customMes.error(response.data.data.messsage || response.data.data);
+        vue.$customMes.error(response.data.data.message || response.data.data);
       }
+      this.zelappsGetListAllZelApps();
       console.log(response);
     },
     async restartZelApp(zelapp) {
@@ -1128,10 +1232,37 @@ export default {
       const zelidauth = localStorage.getItem('zelidauth');
       const response = await ZelAppsService.restartZelApp(zelidauth, zelapp);
       if (response.data.status === 'success') {
-        vue.$customMes.success(response.data.data.messsage || response.data.data);
+        vue.$customMes.success(response.data.data.message || response.data.data);
       } else {
-        vue.$customMes.error(response.data.data.messsage || response.data.data);
+        vue.$customMes.error(response.data.data.message || response.data.data);
       }
+      this.zelappsGetListAllZelApps();
+      console.log(response);
+    },
+    async pauseZelApp(zelapp) {
+      this.output = '';
+      vue.$customMes.success('Pausing ZelApp');
+      const zelidauth = localStorage.getItem('zelidauth');
+      const response = await ZelAppsService.pauseZelApp(zelidauth, zelapp);
+      if (response.data.status === 'success') {
+        vue.$customMes.success(response.data.data.message || response.data.data);
+      } else {
+        vue.$customMes.error(response.data.data.message || response.data.data);
+      }
+      this.zelappsGetListAllZelApps();
+      console.log(response);
+    },
+    async unpauseZelApp(zelapp) {
+      this.output = '';
+      vue.$customMes.success('UnPausing ZelApp');
+      const zelidauth = localStorage.getItem('zelidauth');
+      const response = await ZelAppsService.unpauseZelApp(zelidauth, zelapp);
+      if (response.data.status === 'success') {
+        vue.$customMes.success(response.data.data.message || response.data.data);
+      } else {
+        vue.$customMes.error(response.data.data.message || response.data.data);
+      }
+      this.zelappsGetListAllZelApps();
       console.log(response);
     },
     async removeZelApp(zelapp) {
@@ -1160,6 +1291,9 @@ export default {
         } else {
           vue.$customMes.success(this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         }
+        setTimeout(() => {
+          self.managedApplication = '';
+        }, 5000);
       }
     },
     async installTemporaryLocalApp(zelapp) { // todo rewrite to installZelApp later
@@ -1583,6 +1717,9 @@ export default {
         case 'appinstances':
           this.getApplicationLocations();
           break;
+        case 'appcontrol':
+          this.zelappsGetListAllZelApps();
+          break;
         default:
           vue.$customMes.info('Feature coming soon!');
           console.log('Menu: Unrecognized method');
@@ -1733,6 +1870,21 @@ export default {
       link.setAttribute('download', 'app.log');
       document.body.appendChild(link);
       link.click();
+    },
+    getZelAppIdentifier() {
+      // this id is used for volumes, docker names so we know it reall belongs to zelflux
+      if (this.managedApplication.startsWith('zel')) {
+        return this.managedApplication;
+      }
+      return `zel${this.managedApplication}`;
+    },
+    getZelAppDockerNameIdentifier() {
+      // this id is used for volumes, docker names so we know it reall belongs to zelflux
+      const name = this.getZelAppIdentifier();
+      if (name.startsWith('/')) {
+        return name;
+      }
+      return `/${name}`;
     },
   },
 };
