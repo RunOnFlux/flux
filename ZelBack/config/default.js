@@ -65,7 +65,7 @@ module.exports = {
     portMax: 39999,
     maxImageSize: 300000000, // 300mb
     installation: {
-      probability: 100,
+      probability: 2, // 100
       delay: 120, // in seconds
     },
     blocksLasting: 22000, // registered app will live for 22000 of blocks 44000 minutes ~= 1 month
