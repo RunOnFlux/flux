@@ -135,17 +135,12 @@ function dockerPullStream(repoTag, res, callback) {
   });
 }
 
-// TODO look into
 function dockerContainerExec(container, cmd, env, res, callback) {
   try {
     const logStream = new stream.PassThrough();
-    let logStreamData = '';
     logStream.on('data', (chunk) => {
-      console.log(chunk.toString('utf8'));
       res.write(serviceHelper.ensureString(chunk.toString('utf8')));
-      logStreamData += chunk.toString('utf8');
     });
-    console.log(cmd);
 
     container.exec(
       {
@@ -158,7 +153,6 @@ function dockerContainerExec(container, cmd, env, res, callback) {
       },
       (error, exec) => {
         if (error) {
-          console.log(error);
           callback(error);
         } else {
           exec.start(
@@ -170,14 +164,13 @@ function dockerContainerExec(container, cmd, env, res, callback) {
             },
             (err, mystream) => {
               if (err) {
-                console.log(err);
                 callback(err);
               } else {
                 try {
                   container.modem.demuxStream(mystream, logStream, logStream);
                   mystream.on('end', () => {
                     logStream.end();
-                    callback(null, logStreamData);
+                    callback(null);
                   });
 
                   setTimeout(() => {
@@ -186,7 +179,7 @@ function dockerContainerExec(container, cmd, env, res, callback) {
                 } catch (errr) {
                   throw new Error({
                     message:
-                      'An error obtaining log data of an application has occured',
+                      'An error obtaining execution data of an application has occured',
                   });
                 }
               }
@@ -196,9 +189,7 @@ function dockerContainerExec(container, cmd, env, res, callback) {
       },
     );
   } catch (error) {
-    throw new Error({
-      message: 'An error obtaining log data of an application has occured',
-    });
+    callback(error);
   }
 }
 
@@ -964,11 +955,12 @@ async function zelAppChanges(req, res) {
   }
 }
 
+// this needs to be recorded on zel chai. Probably obsolete as app needs to be reinstalled
 async function zelAppUpdate(req, res) {
   let { appname } = req.params;
   appname = appname || req.query.appname;
 
-  const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, appname);
+  const authorized = await serviceHelper.verifyPrivilege('appowner', req, appname);
   if (!authorized) {
     const errMessage = serviceHelper.errUnauthorizedMessage();
     return res.json(errMessage);
@@ -1023,41 +1015,26 @@ async function zelAppExec(req, res) {
   try {
     let { appname } = req.params;
     appname = appname || req.query.appname;
-    const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, appname);
-    if (authorized) {
+    const authorized = await serviceHelper.verifyPrivilege('appowner', req, appname);
+    if (authorized === true) {
       let { cmd } = req.params;
-      cmd = cmd || req.query.cmd;
+      cmd = cmd || req.query.cmd || [];
 
       let { env } = req.params;
-      env = env || req.query.env;
+      env = env || req.query.env || [];
 
-      if (cmd) {
-        // must be an array
-        cmd = serviceHelper.ensureObject(cmd);
-      } else {
-        cmd = [];
-      }
-
-      if (env) {
-        // must be an array
-        env = serviceHelper.ensureObject(env);
-      } else {
-        env = [];
-      }
+      cmd = serviceHelper.ensureObject(cmd);
+      env = serviceHelper.ensureObject(env);
 
       const dockerContainer = docker.getContainer(appname);
 
-      dockerContainerExec(dockerContainer, cmd, env, res, (error, dataLog) => {
+      res.setHeader('Content-Type', 'application/json');
+
+      dockerContainerExec(dockerContainer, cmd, env, res, (error) => {
         if (error) {
-          const errorResponse = serviceHelper.createErrorMessage(
-            error.message,
-            error.name,
-            error.code,
-          );
-          res.json(errorResponse);
+          throw error;
         } else {
-          const containerLogResponse = serviceHelper.createDataMessage(dataLog);
-          res.json(containerLogResponse);
+          res.end();
         }
       });
     } else {

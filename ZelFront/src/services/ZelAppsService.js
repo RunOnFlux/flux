@@ -138,6 +138,14 @@ export default {
     };
     return Api().get(`/zelapps/zelappchanges/${zelapp}`, axiosConfig);
   },
+  getZelAppExec(zelidauthHeader, zelapp, cmd, env) {
+    const axiosConfig = {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    };
+    return Api().get(`/zelapps/zelappchanges/${zelapp}/${cmd}/${env}`, axiosConfig);
+  },
   reindexGlobalApps(zelidauthHeader) {
     return Api().get('/zelapps/reindexglobalappsinformation', {
       headers: {

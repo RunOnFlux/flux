@@ -692,12 +692,12 @@ module.exports = (app, expressWs) => {
   app.get('/zelapps/zelappchanges/:appname?', (req, res) => {
     zelappsService.zelAppChanges(req, res);
   });
-  // app.get('/zelapps/zelappupdate/:appname?/:cpus?/:memory?', (req, res) => { // TODO this shall require app owner privilege for all information
+  // app.get('/zelapps/zelappupdate/:appname?/:cpus?/:memory?', (req, res) => { // appowner only
   //   zelappsService.zelAppUpdate(req, res);
   // });
-  // app.get('/zelapps/zelappexec/:appname?/:cmd?/:env?', (req, res) => { // todo post, privileges
-  //   zelappsService.zelAppExec(req, res);
-  // });
+  app.get('/zelapps/zelappexec/:appname?/:cmd?/:env?', (req, res) => { // todo post, appowner
+    zelappsService.zelAppExec(req, res);
+  });
   app.get('/zelapps/zelappremove/:zelapp?', (req, res) => {
     zelappsService.removeZelAppLocallyApi(req, res);
   });
