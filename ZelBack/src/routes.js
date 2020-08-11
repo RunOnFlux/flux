@@ -686,6 +686,12 @@ module.exports = (app, expressWs) => {
   app.get('/zelapps/zelappinspect/:appname?', (req, res) => {
     zelappsService.zelAppInspect(req, res);
   });
+  app.get('/zelapps/zelappstats/:appname?', (req, res) => {
+    zelappsService.zelAppStats(req, res);
+  });
+  app.get('/zelapps/zelappchanges/:appname?', (req, res) => {
+    zelappsService.zelAppChanges(req, res);
+  });
   // app.get('/zelapps/zelappupdate/:appname?/:cpus?/:memory?', (req, res) => { // TODO this shall require app owner privilege for all information
   //   zelappsService.zelAppUpdate(req, res);
   // });

@@ -122,6 +122,22 @@ export default {
     };
     return Api().get(`/zelapps/zelappinspect/${zelapp}`, axiosConfig);
   },
+  getZelAppStats(zelidauthHeader, zelapp) {
+    const axiosConfig = {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    };
+    return Api().get(`/zelapps/zelappstats/${zelapp}`, axiosConfig);
+  },
+  getZelAppCahnges(zelidauthHeader, zelapp) {
+    const axiosConfig = {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    };
+    return Api().get(`/zelapps/zelappchanges/${zelapp}`, axiosConfig);
+  },
   reindexGlobalApps(zelidauthHeader) {
     return Api().get('/zelapps/reindexglobalappsinformation', {
       headers: {

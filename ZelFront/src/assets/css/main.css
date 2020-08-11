@@ -165,7 +165,7 @@ h4 {
 
 .footer-grid {
   display: grid;
-  grid-template-columns: 240px calc(100vw - 480px) 240px;
+  grid-template-columns: 250px calc(100vw - 500px) 250px;
   grid-template-rows: 1fr;
   margin: auto;
 }
@@ -173,6 +173,11 @@ h4 {
 .footer-left {
   grid-area: 1 / 1 / 2 / 2;
   height: 100%;
+  margin-left: 5px;
+}
+
+.footer-left .el-select {
+  width: 230px;
 }
 
 .footer-middle {
