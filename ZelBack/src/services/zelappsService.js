@@ -1025,57 +1025,63 @@ async function zelAppUpdate(req, res) {
 
 // todo needs post
 async function zelAppExec(req, res) {
-  try {
-    let { appname } = req.params;
-    appname = appname || req.query.appname;
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    try {
+      const processedBody = serviceHelper.ensureObject(body);
 
-    if (!appname) {
-      throw new Error('No ZelApp specified');
+      if (!processedBody.appname) {
+        throw new Error('No ZelApp specified');
+      }
+
+      if (!processedBody.cmd) {
+        throw new Error('No command specified');
+      }
+
+      const authorized = await serviceHelper.verifyPrivilege('appowner', req, processedBody.appname);
+      if (authorized === true) {
+        let cmd = processedBody.cmd || [];
+        let env = processedBody.env || [];
+
+        cmd = serviceHelper.ensureObject(cmd);
+        env = serviceHelper.ensureObject(env);
+
+        const containers = await dockerListContainers(true);
+        const myContainer = containers.find((container) => (container.Names[0] === getZelAppDockerNameIdentifier(processedBody.appname) || container.Id === processedBody.appname));
+        const dockerContainer = docker.getContainer(myContainer.Id);
+
+        res.setHeader('Content-Type', 'application/json');
+
+        dockerContainerExec(dockerContainer, cmd, env, res, (error) => {
+          if (error) {
+            log.error(error);
+            const errorResponse = serviceHelper.createErrorMessage(
+              error.message || error,
+              error.name,
+              error.code,
+            );
+            res.json(errorResponse);
+          } else {
+            res.end();
+          }
+        });
+      } else {
+        const errMessage = serviceHelper.errUnauthorizedMessage();
+        res.json(errMessage);
+      }
+    } catch (error) {
+      log.error(error);
+      const errorResponse = serviceHelper.createErrorMessage(
+        error.message || error,
+        error.name,
+        error.code,
+      );
+      res.json(errorResponse);
     }
-
-    const authorized = await serviceHelper.verifyPrivilege('appowner', req, appname);
-    if (authorized === true) {
-      let { cmd } = req.params;
-      cmd = cmd || req.query.cmd || [];
-
-      let { env } = req.params;
-      env = env || req.query.env || [];
-
-      cmd = serviceHelper.ensureObject(cmd);
-      env = serviceHelper.ensureObject(env);
-
-      const containers = await dockerListContainers(true);
-      const myContainer = containers.find((container) => (container.Names[0] === getZelAppDockerNameIdentifier(appname) || container.Id === appname));
-      const dockerContainer = docker.getContainer(myContainer.Id);
-
-      res.setHeader('Content-Type', 'application/json');
-
-      dockerContainerExec(dockerContainer, cmd, env, res, (error) => {
-        if (error) {
-          log.error(error);
-          const errorResponse = serviceHelper.createErrorMessage(
-            error.message || error,
-            error.name,
-            error.code,
-          );
-          res.json(errorResponse);
-        } else {
-          res.end();
-        }
-      });
-    } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
-      res.json(errMessage);
-    }
-  } catch (error) {
-    log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    res.json(errorResponse);
-  }
+  });
 }
 
 async function zelShareFile(req, res) {

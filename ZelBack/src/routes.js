@@ -695,7 +695,7 @@ module.exports = (app, expressWs) => {
   // app.get('/zelapps/zelappupdate/:appname?/:cpus?/:memory?', (req, res) => { // appowner only
   //   zelappsService.zelAppUpdate(req, res);
   // });
-  app.get('/zelapps/zelappexec/:appname?/:cmd?/:env?', (req, res) => { // todo post, appowner
+  app.post('/zelapps/zelappexec', (req, res) => {
     zelappsService.zelAppExec(req, res);
   });
   app.get('/zelapps/zelappremove/:zelapp?', (req, res) => {
