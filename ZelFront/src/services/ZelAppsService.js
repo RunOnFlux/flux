@@ -144,7 +144,7 @@ export default {
         zelidauth: zelidauthHeader,
       },
     };
-    return Api().get(`/zelapps/zelappchanges/${zelapp}/${cmd}/${env}`, axiosConfig);
+    return Api().get(`/zelapps/zelappexec/${zelapp}/${cmd}/${env}`, axiosConfig);
   },
   reindexGlobalApps(zelidauthHeader) {
     return Api().get('/zelapps/reindexglobalappsinformation', {

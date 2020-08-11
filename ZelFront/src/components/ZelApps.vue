@@ -277,6 +277,131 @@
             </el-table-column>
           </el-table>
         </el-tab-pane>
+        <el-tab-pane
+          label="My Local ZelApps"
+          name="myLocalZelApps"
+        >
+          <el-table
+            :data="myLocalApps"
+            empty-text="No Local ZelApp owned"
+            style="width: 100%"
+          >
+            <el-table-column
+              label="Name"
+              prop="name"
+              sortable
+            >
+              <template slot-scope="scope">
+                {{ getZelAppName(scope.row.name) }}
+              </template>
+            </el-table-column>
+            <el-table-column
+              label="Port"
+              prop="port"
+              sortable
+            >
+            </el-table-column>
+            <el-table-column
+              label="CPU"
+              prop="cpu"
+              sortable
+            >
+              <template slot-scope="scope">
+                {{ resolveCpu(scope.row) }}
+              </template>
+            </el-table-column>
+            <el-table-column
+              label="RAM"
+              prop="ram"
+              sortable
+            >
+              <template slot-scope="scope">
+                {{ resolveRam(scope.row) }}
+              </template>
+            </el-table-column>
+            <el-table-column
+              label="HDD"
+              prop="hdd"
+              sortable
+            >
+              <template slot-scope="scope">
+                {{ resolveHdd(scope.row) }}
+              </template>
+            </el-table-column>
+            <el-table-column
+              label="Actions"
+              prop="actions"
+              sortable
+            >
+              <template slot-scope="scope">
+                <el-popconfirm
+                  confirmButtonText='Start'
+                  cancelButtonText='No, Thanks'
+                  icon="el-icon-info"
+                  iconColor="green"
+                  title="Starts Application"
+                  @onConfirm="startZelApp(scope.row.name)"
+                >
+                  <ElButton slot="reference">
+                    Start
+                  </ElButton>
+                </el-popconfirm>
+                <el-popconfirm
+                  confirmButtonText='Restart'
+                  cancelButtonText='No, Thanks'
+                  icon="el-icon-info"
+                  iconColor="orange"
+                  title="Retarts Application"
+                  @onConfirm="restartZelApp(scope.row.name)"
+                >
+                  <ElButton slot="reference">
+                    Restart
+                  </ElButton>
+                </el-popconfirm>
+              </template>
+            </el-table-column>
+            <el-table-column
+              label="Remove"
+              prop="remove"
+              sortable
+            >
+              <template slot-scope="scope">
+                <el-popconfirm
+                  confirmButtonText='Remove'
+                  cancelButtonText='No, Thanks'
+                  icon="el-icon-info"
+                  iconColor="red"
+                  title="Removes Application"
+                  @onConfirm="removeZelApp(scope.row.name)"
+                >
+                  <ElButton slot="reference">
+                    Remove
+                  </ElButton>
+                </el-popconfirm>
+              </template>
+            </el-table-column>
+            <el-table-column
+              label="Manage"
+              prop="manage"
+              sortable
+            >
+              <template slot-scope="scope">
+                <el-popconfirm
+                  confirmButtonText='Manage!'
+                  cancelButtonText='No, Thanks'
+                  icon="el-icon-info"
+                  iconColor="green"
+                  title="Opens Application management centre"
+                  @onConfirm="openAppManagement(scope.row.name)"
+                >
+                  <ElButton slot="reference">
+                    Manage
+                  </ElButton>
+                </el-popconfirm>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-tab-pane>
       </el-tabs>
       <div v-if="managedApplication">
         <el-page-header
@@ -323,11 +448,15 @@
               </el-menu-item>
               <el-menu-item index="applogs">
                 <i class="el-icon-document"></i>
-                <span>Log file</span>
+                <span>Log File</span>
               </el-menu-item>
               <el-menu-item index="appcontrol">
                 <i class="el-icon-s-operation"></i>
                 <span>Control</span>
+              </el-menu-item>
+              <el-menu-item index="appexec">
+                <i class="el-icon-video-play"></i>
+                <span>Execute Commands</span>
               </el-menu-item>
             </el-menu>
           </el-aside>
@@ -478,6 +607,36 @@
                   Remove ZelApp
                 </ElButton>
               </el-popconfirm>
+            </div>
+            <div v-if="managementMenuItem == 'appexec'">
+              <p>
+                Here you can execute some commands and set up more enviroment variables on this local application instance. Useful especially for testing and tweaking purposes.
+              </p>
+              <el-form
+                :model="zelAppRegistrationSpecification"
+                label-width="100px"
+              >
+                <el-form-item label="Commands">
+                  <el-input
+                    placeholder="Array of strings of Commands"
+                    textarea
+                    v-model="zelAppExec.cmd"
+                  >
+                  </el-input>
+                </el-form-item>
+                <el-form-item label="Enviroment">
+                  <el-input
+                    placeholder="Array of strings of Enviromental Parameters"
+                    textarea
+                    v-model="zelAppExec.env"
+                  >
+                  </el-input>
+                </el-form-item>
+              </el-form>
+              <ElButton @click="zelAppExecute">
+                Execute
+              </ElButton>
+              {{ callResponse.data }}
             </div>
           </el-main>
         </el-container>
@@ -1056,6 +1215,10 @@ export default {
       total: '',
       downloaded: '',
       abortToken: {},
+      zelAppExec: {
+        cmd: '',
+        env: '',
+      },
     };
   },
   computed: {
@@ -1089,6 +1252,14 @@ export default {
       const auth = qs.parse(zelidauth);
       if (this.globalZelAppSpecs.data) {
         return this.globalZelAppSpecs.data.filter((app) => app.owner === auth.zelid);
+      }
+      return [];
+    },
+    myLocalApps() {
+      const zelidauth = localStorage.getItem('zelidauth');
+      const auth = qs.parse(zelidauth);
+      if (this.installedZelApps.data) {
+        return this.installedZelApps.data.filter((app) => app.owner === auth.zelid);
       }
       return [];
     },
@@ -1129,6 +1300,9 @@ export default {
     },
     activeName(val, oldVal) {
       this.callResponse.data = '';
+      this.callResponse.status = '';
+      this.zelAppExec.cmd = '';
+      this.zelAppExec.env = '';
       console.log(val, oldVal);
       this.output = '';
       switch (val) {
@@ -1144,6 +1318,10 @@ export default {
           break;
         case 'available':
           this.zelappsGetAvailableZelApps();
+          break;
+        case 'myLocalZelApps':
+          this.zelappsGetInstalledZelApps();
+          this.zelappsGetListAllZelApps();
           break;
         case 'stopped':
           // getting all and checking state?
@@ -1710,6 +1888,9 @@ export default {
     openAppManagement(zelappName) {
       console.log(zelappName);
       this.callResponse.data = '';
+      this.callResponse.status = '';
+      this.zelAppExec.cmd = '';
+      this.zelAppExec.env = '';
       this.managedApplication = zelappName;
       this.getAppOwner();
       this.getApplicationSpecifics();
@@ -1722,6 +1903,9 @@ export default {
       this.showMenu = false;
       this.managementMenuItem = key;
       this.callResponse.data = '';
+      this.callResponse.status = '';
+      this.zelAppExec.cmd = '';
+      this.zelAppExec.env = '';
       console.log(key, keyPath);
       console.log(key);
       switch (key) {
@@ -1748,6 +1932,8 @@ export default {
           break;
         case 'appcontrol':
           this.zelappsGetListAllZelApps();
+          break;
+        case 'appexec':
           break;
         default:
           vue.$customMes.info('Feature coming soon!');
@@ -1864,6 +2050,23 @@ export default {
     async getApplicationStats() {
       const zelidauth = localStorage.getItem('zelidauth');
       const response = await ZelAppsService.getZelAppStats(zelidauth, this.managedApplication);
+      console.log(response);
+      if (response.data.status === 'error') {
+        vue.$customMes.error(response.data.data.message || response.data.data);
+      } else {
+        this.callResponse.status = response.data.status;
+        this.callResponse.data = response.data.data;
+      }
+    },
+    async zelAppExecute() {
+      const zelidauth = localStorage.getItem('zelidauth');
+      if (!this.zelAppExec.cmd) {
+        vue.$customMes.error('No commands specified');
+        return;
+      }
+      const env = this.zelAppExec.env ? this.zelAppExec.env : '[]';
+      const cmd = this.zelAppExec.cmd ? this.zelAppExec.cmd : '[]';
+      const response = await ZelAppsService.getZelAppExec(zelidauth, this.managedApplication, cmd, env);
       console.log(response);
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);

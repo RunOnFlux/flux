@@ -854,7 +854,13 @@ async function zelAppLogStream(req, res) {
       res.setHeader('Content-Type', 'application/json');
       dockerContainerLogsStream(appname, res, (error) => {
         if (error) {
-          throw error;
+          log.error(error);
+          const errorResponse = serviceHelper.createErrorMessage(
+            error.message || error,
+            error.name,
+            error.code,
+          );
+          res.json(errorResponse);
         } else {
           res.end();
         }
@@ -960,6 +966,10 @@ async function zelAppUpdate(req, res) {
   let { appname } = req.params;
   appname = appname || req.query.appname;
 
+  if (!appname) {
+    throw new Error('No ZelApp specified');
+  }
+
   const authorized = await serviceHelper.verifyPrivilege('appowner', req, appname);
   if (!authorized) {
     const errMessage = serviceHelper.errUnauthorizedMessage();
@@ -971,7 +981,10 @@ async function zelAppUpdate(req, res) {
   let { memory } = req.params;
   memory = memory || req.query.memory;
 
-  const dockerContainer = docker.getContainer(appname);
+  const containers = await dockerListContainers(true);
+  const myContainer = containers.find((container) => (container.Names[0] === getZelAppDockerNameIdentifier(appname) || container.Id === appname));
+  const dockerContainer = docker.getContainer(myContainer.Id);
+
   const updateCommand = {};
   if (cpus) {
     cpus = serviceHelper.ensureNumber(cpus);
@@ -1015,6 +1028,11 @@ async function zelAppExec(req, res) {
   try {
     let { appname } = req.params;
     appname = appname || req.query.appname;
+
+    if (!appname) {
+      throw new Error('No ZelApp specified');
+    }
+
     const authorized = await serviceHelper.verifyPrivilege('appowner', req, appname);
     if (authorized === true) {
       let { cmd } = req.params;
@@ -1026,13 +1044,21 @@ async function zelAppExec(req, res) {
       cmd = serviceHelper.ensureObject(cmd);
       env = serviceHelper.ensureObject(env);
 
-      const dockerContainer = docker.getContainer(appname);
+      const containers = await dockerListContainers(true);
+      const myContainer = containers.find((container) => (container.Names[0] === getZelAppDockerNameIdentifier(appname) || container.Id === appname));
+      const dockerContainer = docker.getContainer(myContainer.Id);
 
       res.setHeader('Content-Type', 'application/json');
 
       dockerContainerExec(dockerContainer, cmd, env, res, (error) => {
         if (error) {
-          throw error;
+          log.error(error);
+          const errorResponse = serviceHelper.createErrorMessage(
+            error.message || error,
+            error.name,
+            error.code,
+          );
+          res.json(errorResponse);
         } else {
           res.end();
         }
@@ -2851,7 +2877,7 @@ async function availableZelApps(req, res) {
   return res.json(dataResponse);
 }
 
-// shall be identical to listAllZelApps. . But this is database response
+// shall be identical to listAllZelApps. But this is database response
 async function installedZelApps(req, res) {
   try {
     const dbopen = serviceHelper.databaseConnection();
