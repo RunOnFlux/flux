@@ -961,7 +961,6 @@ async function zelAppChanges(req, res) {
   }
 }
 
-
 async function zelAppUpdate(req, res) {
   let { appname } = req.params;
   appname = appname || req.query.appname;
