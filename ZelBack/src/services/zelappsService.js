@@ -96,7 +96,10 @@ async function dockerContainerStats(idOrName) {
   const containers = await dockerListContainers(true);
   const myContainer = containers.find((container) => (container.Names[0] === getZelAppDockerNameIdentifier(idOrName) || container.Id === idOrName));
   const dockerContainer = docker.getContainer(myContainer.Id);
-  const response = await dockerContainer.stats(false); // output hw usage statistics just once
+  const options = {
+    stream: false,
+  };
+  const response = await dockerContainer.stats(options); // output hw usage statistics just once
   return response;
 }
 
@@ -106,7 +109,7 @@ async function dockerContainerChanges(idOrName) {
   const myContainer = containers.find((container) => (container.Names[0] === getZelAppDockerNameIdentifier(idOrName) || container.Id === idOrName));
   const dockerContainer = docker.getContainer(myContainer.Id);
   const response = await dockerContainer.changes();
-  return response;
+  return response.toString();
 }
 
 function dockerPullStream(repoTag, res, callback) {
