@@ -305,9 +305,13 @@
                 <i class="el-icon-magic-stick"></i>
                 <span>Information</span>
               </el-menu-item>
-              <el-menu-item index="applogs">
-                <i class="el-icon-document"></i>
-                <span>Log file</span>
+              <el-menu-item index="appstats">
+                <i class="el-icon-s-platform"></i>
+                <span>Resources</span>
+              </el-menu-item>
+              <el-menu-item index="appchanges">
+                <i class="el-icon-files"></i>
+                <span>File Changes</span>
               </el-menu-item>
               <el-menu-item index="appprocesses">
                 <i class="el-icon-location-outline"></i>
@@ -317,12 +321,34 @@
                 <i class="el-icon-location-outline"></i>
                 <span>Running Instances</span>
               </el-menu-item>
+              <el-menu-item index="applogs">
+                <i class="el-icon-document"></i>
+                <span>Log file</span>
+              </el-menu-item>
               <el-menu-item index="appcontrol">
                 <i class="el-icon-s-operation"></i>
                 <span>Control</span>
               </el-menu-item>
             </el-menu>
           </el-aside>
+          <div v-if="managementMenuItem == 'appspecifics'">
+            {{ callResponse.data }}
+          </div>
+          <div v-if="managementMenuItem == 'appinspect'">
+            {{ callResponse.data }}
+          </div>
+          <div v-if="managementMenuItem == 'appstats'">
+            {{ callResponse.data }}
+          </div>
+          <div v-if="managementMenuItem == 'appchanges'">
+            {{ callResponse.data }}
+          </div>
+          <div v-if="managementMenuItem == 'appprocesses'">
+            {{ callResponse.data }}
+          </div>
+          <div v-if="managementMenuItem == 'appinstances'">
+            {{ callResponse.data }}
+          </div>
           <el-main>
             <div v-if="managementMenuItem == 'applogs'">
               <div>
@@ -452,9 +478,6 @@
                   Remove ZelApp
                 </ElButton>
               </el-popconfirm>
-            </div>
-            <div v-else>
-              {{ callResponse.data }}
             </div>
           </el-main>
         </el-container>
@@ -1708,6 +1731,12 @@ export default {
         case 'appinspect':
           this.getApplicationInspect();
           break;
+        case 'appstats':
+          this.getApplicationStats();
+          break;
+        case 'appchanges':
+          this.getApplicationChanges();
+          break;
         case 'applogs':
           this.getApplicationLogs();
           break;
@@ -1824,6 +1853,28 @@ export default {
     async getApplicationInspect() {
       const zelidauth = localStorage.getItem('zelidauth');
       const response = await ZelAppsService.getZelAppInspect(zelidauth, this.managedApplication);
+      console.log(response);
+      if (response.data.status === 'error') {
+        vue.$customMes.error(response.data.data.message || response.data.data);
+      } else {
+        this.callResponse.status = response.data.status;
+        this.callResponse.data = response.data.data;
+      }
+    },
+    async getApplicationStats() {
+      const zelidauth = localStorage.getItem('zelidauth');
+      const response = await ZelAppsService.getZelAppStats(zelidauth, this.managedApplication);
+      console.log(response);
+      if (response.data.status === 'error') {
+        vue.$customMes.error(response.data.data.message || response.data.data);
+      } else {
+        this.callResponse.status = response.data.status;
+        this.callResponse.data = response.data.data;
+      }
+    },
+    async getApplicationChanges() {
+      const zelidauth = localStorage.getItem('zelidauth');
+      const response = await ZelAppsService.getZelAppChanges(zelidauth, this.managedApplication);
       console.log(response);
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);

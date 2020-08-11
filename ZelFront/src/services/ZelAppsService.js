@@ -130,7 +130,7 @@ export default {
     };
     return Api().get(`/zelapps/zelappstats/${zelapp}`, axiosConfig);
   },
-  getZelAppCahnges(zelidauthHeader, zelapp) {
+  getZelAppChanges(zelidauthHeader, zelapp) {
     const axiosConfig = {
       headers: {
         zelidauth: zelidauthHeader,
