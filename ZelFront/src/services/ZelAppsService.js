@@ -145,9 +145,9 @@ export default {
       },
     };
     const data = {
-      zelapp,
-      cmd,
-      env,
+      appname: zelapp,
+      cmd: JSON.parse(cmd),
+      env: JSON.parse(env),
     };
     return Api().post('/zelapps/zelappexec', JSON.stringify(data), axiosConfig);
   },

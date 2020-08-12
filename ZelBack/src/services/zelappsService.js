@@ -135,59 +135,32 @@ function dockerPullStream(repoTag, res, callback) {
   });
 }
 
-function dockerContainerExec(container, cmd, env, res, callback) {
+async function dockerContainerExec(container, cmd, env, res, callback) {
   try {
-    const logStream = new stream.PassThrough();
-    logStream.on('data', (chunk) => {
-      res.write(serviceHelper.ensureString(chunk.toString('utf8')));
+    const options = {
+      AttachStdin: false,
+      AttachStdout: true,
+      AttachStderr: true,
+      Cmd: cmd,
+      Env: env,
+      Tty: false,
+    };
+    const optionsExecStart = {
+      // hijack: true,
+      // stdin: true,
+      // stdout: true,
+      // stderr: true,
+    };
+
+    const exec = await container.exec(options);
+    await exec.start(optionsExecStart, async (err, mystream) => {
+      if (err) {
+        callback(err);
+      }
+      mystream.on('data', (data) => res.write(data.toString()));
+      mystream.on('end', () => callback(null));
     });
-
-    container.exec(
-      {
-        AttachStdin: true,
-        AttachStdout: true,
-        AttachStderr: true,
-        Cmd: cmd,
-        Env: env,
-        Tty: false,
-      },
-      (error, exec) => {
-        if (error) {
-          callback(error);
-        } else {
-          exec.start(
-            {
-              hijack: true,
-              stdin: true,
-              stdout: true,
-              stderr: true,
-            },
-            (err, mystream) => {
-              if (err) {
-                callback(err);
-              } else {
-                try {
-                  container.modem.demuxStream(mystream, logStream, logStream);
-                  mystream.on('end', () => {
-                    logStream.end();
-                    callback(null);
-                  });
-
-                  setTimeout(() => {
-                    mystream.destroy();
-                  }, 2000);
-                } catch (errr) {
-                  throw new Error({
-                    message:
-                      'An error obtaining execution data of an application has occured',
-                  });
-                }
-              }
-            },
-          );
-        }
-      },
-    );
+    callback(null);
   } catch (error) {
     callback(error);
   }
@@ -860,7 +833,8 @@ async function zelAppLogStream(req, res) {
             error.name,
             error.code,
           );
-          res.json(errorResponse);
+          res.write(errorResponse);
+          res.end();
         } else {
           res.end();
         }
@@ -1063,7 +1037,8 @@ async function zelAppExec(req, res) {
               error.name,
               error.code,
             );
-            res.json(errorResponse);
+            res.write(errorResponse);
+            res.end();
           } else {
             res.end();
           }
