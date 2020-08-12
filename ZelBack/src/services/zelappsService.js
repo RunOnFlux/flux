@@ -146,21 +146,18 @@ async function dockerContainerExec(container, cmd, env, res, callback) {
       Tty: false,
     };
     const optionsExecStart = {
-      // hijack: true,
-      // stdin: true,
-      // stdout: true,
-      // stderr: true,
+      Detach: false,
+      Tty: false,
     };
 
     const exec = await container.exec(options);
-    await exec.start(optionsExecStart, async (err, mystream) => {
+    exec.start(optionsExecStart, (err, mystream) => {
       if (err) {
         callback(err);
       }
       mystream.on('data', (data) => res.write(data.toString()));
       mystream.on('end', () => callback(null));
     });
-    callback(null);
   } catch (error) {
     callback(error);
   }
