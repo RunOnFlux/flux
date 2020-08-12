@@ -422,6 +422,12 @@
               text-color="#fff"
               active-text-color="#ffd04b"
             >
+              <el-menu-item
+                style="height: 30px; line-height: 30px;"
+                disabled
+              >
+                <span>Local App Management</span>
+              </el-menu-item>
               <el-menu-item index="appspecifics">
                 <i class="el-icon-info"></i>
                 <span>Specifications</span>
@@ -460,25 +466,127 @@
               </el-menu-item>
             </el-menu>
           </el-aside>
-          <div v-if="managementMenuItem == 'appspecifics'">
-            {{ callResponse.data }}
-          </div>
-          <div v-if="managementMenuItem == 'appinspect'">
-            {{ callResponse.data }}
-          </div>
-          <div v-if="managementMenuItem == 'appstats'">
-            {{ callResponse.data }}
-          </div>
-          <div v-if="managementMenuItem == 'appchanges'">
-            {{ callResponse.data }}
-          </div>
-          <div v-if="managementMenuItem == 'appprocesses'">
-            {{ callResponse.data }}
-          </div>
-          <div v-if="managementMenuItem == 'appinstances'">
-            {{ callResponse.data }}
-          </div>
           <el-main>
+            <div v-if="managementMenuItem == 'appspecifics'">
+              <div
+                v-if="callResponse.data"
+                style="text-align: left"
+              >
+                <p>
+                  Name: {{ callResponse.data.name }}
+                </p>
+                <p>
+                  Description: {{ callResponse.data.description }}
+                </p>
+                <p>
+                  Specifications Hash: {{ callResponse.data.hash }}
+                </p>
+                <p>
+                  Repository: {{ callResponse.data.repotag }}
+                </p>
+                <p>
+                  owner: {{ callResponse.data.owner }}
+                </p>
+                <p>
+                  Registered on Blockheight: {{ callResponse.data.height }}
+                </p>
+                <p>
+                  Expires on Blockheight: {{ callResponse.data.height + 22000 }}
+                </p>
+                <p>
+                  Specifications version: {{ callResponse.data.version }}
+                </p>
+                <p>
+                  Public Port: {{ callResponse.data.port }}
+                </p>
+                <p>
+                  Forwarded Port: {{ callResponse.data.containerPort }}
+                </p>
+                <p>
+                  Application Data: {{ callResponse.data.containerData }}
+                </p>
+                <p>
+                  Application Enviroment: {{ callResponse.data.enviromentParameters }}
+                </p>
+                <p>
+                  Application Commands: {{ callResponse.data.commands }}
+                </p>
+                <p>
+                  Tiered Specifications: {{ callResponse.data.tiered }}
+                </p>
+                <div v-if="callResponse.data.tiered">
+                  <p>
+                    BAMF CPU: {{ callResponse.data.cpubamf }} Cores
+                  </p>
+                  <p>
+                    BAMF RAM: {{ callResponse.data.rambamf / 10 }} GB
+                  </p>
+                  <p>
+                    BAMF SSD: {{ callResponse.data.hddbamf }} GB
+                  </p>
+                  <p>
+                    SUPER CPU: {{ callResponse.data.cpusuper }} Cores
+                  </p>
+                  <p>
+                    SUPER RAM: {{ callResponse.data.ramsuper / 10 }} GB
+                  </p>
+                  <p>
+                    SUPER SSD: {{ callResponse.data.hddsuper }} GB
+                  </p>
+                  <p>
+                    BASIC CPU: {{ callResponse.data.cpubasic }} Cores
+                  </p>
+                  <p>
+                    BASIC RAM: {{ callResponse.data.rambasic / 10 }} GB
+                  </p>
+                  <p>
+                    BASIC SSD: {{ callResponse.data.hddbasic }} GB
+                  </p>
+                </div>
+                <div v-else>
+                  <p>
+                    CPU: {{ callResponse.data.cpu }} Cores
+                  </p>
+                  <p>
+                    RAM: {{ callResponse.data.ram / 10 }} GB
+                  </p>
+                  <p>
+                    SSD: {{ callResponse.data.hdd }} GB
+                  </p>
+                </div>
+              </div>
+              <div v-else>
+                Specifications loading<i class="el-icon-loading"></i>
+              </div>
+            </div>
+            <div v-if="managementMenuItem == 'appinspect'">
+              <el-input
+                v-if="callResponse.data"
+                type="textarea"
+                autosize
+                v-model="stringifiedResponse"
+              >
+              </el-input>
+            </div>
+            <div v-if="managementMenuItem == 'appstats'">
+              <el-input
+                v-if="callResponse.data"
+                type="textarea"
+                autosize
+                v-model="stringifiedResponse"
+              >
+              </el-input>
+            </div>
+            <div v-if="managementMenuItem == 'appchanges'">
+              {{ callResponse.data }}
+            </div>
+            <div v-if="managementMenuItem == 'appprocesses'">
+              {{ callResponse.data }}
+            </div>
+            <div v-if="managementMenuItem == 'appinstances'">
+              {{ callResponse.data }}
+            </div>
+
             <div v-if="managementMenuItem == 'applogs'">
               <div>
                 <p>Following action will download Log file from your Application debug file. This may take a few minutes depending on file size</p>
@@ -1229,6 +1337,10 @@ export default {
         env: '',
       },
       commandExecuting: false,
+      defaultProps: {
+        children: 'children',
+        label: 'label',
+      },
     };
   },
   computed: {
@@ -1272,6 +1384,9 @@ export default {
         return this.installedZelApps.data.filter((app) => app.owner === auth.zelid);
       }
       return [];
+    },
+    stringifiedResponse() {
+      return JSON.stringify(this.callResponse.data, null, 4);
     },
     stringOutput() {
       let string = '';
