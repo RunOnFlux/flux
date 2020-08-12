@@ -610,7 +610,7 @@
             </div>
             <div v-if="managementMenuItem == 'appexec'">
               <p>
-                Here you can execute some commands and set up more enviroment variables on this local application instance. Useful especially for testing and tweaking purposes.
+                Here you can execute some commands with a set of enviroment variables on this local application instance. Both are array of strings. Useful especially for testing and tweaking purposes.
               </p>
               <el-form
                 :model="zelAppRegistrationSpecification"
@@ -636,7 +636,16 @@
               <ElButton @click="zelAppExecute">
                 Execute
               </ElButton>
-              {{ callResponse.data }}
+              <div v-if="commandExecuting">
+                <i class="el-icon-loading"></i>
+              </div>
+              <el-input
+                v-if="callResponse.data"
+                type="textarea"
+                autosize
+                v-model="asciResponse"
+              >
+              </el-input>
             </div>
           </el-main>
         </el-container>
@@ -1219,6 +1228,7 @@ export default {
         cmd: '',
         env: '',
       },
+      commandExecuting: false,
     };
   },
   computed: {
@@ -2066,14 +2076,12 @@ export default {
       }
       const env = this.zelAppExec.env ? this.zelAppExec.env : '[]';
       const cmd = this.zelAppExec.cmd ? this.zelAppExec.cmd : '[]';
+      this.commandExecuting = true;
       const response = await ZelAppsService.getZelAppExec(zelidauth, this.managedApplication, cmd, env);
       console.log(response);
-      if (response.data.status === 'error') {
-        vue.$customMes.error(response.data.data.message || response.data.data);
-      } else {
-        this.callResponse.status = response.data.status;
-        this.callResponse.data = response.data.data;
-      }
+      this.commandExecuting = false;
+      this.callResponse.status = response.status;
+      this.callResponse.data = response.data;
     },
     async getApplicationChanges() {
       const zelidauth = localStorage.getItem('zelidauth');
