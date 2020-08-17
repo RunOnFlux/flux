@@ -298,7 +298,7 @@ async function serialiseAndSignZelFluxBroadcast(dataToBroadcast, privatekey) {
   return dataString;
 }
 
-async function handleZelAppRegisterMessage(message, fromIP) {
+async function handleZelAppMessages(message, fromIP) {
   try {
     // check if we have it in database and if not add
     // if not in database, rebroadcast to all connections
@@ -422,8 +422,8 @@ function handleIncomingConnection(ws, req, expressWS) {
     if (messageOK === true && timestampOK === true) {
       try {
         const msgObj = serviceHelper.ensureObject(msg);
-        if (msgObj.data.type === 'zelappregister') {
-          handleZelAppRegisterMessage(msgObj, peer.ip);
+        if (msgObj.data.type === 'zelappregister' || msgObj.data.type === 'zelappupdate') {
+          handleZelAppMessages(msgObj, peer.ip);
         } else if (msgObj.data.type === 'zelapprequest') {
           respondWithAppMessage(msgObj, ws);
         } else if (msgObj.data.type === 'zelapprunning') {
@@ -715,8 +715,8 @@ async function initiateAndHandleConnection(ip) {
       let conIP = url.split('/')[2];
       conIP = conIP.split(`:${config.server.apiport}`).join('');
       const msgObj = serviceHelper.ensureObject(evt.data);
-      if (msgObj.data.type === 'zelappregister') {
-        handleZelAppRegisterMessage(msgObj, conIP);
+      if (msgObj.data.type === 'zelappregister' || msgObj.data.type === 'zelappupdate') {
+        handleZelAppMessages(msgObj, conIP);
       } else if (msgObj.data.type === 'zelapprequest') {
         respondWithAppMessage(msgObj, websocket);
       } else if (msgObj.data.type === 'zelapprunning') {

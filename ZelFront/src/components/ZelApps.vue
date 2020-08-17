@@ -2197,6 +2197,9 @@ export default {
       this.commandExecuting = false;
       this.callResponse.status = response.status;
       this.callResponse.data = response.data;
+      if (response.data.status === 'error') {
+        vue.$customMes.error(response.data.data.message || response.data.data);
+      }
     },
     async getApplicationChanges() {
       const zelidauth = localStorage.getItem('zelidauth');

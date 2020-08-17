@@ -2123,6 +2123,19 @@ async function verifyZelAppMessageSignature(type, version, zelAppSpec, timestamp
   return true;
 }
 
+async function verifyZelAppMessageUpdateSignature(type, version, zelAppSpec, timestamp, signature, zelappOwner) {
+  if (typeof zelAppSpec !== 'object' && typeof timestamp !== 'number' && typeof signature !== 'string' && typeof version !== 'number' && typeof type !== 'string') {
+    throw new Error('Invalid ZelApp message specifications');
+  }
+  const messageToVerify = type + version + JSON.stringify(zelAppSpec) + timestamp;
+  const isValidSignature = serviceHelper.verifyMessage(messageToVerify, zelappOwner, signature);
+  if (isValidSignature !== true) {
+    const errorMessage = isValidSignature === false ? 'Received signature does not correspond with ZelApp owner or ZelApp specifications are not properly formatted' : isValidSignature;
+    throw new Error(errorMessage);
+  }
+  return true;
+}
+
 async function verifyRepository(repotag) {
   if (typeof repotag !== 'string') {
     throw new Error('Invalid repotag');
@@ -2198,6 +2211,27 @@ async function verifyZelAppSpecifications(zelAppSpecifications) {
   await verifyRepository(zelAppSpecifications.repotag);
 }
 
+async function ensureCorrectApplicationPort(zelAppSpecFormatted) {
+  const dbopen = serviceHelper.databaseConnection();
+  const zelappsDatabase = dbopen.db(config.database.zelappsglobal.database);
+  const portQuery = { port: zelAppSpecFormatted.port };
+  const portProjection = {
+    projection: {
+      _id: 0,
+      name: 1,
+    },
+  };
+  const portResult = await serviceHelper.findOneInDatabase(zelappsDatabase, globalZelAppsInformation, portQuery, portProjection);
+  if (!portResult) {
+    return true;
+  }
+
+  if (portResult.name !== zelAppSpecFormatted.name) {
+    throw new Error(`ZelApp ${zelAppSpecFormatted.name} port already registered with different application. Your ZelApp has to use different port.`);
+  }
+  return true;
+}
+
 async function storeZelAppTemporaryMessage(message, furtherVerification = false) {
   /* message object
   * @param type string
@@ -2212,9 +2246,40 @@ async function storeZelAppTemporaryMessage(message, furtherVerification = false)
   }
   // data shall already be verified by the broadcasting node. But verify all again.
   if (furtherVerification) {
-    await verifyZelAppSpecifications(message.zelAppSpecifications);
-    await verifyAppHash(message);
-    await verifyZelAppMessageSignature(message.type, message.version, message.zelAppSpecifications, message.timestamp, message.signature);
+    if (message.type === 'zelappregister') {
+      // missing check for port?
+      await verifyZelAppSpecifications(message.zelAppSpecifications);
+      await verifyAppHash(message);
+      await ensureCorrectApplicationPort(message.zelAppSpecifications);
+      await verifyZelAppMessageSignature(message.type, message.version, message.zelAppSpecifications, message.timestamp, message.signature);
+    } else if (message.type === 'zelappupdate') {
+      // stadard verifications
+      await verifyZelAppSpecifications(message.zelAppSpecifications);
+      await verifyAppHash(message);
+      await ensureCorrectApplicationPort(message.zelAppSpecifications);
+      // verify that app exists, does not change repotag and is signed by zelapp owner.
+      const db = serviceHelper.databaseConnection();
+      const database = db.db(config.database.zelappsglobal.database);
+      // may throw
+      const query = { name: message.zelAppSpecifications.name };
+      const projection = {
+        projection: {
+          _id: 0,
+        },
+      };
+      const zelappInfo = await serviceHelper.findOneInDatabase(database, globalZelAppsInformation, query, projection);
+      if (!zelappInfo) {
+        throw new Error('ZelApp update message received but application does not exists!');
+      }
+      if (zelappInfo.repotag !== message.zelAppSpecifications.repotag) {
+        throw new Error('ZelApp update of repotag is not allowed');
+      }
+      const { owner } = zelappInfo;
+      // here signature is checked against PREVIOUS zelapp owner
+      await verifyZelAppMessageUpdateSignature(message.type, message.version, message.zelAppSpecifications, message.timestamp, message.signature, owner);
+    } else {
+      throw new Error('Invalid ZelApp message received');
+    }
   }
 
   const receivedAt = Date.now();
@@ -2224,7 +2289,7 @@ async function storeZelAppTemporaryMessage(message, furtherVerification = false)
   const database = db.db(config.database.zelappsglobal.database);
   const newMessage = {
     zelAppSpecifications: message.zelAppSpecifications,
-    type: message.type,
+    type: message.type, // shall be zelappregister, zelappupdate
     version: message.version,
     hash: message.hash,
     timestamp: message.timestamp,
@@ -2464,18 +2529,7 @@ async function registerZelAppGlobalyApi(req, res) {
       }
 
       // check if port is not yet registered
-      const portQuery = { port: zelAppSpecFormatted.port };
-      const portProjection = {
-        projection: {
-          _id: 0,
-          name: 1,
-        },
-      };
-      const portResult = await serviceHelper.findOneInDatabase(zelappsDatabase, globalZelAppsInformation, portQuery, portProjection);
-
-      if (portResult) {
-        throw new Error(`ZelApp ${zelAppSpecFormatted.name} port already registered. ZelApp has to be registered with different port.`);
-      }
+      await ensureCorrectApplicationPort(zelAppSpecFormatted);
 
       // check if zelid owner is correct ( done in message verification )
       // if signature is not correct, then specifications are not correct type or bad message received. Respond with 'Received message is invalid';
@@ -3095,6 +3149,7 @@ async function zelappHashHasMessage(hash) {
 }
 
 // hash of zelapp information, txid it was in, height of blockchain containing the txid
+// handles zelappregister type and zelappupdate type.
 async function checkAndRequestZelApp(hash, txid, height, valueSat, i = 0) {
   try {
     const randomDelay = Math.floor((Math.random() * 1280)) + 420;
@@ -3106,31 +3161,66 @@ async function checkAndRequestZelApp(hash, txid, height, valueSat, i = 0) {
       // if we have it in temporary storage, get the temporary message
       const tempMessage = await checkZelAppTemporaryMessageExistence(hash);
       if (tempMessage) {
-        // check if value is optimal or higher
-        const appPrice = appPricePerMonth(tempMessage.zelAppSpecifications);
-        if (valueSat >= appPrice * 1e8) {
-          // if all ok. store it as permanent zelapp message
-          const permanentZelAppMessage = {
-            type: tempMessage.type,
-            version: tempMessage.version,
-            zelAppSpecifications: tempMessage.zelAppSpecifications,
-            hash: tempMessage.hash,
-            timestamp: tempMessage.timestamp,
-            signature: tempMessage.signature,
-            txid: serviceHelper.ensureString(txid),
-            height: serviceHelper.ensureNumber(height),
-            valueSat: serviceHelper.ensureNumber(valueSat),
+        // temp message means its all ok. store it as permanent zelapp message
+        const permanentZelAppMessage = {
+          type: tempMessage.type,
+          version: tempMessage.version,
+          zelAppSpecifications: tempMessage.zelAppSpecifications,
+          hash: tempMessage.hash,
+          timestamp: tempMessage.timestamp,
+          signature: tempMessage.signature,
+          txid: serviceHelper.ensureString(txid),
+          height: serviceHelper.ensureNumber(height),
+          valueSat: serviceHelper.ensureNumber(valueSat),
+        };
+        await storeZelAppPermanentMessage(permanentZelAppMessage);
+        // await update zelapphashes that we already have it stored
+        await zelappHashHasMessage(hash);
+        // disregard other types
+        if (tempMessage.type === 'zelappregister') {
+          // check if value is optimal or higher
+          const appPrice = appPricePerMonth(tempMessage.zelAppSpecifications);
+          if (valueSat >= appPrice * 1e8) {
+            const updateForSpecifications = permanentZelAppMessage.zelAppSpecifications;
+            updateForSpecifications.hash = permanentZelAppMessage.hash;
+            updateForSpecifications.height = permanentZelAppMessage.height;
+            // object of zelAppSpecifications extended for hash and height
+            // do not await this
+            updateZelAppSpecifications(updateForSpecifications);
+          } // else do nothing notify its underpaid?
+        } else if (tempMessage.type === 'zelappupdate') {
+          // TODO check if applications running are up to date with hash TODO TODO
+          // zelappSpecifications.name as identifier
+          const db = serviceHelper.databaseConnection();
+          const database = db.db(config.database.zelappsglobal.database);
+          // may throw
+          const query = { name: tempMessage.zelAppSpecifications.name };
+          const projection = {
+            projection: {
+              _id: 0,
+            },
           };
-          await storeZelAppPermanentMessage(permanentZelAppMessage);
-          // await update zelapphashes that we already have it stored
-          await zelappHashHasMessage(hash);
-          const updateForSpecifications = permanentZelAppMessage.zelAppSpecifications;
-          updateForSpecifications.hash = permanentZelAppMessage.hash;
-          updateForSpecifications.height = permanentZelAppMessage.height;
-          // object of zelAppSpecifications extended for hash and height
-          // do not await this
-          updateZelAppSpecifications(updateForSpecifications);
-        } // else do nothing
+          const zelappInfo = await serviceHelper.findOneInDatabase(database, globalZelAppsInformation, query, projection);
+          // here comparison of height differences and specifications
+          // price shall be price for standard registration plus minus already paid price according to old specifics. height remains height valid for 22000 blocks
+          const appPrice = appPricePerMonth(tempMessage.zelAppSpecifications);
+          const previousSpecsPrice = appPricePerMonth(zelappInfo);
+          // what is the height difference
+          const heightDifference = permanentZelAppMessage.height - previousSpecsPrice.height; // has to be lower than 22000
+          const perc = (config.zelapps.blocksLasting - heightDifference) / config.zelapps.blocksLasting;
+          let actualPriceToPay = appPrice * 0.9;
+          if (perc > 0) {
+            actualPriceToPay = (appPrice - (perc * previousSpecsPrice)) * 0.9; // discount for missing heights. Allow 90%
+          }
+          if (valueSat >= actualPriceToPay * 1e8) {
+            const updateForSpecifications = permanentZelAppMessage.zelAppSpecifications;
+            updateForSpecifications.hash = permanentZelAppMessage.hash;
+            updateForSpecifications.height = permanentZelAppMessage.height;
+            // object of zelAppSpecifications extended for hash and height
+            // do not await this
+            updateZelAppSpecifications(updateForSpecifications);
+          } // else do nothing notify its underpaid?
+        }
       } else {
         // request the message and broadcast the message further to our connected peers.
         requestZelAppMessage(hash);
