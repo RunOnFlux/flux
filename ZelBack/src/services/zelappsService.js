@@ -2565,6 +2565,209 @@ async function registerZelAppGlobalyApi(req, res) {
   });
 }
 
+// price handled in UI and available in API
+async function updateZelAppGlobalyApi(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    try {
+      const authorized = await serviceHelper.verifyPrivilege('user', req);
+      if (!authorized) {
+        const errMessage = serviceHelper.errUnauthorizedMessage();
+        return res.json(errMessage);
+      }
+      // first  check if this node is available for application update - has at least 5 outgoing connections and 2 incoming connections (that is sufficient as it means it is confirmed and works correctly)
+      // TODO reenable in smarter way
+      // if (zelfluxCommunication.outgoingPeers.length < 5 || zelfluxCommunication.incomingPeers.length < 2) {
+      //   throw new Error('Sorry, This Flux does not have enough peers for safe application update');
+      // }
+      const processedBody = serviceHelper.ensureObject(body);
+      // Note. Actually signature, timestamp is not needed. But we require it only to verify that user indeed has access to the private key of the owner zelid.
+      // name and port HAVE to be unique for application. Check if they dont exist in global database
+      // first lets check if all fields are present and have propper format excpet tiered and teired specifications and those can be ommited
+      let { zelAppSpecification } = processedBody;
+      let { timestamp } = processedBody;
+      let { signature } = processedBody;
+      let messageType = processedBody.type; // determines how data is treated in the future
+      let typeVersion = processedBody.version; // further determines how data is treated in the future
+      if (!zelAppSpecification || !timestamp || !signature || !messageType || !typeVersion) {
+        throw new Error('Inclomplete message received. Check if specifications, timestamp and siganture is provided.');
+      }
+      if (messageType !== 'zelappupdate') {
+        throw new Error('Invalid type of message');
+      }
+      if (typeVersion !== 1) {
+        throw new Error('Invalid version of message');
+      }
+      zelAppSpecification = serviceHelper.ensureObject(zelAppSpecification);
+      timestamp = serviceHelper.ensureNumber(timestamp);
+      signature = serviceHelper.ensureString(signature);
+      messageType = serviceHelper.ensureString(messageType);
+      typeVersion = serviceHelper.ensureNumber(typeVersion);
+
+      let { version } = zelAppSpecification; // shall be 1
+      let { name } = zelAppSpecification;
+      let { description } = zelAppSpecification;
+      let { repotag } = zelAppSpecification;
+      let { owner } = zelAppSpecification;
+      let { port } = zelAppSpecification;
+      let { enviromentParameters } = zelAppSpecification;
+      let { commands } = zelAppSpecification;
+      let { containerPort } = zelAppSpecification;
+      let { containerData } = zelAppSpecification;
+      let { cpu } = zelAppSpecification;
+      let { ram } = zelAppSpecification;
+      let { hdd } = zelAppSpecification;
+      const { tiered } = zelAppSpecification;
+
+      // check if signature of received data is correct
+      if (!version || !name || !description || !repotag || !owner || !port || !enviromentParameters || !commands || !containerPort || !containerData || !cpu || !ram || !hdd) {
+        throw new Error('Missing ZelApp specification parameter');
+      }
+      version = serviceHelper.ensureNumber(version);
+      name = serviceHelper.ensureString(name);
+      description = serviceHelper.ensureString(description);
+      repotag = serviceHelper.ensureString(repotag);
+      owner = serviceHelper.ensureString(owner);
+      port = serviceHelper.ensureNumber(port);
+      enviromentParameters = serviceHelper.ensureObject(enviromentParameters);
+      const envParamsCorrected = [];
+      if (Array.isArray(enviromentParameters)) {
+        enviromentParameters.forEach((parameter) => {
+          const param = serviceHelper.ensureString(parameter);
+          envParamsCorrected.push(param);
+        });
+      } else {
+        throw new Error('Enviromental parameters for ZelApp are invalid');
+      }
+      commands = serviceHelper.ensureObject(commands);
+      const commandsCorrected = [];
+      if (Array.isArray(commands)) {
+        commands.forEach((command) => {
+          const cmm = serviceHelper.ensureString(command);
+          commandsCorrected.push(cmm);
+        });
+      } else {
+        throw new Error('ZelApp commands are invalid');
+      }
+      containerPort = serviceHelper.ensureNumber(containerPort);
+      containerData = serviceHelper.ensureString(containerData);
+      cpu = serviceHelper.ensureNumber(cpu);
+      ram = serviceHelper.ensureNumber(ram);
+      hdd = serviceHelper.ensureNumber(hdd);
+      if (typeof tiered !== 'boolean') {
+        throw new Error('Invalid tiered value obtained. Only boolean as true or false allowed.');
+      }
+
+      // finalised parameters that will get stored in global database
+      const zelAppSpecFormatted = {
+        version, // integer
+        name, // string
+        description, // string
+        repotag, // string
+        owner, // zelid string
+        port, // integer
+        enviromentParameters: envParamsCorrected, // array of strings
+        commands: commandsCorrected, // array of strings
+        containerPort, // integer
+        containerData, // string
+        cpu, // float 0.1 step
+        ram, // integer 100 step (mb)
+        hdd, // integer 1 step
+        tiered, // boolean
+      };
+
+      if (tiered) {
+        let { cpubasic } = zelAppSpecification;
+        let { cpusuper } = zelAppSpecification;
+        let { cpubamf } = zelAppSpecification;
+        let { rambasic } = zelAppSpecification;
+        let { ramsuper } = zelAppSpecification;
+        let { rambamf } = zelAppSpecification;
+        let { hddbasic } = zelAppSpecification;
+        let { hddsuper } = zelAppSpecification;
+        let { hddbamf } = zelAppSpecification;
+        if (!cpubasic || !cpusuper || !cpubamf || !rambasic || !ramsuper || !rambamf || !hddbasic || !hddsuper || !hddbamf) {
+          throw new Error('ZelApp was requested as tiered setup but specifications are missing');
+        }
+        cpubasic = serviceHelper.ensureNumber(cpubasic);
+        cpusuper = serviceHelper.ensureNumber(cpusuper);
+        cpubamf = serviceHelper.ensureNumber(cpubamf);
+        rambasic = serviceHelper.ensureNumber(rambasic);
+        ramsuper = serviceHelper.ensureNumber(ramsuper);
+        rambamf = serviceHelper.ensureNumber(rambamf);
+        hddbasic = serviceHelper.ensureNumber(hddbasic);
+        hddsuper = serviceHelper.ensureNumber(hddsuper);
+        hddbamf = serviceHelper.ensureNumber(hddbamf);
+
+        zelAppSpecFormatted.cpubasic = cpubasic;
+        zelAppSpecFormatted.cpusuper = cpusuper;
+        zelAppSpecFormatted.cpubamf = cpubamf;
+        zelAppSpecFormatted.rambasic = rambasic;
+        zelAppSpecFormatted.ramsuper = ramsuper;
+        zelAppSpecFormatted.rambamf = rambamf;
+        zelAppSpecFormatted.hddbasic = hddbasic;
+        zelAppSpecFormatted.hddsuper = hddsuper;
+        zelAppSpecFormatted.hddbamf = hddbamf;
+      }
+      // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper port, repotag exists, string lengths, specs are ok
+      await verifyZelAppSpecifications(zelAppSpecFormatted);
+      // check if port is not changing
+      await ensureCorrectApplicationPort(zelAppSpecFormatted);
+
+      // verify that app exists, does not change repotag and is signed by zelapp owner.
+      const db = serviceHelper.databaseConnection();
+      const database = db.db(config.database.zelappsglobal.database);
+      // may throw
+      const query = { name: zelAppSpecFormatted.name };
+      const projection = {
+        projection: {
+          _id: 0,
+        },
+      };
+      const zelappInfo = await serviceHelper.findOneInDatabase(database, globalZelAppsInformation, query, projection);
+      if (!zelappInfo) {
+        throw new Error('ZelApp update received but application to update does not exists!');
+      }
+      if (zelappInfo.repotag !== zelAppSpecFormatted.repotag) {
+        throw new Error('ZelApp update of repotag is not allowed');
+      }
+      const zelAppOwner = zelappInfo.owner; // ensure previous zelapp owner is signing this message
+      // here signature is checked against PREVIOUS zelapp owner
+      await verifyZelAppMessageUpdateSignature(messageType, typeVersion, zelAppSpecFormatted, timestamp, signature, zelAppOwner);
+
+      // if all ok, then sha256 hash of entire message = message + timestamp + signature. We are hashing all to have always unique value.
+      // If hashing just specificiations, if application goes back to previous specifications, it may possess some issues if we have indeed correct state
+      // We respond with a hash that is supposed to go to transaction.
+      const message = messageType + typeVersion + JSON.stringify(zelAppSpecFormatted) + timestamp + signature;
+      const messageHASH = await messageHash(message);
+      const responseHash = serviceHelper.createDataMessage(messageHASH);
+      // now all is great. Store zelAppSpecFormatted, timestamp, signature and hash in zelappsTemporaryMessages. with 1 hours expiration time. Broadcast this message to all outgoing connections.
+      const temporaryZelAppMessage = { // specification of temp message
+        type: messageType,
+        version: typeVersion,
+        zelAppSpecifications: zelAppSpecFormatted,
+        hash: messageHASH,
+        timestamp,
+        signature,
+      };
+      await storeZelAppTemporaryMessage(temporaryZelAppMessage, false);
+      await zelfluxCommunication.broadcastTemporaryZelAppMessage(temporaryZelAppMessage);
+      return res.json(responseHash);
+    } catch (error) {
+      log.warn(error);
+      const errorResponse = serviceHelper.createErrorMessage(
+        error.message || error,
+        error.name,
+        error.code,
+      );
+      return res.json(errorResponse);
+    }
+  });
+}
+
 async function temporaryZelAppRegisterFunctionForFoldingAtHome(req, res) {
   // this function is just temporary
   // when a launch folding button is clicked
@@ -4069,4 +4272,10 @@ module.exports = {
   temporaryZelAppRegisterFunctionForSuperMario,
   temporaryZelAppRegisterFunctionForPacMan,
   temporaryZelAppRegisterFunctionForDibiFetch,
+  updateZelAppGlobalyApi,
 };
+
+// fn for app price new registration
+// fn for app price update
+// fn for removal of apps that are not up to date
+// reenable min connections for registrations/updates

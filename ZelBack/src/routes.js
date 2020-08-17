@@ -771,6 +771,9 @@ module.exports = (app, expressWs) => {
   app.post('/zelapps/zelappregister', (req, res) => {
     zelappsService.registerZelAppGlobalyApi(req, res);
   });
+  app.post('/zelapps/zelappupdate', (req, res) => {
+    zelappsService.updateZelAppGlobalyApi(req, res);
+  });
 
   // POST PROTECTED API - ZelNode owner level
   app.post('/zelcash/signrawtransaction', (req, res) => {
