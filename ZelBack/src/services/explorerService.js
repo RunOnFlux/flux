@@ -305,7 +305,7 @@ async function processBlock(blockHeight) {
             addresses.push(receiver.scriptPubKey.addresses[0]);
             if (receiver.scriptPubKey.addresses[0] === config.zelapps.address) {
               // it is a zelapp message. Get Satoshi amount
-              isZelAppMessageValue = receiver.valueSat;
+              isZelAppMessageValue += receiver.valueSat;
             }
           }
           if (receiver.scriptPubKey.asm) {
@@ -325,7 +325,7 @@ async function processBlock(blockHeight) {
           await serviceHelper.updateOneInDatabase(database, addressTransactionIndexCollection, query, update, options);
         }));
         // MAY contain ZelApp transaction. Store it.
-        if (isZelAppMessageValue >= 10 && message.length === 64 && blockDataVerbose.height >= config.zelapps.epochstart) { // min of 10 zel had to be paid for us bothering checking
+        if (isZelAppMessageValue >= 1000000000 && message.length === 64 && blockDataVerbose.height >= config.zelapps.epochstart) { // min of 10 zel had to be paid for us bothering checking
           const zelappTxRecord = {
             txid: tx.txid, height: blockDataVerbose.height, hash: message, value: isZelAppMessageValue, message: false, // message is boolean saying if we already have it stored as permanent message
           };
