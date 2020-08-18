@@ -3382,7 +3382,10 @@ async function checkAndRequestZelApp(hash, txid, height, valueSat, i = 0) {
         // disregard other types
         if (tempMessage.type === 'zelappregister') {
           // check if value is optimal or higher
-          const appPrice = appPricePerMonth(tempMessage.zelAppSpecifications);
+          let appPrice = appPricePerMonth(tempMessage.zelAppSpecifications);
+          if (appPrice < 10) {
+            appPrice = 10;
+          }
           if (valueSat >= appPrice * 1e8) {
             const updateForSpecifications = permanentZelAppMessage.zelAppSpecifications;
             updateForSpecifications.hash = permanentZelAppMessage.hash;
@@ -3414,6 +3417,9 @@ async function checkAndRequestZelApp(hash, txid, height, valueSat, i = 0) {
           let actualPriceToPay = appPrice * 0.9;
           if (perc > 0) {
             actualPriceToPay = (appPrice - (perc * previousSpecsPrice)) * 0.9; // discount for missing heights. Allow 90%
+          }
+          if (actualPriceToPay < 10) {
+            actualPriceToPay = 10;
           }
           if (valueSat >= actualPriceToPay * 1e8) {
             const updateForSpecifications = permanentZelAppMessage.zelAppSpecifications;
@@ -4203,6 +4209,130 @@ async function expireGlobalApplications() {
   }
 }
 
+async function getAppPrice(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    try {
+      const processedBody = serviceHelper.ensureObject(body);
+      let zelAppSpecification = processedBody;
+
+      zelAppSpecification = serviceHelper.ensureObject(zelAppSpecification);
+
+      let { name } = zelAppSpecification;
+      let { cpu } = zelAppSpecification;
+      let { ram } = zelAppSpecification;
+      let { hdd } = zelAppSpecification;
+      const { tiered } = zelAppSpecification;
+
+      // check if signature of received data is correct
+      if (!name || !cpu || !ram || !hdd) {
+        throw new Error('Missing ZelApp HW specification parameter');
+      }
+
+      name = serviceHelper.ensureString(name);
+      cpu = serviceHelper.ensureNumber(cpu);
+      ram = serviceHelper.ensureNumber(ram);
+      hdd = serviceHelper.ensureNumber(hdd);
+      if (typeof tiered !== 'boolean') {
+        throw new Error('Invalid tiered value obtained. Only boolean as true or false allowed.');
+      }
+
+      // finalised parameters that will get stored in global database
+      const zelAppSpecFormatted = {
+        name, // string
+        cpu, // float 0.1 step
+        ram, // integer 100 step (mb)
+        hdd, // integer 1 step
+        tiered, // boolean
+      };
+
+      if (tiered) {
+        let { cpubasic } = zelAppSpecification;
+        let { cpusuper } = zelAppSpecification;
+        let { cpubamf } = zelAppSpecification;
+        let { rambasic } = zelAppSpecification;
+        let { ramsuper } = zelAppSpecification;
+        let { rambamf } = zelAppSpecification;
+        let { hddbasic } = zelAppSpecification;
+        let { hddsuper } = zelAppSpecification;
+        let { hddbamf } = zelAppSpecification;
+        if (!cpubasic || !cpusuper || !cpubamf || !rambasic || !ramsuper || !rambamf || !hddbasic || !hddsuper || !hddbamf) {
+          throw new Error('ZelApp was requested as tiered setup but specifications are missing');
+        }
+        cpubasic = serviceHelper.ensureNumber(cpubasic);
+        cpusuper = serviceHelper.ensureNumber(cpusuper);
+        cpubamf = serviceHelper.ensureNumber(cpubamf);
+        rambasic = serviceHelper.ensureNumber(rambasic);
+        ramsuper = serviceHelper.ensureNumber(ramsuper);
+        rambamf = serviceHelper.ensureNumber(rambamf);
+        hddbasic = serviceHelper.ensureNumber(hddbasic);
+        hddsuper = serviceHelper.ensureNumber(hddsuper);
+        hddbamf = serviceHelper.ensureNumber(hddbamf);
+
+        zelAppSpecFormatted.cpubasic = cpubasic;
+        zelAppSpecFormatted.cpusuper = cpusuper;
+        zelAppSpecFormatted.cpubamf = cpubamf;
+        zelAppSpecFormatted.rambasic = rambasic;
+        zelAppSpecFormatted.ramsuper = ramsuper;
+        zelAppSpecFormatted.rambamf = rambamf;
+        zelAppSpecFormatted.hddbasic = hddbasic;
+        zelAppSpecFormatted.hddsuper = hddsuper;
+        zelAppSpecFormatted.hddbamf = hddbamf;
+      }
+      const parameters = checkHWParameters(zelAppSpecFormatted);
+      if (parameters !== true) {
+        const errorMessage = parameters;
+        throw new Error(errorMessage);
+      }
+
+      // check if app exists or its a new registration price
+      const db = serviceHelper.databaseConnection();
+      const database = db.db(config.database.zelappsglobal.database);
+      // may throw
+      const query = { name: zelAppSpecFormatted.name };
+      const projection = {
+        projection: {
+          _id: 0,
+        },
+      };
+      const zelappInfo = await serviceHelper.findOneInDatabase(database, globalZelAppsInformation, query, projection);
+      let actualPriceToPay = appPricePerMonth(zelAppSpecFormatted);
+      if (zelappInfo) {
+        const previousSpecsPrice = appPricePerMonth(zelappInfo);
+        // what is the height difference
+        const zelcashGetInfo = await zelcashService.getInfo();
+        let zelcashHeight;
+        if (zelcashGetInfo.status === 'success') {
+          zelcashHeight = zelcashGetInfo.data.blocks;
+        } else {
+          throw new Error(zelcashGetInfo.data.data);
+        }
+        const heightDifference = zelcashHeight - previousSpecsPrice.height; // has to be lower than 22000
+        const perc = (config.zelapps.blocksLasting - heightDifference) / config.zelapps.blocksLasting;
+        if (perc > 0) {
+          actualPriceToPay -= (perc * previousSpecsPrice);
+        }
+      }
+      if (actualPriceToPay < 10) {
+        actualPriceToPay = 10;
+      }
+      const respondPrice = serviceHelper.createDataMessage(actualPriceToPay);
+      return res.json(respondPrice);
+    } catch (error) {
+      log.warn(error);
+      const errorResponse = serviceHelper.createErrorMessage(
+        error.message || error,
+        error.name,
+        error.code,
+      );
+      return res.json(errorResponse);
+    }
+  });
+}
+
 module.exports = {
   dockerListContainers,
   zelAppPull,
@@ -4273,9 +4403,8 @@ module.exports = {
   temporaryZelAppRegisterFunctionForPacMan,
   temporaryZelAppRegisterFunctionForDibiFetch,
   updateZelAppGlobalyApi,
+  getAppPrice,
 };
 
-// fn for app price new registration
-// fn for app price update
 // fn for removal of apps that are not up to date
 // reenable min connections for registrations/updates

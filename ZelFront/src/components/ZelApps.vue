@@ -1396,6 +1396,7 @@ export default {
       return string;
     },
     appPricePerMonth() {
+      let price = 10;
       if (this.dataForZelAppRegistration.tiered) {
         const cpuTotalCount = this.dataForZelAppRegistration.cpubasic + this.dataForZelAppRegistration.cpusuper + this.dataForZelAppRegistration.cpubamf;
         const cpuPrice = cpuTotalCount * this.zelapps.price.cpu * 10; // 0.1 core cost cpu price
@@ -1406,12 +1407,20 @@ export default {
         const hddTotalCount = this.dataForZelAppRegistration.hddbasic + this.dataForZelAppRegistration.hddsuper + this.dataForZelAppRegistration.hddbamf;
         const hddPrice = hddTotalCount * this.zelapps.price.hdd;
         const hddTotal = hddPrice / 3;
-        return Math.ceil(cpuTotal + ramTotal + hddTotal);
+        price = Math.ceil(cpuTotal + ramTotal + hddTotal);
+        if (price < 10) {
+          price = 10;
+        }
+        return price;
       }
       const cpuTotal = this.dataForZelAppRegistration.cpu * this.zelapps.price.cpu * 10;
       const ramTotal = (this.dataForZelAppRegistration.ram * this.zelapps.price.ram) / 100;
       const hddTotal = this.dataForZelAppRegistration.hdd * this.zelapps.price.hdd;
-      return Math.ceil(cpuTotal + ramTotal + hddTotal);
+      price = Math.ceil(cpuTotal + ramTotal + hddTotal);
+      if (price < 10) {
+        price = 10;
+      }
+      return price;
     },
     validTill() {
       const expTime = this.timestamp + 60 * 60 * 1000; // 1 hour

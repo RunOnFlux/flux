@@ -272,6 +272,9 @@ module.exports = (app, expressWs) => {
   app.get('/zelapps/locations', (req, res) => {
     zelappsService.getZelAppsLocations(req, res);
   });
+  app.post('/zelapps/calculateprice', (req, res) => { // returns price in zel for both new registration of zelapp and update of zelapp
+    zelappsService.getAppPrice(req, res);
+  });
 
   // app.get('/explorer/allutxos', (req, res) => {
   //   explorerService.getAllUtxos(req, res);
