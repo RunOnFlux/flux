@@ -371,6 +371,16 @@ async function processBlock(blockHeight) {
         zelappsService.expireGlobalApplications();
       }
     }
+    if (blockHeight % 11 === 0) {
+      if (blockDataVerbose.height >= config.zelapps.epochstart) {
+        zelappsService.checkAndRemoveApplicationInstance();
+      }
+    }
+    if (blockHeight % 9 === 0) {
+      if (blockDataVerbose.height >= config.zelapps.epochstart) {
+        zelappsService.reinstallOldApplications();
+      }
+    }
     const scannedHeight = blockDataVerbose.height;
     // update scanned Height in scannedBlockHeightCollection
     const query = { generalScannedHeight: { $gte: 0 } };
