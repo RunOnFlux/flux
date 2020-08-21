@@ -47,7 +47,7 @@
     "ciconfig": "cp sampleUserConfig.js config/userconfig.js && mkdir ~/.zelcash && cp sampleZelCashConfig.conf ~/.zelcash/zelcash.conf"
   },
   "dependencies": {
-    "axios": "^0.19.0",
+    "axios": "^0.20.0",
     "bitcoin": "^3.0.1",
     "bitcoinjs-lib": "^5.1.6",
     "bitcoinjs-message": "^2.1.0",
