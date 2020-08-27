@@ -3112,13 +3112,28 @@ async function availableZelApps(req, res) {
   return res.json(dataResponse);
 }
 
+// where req can be equal to appname
 // shall be identical to listAllZelApps. But this is database response
 async function installedZelApps(req, res) {
   try {
     const dbopen = serviceHelper.databaseConnection();
 
     const zelappsDatabase = dbopen.db(config.database.zelappslocal.database);
-    const zelappsQuery = {};
+    let zelappsQuery = {};
+    if (req && req.params && req.query) {
+      let { appname } = req.params; // we accept both help/command and help?command=getinfo
+      appname = appname || req.query.appname;
+      if (appname) {
+        zelappsQuery = {
+          name: appname,
+        };
+      }
+    } else if (req && typeof req === 'string') {
+      // consider it as appname
+      zelappsQuery = {
+        name: req,
+      };
+    }
     const zelappsProjection = {
       projection: {
         _id: 0,

@@ -230,7 +230,7 @@ module.exports = (app, expressWs) => {
   app.get('/zelapps/listzelappsimages', (req, res) => {
     zelappsService.listZelAppsImages(req, res);
   });
-  app.get('/zelapps/installedzelapps', (req, res) => {
+  app.get('/zelapps/installedzelapps/:appname?', (req, res) => {
     zelappsService.installedZelApps(req, res);
   });
   app.get('/zelapps/availablezelapps', (req, res) => {
