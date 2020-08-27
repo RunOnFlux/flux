@@ -467,10 +467,21 @@
             </el-menu>
           </el-aside>
           <el-main>
-            <div v-if="managementMenuItem == 'appspecifics'">
-              <div v-if="callResponse.data && callBReponse.data && callReponse.data.hash !== callBResponse.data.hash">
-                <h1>WARNING: Local application is not up to date with global network!</h1>
+            <div
+              :key="uniqueKey"
+              v-if="managementMenuItem == 'appspecifics'"
+            >
+              <div v-if="callBResponse.data && callResponse.data">
+                <div v-if="callBResponse.data.hash !== callResponse.data.hash">
+                  <h1>Locally running application does not match global specifications! Update needed</h1>
+                  <br><br>
+                </div>
+                <div v-else>
+                  Application is synced with Global network
+                  <br><br>
+                </div>
               </div>
+              <h2>Installed Specifications</h2>
               <div
                 v-if="callBResponse.data"
                 style="text-align: left"
@@ -561,6 +572,7 @@
               <div v-else>
                 Local Specifications loading<i class="el-icon-loading"></i>
               </div>
+              <h2>Global Specifications</h2>
               <div
                 v-if="callResponse.data"
                 style="text-align: left"
@@ -652,7 +664,7 @@
                 Global specifications not found!
               </div>
               <div v-else>
-                Local Specifications loading<i class="el-icon-loading"></i>
+                Global Specifications loading<i class="el-icon-loading"></i>
               </div>
             </div>
             <div v-if="managementMenuItem == 'appinspect'">
@@ -2250,11 +2262,11 @@ export default {
     async getInstalledApplicationSpecifics() {
       const response = await ZelAppsService.getInstalledZelAppSpecifics(this.managedApplication);
       console.log(response);
-      if (response.data.status === 'error') {
+      if (response.data.status === 'error' || !response.data.data[0]) {
         vue.$customMes.error(response.data.data.message || response.data.data);
       } else {
         this.callBResponse.status = response.data.status;
-        this.callBResponse.data = response.data.data;
+        [this.callBResponse.data] = response.data.data;
       }
     },
     async getGlobalApplicationSpecifics() {
