@@ -92,6 +92,9 @@ export default {
   globalZelAppSpecifications() {
     return Api().get('/zelapps/globalappsspecifications');
   },
+  getInstalledZelAppSpecifics(name) {
+    return Api().get(`/zelapps/installedzelapps/${name}`);
+  },
   getZelAppSpecifics(name) {
     return Api().get(`/zelapps/appspecifications/${name}`);
   },

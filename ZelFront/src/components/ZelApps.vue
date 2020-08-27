@@ -468,6 +468,99 @@
           </el-aside>
           <el-main>
             <div v-if="managementMenuItem == 'appspecifics'">
+              <div v-if="callResponse.data && callBReponse.data && callReponse.data.hash !== callBResponse.data.hash">
+                <h1>WARNING: Local application is not up to date with global network!</h1>
+              </div>
+              <div
+                v-if="callBResponse.data"
+                style="text-align: left"
+              >
+                <p>
+                  Name: {{ callBResponse.data.name }}
+                </p>
+                <p>
+                  Description: {{ callBResponse.data.description }}
+                </p>
+                <p>
+                  Specifications Hash: {{ callBResponse.data.hash }}
+                </p>
+                <p>
+                  Repository: {{ callBResponse.data.repotag }}
+                </p>
+                <p>
+                  owner: {{ callBResponse.data.owner }}
+                </p>
+                <p>
+                  Registered on Blockheight: {{ callBResponse.data.height }}
+                </p>
+                <p>
+                  Expires on Blockheight: {{ callBResponse.data.height + 22000 }}
+                </p>
+                <p>
+                  Specifications version: {{ callBResponse.data.version }}
+                </p>
+                <p>
+                  Public Port: {{ callBResponse.data.port }}
+                </p>
+                <p>
+                  Forwarded Port: {{ callBResponse.data.containerPort }}
+                </p>
+                <p>
+                  Application Data: {{ callBResponse.data.containerData }}
+                </p>
+                <p>
+                  Application Enviroment: {{ callBResponse.data.enviromentParameters }}
+                </p>
+                <p>
+                  Application Commands: {{ callBResponse.data.commands }}
+                </p>
+                <p>
+                  Tiered Specifications: {{ callBResponse.data.tiered }}
+                </p>
+                <div v-if="callBResponse.data.tiered">
+                  <p>
+                    BAMF CPU: {{ callBResponse.data.cpubamf }} Cores
+                  </p>
+                  <p>
+                    BAMF RAM: {{ callBResponse.data.rambamf / 10 }} GB
+                  </p>
+                  <p>
+                    BAMF SSD: {{ callBResponse.data.hddbamf }} GB
+                  </p>
+                  <p>
+                    SUPER CPU: {{ callBResponse.data.cpusuper }} Cores
+                  </p>
+                  <p>
+                    SUPER RAM: {{ callBResponse.data.ramsuper / 10 }} GB
+                  </p>
+                  <p>
+                    SUPER SSD: {{ callBResponse.data.hddsuper }} GB
+                  </p>
+                  <p>
+                    BASIC CPU: {{ callBResponse.data.cpubasic }} Cores
+                  </p>
+                  <p>
+                    BASIC RAM: {{ callBResponse.data.rambasic / 10 }} GB
+                  </p>
+                  <p>
+                    BASIC SSD: {{ callBResponse.data.hddbasic }} GB
+                  </p>
+                </div>
+                <div v-else>
+                  <p>
+                    CPU: {{ callBResponse.data.cpu }} Cores
+                  </p>
+                  <p>
+                    RAM: {{ callBResponse.data.ram / 10 }} GB
+                  </p>
+                  <p>
+                    SSD: {{ callBResponse.data.hdd }} GB
+                  </p>
+                </div>
+              </div>
+              <div v-else>
+                Local Specifications loading<i class="el-icon-loading"></i>
+              </div>
               <div
                 v-if="callResponse.data"
                 style="text-align: left"
@@ -555,8 +648,11 @@
                   </p>
                 </div>
               </div>
+              <div v-else-if="callResponse.status === 'error'">
+                Global specifications not found!
+              </div>
               <div v-else>
-                Specifications loading<i class="el-icon-loading"></i>
+                Local Specifications loading<i class="el-icon-loading"></i>
               </div>
             </div>
             <div v-if="managementMenuItem == 'appinspect'">
@@ -1329,6 +1425,10 @@ export default {
         status: '',
         data: '',
       },
+      callBResponse: { // general B
+        status: '',
+        data: '',
+      },
       total: '',
       downloaded: '',
       abortToken: {},
@@ -1435,6 +1535,8 @@ export default {
     activeName(val, oldVal) {
       this.callResponse.data = '';
       this.callResponse.status = '';
+      this.callBResponse.data = '';
+      this.callBResponse.status = '';
       this.zelAppExec.cmd = '';
       this.zelAppExec.env = '';
       console.log(val, oldVal);
@@ -2023,11 +2125,14 @@ export default {
       console.log(zelappName);
       this.callResponse.data = '';
       this.callResponse.status = '';
+      this.callBResponse.data = '';
+      this.callBResponse.status = '';
       this.zelAppExec.cmd = '';
       this.zelAppExec.env = '';
       this.managedApplication = zelappName;
       this.getAppOwner();
-      this.getApplicationSpecifics();
+      this.getInstalledApplicationSpecifics();
+      this.getGlobalApplicationSpecifics();
       this.managementMenuItem = 'appspecifics';
     },
     goBackToZelApps() {
@@ -2038,13 +2143,16 @@ export default {
       this.managementMenuItem = key;
       this.callResponse.data = '';
       this.callResponse.status = '';
+      this.callBResponse.data = '';
+      this.callBResponse.status = '';
       this.zelAppExec.cmd = '';
       this.zelAppExec.env = '';
       console.log(key, keyPath);
       console.log(key);
       switch (key) {
         case 'appspecifics':
-          this.getApplicationSpecifics();
+          this.getInstalledApplicationSpecifics();
+          this.getGlobalApplicationSpecifics();
           break;
         case 'appinspect':
           this.getApplicationInspect();
@@ -2139,7 +2247,17 @@ export default {
       }
       this.selectedAppOwner = response.data.data;
     },
-    async getApplicationSpecifics() {
+    async getInstalledApplicationSpecifics() {
+      const response = await ZelAppsService.getInstalledZelAppSpecifics(this.managedApplication);
+      console.log(response);
+      if (response.data.status === 'error') {
+        vue.$customMes.error(response.data.data.message || response.data.data);
+      } else {
+        this.callBResponse.status = response.data.status;
+        this.callBResponse.data = response.data.data;
+      }
+    },
+    async getGlobalApplicationSpecifics() {
       const response = await ZelAppsService.getZelAppSpecifics(this.managedApplication);
       console.log(response);
       if (response.data.status === 'error') {
