@@ -421,9 +421,10 @@
               background-color="#333333"
               text-color="#fff"
               active-text-color="#ffd04b"
+              style="text-align: left;"
             >
               <el-menu-item
-                style="height: 30px; line-height: 30px;"
+                style="margin-bottom: -19px; margin-top: -10px; cursor: default !important;"
                 disabled
               >
                 <span>Local App Management</span>
@@ -464,13 +465,25 @@
                 <i class="el-icon-video-play"></i>
                 <span>Execute Commands</span>
               </el-menu-item>
+              <hr>
+              <el-menu-item
+                style="margin-bottom: -19px; margin-top: -10px; cursor: default !important;"
+                disabled
+              >
+                <span>Global App Management</span>
+              </el-menu-item>
+              <el-menu-item
+                index="globalappspecifics"
+                :disabled="callBResponse.data ? false : true"
+                @click="handleGlobalDisabledClick"
+              >
+                <i class="el-icon-info"></i>
+                <span>Global Specifications</span>
+              </el-menu-item>
             </el-menu>
           </el-aside>
           <el-main>
-            <div
-              :key="uniqueKey"
-              v-if="managementMenuItem == 'appspecifics'"
-            >
+            <div v-if="managementMenuItem == 'appspecifics'">
               <div v-if="callBResponse.data && callResponse.data">
                 <div v-if="callBResponse.data.hash !== callResponse.data.hash">
                   <h1>Locally running application does not match global specifications! Update needed</h1>
@@ -482,97 +495,6 @@
                 </div>
               </div>
               <h2>Installed Specifications</h2>
-              <div
-                v-if="callBResponse.data"
-                style="text-align: left"
-              >
-                <p>
-                  Name: {{ callBResponse.data.name }}
-                </p>
-                <p>
-                  Description: {{ callBResponse.data.description }}
-                </p>
-                <p>
-                  Specifications Hash: {{ callBResponse.data.hash }}
-                </p>
-                <p>
-                  Repository: {{ callBResponse.data.repotag }}
-                </p>
-                <p>
-                  owner: {{ callBResponse.data.owner }}
-                </p>
-                <p>
-                  Registered on Blockheight: {{ callBResponse.data.height }}
-                </p>
-                <p>
-                  Expires on Blockheight: {{ callBResponse.data.height + 22000 }}
-                </p>
-                <p>
-                  Specifications version: {{ callBResponse.data.version }}
-                </p>
-                <p>
-                  Public Port: {{ callBResponse.data.port }}
-                </p>
-                <p>
-                  Forwarded Port: {{ callBResponse.data.containerPort }}
-                </p>
-                <p>
-                  Application Data: {{ callBResponse.data.containerData }}
-                </p>
-                <p>
-                  Application Enviroment: {{ callBResponse.data.enviromentParameters }}
-                </p>
-                <p>
-                  Application Commands: {{ callBResponse.data.commands }}
-                </p>
-                <p>
-                  Tiered Specifications: {{ callBResponse.data.tiered }}
-                </p>
-                <div v-if="callBResponse.data.tiered">
-                  <p>
-                    BAMF CPU: {{ callBResponse.data.cpubamf }} Cores
-                  </p>
-                  <p>
-                    BAMF RAM: {{ callBResponse.data.rambamf / 10 }} GB
-                  </p>
-                  <p>
-                    BAMF SSD: {{ callBResponse.data.hddbamf }} GB
-                  </p>
-                  <p>
-                    SUPER CPU: {{ callBResponse.data.cpusuper }} Cores
-                  </p>
-                  <p>
-                    SUPER RAM: {{ callBResponse.data.ramsuper / 10 }} GB
-                  </p>
-                  <p>
-                    SUPER SSD: {{ callBResponse.data.hddsuper }} GB
-                  </p>
-                  <p>
-                    BASIC CPU: {{ callBResponse.data.cpubasic }} Cores
-                  </p>
-                  <p>
-                    BASIC RAM: {{ callBResponse.data.rambasic / 10 }} GB
-                  </p>
-                  <p>
-                    BASIC SSD: {{ callBResponse.data.hddbasic }} GB
-                  </p>
-                </div>
-                <div v-else>
-                  <p>
-                    CPU: {{ callBResponse.data.cpu }} Cores
-                  </p>
-                  <p>
-                    RAM: {{ callBResponse.data.ram / 10 }} GB
-                  </p>
-                  <p>
-                    SSD: {{ callBResponse.data.hdd }} GB
-                  </p>
-                </div>
-              </div>
-              <div v-else>
-                Local Specifications loading<i class="el-icon-loading"></i>
-              </div>
-              <h2>Global Specifications</h2>
               <div
                 v-if="callResponse.data"
                 style="text-align: left"
@@ -660,7 +582,98 @@
                   </p>
                 </div>
               </div>
-              <div v-else-if="callResponse.status === 'error'">
+              <div v-else>
+                Local Specifications loading<i class="el-icon-loading"></i>
+              </div>
+              <h2>Global Specifications</h2>
+              <div
+                v-if="callBResponse.data"
+                style="text-align: left"
+              >
+                <p>
+                  Name: {{ callBResponse.data.name }}
+                </p>
+                <p>
+                  Description: {{ callBResponse.data.description }}
+                </p>
+                <p>
+                  Specifications Hash: {{ callBResponse.data.hash }}
+                </p>
+                <p>
+                  Repository: {{ callBResponse.data.repotag }}
+                </p>
+                <p>
+                  owner: {{ callBResponse.data.owner }}
+                </p>
+                <p>
+                  Registered on Blockheight: {{ callBResponse.data.height }}
+                </p>
+                <p>
+                  Expires on Blockheight: {{ callBResponse.data.height + 22000 }}
+                </p>
+                <p>
+                  Specifications version: {{ callBResponse.data.version }}
+                </p>
+                <p>
+                  Public Port: {{ callBResponse.data.port }}
+                </p>
+                <p>
+                  Forwarded Port: {{ callBResponse.data.containerPort }}
+                </p>
+                <p>
+                  Application Data: {{ callBResponse.data.containerData }}
+                </p>
+                <p>
+                  Application Enviroment: {{ callBResponse.data.enviromentParameters }}
+                </p>
+                <p>
+                  Application Commands: {{ callBResponse.data.commands }}
+                </p>
+                <p>
+                  Tiered Specifications: {{ callBResponse.data.tiered }}
+                </p>
+                <div v-if="callBResponse.data.tiered">
+                  <p>
+                    BAMF CPU: {{ callBResponse.data.cpubamf }} Cores
+                  </p>
+                  <p>
+                    BAMF RAM: {{ callBResponse.data.rambamf / 10 }} GB
+                  </p>
+                  <p>
+                    BAMF SSD: {{ callBResponse.data.hddbamf }} GB
+                  </p>
+                  <p>
+                    SUPER CPU: {{ callBResponse.data.cpusuper }} Cores
+                  </p>
+                  <p>
+                    SUPER RAM: {{ callBResponse.data.ramsuper / 10 }} GB
+                  </p>
+                  <p>
+                    SUPER SSD: {{ callBResponse.data.hddsuper }} GB
+                  </p>
+                  <p>
+                    BASIC CPU: {{ callBResponse.data.cpubasic }} Cores
+                  </p>
+                  <p>
+                    BASIC RAM: {{ callBResponse.data.rambasic / 10 }} GB
+                  </p>
+                  <p>
+                    BASIC SSD: {{ callBResponse.data.hddbasic }} GB
+                  </p>
+                </div>
+                <div v-else>
+                  <p>
+                    CPU: {{ callBResponse.data.cpu }} Cores
+                  </p>
+                  <p>
+                    RAM: {{ callBResponse.data.ram / 10 }} GB
+                  </p>
+                  <p>
+                    SSD: {{ callBResponse.data.hdd }} GB
+                  </p>
+                </div>
+              </div>
+              <div v-else-if="callBResponse.status === 'error'">
                 Global specifications not found!
               </div>
               <div v-else>
@@ -862,6 +875,102 @@
                 v-model="asciResponse"
               >
               </el-input>
+            </div>
+            <div v-if="managementMenuItem == 'globalappspecifics'">
+              <h2>Global Specifications</h2>
+              <div
+                v-if="callBResponse.data"
+                style="text-align: left"
+              >
+                <p>
+                  Name: {{ callBResponse.data.name }}
+                </p>
+                <p>
+                  Description: {{ callBResponse.data.description }}
+                </p>
+                <p>
+                  Specifications Hash: {{ callBResponse.data.hash }}
+                </p>
+                <p>
+                  Repository: {{ callBResponse.data.repotag }}
+                </p>
+                <p>
+                  owner: {{ callBResponse.data.owner }}
+                </p>
+                <p>
+                  Registered on Blockheight: {{ callBResponse.data.height }}
+                </p>
+                <p>
+                  Expires on Blockheight: {{ callBResponse.data.height + 22000 }}
+                </p>
+                <p>
+                  Specifications version: {{ callBResponse.data.version }}
+                </p>
+                <p>
+                  Public Port: {{ callBResponse.data.port }}
+                </p>
+                <p>
+                  Forwarded Port: {{ callBResponse.data.containerPort }}
+                </p>
+                <p>
+                  Application Data: {{ callBResponse.data.containerData }}
+                </p>
+                <p>
+                  Application Enviroment: {{ callBResponse.data.enviromentParameters }}
+                </p>
+                <p>
+                  Application Commands: {{ callBResponse.data.commands }}
+                </p>
+                <p>
+                  Tiered Specifications: {{ callBResponse.data.tiered }}
+                </p>
+                <div v-if="callBResponse.data.tiered">
+                  <p>
+                    BAMF CPU: {{ callBResponse.data.cpubamf }} Cores
+                  </p>
+                  <p>
+                    BAMF RAM: {{ callBResponse.data.rambamf / 10 }} GB
+                  </p>
+                  <p>
+                    BAMF SSD: {{ callBResponse.data.hddbamf }} GB
+                  </p>
+                  <p>
+                    SUPER CPU: {{ callBResponse.data.cpusuper }} Cores
+                  </p>
+                  <p>
+                    SUPER RAM: {{ callBResponse.data.ramsuper / 10 }} GB
+                  </p>
+                  <p>
+                    SUPER SSD: {{ callBResponse.data.hddsuper }} GB
+                  </p>
+                  <p>
+                    BASIC CPU: {{ callBResponse.data.cpubasic }} Cores
+                  </p>
+                  <p>
+                    BASIC RAM: {{ callBResponse.data.rambasic / 10 }} GB
+                  </p>
+                  <p>
+                    BASIC SSD: {{ callBResponse.data.hddbasic }} GB
+                  </p>
+                </div>
+                <div v-else>
+                  <p>
+                    CPU: {{ callBResponse.data.cpu }} Cores
+                  </p>
+                  <p>
+                    RAM: {{ callBResponse.data.ram / 10 }} GB
+                  </p>
+                  <p>
+                    SSD: {{ callBResponse.data.hdd }} GB
+                  </p>
+                </div>
+              </div>
+              <div v-else-if="callBResponse.status === 'error'">
+                Global specifications not found!
+              </div>
+              <div v-else>
+                Global Specifications loading<i class="el-icon-loading"></i>
+              </div>
             </div>
           </el-main>
         </el-container>
@@ -2155,8 +2264,7 @@ export default {
       this.managementMenuItem = key;
       this.callResponse.data = '';
       this.callResponse.status = '';
-      this.callBResponse.data = '';
-      this.callBResponse.status = '';
+      // do not reset global application specifics obtained
       this.zelAppExec.cmd = '';
       this.zelAppExec.env = '';
       console.log(key, keyPath);
@@ -2188,6 +2296,9 @@ export default {
           this.zelappsGetListAllZelApps();
           break;
         case 'appexec':
+          break;
+        case 'globalappspecifics':
+          this.getGlobalApplicationSpecifics();
           break;
         default:
           vue.$customMes.info('Feature coming soon!');
@@ -2265,8 +2376,8 @@ export default {
       if (response.data.status === 'error' || !response.data.data[0]) {
         vue.$customMes.error(response.data.data.message || response.data.data);
       } else {
-        this.callBResponse.status = response.data.status;
-        [this.callBResponse.data] = response.data.data;
+        this.callResponse.status = response.data.status;
+        [this.callResponse.data] = response.data.data;
       }
     },
     async getGlobalApplicationSpecifics() {
@@ -2274,9 +2385,10 @@ export default {
       console.log(response);
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
+        this.callBResponse.status = response.data.status;
       } else {
-        this.callResponse.status = response.data.status;
-        this.callResponse.data = response.data.data;
+        this.callBResponse.status = response.data.status;
+        this.callBResponse.data = response.data.data;
       }
     },
     async getApplicationLocations() {
@@ -2404,6 +2516,11 @@ export default {
         return name;
       }
       return `/${name}`;
+    },
+    handleGlobalDisabledClick() {
+      if (!this.callBResponse.data) {
+        vue.$message.info('Global Management unavailable. Missing specifications!');
+      }
     },
   },
 };
