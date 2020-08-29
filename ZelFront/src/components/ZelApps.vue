@@ -480,6 +480,14 @@
                 <i class="el-icon-info"></i>
                 <span>Global Specifications</span>
               </el-menu-item>
+              <el-menu-item
+                index="updateappglobalspecifications"
+                :disabled="callBResponse.data ? false : true"
+                @click="handleGlobalDisabledClick"
+              >
+                <i class="el-icon-magic-stick"></i>
+                <span>Update Specifications</span>
+              </el-menu-item>
             </el-menu>
           </el-aside>
           <el-main>
@@ -970,6 +978,280 @@
               </div>
               <div v-else>
                 Global Specifications loading<i class="el-icon-loading"></i>
+              </div>
+            </div>
+            <div v-if="managementMenuItem === 'updateappglobalspecifications'">
+              <div v-if="!fluxCommunication">
+                Warninig: Connected Flux is not communicating properly with Flux network
+              </div>
+              <h2>Here you can update your application specifications.</h2>
+              <div class="zelapps-register">
+                <el-form
+                  :model="zelAppUpdateSpecification"
+                  label-width="100px"
+                >
+                  <el-form-item label="Version">
+                    <el-input
+                      placeholder="ZelApp Version"
+                      disabled
+                      v-model="zelAppUpdateSpecification.version"
+                    >
+                    </el-input>
+                  </el-form-item>
+                  <el-form-item label="Name">
+                    <el-input
+                      placeholder="ZelApp name"
+                      disabled
+                      v-model="zelAppUpdateSpecification.name"
+                    >
+                    </el-input>
+                  </el-form-item>
+                  <el-form-item label="Desc.">
+                    <el-input
+                      placeholder="Description"
+                      type="textarea"
+                      autosize
+                      v-model="zelAppUpdateSpecification.description"
+                    >
+                    </el-input>
+                  </el-form-item>
+                  <el-form-item label="Repo">
+                    <el-input
+                      placeholder="Docker Hub namespace/repository:tag"
+                      disabled
+                      v-model="zelAppUpdateSpecification.repotag"
+                    >
+                    </el-input>
+                  </el-form-item>
+                  <el-form-item label="Owner">
+                    <el-input
+                      placeholder="ZelID of application owner"
+                      v-model="zelAppUpdateSpecification.owner"
+                    >
+                    </el-input>
+                  </el-form-item>
+                  <el-form-item label="Port">
+                    <el-input
+                      placeholder="Port on which application will be available"
+                      type="number"
+                      min="31000"
+                      max="39999"
+                      v-model="zelAppUpdateSpecification.port"
+                    >
+                    </el-input>
+                  </el-form-item>
+                  <el-form-item label="Enviroment">
+                    <el-input
+                      placeholder="Array of strings of Enviromental Parameters"
+                      textarea
+                      v-model="zelAppUpdateSpecification.enviromentParameters"
+                    >
+                    </el-input>
+                  </el-form-item>
+                  <el-form-item label="Commands">
+                    <el-input
+                      placeholder="Array of strings of Commands"
+                      textarea
+                      v-model="zelAppUpdateSpecification.commands"
+                    >
+                    </el-input>
+                  </el-form-item>
+                  <el-form-item label="Cont. Port">
+                    <el-input
+                      placeholder="Container Port - port on which your container has"
+                      nubmer
+                      min="0"
+                      max="65535"
+                      v-model="zelAppUpdateSpecification.containerPort"
+                    >
+                    </el-input>
+                  </el-form-item>
+                  <el-form-item label="Cont. Data">
+                    <el-input
+                      placeholder="Data folder that is shared by application to ZelApp volume"
+                      textarea
+                      v-model="zelAppUpdateSpecification.containerData"
+                    >
+                    </el-input>
+                  </el-form-item>
+                  <el-form-item label="CPU">
+                    <el-input
+                      placeholder="CPU cores to use by default"
+                      nubmer
+                      min="0"
+                      max="7"
+                      step="0.1"
+                      v-model="zelAppUpdateSpecification.cpu"
+                    >
+                    </el-input>
+                  </el-form-item>
+                  <el-form-item label="RAM">
+                    <el-input
+                      placeholder="RAM in MB value to use by default"
+                      nubmer
+                      min="0"
+                      max="28000"
+                      step="100"
+                      v-model="zelAppUpdateSpecification.ram"
+                    >
+                    </el-input>
+                  </el-form-item>
+                  <el-form-item label="SSD">
+                    <el-input
+                      placeholder="SSD in GB value to use by default"
+                      nubmer
+                      min="0"
+                      max="570"
+                      step="1"
+                      v-model="zelAppUpdateSpecification.hdd"
+                    >
+                    </el-input>
+                  </el-form-item>
+                  <el-form-item label="Tiered">
+                    <el-switch v-model="zelAppUpdateSpecification.tiered"></el-switch>
+                  </el-form-item>
+                  <div v-if="zelAppUpdateSpecification.tiered">
+                    <el-form-item label="BASIC CPU">
+                      <el-input
+                        placeholder="CPU cores to use by BASIC"
+                        nubmer
+                        min="0"
+                        max="1"
+                        step="0.1"
+                        v-model="zelAppUpdateSpecification.cpubasic"
+                      >
+                      </el-input>
+                    </el-form-item>
+                    <el-form-item label="BASIC RAM">
+                      <el-input
+                        placeholder="RAM in MB value to use by BASIC"
+                        nubmer
+                        min="0"
+                        max="1000"
+                        step="100"
+                        v-model="zelAppUpdateSpecification.rambasic"
+                      >
+                      </el-input>
+                    </el-form-item>
+                    <el-form-item label="BASIC SSD">
+                      <el-input
+                        placeholder="SSD in GB value to use by BASIC"
+                        nubmer
+                        min="0"
+                        max="20"
+                        step="1"
+                        v-model="zelAppUpdateSpecification.hddbasic"
+                      >
+                      </el-input>
+                    </el-form-item>
+                    <el-form-item label="SUPER CPU">
+                      <el-input
+                        placeholder="CPU cores to use by SUPER"
+                        nubmer
+                        min="0"
+                        max="3"
+                        step="0.1"
+                        v-model="zelAppUpdateSpecification.cpusuper"
+                      >
+                      </el-input>
+                    </el-form-item>
+                    <el-form-item label="SUPER RAM">
+                      <el-input
+                        placeholder="RAM in MB value to use by SUPER"
+                        nubmer
+                        min="0"
+                        max="5000"
+                        step="100"
+                        v-model="zelAppUpdateSpecification.ramsuper"
+                      >
+                      </el-input>
+                    </el-form-item>
+                    <el-form-item label="SUPER SSD">
+                      <el-input
+                        placeholder="SSD in GB value to use by SUPER"
+                        nubmer
+                        min="0"
+                        max="120"
+                        step="1"
+                        v-model="zelAppUpdateSpecification.hddsuper"
+                      >
+                      </el-input>
+                    </el-form-item>
+                    <el-form-item label="BAMF CPU">
+                      <el-input
+                        placeholder="CPU cores to use by BAMF"
+                        nubmer
+                        min="0"
+                        max="7"
+                        step="0.1"
+                        v-model="zelAppUpdateSpecification.cpubamf"
+                      >
+                      </el-input>
+                    </el-form-item>
+                    <el-form-item label="BAMF RAM">
+                      <el-input
+                        placeholder="RAM in MB value to use by BAMF"
+                        nubmer
+                        min="0"
+                        max="28000"
+                        step="100"
+                        v-model="zelAppUpdateSpecification.rambamf"
+                      >
+                      </el-input>
+                    </el-form-item>
+                    <el-form-item label="BAMF SSD">
+                      <el-input
+                        placeholder="SSD in GB value to use by BAMF"
+                        nubmer
+                        min="0"
+                        max="570"
+                        step="1"
+                        v-model="zelAppUpdateSpecification.hddbamf"
+                      >
+                      </el-input>
+                    </el-form-item>
+                  </div>
+                </el-form>
+              </div>
+              <div>
+                <ElButton @click="checkFluxUpdateSpecificationsAndFormatMessage">
+                  Compute Update Message
+                </ElButton>
+              </div>
+              <div v-if="dataToSign">
+                <el-form>
+                  <el-form-item label="Update Message">
+                    <el-input
+                      type="textarea"
+                      autosize
+                      disabled
+                      v-model="dataToSign"
+                    >
+                    </el-input>
+                  </el-form-item>
+                  <el-form-item label="Signature">
+                    <el-input
+                      type="textarea"
+                      autosize
+                      v-model="signature"
+                    >
+                    </el-input>
+                  </el-form-item>
+                </el-form>
+                <div>
+                  Sign with ZelCore
+                  <br>
+                  <a
+                    @click="initiateSignWS"
+                    :href="'zel:?action=sign&message=' + dataToSign + '&icon=http%3A%2F%2Fzelid.io%2Fimg%2FzelID.svg&callback=http%3A%2F%2F' + userconfig.externalip + ':' + config.apiPort + '%2Fzelid%2Fprovidesign%2F'"
+                  >
+                    <img
+                      class="zelidLogin"
+                      src="@/assets/img/zelID.svg"
+                    />
+                  </a>
+                </div>
+                <br><br>
               </div>
             </div>
           </el-main>
@@ -1492,13 +1774,41 @@ export default {
         rambamf: 2000,
         hddbamf: 5,
       },
-      type: 'zelappregister',
+      zelAppUpdateSpecification: {
+        version: 1,
+        name: '',
+        description: '',
+        repotag: '',
+        owner: '',
+        port: null,
+        enviromentParameters: '', // []
+        commands: '', // []
+        containerPort: null,
+        containerData: '',
+        cpu: null,
+        ram: null,
+        hdd: null,
+        tiered: false,
+        cpubasic: null,
+        rambasic: null,
+        hddbasic: null,
+        cpusuper: null,
+        ramsuper: null,
+        hddsuper: null,
+        cpubamf: null,
+        rambamf: null,
+        hddbamf: null,
+      },
+      registrationtype: 'zelappregister',
+      updatetype: 'zelappupdate',
       version: 1,
       dataForZelAppRegistration: {},
+      dataForZelAppUpdate: {},
       dataToSign: '',
       timestamp: '',
       signature: '',
       registrationHash: '',
+      updateHash: '',
       fluxSpecifics: {
         cpu: {
           basic: 20, // 10 available for apps
@@ -1695,6 +2005,21 @@ export default {
         this.timestamp = null;
         this.dataForZelAppRegistration = {};
         this.registrationHash = '';
+        if (this.websocket !== null) {
+          this.websocket.close();
+          this.websocket = null;
+        }
+      },
+      deep: true,
+    },
+    zelAppUpdateSpecification: {
+      handler(val, oldVal) {
+        console.log(val, oldVal);
+        this.dataToSign = '';
+        this.signature = '';
+        this.timestamp = null;
+        this.dataForZelAppUpdate = {};
+        this.updateHash = '';
         if (this.websocket !== null) {
           this.websocket.close();
           this.websocket = null;
@@ -2180,7 +2505,7 @@ export default {
           const data = {
             repotag: zelAppSpecFormatted.repotag,
           };
-          const resDocker = await ZelAppsService.chekcDockerExistance(zelidauth, data).catch((error) => {
+          const resDocker = await ZelAppsService.checkDockerExistance(zelidauth, data).catch((error) => {
             vue.$customMes.error(error.message || error);
           });
           console.log(resDocker);
@@ -2192,7 +2517,185 @@ export default {
         }
         this.timestamp = new Date().getTime();
         this.dataForZelAppRegistration = zelAppSpecFormatted;
-        this.dataToSign = this.type + this.version + JSON.stringify(zelAppSpecFormatted) + this.timestamp;
+        this.dataToSign = this.registrationtype + this.version + JSON.stringify(zelAppSpecFormatted) + this.timestamp;
+      } catch (error) {
+        console.log(error.message);
+        vue.$customMes.error(error.message || error);
+      }
+    },
+    async checkFluxUpdateSpecificationsAndFormatMessage() {
+      try {
+        let zelAppSpecification = this.zelAppUpdateSpecification;
+        console.log(zelAppSpecification);
+        zelAppSpecification = this.ensureObject(zelAppSpecification);
+        let { version } = zelAppSpecification; // shall be 1
+        let { name } = zelAppSpecification;
+        let { description } = zelAppSpecification;
+        let { repotag } = zelAppSpecification;
+        let { owner } = zelAppSpecification;
+        let { port } = zelAppSpecification;
+        let { enviromentParameters } = zelAppSpecification;
+        let { commands } = zelAppSpecification;
+        let { containerPort } = zelAppSpecification;
+        let { containerData } = zelAppSpecification;
+        let { cpu } = zelAppSpecification;
+        let { ram } = zelAppSpecification;
+        let { hdd } = zelAppSpecification;
+        const { tiered } = zelAppSpecification;
+        // check if signature of received data is correct
+        if (!version || !name || !description || !repotag || !owner || !port || !enviromentParameters || !commands || !containerPort || !containerData || !cpu || !ram || !hdd) {
+          throw new Error('Missing ZelApp specification parameter');
+        }
+        version = this.ensureNumber(version);
+        name = this.ensureString(name);
+        description = this.ensureString(description);
+        repotag = this.ensureString(repotag);
+        owner = this.ensureString(owner);
+        port = this.ensureNumber(port);
+        enviromentParameters = this.ensureObject(enviromentParameters);
+        const envParamsCorrected = [];
+        if (Array.isArray(enviromentParameters)) {
+          enviromentParameters.forEach((parameter) => {
+            const param = this.ensureString(parameter);
+            envParamsCorrected.push(param);
+          });
+        } else {
+          throw new Error('Enviromental parameters for ZelApp are invalid');
+        }
+        commands = this.ensureObject(commands);
+        const commandsCorrected = [];
+        if (Array.isArray(commands)) {
+          commands.forEach((command) => {
+            const cmm = this.ensureString(command);
+            commandsCorrected.push(cmm);
+          });
+        } else {
+          throw new Error('ZelApp commands are invalid');
+        }
+        containerPort = this.ensureNumber(containerPort);
+        containerData = this.ensureString(containerData);
+        cpu = this.ensureNumber(cpu);
+        ram = this.ensureNumber(ram);
+        hdd = this.ensureNumber(hdd);
+        if (typeof tiered !== 'boolean') {
+          throw new Error('Invalid tiered value obtained. Only boolean as true or false allowed.');
+        }
+
+        // finalised parameters that will get stored in global database
+        const zelAppSpecFormatted = {
+          version, // integer
+          name, // string
+          description, // string
+          repotag, // string
+          owner, // zelid string
+          port, // integer
+          enviromentParameters: envParamsCorrected, // array of strings
+          commands: commandsCorrected, // array of strings
+          containerPort, // integer
+          containerData, // string
+          cpu, // float 0.1 step
+          ram, // integer 100 step (mb)
+          hdd, // integer 1 step
+          tiered, // boolean
+        };
+
+        if (tiered) {
+          let { cpubasic } = zelAppSpecification;
+          let { cpusuper } = zelAppSpecification;
+          let { cpubamf } = zelAppSpecification;
+          let { rambasic } = zelAppSpecification;
+          let { ramsuper } = zelAppSpecification;
+          let { rambamf } = zelAppSpecification;
+          let { hddbasic } = zelAppSpecification;
+          let { hddsuper } = zelAppSpecification;
+          let { hddbamf } = zelAppSpecification;
+          if (!cpubasic || !cpusuper || !cpubamf || !rambasic || !ramsuper || !rambamf || !hddbasic || !hddsuper || !hddbamf) {
+            throw new Error('ZelApp was requested as tiered setup but specifications are missing');
+          }
+          cpubasic = this.ensureNumber(cpubasic);
+          cpusuper = this.ensureNumber(cpusuper);
+          cpubamf = this.ensureNumber(cpubamf);
+          rambasic = this.ensureNumber(rambasic);
+          ramsuper = this.ensureNumber(ramsuper);
+          rambamf = this.ensureNumber(rambamf);
+          hddbasic = this.ensureNumber(hddbasic);
+          hddsuper = this.ensureNumber(hddsuper);
+          hddbamf = this.ensureNumber(hddbamf);
+
+          zelAppSpecFormatted.cpubasic = cpubasic;
+          zelAppSpecFormatted.cpusuper = cpusuper;
+          zelAppSpecFormatted.cpubamf = cpubamf;
+          zelAppSpecFormatted.rambasic = rambasic;
+          zelAppSpecFormatted.ramsuper = ramsuper;
+          zelAppSpecFormatted.rambamf = rambamf;
+          zelAppSpecFormatted.hddbasic = hddbasic;
+          zelAppSpecFormatted.hddsuper = hddsuper;
+          zelAppSpecFormatted.hddbamf = hddbamf;
+        }
+        // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper port, repotag exists, string lengths, specs are ok
+        if (version !== 1) {
+          throw new Error('ZelApp message version specification is invalid');
+        }
+        if (name.length > 32) {
+          throw new Error('ZelApp name is too long');
+        }
+        // furthermore name cannot contain any special character
+        if (!name.match(/^[a-zA-Z0-9]+$/)) {
+          throw new Error('ZelApp name contains special characters. Only a-z, A-Z and 0-9 are allowed');
+        }
+        if (name.startsWith('zel')) {
+          throw new Error('ZelApp name can not start with zel');
+        }
+        if (name !== this.callBResponse.data.name) {
+          throw new Error('ZelApp name can not be changed');
+        }
+        if (repotag !== this.callBResponse.data.repotag) {
+          throw new Error('Repository can not be changed');
+        }
+        if (description.length > 256) {
+          throw new Error('Description is too long. Maximum of 256 characters is allowed');
+        }
+        const parameters = this.checkHWParameters(zelAppSpecFormatted);
+        if (parameters !== true) {
+          const errorMessage = parameters;
+          throw new Error(errorMessage);
+        }
+
+        // check port is within range
+        if (zelAppSpecFormatted.port < this.zelapps.portMin || zelAppSpecFormatted.port > this.zelapps.portMax) {
+          throw new Error(`Assigned port is not within ZelApps range ${this.zelapps.portMin}-${this.zelapps.portMax}`);
+        }
+
+        // check if containerPort makes sense
+        if (zelAppSpecFormatted.containerPort < 0 || zelAppSpecFormatted.containerPort > 65535) {
+          throw new Error('Container Port is not within system limits 0-65535');
+        }
+
+        // check wheter shared Folder is not root
+        if (containerData.length < 2) {
+          throw new Error('ZelApp container data folder not specified. If no data folder is whished, use /tmp');
+        }
+
+        // check repotag if available for download
+        const splittedRepo = zelAppSpecFormatted.repotag.split(':');
+        if (splittedRepo[0] && splittedRepo[1] && !splittedRepo[2]) {
+          const zelidauth = localStorage.getItem('zelidauth');
+          const data = {
+            repotag: zelAppSpecFormatted.repotag,
+          };
+          const resDocker = await ZelAppsService.checkDockerExistance(zelidauth, data).catch((error) => {
+            vue.$customMes.error(error.message || error);
+          });
+          console.log(resDocker);
+          if (resDocker.data.status === 'error') {
+            throw resDocker.data.data;
+          }
+        } else {
+          throw new Error('Repository is not in valid format namespace/repository:tag');
+        }
+        this.timestamp = new Date().getTime();
+        this.dataForZelAppRegistration = zelAppSpecFormatted;
+        this.dataToSign = this.updatetype + this.version + JSON.stringify(zelAppSpecFormatted) + this.timestamp;
       } catch (error) {
         console.log(error.message);
         vue.$customMes.error(error.message || error);
@@ -2300,6 +2803,9 @@ export default {
         case 'globalappspecifics':
           this.getGlobalApplicationSpecifics();
           break;
+        case 'updateappglobalspecifications':
+          this.getGlobalApplicationSpecifics();
+          break;
         default:
           vue.$customMes.info('Feature coming soon!');
           console.log('Menu: Unrecognized method');
@@ -2308,7 +2814,7 @@ export default {
     async register() {
       const zelidauth = localStorage.getItem('zelidauth');
       const data = {
-        type: this.type,
+        type: this.registrationtype,
         version: this.version,
         zelAppSpecification: this.dataForZelAppRegistration,
         timestamp: this.timestamp,
@@ -2389,6 +2895,31 @@ export default {
       } else {
         this.callBResponse.status = response.data.status;
         this.callBResponse.data = response.data.data;
+        const specs = response.data.data;
+        console.log(specs);
+        this.zelAppUpdateSpecification.version = specs.version;
+        this.zelAppUpdateSpecification.name = specs.name;
+        this.zelAppUpdateSpecification.description = specs.description;
+        this.zelAppUpdateSpecification.repotag = specs.repotag;
+        this.zelAppUpdateSpecification.owner = specs.owner;
+        this.zelAppUpdateSpecification.port = specs.port;
+        this.zelAppUpdateSpecification.enviromentParameters = this.ensureString(specs.enviromentParameters);
+        this.zelAppUpdateSpecification.commands = this.ensureString(specs.commands);
+        this.zelAppUpdateSpecification.containerPort = specs.containerPort;
+        this.zelAppUpdateSpecification.containerData = specs.containerData;
+        this.zelAppUpdateSpecification.cpu = specs.cpu;
+        this.zelAppUpdateSpecification.ram = specs.ram;
+        this.zelAppUpdateSpecification.hdd = specs.hdd;
+        this.zelAppUpdateSpecification.tiered = specs.tiered;
+        this.zelAppUpdateSpecification.cpubasic = specs.cpubasic;
+        this.zelAppUpdateSpecification.rambasic = specs.rambasic;
+        this.zelAppUpdateSpecification.hddbasic = specs.hddbasic;
+        this.zelAppUpdateSpecification.cpusuper = specs.cpusuper;
+        this.zelAppUpdateSpecification.ramsuper = specs.ramsuper;
+        this.zelAppUpdateSpecification.hddsuper = specs.hddsuper;
+        this.zelAppUpdateSpecification.cpubamf = specs.cpubamf;
+        this.zelAppUpdateSpecification.rambamf = specs.rambamf;
+        this.zelAppUpdateSpecification.hddbamf = specs.hddbamf;
       }
     },
     async getApplicationLocations() {
