@@ -72,6 +72,14 @@ export default {
     };
     return Api().post('/zelapps/zelappregister', JSON.stringify(data), axiosConfig);
   },
+  updateZelApp(zelidauthHeader, data) {
+    const axiosConfig = {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    };
+    return Api().post('/zelapps/zelappupdate', JSON.stringify(data), axiosConfig);
+  },
   checkCommunication() {
     return Api().get('/zelflux/checkcommunication');
   },
@@ -174,6 +182,9 @@ export default {
         zelidauth: zelidauthHeader,
       },
     });
+  },
+  getAppPirce(specifications) {
+    return Api().post('/zelapps/calculateprice', JSON.stringify(specifications));
   },
   justAPI() {
     return Api();

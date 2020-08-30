@@ -2389,7 +2389,7 @@ async function registerZelAppGlobalyApi(req, res) {
       let messageType = processedBody.type; // determines how data is treated in the future
       let typeVersion = processedBody.version; // further determines how data is treated in the future
       if (!zelAppSpecification || !timestamp || !signature || !messageType || !typeVersion) {
-        throw new Error('Inclomplete message received. Check if specifications, timestamp and siganture is provided.');
+        throw new Error('Incomplete message received. Check if specifications, type, version, timestamp and siganture are provided.');
       }
       if (messageType !== 'zelappregister') {
         throw new Error('Invalid type of message');
@@ -2593,7 +2593,7 @@ async function updateZelAppGlobalyApi(req, res) {
       let messageType = processedBody.type; // determines how data is treated in the future
       let typeVersion = processedBody.version; // further determines how data is treated in the future
       if (!zelAppSpecification || !timestamp || !signature || !messageType || !typeVersion) {
-        throw new Error('Inclomplete message received. Check if specifications, timestamp and siganture is provided.');
+        throw new Error('Incomplete message received. Check if specifications, timestamp, type, version and siganture are provided.');
       }
       if (messageType !== 'zelappupdate') {
         throw new Error('Invalid type of message');
@@ -3431,7 +3431,7 @@ async function checkAndRequestZelApp(hash, txid, height, valueSat, i = 0) {
           const appPrice = appPricePerMonth(tempMessage.zelAppSpecifications);
           const previousSpecsPrice = appPricePerMonth(zelappInfo);
           // what is the height difference
-          const heightDifference = permanentZelAppMessage.height - previousSpecsPrice.height; // has to be lower than 22000
+          const heightDifference = permanentZelAppMessage.height - zelappInfo.height; // has to be lower than 22000
           const perc = (config.zelapps.blocksLasting - heightDifference) / config.zelapps.blocksLasting;
           let actualPriceToPay = appPrice * 0.9;
           if (perc > 0) {
@@ -3440,6 +3440,7 @@ async function checkAndRequestZelApp(hash, txid, height, valueSat, i = 0) {
           if (actualPriceToPay < 10) {
             actualPriceToPay = 10;
           }
+          actualPriceToPay = Math.ceil(actualPriceToPay);
           if (valueSat >= actualPriceToPay * 1e8) {
             const updateForSpecifications = permanentZelAppMessage.zelAppSpecifications;
             updateForSpecifications.hash = permanentZelAppMessage.hash;
@@ -4441,7 +4442,7 @@ async function getAppPrice(req, res) {
         } else {
           throw new Error(zelcashGetInfo.data.data);
         }
-        const heightDifference = zelcashHeight - previousSpecsPrice.height; // has to be lower than 22000
+        const heightDifference = zelcashHeight - zelappInfo.height; // has to be lower than 22000
         const perc = (config.zelapps.blocksLasting - heightDifference) / config.zelapps.blocksLasting;
         if (perc > 0) {
           actualPriceToPay -= (perc * previousSpecsPrice);
@@ -4450,7 +4451,7 @@ async function getAppPrice(req, res) {
       if (actualPriceToPay < 10) {
         actualPriceToPay = 10;
       }
-      const respondPrice = serviceHelper.createDataMessage(actualPriceToPay);
+      const respondPrice = serviceHelper.createDataMessage(Math.ceil(actualPriceToPay));
       return res.json(respondPrice);
     } catch (error) {
       log.warn(error);

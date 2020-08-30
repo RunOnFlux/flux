@@ -554,7 +554,7 @@
                     BAMF CPU: {{ callResponse.data.cpubamf }} Cores
                   </p>
                   <p>
-                    BAMF RAM: {{ callResponse.data.rambamf / 10 }} GB
+                    BAMF RAM: {{ callResponse.data.rambamf }} MB
                   </p>
                   <p>
                     BAMF SSD: {{ callResponse.data.hddbamf }} GB
@@ -563,7 +563,7 @@
                     SUPER CPU: {{ callResponse.data.cpusuper }} Cores
                   </p>
                   <p>
-                    SUPER RAM: {{ callResponse.data.ramsuper / 10 }} GB
+                    SUPER RAM: {{ callResponse.data.ramsuper }} MB
                   </p>
                   <p>
                     SUPER SSD: {{ callResponse.data.hddsuper }} GB
@@ -572,7 +572,7 @@
                     BASIC CPU: {{ callResponse.data.cpubasic }} Cores
                   </p>
                   <p>
-                    BASIC RAM: {{ callResponse.data.rambasic / 10 }} GB
+                    BASIC RAM: {{ callResponse.data.rambasic }} MB
                   </p>
                   <p>
                     BASIC SSD: {{ callResponse.data.hddbasic }} GB
@@ -583,7 +583,7 @@
                     CPU: {{ callResponse.data.cpu }} Cores
                   </p>
                   <p>
-                    RAM: {{ callResponse.data.ram / 10 }} GB
+                    RAM: {{ callResponse.data.ram }} MB
                   </p>
                   <p>
                     SSD: {{ callResponse.data.hdd }} GB
@@ -645,7 +645,7 @@
                     BAMF CPU: {{ callBResponse.data.cpubamf }} Cores
                   </p>
                   <p>
-                    BAMF RAM: {{ callBResponse.data.rambamf / 10 }} GB
+                    BAMF RAM: {{ callBResponse.data.rambamf }} MB
                   </p>
                   <p>
                     BAMF SSD: {{ callBResponse.data.hddbamf }} GB
@@ -654,7 +654,7 @@
                     SUPER CPU: {{ callBResponse.data.cpusuper }} Cores
                   </p>
                   <p>
-                    SUPER RAM: {{ callBResponse.data.ramsuper / 10 }} GB
+                    SUPER RAM: {{ callBResponse.data.ramsuper }} MB
                   </p>
                   <p>
                     SUPER SSD: {{ callBResponse.data.hddsuper }} GB
@@ -663,7 +663,7 @@
                     BASIC CPU: {{ callBResponse.data.cpubasic }} Cores
                   </p>
                   <p>
-                    BASIC RAM: {{ callBResponse.data.rambasic / 10 }} GB
+                    BASIC RAM: {{ callBResponse.data.rambasic }} MB
                   </p>
                   <p>
                     BASIC SSD: {{ callBResponse.data.hddbasic }} GB
@@ -674,7 +674,7 @@
                     CPU: {{ callBResponse.data.cpu }} Cores
                   </p>
                   <p>
-                    RAM: {{ callBResponse.data.ram / 10 }} GB
+                    RAM: {{ callBResponse.data.ram }} MB
                   </p>
                   <p>
                     SSD: {{ callBResponse.data.hdd }} GB
@@ -937,7 +937,7 @@
                     BAMF CPU: {{ callBResponse.data.cpubamf }} Cores
                   </p>
                   <p>
-                    BAMF RAM: {{ callBResponse.data.rambamf / 10 }} GB
+                    BAMF RAM: {{ callBResponse.data.rambamf }} MB
                   </p>
                   <p>
                     BAMF SSD: {{ callBResponse.data.hddbamf }} GB
@@ -946,7 +946,7 @@
                     SUPER CPU: {{ callBResponse.data.cpusuper }} Cores
                   </p>
                   <p>
-                    SUPER RAM: {{ callBResponse.data.ramsuper / 10 }} GB
+                    SUPER RAM: {{ callBResponse.data.ramsuper }} MB
                   </p>
                   <p>
                     SUPER SSD: {{ callBResponse.data.hddsuper }} GB
@@ -955,7 +955,7 @@
                     BASIC CPU: {{ callBResponse.data.cpubasic }} Cores
                   </p>
                   <p>
-                    BASIC RAM: {{ callBResponse.data.rambasic / 10 }} GB
+                    BASIC RAM: {{ callBResponse.data.rambasic }} MB
                   </p>
                   <p>
                     BASIC SSD: {{ callBResponse.data.hddbasic }} GB
@@ -966,7 +966,7 @@
                     CPU: {{ callBResponse.data.cpu }} Cores
                   </p>
                   <p>
-                    RAM: {{ callBResponse.data.ram / 10 }} GB
+                    RAM: {{ callBResponse.data.ram }} MB
                   </p>
                   <p>
                     SSD: {{ callBResponse.data.hdd }} GB
@@ -1238,6 +1238,9 @@
                     </el-input>
                   </el-form-item>
                 </el-form>
+                <br><br>
+                Note: Data have to be signed by last application owner
+                <br><br>
                 <div>
                   Sign with ZelCore
                   <br>
@@ -1252,6 +1255,36 @@
                   </a>
                 </div>
                 <br><br>
+                Price per Month: {{ appPricePerMonthForUpdate }} ZEL
+                <br><br>
+                <ElButton @click="update">
+                  Update ZelApp
+                </ElButton>
+                <br><br>
+                <div v-if="updateHash">
+                  To finish application update, please do a transaction of {{ appPricePerMonthForUpdate }} to address
+                  {{ zelapps.address }}
+                  with following message:
+                  {{ updateHash }}
+                  <br><br>
+                  Transaction must be mined by {{ new Date(validTill).toLocaleString('en-GB', timeoptions) }}
+                  <br><br>
+                  Application will be subscribed till {{ new Date(subscribedTill).toLocaleString('en-GB', timeoptions) }}
+                  <br><br>
+                </div>
+                <div v-if="updateHash">
+                  Pay with ZelCore
+                  <br>
+                  <a
+                    @click="initiateSignWS"
+                    :href="'zel:?action=pay&coin=zelcash&address=' + zelapps.address + '&amount=' + appPricePerMonthForUpdate + '&message=' + updateHash + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Fzelcash%2Fzelflux%2Fmaster%2FZelFront%2Fsrc%2Fassets%2Fimg%2Fflux_banner.png'"
+                  >
+                    <img
+                      class="zelidLogin"
+                      src="@/assets/img/zelID.svg"
+                    />
+                  </a>
+                </div>
               </div>
             </div>
           </el-main>
@@ -1311,7 +1344,7 @@
         </el-tab-pane>
         <el-tab-pane
           label="My Apps"
-          name="myeapps"
+          name="myapps"
         >
           <el-table
             :data="myGlobalApps"
@@ -1647,13 +1680,15 @@
           </ElButton>
           <br><br>
           <div v-if="registrationHash">
-            {{ registrationHash }}
-            To finish registration, Please do a transaction of {{ appPricePerMonth }} to address
+            To finish registration, please do a transaction of {{ appPricePerMonth }} to address
             {{ zelapps.address }}
             with following message:
             {{ registrationHash }}
             <br><br>
             Transaction must be mined by {{ new Date(validTill).toLocaleString('en-GB', timeoptions) }}
+            <br><br>
+            Application will be subscribed till {{ new Date(subscribedTill).toLocaleString('en-GB', timeoptions) }}
+            <br><br>
           </div>
           <div v-if="registrationHash">
             Pay with ZelCore
@@ -1872,6 +1907,7 @@ export default {
         children: 'children',
         label: 'label',
       },
+      currentHeight: 0,
     };
   },
   computed: {
@@ -1927,34 +1963,37 @@ export default {
       return string;
     },
     appPricePerMonth() {
-      let price = 10;
-      if (this.dataForZelAppRegistration.tiered) {
-        const cpuTotalCount = this.dataForZelAppRegistration.cpubasic + this.dataForZelAppRegistration.cpusuper + this.dataForZelAppRegistration.cpubamf;
-        const cpuPrice = cpuTotalCount * this.zelapps.price.cpu * 10; // 0.1 core cost cpu price
-        const cpuTotal = cpuPrice / 3;
-        const ramTotalCount = this.dataForZelAppRegistration.rambasic + this.dataForZelAppRegistration.ramsuper + this.dataForZelAppRegistration.rambamf;
-        const ramPrice = (ramTotalCount * this.zelapps.price.ram) / 100;
-        const ramTotal = ramPrice / 3;
-        const hddTotalCount = this.dataForZelAppRegistration.hddbasic + this.dataForZelAppRegistration.hddsuper + this.dataForZelAppRegistration.hddbamf;
-        const hddPrice = hddTotalCount * this.zelapps.price.hdd;
-        const hddTotal = hddPrice / 3;
-        price = Math.ceil(cpuTotal + ramTotal + hddTotal);
-        if (price < 10) {
-          price = 10;
-        }
-        return price;
-      }
-      const cpuTotal = this.dataForZelAppRegistration.cpu * this.zelapps.price.cpu * 10;
-      const ramTotal = (this.dataForZelAppRegistration.ram * this.zelapps.price.ram) / 100;
-      const hddTotal = this.dataForZelAppRegistration.hdd * this.zelapps.price.hdd;
-      price = Math.ceil(cpuTotal + ramTotal + hddTotal);
-      if (price < 10) {
-        price = 10;
-      }
+      const price = this.appPricePerMonthMethod(this.dataForZelAppRegistration);
       return price;
+    },
+    appPricePerMonthForUpdate() {
+      this.getAppPriceFromAPI(); // TODO remove this test
+      const zelappInfo = this.callBResponse.data;
+      let actualPriceToPay = this.appPricePerMonthMethod(this.dataForZelAppUpdate);
+      console.log(actualPriceToPay);
+      if (zelappInfo) {
+        const previousSpecsPrice = this.appPricePerMonthMethod(zelappInfo);
+        console.log(previousSpecsPrice);
+        // what is the height difference
+        const zelcashHeight = this.currentHeight;
+        const heightDifference = zelcashHeight - zelappInfo.height; // has to be lower than 22000
+        const perc = (22000 - heightDifference) / 22000;
+        if (perc > 0) {
+          actualPriceToPay -= (perc * previousSpecsPrice);
+        }
+      }
+      if (actualPriceToPay < 10) {
+        actualPriceToPay = 10;
+      }
+      actualPriceToPay = Math.ceil(actualPriceToPay);
+      return actualPriceToPay;
     },
     validTill() {
       const expTime = this.timestamp + 60 * 60 * 1000; // 1 hour
+      return expTime;
+    },
+    subscribedTill() {
+      const expTime = this.timestamp + 30 * 24 * 60 * 60 * 1000 + 60 * 60 * 1000; // 1 month
       return expTime;
     },
   },
@@ -1992,6 +2031,27 @@ export default {
           break;
         case 'stopped':
           // getting all and checking state?
+          break;
+        default:
+          console.log('ZelApps Section: Unrecognized method'); // should not be visible if everything works correctly
+      }
+    },
+    activeNameGlobal(val, oldVal) {
+      this.callResponse.data = '';
+      this.callResponse.status = '';
+      this.callBResponse.data = '';
+      this.callBResponse.status = '';
+      this.zelAppExec.cmd = '';
+      this.zelAppExec.env = '';
+      console.log(val, oldVal);
+      this.output = '';
+      switch (val) {
+        case 'activeapps':
+          this.zelappsGetListGlobalZelApps();
+          break;
+        case 'myapps':
+          this.zelappsGetListGlobalZelApps();
+          this.getZelCashInfo();
           break;
         default:
           console.log('ZelApps Section: Unrecognized method'); // should not be visible if everything works correctly
@@ -2052,6 +2112,14 @@ export default {
           break;
         default:
           console.log('ZelApps Section: Unrecognized method');
+      }
+    },
+    async getZelCashInfo() {
+      const zelcashGetInfo = await ZelCashService.getInfo();
+      if (zelcashGetInfo.data.status === 'error') {
+        vue.$customMes.error(zelcashGetInfo.data.data.message || zelcashGetInfo.data.data);
+      } else {
+        this.currentHeight = zelcashGetInfo.data.data.blocks;
       }
     },
     async zelappsGetListGlobalZelApps() {
@@ -2694,7 +2762,7 @@ export default {
           throw new Error('Repository is not in valid format namespace/repository:tag');
         }
         this.timestamp = new Date().getTime();
-        this.dataForZelAppRegistration = zelAppSpecFormatted;
+        this.dataForZelAppUpdate = zelAppSpecFormatted;
         this.dataToSign = this.updatetype + this.version + JSON.stringify(zelAppSpecFormatted) + this.timestamp;
       } catch (error) {
         console.log(error.message);
@@ -2755,6 +2823,7 @@ export default {
       this.zelAppExec.env = '';
       this.managedApplication = zelappName;
       this.getAppOwner();
+      this.getZelCashInfo();
       this.getInstalledApplicationSpecifics();
       this.getGlobalApplicationSpecifics();
       this.managementMenuItem = 'appspecifics';
@@ -2805,6 +2874,7 @@ export default {
           break;
         case 'updateappglobalspecifications':
           this.getGlobalApplicationSpecifics();
+          this.getZelCashInfo();
           break;
         default:
           vue.$customMes.info('Feature coming soon!');
@@ -2826,6 +2896,27 @@ export default {
       console.log(response);
       if (response.data.status === 'success') {
         this.registrationHash = response.data.data;
+        vue.$customMes.success(response.data.data.message || response.data.data);
+      } else {
+        vue.$customMes.error(response.data.data.message || response.data.data);
+      }
+    },
+    async update() {
+      const zelidauth = localStorage.getItem('zelidauth');
+      const data = {
+        type: this.updatetype,
+        version: this.version,
+        zelAppSpecification: this.dataForZelAppUpdate,
+        timestamp: this.timestamp,
+        signature: this.signature,
+      };
+      const response = await ZelAppsService.updateZelApp(zelidauth, data).catch((error) => {
+        vue.$customMes.error(error.message || error);
+      });
+      console.log(response);
+      if (response.data.status === 'success') {
+        this.updateHash = response.data.data;
+        console.log(this.updateHash);
         vue.$customMes.success(response.data.data.message || response.data.data);
       } else {
         vue.$customMes.error(response.data.data.message || response.data.data);
@@ -3052,6 +3143,38 @@ export default {
       if (!this.callBResponse.data) {
         vue.$message.info('Global Management unavailable. Missing specifications!');
       }
+    },
+    async getAppPriceFromAPI() {
+      const specifics = this.zelAppUpdateSpecification;
+      const response = await ZelAppsService.getAppPirce(specifics);
+      console.log(response);
+    },
+    appPricePerMonthMethod(specifications) {
+      let price = 10;
+      if (specifications.tiered) {
+        const cpuTotalCount = specifications.cpubasic + specifications.cpusuper + specifications.cpubamf;
+        const cpuPrice = cpuTotalCount * this.zelapps.price.cpu * 10; // 0.1 core cost cpu price
+        const cpuTotal = cpuPrice / 3;
+        const ramTotalCount = specifications.rambasic + specifications.ramsuper + specifications.rambamf;
+        const ramPrice = (ramTotalCount * this.zelapps.price.ram) / 100;
+        const ramTotal = ramPrice / 3;
+        const hddTotalCount = specifications.hddbasic + specifications.hddsuper + specifications.hddbamf;
+        const hddPrice = hddTotalCount * this.zelapps.price.hdd;
+        const hddTotal = hddPrice / 3;
+        price = Math.ceil(cpuTotal + ramTotal + hddTotal);
+        if (price < 10) {
+          price = 10;
+        }
+        return price;
+      }
+      const cpuTotal = specifications.cpu * this.zelapps.price.cpu * 10;
+      const ramTotal = (specifications.ram * this.zelapps.price.ram) / 100;
+      const hddTotal = specifications.hdd * this.zelapps.price.hdd;
+      price = Math.ceil(cpuTotal + ramTotal + hddTotal);
+      if (price < 10) {
+        price = 10;
+      }
+      return price;
     },
   },
 };
