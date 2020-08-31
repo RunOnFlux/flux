@@ -403,890 +403,6 @@
           </el-table>
         </el-tab-pane>
       </el-tabs>
-      <div v-if="managedApplication">
-        <el-page-header
-          class="pageheader"
-          @back="goBackToZelApps"
-          :content="applicationManagementAndStatus"
-        >
-        </el-page-header>
-        <el-container>
-          <el-aside width="192px">
-            <el-menu
-              :default-active="managementMenuItem"
-              mode="vertical"
-              class="mobilemenu"
-              @select="handleSelect"
-              :unique-opened=true
-              background-color="#333333"
-              text-color="#fff"
-              active-text-color="#ffd04b"
-              style="text-align: left;"
-            >
-              <el-menu-item
-                style="margin-bottom: -19px; margin-top: -10px; cursor: default !important;"
-                disabled
-              >
-                <span>Local App Management</span>
-              </el-menu-item>
-              <el-menu-item index="appspecifics">
-                <i class="el-icon-info"></i>
-                <span>Specifications</span>
-              </el-menu-item>
-              <el-menu-item index="appinspect">
-                <i class="el-icon-magic-stick"></i>
-                <span>Information</span>
-              </el-menu-item>
-              <el-menu-item index="appstats">
-                <i class="el-icon-s-platform"></i>
-                <span>Resources</span>
-              </el-menu-item>
-              <el-menu-item index="appchanges">
-                <i class="el-icon-files"></i>
-                <span>File Changes</span>
-              </el-menu-item>
-              <el-menu-item index="appprocesses">
-                <i class="el-icon-location-outline"></i>
-                <span>Processes</span>
-              </el-menu-item>
-              <el-menu-item index="appinstances">
-                <i class="el-icon-location-outline"></i>
-                <span>Running Instances</span>
-              </el-menu-item>
-              <el-menu-item index="applogs">
-                <i class="el-icon-document"></i>
-                <span>Log File</span>
-              </el-menu-item>
-              <el-menu-item index="appcontrol">
-                <i class="el-icon-s-operation"></i>
-                <span>Control</span>
-              </el-menu-item>
-              <el-menu-item index="appexec">
-                <i class="el-icon-video-play"></i>
-                <span>Execute Commands</span>
-              </el-menu-item>
-              <hr>
-              <el-menu-item
-                style="margin-bottom: -19px; margin-top: -10px; cursor: default !important;"
-                disabled
-              >
-                <span>Global App Management</span>
-              </el-menu-item>
-              <el-menu-item
-                index="globalappspecifics"
-                :disabled="callBResponse.data ? false : true"
-                @click="handleGlobalDisabledClick"
-              >
-                <i class="el-icon-info"></i>
-                <span>Global Specifications</span>
-              </el-menu-item>
-              <el-menu-item
-                index="updateappglobalspecifications"
-                :disabled="callBResponse.data ? false : true"
-                @click="handleGlobalDisabledClick"
-              >
-                <i class="el-icon-magic-stick"></i>
-                <span>Update Specifications</span>
-              </el-menu-item>
-            </el-menu>
-          </el-aside>
-          <el-main>
-            <div v-if="managementMenuItem == 'appspecifics'">
-              <div v-if="callBResponse.data && callResponse.data">
-                <div v-if="callBResponse.data.hash !== callResponse.data.hash">
-                  <h1>Locally running application does not match global specifications! Update needed</h1>
-                  <br><br>
-                </div>
-                <div v-else>
-                  Application is synced with Global network
-                  <br><br>
-                </div>
-              </div>
-              <h2>Installed Specifications</h2>
-              <div
-                v-if="callResponse.data"
-                style="text-align: left"
-              >
-                <p>
-                  Name: {{ callResponse.data.name }}
-                </p>
-                <p>
-                  Description: {{ callResponse.data.description }}
-                </p>
-                <p>
-                  Specifications Hash: {{ callResponse.data.hash }}
-                </p>
-                <p>
-                  Repository: {{ callResponse.data.repotag }}
-                </p>
-                <p>
-                  owner: {{ callResponse.data.owner }}
-                </p>
-                <p>
-                  Registered on Blockheight: {{ callResponse.data.height }}
-                </p>
-                <p>
-                  Expires on Blockheight: {{ callResponse.data.height + 22000 }}
-                </p>
-                <p>
-                  Specifications version: {{ callResponse.data.version }}
-                </p>
-                <p>
-                  Public Port: {{ callResponse.data.port }}
-                </p>
-                <p>
-                  Forwarded Port: {{ callResponse.data.containerPort }}
-                </p>
-                <p>
-                  Application Data: {{ callResponse.data.containerData }}
-                </p>
-                <p>
-                  Application Enviroment: {{ callResponse.data.enviromentParameters }}
-                </p>
-                <p>
-                  Application Commands: {{ callResponse.data.commands }}
-                </p>
-                <p>
-                  Tiered Specifications: {{ callResponse.data.tiered }}
-                </p>
-                <div v-if="callResponse.data.tiered">
-                  <p>
-                    BAMF CPU: {{ callResponse.data.cpubamf }} Cores
-                  </p>
-                  <p>
-                    BAMF RAM: {{ callResponse.data.rambamf }} MB
-                  </p>
-                  <p>
-                    BAMF SSD: {{ callResponse.data.hddbamf }} GB
-                  </p>
-                  <p>
-                    SUPER CPU: {{ callResponse.data.cpusuper }} Cores
-                  </p>
-                  <p>
-                    SUPER RAM: {{ callResponse.data.ramsuper }} MB
-                  </p>
-                  <p>
-                    SUPER SSD: {{ callResponse.data.hddsuper }} GB
-                  </p>
-                  <p>
-                    BASIC CPU: {{ callResponse.data.cpubasic }} Cores
-                  </p>
-                  <p>
-                    BASIC RAM: {{ callResponse.data.rambasic }} MB
-                  </p>
-                  <p>
-                    BASIC SSD: {{ callResponse.data.hddbasic }} GB
-                  </p>
-                </div>
-                <div v-else>
-                  <p>
-                    CPU: {{ callResponse.data.cpu }} Cores
-                  </p>
-                  <p>
-                    RAM: {{ callResponse.data.ram }} MB
-                  </p>
-                  <p>
-                    SSD: {{ callResponse.data.hdd }} GB
-                  </p>
-                </div>
-              </div>
-              <div v-else>
-                Local Specifications loading<i class="el-icon-loading"></i>
-              </div>
-              <h2>Global Specifications</h2>
-              <div
-                v-if="callBResponse.data"
-                style="text-align: left"
-              >
-                <p>
-                  Name: {{ callBResponse.data.name }}
-                </p>
-                <p>
-                  Description: {{ callBResponse.data.description }}
-                </p>
-                <p>
-                  Specifications Hash: {{ callBResponse.data.hash }}
-                </p>
-                <p>
-                  Repository: {{ callBResponse.data.repotag }}
-                </p>
-                <p>
-                  owner: {{ callBResponse.data.owner }}
-                </p>
-                <p>
-                  Registered on Blockheight: {{ callBResponse.data.height }}
-                </p>
-                <p>
-                  Expires on Blockheight: {{ callBResponse.data.height + 22000 }}
-                </p>
-                <p>
-                  Specifications version: {{ callBResponse.data.version }}
-                </p>
-                <p>
-                  Public Port: {{ callBResponse.data.port }}
-                </p>
-                <p>
-                  Forwarded Port: {{ callBResponse.data.containerPort }}
-                </p>
-                <p>
-                  Application Data: {{ callBResponse.data.containerData }}
-                </p>
-                <p>
-                  Application Enviroment: {{ callBResponse.data.enviromentParameters }}
-                </p>
-                <p>
-                  Application Commands: {{ callBResponse.data.commands }}
-                </p>
-                <p>
-                  Tiered Specifications: {{ callBResponse.data.tiered }}
-                </p>
-                <div v-if="callBResponse.data.tiered">
-                  <p>
-                    BAMF CPU: {{ callBResponse.data.cpubamf }} Cores
-                  </p>
-                  <p>
-                    BAMF RAM: {{ callBResponse.data.rambamf }} MB
-                  </p>
-                  <p>
-                    BAMF SSD: {{ callBResponse.data.hddbamf }} GB
-                  </p>
-                  <p>
-                    SUPER CPU: {{ callBResponse.data.cpusuper }} Cores
-                  </p>
-                  <p>
-                    SUPER RAM: {{ callBResponse.data.ramsuper }} MB
-                  </p>
-                  <p>
-                    SUPER SSD: {{ callBResponse.data.hddsuper }} GB
-                  </p>
-                  <p>
-                    BASIC CPU: {{ callBResponse.data.cpubasic }} Cores
-                  </p>
-                  <p>
-                    BASIC RAM: {{ callBResponse.data.rambasic }} MB
-                  </p>
-                  <p>
-                    BASIC SSD: {{ callBResponse.data.hddbasic }} GB
-                  </p>
-                </div>
-                <div v-else>
-                  <p>
-                    CPU: {{ callBResponse.data.cpu }} Cores
-                  </p>
-                  <p>
-                    RAM: {{ callBResponse.data.ram }} MB
-                  </p>
-                  <p>
-                    SSD: {{ callBResponse.data.hdd }} GB
-                  </p>
-                </div>
-              </div>
-              <div v-else-if="callBResponse.status === 'error'">
-                Global specifications not found!
-              </div>
-              <div v-else>
-                Global Specifications loading<i class="el-icon-loading"></i>
-              </div>
-            </div>
-            <div v-if="managementMenuItem == 'appinspect'">
-              <el-input
-                v-if="callResponse.data"
-                type="textarea"
-                autosize
-                v-model="stringifiedResponse"
-              >
-              </el-input>
-            </div>
-            <div v-if="managementMenuItem == 'appstats'">
-              <el-input
-                v-if="callResponse.data"
-                type="textarea"
-                autosize
-                v-model="stringifiedResponse"
-              >
-              </el-input>
-            </div>
-            <div v-if="managementMenuItem == 'appchanges'">
-              {{ callResponse.data }}
-            </div>
-            <div v-if="managementMenuItem == 'appprocesses'">
-              {{ callResponse.data }}
-            </div>
-            <div v-if="managementMenuItem == 'appinstances'">
-              {{ callResponse.data }}
-            </div>
-
-            <div v-if="managementMenuItem == 'applogs'">
-              <div>
-                <p>Following action will download Log file from your Application debug file. This may take a few minutes depending on file size</p>
-              </div>
-              <el-popconfirm
-                confirmButtonText='Download Log'
-                cancelButtonText='No, Thanks'
-                icon="el-icon-info"
-                iconColor="orange"
-                title="Download Log file?"
-                @onConfirm="downloadApplicationLog()"
-              >
-                <ElButton slot="reference">
-                  Download Log File
-                </ElButton>
-              </el-popconfirm>
-              <p v-if="total && downloaded">
-                {{ (downloaded / 1e6).toFixed(2) + " / " + (total / 1e6).toFixed(2) }} MB - {{ ((downloaded / total) * 100).toFixed(2) + "%" }}
-                <el-tooltip
-                  content="Cancel Download"
-                  placement="top"
-                >
-                  <el-button
-                    v-if="total && downloaded && total !== downloaded"
-                    type="danger"
-                    icon="el-icon-close"
-                    circle
-                    size="mini"
-                    @click="cancelDownload"
-                  ></el-button>
-                </el-tooltip>
-              </p>
-              <br><br>
-              <div>
-                <p>Below is an output of last 100 lines of log file</p>
-              </div>
-              <el-input
-                v-if="callResponse.data"
-                type="textarea"
-                autosize
-                v-model="asciResponse"
-              >
-              </el-input>
-            </div>
-            <div v-else-if="managementMenuItem == 'appcontrol'">
-              <p>
-                General options to control running status of ZelApp.
-              </p>
-              <el-popconfirm
-                confirmButtonText='Start'
-                cancelButtonText='No, Thanks'
-                icon="el-icon-info"
-                iconColor="green"
-                title="Starts ZelApp"
-                @onConfirm="startZelApp(managedApplication)"
-              >
-                <ElButton slot="reference">
-                  Start ZelApp
-                </ElButton>
-              </el-popconfirm>
-              <el-popconfirm
-                confirmButtonText='Stop'
-                cancelButtonText='No, Thanks'
-                icon="el-icon-info"
-                iconColor="red"
-                title="Stops ZelApp"
-                @onConfirm="stopZelApp(managedApplication)"
-              >
-                <ElButton slot="reference">
-                  Stop ZelApp
-                </ElButton>
-              </el-popconfirm>
-              <el-popconfirm
-                confirmButtonText='Restart'
-                cancelButtonText='No, Thanks'
-                icon="el-icon-info"
-                iconColor="orange"
-                title="Restarts ZelApp"
-                @onConfirm="restartZelApp(managedApplication)"
-              >
-                <ElButton slot="reference">
-                  Restart ZelApp
-                </ElButton>
-              </el-popconfirm>
-              <el-divider></el-divider>
-              <p>
-                The Pause command suspends all processes in the specified ZelApp.
-              </p>
-              <el-popconfirm
-                confirmButtonText='Pause'
-                cancelButtonText='No, Thanks'
-                icon="el-icon-info"
-                iconColor="orange"
-                title="Pauses ZelApp"
-                @onConfirm="pauseZelApp(managedApplication)"
-              >
-                <ElButton slot="reference">
-                  Pause ZelApp
-                </ElButton>
-              </el-popconfirm>
-              <el-popconfirm
-                confirmButtonText='Unpause'
-                cancelButtonText='No, Thanks'
-                icon="el-icon-info"
-                iconColor="orange"
-                title="Unpauses ZelApp"
-                @onConfirm="unpauseZelApp(managedApplication)"
-              >
-                <ElButton slot="reference">
-                  Unpause ZelApp
-                </ElButton>
-              </el-popconfirm>
-              <el-divider></el-divider>
-              <p>
-                Stops, Uninstalls and Removes all ZelApp data from this specific ZelNode.
-              </p>
-              <el-popconfirm
-                confirmButtonText='Remove'
-                cancelButtonText='No, Thanks'
-                icon="el-icon-info"
-                iconColor="red"
-                title="Removes ZelApp"
-                @onConfirm="removeZelApp(managedApplication)"
-              >
-                <ElButton slot="reference">
-                  Remove ZelApp
-                </ElButton>
-              </el-popconfirm>
-            </div>
-            <div v-if="managementMenuItem == 'appexec'">
-              <p>
-                Here you can execute some commands with a set of enviroment variables on this local application instance. Both are array of strings. Useful especially for testing and tweaking purposes.
-              </p>
-              <el-form
-                :model="zelAppRegistrationSpecification"
-                label-width="100px"
-              >
-                <el-form-item label="Commands">
-                  <el-input
-                    placeholder="Array of strings of Commands"
-                    textarea
-                    v-model="zelAppExec.cmd"
-                  >
-                  </el-input>
-                </el-form-item>
-                <el-form-item label="Enviroment">
-                  <el-input
-                    placeholder="Array of strings of Enviromental Parameters"
-                    textarea
-                    v-model="zelAppExec.env"
-                  >
-                  </el-input>
-                </el-form-item>
-              </el-form>
-              <ElButton @click="zelAppExecute">
-                Execute
-              </ElButton>
-              <div v-if="commandExecuting">
-                <i class="el-icon-loading"></i>
-              </div>
-              <el-input
-                v-if="callResponse.data"
-                type="textarea"
-                autosize
-                v-model="asciResponse"
-              >
-              </el-input>
-            </div>
-            <div v-if="managementMenuItem == 'globalappspecifics'">
-              <h2>Global Specifications</h2>
-              <div
-                v-if="callBResponse.data"
-                style="text-align: left"
-              >
-                <p>
-                  Name: {{ callBResponse.data.name }}
-                </p>
-                <p>
-                  Description: {{ callBResponse.data.description }}
-                </p>
-                <p>
-                  Specifications Hash: {{ callBResponse.data.hash }}
-                </p>
-                <p>
-                  Repository: {{ callBResponse.data.repotag }}
-                </p>
-                <p>
-                  owner: {{ callBResponse.data.owner }}
-                </p>
-                <p>
-                  Registered on Blockheight: {{ callBResponse.data.height }}
-                </p>
-                <p>
-                  Expires on Blockheight: {{ callBResponse.data.height + 22000 }}
-                </p>
-                <p>
-                  Specifications version: {{ callBResponse.data.version }}
-                </p>
-                <p>
-                  Public Port: {{ callBResponse.data.port }}
-                </p>
-                <p>
-                  Forwarded Port: {{ callBResponse.data.containerPort }}
-                </p>
-                <p>
-                  Application Data: {{ callBResponse.data.containerData }}
-                </p>
-                <p>
-                  Application Enviroment: {{ callBResponse.data.enviromentParameters }}
-                </p>
-                <p>
-                  Application Commands: {{ callBResponse.data.commands }}
-                </p>
-                <p>
-                  Tiered Specifications: {{ callBResponse.data.tiered }}
-                </p>
-                <div v-if="callBResponse.data.tiered">
-                  <p>
-                    BAMF CPU: {{ callBResponse.data.cpubamf }} Cores
-                  </p>
-                  <p>
-                    BAMF RAM: {{ callBResponse.data.rambamf }} MB
-                  </p>
-                  <p>
-                    BAMF SSD: {{ callBResponse.data.hddbamf }} GB
-                  </p>
-                  <p>
-                    SUPER CPU: {{ callBResponse.data.cpusuper }} Cores
-                  </p>
-                  <p>
-                    SUPER RAM: {{ callBResponse.data.ramsuper }} MB
-                  </p>
-                  <p>
-                    SUPER SSD: {{ callBResponse.data.hddsuper }} GB
-                  </p>
-                  <p>
-                    BASIC CPU: {{ callBResponse.data.cpubasic }} Cores
-                  </p>
-                  <p>
-                    BASIC RAM: {{ callBResponse.data.rambasic }} MB
-                  </p>
-                  <p>
-                    BASIC SSD: {{ callBResponse.data.hddbasic }} GB
-                  </p>
-                </div>
-                <div v-else>
-                  <p>
-                    CPU: {{ callBResponse.data.cpu }} Cores
-                  </p>
-                  <p>
-                    RAM: {{ callBResponse.data.ram }} MB
-                  </p>
-                  <p>
-                    SSD: {{ callBResponse.data.hdd }} GB
-                  </p>
-                </div>
-              </div>
-              <div v-else-if="callBResponse.status === 'error'">
-                Global specifications not found!
-              </div>
-              <div v-else>
-                Global Specifications loading<i class="el-icon-loading"></i>
-              </div>
-            </div>
-            <div v-if="managementMenuItem === 'updateappglobalspecifications'">
-              <div v-if="!fluxCommunication">
-                Warninig: Connected Flux is not communicating properly with Flux network
-              </div>
-              <h2>Here you can update your application specifications.</h2>
-              <div class="zelapps-register">
-                <el-form
-                  :model="zelAppUpdateSpecification"
-                  label-width="100px"
-                >
-                  <el-form-item label="Version">
-                    <el-input
-                      placeholder="ZelApp Version"
-                      disabled
-                      v-model="zelAppUpdateSpecification.version"
-                    >
-                    </el-input>
-                  </el-form-item>
-                  <el-form-item label="Name">
-                    <el-input
-                      placeholder="ZelApp name"
-                      disabled
-                      v-model="zelAppUpdateSpecification.name"
-                    >
-                    </el-input>
-                  </el-form-item>
-                  <el-form-item label="Desc.">
-                    <el-input
-                      placeholder="Description"
-                      type="textarea"
-                      autosize
-                      v-model="zelAppUpdateSpecification.description"
-                    >
-                    </el-input>
-                  </el-form-item>
-                  <el-form-item label="Repo">
-                    <el-input
-                      placeholder="Docker Hub namespace/repository:tag"
-                      disabled
-                      v-model="zelAppUpdateSpecification.repotag"
-                    >
-                    </el-input>
-                  </el-form-item>
-                  <el-form-item label="Owner">
-                    <el-input
-                      placeholder="ZelID of application owner"
-                      v-model="zelAppUpdateSpecification.owner"
-                    >
-                    </el-input>
-                  </el-form-item>
-                  <el-form-item label="Port">
-                    <el-input
-                      placeholder="Port on which application will be available"
-                      type="number"
-                      min="31000"
-                      max="39999"
-                      v-model="zelAppUpdateSpecification.port"
-                    >
-                    </el-input>
-                  </el-form-item>
-                  <el-form-item label="Enviroment">
-                    <el-input
-                      placeholder="Array of strings of Enviromental Parameters"
-                      textarea
-                      v-model="zelAppUpdateSpecification.enviromentParameters"
-                    >
-                    </el-input>
-                  </el-form-item>
-                  <el-form-item label="Commands">
-                    <el-input
-                      placeholder="Array of strings of Commands"
-                      textarea
-                      v-model="zelAppUpdateSpecification.commands"
-                    >
-                    </el-input>
-                  </el-form-item>
-                  <el-form-item label="Cont. Port">
-                    <el-input
-                      placeholder="Container Port - port on which your container has"
-                      nubmer
-                      min="0"
-                      max="65535"
-                      v-model="zelAppUpdateSpecification.containerPort"
-                    >
-                    </el-input>
-                  </el-form-item>
-                  <el-form-item label="Cont. Data">
-                    <el-input
-                      placeholder="Data folder that is shared by application to ZelApp volume"
-                      textarea
-                      v-model="zelAppUpdateSpecification.containerData"
-                    >
-                    </el-input>
-                  </el-form-item>
-                  <el-form-item label="CPU">
-                    <el-input
-                      placeholder="CPU cores to use by default"
-                      nubmer
-                      min="0"
-                      max="7"
-                      step="0.1"
-                      v-model="zelAppUpdateSpecification.cpu"
-                    >
-                    </el-input>
-                  </el-form-item>
-                  <el-form-item label="RAM">
-                    <el-input
-                      placeholder="RAM in MB value to use by default"
-                      nubmer
-                      min="0"
-                      max="28000"
-                      step="100"
-                      v-model="zelAppUpdateSpecification.ram"
-                    >
-                    </el-input>
-                  </el-form-item>
-                  <el-form-item label="SSD">
-                    <el-input
-                      placeholder="SSD in GB value to use by default"
-                      nubmer
-                      min="0"
-                      max="570"
-                      step="1"
-                      v-model="zelAppUpdateSpecification.hdd"
-                    >
-                    </el-input>
-                  </el-form-item>
-                  <el-form-item label="Tiered">
-                    <el-switch v-model="zelAppUpdateSpecification.tiered"></el-switch>
-                  </el-form-item>
-                  <div v-if="zelAppUpdateSpecification.tiered">
-                    <el-form-item label="BASIC CPU">
-                      <el-input
-                        placeholder="CPU cores to use by BASIC"
-                        nubmer
-                        min="0"
-                        max="1"
-                        step="0.1"
-                        v-model="zelAppUpdateSpecification.cpubasic"
-                      >
-                      </el-input>
-                    </el-form-item>
-                    <el-form-item label="BASIC RAM">
-                      <el-input
-                        placeholder="RAM in MB value to use by BASIC"
-                        nubmer
-                        min="0"
-                        max="1000"
-                        step="100"
-                        v-model="zelAppUpdateSpecification.rambasic"
-                      >
-                      </el-input>
-                    </el-form-item>
-                    <el-form-item label="BASIC SSD">
-                      <el-input
-                        placeholder="SSD in GB value to use by BASIC"
-                        nubmer
-                        min="0"
-                        max="20"
-                        step="1"
-                        v-model="zelAppUpdateSpecification.hddbasic"
-                      >
-                      </el-input>
-                    </el-form-item>
-                    <el-form-item label="SUPER CPU">
-                      <el-input
-                        placeholder="CPU cores to use by SUPER"
-                        nubmer
-                        min="0"
-                        max="3"
-                        step="0.1"
-                        v-model="zelAppUpdateSpecification.cpusuper"
-                      >
-                      </el-input>
-                    </el-form-item>
-                    <el-form-item label="SUPER RAM">
-                      <el-input
-                        placeholder="RAM in MB value to use by SUPER"
-                        nubmer
-                        min="0"
-                        max="5000"
-                        step="100"
-                        v-model="zelAppUpdateSpecification.ramsuper"
-                      >
-                      </el-input>
-                    </el-form-item>
-                    <el-form-item label="SUPER SSD">
-                      <el-input
-                        placeholder="SSD in GB value to use by SUPER"
-                        nubmer
-                        min="0"
-                        max="120"
-                        step="1"
-                        v-model="zelAppUpdateSpecification.hddsuper"
-                      >
-                      </el-input>
-                    </el-form-item>
-                    <el-form-item label="BAMF CPU">
-                      <el-input
-                        placeholder="CPU cores to use by BAMF"
-                        nubmer
-                        min="0"
-                        max="7"
-                        step="0.1"
-                        v-model="zelAppUpdateSpecification.cpubamf"
-                      >
-                      </el-input>
-                    </el-form-item>
-                    <el-form-item label="BAMF RAM">
-                      <el-input
-                        placeholder="RAM in MB value to use by BAMF"
-                        nubmer
-                        min="0"
-                        max="28000"
-                        step="100"
-                        v-model="zelAppUpdateSpecification.rambamf"
-                      >
-                      </el-input>
-                    </el-form-item>
-                    <el-form-item label="BAMF SSD">
-                      <el-input
-                        placeholder="SSD in GB value to use by BAMF"
-                        nubmer
-                        min="0"
-                        max="570"
-                        step="1"
-                        v-model="zelAppUpdateSpecification.hddbamf"
-                      >
-                      </el-input>
-                    </el-form-item>
-                  </div>
-                </el-form>
-              </div>
-              <div>
-                <ElButton @click="checkFluxUpdateSpecificationsAndFormatMessage">
-                  Compute Update Message
-                </ElButton>
-              </div>
-              <div v-if="dataToSign">
-                <el-form>
-                  <el-form-item label="Update Message">
-                    <el-input
-                      type="textarea"
-                      autosize
-                      disabled
-                      v-model="dataToSign"
-                    >
-                    </el-input>
-                  </el-form-item>
-                  <el-form-item label="Signature">
-                    <el-input
-                      type="textarea"
-                      autosize
-                      v-model="signature"
-                    >
-                    </el-input>
-                  </el-form-item>
-                </el-form>
-                <br><br>
-                Note: Data have to be signed by last application owner
-                <br><br>
-                <div>
-                  Sign with ZelCore
-                  <br>
-                  <a
-                    @click="initiateSignWSUpdate"
-                    :href="'zel:?action=sign&message=' + dataToSign + '&icon=http%3A%2F%2Fzelid.io%2Fimg%2FzelID.svg&callback=http%3A%2F%2F' + userconfig.externalip + ':' + config.apiPort + '%2Fzelid%2Fprovidesign%2F'"
-                  >
-                    <img
-                      class="zelidLogin"
-                      src="@/assets/img/zelID.svg"
-                    />
-                  </a>
-                </div>
-                <br><br>
-                Price per Month: {{ appPricePerMonthForUpdate }} ZEL
-                <br><br>
-                <ElButton @click="update">
-                  Update ZelApp
-                </ElButton>
-                <br><br>
-                <div v-if="updateHash">
-                  To finish application update, please do a transaction of {{ appPricePerMonthForUpdate }} to address
-                  {{ zelapps.address }}
-                  with following message:
-                  {{ updateHash }}
-                  <br><br>
-                  Transaction must be mined by {{ new Date(validTill).toLocaleString('en-GB', timeoptions) }}
-                  <br><br>
-                  Application will be subscribed till {{ new Date(subscribedTill).toLocaleString('en-GB', timeoptions) }}
-                  <br><br>
-                </div>
-                <div v-if="updateHash">
-                  Pay with ZelCore
-                  <br>
-                  <a :href="'zel:?action=pay&coin=zelcash&address=' + zelapps.address + '&amount=' + appPricePerMonthForUpdate + '&message=' + updateHash + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Fzelcash%2Fzelflux%2Fmaster%2FZelFront%2Fsrc%2Fassets%2Fimg%2Fflux_banner.png'">
-                    <img
-                      class="zelidLogin"
-                      src="@/assets/img/zelID.svg"
-                    />
-                  </a>
-                </div>
-              </div>
-            </div>
-          </el-main>
-        </el-container>
-      </div>
       <div
         v-if="output"
         class='actionCenter'
@@ -1301,7 +417,10 @@
       </div>
     </div>
     <div v-if="zelAppsSection === 'globalzelapps'">
-      <el-tabs v-model="activeNameGlobal">
+      <el-tabs
+        v-if=!managedApplication
+        v-model="activeNameGlobal"
+      >
         <el-tab-pane
           label="Active Apps"
           name="activeapps"
@@ -1380,7 +499,7 @@
               sortable
             >
               <template slot-scope="scope">
-                <ElButton @click="openAppManagement(scope.row.name)">
+                <ElButton @click="openAppManagement(scope.row.name, true)">
                   Manage
                 </ElButton>
               </template>
@@ -1401,6 +520,917 @@
         >
         </el-input>
       </div>
+    </div>
+    <div v-if="managedApplication">
+      <el-page-header
+        class="pageheader"
+        @back="goBackToZelApps"
+        :content="applicationManagementAndStatus"
+      >
+      </el-page-header>
+      <el-container>
+        <el-aside width="192px">
+          <el-menu
+            :default-active="managementMenuItem"
+            mode="vertical"
+            class="mobilemenu"
+            @select="handleSelect"
+            :unique-opened=true
+            background-color="#333333"
+            text-color="#fff"
+            active-text-color="#ffd04b"
+            style="text-align: left;"
+          >
+            <el-menu-item
+              style="margin-bottom: -19px; margin-top: -10px; cursor: default !important;"
+              disabled
+            >
+              <span>Local App Management</span>
+            </el-menu-item>
+            <el-menu-item
+              :disabled="isApplicationInstalledLocally ? false : true"
+              index="appspecifics"
+            >
+              <i class="el-icon-info"></i>
+              <span>Specifications</span>
+            </el-menu-item>
+            <el-menu-item
+              :disabled="isApplicationInstalledLocally ? false : true"
+              index="appinspect"
+            >
+              <i class="el-icon-magic-stick"></i>
+              <span>Information</span>
+            </el-menu-item>
+            <el-menu-item
+              :disabled="isApplicationInstalledLocally ? false : true"
+              index="appstats"
+            >
+              <i class="el-icon-s-platform"></i>
+              <span>Resources</span>
+            </el-menu-item>
+            <el-menu-item
+              :disabled="isApplicationInstalledLocally ? false : true"
+              index="appchanges"
+            >
+              <i class="el-icon-files"></i>
+              <span>File Changes</span>
+            </el-menu-item>
+            <el-menu-item
+              :disabled="isApplicationInstalledLocally ? false : true"
+              index="appprocesses"
+            >
+              <i class="el-icon-location-outline"></i>
+              <span>Processes</span>
+            </el-menu-item>
+            <el-menu-item
+              :disabled="isApplicationInstalledLocally ? false : true"
+              index="applogs"
+            >
+              <i class="el-icon-document"></i>
+              <span>Log File</span>
+            </el-menu-item>
+            <el-menu-item
+              :disabled="isApplicationInstalledLocally ? false : true"
+              index="appcontrol"
+            >
+              <i class="el-icon-s-operation"></i>
+              <span>Control</span>
+            </el-menu-item>
+            <el-menu-item
+              :disabled="isApplicationInstalledLocally ? false : true"
+              index="appexec"
+            >
+              <i class="el-icon-video-play"></i>
+              <span>Execute Commands</span>
+            </el-menu-item>
+            <hr>
+            <el-menu-item
+              style="margin-bottom: -19px; margin-top: -10px; cursor: default !important;"
+              disabled
+            >
+              <span>Global App Management</span>
+            </el-menu-item>
+            <el-menu-item
+              index="globalappspecifics"
+              :disabled="callBResponse.data ? false : true"
+              @click="handleGlobalDisabledClick"
+            >
+              <i class="el-icon-info"></i>
+              <span>Global Specifications</span>
+            </el-menu-item>
+            <el-menu-item
+              :disabled="callBResponse.data ? false : true"
+              index="appinstances"
+            >
+              <i class="el-icon-location-outline"></i>
+              <span>Running Instances</span>
+            </el-menu-item>
+            <el-menu-item
+              index="updateappglobalspecifications"
+              :disabled="callBResponse.data ? false : true"
+              @click="handleGlobalDisabledClick"
+            >
+              <i class="el-icon-magic-stick"></i>
+              <span>Update Specifications</span>
+            </el-menu-item>
+          </el-menu>
+        </el-aside>
+        <el-main>
+          <div v-if="managementMenuItem == 'appspecifics'">
+            <div v-if="callBResponse.data && callResponse.data">
+              <div v-if="callBResponse.data.hash !== callResponse.data.hash">
+                <h1>Locally running application does not match global specifications! Update needed</h1>
+                <br><br>
+              </div>
+              <div v-else>
+                Application is synced with Global network
+                <br><br>
+              </div>
+            </div>
+            <h2>Installed Specifications</h2>
+            <div
+              v-if="callResponse.data"
+              style="text-align: left"
+            >
+              <p>
+                Name: {{ callResponse.data.name }}
+              </p>
+              <p>
+                Description: {{ callResponse.data.description }}
+              </p>
+              <p>
+                Specifications Hash: {{ callResponse.data.hash }}
+              </p>
+              <p>
+                Repository: {{ callResponse.data.repotag }}
+              </p>
+              <p>
+                owner: {{ callResponse.data.owner }}
+              </p>
+              <p>
+                Registered on Blockheight: {{ callResponse.data.height }}
+              </p>
+              <p>
+                Expires on Blockheight: {{ callResponse.data.height + 22000 }}
+              </p>
+              <p>
+                Specifications version: {{ callResponse.data.version }}
+              </p>
+              <p>
+                Public Port: {{ callResponse.data.port }}
+              </p>
+              <p>
+                Forwarded Port: {{ callResponse.data.containerPort }}
+              </p>
+              <p>
+                Application Data: {{ callResponse.data.containerData }}
+              </p>
+              <p>
+                Application Enviroment: {{ callResponse.data.enviromentParameters }}
+              </p>
+              <p>
+                Application Commands: {{ callResponse.data.commands }}
+              </p>
+              <p>
+                Tiered Specifications: {{ callResponse.data.tiered }}
+              </p>
+              <div v-if="callResponse.data.tiered">
+                <p>
+                  BAMF CPU: {{ callResponse.data.cpubamf }} Cores
+                </p>
+                <p>
+                  BAMF RAM: {{ callResponse.data.rambamf }} MB
+                </p>
+                <p>
+                  BAMF SSD: {{ callResponse.data.hddbamf }} GB
+                </p>
+                <p>
+                  SUPER CPU: {{ callResponse.data.cpusuper }} Cores
+                </p>
+                <p>
+                  SUPER RAM: {{ callResponse.data.ramsuper }} MB
+                </p>
+                <p>
+                  SUPER SSD: {{ callResponse.data.hddsuper }} GB
+                </p>
+                <p>
+                  BASIC CPU: {{ callResponse.data.cpubasic }} Cores
+                </p>
+                <p>
+                  BASIC RAM: {{ callResponse.data.rambasic }} MB
+                </p>
+                <p>
+                  BASIC SSD: {{ callResponse.data.hddbasic }} GB
+                </p>
+              </div>
+              <div v-else>
+                <p>
+                  CPU: {{ callResponse.data.cpu }} Cores
+                </p>
+                <p>
+                  RAM: {{ callResponse.data.ram }} MB
+                </p>
+                <p>
+                  SSD: {{ callResponse.data.hdd }} GB
+                </p>
+              </div>
+            </div>
+            <div v-else>
+              Local Specifications loading<i class="el-icon-loading"></i>
+            </div>
+            <h2>Global Specifications</h2>
+            <div
+              v-if="callBResponse.data"
+              style="text-align: left"
+            >
+              <p>
+                Name: {{ callBResponse.data.name }}
+              </p>
+              <p>
+                Description: {{ callBResponse.data.description }}
+              </p>
+              <p>
+                Specifications Hash: {{ callBResponse.data.hash }}
+              </p>
+              <p>
+                Repository: {{ callBResponse.data.repotag }}
+              </p>
+              <p>
+                owner: {{ callBResponse.data.owner }}
+              </p>
+              <p>
+                Registered on Blockheight: {{ callBResponse.data.height }}
+              </p>
+              <p>
+                Expires on Blockheight: {{ callBResponse.data.height + 22000 }}
+              </p>
+              <p>
+                Specifications version: {{ callBResponse.data.version }}
+              </p>
+              <p>
+                Public Port: {{ callBResponse.data.port }}
+              </p>
+              <p>
+                Forwarded Port: {{ callBResponse.data.containerPort }}
+              </p>
+              <p>
+                Application Data: {{ callBResponse.data.containerData }}
+              </p>
+              <p>
+                Application Enviroment: {{ callBResponse.data.enviromentParameters }}
+              </p>
+              <p>
+                Application Commands: {{ callBResponse.data.commands }}
+              </p>
+              <p>
+                Tiered Specifications: {{ callBResponse.data.tiered }}
+              </p>
+              <div v-if="callBResponse.data.tiered">
+                <p>
+                  BAMF CPU: {{ callBResponse.data.cpubamf }} Cores
+                </p>
+                <p>
+                  BAMF RAM: {{ callBResponse.data.rambamf }} MB
+                </p>
+                <p>
+                  BAMF SSD: {{ callBResponse.data.hddbamf }} GB
+                </p>
+                <p>
+                  SUPER CPU: {{ callBResponse.data.cpusuper }} Cores
+                </p>
+                <p>
+                  SUPER RAM: {{ callBResponse.data.ramsuper }} MB
+                </p>
+                <p>
+                  SUPER SSD: {{ callBResponse.data.hddsuper }} GB
+                </p>
+                <p>
+                  BASIC CPU: {{ callBResponse.data.cpubasic }} Cores
+                </p>
+                <p>
+                  BASIC RAM: {{ callBResponse.data.rambasic }} MB
+                </p>
+                <p>
+                  BASIC SSD: {{ callBResponse.data.hddbasic }} GB
+                </p>
+              </div>
+              <div v-else>
+                <p>
+                  CPU: {{ callBResponse.data.cpu }} Cores
+                </p>
+                <p>
+                  RAM: {{ callBResponse.data.ram }} MB
+                </p>
+                <p>
+                  SSD: {{ callBResponse.data.hdd }} GB
+                </p>
+              </div>
+            </div>
+            <div v-else-if="callBResponse.status === 'error'">
+              Global specifications not found!
+            </div>
+            <div v-else>
+              Global Specifications loading<i class="el-icon-loading"></i>
+            </div>
+          </div>
+          <div v-if="managementMenuItem == 'appinspect'">
+            <el-input
+              v-if="callResponse.data"
+              type="textarea"
+              autosize
+              v-model="stringifiedResponse"
+            >
+            </el-input>
+          </div>
+          <div v-if="managementMenuItem == 'appstats'">
+            <el-input
+              v-if="callResponse.data"
+              type="textarea"
+              autosize
+              v-model="stringifiedResponse"
+            >
+            </el-input>
+          </div>
+          <div v-if="managementMenuItem == 'appchanges'">
+            {{ callResponse.data }}
+          </div>
+          <div v-if="managementMenuItem == 'appprocesses'">
+            {{ callResponse.data }}
+          </div>
+          <div v-if="managementMenuItem == 'appinstances'">
+            {{ callResponse.data }}
+          </div>
+
+          <div v-if="managementMenuItem == 'applogs'">
+            <div>
+              <p>Following action will download Log file from your Application debug file. This may take a few minutes depending on file size</p>
+            </div>
+            <el-popconfirm
+              confirmButtonText='Download Log'
+              cancelButtonText='No, Thanks'
+              icon="el-icon-info"
+              iconColor="orange"
+              title="Download Log file?"
+              @onConfirm="downloadApplicationLog()"
+            >
+              <ElButton slot="reference">
+                Download Log File
+              </ElButton>
+            </el-popconfirm>
+            <p v-if="total && downloaded">
+              {{ (downloaded / 1e6).toFixed(2) + " / " + (total / 1e6).toFixed(2) }} MB - {{ ((downloaded / total) * 100).toFixed(2) + "%" }}
+              <el-tooltip
+                content="Cancel Download"
+                placement="top"
+              >
+                <el-button
+                  v-if="total && downloaded && total !== downloaded"
+                  type="danger"
+                  icon="el-icon-close"
+                  circle
+                  size="mini"
+                  @click="cancelDownload"
+                ></el-button>
+              </el-tooltip>
+            </p>
+            <br><br>
+            <div>
+              <p>Below is an output of last 100 lines of log file</p>
+            </div>
+            <el-input
+              v-if="callResponse.data"
+              type="textarea"
+              autosize
+              v-model="asciResponse"
+            >
+            </el-input>
+          </div>
+          <div v-else-if="managementMenuItem == 'appcontrol'">
+            <p>
+              General options to control running status of ZelApp.
+            </p>
+            <el-popconfirm
+              confirmButtonText='Start'
+              cancelButtonText='No, Thanks'
+              icon="el-icon-info"
+              iconColor="green"
+              title="Starts ZelApp"
+              @onConfirm="startZelApp(managedApplication)"
+            >
+              <ElButton slot="reference">
+                Start ZelApp
+              </ElButton>
+            </el-popconfirm>
+            <el-popconfirm
+              confirmButtonText='Stop'
+              cancelButtonText='No, Thanks'
+              icon="el-icon-info"
+              iconColor="red"
+              title="Stops ZelApp"
+              @onConfirm="stopZelApp(managedApplication)"
+            >
+              <ElButton slot="reference">
+                Stop ZelApp
+              </ElButton>
+            </el-popconfirm>
+            <el-popconfirm
+              confirmButtonText='Restart'
+              cancelButtonText='No, Thanks'
+              icon="el-icon-info"
+              iconColor="orange"
+              title="Restarts ZelApp"
+              @onConfirm="restartZelApp(managedApplication)"
+            >
+              <ElButton slot="reference">
+                Restart ZelApp
+              </ElButton>
+            </el-popconfirm>
+            <el-divider></el-divider>
+            <p>
+              The Pause command suspends all processes in the specified ZelApp.
+            </p>
+            <el-popconfirm
+              confirmButtonText='Pause'
+              cancelButtonText='No, Thanks'
+              icon="el-icon-info"
+              iconColor="orange"
+              title="Pauses ZelApp"
+              @onConfirm="pauseZelApp(managedApplication)"
+            >
+              <ElButton slot="reference">
+                Pause ZelApp
+              </ElButton>
+            </el-popconfirm>
+            <el-popconfirm
+              confirmButtonText='Unpause'
+              cancelButtonText='No, Thanks'
+              icon="el-icon-info"
+              iconColor="orange"
+              title="Unpauses ZelApp"
+              @onConfirm="unpauseZelApp(managedApplication)"
+            >
+              <ElButton slot="reference">
+                Unpause ZelApp
+              </ElButton>
+            </el-popconfirm>
+            <el-divider></el-divider>
+            <p>
+              Stops, Uninstalls and Removes all ZelApp data from this specific ZelNode.
+            </p>
+            <el-popconfirm
+              confirmButtonText='Remove'
+              cancelButtonText='No, Thanks'
+              icon="el-icon-info"
+              iconColor="red"
+              title="Removes ZelApp"
+              @onConfirm="removeZelApp(managedApplication)"
+            >
+              <ElButton slot="reference">
+                Remove ZelApp
+              </ElButton>
+            </el-popconfirm>
+          </div>
+          <div v-if="managementMenuItem == 'appexec'">
+            <p>
+              Here you can execute some commands with a set of enviroment variables on this local application instance. Both are array of strings. Useful especially for testing and tweaking purposes.
+            </p>
+            <el-form
+              :model="zelAppRegistrationSpecification"
+              label-width="100px"
+            >
+              <el-form-item label="Commands">
+                <el-input
+                  placeholder="Array of strings of Commands"
+                  textarea
+                  v-model="zelAppExec.cmd"
+                >
+                </el-input>
+              </el-form-item>
+              <el-form-item label="Enviroment">
+                <el-input
+                  placeholder="Array of strings of Enviromental Parameters"
+                  textarea
+                  v-model="zelAppExec.env"
+                >
+                </el-input>
+              </el-form-item>
+            </el-form>
+            <ElButton @click="zelAppExecute">
+              Execute
+            </ElButton>
+            <div v-if="commandExecuting">
+              <i class="el-icon-loading"></i>
+            </div>
+            <el-input
+              v-if="callResponse.data"
+              type="textarea"
+              autosize
+              v-model="asciResponse"
+            >
+            </el-input>
+          </div>
+          <div v-if="managementMenuItem == 'globalappspecifics'">
+            <h2>Global Specifications</h2>
+            <div
+              v-if="callBResponse.data"
+              style="text-align: left"
+            >
+              <p>
+                Name: {{ callBResponse.data.name }}
+              </p>
+              <p>
+                Description: {{ callBResponse.data.description }}
+              </p>
+              <p>
+                Specifications Hash: {{ callBResponse.data.hash }}
+              </p>
+              <p>
+                Repository: {{ callBResponse.data.repotag }}
+              </p>
+              <p>
+                owner: {{ callBResponse.data.owner }}
+              </p>
+              <p>
+                Registered on Blockheight: {{ callBResponse.data.height }}
+              </p>
+              <p>
+                Expires on Blockheight: {{ callBResponse.data.height + 22000 }}
+              </p>
+              <p>
+                Specifications version: {{ callBResponse.data.version }}
+              </p>
+              <p>
+                Public Port: {{ callBResponse.data.port }}
+              </p>
+              <p>
+                Forwarded Port: {{ callBResponse.data.containerPort }}
+              </p>
+              <p>
+                Application Data: {{ callBResponse.data.containerData }}
+              </p>
+              <p>
+                Application Enviroment: {{ callBResponse.data.enviromentParameters }}
+              </p>
+              <p>
+                Application Commands: {{ callBResponse.data.commands }}
+              </p>
+              <p>
+                Tiered Specifications: {{ callBResponse.data.tiered }}
+              </p>
+              <div v-if="callBResponse.data.tiered">
+                <p>
+                  BAMF CPU: {{ callBResponse.data.cpubamf }} Cores
+                </p>
+                <p>
+                  BAMF RAM: {{ callBResponse.data.rambamf }} MB
+                </p>
+                <p>
+                  BAMF SSD: {{ callBResponse.data.hddbamf }} GB
+                </p>
+                <p>
+                  SUPER CPU: {{ callBResponse.data.cpusuper }} Cores
+                </p>
+                <p>
+                  SUPER RAM: {{ callBResponse.data.ramsuper }} MB
+                </p>
+                <p>
+                  SUPER SSD: {{ callBResponse.data.hddsuper }} GB
+                </p>
+                <p>
+                  BASIC CPU: {{ callBResponse.data.cpubasic }} Cores
+                </p>
+                <p>
+                  BASIC RAM: {{ callBResponse.data.rambasic }} MB
+                </p>
+                <p>
+                  BASIC SSD: {{ callBResponse.data.hddbasic }} GB
+                </p>
+              </div>
+              <div v-else>
+                <p>
+                  CPU: {{ callBResponse.data.cpu }} Cores
+                </p>
+                <p>
+                  RAM: {{ callBResponse.data.ram }} MB
+                </p>
+                <p>
+                  SSD: {{ callBResponse.data.hdd }} GB
+                </p>
+              </div>
+            </div>
+            <div v-else-if="callBResponse.status === 'error'">
+              Global specifications not found!
+            </div>
+            <div v-else>
+              Global Specifications loading<i class="el-icon-loading"></i>
+            </div>
+          </div>
+          <div v-if="managementMenuItem === 'updateappglobalspecifications'">
+            <div v-if="!fluxCommunication">
+              Warninig: Connected Flux is not communicating properly with Flux network
+            </div>
+            <h2>Here you can update your application specifications.</h2>
+            <div class="zelapps-register">
+              <el-form
+                :model="zelAppUpdateSpecification"
+                label-width="100px"
+              >
+                <el-form-item label="Version">
+                  <el-input
+                    placeholder="ZelApp Version"
+                    disabled
+                    v-model="zelAppUpdateSpecification.version"
+                  >
+                  </el-input>
+                </el-form-item>
+                <el-form-item label="Name">
+                  <el-input
+                    placeholder="ZelApp name"
+                    disabled
+                    v-model="zelAppUpdateSpecification.name"
+                  >
+                  </el-input>
+                </el-form-item>
+                <el-form-item label="Desc.">
+                  <el-input
+                    placeholder="Description"
+                    type="textarea"
+                    autosize
+                    v-model="zelAppUpdateSpecification.description"
+                  >
+                  </el-input>
+                </el-form-item>
+                <el-form-item label="Repo">
+                  <el-input
+                    placeholder="Docker Hub namespace/repository:tag"
+                    disabled
+                    v-model="zelAppUpdateSpecification.repotag"
+                  >
+                  </el-input>
+                </el-form-item>
+                <el-form-item label="Owner">
+                  <el-input
+                    placeholder="ZelID of application owner"
+                    v-model="zelAppUpdateSpecification.owner"
+                  >
+                  </el-input>
+                </el-form-item>
+                <el-form-item label="Port">
+                  <el-input
+                    placeholder="Port on which application will be available"
+                    type="number"
+                    min="31000"
+                    max="39999"
+                    v-model="zelAppUpdateSpecification.port"
+                  >
+                  </el-input>
+                </el-form-item>
+                <el-form-item label="Enviroment">
+                  <el-input
+                    placeholder="Array of strings of Enviromental Parameters"
+                    textarea
+                    v-model="zelAppUpdateSpecification.enviromentParameters"
+                  >
+                  </el-input>
+                </el-form-item>
+                <el-form-item label="Commands">
+                  <el-input
+                    placeholder="Array of strings of Commands"
+                    textarea
+                    v-model="zelAppUpdateSpecification.commands"
+                  >
+                  </el-input>
+                </el-form-item>
+                <el-form-item label="Cont. Port">
+                  <el-input
+                    placeholder="Container Port - port on which your container has"
+                    nubmer
+                    min="0"
+                    max="65535"
+                    v-model="zelAppUpdateSpecification.containerPort"
+                  >
+                  </el-input>
+                </el-form-item>
+                <el-form-item label="Cont. Data">
+                  <el-input
+                    placeholder="Data folder that is shared by application to ZelApp volume"
+                    textarea
+                    v-model="zelAppUpdateSpecification.containerData"
+                  >
+                  </el-input>
+                </el-form-item>
+                <el-form-item label="CPU">
+                  <el-input
+                    placeholder="CPU cores to use by default"
+                    nubmer
+                    min="0"
+                    max="7"
+                    step="0.1"
+                    v-model="zelAppUpdateSpecification.cpu"
+                  >
+                  </el-input>
+                </el-form-item>
+                <el-form-item label="RAM">
+                  <el-input
+                    placeholder="RAM in MB value to use by default"
+                    nubmer
+                    min="0"
+                    max="28000"
+                    step="100"
+                    v-model="zelAppUpdateSpecification.ram"
+                  >
+                  </el-input>
+                </el-form-item>
+                <el-form-item label="SSD">
+                  <el-input
+                    placeholder="SSD in GB value to use by default"
+                    nubmer
+                    min="0"
+                    max="570"
+                    step="1"
+                    v-model="zelAppUpdateSpecification.hdd"
+                  >
+                  </el-input>
+                </el-form-item>
+                <el-form-item label="Tiered">
+                  <el-switch v-model="zelAppUpdateSpecification.tiered"></el-switch>
+                </el-form-item>
+                <div v-if="zelAppUpdateSpecification.tiered">
+                  <el-form-item label="BASIC CPU">
+                    <el-input
+                      placeholder="CPU cores to use by BASIC"
+                      nubmer
+                      min="0"
+                      max="1"
+                      step="0.1"
+                      v-model="zelAppUpdateSpecification.cpubasic"
+                    >
+                    </el-input>
+                  </el-form-item>
+                  <el-form-item label="BASIC RAM">
+                    <el-input
+                      placeholder="RAM in MB value to use by BASIC"
+                      nubmer
+                      min="0"
+                      max="1000"
+                      step="100"
+                      v-model="zelAppUpdateSpecification.rambasic"
+                    >
+                    </el-input>
+                  </el-form-item>
+                  <el-form-item label="BASIC SSD">
+                    <el-input
+                      placeholder="SSD in GB value to use by BASIC"
+                      nubmer
+                      min="0"
+                      max="20"
+                      step="1"
+                      v-model="zelAppUpdateSpecification.hddbasic"
+                    >
+                    </el-input>
+                  </el-form-item>
+                  <el-form-item label="SUPER CPU">
+                    <el-input
+                      placeholder="CPU cores to use by SUPER"
+                      nubmer
+                      min="0"
+                      max="3"
+                      step="0.1"
+                      v-model="zelAppUpdateSpecification.cpusuper"
+                    >
+                    </el-input>
+                  </el-form-item>
+                  <el-form-item label="SUPER RAM">
+                    <el-input
+                      placeholder="RAM in MB value to use by SUPER"
+                      nubmer
+                      min="0"
+                      max="5000"
+                      step="100"
+                      v-model="zelAppUpdateSpecification.ramsuper"
+                    >
+                    </el-input>
+                  </el-form-item>
+                  <el-form-item label="SUPER SSD">
+                    <el-input
+                      placeholder="SSD in GB value to use by SUPER"
+                      nubmer
+                      min="0"
+                      max="120"
+                      step="1"
+                      v-model="zelAppUpdateSpecification.hddsuper"
+                    >
+                    </el-input>
+                  </el-form-item>
+                  <el-form-item label="BAMF CPU">
+                    <el-input
+                      placeholder="CPU cores to use by BAMF"
+                      nubmer
+                      min="0"
+                      max="7"
+                      step="0.1"
+                      v-model="zelAppUpdateSpecification.cpubamf"
+                    >
+                    </el-input>
+                  </el-form-item>
+                  <el-form-item label="BAMF RAM">
+                    <el-input
+                      placeholder="RAM in MB value to use by BAMF"
+                      nubmer
+                      min="0"
+                      max="28000"
+                      step="100"
+                      v-model="zelAppUpdateSpecification.rambamf"
+                    >
+                    </el-input>
+                  </el-form-item>
+                  <el-form-item label="BAMF SSD">
+                    <el-input
+                      placeholder="SSD in GB value to use by BAMF"
+                      nubmer
+                      min="0"
+                      max="570"
+                      step="1"
+                      v-model="zelAppUpdateSpecification.hddbamf"
+                    >
+                    </el-input>
+                  </el-form-item>
+                </div>
+              </el-form>
+            </div>
+            <div>
+              <ElButton @click="checkFluxUpdateSpecificationsAndFormatMessage">
+                Compute Update Message
+              </ElButton>
+            </div>
+            <div v-if="dataToSign">
+              <el-form>
+                <el-form-item label="Update Message">
+                  <el-input
+                    type="textarea"
+                    autosize
+                    disabled
+                    v-model="dataToSign"
+                  >
+                  </el-input>
+                </el-form-item>
+                <el-form-item label="Signature">
+                  <el-input
+                    type="textarea"
+                    autosize
+                    v-model="signature"
+                  >
+                  </el-input>
+                </el-form-item>
+              </el-form>
+              <br><br>
+              Note: Data have to be signed by last application owner
+              <br><br>
+              <div>
+                Sign with ZelCore
+                <br>
+                <a
+                  @click="initiateSignWSUpdate"
+                  :href="'zel:?action=sign&message=' + dataToSign + '&icon=http%3A%2F%2Fzelid.io%2Fimg%2FzelID.svg&callback=http%3A%2F%2F' + userconfig.externalip + ':' + config.apiPort + '%2Fzelid%2Fprovidesign%2F'"
+                >
+                  <img
+                    class="zelidLogin"
+                    src="@/assets/img/zelID.svg"
+                  />
+                </a>
+              </div>
+              <br><br>
+              Price per Month: {{ appPricePerMonthForUpdate }} ZEL
+              <br><br>
+              <ElButton @click="update">
+                Update ZelApp
+              </ElButton>
+              <br><br>
+              <div v-if="updateHash">
+                To finish application update, please do a transaction of {{ appPricePerMonthForUpdate }} to address
+                {{ zelapps.address }}
+                with following message:
+                {{ updateHash }}
+                <br><br>
+                Transaction must be mined by {{ new Date(validTill).toLocaleString('en-GB', timeoptions) }}
+                <br><br>
+                Application will be subscribed till {{ new Date(subscribedTill).toLocaleString('en-GB', timeoptions) }}
+                <br><br>
+              </div>
+              <div v-if="updateHash">
+                Pay with ZelCore
+                <br>
+                <a :href="'zel:?action=pay&coin=zelcash&address=' + zelapps.address + '&amount=' + appPricePerMonthForUpdate + '&message=' + updateHash + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Fzelcash%2Fzelflux%2Fmaster%2FZelFront%2Fsrc%2Fassets%2Fimg%2Fflux_banner.png'">
+                  <img
+                    class="zelidLogin"
+                    src="@/assets/img/zelID.svg"
+                  />
+                </a>
+              </div>
+            </div>
+          </div>
+        </el-main>
+      </el-container>
     </div>
     <div v-if="zelAppsSection === 'registerzelapp'">
       <div v-if="!fluxCommunication">
@@ -1989,6 +2019,16 @@ export default {
     subscribedTill() {
       const expTime = this.timestamp + 30 * 24 * 60 * 60 * 1000 + 60 * 60 * 1000; // 1 month
       return expTime;
+    },
+    isApplicationInstalledLocally() {
+      if (this.installedZelApps.data) {
+        const installed = this.installedZelApps.data.find((app) => app.name === this.managedApplication);
+        if (installed) {
+          return true;
+        }
+        return false;
+      }
+      return false;
     },
   },
   watch: {
@@ -2807,7 +2847,7 @@ export default {
         vue.$customMes.error(response.data.data.message || response.data.data);
       }
     },
-    openAppManagement(zelappName) {
+    openAppManagement(zelappName, global) {
       console.log(zelappName);
       this.callResponse.data = '';
       this.callResponse.status = '';
@@ -2818,9 +2858,13 @@ export default {
       this.managedApplication = zelappName;
       this.getAppOwner();
       this.getZelCashInfo();
-      this.getInstalledApplicationSpecifics();
       this.getGlobalApplicationSpecifics();
-      this.managementMenuItem = 'appspecifics';
+      if (global) {
+        this.managementMenuItem = 'globalappspecifics';
+      } else {
+        this.getInstalledApplicationSpecifics();
+        this.managementMenuItem = 'appspecifics';
+      }
     },
     goBackToZelApps() {
       this.managedApplication = '';
