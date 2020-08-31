@@ -42,7 +42,7 @@ async function getStatus(req, res) {
 }
 
 async function restartNodeBenchmarks(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+  const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
   if (authorized === true) {
     const rpccall = 'restartnodebenchmarks';
 

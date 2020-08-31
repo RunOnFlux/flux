@@ -478,7 +478,7 @@ export default {
           this.activeIndex = '0';
           break;
         default:
-          vue.$message.info('Feature coming soon!');
+          vue.$customMes.info('Feature coming soon!');
           console.log('Menu: Unrecognized method');
       }
     },
@@ -496,12 +496,12 @@ export default {
             console.log(response.data.data.message);
             // SHOULD NEVER HAPPEN. Do not show any message.
           } else {
-            vue.$message.success(response.data.data.message);
+            vue.$customMes.success(response.data.data.message);
           }
         })
         .catch((e) => {
           console.log(e);
-          vue.$message.error(e.toString());
+          vue.$customMes.error(e.toString());
         });
     },
   },

@@ -128,7 +128,7 @@
               </template>
             </el-table-column>
           </el-table>
-          <hr>
+          <el-divider></el-divider>
           Force a connection to a peer
           <ElForm class="loginForm">
             <ElFormItem>
@@ -368,14 +368,14 @@ export default {
         .then((response) => {
           console.log(response);
           if (response.data.status === 'error') {
-            vue.$message.error(response.data.data.message);
+            vue.$customMes.error(response.data.data.message);
           } else {
-            vue.$message.success(response.data.data.message);
+            vue.$customMes.success(response.data.data.message);
           }
         })
         .catch((e) => {
           console.log(e);
-          vue.$message.error(e.toString());
+          vue.$customMes.error(e.toString());
         });
     },
     async zelfluxConnectedPeersInfo() {
@@ -384,7 +384,7 @@ export default {
       if (response.data.status === 'success') {
         this.connectedPeers = response.data.data;
       } else {
-        vue.$message({
+        vue.$customMes({
           type: response.data.status,
           message: response.data.data.message || response.data.data,
         });
@@ -395,7 +395,7 @@ export default {
       if (response.data.status === 'success') {
         this.incomingConnections = response.data.data;
       } else {
-        vue.$message({
+        vue.$customMes({
           type: response.data.status,
           message: response.data.data.message || response.data.data,
         });
@@ -407,7 +407,7 @@ export default {
       const zelidauth = localStorage.getItem('zelidauth');
       ZelFluxService.removePeer(zelidauth, row.ip)
         .then((response) => {
-          vue.$message({
+          vue.$customMes({
             type: response.data.status,
             message: response.data.data.message || response.data.data,
           });
@@ -417,7 +417,7 @@ export default {
         })
         .catch((e) => {
           console.log(e);
-          vue.$message.error(e.toString());
+          vue.$customMes.error(e.toString());
         });
     },
     disconnectIncoming(index, row) {
@@ -426,7 +426,7 @@ export default {
       const zelidauth = localStorage.getItem('zelidauth');
       ZelFluxService.removeIncomingPeer(zelidauth, row.ip)
         .then((response) => {
-          vue.$message({
+          vue.$customMes({
             type: response.data.status,
             message: response.data.data.message || response.data.data,
           });
@@ -436,7 +436,7 @@ export default {
         })
         .catch((e) => {
           console.log(e);
-          vue.$message.error(e.toString());
+          vue.$customMes.error(e.toString());
         });
     },
     connectPeer() {
@@ -445,7 +445,7 @@ export default {
       ZelFluxService.addPeer(zelidauth, self.connectPeerIP)
         .then((response) => {
           console.log(response);
-          vue.$message({
+          vue.$customMes({
             type: response.data.status,
             message: response.data.data.message || response.data.data,
           });
@@ -455,7 +455,7 @@ export default {
         })
         .catch((e) => {
           console.log(e);
-          vue.$message.error(e.toString());
+          vue.$customMes.error(e.toString());
         });
     },
     cancelDownload() {
@@ -491,7 +491,7 @@ export default {
       ZelFluxService.tailFluxDebug(zelidauth)
         .then((response) => {
           if (response.data.status === 'error') {
-            vue.$message.error(response.data.data.message || response.data.data);
+            vue.$customMes.error(response.data.data.message || response.data.data);
           } else {
             this.callResponse.status = response.data.status;
             this.callResponse.data = response.data.data;
@@ -499,7 +499,7 @@ export default {
         })
         .catch((error) => {
           console.log(error);
-          vue.$message.error('Error while trying to get latest debug of Flux');
+          vue.$customMes.error('Error while trying to get latest debug of Flux');
         });
     },
   },

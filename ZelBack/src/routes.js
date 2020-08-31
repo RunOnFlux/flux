@@ -230,7 +230,7 @@ module.exports = (app, expressWs) => {
   app.get('/zelapps/listzelappsimages', (req, res) => {
     zelappsService.listZelAppsImages(req, res);
   });
-  app.get('/zelapps/installedzelapps', (req, res) => {
+  app.get('/zelapps/installedzelapps/:appname?', (req, res) => {
     zelappsService.installedZelApps(req, res);
   });
   app.get('/zelapps/availablezelapps', (req, res) => {
@@ -254,8 +254,14 @@ module.exports = (app, expressWs) => {
   app.get('/zelapps/permanentmessages', (req, res) => {
     zelappsService.getZelAppsPermanentMessages(req, res);
   });
-  app.get('/zelapps/globalspecifications', (req, res) => {
+  app.get('/zelapps/globalappsspecifications', (req, res) => {
     zelappsService.getGlobalZelAppsSpecifications(req, res);
+  });
+  app.get('/zelapps/appspecifications/:appname?', (req, res) => {
+    zelappsService.getApplicationSpecificationAPI(req, res);
+  });
+  app.get('/zelapps/appowner/:appname?', (req, res) => {
+    zelappsService.getApplicationOwnerAPI(req, res);
   });
   app.get('/zelapps/hashes', (req, res) => {
     zelappsService.getZelAppHashes(req, res);
@@ -265,6 +271,9 @@ module.exports = (app, expressWs) => {
   });
   app.get('/zelapps/locations', (req, res) => {
     zelappsService.getZelAppsLocations(req, res);
+  });
+  app.post('/zelapps/calculateprice', (req, res) => { // returns price in zel for both new registration of zelapp and update of zelapp
+    zelappsService.getAppPrice(req, res);
   });
 
   // app.get('/explorer/allutxos', (req, res) => {
@@ -656,52 +665,43 @@ module.exports = (app, expressWs) => {
     explorerService.rescanExplorer(req, res);
   });
 
-  app.get('/zelapps/zelapppull/:repotag?', (req, res) => { // TODO make me post, needs redoing
-    zelappsService.zelAppPull(req, res);
-  });
-  app.get('/zelapps/zelappstart/:container?', (req, res) => {
+  app.get('/zelapps/zelappstart/:appname?', (req, res) => {
     zelappsService.zelAppStart(req, res);
   });
-  app.get('/zelapps/zelappstop/:container?', (req, res) => {
+  app.get('/zelapps/zelappstop/:appname?', (req, res) => {
     zelappsService.zelAppStop(req, res);
   });
-  app.get('/zelapps/restartzelapp/:container?', (req, res) => {
+  app.get('/zelapps/zelapprestart/:appname?', (req, res) => {
     zelappsService.zelAppRestart(req, res);
   });
-  app.get('/zelapps/zelappkill/:container?', (req, res) => {
-    zelappsService.zelAppKill(req, res);
-  });
-  app.get('/zelapps/zelappcontainerremove/:container?', (req, res) => {
-    zelappsService.zelAppRemove(req, res);
-  });
-  app.get('/zelapps/zelapppause/:container?', (req, res) => {
+  app.get('/zelapps/zelapppause/:appname?', (req, res) => {
     zelappsService.zelAppPause(req, res);
   });
-  app.get('/zelapps/zelappunpause/:container?', (req, res) => {
+  app.get('/zelapps/zelappunpause/:appname?', (req, res) => {
     zelappsService.zelAppUnpause(req, res);
   });
-  app.get('/zelapps/zelapptop/:container?', (req, res) => {
+  app.get('/zelapps/zelapptop/:appname?', (req, res) => {
     zelappsService.zelAppTop(req, res);
   });
-  app.get('/zelapps/zelapplog/:container?', (req, res) => {
+  app.get('/zelapps/zelapplog/:appname?/:lines?', (req, res) => {
     zelappsService.zelAppLog(req, res);
   });
-  app.get('/zelapps/zelappinspect/:container?', (req, res) => { // TODO this shall require app owner privilege for all information
+  app.get('/zelapps/zelappinspect/:appname?', (req, res) => {
     zelappsService.zelAppInspect(req, res);
   });
-  app.get('/zelapps/zelappupdate/:container?/:cpus?/:memory?', (req, res) => { // TODO this shall require app owner privilege for all information
-    zelappsService.zelAppUpdate(req, res);
+  app.get('/zelapps/zelappstats/:appname?', (req, res) => {
+    zelappsService.zelAppStats(req, res);
   });
-  app.get('/zelapps/zelappexec/:container?/:cmd?/:env?', (req, res) => { // todo post, privileges
+  app.get('/zelapps/zelappchanges/:appname?', (req, res) => {
+    zelappsService.zelAppChanges(req, res);
+  });
+  app.post('/zelapps/zelappexec', (req, res) => {
     zelappsService.zelAppExec(req, res);
   });
   app.get('/zelapps/zelappremove/:zelapp?', (req, res) => {
     zelappsService.removeZelAppLocallyApi(req, res);
   });
-  app.get('/zelapps/zelappimageremove/:image?', (req, res) => {
-    zelappsService.zelAppImageRemove(req, res);
-  });
-  app.get('/zelapps/installtemporarylocalapp/zelFoldingAtHome', (req, res) => {
+  app.get('/zelapps/installtemporarylocalapp/FoldingAtHomeB', (req, res) => {
     zelappsService.temporaryZelAppRegisterFunctionForFoldingAtHome(req, res);
   });
   app.get('/zelapps/installtemporarylocalapp/dibi-UND', (req, res) => {
@@ -770,6 +770,9 @@ module.exports = (app, expressWs) => {
   });
   app.post('/zelapps/zelappregister', (req, res) => {
     zelappsService.registerZelAppGlobalyApi(req, res);
+  });
+  app.post('/zelapps/zelappupdate', (req, res) => {
+    zelappsService.updateZelAppGlobalyApi(req, res);
   });
 
   // POST PROTECTED API - ZelNode owner level

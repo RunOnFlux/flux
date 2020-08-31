@@ -964,7 +964,7 @@ export default {
     async zelcashGetInfo() {
       const response = await ZelCashService.getInfo();
       if (response.data.status === 'error') {
-        vue.$message.error(response.data.data.message || response.data.data);
+        vue.$customMes.error(response.data.data.message || response.data.data);
       } else {
         this.callResponse.status = response.data.status;
         this.callResponse.data = response.data.data;
@@ -973,7 +973,7 @@ export default {
     async zelcashHelp() {
       const response = await ZelCashService.help();
       if (response.data.status === 'error') {
-        vue.$message.error(response.data.data.message || response.data.data);
+        vue.$customMes.error(response.data.data.message || response.data.data);
       } else {
         this.callResponse.status = response.data.status;
         this.callResponse.data = response.data.data;
@@ -983,7 +983,7 @@ export default {
       this.currentHelpResponse = '';
       const response = await ZelCashService.helpSpecific(this.activeHelpNames);
       if (response.data.status === 'error') {
-        vue.$message.error(response.data.data.message || response.data.data);
+        vue.$customMes.error(response.data.data.message || response.data.data);
       } else {
         const modifiedHelp = response.data.data.split('\n');
         const ml = modifiedHelp.length;
@@ -1015,74 +1015,74 @@ export default {
       }
     },
     startZelCash() {
-      vue.$message.warning('ZelCash will start');
+      vue.$customMes.warning('ZelCash will start');
       const zelidauth = localStorage.getItem('zelidauth');
       ZelCashService.start(zelidauth)
         .then((response) => {
-          vue.$message({
+          vue.$customMes({
             type: response.data.status,
             message: response.data.data.message || response.data.data,
           });
         })
         .catch(() => {
-          vue.$message.error('Error while trying to start ZelCash');
+          vue.$customMes.error('Error while trying to start ZelCash');
         });
     },
     stopZelCash() {
-      vue.$message.warning('ZelCash will be stopped');
+      vue.$customMes.warning('ZelCash will be stopped');
       const zelidauth = localStorage.getItem('zelidauth');
       ZelCashService.stopZelCash(zelidauth)
         .then((response) => {
-          vue.$message({
+          vue.$customMes({
             type: response.data.status,
             message: response.data.data.message || response.data.data,
           });
         })
         .catch(() => {
-          vue.$message.error('Error while trying to stop ZelCash');
+          vue.$customMes.error('Error while trying to stop ZelCash');
         });
     },
     restartZelCash() {
-      vue.$message.warning('ZelCash will now restart');
+      vue.$customMes.warning('ZelCash will now restart');
       const zelidauth = localStorage.getItem('zelidauth');
       ZelCashService.restart(zelidauth)
         .then((response) => {
-          vue.$message({
+          vue.$customMes({
             type: response.data.status,
             message: response.data.data.message || response.data.data,
           });
         })
         .catch(() => {
-          vue.$message.error('Error while trying to restart ZelCash');
+          vue.$customMes.error('Error while trying to restart ZelCash');
         });
     },
     rescanZelCash() {
-      vue.$message.warning('ZelCash will now rescan. This will take up to an hour.');
+      vue.$customMes.warning('ZelCash will now rescan. This will take up to an hour.');
       const zelidauth = localStorage.getItem('zelidauth');
       const blockheight = this.rescanZelCashHeight > 0 ? this.rescanZelCashHeight : 0;
       ZelCashService.rescanZelCash(zelidauth, blockheight)
         .then((response) => {
-          vue.$message({
+          vue.$customMes({
             type: response.data.status,
             message: response.data.data.message || response.data.data,
           });
         })
         .catch(() => {
-          vue.$message.error('Error while trying to rescan ZelCash');
+          vue.$customMes.error('Error while trying to rescan ZelCash');
         });
     },
     reindexZelCash() {
-      vue.$message.warning('ZelCash will now reindex. This will take several hours.');
+      vue.$customMes.warning('ZelCash will now reindex. This will take several hours.');
       const zelidauth = localStorage.getItem('zelidauth');
       ZelNodeService.reindexZelCash(zelidauth)
         .then((response) => {
-          vue.$message({
+          vue.$customMes({
             type: response.data.status,
             message: response.data.data.message || response.data.data,
           });
         })
         .catch(() => {
-          vue.$message.error('Error while trying to reindex ZelCash');
+          vue.$customMes.error('Error while trying to reindex ZelCash');
         });
     },
     async zelcashWelcomeGetZelNodeStatus() {
@@ -1104,7 +1104,7 @@ export default {
     async zelcashGetZelNodeStatus() {
       const response = await ZelCashService.getZelNodeStatus();
       if (response.data.status === 'error') {
-        vue.$message.error(response.data.data.message || response.data.data);
+        vue.$customMes.error(response.data.data.message || response.data.data);
       } else {
         this.callResponse.status = response.data.status;
         this.callResponse.data = response.data.data;
@@ -1113,7 +1113,7 @@ export default {
     async zelcashListZelNodes() {
       const response = await ZelCashService.listZelNodes();
       if (response.data.status === 'error') {
-        vue.$message.error(response.data.data.message || response.data.data);
+        vue.$customMes.error(response.data.data.message || response.data.data);
       } else {
         this.callResponse.status = response.data.status;
         this.callResponse.data = response.data.data;
@@ -1122,7 +1122,7 @@ export default {
     async zelcashViewDeterministicZelNodeList() {
       const response = await ZelCashService.viewDeterministicZelNodeList();
       if (response.data.status === 'error') {
-        vue.$message.error(response.data.data.message || response.data.data);
+        vue.$customMes.error(response.data.data.message || response.data.data);
       } else {
         this.callResponse.status = response.data.status;
         this.callResponse.data = response.data.data;
@@ -1131,7 +1131,7 @@ export default {
     async zelcashGetZelNodeCount() {
       const response = await ZelCashService.getZelNodeCount();
       if (response.data.status === 'error') {
-        vue.$message.error(response.data.data.message || response.data.data);
+        vue.$customMes.error(response.data.data.message || response.data.data);
       } else {
         this.callResponse.status = response.data.status;
         this.callResponse.data = response.data.data;
@@ -1140,7 +1140,7 @@ export default {
     async zelcashGetStartList() {
       const response = await ZelCashService.getStartList();
       if (response.data.status === 'error') {
-        vue.$message.error(response.data.data.message || response.data.data);
+        vue.$customMes.error(response.data.data.message || response.data.data);
       } else {
         this.callResponse.status = response.data.status;
         this.callResponse.data = response.data.data;
@@ -1149,7 +1149,7 @@ export default {
     async zelcashGetDOSList() {
       const response = await ZelCashService.getDOSList();
       if (response.data.status === 'error') {
-        vue.$message.error(response.data.data.message || response.data.data);
+        vue.$customMes.error(response.data.data.message || response.data.data);
       } else {
         this.callResponse.status = response.data.status;
         this.callResponse.data = response.data.data;
@@ -1158,7 +1158,7 @@ export default {
     async zelcashZelNodeCurrentWinner() {
       const response = await ZelCashService.zelnodeCurrentWinner();
       if (response.data.status === 'error') {
-        vue.$message.error(response.data.data.message || response.data.data);
+        vue.$customMes.error(response.data.data.message || response.data.data);
       } else {
         this.callResponse.status = response.data.status;
         this.callResponse.data = response.data.data;
@@ -1168,7 +1168,7 @@ export default {
     async zelcashGetBenchmarks() {
       const response = await ZelCashService.getBenchmarks();
       if (response.data.status === 'error') {
-        vue.$message.error(response.data.data.message || response.data.data);
+        vue.$customMes.error(response.data.data.message || response.data.data);
       } else {
         this.callResponse.status = response.data.status;
         this.callResponse.data = JSON.parse(response.data.data);
@@ -1177,45 +1177,45 @@ export default {
     async zelcashGetBenchStatus() {
       const response = await ZelCashService.getBenchStatus();
       if (response.data.status === 'error') {
-        vue.$message.error(response.data.data.message || response.data.data);
+        vue.$customMes.error(response.data.data.message || response.data.data);
       } else {
         this.callResponse.status = response.data.status;
         this.callResponse.data = JSON.parse(response.data.data);
       }
     },
     zelcashStartZelBenchd() {
-      vue.$message.warning('ZelBench will now try to start');
+      vue.$customMes.warning('ZelBench will now try to start');
       const zelidauth = localStorage.getItem('zelidauth');
       ZelCashService.startZelBench(zelidauth)
         .then((response) => {
-          vue.$message({
+          vue.$customMes({
             type: response.data.status,
             message: response.data.data.message || response.data.data,
           });
         })
         .catch(() => {
-          vue.$message.error('Error while trying to start ZelBench');
+          vue.$customMes.error('Error while trying to start ZelBench');
         });
     },
     zelcashStopZelBenchd() {
-      vue.$message.warning('ZelBench will now try to stop');
+      vue.$customMes.warning('ZelBench will now try to stop');
       const zelidauth = localStorage.getItem('zelidauth');
       ZelCashService.stopZelBench(zelidauth)
         .then((response) => {
-          vue.$message({
+          vue.$customMes({
             type: response.data.status,
             message: response.data.data.message || response.data.data,
           });
         })
         .catch(() => {
-          vue.$message.error('Error while trying to stop ZelBench');
+          vue.$customMes.error('Error while trying to stop ZelBench');
         });
     },
     // BLOCKCHAIN
     async zelcashGetBlockchainInfo() {
       const response = await ZelCashService.getBlockchainInfo();
       if (response.data.status === 'error') {
-        vue.$message.error(response.data.data.message || response.data.data);
+        vue.$customMes.error(response.data.data.message || response.data.data);
       } else {
         this.callResponse.status = response.data.status;
         this.callResponse.data = JSON.stringify(response.data.data, undefined, '\t');
@@ -1225,7 +1225,7 @@ export default {
     async zelcashGetMiningInfo() {
       const response = await ZelCashService.getMiningInfo();
       if (response.data.status === 'error') {
-        vue.$message.error(response.data.data.message || response.data.data);
+        vue.$customMes.error(response.data.data.message || response.data.data);
       } else {
         this.callResponse.status = response.data.status;
         this.callResponse.data = JSON.stringify(response.data.data, undefined, '\t');
@@ -1235,7 +1235,7 @@ export default {
     async zelcashGetNetworkInfo() {
       const response = await ZelCashService.getNetworkInfo();
       if (response.data.status === 'error') {
-        vue.$message.error(response.data.data.message || response.data.data);
+        vue.$customMes.error(response.data.data.message || response.data.data);
       } else {
         this.callResponse.status = response.data.status;
         this.callResponse.data = JSON.stringify(response.data.data, undefined, '\t');
@@ -1245,7 +1245,7 @@ export default {
     async zelcashGetRawTransaction() {
       const response = await ZelCashService.getRawTransaction(this.generalInput, 1);
       if (response.data.status === 'error') {
-        vue.$message.error(response.data.data.message || response.data.data);
+        vue.$customMes.error(response.data.data.message || response.data.data);
       } else {
         this.callResponse.status = response.data.status;
         this.callResponse.data = JSON.stringify(response.data.data, undefined, '\t');
@@ -1256,7 +1256,7 @@ export default {
       const zelidauth = localStorage.getItem('zelidauth');
       const response = await ZelCashService.validateAddress(zelidauth, this.generalInput);
       if (response.data.status === 'error') {
-        vue.$message.error(response.data.data.message || response.data.data);
+        vue.$customMes.error(response.data.data.message || response.data.data);
       } else {
         this.callResponse.status = response.data.status;
         this.callResponse.data = JSON.stringify(response.data.data, undefined, '\t');
@@ -1267,7 +1267,7 @@ export default {
       const zelidauth = localStorage.getItem('zelidauth');
       const response = await ZelCashService.getWalletInfo(zelidauth);
       if (response.data.status === 'error') {
-        vue.$message.error(response.data.data.message || response.data.data);
+        vue.$customMes.error(response.data.data.message || response.data.data);
       } else {
         this.callResponse.status = response.data.status;
         this.callResponse.data = JSON.stringify(response.data.data, undefined, '\t');
@@ -1307,7 +1307,7 @@ export default {
       ZelCashService.tailZelCashDebug(zelidauth)
         .then((response) => {
           if (response.data.status === 'error') {
-            vue.$message.error(response.data.data.message || response.data.data);
+            vue.$customMes.error(response.data.data.message || response.data.data);
           } else {
             this.callResponse.status = response.data.status;
             this.callResponse.data = response.data.data;
@@ -1315,7 +1315,7 @@ export default {
         })
         .catch((error) => {
           console.log(error);
-          vue.$message.error('Error while trying to get latest debug of ZelCash');
+          vue.$customMes.error('Error while trying to get latest debug of ZelCash');
         });
     },
   },

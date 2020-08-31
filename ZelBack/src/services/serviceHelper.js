@@ -187,6 +187,26 @@ async function collectionStats(database, collection) {
   return result;
 }
 
+// helper owner zelapp function
+async function getApplicationOwner(appName) {
+  const db = databaseConnection();
+  const database = db.db(config.database.zelappsglobal.database);
+
+  const query = { name: new RegExp(`^${appName}$`, 'i') };
+  const projection = {
+    projection: {
+      _id: 0,
+      owner: 1,
+    },
+  };
+  const globalZelAppsInformation = config.database.zelappsglobal.collections.zelappsInformation;
+  const appSpecs = await findOneInDatabase(database, globalZelAppsInformation, query, projection);
+  if (appSpecs) {
+    return appSpecs.owner;
+  }
+  return null;
+}
+
 // Verification functions
 async function verifyAdminSession(headers) {
   if (headers && headers.zelidauth) {
@@ -271,6 +291,43 @@ async function verifyZelTeamSession(headers) {
   if (headers && headers.zelidauth) {
     const auth = ensureObject(headers.zelidauth);
     if (auth.zelid && auth.signature) {
+      if (auth.zelid === config.zelTeamZelId) {
+        const db = databaseConnection();
+        const database = db.db(config.database.local.database);
+        const collection = config.database.local.collections.loggedUsers;
+        const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
+        const projection = {};
+        const result = await findOneInDatabase(database, collection, query, projection);
+        const loggedUser = result;
+        if (loggedUser) {
+          // check if signature corresponds to message with that zelid
+          let valid = false;
+          try {
+            valid = bitcoinMessage.verify(loggedUser.loginPhrase, auth.zelid, auth.signature);
+          } catch (error) {
+            return false;
+          }
+          if (valid) {
+            // now we know this is indeed a logged zelteam
+            return true;
+          }
+        } else {
+          return false;
+        }
+      } else {
+        return false;
+      }
+    } else {
+      return false;
+    }
+  }
+  return false;
+}
+
+async function verifyAdminAndZelTeamSession(headers) {
+  if (headers && headers.zelidauth) {
+    const auth = ensureObject(headers.zelidauth);
+    if (auth.zelid && auth.signature) {
       if (auth.zelid === config.zelTeamZelId || auth.zelid === userconfig.initial.zelid) { // admin is considered as zelTeam
         const db = databaseConnection();
         const database = db.db(config.database.local.database);
@@ -288,7 +345,7 @@ async function verifyZelTeamSession(headers) {
             return false;
           }
           if (valid) {
-            // now we know this is indeed a logged admin
+            // now we know this is indeed a logged admin or zelteam
             return true;
           }
         } else {
@@ -304,7 +361,83 @@ async function verifyZelTeamSession(headers) {
   return false;
 }
 
-async function verifyPrivilege(privilege, req) {
+async function verifyAppOwnerSession(headers, appName) {
+  if (headers && headers.zelidauth && appName) {
+    const auth = ensureObject(headers.zelidauth);
+    if (auth.zelid && auth.signature) {
+      const ownerZelID = await getApplicationOwner(appName);
+      if (auth.zelid === ownerZelID) {
+        const db = databaseConnection();
+        const database = db.db(config.database.local.database);
+        const collection = config.database.local.collections.loggedUsers;
+        const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
+        const projection = {};
+        const result = await findOneInDatabase(database, collection, query, projection);
+        const loggedUser = result;
+        if (loggedUser) {
+          // check if signature corresponds to message with that zelid
+          let valid = false;
+          try {
+            valid = bitcoinMessage.verify(loggedUser.loginPhrase, auth.zelid, auth.signature);
+          } catch (error) {
+            return false;
+          }
+          if (valid) {
+            // now we know this is indeed a logged application owner
+            return true;
+          }
+        } else {
+          return false;
+        }
+      } else {
+        return false;
+      }
+    } else {
+      return false;
+    }
+  }
+  return false;
+}
+
+async function verifyAppOwnerOrHigherSession(headers, appName) {
+  if (headers && headers.zelidauth && appName) {
+    const auth = ensureObject(headers.zelidauth);
+    if (auth.zelid && auth.signature) {
+      const ownerZelID = await getApplicationOwner(appName);
+      if (auth.zelid === ownerZelID || auth.zelid === config.zelTeamZelId || auth.zelid === userconfig.initial.zelid) {
+        const db = databaseConnection();
+        const database = db.db(config.database.local.database);
+        const collection = config.database.local.collections.loggedUsers;
+        const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
+        const projection = {};
+        const result = await findOneInDatabase(database, collection, query, projection);
+        const loggedUser = result;
+        if (loggedUser) {
+          // check if signature corresponds to message with that zelid
+          let valid = false;
+          try {
+            valid = bitcoinMessage.verify(loggedUser.loginPhrase, auth.zelid, auth.signature);
+          } catch (error) {
+            return false;
+          }
+          if (valid) {
+            // now we know this is indeed a logged application owner
+            return true;
+          }
+        } else {
+          return false;
+        }
+      } else {
+        return false;
+      }
+    } else {
+      return false;
+    }
+  }
+  return false;
+}
+
+async function verifyPrivilege(privilege, req, appName) {
   let authorized;
   switch (privilege) {
     case 'admin':
@@ -312,6 +445,15 @@ async function verifyPrivilege(privilege, req) {
       break;
     case 'zelteam':
       authorized = await verifyZelTeamSession(req.headers).catch((error) => { throw error; });
+      break;
+    case 'adminandzelteam':
+      authorized = await verifyAdminAndZelTeamSession(req.headers).catch((error) => { throw error; });
+      break;
+    case 'appownerabove':
+      authorized = await verifyAppOwnerOrHigherSession(req.headers, appName).catch((error) => { throw error; });
+      break;
+    case 'appowner':
+      authorized = await verifyAppOwnerSession(req.headers, appName).catch((error) => { throw error; });
       break;
     case 'user':
       authorized = await verifyUserSession(req.headers).catch((error) => { throw error; });
@@ -421,6 +563,9 @@ module.exports = {
   verifyAdminSession,
   verifyUserSession,
   verifyZelTeamSession,
+  verifyAdminAndZelTeamSession,
+  verifyAppOwnerOrHigherSession,
+  verifyAppOwnerSession,
   verifyPrivilege,
   signMessage,
   verifyMessage,
@@ -434,4 +579,5 @@ module.exports = {
   delay,
   initiateDB,
   databaseConnection,
+  getApplicationOwner,
 };

@@ -305,7 +305,7 @@ async function processBlock(blockHeight) {
             addresses.push(receiver.scriptPubKey.addresses[0]);
             if (receiver.scriptPubKey.addresses[0] === config.zelapps.address) {
               // it is a zelapp message. Get Satoshi amount
-              isZelAppMessageValue = receiver.valueSat;
+              isZelAppMessageValue += receiver.valueSat;
             }
           }
           if (receiver.scriptPubKey.asm) {
@@ -325,7 +325,7 @@ async function processBlock(blockHeight) {
           await serviceHelper.updateOneInDatabase(database, addressTransactionIndexCollection, query, update, options);
         }));
         // MAY contain ZelApp transaction. Store it.
-        if (isZelAppMessageValue >= 10 && message.length === 64 && blockDataVerbose.height >= config.zelapps.epochstart) { // min of 10 zel had to be paid for us bothering checking
+        if (isZelAppMessageValue >= 1000000000 && message.length === 64 && blockDataVerbose.height >= config.zelapps.epochstart) { // min of 10 zel had to be paid for us bothering checking
           const zelappTxRecord = {
             txid: tx.txid, height: blockDataVerbose.height, hash: message, value: isZelAppMessageValue, message: false, // message is boolean saying if we already have it stored as permanent message
           };
@@ -369,6 +369,16 @@ async function processBlock(blockHeight) {
       log.info('ZELNODE documents', resultC.size, resultC.count, resultC.avgObjSize);
       if (blockDataVerbose.height >= config.zelapps.epochstart) {
         zelappsService.expireGlobalApplications();
+      }
+    }
+    if (blockHeight % 11 === 0) {
+      if (blockDataVerbose.height >= config.zelapps.epochstart) {
+        zelappsService.checkAndRemoveApplicationInstance();
+      }
+    }
+    if (blockHeight % 9 === 0) {
+      if (blockDataVerbose.height >= config.zelapps.epochstart) {
+        zelappsService.reinstallOldApplications();
       }
     }
     const scannedHeight = blockDataVerbose.height;
@@ -884,7 +894,7 @@ async function checkBlockProcessingStopped(i, callback) {
 }
 
 async function stopBlockProcessing(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+  const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
   if (authorized === true) {
     const i = 0;
     checkBlockProcessingStopped(i, async (response) => {
@@ -898,7 +908,7 @@ async function stopBlockProcessing(req, res) {
 }
 
 async function restartBlockProcessing(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+  const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
   if (authorized === true) {
     const i = 0;
     checkBlockProcessingStopped(i, async () => {
@@ -913,7 +923,7 @@ async function restartBlockProcessing(req, res) {
 }
 
 async function reindexExplorer(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+  const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
   if (authorized === true) {
     // stop block processing
     const i = 0;
@@ -957,7 +967,7 @@ async function reindexExplorer(req, res) {
 
 async function rescanExplorer(req, res) {
   try {
-    const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+    const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
     if (authorized === true) {
       // since what blockheight
       let { blockheight } = req.params; // we accept both help/command and help?command=getinfo

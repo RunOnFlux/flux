@@ -188,7 +188,7 @@ export default {
         })
         .catch((error) => {
           console.log(error);
-          vue.$message.error(error);
+          vue.$customMes.error(error);
           this.errorMessage = 'Error connecting to ZelBack';
         });
     },
@@ -204,7 +204,7 @@ export default {
         })
         .catch((error) => {
           console.log(error);
-          vue.$message.error(error);
+          vue.$customMes.error(error);
           this.errorMessage = 'Error connecting to ZelBack';
         });
     },
@@ -221,13 +221,13 @@ export default {
         .then((response) => {
           console.log(response);
           if (response.data.status === 'error') {
-            vue.$message.error(response.data.data.message);
+            vue.$customMes.error(response.data.data.message);
           }
         })
         .catch((e) => {
           console.log(e);
           console.log(e.code);
-          vue.$message.error(e.toString());
+          vue.$customMes.error(e.toString());
         });
     },
   },

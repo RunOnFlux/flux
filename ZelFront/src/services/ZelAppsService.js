@@ -29,6 +29,22 @@ export default {
     };
     return Api().get(`/zelapps/zelappstart/${zelapp}`, axiosConfig);
   },
+  pauseZelApp(zelidauthHeader, zelapp) {
+    const axiosConfig = {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    };
+    return Api().get(`/zelapps/zelapppause/${zelapp}`, axiosConfig);
+  },
+  unpauseZelApp(zelidauthHeader, zelapp) {
+    const axiosConfig = {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    };
+    return Api().get(`/zelapps/zelappunpause/${zelapp}`, axiosConfig);
+  },
   restartZelApp(zelidauthHeader, zelapp) {
     const axiosConfig = {
       headers: {
@@ -48,17 +64,6 @@ export default {
     };
     return Api().get(`/zelapps/zelappremove/${zelapp}`, axiosConfig);
   },
-  zelAppLogs(zelidauthHeader, zelapp) {
-    const axiosConfig = {
-      headers: {
-        zelidauth: zelidauthHeader,
-      },
-      onDownloadProgress(progressEvent) {
-        console.log(progressEvent);
-      },
-    };
-    return Api().get(`/zelapps/zelapplog/${zelapp}`, axiosConfig);
-  },
   registerZelApp(zelidauthHeader, data) {
     const axiosConfig = {
       headers: {
@@ -67,10 +72,18 @@ export default {
     };
     return Api().post('/zelapps/zelappregister', JSON.stringify(data), axiosConfig);
   },
+  updateZelApp(zelidauthHeader, data) {
+    const axiosConfig = {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    };
+    return Api().post('/zelapps/zelappupdate', JSON.stringify(data), axiosConfig);
+  },
   checkCommunication() {
     return Api().get('/zelflux/checkcommunication');
   },
-  chekcDockerExistance(zelidauthHeader, data) {
+  checkDockerExistance(zelidauthHeader, data) {
     const axiosConfig = {
       headers: {
         zelidauth: zelidauthHeader,
@@ -85,7 +98,69 @@ export default {
     return Api().get(`/zelapps/location/${name}`);
   },
   globalZelAppSpecifications() {
-    return Api().get('/zelapps/globalspecifications');
+    return Api().get('/zelapps/globalappsspecifications');
+  },
+  getInstalledZelAppSpecifics(name) {
+    return Api().get(`/zelapps/installedzelapps/${name}`);
+  },
+  getZelAppSpecifics(name) {
+    return Api().get(`/zelapps/appspecifications/${name}`);
+  },
+  getZelAppOwner(name) {
+    return Api().get(`/zelapps/appowner/${name}`);
+  },
+  getZelAppLogsTail(zelidauthHeader, zelapp) {
+    const axiosConfig = {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    };
+    return Api().get(`/zelapps/zelapplog/${zelapp}/100`, axiosConfig);
+  },
+  getZelAppTop(zelidauthHeader, zelapp) {
+    const axiosConfig = {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    };
+    return Api().get(`/zelapps/zelapptop/${zelapp}`, axiosConfig);
+  },
+  getZelAppInspect(zelidauthHeader, zelapp) {
+    const axiosConfig = {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    };
+    return Api().get(`/zelapps/zelappinspect/${zelapp}`, axiosConfig);
+  },
+  getZelAppStats(zelidauthHeader, zelapp) {
+    const axiosConfig = {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    };
+    return Api().get(`/zelapps/zelappstats/${zelapp}`, axiosConfig);
+  },
+  getZelAppChanges(zelidauthHeader, zelapp) {
+    const axiosConfig = {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    };
+    return Api().get(`/zelapps/zelappchanges/${zelapp}`, axiosConfig);
+  },
+  getZelAppExec(zelidauthHeader, zelapp, cmd, env) {
+    const axiosConfig = {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    };
+    const data = {
+      appname: zelapp,
+      cmd: JSON.parse(cmd),
+      env: JSON.parse(env),
+    };
+    return Api().post('/zelapps/zelappexec', JSON.stringify(data), axiosConfig);
   },
   reindexGlobalApps(zelidauthHeader) {
     return Api().get('/zelapps/reindexglobalappsinformation', {
@@ -107,6 +182,9 @@ export default {
         zelidauth: zelidauthHeader,
       },
     });
+  },
+  getAppPirce(specifications) {
+    return Api().post('/zelapps/calculateprice', JSON.stringify(specifications));
   },
   justAPI() {
     return Api();

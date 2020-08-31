@@ -95,7 +95,7 @@ export default {
   mounted() {
     const isChrome = !!window.chrome;
     if (!isChrome) {
-      vue.$message({
+      vue.$customMes({
         message: 'Your browser does not support Flux websockets. Logging in with Zel ID is not possible. For an optimal experience, please use Chrome or Edge',
         type: 'warning',
         duration: 0,
@@ -123,7 +123,7 @@ export default {
         })
         .catch((error) => {
           console.log(error);
-          vue.$message.error(error);
+          vue.$customMes.error(error);
           this.errorMessage = 'Error connecting to ZelBack';
         });
     },
@@ -140,7 +140,7 @@ export default {
         })
         .catch((error) => {
           console.log(error);
-          vue.$message.error(error);
+          vue.$customMes.error(error);
           this.errorMessage = 'Error connecting to ZelBack';
         });
     },
@@ -158,9 +158,9 @@ export default {
             };
             this.$store.commit('setPrivilage', response.data.data.privilage);
             localStorage.setItem('zelidauth', qs.stringify(zelidauth));
-            vue.$message.success(response.data.data.message);
+            vue.$customMes.success(response.data.data.message);
           } else {
-            vue.$message({
+            vue.$customMes({
               type: response.data.status,
               message: response.data.data.message || response.data.data,
             });
@@ -168,7 +168,7 @@ export default {
         })
         .catch((e) => {
           console.log(e);
-          vue.$message.error(e.toString());
+          vue.$customMes.error(e.toString());
         });
     },
     initiateLoginWS() {
@@ -196,7 +196,7 @@ export default {
         };
         this.$store.commit('setPrivilage', data.data.privilage);
         localStorage.setItem('zelidauth', qs.stringify(zelidauth));
-        vue.$message.success(data.data.message);
+        vue.$customMes.success(data.data.message);
       }
       console.log(data);
       console.log(evt);

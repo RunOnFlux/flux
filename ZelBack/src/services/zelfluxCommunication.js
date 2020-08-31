@@ -298,7 +298,7 @@ async function serialiseAndSignZelFluxBroadcast(dataToBroadcast, privatekey) {
   return dataString;
 }
 
-async function handleZelAppRegisterMessage(message, fromIP) {
+async function handleZelAppMessages(message, fromIP) {
   try {
     // check if we have it in database and if not add
     // if not in database, rebroadcast to all connections
@@ -422,8 +422,8 @@ function handleIncomingConnection(ws, req, expressWS) {
     if (messageOK === true && timestampOK === true) {
       try {
         const msgObj = serviceHelper.ensureObject(msg);
-        if (msgObj.data.type === 'zelappregister') {
-          handleZelAppRegisterMessage(msgObj, peer.ip);
+        if (msgObj.data.type === 'zelappregister' || msgObj.data.type === 'zelappupdate') {
+          handleZelAppMessages(msgObj, peer.ip);
         } else if (msgObj.data.type === 'zelapprequest') {
           respondWithAppMessage(msgObj, ws);
         } else if (msgObj.data.type === 'zelapprunning') {
@@ -521,7 +521,7 @@ async function broadcastMessageToOutgoingFromUser(req, res) {
     const errMessage = serviceHelper.createErrorMessage('No message to broadcast attached.');
     return res.json(errMessage);
   }
-  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+  const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
 
   if (authorized === true) {
     broadcastMessageToOutgoing(data);
@@ -545,7 +545,7 @@ async function broadcastMessageToOutgoingFromUserPost(req, res) {
       const errMessage = serviceHelper.createErrorMessage('No message to broadcast attached.');
       response = errMessage;
     } else {
-      const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+      const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
       if (authorized === true) {
         broadcastMessageToOutgoing(processedBody);
         const message = serviceHelper.createSuccessMessage('Message successfully broadcasted to Flux network');
@@ -565,7 +565,7 @@ async function broadcastMessageToIncomingFromUser(req, res) {
     const errMessage = serviceHelper.createErrorMessage('No message to broadcast attached.');
     return res.json(errMessage);
   }
-  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+  const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
 
   if (authorized === true) {
     broadcastMessageToIncoming(data);
@@ -589,7 +589,7 @@ async function broadcastMessageToIncomingFromUserPost(req, res) {
       const errMessage = serviceHelper.createErrorMessage('No message to broadcast attached.');
       response = errMessage;
     } else {
-      const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+      const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
       if (authorized === true) {
         broadcastMessageToIncoming(processedBody);
         const message = serviceHelper.createSuccessMessage('Message successfully broadcasted to Flux network');
@@ -609,7 +609,7 @@ async function broadcastMessageFromUser(req, res) {
     const errMessage = serviceHelper.createErrorMessage('No message to broadcast attached.');
     return res.json(errMessage);
   }
-  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+  const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
 
   if (authorized === true) {
     broadcastMessageToOutgoing(data);
@@ -634,7 +634,7 @@ async function broadcastMessageFromUserPost(req, res) {
       const errMessage = serviceHelper.createErrorMessage('No message to broadcast attached.');
       response = errMessage;
     } else {
-      const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+      const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
       if (authorized === true) {
         broadcastMessageToOutgoing(processedBody);
         broadcastMessageToIncoming(processedBody);
@@ -715,8 +715,8 @@ async function initiateAndHandleConnection(ip) {
       let conIP = url.split('/')[2];
       conIP = conIP.split(`:${config.server.apiport}`).join('');
       const msgObj = serviceHelper.ensureObject(evt.data);
-      if (msgObj.data.type === 'zelappregister') {
-        handleZelAppRegisterMessage(msgObj, conIP);
+      if (msgObj.data.type === 'zelappregister' || msgObj.data.type === 'zelappupdate') {
+        handleZelAppMessages(msgObj, conIP);
       } else if (msgObj.data.type === 'zelapprequest') {
         respondWithAppMessage(msgObj, websocket);
       } else if (msgObj.data.type === 'zelapprunning') {
@@ -850,7 +850,7 @@ async function addPeer(req, res) {
     const errMessage = serviceHelper.createErrorMessage(`Already connected to ${ip}`);
     return res.json(errMessage);
   }
-  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+  const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
 
   if (authorized === true) {
     initiateAndHandleConnection(ip);
@@ -947,7 +947,7 @@ async function removePeer(req, res) {
     const errMessage = serviceHelper.createErrorMessage('No IP address specified.');
     return res.json(errMessage);
   }
-  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+  const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
 
   if (authorized === true) {
     const closeResponse = await closeConnection(ip);
@@ -965,7 +965,7 @@ async function removeIncomingPeer(req, res, expressWS) {
     const errMessage = serviceHelper.createErrorMessage('No IP address specified.');
     return res.json(errMessage);
   }
-  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+  const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
 
   if (authorized === true) {
     const closeResponse = await closeIncomingConnection(ip, expressWS);
@@ -1125,7 +1125,7 @@ async function allowPortApi(req, res) {
     const errMessage = serviceHelper.createErrorMessage('No Port address specified.');
     return res.json(errMessage);
   }
-  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+  const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
 
   if (authorized === true) {
     const portResponseOK = await allowPort(port);

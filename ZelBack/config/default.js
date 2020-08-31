@@ -65,8 +65,12 @@ module.exports = {
     portMax: 39999,
     maxImageSize: 300000000, // 300mb
     installation: {
-      probability: 100,
+      probability: 2, // 100
       delay: 120, // in seconds
+    },
+    removal: {
+      probability: 20,
+      delay: 300,
     },
     blocksLasting: 22000, // registered app will live for 22000 of blocks 44000 minutes ~= 1 month
     // every 100 blocks we run a check that deletes apps specifications and stops/removes the application from existence if it has been lastly updated more than 22k blocks ago

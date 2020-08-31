@@ -12,7 +12,7 @@ const userconfig = require('../../../config/userconfig');
 
 // eslint-disable-next-line consistent-return
 async function updateZelFlux(req, res) {
-  const authorized = await serviceHelper.verifyZelTeamSession(req.headers);
+  const authorized = await serviceHelper.verifyAdminAndZelTeamSession(req.headers);
   if (authorized === true) {
     const zelnodedpath = path.join(__dirname, '../../../');
     const exec = `cd ${zelnodedpath} && npm run updatezelflux`;
@@ -32,7 +32,7 @@ async function updateZelFlux(req, res) {
 
 // eslint-disable-next-line consistent-return
 async function hardUpdateZelFlux(req, res) {
-  const authorized = await serviceHelper.verifyZelTeamSession(req.headers);
+  const authorized = await serviceHelper.verifyAdminAndZelTeamSession(req.headers);
   if (authorized === true) {
     const zelnodedpath = path.join(__dirname, '../../../');
     const exec = `cd ${zelnodedpath} && npm run hardupdatezelflux`;
@@ -52,7 +52,7 @@ async function hardUpdateZelFlux(req, res) {
 
 // eslint-disable-next-line consistent-return
 async function rebuildZelFront(req, res) {
-  const authorized = await serviceHelper.verifyZelTeamSession(req.headers);
+  const authorized = await serviceHelper.verifyAdminAndZelTeamSession(req.headers);
   if (authorized === true) {
     const zelnodedpath = path.join(__dirname, '../../../');
     const exec = `cd ${zelnodedpath} && npm run zelfrontbuild`;
@@ -72,7 +72,7 @@ async function rebuildZelFront(req, res) {
 
 // eslint-disable-next-line consistent-return
 async function updateZelCash(req, res) {
-  const authorized = await serviceHelper.verifyZelTeamSession(req.headers);
+  const authorized = await serviceHelper.verifyAdminAndZelTeamSession(req.headers);
   if (authorized === true) {
     const zelnodedpath = path.join(__dirname, '../../../helpers');
     const exec = `cd ${zelnodedpath} && sh updateZelCash.sh`;
@@ -92,7 +92,7 @@ async function updateZelCash(req, res) {
 
 // eslint-disable-next-line consistent-return
 async function updateZelBench(req, res) {
-  const authorized = await serviceHelper.verifyZelTeamSession(req.headers);
+  const authorized = await serviceHelper.verifyAdminAndZelTeamSession(req.headers);
   if (authorized === true) {
     const zelnodedpath = path.join(__dirname, '../../../helpers');
     const exec = `cd ${zelnodedpath} && sh updateZelBench.sh`;
@@ -112,7 +112,7 @@ async function updateZelBench(req, res) {
 
 // eslint-disable-next-line consistent-return
 async function startZelBench(req, res) {
-  const authorized = await serviceHelper.verifyZelTeamSession(req.headers);
+  const authorized = await serviceHelper.verifyAdminAndZelTeamSession(req.headers);
   if (authorized === true) {
     const exec = 'zelbenchd -daemon';
     cmd.get(exec, (err, data) => {
@@ -132,7 +132,7 @@ async function startZelBench(req, res) {
 
 // eslint-disable-next-line consistent-return
 async function restartZelBench(req, res) {
-  const authorized = await serviceHelper.verifyZelTeamSession(req.headers);
+  const authorized = await serviceHelper.verifyAdminAndZelTeamSession(req.headers);
   if (authorized === true) {
     const zelnodedpath = path.join(__dirname, '../../../helpers');
     const exec = `cd ${zelnodedpath} && sh restartZelBench.sh`;
@@ -153,7 +153,7 @@ async function restartZelBench(req, res) {
 
 // eslint-disable-next-line consistent-return
 async function startZelCash(req, res) {
-  const authorized = await serviceHelper.verifyZelTeamSession(req.headers);
+  const authorized = await serviceHelper.verifyAdminAndZelTeamSession(req.headers);
   if (authorized === true) {
     const exec = 'zelcashd';
     cmd.get(exec, (err, data) => {
@@ -173,7 +173,7 @@ async function startZelCash(req, res) {
 
 // eslint-disable-next-line consistent-return
 async function restartZelCash(req, res) {
-  const authorized = await serviceHelper.verifyZelTeamSession(req.headers);
+  const authorized = await serviceHelper.verifyAdminAndZelTeamSession(req.headers);
   if (authorized === true) {
     const zelnodedpath = path.join(__dirname, '../../../helpers');
     const exec = `cd ${zelnodedpath} && sh restartZelCash.sh`;
@@ -238,7 +238,7 @@ function getZelFluxZelID(req, res) {
 }
 
 async function zelcashDebug(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+  const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
   if (!authorized) {
     const errMessage = serviceHelper.errUnauthorizedMessage();
     return res.json(errMessage);
@@ -252,7 +252,7 @@ async function zelcashDebug(req, res) {
 }
 
 async function zelbenchDebug(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+  const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
   if (!authorized) {
     const errMessage = serviceHelper.errUnauthorizedMessage();
     return res.json(errMessage);
@@ -265,7 +265,7 @@ async function zelbenchDebug(req, res) {
 }
 
 async function tailZelCashDebug(req, res) {
-  const authorized = await serviceHelper.verifyZelTeamSession(req.headers);
+  const authorized = await serviceHelper.verifyAdminAndZelTeamSession(req.headers);
   if (authorized === true) {
     const homeDirPath = path.join(__dirname, '../../../../');
     const datadir = zelcashService.getConfigValue('datadir') || `${homeDirPath}.zelcash`;
@@ -287,7 +287,7 @@ async function tailZelCashDebug(req, res) {
 }
 
 async function tailZelBenchDebug(req, res) {
-  const authorized = await serviceHelper.verifyZelTeamSession(req.headers);
+  const authorized = await serviceHelper.verifyAdminAndZelTeamSession(req.headers);
   if (authorized === true) {
     const homeDirPath = path.join(__dirname, '../../../../');
     const datadir = `${homeDirPath}.zelbenchmark`;
@@ -309,7 +309,7 @@ async function tailZelBenchDebug(req, res) {
 }
 
 async function zelfluxErrorLog(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('zelteam', req);
+  const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
   if (!authorized) {
     const errMessage = serviceHelper.errUnauthorizedMessage();
     return res.json(errMessage);
@@ -322,7 +322,7 @@ async function zelfluxErrorLog(req, res) {
 }
 
 async function tailFluxErrorLog(req, res) {
-  const authorized = await serviceHelper.verifyZelTeamSession(req.headers);
+  const authorized = await serviceHelper.verifyAdminAndZelTeamSession(req.headers);
   if (authorized === true) {
     const homeDirPath = path.join(__dirname, '../../../../');
     const datadir = `${homeDirPath}zelflux`;

@@ -37,7 +37,7 @@ export default {
     ]),
   },
   mounted() {
-    vue.$message.success('Hi!');
+    vue.$customMes.success('Hi!');
   },
   methods: {
   },

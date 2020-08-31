@@ -384,7 +384,7 @@ export default {
     async zelbenchGetBenchmarks() {
       const response = await ZelBenchService.getBenchmarks();
       if (response.data.status === 'error') {
-        vue.$message.error(response.data.data.message || response.data.data);
+        vue.$customMes.error(response.data.data.message || response.data.data);
       } else {
         this.callResponse.status = response.data.status;
         this.callResponse.data = response.data.data;
@@ -393,7 +393,7 @@ export default {
     async zelbenchGetInfo() {
       const response = await ZelBenchService.getInfo();
       if (response.data.status === 'error') {
-        vue.$message.error(response.data.data.message || response.data.data);
+        vue.$customMes.error(response.data.data.message || response.data.data);
       } else {
         this.callResponse.status = response.data.status;
         this.callResponse.data = response.data.data;
@@ -402,7 +402,7 @@ export default {
     async zelbenchHelp() {
       const response = await ZelBenchService.help();
       if (response.data.status === 'error') {
-        vue.$message.error(response.data.data.message || response.data.data);
+        vue.$customMes.error(response.data.data.message || response.data.data);
       } else {
         this.callResponse.status = response.data.status;
         this.callResponse.data = response.data.data;
@@ -440,51 +440,51 @@ export default {
       this.currentHelpResponse = modifiedHelp.join('\n');
     },
     startZelBench() {
-      vue.$message.warning('ZelBench will start');
+      vue.$customMes.warning('ZelBench will start');
       const zelidauth = localStorage.getItem('zelidauth');
       ZelBenchService.start(zelidauth)
         .then((response) => {
           if (response.data.status === 'error') {
-            vue.$message.error(response.data.data.message || response.data.data);
+            vue.$customMes.error(response.data.data.message || response.data.data);
           } else {
-            vue.$message.success(response.data.data.message || response.data.data);
+            vue.$customMes.success(response.data.data.message || response.data.data);
           }
         })
         .catch((error) => {
           console.log(error);
-          vue.$message.error('Error while trying to start ZelBench');
+          vue.$customMes.error('Error while trying to start ZelBench');
         });
     },
     stopZelBench() {
-      vue.$message.warning('ZelBench will be stopped');
+      vue.$customMes.warning('ZelBench will be stopped');
       const zelidauth = localStorage.getItem('zelidauth');
       ZelBenchService.stop(zelidauth)
         .then((response) => {
           if (response.data.status === 'error') {
-            vue.$message.error(response.data.data.message || response.data.data);
+            vue.$customMes.error(response.data.data.message || response.data.data);
           } else {
-            vue.$message.success(response.data.data.message || response.data.data);
+            vue.$customMes.success(response.data.data.message || response.data.data);
           }
         })
         .catch((error) => {
           console.log(error);
-          vue.$message.error('Error while trying to stop ZelBench');
+          vue.$customMes.error('Error while trying to stop ZelBench');
         });
     },
     restartZelBench() {
-      vue.$message.warning('ZelBench will now restart');
+      vue.$customMes.warning('ZelBench will now restart');
       const zelidauth = localStorage.getItem('zelidauth');
       ZelBenchService.restart(zelidauth)
         .then((response) => {
           if (response.data.status === 'error') {
-            vue.$message.error(response.data.data.message || response.data.data);
+            vue.$customMes.error(response.data.data.message || response.data.data);
           } else {
-            vue.$message.success(response.data.data.message || response.data.data);
+            vue.$customMes.success(response.data.data.message || response.data.data);
           }
         })
         .catch((error) => {
           console.log(error);
-          vue.$message.error('Error while trying to restart ZelBench');
+          vue.$customMes.error('Error while trying to restart ZelBench');
         });
     },
     cancelDownload() {
@@ -521,7 +521,7 @@ export default {
       ZelBenchService.tailZelBenchDebug(zelidauth)
         .then((response) => {
           if (response.data.status === 'error') {
-            vue.$message.error(response.data.data.message || response.data.data);
+            vue.$customMes.error(response.data.data.message || response.data.data);
           } else {
             this.callResponse.status = response.data.status;
             this.callResponse.data = response.data.data;
@@ -529,46 +529,46 @@ export default {
         })
         .catch((error) => {
           console.log(error);
-          vue.$message.error('Error while trying to get latest debug of ZelBench');
+          vue.$customMes.error('Error while trying to get latest debug of ZelBench');
         });
     },
     async zelbenchGetStatus() {
       const response = await ZelBenchService.getStatus();
       if (response.data.status === 'error') {
-        vue.$message.error(response.data.data.message || response.data.data);
+        vue.$customMes.error(response.data.data.message || response.data.data);
       } else {
         this.callResponse.status = response.data.status;
         this.callResponse.data = response.data.data;
       }
     },
     restartBenchmarks() {
-      vue.$message.warning('Initiating new benchmarks...');
+      vue.$customMes.warning('Initiating new benchmarks...');
       const zelidauth = localStorage.getItem('zelidauth');
       ZelBenchService.restartNodeBenchmarks(zelidauth)
         .then((response) => {
           console.log(response);
           if (response.data.status === 'error') {
-            vue.$message.error(response.data.data.message || response.data.data);
+            vue.$customMes.error(response.data.data.message || response.data.data);
           } else {
-            vue.$message.success(response.data.data.message || response.data.data);
+            vue.$customMes.success(response.data.data.message || response.data.data);
           }
         })
         .catch((error) => {
           console.log(error);
-          vue.$message.error('Error while trying to run new benchmarks');
+          vue.$customMes.error('Error while trying to run new benchmarks');
         });
     },
     signZelNodeTransaction() {
       const zelidauth = localStorage.getItem('zelidauth');
       if (!this.hexZelNodeTransaction) {
-        vue.$message.error('No ZelNode transaction hex provided');
+        vue.$customMes.error('No ZelNode transaction hex provided');
         return;
       }
       ZelBenchService.signZelNodeTransaction(zelidauth, this.hexZelNodeTransaction)
         .then((response) => {
           console.log(response);
           if (response.data.status === 'error') {
-            vue.$message.error(response.data.data.message || response.data.data);
+            vue.$customMes.error(response.data.data.message || response.data.data);
           } else {
             this.callResponse.status = response.data.status;
             this.callResponse.data = response.data.data;
@@ -576,7 +576,7 @@ export default {
         })
         .catch((error) => {
           console.log(error);
-          vue.$message.error('Error while trying to sign ZelNode transaction');
+          vue.$customMes.error('Error while trying to sign ZelNode transaction');
         });
     },
   },

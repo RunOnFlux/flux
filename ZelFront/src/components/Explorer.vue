@@ -476,7 +476,7 @@ export default {
         }
       } else {
         this.errorMessage = 'Unable to communicate with ZelCash node';
-        vue.$message.error(this.errorMessage);
+        vue.$customMes.error(this.errorMessage);
       }
     },
     async getSyncedHeight() {
@@ -637,7 +637,7 @@ export default {
             this.uniqueKeyAddress += 1;
           }
         } else {
-          vue.$message.info('Not found');
+          vue.$customMes.info('Not found');
           this.$store.commit('setExplorerSection', 'explorer');
         }
       } else {
@@ -677,7 +677,7 @@ export default {
           this.uniqueKey += 1;
         }
       } else {
-        vue.$message.info('Not found');
+        vue.$customMes.info('Not found');
         this.$store.commit('setExplorerSection', 'explorer');
       }
       console.log(this.transactionDetail);

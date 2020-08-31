@@ -25,12 +25,6 @@ a:hover {
   color: #fff;
 }
 
-hr {
-  height: 1px;
-  background-color: rgba(255, 255, 255, 0.6);
-  margin: 30px;
-}
-
 ::-webkit-scrollbar {
   height: 8px;
   width: 6px;
@@ -171,7 +165,7 @@ h4 {
 
 .footer-grid {
   display: grid;
-  grid-template-columns: 240px calc(100vw - 480px) 240px;
+  grid-template-columns: 250px calc(100vw - 500px) 250px;
   grid-template-rows: 1fr;
   margin: auto;
 }
@@ -179,6 +173,11 @@ h4 {
 .footer-left {
   grid-area: 1 / 1 / 2 / 2;
   height: 100%;
+  margin-left: 5px;
+}
+
+.footer-left .el-select {
+  width: 230px;
 }
 
 .footer-middle {
@@ -310,7 +309,7 @@ h4 {
 }
 
 /* */
-
+.el-main .el-button,
 .zelnodesection .el-button,
 .zelcashsection .el-button,
 .zelbenchsection .el-button,
@@ -318,6 +317,7 @@ h4 {
   margin: 10px;
 }
 
+.el-main .el-button,
 .zelnodesection .el-switch,
 .zelcashsection .el-switch,
 .zelbenchsection .el-switch,
@@ -331,4 +331,20 @@ h4 {
 
 .helpSpecific {
   margin-left: 30px;
+}
+
+.pageheader {
+  margin-top: -35px;
+}
+
+.el-page-header__content {
+  color: white;
+}
+
+.el-divider--horizontal {
+  height: 2px;
+  margin-left: 2%;
+  margin-top: 30px;
+  margin-bottom: 30px;
+  width: 96%;
 }
