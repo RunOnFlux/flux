@@ -2084,6 +2084,7 @@ export default {
           this.zelappsGetListGlobalZelApps();
           break;
         case 'myapps':
+          this.zelappsGetListAllZelApps();
           this.zelappsGetListGlobalZelApps();
           this.getZelCashInfo();
           break;
