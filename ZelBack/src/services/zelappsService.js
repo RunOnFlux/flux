@@ -3414,7 +3414,6 @@ async function checkAndRequestZelApp(hash, txid, height, valueSat, i = 0) {
             updateZelAppSpecifications(updateForSpecifications);
           } // else do nothing notify its underpaid?
         } else if (tempMessage.type === 'zelappupdate') {
-          // TODO check if applications running are up to date with hash TODO TODO
           // zelappSpecifications.name as identifier
           const db = serviceHelper.databaseConnection();
           const database = db.db(config.database.zelappsglobal.database);

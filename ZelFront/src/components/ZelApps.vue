@@ -1245,7 +1245,7 @@
                   Sign with ZelCore
                   <br>
                   <a
-                    @click="initiateSignWS"
+                    @click="initiateSignWSUpdate"
                     :href="'zel:?action=sign&message=' + dataToSign + '&icon=http%3A%2F%2Fzelid.io%2Fimg%2FzelID.svg&callback=http%3A%2F%2F' + userconfig.externalip + ':' + config.apiPort + '%2Fzelid%2Fprovidesign%2F'"
                   >
                     <img
@@ -1275,10 +1275,7 @@
                 <div v-if="updateHash">
                   Pay with ZelCore
                   <br>
-                  <a
-                    @click="initiateSignWS"
-                    :href="'zel:?action=pay&coin=zelcash&address=' + zelapps.address + '&amount=' + appPricePerMonthForUpdate + '&message=' + updateHash + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Fzelcash%2Fzelflux%2Fmaster%2FZelFront%2Fsrc%2Fassets%2Fimg%2Fflux_banner.png'"
-                  >
+                  <a :href="'zel:?action=pay&coin=zelcash&address=' + zelapps.address + '&amount=' + appPricePerMonthForUpdate + '&message=' + updateHash + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Fzelcash%2Fzelflux%2Fmaster%2FZelFront%2Fsrc%2Fassets%2Fimg%2Fflux_banner.png'">
                     <img
                       class="zelidLogin"
                       src="@/assets/img/zelID.svg"
@@ -1693,10 +1690,7 @@
           <div v-if="registrationHash">
             Pay with ZelCore
             <br>
-            <a
-              @click="initiateSignWS"
-              :href="'zel:?action=pay&coin=zelcash&address=' + zelapps.address + '&amount=' + appPricePerMonth + '&message=' + registrationHash + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Fzelcash%2Fzelflux%2Fmaster%2FZelFront%2Fsrc%2Fassets%2Fimg%2Fflux_banner.png'"
-            >
+            <a :href="'zel:?action=pay&coin=zelcash&address=' + zelapps.address + '&amount=' + appPricePerMonth + '&message=' + registrationHash + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Fzelcash%2Fzelflux%2Fmaster%2FZelFront%2Fsrc%2Fassets%2Fimg%2Fflux_banner.png'">
               <img
                 class="zelidLogin"
                 src="@/assets/img/zelID.svg"
@@ -1967,7 +1961,7 @@ export default {
       return price;
     },
     appPricePerMonthForUpdate() {
-      this.getAppPriceFromAPI(); // TODO remove this test
+      // this.getAppPriceFromAPI(); // TODO remove this test
       const zelappInfo = this.callBResponse.data;
       let actualPriceToPay = this.appPricePerMonthMethod(this.dataForZelAppUpdate);
       console.log(actualPriceToPay);
@@ -2925,6 +2919,18 @@ export default {
     initiateSignWS() {
       const self = this;
       const signatureMessage = this.zelAppRegistrationSpecification.owner + this.timestamp;
+      const wsuri = `ws://${this.userconfig.externalip}:${this.config.apiPort}/ws/zelsign/${signatureMessage}`;
+      const websocket = new WebSocket(wsuri);
+      this.websocket = websocket;
+
+      websocket.onopen = (evt) => { self.onOpen(evt); };
+      websocket.onclose = (evt) => { self.onClose(evt); };
+      websocket.onmessage = (evt) => { self.onMessage(evt); };
+      websocket.onerror = (evt) => { self.onError(evt); };
+    },
+    initiateSignWSUpdate() {
+      const self = this;
+      const signatureMessage = this.zelAppUpdateSpecification.owner + this.timestamp; // todo fixme
       const wsuri = `ws://${this.userconfig.externalip}:${this.config.apiPort}/ws/zelsign/${signatureMessage}`;
       const websocket = new WebSocket(wsuri);
       this.websocket = websocket;
