@@ -4,24 +4,28 @@ const config = require('config');
 const bitcoinMessage = require('bitcoinjs-message');
 const bitcoinjs = require('bitcoinjs-lib');
 const zeltrezjs = require('zeltrezjs');
-const {randomBytes} = require('crypto');
+const { randomBytes } = require('crypto');
 const qs = require('qs');
 
 const userconfig = require('../../../config/userconfig');
 const log = require('../lib/log');
 
-const {MongoClient} = mongodb;
+const { MongoClient } = mongodb;
 const mongoUrl = `mongodb://${config.database.url}:${config.database.port}/`;
 
 let openDBConnection = null;
 
-function databaseConnection() { return openDBConnection; }
+function databaseConnection() {
+  return openDBConnection;
+}
 
-function delay(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function createDataMessage(data) {
   const successMessage = {
-    status : 'success',
+    status: 'success',
     data,
   };
   return successMessage;
@@ -29,8 +33,8 @@ function createDataMessage(data) {
 
 function createSuccessMessage(message, name, code) {
   const successMessage = {
-    status : 'success',
-    data : {
+    status: 'success',
+    data: {
       code,
       name,
       message,
@@ -41,8 +45,8 @@ function createSuccessMessage(message, name, code) {
 
 function createWarningMessage(message, name, code) {
   const warningMessage = {
-    status : 'warning',
-    data : {
+    status: 'warning',
+    data: {
       code,
       name,
       message,
@@ -53,11 +57,11 @@ function createWarningMessage(message, name, code) {
 
 function createErrorMessage(message, name, code) {
   const errMessage = {
-    status : 'error',
-    data : {
+    status: 'error',
+    data: {
       code,
       name,
-      message : message || 'Unknown error',
+      message: message || 'Unknown error',
     },
   };
   return errMessage;
@@ -65,11 +69,11 @@ function createErrorMessage(message, name, code) {
 
 function errUnauthorizedMessage() {
   const errMessage = {
-    status : 'error',
-    data : {
-      code : 401,
-      name : 'Unauthorized',
-      message : 'Unauthorized. Access denied.',
+    status: 'error',
+    data: {
+      code: 401,
+      name: 'Unauthorized',
+      message: 'Unauthorized. Access denied.',
     },
   };
   return errMessage;
@@ -77,12 +81,20 @@ function errUnauthorizedMessage() {
 
 function ensureBoolean(parameter) {
   let param;
-  if (parameter === 'false' || parameter === 0 || parameter === '0' ||
-      parameter === false) {
+  if (
+    parameter === 'false' ||
+    parameter === 0 ||
+    parameter === '0' ||
+    parameter === false
+  ) {
     param = false;
   }
-  if (parameter === 'true' || parameter === 1 || parameter === '1' ||
-      parameter === true) {
+  if (
+    parameter === 'true' ||
+    parameter === 1 ||
+    parameter === '1' ||
+    parameter === true
+  ) {
     param = true;
   }
   return param;
@@ -113,12 +125,15 @@ function ensureString(parameter) {
 async function connectMongoDb(url) {
   const connectUrl = url || mongoUrl;
   const mongoSettings = {
-    useNewUrlParser : true,
-    useUnifiedTopology : true,
-    poolSize : 10,
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+    poolSize: 10,
   };
-  const db = await MongoClient.connect(connectUrl, mongoSettings)
-                 .catch((error) => { throw error; });
+  const db = await MongoClient.connect(connectUrl, mongoSettings).catch(
+    (error) => {
+      throw error;
+    }
+  );
   return db;
 }
 
@@ -128,87 +143,134 @@ async function initiateDB() {
 }
 
 async function distinctDatabase(database, collection, distinct, query) {
-  const results = await database.collection(collection)
-                      .distinct(distinct, query)
-                      .catch((error) => { throw error; });
+  const results = await database
+    .collection(collection)
+    .distinct(distinct, query)
+    .catch((error) => {
+      throw error;
+    });
   return results;
 }
 
 async function findInDatabase(database, collection, query, projection) {
-  const results = await database.collection(collection)
-                      .find(query, projection)
-                      .toArray()
-                      .catch((error) => { throw error; });
+  const results = await database
+    .collection(collection)
+    .find(query, projection)
+    .toArray()
+    .catch((error) => {
+      throw error;
+    });
   return results;
 }
 
 async function findOneInDatabase(database, collection, query, projection) {
-  const result = await database.collection(collection)
-                     .findOne(query, projection)
-                     .catch((error) => { throw error; });
+  const result = await database
+    .collection(collection)
+    .findOne(query, projection)
+    .catch((error) => {
+      throw error;
+    });
   return result;
 }
 
-async function findOneAndUpdateInDatabase(database, collection, query, update,
-                                          options) {
+async function findOneAndUpdateInDatabase(
+  database,
+  collection,
+  query,
+  update,
+  options
+) {
   const passedOptions = options || {};
-  const result = await database.collection(collection)
-                     .findOneAndUpdate(query, update, passedOptions)
-                     .catch((error) => { throw error; });
+  const result = await database
+    .collection(collection)
+    .findOneAndUpdate(query, update, passedOptions)
+    .catch((error) => {
+      throw error;
+    });
   return result;
 }
 
 async function insertOneToDatabase(database, collection, value) {
-  const result = await database.collection(collection)
-                     .insertOne(value)
-                     .catch((error) => { throw error; });
+  const result = await database
+    .collection(collection)
+    .insertOne(value)
+    .catch((error) => {
+      throw error;
+    });
   return result;
 }
 
-async function updateOneInDatabase(database, collection, query, update,
-                                   options) {
+async function updateOneInDatabase(
+  database,
+  collection,
+  query,
+  update,
+  options
+) {
   const passedOptions = options || {};
-  const result = await database.collection(collection)
-                     .updateOne(query, update, passedOptions)
-                     .catch((error) => { throw error; });
+  const result = await database
+    .collection(collection)
+    .updateOne(query, update, passedOptions)
+    .catch((error) => {
+      throw error;
+    });
   return result;
 }
 
 async function updateInDatabase(database, collection, query, projection) {
-  const result = await database.collection(collection)
-                     .updateMany(query, projection)
-                     .catch((error) => { throw error; });
+  const result = await database
+    .collection(collection)
+    .updateMany(query, projection)
+    .catch((error) => {
+      throw error;
+    });
   return result;
 }
 
-async function findOneAndDeleteInDatabase(database, collection, query,
-                                          projection) {
-  const result = await database.collection(collection)
-                     .findOneAndDelete(query, projection)
-                     .catch((error) => { throw error; });
+async function findOneAndDeleteInDatabase(
+  database,
+  collection,
+  query,
+  projection
+) {
+  const result = await database
+    .collection(collection)
+    .findOneAndDelete(query, projection)
+    .catch((error) => {
+      throw error;
+    });
   return result;
 }
 
 async function removeDocumentsFromCollection(database, collection, query) {
   // to remove all documents from collection, the query is just {}
-  const result = await database.collection(collection)
-                     .deleteMany(query)
-                     .catch((error) => { throw error; });
+  const result = await database
+    .collection(collection)
+    .deleteMany(query)
+    .catch((error) => {
+      throw error;
+    });
   return result;
 }
 
 async function dropCollection(database, collection) {
-  const result = await database.collection(collection)
-                     .drop()
-                     .catch((error) => { throw error; });
+  const result = await database
+    .collection(collection)
+    .drop()
+    .catch((error) => {
+      throw error;
+    });
   return result;
 }
 
 async function collectionStats(database, collection) {
   // to remove all documents from collection, the query is just {}
-  const result = await database.collection(collection)
-                     .stats()
-                     .catch((error) => { throw error; });
+  const result = await database
+    .collection(collection)
+    .stats()
+    .catch((error) => {
+      throw error;
+    });
   return result;
 }
 
@@ -217,17 +279,21 @@ async function getApplicationOwner(appName) {
   const db = databaseConnection();
   const database = db.db(config.database.zelappsglobal.database);
 
-  const query = {name : new RegExp(`^${appName}$`, 'i')};
+  const query = { name: new RegExp(`^${appName}$`, 'i') };
   const projection = {
-    projection : {
-      _id : 0,
-      owner : 1,
+    projection: {
+      _id: 0,
+      owner: 1,
     },
   };
   const globalZelAppsInformation =
-      config.database.zelappsglobal.collections.zelappsInformation;
-  const appSpecs = await findOneInDatabase(database, globalZelAppsInformation,
-                                           query, projection);
+    config.database.zelappsglobal.collections.zelappsInformation;
+  const appSpecs = await findOneInDatabase(
+    database,
+    globalZelAppsInformation,
+    query,
+    projection
+  );
   if (appSpecs) {
     return appSpecs.owner;
   }
@@ -248,19 +314,26 @@ async function verifyAdminSession(headers) {
         const database = db.db(config.database.local.database);
         const collection = config.database.local.collections.loggedUsers;
         const query = {
-          $and : [ {signature : auth.signature}, {zelid : auth.zelid} ]
+          $and: [{ signature: auth.signature }, { zelid: auth.zelid }],
         };
         const projection = {};
-        const result =
-            await findOneInDatabase(database, collection, query, projection);
+        const result = await findOneInDatabase(
+          database,
+          collection,
+          query,
+          projection
+        );
         const loggedUser = result;
         // console.log(result)
         if (loggedUser) {
           // check if signature corresponds to message with that zelid
           let valid = false;
           try {
-            valid = bitcoinMessage.verify(loggedUser.loginPhrase, auth.zelid,
-                                          auth.signature);
+            valid = bitcoinMessage.verify(
+              loggedUser.loginPhrase,
+              auth.zelid,
+              auth.signature
+            );
           } catch (error) {
             return false;
           }
@@ -291,19 +364,26 @@ async function verifyUserSession(headers) {
       const database = db.db(config.database.local.database);
       const collection = config.database.local.collections.loggedUsers;
       const query = {
-        $and : [ {signature : auth.signature}, {zelid : auth.zelid} ]
+        $and: [{ signature: auth.signature }, { zelid: auth.zelid }],
       };
       const projection = {};
-      const result =
-          await findOneInDatabase(database, collection, query, projection);
+      const result = await findOneInDatabase(
+        database,
+        collection,
+        query,
+        projection
+      );
       const loggedUser = result;
       // console.log(result)
       if (loggedUser) {
         // check if signature corresponds to message with that zelid
         let valid = false;
         try {
-          valid = bitcoinMessage.verify(loggedUser.loginPhrase, auth.zelid,
-                                        auth.signature);
+          valid = bitcoinMessage.verify(
+            loggedUser.loginPhrase,
+            auth.zelid,
+            auth.signature
+          );
         } catch (error) {
           return false;
         }
@@ -331,18 +411,25 @@ async function verifyZelTeamSession(headers) {
         const database = db.db(config.database.local.database);
         const collection = config.database.local.collections.loggedUsers;
         const query = {
-          $and : [ {signature : auth.signature}, {zelid : auth.zelid} ]
+          $and: [{ signature: auth.signature }, { zelid: auth.zelid }],
         };
         const projection = {};
-        const result =
-            await findOneInDatabase(database, collection, query, projection);
+        const result = await findOneInDatabase(
+          database,
+          collection,
+          query,
+          projection
+        );
         const loggedUser = result;
         if (loggedUser) {
           // check if signature corresponds to message with that zelid
           let valid = false;
           try {
-            valid = bitcoinMessage.verify(loggedUser.loginPhrase, auth.zelid,
-                                          auth.signature);
+            valid = bitcoinMessage.verify(
+              loggedUser.loginPhrase,
+              auth.zelid,
+              auth.signature
+            );
           } catch (error) {
             return false;
           }
@@ -367,25 +454,34 @@ async function verifyAdminAndZelTeamSession(headers) {
   if (headers && headers.zelidauth) {
     const auth = ensureObject(headers.zelidauth);
     if (auth.zelid && auth.signature) {
-      if (auth.zelid === config.zelTeamZelId ||
-          auth.zelid ===
-              userconfig.initial.zelid) { // admin is considered as zelTeam
+      if (
+        auth.zelid === config.zelTeamZelId ||
+        auth.zelid === userconfig.initial.zelid
+      ) {
+        // admin is considered as zelTeam
         const db = databaseConnection();
         const database = db.db(config.database.local.database);
         const collection = config.database.local.collections.loggedUsers;
         const query = {
-          $and : [ {signature : auth.signature}, {zelid : auth.zelid} ]
+          $and: [{ signature: auth.signature }, { zelid: auth.zelid }],
         };
         const projection = {};
-        const result =
-            await findOneInDatabase(database, collection, query, projection);
+        const result = await findOneInDatabase(
+          database,
+          collection,
+          query,
+          projection
+        );
         const loggedUser = result;
         if (loggedUser) {
           // check if signature corresponds to message with that zelid
           let valid = false;
           try {
-            valid = bitcoinMessage.verify(loggedUser.loginPhrase, auth.zelid,
-                                          auth.signature);
+            valid = bitcoinMessage.verify(
+              loggedUser.loginPhrase,
+              auth.zelid,
+              auth.signature
+            );
           } catch (error) {
             return false;
           }
@@ -416,18 +512,25 @@ async function verifyAppOwnerSession(headers, appName) {
         const database = db.db(config.database.local.database);
         const collection = config.database.local.collections.loggedUsers;
         const query = {
-          $and : [ {signature : auth.signature}, {zelid : auth.zelid} ]
+          $and: [{ signature: auth.signature }, { zelid: auth.zelid }],
         };
         const projection = {};
-        const result =
-            await findOneInDatabase(database, collection, query, projection);
+        const result = await findOneInDatabase(
+          database,
+          collection,
+          query,
+          projection
+        );
         const loggedUser = result;
         if (loggedUser) {
           // check if signature corresponds to message with that zelid
           let valid = false;
           try {
-            valid = bitcoinMessage.verify(loggedUser.loginPhrase, auth.zelid,
-                                          auth.signature);
+            valid = bitcoinMessage.verify(
+              loggedUser.loginPhrase,
+              auth.zelid,
+              auth.signature
+            );
           } catch (error) {
             return false;
           }
@@ -453,24 +556,34 @@ async function verifyAppOwnerOrHigherSession(headers, appName) {
     const auth = ensureObject(headers.zelidauth);
     if (auth.zelid && auth.signature) {
       const ownerZelID = await getApplicationOwner(appName);
-      if (auth.zelid === ownerZelID || auth.zelid === config.zelTeamZelId ||
-          auth.zelid === userconfig.initial.zelid) {
+      if (
+        auth.zelid === ownerZelID ||
+        auth.zelid === config.zelTeamZelId ||
+        auth.zelid === userconfig.initial.zelid
+      ) {
         const db = databaseConnection();
         const database = db.db(config.database.local.database);
         const collection = config.database.local.collections.loggedUsers;
         const query = {
-          $and : [ {signature : auth.signature}, {zelid : auth.zelid} ]
+          $and: [{ signature: auth.signature }, { zelid: auth.zelid }],
         };
         const projection = {};
-        const result =
-            await findOneInDatabase(database, collection, query, projection);
+        const result = await findOneInDatabase(
+          database,
+          collection,
+          query,
+          projection
+        );
         const loggedUser = result;
         if (loggedUser) {
           // check if signature corresponds to message with that zelid
           let valid = false;
           try {
-            valid = bitcoinMessage.verify(loggedUser.loginPhrase, auth.zelid,
-                                          auth.signature);
+            valid = bitcoinMessage.verify(
+              loggedUser.loginPhrase,
+              auth.zelid,
+              auth.signature
+            );
           } catch (error) {
             return false;
           }
@@ -494,33 +607,46 @@ async function verifyAppOwnerOrHigherSession(headers, appName) {
 async function verifyPrivilege(privilege, req, appName) {
   let authorized;
   switch (privilege) {
-  case 'admin':
-    authorized = await verifyAdminSession(req.headers)
-                     .catch((error) => { throw error; });
-    break;
-  case 'zelteam':
-    authorized = await verifyZelTeamSession(req.headers)
-                     .catch((error) => { throw error; });
-    break;
-  case 'adminandzelteam':
-    authorized = await verifyAdminAndZelTeamSession(req.headers)
-                     .catch((error) => { throw error; });
-    break;
-  case 'appownerabove':
-    authorized = await verifyAppOwnerOrHigherSession(req.headers, appName)
-                     .catch((error) => { throw error; });
-    break;
-  case 'appowner':
-    authorized = await verifyAppOwnerSession(req.headers, appName)
-                     .catch((error) => { throw error; });
-    break;
-  case 'user':
-    authorized =
-        await verifyUserSession(req.headers).catch((error) => { throw error; });
-    break;
-  default:
-    authorized = false;
-    break;
+    case 'admin':
+      authorized = await verifyAdminSession(req.headers).catch((error) => {
+        throw error;
+      });
+      break;
+    case 'zelteam':
+      authorized = await verifyZelTeamSession(req.headers).catch((error) => {
+        throw error;
+      });
+      break;
+    case 'adminandzelteam':
+      authorized = await verifyAdminAndZelTeamSession(req.headers).catch(
+        (error) => {
+          throw error;
+        }
+      );
+      break;
+    case 'appownerabove':
+      authorized = await verifyAppOwnerOrHigherSession(
+        req.headers,
+        appName
+      ).catch((error) => {
+        throw error;
+      });
+      break;
+    case 'appowner':
+      authorized = await verifyAppOwnerSession(req.headers, appName).catch(
+        (error) => {
+          throw error;
+        }
+      );
+      break;
+    case 'user':
+      authorized = await verifyUserSession(req.headers).catch((error) => {
+        throw error;
+      });
+      break;
+    default:
+      authorized = false;
+      break;
   }
   return authorized;
 }
@@ -529,8 +655,9 @@ function verifyZelID(address) {
   let isValid = false;
   try {
     if (!address) {
-      throw new Error(
-          {message : 'Missing parameters for message verification'});
+      throw new Error({
+        message: 'Missing parameters for message verification',
+      });
     }
 
     if (address.length > 36) {
@@ -550,8 +677,9 @@ function verifyMessage(message, address, signature) {
   let signingAddress = address;
   try {
     if (!address || !message || !signature) {
-      throw new Error(
-          {message : 'Missing parameters for message verification'});
+      throw new Error({
+        message: 'Missing parameters for message verification',
+      });
     }
 
     if (address.length > 36) {
@@ -575,12 +703,13 @@ function signMessage(message, pk) {
   let signature;
   try {
     const keyPair = bitcoinjs.ECPair.fromWIF(pk);
-    const {privateKey} = keyPair;
+    const { privateKey } = keyPair;
     // console.log(keyPair.privateKey.toString('hex'));
     // console.log(keyPair.publicKey.toString('hex'));
 
-    signature = bitcoinMessage.sign(message, privateKey, keyPair.compressed,
-                                    {extraEntropy : randomBytes(32)});
+    signature = bitcoinMessage.sign(message, privateKey, keyPair.compressed, {
+      extraEntropy: randomBytes(32),
+    });
     signature = signature.toString('base64');
     // => different (but valid) signature each time
   } catch (e) {
@@ -591,18 +720,23 @@ function signMessage(message, pk) {
 }
 
 // helper function for timeout on axios connection
-const axiosGet = (url, options = {
-  timeout : 20000,
-}) => {
+const axiosGet = (
+  url,
+  options = {
+    timeout: 20000,
+  }
+) => {
   const abort = axios.CancelToken.source();
   const id = setTimeout(
-      () => abort.cancel(`Timeout of ${options.timeout}ms.`),
-      options.timeout,
+    () => abort.cancel(`Timeout of ${options.timeout}ms.`),
+    options.timeout
   );
-  return axios.get(url, {cancelToken : abort.token, ...options}).then((res) => {
-    clearTimeout(id);
-    return res;
-  });
+  return axios
+    .get(url, { cancelToken: abort.token, ...options })
+    .then((res) => {
+      clearTimeout(id);
+      return res;
+    });
 };
 
 module.exports = {
