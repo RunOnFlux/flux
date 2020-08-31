@@ -1956,7 +1956,7 @@ export default {
     },
     asciResponse() {
       if (typeof this.callResponse.data === 'string') {
-        return this.callResponse.data.replace(/[^\x20-\x7E \t\r\n\v\f]/g, '');
+        return this.callResponse.data.replace(/[^\x20-\x7E\t\r\n\v\f]/g, '');
       }
       return '';
     },
@@ -3113,7 +3113,7 @@ export default {
         return;
       }
       const env = this.zelAppExec.env ? this.zelAppExec.env : '[]';
-      const cmd = this.zelAppExec.cmd ? this.zelAppExec.cmd : '[]';
+      const { cmd } = this.zelAppExec;
       this.commandExecuting = true;
       const response = await ZelAppsService.getZelAppExec(zelidauth, this.managedApplication, cmd, env);
       console.log(response);
@@ -3200,7 +3200,7 @@ export default {
       console.log(response);
     },
     appPricePerMonthMethod(specifications) {
-      let price = 10;
+      let price;
       if (specifications.tiered) {
         const cpuTotalCount = specifications.cpubasic + specifications.cpusuper + specifications.cpubamf;
         const cpuPrice = cpuTotalCount * this.zelapps.price.cpu * 10; // 0.1 core cost cpu price
