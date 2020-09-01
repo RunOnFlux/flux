@@ -649,13 +649,13 @@ export default {
                 }
               })
               .catch((e) => {
-                self.updateDialogVisible = false;
-                self.updateProgress = 0;
                 console.log(e);
                 console.log(e.code);
                 if (e.toString() === 'Error: Network Error') {
                   self.updateProgress = 75;
                 } else {
+                  self.updateDialogVisible = false;
+                  self.updateProgress = 0;
                   vue.$customMes.error(e.toString());
                 }
               });
