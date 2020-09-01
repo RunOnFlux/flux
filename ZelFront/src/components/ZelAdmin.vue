@@ -653,7 +653,11 @@ export default {
                 self.updateProgress = 0;
                 console.log(e);
                 console.log(e.code);
-                vue.$customMes.error(e.toString());
+                if (e.toString().includes('Network Error')) {
+                  self.updateProgress = 100;
+                } else {
+                  vue.$customMes.error(e.toString());
+                }
               });
           } else {
             vue.$customMes.success('Flux is already up to date.');
