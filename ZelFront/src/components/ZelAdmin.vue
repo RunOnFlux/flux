@@ -653,8 +653,8 @@ export default {
                 self.updateProgress = 0;
                 console.log(e);
                 console.log(e.code);
-                if (e.toString().includes('Network Error')) {
-                  self.updateProgress = 100;
+                if (e.toString() === 'Error: Network Error') {
+                  self.updateProgress = 75;
                 } else {
                   vue.$customMes.error(e.toString());
                 }
