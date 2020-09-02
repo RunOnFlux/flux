@@ -74,4 +74,7 @@ export default {
       },
     });
   },
+  checkUserLogged(zelid, signature) {
+    return Api().get(`/zelid/checkprivilege/${zelid}/${signature}`);
+  },
 };

@@ -1460,7 +1460,7 @@ async function removeZelAppLocally(zelapp, res) {
   try {
     // remove zelapp from local machine.
     // find in database, stop zelapp, remove container, close port delete data associated on system, remove from database
-    // todo do we want to remove the image as well (repotag) what if other container uses the same image -> then it shall result in an error so ok anyway
+    // we want to remove the image as well (repotag) what if other container uses the same image -> then it shall result in an error so ok anyway
     if (!zelapp) {
       throw new Error('No ZelApp specified');
     }
@@ -2376,9 +2376,9 @@ async function registerZelAppGlobalyApi(req, res) {
       }
       // first  check if this node is available for application registration - has at least 5 outgoing connections and 2 incoming connections (that is sufficient as it means it is confirmed and works correctly)
       // TODO reenable in smarter way
-      // if (zelfluxCommunication.outgoingPeers.length < 5 || zelfluxCommunication.incomingPeers.length < 2) {
-      //   throw new Error('Sorry, This Flux does not have enough peers for safe application registration');
-      // }
+      if (zelfluxCommunication.outgoingPeers.length < config.zelapps.minOutgoing || zelfluxCommunication.incomingPeers.length < config.zelapps.minIncoming) {
+        throw new Error('Sorry, This Flux does not have enough peers for safe application registration');
+      }
       const processedBody = serviceHelper.ensureObject(body);
       // Note. Actually signature, timestamp is not needed. But we require it only to verify that user indeed has access to the private key of the owner zelid.
       // name and port HAVE to be unique for application. Check if they dont exist in global database
@@ -2580,9 +2580,9 @@ async function updateZelAppGlobalyApi(req, res) {
       }
       // first  check if this node is available for application update - has at least 5 outgoing connections and 2 incoming connections (that is sufficient as it means it is confirmed and works correctly)
       // TODO reenable in smarter way
-      // if (zelfluxCommunication.outgoingPeers.length < 5 || zelfluxCommunication.incomingPeers.length < 2) {
-      //   throw new Error('Sorry, This Flux does not have enough peers for safe application update');
-      // }
+      if (zelfluxCommunication.outgoingPeers.length < config.zelapps.minOutgoing || zelfluxCommunication.incomingPeers.length < config.zelapps.minIncoming) {
+        throw new Error('Sorry, This Flux does not have enough peers for safe application update');
+      }
       const processedBody = serviceHelper.ensureObject(body);
       // Note. Actually signature, timestamp is not needed. But we require it only to verify that user indeed has access to the private key of the owner zelid.
       // name and port HAVE to be unique for application. Check if they dont exist in global database
@@ -3998,7 +3998,7 @@ async function trySpawningGlobalApplication() {
     // check if there is < 5 instances of nodes running the app
     // TODO evaluate if its not better to check locally running applications!
     const runningAppList = await getRunningAppList(randomApp);
-    if (runningAppList.length >= 5) {
+    if (runningAppList.length >= config.zelapps.minimumInstances) {
       log.info(`Application ${randomApp} is already spawned on ${runningAppList.length} instances`);
       await serviceHelper.delay(config.zelapps.installation.delay * 1000);
       trySpawningGlobalApplication();
@@ -4230,7 +4230,7 @@ async function expireGlobalApplications() {
 
 // check if more than 10 instances of application are running
 async function checkAndRemoveApplicationInstance() {
-  // function to expire global applications. Find applications that are lower than blocksLasting
+  // function to remove global applications on this local node. Find applications that are spawned more than maximum number of instances allowed
   // check if synced
   try {
     const synced = await checkSynced();
@@ -4249,7 +4249,7 @@ async function checkAndRemoveApplicationInstance() {
     for (const installedApp of installedApps) {
       // eslint-disable-next-line no-await-in-loop
       const runningAppList = await getRunningAppList(installedApp.name);
-      if (runningAppList.length > 10) {
+      if (runningAppList.length > config.zelapps.maximumInstances) {
         log.info(`Application ${installedApp.name} is already spawned on ${runningAppList.length} instances. Checking removal availability..`);
         const randomNumber = Math.floor((Math.random() * config.zelapps.removal.probability));
         if (randomNumber === 0) {

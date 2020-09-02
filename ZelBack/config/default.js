@@ -59,11 +59,15 @@ module.exports = {
       ram: 1 * 5, // per 100mb,
       hdd: 0.5 * 5, // per 1gb,
     },
-    address: 't1...', // apps registration address
-    epochstart: 690000, // zelapps epoch blockheight start
+    address: 't1K8dWJcvGw1xVDqtiQvE1ovpKgdQRmyZv8', // apps registration address
+    epochstart: 660000, // zelapps epoch blockheight start
     portMin: 31000, // originally should have been from 30000 but we got temporary folding there
     portMax: 39999,
     maxImageSize: 300000000, // 300mb
+    minimumInstances: 5,
+    maximumInstances: 10,
+    minOutgoing: 5,
+    minIncoming: 2,
     installation: {
       probability: 2, // 100
       delay: 120, // in seconds
@@ -73,7 +77,9 @@ module.exports = {
       delay: 300,
     },
     blocksLasting: 22000, // registered app will live for 22000 of blocks 44000 minutes ~= 1 month
-    // every 100 blocks we run a check that deletes apps specifications and stops/removes the application from existence if it has been lastly updated more than 22k blocks ago
+    expireZelAppsPeriod: 100, // every 100 blocks we run a check that deletes apps specifications and stops/removes the application from existence if it has been lastly updated more than 22k blocks ago
+    updateZelAppsPeriod: 9, // every 9 blocks we check for reinstalling of old application versions
+    removeZelAppsPeriod: 11, // every 11 blocks we check for more than maximum number of instances of an application
   },
   lockedSystemResources: {
     cpu: 10, // 1 cpu core

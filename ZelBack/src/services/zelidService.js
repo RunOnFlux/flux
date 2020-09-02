@@ -592,6 +592,51 @@ async function wsRespondSignature(ws, req) {
   searchDatabase();
 }
 
+async function checkLoggedUser(req, res) {
+  try {
+    let { zelid } = req.params;
+    zelid = zelid || req.query.zelid;
+    if (!zelid) {
+      throw new Error('No user zelid specificed');
+    }
+    let { signature } = req.params;
+    signature = signature || req.query.signature;
+    if (!signature) {
+      throw new Error('No user zelid signature specificed');
+    }
+    const headers = {
+      zelidauth: {
+        zelid,
+        signature,
+      },
+    };
+    const isAdmin = await serviceHelper.verifyAdminSession(headers);
+    if (isAdmin) {
+      const message = serviceHelper.createSuccessMessage('admin');
+      res.json(message);
+      return;
+    }
+    const isZelTeam = await serviceHelper.verifyZelTeamSession(headers);
+    if (isZelTeam) {
+      const message = serviceHelper.createSuccessMessage('zelteam');
+      res.json(message);
+      return;
+    }
+    const isUser = await serviceHelper.verifyUserSession(headers);
+    if (isUser) {
+      const message = serviceHelper.createSuccessMessage('user');
+      res.json(message);
+      return;
+    }
+    const message = serviceHelper.createErrorMessage('none');
+    res.json(message);
+  } catch (error) {
+    log.error(error);
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+  }
+}
+
 module.exports = {
   loginPhrase,
   emergencyPhrase,
@@ -606,4 +651,5 @@ module.exports = {
   logoutAllUsers,
   wsRespondLoginPhrase,
   wsRespondSignature,
+  checkLoggedUser,
 };

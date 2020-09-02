@@ -1183,9 +1183,9 @@ async function adjustFirewall() {
 
 function isCommunicationEstablished(req, res) {
   let message;
-  if (outgoingPeers.length < 5) {
+  if (outgoingPeers.length < config.zelapps.minOutgoing) {
     message = serviceHelper.createErrorMessage('Not enough outgoing connections');
-  } else if (incomingPeers.length < 2) {
+  } else if (incomingPeers.length < config.zelapps.minIncoming) {
     message = serviceHelper.createErrorMessage('Not enough incomming connections');
   } else {
     message = serviceHelper.createSuccessMessage('Communication to Flux network is properly established');

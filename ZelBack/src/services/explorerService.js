@@ -360,7 +360,7 @@ async function processBlock(blockHeight) {
     // if (blockData.height % 999 === 0) {
     //   console.log(transactions);
     // }
-    if (blockHeight % 100 === 0) {
+    if (blockHeight % config.zelapps.expireZelAppsPeriod === 0) {
       const result = await serviceHelper.collectionStats(database, utxoIndexCollection);
       const resultB = await serviceHelper.collectionStats(database, addressTransactionIndexCollection);
       const resultC = await serviceHelper.collectionStats(database, zelnodeTransactionCollection);
@@ -371,12 +371,12 @@ async function processBlock(blockHeight) {
         zelappsService.expireGlobalApplications();
       }
     }
-    if (blockHeight % 11 === 0) {
+    if (blockHeight % config.zelapps.removeZelAppsPeriod === 0) {
       if (blockDataVerbose.height >= config.zelapps.epochstart) {
         zelappsService.checkAndRemoveApplicationInstance();
       }
     }
-    if (blockHeight % 9 === 0) {
+    if (blockHeight % config.zelapps.updateZelAppsPeriod === 0) {
       if (blockDataVerbose.height >= config.zelapps.epochstart) {
         zelappsService.reinstallOldApplications();
       }
