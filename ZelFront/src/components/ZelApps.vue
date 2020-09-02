@@ -2255,7 +2255,6 @@ export default {
       this.output = '';
       vue.$customMes.success('Removing ZelApp');
       const zelidauth = localStorage.getItem('zelidauth');
-      // const response = await ZelAppsService.installFoldingAtHome(zelidauth, zelapp);
       const axiosConfig = {
         headers: {
           zelidauth,
