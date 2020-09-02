@@ -130,7 +130,7 @@ async function verifyFluxBroadcast(data, obtainedZelNodeList, currentTimeStamp) 
   }
 
   let zelnode = null;
-  if (obtainedZelNodeList) { // for test purposes. TODO Can this be misuesed?
+  if (obtainedZelNodeList) { // for test purposes.
     zelnode = await obtainedZelNodeList.find((key) => key.pubkey === pubKey);
     if (!zelnode) {
       return false;
@@ -709,7 +709,7 @@ async function initiateAndHandleConnection(ip) {
     console.log(`#connectionsOut: ${outgoingConnections.length}`);
   };
 
-  websocket.onmessage = async (evt) => { // TODO message handling outgoing connections function
+  websocket.onmessage = async (evt) => {
     // incoming messages from outgoing connections
     console.log(evt.data);
     const currentTimeStamp = Date.now(); // ms

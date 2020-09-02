@@ -1991,7 +1991,6 @@ export default {
       return price;
     },
     appPricePerMonthForUpdate() {
-      // this.getAppPriceFromAPI(); // TODO remove this test
       const zelappInfo = this.callBResponse.data;
       let actualPriceToPay = this.appPricePerMonthMethod(this.dataForZelAppUpdate);
       console.log(actualPriceToPay);
@@ -2975,7 +2974,7 @@ export default {
     },
     initiateSignWSUpdate() {
       const self = this;
-      const signatureMessage = this.zelAppUpdateSpecification.owner + this.timestamp; // todo fixme
+      const signatureMessage = this.zelAppUpdateSpecification.owner + this.timestamp;
       const wsuri = `ws://${this.userconfig.externalip}:${this.config.apiPort}/ws/zelsign/${signatureMessage}`;
       const websocket = new WebSocket(wsuri);
       this.websocket = websocket;
