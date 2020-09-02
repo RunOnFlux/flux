@@ -422,42 +422,21 @@ async function restoreDatabaseToBlockheightState(height, rescanGlobalApps = fals
   const projection = { $pull: { transactions: { height: { $gt: height } } } };
 
   // restore utxoDatabase collection
-  await serviceHelper.removeDocumentsFromCollection(database, utxoIndexCollection, query).catch((error) => {
-    log.error(error);
-    throw error;
-  });
+  await serviceHelper.removeDocumentsFromCollection(database, utxoIndexCollection, query);
   // restore addressTransactionIndex collection
   // remove transactions with height bigger than our scanned height
-  await serviceHelper.updateInDatabase(database, addressTransactionIndexCollection, queryForAddresses, projection).catch((error) => {
-    log.error(error);
-    throw error;
-  });
+  await serviceHelper.updateInDatabase(database, addressTransactionIndexCollection, queryForAddresses, projection);
   // remove addresses with 0 transactions
-  await serviceHelper.removeDocumentsFromCollection(database, addressTransactionIndexCollection, queryForAddressesDeletion).catch((error) => {
-    log.error(error);
-    throw error;
-  });
+  await serviceHelper.removeDocumentsFromCollection(database, addressTransactionIndexCollection, queryForAddressesDeletion);
   // restore zelnodeTransactions collection
-  await serviceHelper.removeDocumentsFromCollection(database, zelnodeTransactionCollection, query).catch((error) => {
-    log.error(error);
-    throw error;
-  });
+  await serviceHelper.removeDocumentsFromCollection(database, zelnodeTransactionCollection, query);
   // restore zelappsHashes collection
-  await serviceHelper.removeDocumentsFromCollection(database, zelappsHashesCollection, query).catch((error) => {
-    log.error(error);
-    throw error;
-  });
+  await serviceHelper.removeDocumentsFromCollection(database, zelappsHashesCollection, query);
   if (rescanGlobalApps === true) {
     const databaseGlobal = dbopen.db(config.database.zelappsglobal.database);
     log.info('Rescanning Apps!');
-    await serviceHelper.removeDocumentsFromCollection(databaseGlobal, config.database.zelappsglobal.collections.zelappsMessages, query).catch((error) => {
-      log.error(error);
-      throw error;
-    });
-    await serviceHelper.removeDocumentsFromCollection(databaseGlobal, config.database.zelappsglobal.collections.zelappsInformation, query).catch((error) => {
-      log.error(error);
-      throw error;
-    });
+    await serviceHelper.removeDocumentsFromCollection(databaseGlobal, config.database.zelappsglobal.collections.zelappsMessages, query);
+    await serviceHelper.removeDocumentsFromCollection(databaseGlobal, config.database.zelappsglobal.collections.zelappsInformation, query);
   }
   log.info('Rescan completed');
   return true;
@@ -652,200 +631,203 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
 }
 
 async function getAllUtxos(req, res) {
-  const dbopen = serviceHelper.databaseConnection();
-  const database = dbopen.db(config.database.zelcash.database);
-  const query = {};
-  const projection = {
-    projection: {
-      _id: 0,
-      txid: 1,
-      vout: 1,
-      height: 1,
-      address: 1,
-      satoshis: 1,
-      scriptPubKey: 1,
-      coinbase: 1,
-    },
-  };
-  const results = await serviceHelper.findInDatabase(database, utxoIndexCollection, query, projection).catch((error) => {
+  try {
+    const dbopen = serviceHelper.databaseConnection();
+    const database = dbopen.db(config.database.zelcash.database);
+    const query = {};
+    const projection = {
+      projection: {
+        _id: 0,
+        txid: 1,
+        vout: 1,
+        height: 1,
+        address: 1,
+        satoshis: 1,
+        scriptPubKey: 1,
+        coinbase: 1,
+      },
+    };
+    const results = await serviceHelper.findInDatabase(database, utxoIndexCollection, query, projection);
+    const resMessage = serviceHelper.createDataMessage(results);
+    res.json(resMessage);
+  } catch (error) {
+    log.error(error);
     const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
-    log.error(error);
-    throw error;
-  });
-  const resMessage = serviceHelper.createDataMessage(results);
-  return res.json(resMessage);
+  }
 }
 
 async function getAllZelNodeTransactions(req, res) {
-  const dbopen = serviceHelper.databaseConnection();
-  const database = dbopen.db(config.database.zelcash.database);
-  const query = {};
-  const projection = {
-    projection: {
-      _id: 0,
-      txid: 1,
-      version: 1,
-      type: 1,
-      updateType: 1,
-      ip: 1,
-      benchTier: 1,
-      collateralHash: 1,
-      collateralIndex: 1,
-      zelAddress: 1,
-      lockedAmount: 1,
-      height: 1,
-    },
-  };
-  const results = await serviceHelper.findInDatabase(database, zelnodeTransactionCollection, query, projection).catch((error) => {
+  try {
+    const dbopen = serviceHelper.databaseConnection();
+    const database = dbopen.db(config.database.zelcash.database);
+    const query = {};
+    const projection = {
+      projection: {
+        _id: 0,
+        txid: 1,
+        version: 1,
+        type: 1,
+        updateType: 1,
+        ip: 1,
+        benchTier: 1,
+        collateralHash: 1,
+        collateralIndex: 1,
+        zelAddress: 1,
+        lockedAmount: 1,
+        height: 1,
+      },
+    };
+    const results = await serviceHelper.findInDatabase(database, zelnodeTransactionCollection, query, projection);
+    const resMessage = serviceHelper.createDataMessage(results);
+    res.json(resMessage);
+  } catch (error) {
+    log.error(error);
     const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
-    log.error(error);
-    throw error;
-  });
-  const resMessage = serviceHelper.createDataMessage(results);
-  return res.json(resMessage);
+  }
 }
 
 async function getAllAddressesWithTransactions(req, res) {
-  // FIXME outputs all documents in the collection. We shall group same addresses. But this call is disabled and for testing purposes anyway
-  const dbopen = serviceHelper.databaseConnection();
-  const database = dbopen.db(config.database.zelcash.database);
-  const query = {};
-  const projection = {
-    projection: {
-      _id: 0,
-      transactions: 1,
-      address: 1,
-      count: 1,
-    },
-  };
-  const results = await serviceHelper.findInDatabase(database, addressTransactionIndexCollection, query, projection).catch((error) => {
+  try {
+    // FIXME outputs all documents in the collection. We shall group same addresses. But this call is disabled and for testing purposes anyway
+    const dbopen = serviceHelper.databaseConnection();
+    const database = dbopen.db(config.database.zelcash.database);
+    const query = {};
+    const projection = {
+      projection: {
+        _id: 0,
+        transactions: 1,
+        address: 1,
+        count: 1,
+      },
+    };
+    const results = await serviceHelper.findInDatabase(database, addressTransactionIndexCollection, query, projection);
+    const resMessage = serviceHelper.createDataMessage(results);
+    res.json(resMessage);
+  } catch (error) {
+    log.error(error);
     const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
-    log.error(error);
-    throw error;
-  });
-  const resMessage = serviceHelper.createDataMessage(results);
-  return res.json(resMessage);
+  }
 }
 
 async function getAllAddresses(req, res) {
-  const dbopen = serviceHelper.databaseConnection();
-  const database = dbopen.db(config.database.zelcash.database);
-  const variable = 'address';
-  const results = await serviceHelper.distinctDatabase(database, addressTransactionIndexCollection, variable).catch((error) => {
+  try {
+    const dbopen = serviceHelper.databaseConnection();
+    const database = dbopen.db(config.database.zelcash.database);
+    const variable = 'address';
+    const results = await serviceHelper.distinctDatabase(database, addressTransactionIndexCollection, variable);
+    const resMessage = serviceHelper.createDataMessage(results);
+    res.json(resMessage);
+  } catch (error) {
+    log.error(error);
     const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
-    log.error(error);
-    throw error;
-  });
-  const resMessage = serviceHelper.createDataMessage(results);
-  return res.json(resMessage);
+  }
 }
 
 async function getAddressUtxos(req, res) {
-  let { address } = req.params; // we accept both help/command and help?command=getinfo
-  address = address || req.query.address;
-  if (!address) {
-    const errMessage = serviceHelper.createErrorMessage('No address provided');
-    return res.json(errMessage);
-  }
-  const dbopen = serviceHelper.databaseConnection();
-  const database = dbopen.db(config.database.zelcash.database);
-  const query = { address };
-  const projection = {
-    projection: {
-      _id: 0,
-      txid: 1,
-      vout: 1,
-      height: 1,
-      address: 1,
-      satoshis: 1,
-      scriptPubKey: 1,
-      coinbase: 1,
-    },
-  };
-  const results = await serviceHelper.findInDatabase(database, utxoIndexCollection, query, projection).catch((error) => {
+  try {
+    let { address } = req.params; // we accept both help/command and help?command=getinfo
+    address = address || req.query.address;
+    if (!address) {
+      throw new Error('No address provided');
+    }
+    const dbopen = serviceHelper.databaseConnection();
+    const database = dbopen.db(config.database.zelcash.database);
+    const query = { address };
+    const projection = {
+      projection: {
+        _id: 0,
+        txid: 1,
+        vout: 1,
+        height: 1,
+        address: 1,
+        satoshis: 1,
+        scriptPubKey: 1,
+        coinbase: 1,
+      },
+    };
+    const results = await serviceHelper.findInDatabase(database, utxoIndexCollection, query, projection);
+    const resMessage = serviceHelper.createDataMessage(results);
+    res.json(resMessage);
+  } catch (error) {
+    log.error(error);
     const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
-    log.error(error);
-    throw error;
-  });
-  const resMessage = serviceHelper.createDataMessage(results);
-  return res.json(resMessage);
+  }
 }
 
 async function getFilteredZelNodeTxs(req, res) {
-  let { filter } = req.params; // we accept both help/command and help?command=getinfo
-  filter = filter || req.query.filter;
-  let query = {};
-  if (!filter) {
-    const errMessage = serviceHelper.createErrorMessage('No filter provided');
-    return res.json(errMessage);
-  }
-  if (filter.includes('.')) {
-    // IP address case
-    query = { ip: filter };
-  } else if (filter.length === 64) {
-    // collateralHash case
-    query = { collateralHash: filter };
-  } else if (filter.length >= 30 && filter.length < 38) {
-    // zelAddress case
-    query = { zelAddress: filter };
-  } else {
-    const errMessage = serviceHelper.createErrorMessage('It is possible to only filter via IP address, Zel address and Collateral hash.');
-    return res.json(errMessage);
-  }
-  const dbopen = serviceHelper.databaseConnection();
-  const database = dbopen.db(config.database.zelcash.database);
-  const projection = {
-    projection: {
-      _id: 0,
-      txid: 1,
-      version: 1,
-      type: 1,
-      updateType: 1,
-      ip: 1,
-      benchTier: 1,
-      collateralHash: 1,
-      collateralIndex: 1,
-      zelAddress: 1,
-      lockedAmount: 1,
-      height: 1,
-    },
-  };
-  const results = await serviceHelper.findInDatabase(database, zelnodeTransactionCollection, query, projection).catch((error) => {
+  try {
+    let { filter } = req.params; // we accept both help/command and help?command=getinfo
+    filter = filter || req.query.filter;
+    let query = {};
+    if (!filter) {
+      throw new Error('No filter provided');
+    }
+    if (filter.includes('.')) {
+      // IP address case
+      query = { ip: filter };
+    } else if (filter.length === 64) {
+      // collateralHash case
+      query = { collateralHash: filter };
+    } else if (filter.length >= 30 && filter.length < 38) {
+      // zelAddress case
+      query = { zelAddress: filter };
+    } else {
+      throw new Error('It is possible to only filter via IP address, Zel address and Collateral hash.');
+    }
+    const dbopen = serviceHelper.databaseConnection();
+    const database = dbopen.db(config.database.zelcash.database);
+    const projection = {
+      projection: {
+        _id: 0,
+        txid: 1,
+        version: 1,
+        type: 1,
+        updateType: 1,
+        ip: 1,
+        benchTier: 1,
+        collateralHash: 1,
+        collateralIndex: 1,
+        zelAddress: 1,
+        lockedAmount: 1,
+        height: 1,
+      },
+    };
+    const results = await serviceHelper.findInDatabase(database, zelnodeTransactionCollection, query, projection);
+    const resMessage = serviceHelper.createDataMessage(results);
+    res.json(resMessage);
+  } catch (error) {
+    log.error(error);
     const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
-    log.error(error);
-    throw error;
-  });
-  const resMessage = serviceHelper.createDataMessage(results);
-  return res.json(resMessage);
+  }
 }
 
 async function getAddressTransactions(req, res) {
-  let { address } = req.params; // we accept both help/command and help?command=getinfo
-  address = address || req.query.address;
-  if (!address) {
-    const errMessage = serviceHelper.createErrorMessage('No address provided');
-    return res.json(errMessage);
-  }
-  const dbopen = serviceHelper.databaseConnection();
-  const database = dbopen.db(config.database.zelcash.database);
-  const query = { address };
-  const distinct = 'transactions';
-  const results = await serviceHelper.distinctDatabase(database, addressTransactionIndexCollection, distinct, query).catch((error) => {
+  try {
+    let { address } = req.params; // we accept both help/command and help?command=getinfo
+    address = address || req.query.address;
+    if (!address) {
+      throw new Error('No address provided');
+    }
+    const dbopen = serviceHelper.databaseConnection();
+    const database = dbopen.db(config.database.zelcash.database);
+    const query = { address };
+    const distinct = 'transactions';
+    const results = await serviceHelper.distinctDatabase(database, addressTransactionIndexCollection, distinct, query);
+    // TODO FIX documentation. UPDATE for an amount of last txs needed.
+    // now we have array of transactions [{txid, height}, {}...]
+    const resMessage = serviceHelper.createDataMessage(results);
+    res.json(resMessage);
+  } catch (error) {
+    log.error(error);
     const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
-    log.error(error);
-    throw error;
-  });
-  // TODO FIX documentation. UPDATE for an amount of last txs needed.
-  // now we have array of transactions [{txid, height}, {}...]
-  const resMessage = serviceHelper.createDataMessage(results);
-  return res.json(resMessage);
+  }
 }
 
 async function getScannedHeight(req, res) {
@@ -1034,39 +1016,39 @@ async function rescanExplorer(req, res) {
 }
 
 async function getAddressBalance(req, res) {
-  let { address } = req.params; // we accept both help/command and help?command=getinfo
-  address = address || req.query.address || '';
-  if (!address) {
-    const errMessage = serviceHelper.createErrorMessage('No address provided');
-    return res.json(errMessage);
-  }
-  const dbopen = serviceHelper.databaseConnection();
-  const database = dbopen.db(config.database.zelcash.database);
-  const query = { address };
-  const projection = {
-    projection: {
-      _id: 0,
-      // txid: 1,
-      // vout: 1,
-      // height: 1,
-      // address: 1,
-      satoshis: 1,
-      // scriptPubKey: 1,
-      // coinbase: 1,
-    },
-  };
-  const results = await serviceHelper.findInDatabase(database, utxoIndexCollection, query, projection).catch((error) => {
+  try {
+    let { address } = req.params; // we accept both help/command and help?command=getinfo
+    address = address || req.query.address || '';
+    if (!address) {
+      throw new Error('No address provided');
+    }
+    const dbopen = serviceHelper.databaseConnection();
+    const database = dbopen.db(config.database.zelcash.database);
+    const query = { address };
+    const projection = {
+      projection: {
+        _id: 0,
+        // txid: 1,
+        // vout: 1,
+        // height: 1,
+        // address: 1,
+        satoshis: 1,
+        // scriptPubKey: 1,
+        // coinbase: 1,
+      },
+    };
+    const results = await serviceHelper.findInDatabase(database, utxoIndexCollection, query, projection);
+    let balance = 0;
+    results.forEach((utxo) => {
+      balance += utxo.satoshis;
+    });
+    const resMessage = serviceHelper.createDataMessage(balance);
+    res.json(resMessage);
+  } catch (error) {
+    log.error(error);
     const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
-    log.error(error);
-    throw error;
-  });
-  let balance = 0;
-  results.forEach((utxo) => {
-    balance += utxo.satoshis;
-  });
-  const resMessage = serviceHelper.createDataMessage(balance);
-  return res.json(resMessage);
+  }
 }
 
 module.exports = {
