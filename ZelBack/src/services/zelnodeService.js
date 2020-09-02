@@ -21,7 +21,7 @@ async function updateZelFlux(req, res) {
         const errMessage = serviceHelper.createErrorMessage(`Error updating Flux: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
       }
-      const message = serviceHelper.createSuccessMessage('Flux successfully updaating');
+      const message = serviceHelper.createSuccessMessage('Flux successfully updated');
       return res.json(message);
     });
   } else {

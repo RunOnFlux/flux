@@ -1186,7 +1186,7 @@ function isCommunicationEstablished(req, res) {
   if (outgoingPeers.length < config.zelapps.minOutgoing) {
     message = serviceHelper.createErrorMessage('Not enough outgoing connections');
   } else if (incomingPeers.length < config.zelapps.minIncoming) {
-    message = serviceHelper.createErrorMessage('Not enough incomming connections');
+    message = serviceHelper.createErrorMessage('Not enough incoming connections');
   } else {
     message = serviceHelper.createSuccessMessage('Communication to Flux network is properly established');
   }

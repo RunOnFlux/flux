@@ -1127,7 +1127,7 @@
           </div>
           <div v-if="managementMenuItem === 'updateappglobalspecifications'">
             <div v-if="!fluxCommunication">
-              Warninig: Connected Flux is not communicating properly with Flux network
+              Warning: Connected Flux is not communicating properly with Flux network
             </div>
             <h2>Here you can update your application specifications.</h2>
             <div class="zelapps-register">
@@ -1434,7 +1434,7 @@
     </div>
     <div v-if="zelAppsSection === 'registerzelapp'">
       <div v-if="!fluxCommunication">
-        Warninig: Connected Flux is not communicating properly with Flux network
+        Warning: Connected Flux is not communicating properly with Flux network
       </div>
       <div class="zelapps-register">
         <el-form
