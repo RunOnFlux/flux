@@ -1848,12 +1848,14 @@ function appPricePerMonth(dataForZelAppRegistration) {
     const hddTotalCount = dataForZelAppRegistration.hddbasic + dataForZelAppRegistration.hddsuper + dataForZelAppRegistration.hddbamf;
     const hddPrice = hddTotalCount * config.zelapps.price.hdd;
     const hddTotal = hddPrice / 3;
-    return Math.ceil(cpuTotal + ramTotal + hddTotal);
+    const totalPrice = cpuTotal + ramTotal + hddTotal;
+    return Number(Math.ceil(totalPrice * 100) / 100);
   }
   const cpuTotal = dataForZelAppRegistration.cpu * config.zelapps.price.cpu * 10;
   const ramTotal = (dataForZelAppRegistration.ram * config.zelapps.price.ram) / 100;
   const hddTotal = dataForZelAppRegistration.hdd * config.zelapps.price.hdd;
-  return Math.ceil(cpuTotal + ramTotal + hddTotal);
+  const totalPrice = cpuTotal + ramTotal + hddTotal;
+  return Number(Math.ceil(totalPrice * 100) / 100);
 }
 
 function checkHWParameters(zelAppSpecs) {
@@ -3261,8 +3263,8 @@ async function checkAndRequestZelApp(hash, txid, height, valueSat, i = 0) {
         if (tempMessage.type === 'zelappregister') {
           // check if value is optimal or higher
           let appPrice = appPricePerMonth(tempMessage.zelAppSpecifications);
-          if (appPrice < 10) {
-            appPrice = 10;
+          if (appPrice < 1) {
+            appPrice = 1;
           }
           if (valueSat >= appPrice * 1e8) {
             const updateForSpecifications = permanentZelAppMessage.zelAppSpecifications;
@@ -3295,10 +3297,10 @@ async function checkAndRequestZelApp(hash, txid, height, valueSat, i = 0) {
           if (perc > 0) {
             actualPriceToPay = (appPrice - (perc * previousSpecsPrice)) * 0.9; // discount for missing heights. Allow 90%
           }
-          if (actualPriceToPay < 10) {
-            actualPriceToPay = 10;
+          actualPriceToPay = Number(Math.ceil(actualPriceToPay * 100) / 100);
+          if (actualPriceToPay < 1) {
+            actualPriceToPay = 1;
           }
-          actualPriceToPay = Math.ceil(actualPriceToPay);
           if (valueSat >= actualPriceToPay * 1e8) {
             const updateForSpecifications = permanentZelAppMessage.zelAppSpecifications;
             updateForSpecifications.hash = permanentZelAppMessage.hash;
@@ -4316,10 +4318,11 @@ async function getAppPrice(req, res) {
           actualPriceToPay -= (perc * previousSpecsPrice);
         }
       }
-      if (actualPriceToPay < 10) {
-        actualPriceToPay = 10;
+      actualPriceToPay = Number(Math.ceil(actualPriceToPay * 100) / 100);
+      if (actualPriceToPay < 1) {
+        actualPriceToPay = 1;
       }
-      const respondPrice = serviceHelper.createDataMessage(Math.ceil(actualPriceToPay));
+      const respondPrice = serviceHelper.createDataMessage(actualPriceToPay);
       return res.json(respondPrice);
     } catch (error) {
       log.warn(error);

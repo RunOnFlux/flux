@@ -49,27 +49,27 @@ module.exports = {
     rpcporttestnet: 26224,
   },
   zelcash: {
-    chainValidHeight: 640000,
+    chainValidHeight: 679000,
   },
   zelTeamZelId: '132hG26CFTNhLM3MRsLEJhp9DpBrK6vg5N',
   zelapps: {
-    // in zel per month
+    // in zel per month (blocksLasting)
     price: {
-      cpu: 3 * 5, // per 0.1 cpu core,
-      ram: 1 * 5, // per 100mb,
-      hdd: 0.5 * 5, // per 1gb,
+      cpu: 1, // per 0.1 cpu core,
+      ram: 0.4, // per 100mb,
+      hdd: 0.2, // per 1gb,
     },
-    address: 't1K8dWJcvGw1xVDqtiQvE1ovpKgdQRmyZv8', // apps registration address
-    epochstart: 660000, // zelapps epoch blockheight start
+    address: 't1K8dWJcvGw1xVDqtiQvE1ovpKgdQRmyZv8', // apps registration address TODO
+    epochstart: 660000, // zelapps epoch blockheight start TODO
     portMin: 31000, // originally should have been from 30000 but we got temporary folding there
     portMax: 39999,
-    maxImageSize: 300000000, // 300mb
+    maxImageSize: 300000000, // 300mb TOOD??
     minimumInstances: 5,
     maximumInstances: 10,
     minOutgoing: 5,
     minIncoming: 2,
     installation: {
-      probability: 2, // 100
+      probability: 2, // 100 TODO
       delay: 120, // in seconds
     },
     removal: {

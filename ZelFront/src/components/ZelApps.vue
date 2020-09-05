@@ -2005,10 +2005,10 @@ export default {
           actualPriceToPay -= (perc * previousSpecsPrice);
         }
       }
-      if (actualPriceToPay < 10) {
-        actualPriceToPay = 10;
+      if (actualPriceToPay < 1) {
+        actualPriceToPay = 1;
       }
-      actualPriceToPay = Math.ceil(actualPriceToPay);
+      actualPriceToPay = Number(Math.ceil(actualPriceToPay * 100) / 100);
       return actualPriceToPay;
     },
     validTill() {
@@ -3210,18 +3210,20 @@ export default {
         const hddTotalCount = specifications.hddbasic + specifications.hddsuper + specifications.hddbamf;
         const hddPrice = hddTotalCount * this.zelapps.price.hdd;
         const hddTotal = hddPrice / 3;
-        price = Math.ceil(cpuTotal + ramTotal + hddTotal);
-        if (price < 10) {
-          price = 10;
+        const totalPrice = cpuTotal + ramTotal + hddTotal;
+        price = Number(Math.ceil(totalPrice * 100) / 100);
+        if (price < 1) {
+          price = 1;
         }
         return price;
       }
       const cpuTotal = specifications.cpu * this.zelapps.price.cpu * 10;
       const ramTotal = (specifications.ram * this.zelapps.price.ram) / 100;
       const hddTotal = specifications.hdd * this.zelapps.price.hdd;
-      price = Math.ceil(cpuTotal + ramTotal + hddTotal);
-      if (price < 10) {
-        price = 10;
+      const totalPrice = cpuTotal + ramTotal + hddTotal;
+      price = Number(Math.ceil(totalPrice * 100) / 100);
+      if (price < 1) {
+        price = 1;
       }
       return price;
     },
