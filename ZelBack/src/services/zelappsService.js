@@ -2319,6 +2319,18 @@ async function registerZelAppGlobalyApi(req, res) {
         throw new Error('Invalid tiered value obtained. Only boolean as true or false allowed.');
       }
 
+      const zelcashGetInfo = await zelcashService.getInfo();
+      let zelcashHeight = 0;
+      if (zelcashGetInfo.status === 'success') {
+        zelcashHeight = zelcashGetInfo.data.blocks;
+      } else {
+        throw new Error(zelcashGetInfo.data);
+      }
+
+      if (owner !== config.zelTeamZelId && zelcashHeight < config.zelapps.publicepochstart) {
+        throw new Error('Global Registration open on the 10th of October 2020');
+      }
+
       // finalised parameters that will get stored in global database
       const zelAppSpecFormatted = {
         version, // integer

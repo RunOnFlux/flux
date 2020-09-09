@@ -825,7 +825,7 @@ function keepConnectionsAlive() {
       message,
     };
     broadcastMessageToOutgoing(data);
-  }, 30000);
+  }, 40000);
 }
 
 function keepIncomingConnectionsAlive() {

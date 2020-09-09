@@ -59,17 +59,18 @@ module.exports = {
       ram: 0.4, // per 100mb,
       hdd: 0.2, // per 1gb,
     },
-    address: 't1K8dWJcvGw1xVDqtiQvE1ovpKgdQRmyZv8', // apps registration address TODO
-    epochstart: 660000, // zelapps epoch blockheight start TODO
+    address: 't1KZ4DRuGx7MthF9Vr8S8jprLcZzyYR8nRW',
+    epochstart: 694000,
+    publicepochstart: 705000,
     portMin: 31000, // originally should have been from 30000 but we got temporary folding there
     portMax: 39999,
-    maxImageSize: 300000000, // 300mb TOOD??
+    maxImageSize: 300000000, // 300mb possibly increase later
     minimumInstances: 5,
     maximumInstances: 10,
     minOutgoing: 5,
     minIncoming: 2,
     installation: {
-      probability: 2, // 100 TODO
+      probability: 100, // 100
       delay: 120, // in seconds
     },
     removal: {
