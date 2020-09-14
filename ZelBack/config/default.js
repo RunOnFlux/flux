@@ -70,7 +70,7 @@ module.exports = {
     minOutgoing: 5,
     minIncoming: 2,
     installation: {
-      probability: 100, // 100
+      probability: 3, // 100
       delay: 120, // in seconds
     },
     removal: {
