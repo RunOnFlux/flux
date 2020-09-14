@@ -49,7 +49,7 @@ module.exports = {
     rpcporttestnet: 26224,
   },
   zelcash: {
-    chainValidHeight: 679000,
+    chainValidHeight: 685000,
   },
   zelTeamZelId: '132hG26CFTNhLM3MRsLEJhp9DpBrK6vg5N',
   zelapps: {
@@ -59,8 +59,8 @@ module.exports = {
       ram: 0.4, // per 100mb,
       hdd: 0.2, // per 1gb,
     },
-    address: 't1KZ4DRuGx7MthF9Vr8S8jprLcZzyYR8nRW',
-    epochstart: 694000,
+    address: 't1aaMTj21fh6JtZJQdR4jsJjA4Y75hPobEV',
+    epochstart: 680000,
     publicepochstart: 705000,
     portMin: 31000, // originally should have been from 30000 but we got temporary folding there
     portMax: 39999,
