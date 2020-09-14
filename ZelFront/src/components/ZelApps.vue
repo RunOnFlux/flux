@@ -1898,12 +1898,12 @@ export default {
       zelapps: {
         // in zel per month
         price: {
-          cpu: 3 * 5, // per 0.1 cpu core,
-          ram: 1 * 5, // per 100mb,
-          hdd: 0.5 * 5, // per 1gb,
+          cpu: 1, // per 0.1 cpu core,
+          ram: 0.4, // per 100mb,
+          hdd: 0.2, // per 1gb,
         },
-        address: 't1K8dWJcvGw1xVDqtiQvE1ovpKgdQRmyZv8', // apps registration address
-        epochstart: 660000, // zelapps epoch blockheight start
+        address: 't1KZ4DRuGx7MthF9Vr8S8jprLcZzyYR8nRW', // apps registration address
+        epochstart: 694000, // zelapps epoch blockheight start
         portMin: 31000, // originally should have been from 30000 but we got temporary folding there
         portMax: 39999,
       },
