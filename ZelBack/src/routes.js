@@ -705,19 +705,19 @@ module.exports = (app, expressWs) => {
     zelappsService.removeZelAppLocallyApi(req, res);
   });
   app.get('/zelapps/installtemporarylocalapp/FoldingAtHomeB', (req, res) => {
-    zelappsService.temporaryZelAppRegisterFunctionForFoldingAtHome(req, res);
+    zelappsService.installTemporaryLocalApplication(req, res, 'FoldingAtHomeB');
   });
   app.get('/zelapps/installtemporarylocalapp/KadenaChainWebNode', (req, res) => {
-    zelappsService.temporaryZelAppRegisterFunctionForKadenaChainWebNode(req, res);
+    zelappsService.installTemporaryLocalApplication(req, res, 'KadenaChainWebNode');
   });
   // app.get('/zelapps/installtemporarylocalapp/dibi-UND', (req, res) => {
-  //   zelappsService.temporaryZelAppRegisterFunctionForDibiFetch(req, res);
+  //   zelappsService.installTemporaryLocalApplication(req, res, 'dibi-UND');
   // });
   // app.get('/zelapps/installtemporarylocalapp/SuperMario', (req, res) => {
-  //   zelappsService.temporaryZelAppRegisterFunctionForSuperMario(req, res);
+  //   zelappsService.installTemporaryLocalApplication(req, res, 'SuperMario');
   // });
   // app.get('/zelapps/installtemporarylocalapp/PacMan', (req, res) => {
-  //   zelappsService.temporaryZelAppRegisterFunctionForPacMan(req, res);
+  //   zelappsService.installTemporaryLocalApplication(req, res, 'PacMan');
   // });
   app.get('/zelapps/createzelfluxnetwork', (req, res) => {
     zelappsService.createZelFluxNetwork(req, res);
