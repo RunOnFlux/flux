@@ -1646,10 +1646,7 @@ async function registerZelAppLocally(zelAppSpecifications, res) {
       res.write(serviceHelper.ensureString(checkDb));
     }
     const zelappResult = await serviceHelper.findOneInDatabase(zelappsDatabase, localZelAppsInformation, zelappsQuery, zelappsProjection);
-    if (!zelappResult) {
-      // register the zelapp
-      await serviceHelper.insertOneToDatabase(zelappsDatabase, localZelAppsInformation, zelAppSpecifications);
-    } else {
+    if (zelappResult) {
       throw new Error('ZelApp already installed');
     }
 
@@ -1670,6 +1667,10 @@ async function registerZelAppLocally(zelAppSpecifications, res) {
     }
 
     await checkZelAppRequirements(zelAppSpecifications);
+
+    // prechecks done
+    // register the zelapp
+    await serviceHelper.insertOneToDatabase(zelappsDatabase, localZelAppsInformation, zelAppSpecifications);
 
     // pull image
     // eslint-disable-next-line no-unused-vars
@@ -1821,10 +1822,6 @@ async function registerZelAppLocally(zelAppSpecifications, res) {
       }
     });
   } catch (error) {
-    if (zelAppSpecifications && zelAppSpecifications.name) {
-      const zelappName = zelAppSpecifications.name;
-      removeZelAppLocally(zelappName);
-    }
     log.error(error);
     const errorResponse = serviceHelper.createErrorMessage(
       error.message || error,
