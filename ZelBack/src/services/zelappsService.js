@@ -1821,6 +1821,10 @@ async function registerZelAppLocally(zelAppSpecifications, res) {
       }
     });
   } catch (error) {
+    if (zelAppSpecifications && zelAppSpecifications.name) {
+      const zelappName = zelAppSpecifications.name;
+      removeZelAppLocally(zelappName);
+    }
     log.error(error);
     const errorResponse = serviceHelper.createErrorMessage(
       error.message || error,
