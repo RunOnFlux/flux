@@ -375,6 +375,9 @@ async function zelAppDockerCreate(zelAppSpecifications) {
     Cmd: zelAppSpecifications.commands,
     Env: zelAppSpecifications.enviromentParameters,
     Tty: false,
+    ExposedPorts: {
+      [`${zelAppSpecifications.port.toString()}/tcp`]: {},
+    },
     HostConfig: {
       NanoCPUs: zelAppSpecifications.cpu * 1e9,
       Memory: zelAppSpecifications.ram * 1024 * 1024,
@@ -382,8 +385,8 @@ async function zelAppDockerCreate(zelAppSpecifications) {
       Ulimits: [
         {
           Name: 'nofile',
-          Soft: 8192,
-          Hard: 16384,
+          Soft: 100000,
+          Hard: 100000, // 1048576
         },
       ],
       PortBindings: {
