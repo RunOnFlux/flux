@@ -1956,6 +1956,98 @@ async function getGlobalZelAppsSpecifications(req, res) {
   }
 }
 
+async function availableZelApps(req, res) {
+  // calls to global mongo db
+  // simulate a similar response
+  const zelapps = [
+    { // zelapp specifications
+      name: 'FoldingAtHomeB',
+      description: 'Folding @ Home is cool :)',
+      repotag: 'yurinnick/folding-at-home:latest',
+      owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+      tiered: true,
+      port: 30000,
+      cpu: 0.5,
+      ram: 500,
+      hdd: 5,
+      cpubasic: 0.5,
+      cpusuper: 1,
+      cpubamf: 2,
+      rambasic: 500,
+      ramsuper: 1000,
+      rambamf: 4000,
+      hddbasic: 5,
+      hddsuper: 5,
+      hddbamf: 5,
+      enviromentParameters: [`USER=${userconfig.initial.zelid}`, 'TEAM=262156', 'ENABLE_GPU=false', 'ENABLE_SMP=true'],
+      commands: [
+        '--allow',
+        '0/0',
+        '--web-allow',
+        '0/0',
+      ],
+      containerPort: 7396,
+      containerData: '/config',
+      hash: 'localappinstancehashABCDE', // hash of app message
+      height: 0, // height of tx on which it was
+    },
+    // {
+    //   name: 'SuperMario', // corresponds to docker name and this name is stored in zelapps mongo database
+    //   description: 'LoL SuperMario',
+    //   repotag: 'pengbai/docker-supermario:latest',
+    //   owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+    //   port: 30001,
+    //   tiered: false,
+    //   cpu: 0.2, // true resource registered for app. If not tiered only this is available
+    //   ram: 200, // true resource registered for app
+    //   hdd: 1, // true resource registered for app
+    //   enviromentParameters: [],
+    //   commands: [],
+    //   containerPort: 8080,
+    //   containerData: '/tmp', // cannot be root todo in verification
+    //   hash: 'ahashofappmessage', // hash of app message
+    //   height: 3, // height of tx on which it was
+    // },
+    // {
+    //   name: 'PacMan', // corresponds to docker name and this name is stored in zelapps mongo database
+    //   description: 'LoL PacMan',
+    //   repotag: 'uzyexe/pacman:latest',
+    //   owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+    //   port: 30002,
+    //   tiered: false,
+    //   cpu: 0.2, // true resource registered for app. If not tiered only this is available
+    //   ram: 200, // true resource registered for app
+    //   hdd: 1, // true resource registered for app
+    //   enviromentParameters: [],
+    //   commands: [],
+    //   containerPort: 80,
+    //   containerData: '/tmp', // cannot be root todo in verification
+    //   hash: 'ahashofappmessage', // hash of app message
+    //   height: 4, // height of tx on which it was
+    // },
+    // {
+    //   name: 'dibi-UND', // corresponds to docker name and this name is stored in zelapps mongo database
+    //   description: 'dibi fetch basic description',
+    //   repotag: 't1dev/dibi-fetch:latest',
+    //   owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+    //   port: 30003,
+    //   tiered: false,
+    //   cpu: 0.2, // true resource registered for app. If not tiered only this is available
+    //   ram: 200, // true resource registered for app
+    //   hdd: 1, // true resource registered for app
+    //   enviromentParameters: [],
+    //   commands: [],
+    //   containerPort: 80,
+    //   containerData: '/tmp', // cannot be root todo in verification
+    //   hash: 'ahashofappmessage', // hash of app message
+    //   height: 2, // height of tx on which it was
+    // },
+  ];
+
+  const dataResponse = serviceHelper.createDataMessage(zelapps);
+  return res ? res.json(dataResponse) : zelapps;
+}
+
 async function verifyAppHash(message) {
   /* message object
   * @param type string
@@ -2095,6 +2187,31 @@ async function ensureCorrectApplicationPort(zelAppSpecFormatted) {
   return true;
 }
 
+async function checkApplicationNameConflicts(zelAppSpecFormatted) {
+  // check if name is not yet registered
+  const dbopen = serviceHelper.databaseConnection();
+
+  const zelappsDatabase = dbopen.db(config.database.zelappsglobal.database);
+  const zelappsQuery = { name: new RegExp(`^${zelAppSpecFormatted.name}$`, 'i') }; // case insensitive
+  const zelappsProjection = {
+    projection: {
+      _id: 0,
+      name: 1,
+    },
+  };
+  const zelappResult = await serviceHelper.findOneInDatabase(zelappsDatabase, globalZelAppsInformation, zelappsQuery, zelappsProjection);
+
+  if (zelappResult) {
+    throw new Error(`ZelApp ${zelAppSpecFormatted.name} already registered. ZelApp has to be registered under different name.`);
+  }
+
+  const localApps = await availableZelApps();
+  const zelappExists = localApps.find((localApp) => localApp.name.toLowerCase() === zelAppSpecFormatted.name.toLowerCase());
+  if (zelappExists) {
+    throw new Error(`ZelApp ${zelAppSpecFormatted.name} already assigned to local application. ZelApp has to be registered under different name.`);
+  }
+  return true;
+}
 async function storeZelAppTemporaryMessage(message, furtherVerification = false) {
   /* message object
   * @param type string
@@ -2114,6 +2231,7 @@ async function storeZelAppTemporaryMessage(message, furtherVerification = false)
       await verifyZelAppSpecifications(message.zelAppSpecifications);
       await verifyAppHash(message);
       await ensureCorrectApplicationPort(message.zelAppSpecifications);
+      await checkApplicationNameConflicts(message.zelAppSpecifications);
       await verifyZelAppMessageSignature(message.type, message.version, message.zelAppSpecifications, message.timestamp, message.signature);
     } else if (message.type === 'zelappupdate') {
       // stadard verifications
@@ -2386,21 +2504,7 @@ async function registerZelAppGlobalyApi(req, res) {
       await verifyZelAppSpecifications(zelAppSpecFormatted);
 
       // check if name is not yet registered
-      const dbopen = serviceHelper.databaseConnection();
-
-      const zelappsDatabase = dbopen.db(config.database.zelappsglobal.database);
-      const zelappsQuery = { name: new RegExp(`^${zelAppSpecFormatted.name}$`, 'i') }; // case insensitive
-      const zelappsProjection = {
-        projection: {
-          _id: 0,
-          name: 1,
-        },
-      };
-      const zelappResult = await serviceHelper.findOneInDatabase(zelappsDatabase, globalZelAppsInformation, zelappsQuery, zelappsProjection);
-
-      if (zelappResult) {
-        throw new Error(`ZelApp ${zelAppSpecFormatted.name} already registered. ZelApp has to be registered under different name.`);
-      }
+      await checkApplicationNameConflicts(zelAppSpecFormatted);
 
       // check if port is not yet registered
       await ensureCorrectApplicationPort(zelAppSpecFormatted);
@@ -2891,98 +2995,6 @@ async function temporaryZelAppRegisterFunctionForPacMan(req, res) {
     );
     res.json(errorResponse);
   }
-}
-
-async function availableZelApps(req, res) {
-  // calls to global mongo db
-  // simulate a similar response
-  const zelapps = [
-    { // zelapp specifications
-      name: 'FoldingAtHomeB',
-      description: 'Folding @ Home is cool :)',
-      repotag: 'yurinnick/folding-at-home:latest',
-      owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-      tiered: true,
-      port: 30000,
-      cpu: 0.5,
-      ram: 500,
-      hdd: 5,
-      cpubasic: 0.5,
-      cpusuper: 1,
-      cpubamf: 2,
-      rambasic: 500,
-      ramsuper: 1000,
-      rambamf: 4000,
-      hddbasic: 5,
-      hddsuper: 5,
-      hddbamf: 5,
-      enviromentParameters: [`USER=${userconfig.initial.zelid}`, 'TEAM=262156', 'ENABLE_GPU=false', 'ENABLE_SMP=true'],
-      commands: [
-        '--allow',
-        '0/0',
-        '--web-allow',
-        '0/0',
-      ],
-      containerPort: 7396,
-      containerData: '/config',
-      hash: 'localappinstancehashABCDE', // hash of app message
-      height: 0, // height of tx on which it was
-    },
-    // {
-    //   name: 'SuperMario', // corresponds to docker name and this name is stored in zelapps mongo database
-    //   description: 'LoL SuperMario',
-    //   repotag: 'pengbai/docker-supermario:latest',
-    //   owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-    //   port: 30001,
-    //   tiered: false,
-    //   cpu: 0.2, // true resource registered for app. If not tiered only this is available
-    //   ram: 200, // true resource registered for app
-    //   hdd: 1, // true resource registered for app
-    //   enviromentParameters: [],
-    //   commands: [],
-    //   containerPort: 8080,
-    //   containerData: '/tmp', // cannot be root todo in verification
-    //   hash: 'ahashofappmessage', // hash of app message
-    //   height: 3, // height of tx on which it was
-    // },
-    // {
-    //   name: 'PacMan', // corresponds to docker name and this name is stored in zelapps mongo database
-    //   description: 'LoL PacMan',
-    //   repotag: 'uzyexe/pacman:latest',
-    //   owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-    //   port: 30002,
-    //   tiered: false,
-    //   cpu: 0.2, // true resource registered for app. If not tiered only this is available
-    //   ram: 200, // true resource registered for app
-    //   hdd: 1, // true resource registered for app
-    //   enviromentParameters: [],
-    //   commands: [],
-    //   containerPort: 80,
-    //   containerData: '/tmp', // cannot be root todo in verification
-    //   hash: 'ahashofappmessage', // hash of app message
-    //   height: 4, // height of tx on which it was
-    // },
-    // {
-    //   name: 'dibi-UND', // corresponds to docker name and this name is stored in zelapps mongo database
-    //   description: 'dibi fetch basic description',
-    //   repotag: 't1dev/dibi-fetch:latest',
-    //   owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-    //   port: 30003,
-    //   tiered: false,
-    //   cpu: 0.2, // true resource registered for app. If not tiered only this is available
-    //   ram: 200, // true resource registered for app
-    //   hdd: 1, // true resource registered for app
-    //   enviromentParameters: [],
-    //   commands: [],
-    //   containerPort: 80,
-    //   containerData: '/tmp', // cannot be root todo in verification
-    //   hash: 'ahashofappmessage', // hash of app message
-    //   height: 2, // height of tx on which it was
-    // },
-  ];
-
-  const dataResponse = serviceHelper.createDataMessage(zelapps);
-  return res.json(dataResponse);
 }
 
 // where req can be equal to appname

@@ -64,7 +64,7 @@ module.exports = {
     publicepochstart: 705000,
     portMin: 31000, // originally should have been from 30000 but we got temporary folding there
     portMax: 39999,
-    maxImageSize: 300000000, // 300mb possibly increase later
+    maxImageSize: 500000000, // 500mb possibly increase later
     minimumInstances: 5,
     maximumInstances: 10,
     minOutgoing: 5,

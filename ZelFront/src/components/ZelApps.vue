@@ -1783,7 +1783,7 @@ export default {
       tier: '',
       output: '',
       fluxCommunication: false,
-      zelAppRegistrationSpecificationB: {
+      zelAppRegistrationSpecification: {
         version: 1,
         name: '',
         description: '',
@@ -1807,31 +1807,6 @@ export default {
         cpubamf: null,
         rambamf: null,
         hddbamf: null,
-      },
-      zelAppRegistrationSpecification: {
-        version: 1,
-        name: 'tralalafolding',
-        description: 'Folding @ Home is cool :)',
-        repotag: 'yurinnick/folding-at-home:latest',
-        owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-        port: 31000,
-        enviromentParameters: '["USER=foldingUser", "TEAM=262156", "ENABLE_GPU=false", "ENABLE_SMP=true"]', // []
-        commands: '["--allow","0/0","--web-allow","0/0"]', // []
-        containerPort: 7396,
-        containerData: '/config',
-        cpu: 0.5,
-        ram: 500,
-        hdd: 5,
-        tiered: false,
-        cpubasic: 0.5,
-        rambasic: 500,
-        hddbasic: 5,
-        cpusuper: 1,
-        ramsuper: 1000,
-        hddsuper: 5,
-        cpubamf: 2,
-        rambamf: 2000,
-        hddbamf: 5,
       },
       zelAppUpdateSpecification: {
         version: 1,
@@ -2855,6 +2830,7 @@ export default {
       this.zelAppExec.cmd = '';
       this.zelAppExec.env = '';
       this.managedApplication = zelappName;
+      this.checkFluxCommunication();
       this.getAppOwner();
       this.getZelCashInfo();
       this.getGlobalApplicationSpecifics();
