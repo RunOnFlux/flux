@@ -59,10 +59,10 @@ module.exports = {
       ram: 0.4, // per 100mb,
       hdd: 0.2, // per 1gb,
     },
-    address: 't1aaMTj21fh6JtZJQdR4jsJjA4Y75hPobEV',
-    epochstart: 680000,
+    address: 't1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6',
+    epochstart: 694000,
     publicepochstart: 705000,
-    portMin: 31000, // originally should have been from 30000 but we got temporary folding there
+    portMin: 31000, // ports 30000 - 30999 are reserved for local applications
     portMax: 39999,
     maxImageSize: 500000000, // 500mb possibly increase later
     minimumInstances: 5,
@@ -70,7 +70,7 @@ module.exports = {
     minOutgoing: 5,
     minIncoming: 2,
     installation: {
-      probability: 3, // 100
+      probability: 100, // 100
       delay: 120, // in seconds
     },
     removal: {

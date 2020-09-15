@@ -1877,7 +1877,7 @@ export default {
           ram: 0.4, // per 100mb,
           hdd: 0.2, // per 1gb,
         },
-        address: 't1KZ4DRuGx7MthF9Vr8S8jprLcZzyYR8nRW', // apps registration address
+        address: 't1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6', // apps registration address
         epochstart: 694000, // zelapps epoch blockheight start
         portMin: 31000, // originally should have been from 30000 but we got temporary folding there
         portMax: 39999,
