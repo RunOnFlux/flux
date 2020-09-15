@@ -1562,7 +1562,7 @@ async function checkZelAppRequirements(zelAppSpecs) {
   const totalSpaceOnNode = config.fluxSpecifics.hdd[tier];
   const useableSpaceOnNode = totalSpaceOnNode - config.lockedSystemResources.hdd;
   const hddLockedByApps = resourcesLocked.data.zelAppsHddLocked;
-  const availableSpaceForZelApps = useableSpaceOnNode - hddLockedByApps + zelAppSpecs.hdd;
+  const availableSpaceForZelApps = useableSpaceOnNode - hddLockedByApps;
   // bigger or equal so we have the 1 gb free...
   if (zelAppSpecs.hdd >= availableSpaceForZelApps) {
     throw new Error('Insufficient space on ZelNode to spawn an application');
@@ -1572,7 +1572,7 @@ async function checkZelAppRequirements(zelAppSpecs) {
   const useableCpuOnNode = totalCpuOnNode - config.lockedSystemResources.cpu;
   const cpuLockedByApps = resourcesLocked.data.zelAppsCpusLocked * 10;
   const adjustedZelAppCpu = zelAppSpecs.cpu * 10;
-  const availableCpuForZelApps = useableCpuOnNode - cpuLockedByApps + adjustedZelAppCpu;
+  const availableCpuForZelApps = useableCpuOnNode - cpuLockedByApps;
   // bigger or equal so we have the 1 gb free...
   if (adjustedZelAppCpu >= availableCpuForZelApps) {
     throw new Error('Insufficient CPU power on ZelNode to spawn an application');
@@ -1581,7 +1581,7 @@ async function checkZelAppRequirements(zelAppSpecs) {
   const totalRamOnNode = config.fluxSpecifics.ram[tier];
   const useableRamOnNode = totalRamOnNode - config.lockedSystemResources.ram;
   const ramLockedByApps = resourcesLocked.data.zelAppsRamLocked;
-  const availableRamForZelApps = useableRamOnNode - ramLockedByApps + zelAppSpecs.ram;
+  const availableRamForZelApps = useableRamOnNode - ramLockedByApps;
   // bigger or equal so we have the 1 gb free...
   if (zelAppSpecs.ram >= availableRamForZelApps) {
     throw new Error('Insufficient RAM on ZelNode to spawn an application');
@@ -1650,14 +1650,6 @@ async function registerZelAppLocally(zelAppSpecifications, res) {
       throw new Error('ZelApp already installed');
     }
 
-    const zelAppInstallation = {
-      status: 'Initiating ZelApp installation...',
-    };
-    log.info(zelAppInstallation);
-    if (res) {
-      res.write(serviceHelper.ensureString(zelAppInstallation));
-    }
-
     const checkParameters = {
       status: 'Checking ZelApp requirements...',
     };
@@ -1669,6 +1661,13 @@ async function registerZelAppLocally(zelAppSpecifications, res) {
     await checkZelAppRequirements(zelAppSpecifications);
 
     // prechecks done
+    const zelAppInstallation = {
+      status: 'Initiating ZelApp installation...',
+    };
+    log.info(zelAppInstallation);
+    if (res) {
+      res.write(serviceHelper.ensureString(zelAppInstallation));
+    }
     // register the zelapp
     await serviceHelper.insertOneToDatabase(zelappsDatabase, localZelAppsInformation, zelAppSpecifications);
 
