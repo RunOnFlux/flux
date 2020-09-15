@@ -2763,7 +2763,7 @@ async function updateZelAppGlobalyApi(req, res) {
   });
 }
 
-async function installTemporaryLocalApplication(res, req, applicationName) {
+async function installTemporaryLocalApplication(req, res, applicationName) {
   try {
     const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
     if (authorized) {
