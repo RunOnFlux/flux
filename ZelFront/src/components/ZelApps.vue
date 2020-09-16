@@ -196,10 +196,30 @@
           name="available"
         >
           <el-table
+            ref="availableLocalTable"
             :data="availableZelApps.data"
             empty-text="No ZelApp available"
             style="width: 100%"
+            @expand-change="loadLocations"
           >
+            <el-table-column type="expand">
+              <template slot-scope="props">
+                <p>Description: {{ props.row.description }}</p>
+                <p> Owner: {{ props.row.owner }}</p>
+                <p>Hash: {{ props.row.hash }}</p>
+                <p>Locations:</p>
+                <div
+                  v-for="location in zelAppLocations"
+                  :key="location.ip"
+                >
+                  <p>{{ location.ip }}
+                    <ElButton @click="openSite('http://' + location.ip + ':' + props.row.port)">
+                      Visit
+                    </ElButton>
+                  </p>
+                </div>
+              </template>
+            </el-table-column>
             <el-table-column
               label="Name"
               prop="name"
@@ -212,12 +232,6 @@
             <el-table-column
               label="Image"
               prop="repotag"
-              sortable
-            >
-            </el-table-column>
-            <el-table-column
-              label="Owner"
-              prop="owner"
               sortable
             >
             </el-table-column>
@@ -1907,6 +1921,7 @@ export default {
         label: 'label',
       },
       currentHeight: 0,
+      zelAppLocations: [],
     };
   },
   computed: {
@@ -2045,6 +2060,7 @@ export default {
       }
     },
     activeNameGlobal(val, oldVal) {
+      this.zelAppLocations = [];
       this.callResponse.data = '';
       this.callResponse.status = '';
       this.callBResponse.data = '';
@@ -2110,9 +2126,11 @@ export default {
     switcher(value) {
       switch (value) {
         case 'localzelapps':
+          this.zelAppLocations = [];
           this.zelappsGetListRunningZelApps();
           break;
         case 'globalzelapps':
+          this.zelAppLocations = [];
           this.zelappsGetListGlobalZelApps();
           break;
         case 'registerzelapp':
@@ -3202,6 +3220,28 @@ export default {
         price = 1;
       }
       return price;
+    },
+    async loadLocations(row, expanded) {
+      console.log(row);
+      console.log(expanded);
+      if (expanded && expanded.length > 1) {
+        const hideRow = expanded.find((hiderow) => hiderow.name !== row.name);
+        if (hideRow) {
+          console.log(hideRow);
+          this.$refs.availableLocalTable.toggleRowExpansion(hideRow);
+        }
+      }
+      if (expanded && (expanded.length === 2 || this.zelAppLocations.length === 0)) {
+        this.zelAppLocations = [];
+        const response = await ZelAppsService.getZelAppLocation(row.name).catch((error) => {
+          vue.$customMes.error(error.message || error);
+        });
+        console.log(response);
+        if (response.data.status === 'success') {
+          const zelappLocations = response.data.data;
+          this.zelAppLocations = zelappLocations;
+        }
+      }
     },
   },
 };
