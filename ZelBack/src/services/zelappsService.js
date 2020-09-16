@@ -2050,7 +2050,7 @@ async function availableZelApps(req, res) {
       description: 'Kadena is a fast, secure, and scalable blockchain using the Chainweb consensus protocol. '
        + 'Chainweb is a braided, parallelized Proof Of Work consensus mechanism that improves throughput and scalability in executing transactions on the blockchain while maintaining the security and integrity found in Bitcoin.',
       repotag: 'kadena/chainweb-node:latest',
-      owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+      owner: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
       port: 30004,
       tiered: false,
       cpu: 2, // true resource registered for app. If not tiered only this is available
