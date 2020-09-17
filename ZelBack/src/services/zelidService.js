@@ -3,7 +3,7 @@ const bitcoinMessage = require('bitcoinjs-message');
 const qs = require('qs');
 const fs = require('fs');
 
-const userconfig = require('../../../config/userconfig.js');
+const userconfig = require('../../../config/userconfig');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const zelappsService = require('./zelappsService');
@@ -659,7 +659,7 @@ async function adjustCruxID(req, res) {
       if (!cruxid.includes('.crux')) {
         throw new Error('Invalid Crux ID provided');
       }
-      const path = userconfig;
+      const path = '../../../config/userconfig.js';
       const dataToWrite = `module.exports = {
         initial: {
           ipaddress: '${userconfig.initial.ipaddress}}',
