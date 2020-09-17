@@ -237,6 +237,12 @@ function getZelFluxZelID(req, res) {
   return res ? res.json(message) : message;
 }
 
+function getZelFluxCruxID(req, res) {
+  const cruxID = userconfig.initial.cruxid;
+  const message = serviceHelper.createDataMessage(cruxID);
+  return res ? res.json(message) : message;
+}
+
 async function zelcashDebug(req, res) {
   const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
   if (!authorized) {
@@ -379,6 +385,11 @@ async function getZelFluxInfo(req, res) {
       throw zelidRes.data;
     }
     info.zelflux.zelid = zelidRes.data;
+    const cruxidRes = await getZelFluxCruxID();
+    if (cruxidRes.status === 'error') {
+      throw cruxidRes.data;
+    }
+    info.zelflux.cruxid = cruxidRes.data;
     const timeResult = await getZelFluxTimezone();
     if (timeResult.status === 'error') {
       throw timeResult.data;
@@ -459,6 +470,7 @@ module.exports = {
   getZelFluxVersion,
   getZelFluxIP,
   getZelFluxZelID,
+  getZelFluxCruxID,
   zelcashDebug,
   zelbenchDebug,
   zelfluxErrorLog,

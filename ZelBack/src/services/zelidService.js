@@ -676,7 +676,7 @@ async function adjustCruxID(req, res) {
         newuserconfig.end();
       });
       const successMessage = serviceHelper.createSuccessMessage('CruxID adjusted');
-      req.json(successMessage);
+      res.json(successMessage);
     } else {
       const errMessage = serviceHelper.errUnauthorizedMessage();
       res.json(errMessage);
