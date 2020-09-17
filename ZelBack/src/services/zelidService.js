@@ -1,8 +1,9 @@
 const config = require('config');
 const bitcoinMessage = require('bitcoinjs-message');
 const qs = require('qs');
+const fs = require('fs');
 
-const userconfig = require('../../../config/userconfig');
+const userconfig = require('../../../config/userconfig.js');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const zelappsService = require('./zelappsService');
@@ -643,6 +644,50 @@ async function checkLoggedUser(req, res) {
   }
 }
 
+async function adjustCruxID(req, res) {
+  try {
+    const authorized = await serviceHelper.verifyAdminSession(req.headers);
+    if (true) { // if (authorized === true) {
+      let { cruxid } = req.params;
+      cruxid = cruxid || req.query.cruxid;
+      if (!cruxid) {
+        throw new Error('No Crux ID provided');
+      }
+      if (!cruxid.includes('@')) {
+        throw new Error('Invalid Crux ID provided');
+      }
+      if (!cruxid.includes('.crux')) {
+        throw new Error('Invalid Crux ID provided');
+      }
+      const path = userconfig;
+      const dataToWrite = `module.exports = {
+        initial: {
+          ipaddress: '${userconfig.initial.ipaddress}}',
+          zelid: '${userconfig.initial.zelid}',
+          cruxid: '${cruxid}',
+          testnet: false
+        }
+      }`;
+
+      const newuserconfig = fs.createWriteStream(path);
+
+      newuserconfig.once('open', () => {
+        newuserconfig.write(dataToWrite);
+        newuserconfig.end();
+      });
+      const successMessage = serviceHelper.createSuccessMessage('CruxID adjusted');
+      req.json(successMessage);
+    } else {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+  }
+}
+
 module.exports = {
   loginPhrase,
   emergencyPhrase,
@@ -658,4 +703,5 @@ module.exports = {
   wsRespondLoginPhrase,
   wsRespondSignature,
   checkLoggedUser,
+  adjustCruxID,
 };

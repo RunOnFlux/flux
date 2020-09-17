@@ -19,14 +19,20 @@ const questions = [
   {
     type: 'input',
     name: 'zelid',
-    message: 'What is your Zel ID?',
+    message: 'Flux uses Zel ID system for authentication and verification purposes. What is your Zel ID?',
+  },
+  {
+    type: 'input',
+    name: 'cruxid',
+    message: 'By running applications on Flux, you can be awarded in many currencies. What is your Crux ID to which we can distribute your rewards?',
   },
 ];
 
 function showQuestions() {
   inquirer.prompt(questions).then((answers) => {
     console.log(`IP address: ${answers.ipaddr}`);
-    console.log(`zel ID: ${answers.zelid}`);
+    console.log(`Zel ID: ${answers.zelid}`);
+    console.log(`Crux ID: ${answers.cruxid}`);
     if (answers.ipaddr.length < 5 || (answers.ipaddr.indexOf('.') === -1 && answers.ipaddr.indexOf(':') === -1)) {
       console.log('IP address is NOT valid!');
       return showQuestions();
@@ -51,6 +57,7 @@ function showQuestions() {
       initial: {
         ipaddress: '${answers.ipaddr}',
         zelid: '${answers.zelid}',
+        cruxid: '${answers.cruxid}',
         testnet: false
       }
     }`;

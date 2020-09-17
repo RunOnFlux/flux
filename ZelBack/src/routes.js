@@ -542,6 +542,9 @@ module.exports = (app, expressWs) => {
   app.get('/zelid/logoutallusers', (req, res) => {
     zelidService.logoutAllUsers(req, res);
   });
+  app.get('/zelid/adjustcruxid/:cruxid?', (req, res) => {
+    zelidService.adjustCruxID(req, res);
+  });
 
   app.get('/zelnode/reindexzelcash', (req, res) => {
     zelnodeService.reindexZelCash(req, res);
