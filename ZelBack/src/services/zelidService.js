@@ -2,6 +2,7 @@ const config = require('config');
 const bitcoinMessage = require('bitcoinjs-message');
 const qs = require('qs');
 const fs = require('fs');
+const path = require('path');
 
 const userconfig = require('../../../config/userconfig');
 const log = require('../lib/log');
@@ -659,7 +660,7 @@ async function adjustCruxID(req, res) {
       if (!cruxid.includes('.crux')) {
         throw new Error('Invalid Crux ID provided');
       }
-      const path = '../../../config/userconfig.js';
+      const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
       const dataToWrite = `module.exports = {
         initial: {
           ipaddress: '${userconfig.initial.ipaddress}}',
@@ -669,12 +670,8 @@ async function adjustCruxID(req, res) {
         }
       }`;
 
-      const newuserconfig = fs.createWriteStream(path);
+      await fs.writeFile(fluxDirPath, dataToWrite);
 
-      newuserconfig.once('open', () => {
-        newuserconfig.write(dataToWrite);
-        newuserconfig.end();
-      });
       const successMessage = serviceHelper.createSuccessMessage('CruxID adjusted');
       res.json(successMessage);
     } else {

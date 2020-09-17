@@ -238,7 +238,7 @@ function getZelFluxZelID(req, res) {
 }
 
 function getZelFluxCruxID(req, res) {
-  const cruxID = userconfig.initial.cruxid;
+  const cruxID = userconfig.initial.cruxid || null;
   const message = serviceHelper.createDataMessage(cruxID);
   return res ? res.json(message) : message;
 }
