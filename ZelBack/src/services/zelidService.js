@@ -648,7 +648,7 @@ async function checkLoggedUser(req, res) {
 async function adjustCruxID(req, res) {
   try {
     const authorized = await serviceHelper.verifyAdminSession(req.headers);
-    if (true) { // if (authorized === true) {
+    if (authorized === true) {
       let { cruxid } = req.params;
       cruxid = cruxid || req.query.cruxid;
       if (!cruxid) {
