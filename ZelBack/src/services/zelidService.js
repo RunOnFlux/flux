@@ -1,7 +1,7 @@
 const config = require('config');
 const bitcoinMessage = require('bitcoinjs-message');
 const qs = require('qs');
-const fs = require('fs');
+const fs = require('fs').promises;
 const path = require('path');
 
 const userconfig = require('../../../config/userconfig');
