@@ -649,11 +649,15 @@ export default {
                 }
               })
               .catch((e) => {
-                self.updateDialogVisible = false;
-                self.updateProgress = 0;
                 console.log(e);
                 console.log(e.code);
-                vue.$customMes.error(e.toString());
+                if (e.toString() === 'Error: Network Error') {
+                  self.updateProgress = 50;
+                } else {
+                  self.updateDialogVisible = false;
+                  self.updateProgress = 0;
+                  vue.$customMes.error(e.toString());
+                }
               });
           } else {
             vue.$customMes.success('Flux is already up to date.');

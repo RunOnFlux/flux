@@ -196,10 +196,30 @@
           name="available"
         >
           <el-table
+            ref="availableLocalTable"
             :data="availableZelApps.data"
             empty-text="No ZelApp available"
             style="width: 100%"
+            @expand-change="loadLocations"
           >
+            <el-table-column type="expand">
+              <template slot-scope="props">
+                <p>Description: {{ props.row.description }}</p>
+                <p> Owner: {{ props.row.owner }}</p>
+                <p>Hash: {{ props.row.hash }}</p>
+                <p>Locations:</p>
+                <div
+                  v-for="location in zelAppLocations"
+                  :key="location.ip"
+                >
+                  <p>{{ location.ip }}
+                    <ElButton @click="openSite('http://' + location.ip + ':' + props.row.port)">
+                      Visit
+                    </ElButton>
+                  </p>
+                </div>
+              </template>
+            </el-table-column>
             <el-table-column
               label="Name"
               prop="name"
@@ -212,12 +232,6 @@
             <el-table-column
               label="Image"
               prop="repotag"
-              sortable
-            >
-            </el-table-column>
-            <el-table-column
-              label="Owner"
-              prop="owner"
               sortable
             >
             </el-table-column>
@@ -1127,7 +1141,7 @@
           </div>
           <div v-if="managementMenuItem === 'updateappglobalspecifications'">
             <div v-if="!fluxCommunication">
-              Warninig: Connected Flux is not communicating properly with Flux network
+              Warning: Connected Flux is not communicating properly with Flux network
             </div>
             <h2>Here you can update your application specifications.</h2>
             <div class="zelapps-register">
@@ -1434,7 +1448,7 @@
     </div>
     <div v-if="zelAppsSection === 'registerzelapp'">
       <div v-if="!fluxCommunication">
-        Warninig: Connected Flux is not communicating properly with Flux network
+        Warning: Connected Flux is not communicating properly with Flux network
       </div>
       <div class="zelapps-register">
         <el-form
@@ -1783,7 +1797,7 @@ export default {
       tier: '',
       output: '',
       fluxCommunication: false,
-      zelAppRegistrationSpecificationB: {
+      zelAppRegistrationSpecification: {
         version: 1,
         name: '',
         description: '',
@@ -1807,31 +1821,6 @@ export default {
         cpubamf: null,
         rambamf: null,
         hddbamf: null,
-      },
-      zelAppRegistrationSpecification: {
-        version: 1,
-        name: 'tralalafolding',
-        description: 'Folding @ Home is cool :)',
-        repotag: 'yurinnick/folding-at-home:latest',
-        owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-        port: 31000,
-        enviromentParameters: '["USER=foldingUser", "TEAM=262156", "ENABLE_GPU=false", "ENABLE_SMP=true"]', // []
-        commands: '["--allow","0/0","--web-allow","0/0"]', // []
-        containerPort: 7396,
-        containerData: '/config',
-        cpu: 0.5,
-        ram: 500,
-        hdd: 5,
-        tiered: false,
-        cpubasic: 0.5,
-        rambasic: 500,
-        hddbasic: 5,
-        cpusuper: 1,
-        ramsuper: 1000,
-        hddsuper: 5,
-        cpubamf: 2,
-        rambamf: 2000,
-        hddbamf: 5,
       },
       zelAppUpdateSpecification: {
         version: 1,
@@ -1898,12 +1887,12 @@ export default {
       zelapps: {
         // in zel per month
         price: {
-          cpu: 3 * 5, // per 0.1 cpu core,
-          ram: 1 * 5, // per 100mb,
-          hdd: 0.5 * 5, // per 1gb,
+          cpu: 1, // per 0.1 cpu core,
+          ram: 0.4, // per 100mb,
+          hdd: 0.2, // per 1gb,
         },
-        address: 't1...', // apps registration address
-        epochstart: 690000, // zelapps epoch blockheight start
+        address: 't1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6', // apps registration address
+        epochstart: 694000, // zelapps epoch blockheight start
         portMin: 31000, // originally should have been from 30000 but we got temporary folding there
         portMax: 39999,
       },
@@ -1932,6 +1921,7 @@ export default {
         label: 'label',
       },
       currentHeight: 0,
+      zelAppLocations: [],
     };
   },
   computed: {
@@ -1991,7 +1981,6 @@ export default {
       return price;
     },
     appPricePerMonthForUpdate() {
-      // this.getAppPriceFromAPI(); // TODO remove this test
       const zelappInfo = this.callBResponse.data;
       let actualPriceToPay = this.appPricePerMonthMethod(this.dataForZelAppUpdate);
       console.log(actualPriceToPay);
@@ -2006,10 +1995,10 @@ export default {
           actualPriceToPay -= (perc * previousSpecsPrice);
         }
       }
-      if (actualPriceToPay < 10) {
-        actualPriceToPay = 10;
+      if (actualPriceToPay < 1) {
+        actualPriceToPay = 1;
       }
-      actualPriceToPay = Math.ceil(actualPriceToPay);
+      actualPriceToPay = Number(Math.ceil(actualPriceToPay * 100) / 100);
       return actualPriceToPay;
     },
     validTill() {
@@ -2071,6 +2060,7 @@ export default {
       }
     },
     activeNameGlobal(val, oldVal) {
+      this.zelAppLocations = [];
       this.callResponse.data = '';
       this.callResponse.status = '';
       this.callBResponse.data = '';
@@ -2084,6 +2074,7 @@ export default {
           this.zelappsGetListGlobalZelApps();
           break;
         case 'myapps':
+          this.zelappsGetListAllZelApps();
           this.zelappsGetListGlobalZelApps();
           this.getZelCashInfo();
           break;
@@ -2135,9 +2126,11 @@ export default {
     switcher(value) {
       switch (value) {
         case 'localzelapps':
+          this.zelAppLocations = [];
           this.zelappsGetListRunningZelApps();
           break;
         case 'globalzelapps':
+          this.zelAppLocations = [];
           this.zelappsGetListGlobalZelApps();
           break;
         case 'registerzelapp':
@@ -2255,7 +2248,6 @@ export default {
       this.output = '';
       vue.$customMes.success('Removing ZelApp');
       const zelidauth = localStorage.getItem('zelidauth');
-      // const response = await ZelAppsService.installFoldingAtHome(zelidauth, zelapp);
       const axiosConfig = {
         headers: {
           zelidauth,
@@ -2856,6 +2848,7 @@ export default {
       this.zelAppExec.cmd = '';
       this.zelAppExec.env = '';
       this.managedApplication = zelappName;
+      this.checkFluxCommunication();
       this.getAppOwner();
       this.getZelCashInfo();
       this.getGlobalApplicationSpecifics();
@@ -2974,7 +2967,7 @@ export default {
     },
     initiateSignWSUpdate() {
       const self = this;
-      const signatureMessage = this.zelAppUpdateSpecification.owner + this.timestamp; // todo fixme
+      const signatureMessage = this.zelAppUpdateSpecification.owner + this.timestamp;
       const wsuri = `ws://${this.userconfig.externalip}:${this.config.apiPort}/ws/zelsign/${signatureMessage}`;
       const websocket = new WebSocket(wsuri);
       this.websocket = websocket;
@@ -3211,20 +3204,44 @@ export default {
         const hddTotalCount = specifications.hddbasic + specifications.hddsuper + specifications.hddbamf;
         const hddPrice = hddTotalCount * this.zelapps.price.hdd;
         const hddTotal = hddPrice / 3;
-        price = Math.ceil(cpuTotal + ramTotal + hddTotal);
-        if (price < 10) {
-          price = 10;
+        const totalPrice = cpuTotal + ramTotal + hddTotal;
+        price = Number(Math.ceil(totalPrice * 100) / 100);
+        if (price < 1) {
+          price = 1;
         }
         return price;
       }
       const cpuTotal = specifications.cpu * this.zelapps.price.cpu * 10;
       const ramTotal = (specifications.ram * this.zelapps.price.ram) / 100;
       const hddTotal = specifications.hdd * this.zelapps.price.hdd;
-      price = Math.ceil(cpuTotal + ramTotal + hddTotal);
-      if (price < 10) {
-        price = 10;
+      const totalPrice = cpuTotal + ramTotal + hddTotal;
+      price = Number(Math.ceil(totalPrice * 100) / 100);
+      if (price < 1) {
+        price = 1;
       }
       return price;
+    },
+    async loadLocations(row, expanded) {
+      console.log(row);
+      console.log(expanded);
+      if (expanded && expanded.length > 1) {
+        const hideRow = expanded.find((hiderow) => hiderow.name !== row.name);
+        if (hideRow) {
+          console.log(hideRow);
+          this.$refs.availableLocalTable.toggleRowExpansion(hideRow);
+        }
+      }
+      if (expanded && (expanded.length === 2 || this.zelAppLocations.length === 0)) {
+        this.zelAppLocations = [];
+        const response = await ZelAppsService.getZelAppLocation(row.name).catch((error) => {
+          vue.$customMes.error(error.message || error);
+        });
+        console.log(response);
+        if (response.data.status === 'success') {
+          const zelappLocations = response.data.data;
+          this.zelAppLocations = zelappLocations;
+        }
+      }
     },
   },
 };

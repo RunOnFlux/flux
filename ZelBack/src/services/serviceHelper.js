@@ -119,7 +119,7 @@ async function connectMongoDb(url) {
     useUnifiedTopology: true,
     poolSize: 10,
   };
-  const db = await MongoClient.connect(connectUrl, mongoSettings).catch((error) => { throw error; });
+  const db = await MongoClient.connect(connectUrl, mongoSettings);
   return db;
 }
 
@@ -129,61 +129,61 @@ async function initiateDB() {
 }
 
 async function distinctDatabase(database, collection, distinct, query) {
-  const results = await database.collection(collection).distinct(distinct, query).catch((error) => { throw error; });
+  const results = await database.collection(collection).distinct(distinct, query);
   return results;
 }
 
 async function findInDatabase(database, collection, query, projection) {
-  const results = await database.collection(collection).find(query, projection).toArray().catch((error) => { throw error; });
+  const results = await database.collection(collection).find(query, projection).toArray();
   return results;
 }
 
 async function findOneInDatabase(database, collection, query, projection) {
-  const result = await database.collection(collection).findOne(query, projection).catch((error) => { throw error; });
+  const result = await database.collection(collection).findOne(query, projection);
   return result;
 }
 
 async function findOneAndUpdateInDatabase(database, collection, query, update, options) {
   const passedOptions = options || {};
-  const result = await database.collection(collection).findOneAndUpdate(query, update, passedOptions).catch((error) => { throw error; });
+  const result = await database.collection(collection).findOneAndUpdate(query, update, passedOptions);
   return result;
 }
 
 async function insertOneToDatabase(database, collection, value) {
-  const result = await database.collection(collection).insertOne(value).catch((error) => { throw error; });
+  const result = await database.collection(collection).insertOne(value);
   return result;
 }
 
 async function updateOneInDatabase(database, collection, query, update, options) {
   const passedOptions = options || {};
-  const result = await database.collection(collection).updateOne(query, update, passedOptions).catch((error) => { throw error; });
+  const result = await database.collection(collection).updateOne(query, update, passedOptions);
   return result;
 }
 
 async function updateInDatabase(database, collection, query, projection) {
-  const result = await database.collection(collection).updateMany(query, projection).catch((error) => { throw error; });
+  const result = await database.collection(collection).updateMany(query, projection);
   return result;
 }
 
 async function findOneAndDeleteInDatabase(database, collection, query, projection) {
-  const result = await database.collection(collection).findOneAndDelete(query, projection).catch((error) => { throw error; });
+  const result = await database.collection(collection).findOneAndDelete(query, projection);
   return result;
 }
 
 async function removeDocumentsFromCollection(database, collection, query) {
   // to remove all documents from collection, the query is just {}
-  const result = await database.collection(collection).deleteMany(query).catch((error) => { throw error; });
+  const result = await database.collection(collection).deleteMany(query);
   return result;
 }
 
 async function dropCollection(database, collection) {
-  const result = await database.collection(collection).drop().catch((error) => { throw error; });
+  const result = await database.collection(collection).drop();
   return result;
 }
 
 async function collectionStats(database, collection) {
   // to remove all documents from collection, the query is just {}
-  const result = await database.collection(collection).stats().catch((error) => { throw error; });
+  const result = await database.collection(collection).stats();
   return result;
 }
 
@@ -441,22 +441,22 @@ async function verifyPrivilege(privilege, req, appName) {
   let authorized;
   switch (privilege) {
     case 'admin':
-      authorized = await verifyAdminSession(req.headers).catch((error) => { throw error; });
+      authorized = await verifyAdminSession(req.headers);
       break;
     case 'zelteam':
-      authorized = await verifyZelTeamSession(req.headers).catch((error) => { throw error; });
+      authorized = await verifyZelTeamSession(req.headers);
       break;
     case 'adminandzelteam':
-      authorized = await verifyAdminAndZelTeamSession(req.headers).catch((error) => { throw error; });
+      authorized = await verifyAdminAndZelTeamSession(req.headers);
       break;
     case 'appownerabove':
-      authorized = await verifyAppOwnerOrHigherSession(req.headers, appName).catch((error) => { throw error; });
+      authorized = await verifyAppOwnerOrHigherSession(req.headers, appName);
       break;
     case 'appowner':
-      authorized = await verifyAppOwnerSession(req.headers, appName).catch((error) => { throw error; });
+      authorized = await verifyAppOwnerSession(req.headers, appName);
       break;
     case 'user':
-      authorized = await verifyUserSession(req.headers).catch((error) => { throw error; });
+      authorized = await verifyUserSession(req.headers);
       break;
     default:
       authorized = false;

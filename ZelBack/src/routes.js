@@ -186,6 +186,9 @@ module.exports = (app, expressWs) => {
   app.get('/zelid/emergencyphrase', (req, res) => {
     zelidService.emergencyPhrase(req, res);
   });
+  app.get('/zelid/checkprivilege/:zelid?/:signature?', (req, res) => {
+    zelidService.checkLoggedUser(req, res);
+  });
 
   app.get('/zelflux/info', (req, res) => {
     zelnodeService.getZelFluxInfo(req, res);
@@ -201,6 +204,9 @@ module.exports = (app, expressWs) => {
   });
   app.get('/zelflux/zelid', (req, res) => {
     zelnodeService.getZelFluxZelID(req, res);
+  });
+  app.get('/zelflux/cruxid', (req, res) => {
+    zelnodeService.getZelFluxCruxID(req, res);
   });
   app.get('/zelflux/dosstate', (req, res) => {
     zelfluxCommunication.getDOSState(req, res);
@@ -539,6 +545,9 @@ module.exports = (app, expressWs) => {
   app.get('/zelid/logoutallusers', (req, res) => {
     zelidService.logoutAllUsers(req, res);
   });
+  app.get('/zelid/adjustcruxid/:cruxid?', (req, res) => { // note this essentially rebuilds flux use with caution!
+    zelidService.adjustCruxID(req, res);
+  });
 
   app.get('/zelnode/reindexzelcash', (req, res) => {
     zelnodeService.reindexZelCash(req, res);
@@ -702,17 +711,20 @@ module.exports = (app, expressWs) => {
     zelappsService.removeZelAppLocallyApi(req, res);
   });
   app.get('/zelapps/installtemporarylocalapp/FoldingAtHomeB', (req, res) => {
-    zelappsService.temporaryZelAppRegisterFunctionForFoldingAtHome(req, res);
+    zelappsService.installTemporaryLocalApplication(req, res, 'FoldingAtHomeB');
   });
-  app.get('/zelapps/installtemporarylocalapp/dibi-UND', (req, res) => {
-    zelappsService.temporaryZelAppRegisterFunctionForDibiFetch(req, res);
+  app.get('/zelapps/installtemporarylocalapp/KadenaChainWebNode', (req, res) => {
+    zelappsService.installTemporaryLocalApplication(req, res, 'KadenaChainWebNode');
   });
-  app.get('/zelapps/installtemporarylocalapp/SuperMario', (req, res) => {
-    zelappsService.temporaryZelAppRegisterFunctionForSuperMario(req, res);
-  });
-  app.get('/zelapps/installtemporarylocalapp/PacMan', (req, res) => {
-    zelappsService.temporaryZelAppRegisterFunctionForPacMan(req, res);
-  });
+  // app.get('/zelapps/installtemporarylocalapp/dibi-UND', (req, res) => {
+  //   zelappsService.installTemporaryLocalApplication(req, res, 'dibi-UND');
+  // });
+  // app.get('/zelapps/installtemporarylocalapp/SuperMario', (req, res) => {
+  //   zelappsService.installTemporaryLocalApplication(req, res, 'SuperMario');
+  // });
+  // app.get('/zelapps/installtemporarylocalapp/PacMan', (req, res) => {
+  //   zelappsService.installTemporaryLocalApplication(req, res, 'PacMan');
+  // });
   app.get('/zelapps/createzelfluxnetwork', (req, res) => {
     zelappsService.createZelFluxNetwork(req, res);
   });

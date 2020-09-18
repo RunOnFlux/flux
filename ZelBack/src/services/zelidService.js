@@ -1,6 +1,8 @@
 const config = require('config');
 const bitcoinMessage = require('bitcoinjs-message');
 const qs = require('qs');
+const fs = require('fs').promises;
+const path = require('path');
 
 const userconfig = require('../../../config/userconfig');
 const log = require('../lib/log');
@@ -474,66 +476,69 @@ async function wsRespondLoginPhrase(ws, req) {
   const collection = config.database.local.collections.loggedUsers;
   const query = { loginPhrase: loginphrase };
   const projection = {};
+  // eslint-disable-next-line no-inner-declarations
   async function searchDatabase() {
-    const result = await serviceHelper.findOneInDatabase(database, collection, query, projection).catch((error) => {
-      const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
-      ws.send(qs.stringify(errMessage));
-      ws.close(1011);
-      log.error(error);
-      throw error;
-    });
-
-    if (result) {
-      // user is logged, all ok
-      let privilage = 'user';
-      if (result.zelid === config.zelTeamZelId) {
-        privilage = 'zelteam';
-      } else if (result.zelid === userconfig.initial.zelid) {
-        privilage = 'admin';
-      }
-      const resData = {
-        message: 'Successfully logged in',
-        zelid: result.zelid,
-        loginPhrase: result.loginPhrase,
-        signature: result.signature,
-        privilage,
-      };
-      const message = serviceHelper.createDataMessage(resData);
-      if (!connclosed) {
-        try {
-          ws.send(qs.stringify(message));
-          ws.close(1000);
-        } catch (e) {
-          log.error(e);
-        }
-      }
-    } else {
-      // check if this loginPhrase is still active. If so rerun this searching process
-      const activeLoginPhrasesCollection = config.database.local.collections.activeLoginPhrases;
-      const resultB = await serviceHelper.findOneInDatabase(database, activeLoginPhrasesCollection, query, projection).catch((error) => {
+    try {
+      const result = await serviceHelper.findOneInDatabase(database, collection, query, projection).catch((error) => {
         const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
         ws.send(qs.stringify(errMessage));
         ws.close(1011);
-        log.error(error);
         throw error;
       });
-      if (resultB) {
-        setTimeout(() => {
-          if (!connclosed) {
-            searchDatabase();
-          }
-        }, 500);
-      } else {
-        const errMessage = serviceHelper.createErrorMessage('Signed message is no longer valid. Please request a new one.');
+
+      if (result) {
+        // user is logged, all ok
+        let privilage = 'user';
+        if (result.zelid === config.zelTeamZelId) {
+          privilage = 'zelteam';
+        } else if (result.zelid === userconfig.initial.zelid) {
+          privilage = 'admin';
+        }
+        const resData = {
+          message: 'Successfully logged in',
+          zelid: result.zelid,
+          loginPhrase: result.loginPhrase,
+          signature: result.signature,
+          privilage,
+        };
+        const message = serviceHelper.createDataMessage(resData);
         if (!connclosed) {
           try {
-            ws.send(qs.stringify(errMessage));
-            ws.close();
+            ws.send(qs.stringify(message));
+            ws.close(1000);
           } catch (e) {
             log.error(e);
           }
         }
+      } else {
+        // check if this loginPhrase is still active. If so rerun this searching process
+        const activeLoginPhrasesCollection = config.database.local.collections.activeLoginPhrases;
+        const resultB = await serviceHelper.findOneInDatabase(database, activeLoginPhrasesCollection, query, projection).catch((error) => {
+          const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+          ws.send(qs.stringify(errMessage));
+          ws.close(1011);
+          throw error;
+        });
+        if (resultB) {
+          setTimeout(() => {
+            if (!connclosed) {
+              searchDatabase();
+            }
+          }, 500);
+        } else {
+          const errMessage = serviceHelper.createErrorMessage('Signed message is no longer valid. Please request a new one.');
+          if (!connclosed) {
+            try {
+              ws.send(qs.stringify(errMessage));
+              ws.close();
+            } catch (e) {
+              log.error(e);
+            }
+          }
+        }
       }
+    } catch (error) {
+      log.error(error);
     }
   }
   searchDatabase();
@@ -562,34 +567,122 @@ async function wsRespondSignature(ws, req) {
   const query = { identifier: message };
   const projection = {};
   async function searchDatabase() {
-    const result = await serviceHelper.findOneInDatabase(database, collection, query, projection).catch((error) => {
-      const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
-      ws.send(qs.stringify(errMessage));
-      ws.close(1011);
-      log.error(error);
-      throw error;
-    });
+    try {
+      const result = await serviceHelper.findOneInDatabase(database, collection, query, projection).catch((error) => {
+        const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+        ws.send(qs.stringify(errMessage));
+        ws.close(1011);
+        throw error;
+      });
 
-    if (result) {
-      // signature exists
-      const response = serviceHelper.createDataMessage(result);
-      if (!connclosed) {
-        try {
-          ws.send(qs.stringify(response));
-          ws.close(1000);
-        } catch (e) {
-          log.error(e);
-        }
-      }
-    } else {
-      setTimeout(() => {
+      if (result) {
+        // signature exists
+        const response = serviceHelper.createDataMessage(result);
         if (!connclosed) {
-          searchDatabase();
+          try {
+            ws.send(qs.stringify(response));
+            ws.close(1000);
+          } catch (e) {
+            log.error(e);
+          }
         }
-      }, 500);
+      } else {
+        setTimeout(() => {
+          if (!connclosed) {
+            searchDatabase();
+          }
+        }, 500);
+      }
+    } catch (error) {
+      log.error(error);
     }
   }
   searchDatabase();
+}
+
+async function checkLoggedUser(req, res) {
+  try {
+    let { zelid } = req.params;
+    zelid = zelid || req.query.zelid;
+    if (!zelid) {
+      throw new Error('No user zelid specificed');
+    }
+    let { signature } = req.params;
+    signature = signature || req.query.signature;
+    if (!signature) {
+      throw new Error('No user zelid signature specificed');
+    }
+    const headers = {
+      zelidauth: {
+        zelid,
+        signature,
+      },
+    };
+    const isAdmin = await serviceHelper.verifyAdminSession(headers);
+    if (isAdmin) {
+      const message = serviceHelper.createSuccessMessage('admin');
+      res.json(message);
+      return;
+    }
+    const isZelTeam = await serviceHelper.verifyZelTeamSession(headers);
+    if (isZelTeam) {
+      const message = serviceHelper.createSuccessMessage('zelteam');
+      res.json(message);
+      return;
+    }
+    const isUser = await serviceHelper.verifyUserSession(headers);
+    if (isUser) {
+      const message = serviceHelper.createSuccessMessage('user');
+      res.json(message);
+      return;
+    }
+    const message = serviceHelper.createErrorMessage('none');
+    res.json(message);
+  } catch (error) {
+    log.error(error);
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+  }
+}
+
+async function adjustCruxID(req, res) {
+  try {
+    const authorized = await serviceHelper.verifyAdminSession(req.headers);
+    if (authorized === true) {
+      let { cruxid } = req.params;
+      cruxid = cruxid || req.query.cruxid;
+      if (!cruxid) {
+        throw new Error('No Crux ID provided');
+      }
+      if (!cruxid.includes('@')) {
+        throw new Error('Invalid Crux ID provided');
+      }
+      if (!cruxid.includes('.crux')) {
+        throw new Error('Invalid Crux ID provided');
+      }
+      const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
+      const dataToWrite = `module.exports = {
+        initial: {
+          ipaddress: '${userconfig.initial.ipaddress}',
+          zelid: '${userconfig.initial.zelid}',
+          cruxid: '${cruxid}',
+          testnet: false
+        }
+      }`;
+
+      await fs.writeFile(fluxDirPath, dataToWrite);
+
+      const successMessage = serviceHelper.createSuccessMessage('CruxID adjusted');
+      res.json(successMessage);
+    } else {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+  }
 }
 
 module.exports = {
@@ -606,4 +699,6 @@ module.exports = {
   logoutAllUsers,
   wsRespondLoginPhrase,
   wsRespondSignature,
+  checkLoggedUser,
+  adjustCruxID,
 };

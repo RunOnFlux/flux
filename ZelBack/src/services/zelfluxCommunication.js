@@ -130,7 +130,7 @@ async function verifyFluxBroadcast(data, obtainedZelNodeList, currentTimeStamp) 
   }
 
   let zelnode = null;
-  if (obtainedZelNodeList) { // for test purposes. TODO Can this be misuesed?
+  if (obtainedZelNodeList) { // for test purposes.
     zelnode = await obtainedZelNodeList.find((key) => key.pubkey === pubKey);
     if (!zelnode) {
       return false;
@@ -350,57 +350,61 @@ async function sendMessageToWS(message, ws) {
 }
 
 async function respondWithAppMessage(message, ws) {
-  // check if we have it database of permanent zelappMessages
-  // eslint-disable-next-line global-require
-  const zelappsService = require('./zelappsService');
-  const permanentMessage = await zelappsService.checkZelAppMessageExistence(message.data.hash);
-  if (permanentMessage) {
-    // message exists in permanent storage. Create a message and broadcast it to the fromIP peer
-    // const permanentZelAppMessage = {
-    //   type: messageType,
-    //   version: typeVersion,
-    //   zelAppSpecifications: zelAppSpecFormatted,
-    //   hash: messageHASH,
-    //   timestamp,
-    //   signature,
-    //   txid,
-    //   height,
-    //   valueSat,
-    // };
-    const temporaryZelAppMessage = { // specification of temp message
-      type: permanentMessage.type,
-      version: permanentMessage.version,
-      zelAppSpecifications: permanentMessage.zelAppSpecifications,
-      hash: permanentMessage.hash,
-      timestamp: permanentMessage.timestamp,
-      signature: permanentMessage.signature,
-    };
-    sendMessageToWS(temporaryZelAppMessage, ws);
-  } else {
-    const existingTemporaryMessage = await zelappsService.checkZelAppTemporaryMessageExistence(message.data.hash);
-    if (existingTemporaryMessage) {
-      // a temporary zelappmessage looks like this:
-      // const newMessage = {
-      //   zelAppSpecifications: message.zelAppSpecifications,
-      //   type: message.type,
-      //   version: message.version,
-      //   hash: message.hash,
-      //   timestamp: message.timestamp,
-      //   signature: message.signature,
-      //   createdAt: new Date(message.timestamp),
-      //   expireAt: new Date(validTill),
+  try {
+    // check if we have it database of permanent zelappMessages
+    // eslint-disable-next-line global-require
+    const zelappsService = require('./zelappsService');
+    const permanentMessage = await zelappsService.checkZelAppMessageExistence(message.data.hash);
+    if (permanentMessage) {
+      // message exists in permanent storage. Create a message and broadcast it to the fromIP peer
+      // const permanentZelAppMessage = {
+      //   type: messageType,
+      //   version: typeVersion,
+      //   zelAppSpecifications: zelAppSpecFormatted,
+      //   hash: messageHASH,
+      //   timestamp,
+      //   signature,
+      //   txid,
+      //   height,
+      //   valueSat,
       // };
       const temporaryZelAppMessage = { // specification of temp message
-        type: existingTemporaryMessage.type,
-        version: existingTemporaryMessage.version,
-        zelAppSpecifications: existingTemporaryMessage.zelAppSpecifications,
-        hash: existingTemporaryMessage.hash,
-        timestamp: existingTemporaryMessage.timestamp,
-        signature: existingTemporaryMessage.signature,
+        type: permanentMessage.type,
+        version: permanentMessage.version,
+        zelAppSpecifications: permanentMessage.zelAppSpecifications,
+        hash: permanentMessage.hash,
+        timestamp: permanentMessage.timestamp,
+        signature: permanentMessage.signature,
       };
       sendMessageToWS(temporaryZelAppMessage, ws);
+    } else {
+      const existingTemporaryMessage = await zelappsService.checkZelAppTemporaryMessageExistence(message.data.hash);
+      if (existingTemporaryMessage) {
+        // a temporary zelappmessage looks like this:
+        // const newMessage = {
+        //   zelAppSpecifications: message.zelAppSpecifications,
+        //   type: message.type,
+        //   version: message.version,
+        //   hash: message.hash,
+        //   timestamp: message.timestamp,
+        //   signature: message.signature,
+        //   createdAt: new Date(message.timestamp),
+        //   expireAt: new Date(validTill),
+        // };
+        const temporaryZelAppMessage = { // specification of temp message
+          type: existingTemporaryMessage.type,
+          version: existingTemporaryMessage.version,
+          zelAppSpecifications: existingTemporaryMessage.zelAppSpecifications,
+          hash: existingTemporaryMessage.hash,
+          timestamp: existingTemporaryMessage.timestamp,
+          signature: existingTemporaryMessage.signature,
+        };
+        sendMessageToWS(temporaryZelAppMessage, ws);
+      }
+      // else do nothing. We do not have this message. And this Flux would be requesting it from other peers soon too.
     }
-    // else do nothing. We do not have this message. And this Flux would be requesting it from other peers soon too.
+  } catch (error) {
+    log.error(error);
   }
 }
 
@@ -705,7 +709,7 @@ async function initiateAndHandleConnection(ip) {
     console.log(`#connectionsOut: ${outgoingConnections.length}`);
   };
 
-  websocket.onmessage = async (evt) => { // TODO message handling outgoing connections function
+  websocket.onmessage = async (evt) => {
     // incoming messages from outgoing connections
     console.log(evt.data);
     const currentTimeStamp = Date.now(); // ms
@@ -821,7 +825,7 @@ function keepConnectionsAlive() {
       message,
     };
     broadcastMessageToOutgoing(data);
-  }, 30000);
+  }, 40000);
 }
 
 function keepIncomingConnectionsAlive() {
@@ -1183,10 +1187,10 @@ async function adjustFirewall() {
 
 function isCommunicationEstablished(req, res) {
   let message;
-  if (outgoingPeers.length < 5) {
+  if (outgoingPeers.length < config.zelapps.minOutgoing) {
     message = serviceHelper.createErrorMessage('Not enough outgoing connections');
-  } else if (incomingPeers.length < 2) {
-    message = serviceHelper.createErrorMessage('Not enough incomming connections');
+  } else if (incomingPeers.length < config.zelapps.minIncoming) {
+    message = serviceHelper.createErrorMessage('Not enough incoming connections');
   } else {
     message = serviceHelper.createSuccessMessage('Communication to Flux network is properly established');
   }

@@ -49,23 +49,28 @@ module.exports = {
     rpcporttestnet: 26224,
   },
   zelcash: {
-    chainValidHeight: 640000,
+    chainValidHeight: 685000,
   },
-  zelTeamZelId: '132hG26CFTNhLM3MRsLEJhp9DpBrK6vg5N',
+  zelTeamZelId: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
   zelapps: {
-    // in zel per month
+    // in zel per month (blocksLasting)
     price: {
-      cpu: 3 * 5, // per 0.1 cpu core,
-      ram: 1 * 5, // per 100mb,
-      hdd: 0.5 * 5, // per 1gb,
+      cpu: 1, // per 0.1 cpu core,
+      ram: 0.4, // per 100mb,
+      hdd: 0.2, // per 1gb,
     },
-    address: 't1...', // apps registration address
-    epochstart: 690000, // zelapps epoch blockheight start
-    portMin: 31000, // originally should have been from 30000 but we got temporary folding there
+    address: 't1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6',
+    epochstart: 694000,
+    publicepochstart: 705000,
+    portMin: 31000, // ports 30000 - 30999 are reserved for local applications
     portMax: 39999,
-    maxImageSize: 300000000, // 300mb
+    maxImageSize: 500000000, // 500mb possibly increase later
+    minimumInstances: 5,
+    maximumInstances: 10,
+    minOutgoing: 5,
+    minIncoming: 2,
     installation: {
-      probability: 2, // 100
+      probability: 100, // 100
       delay: 120, // in seconds
     },
     removal: {
@@ -73,7 +78,9 @@ module.exports = {
       delay: 300,
     },
     blocksLasting: 22000, // registered app will live for 22000 of blocks 44000 minutes ~= 1 month
-    // every 100 blocks we run a check that deletes apps specifications and stops/removes the application from existence if it has been lastly updated more than 22k blocks ago
+    expireZelAppsPeriod: 100, // every 100 blocks we run a check that deletes apps specifications and stops/removes the application from existence if it has been lastly updated more than 22k blocks ago
+    updateZelAppsPeriod: 9, // every 9 blocks we check for reinstalling of old application versions
+    removeZelAppsPeriod: 11, // every 11 blocks we check for more than maximum number of instances of an application
   },
   lockedSystemResources: {
     cpu: 10, // 1 cpu core
