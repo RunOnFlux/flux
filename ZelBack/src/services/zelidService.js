@@ -601,48 +601,53 @@ async function wsRespondSignature(ws, req) {
 }
 
 async function checkLoggedUser(req, res) {
-  try {
-    let { zelid } = req.params;
-    zelid = zelid || req.query.zelid;
-    if (!zelid) {
-      throw new Error('No user zelid specificed');
-    }
-    let { signature } = req.params;
-    signature = signature || req.query.signature;
-    if (!signature) {
-      throw new Error('No user zelid signature specificed');
-    }
-    const headers = {
-      zelidauth: {
-        zelid,
-        signature,
-      },
-    };
-    const isAdmin = await serviceHelper.verifyAdminSession(headers);
-    if (isAdmin) {
-      const message = serviceHelper.createSuccessMessage('admin');
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    try {
+      const processedBody = serviceHelper.ensureObject(body);
+      const { zelid } = processedBody;
+      const { signature } = processedBody;
+      if (!zelid) {
+        throw new Error('No user zelid specificed');
+      }
+      if (!signature) {
+        throw new Error('No user zelid signature specificed');
+      }
+      const headers = {
+        zelidauth: {
+          zelid,
+          signature,
+        },
+      };
+      const isAdmin = await serviceHelper.verifyAdminSession(headers);
+      if (isAdmin) {
+        const message = serviceHelper.createSuccessMessage('admin');
+        res.json(message);
+        return;
+      }
+      const isZelTeam = await serviceHelper.verifyZelTeamSession(headers);
+      if (isZelTeam) {
+        const message = serviceHelper.createSuccessMessage('zelteam');
+        res.json(message);
+        return;
+      }
+      const isUser = await serviceHelper.verifyUserSession(headers);
+      if (isUser) {
+        const message = serviceHelper.createSuccessMessage('user');
+        res.json(message);
+        return;
+      }
+      const message = serviceHelper.createErrorMessage('none');
       res.json(message);
-      return;
+    } catch (error) {
+      log.error(error);
+      const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+      res.json(errMessage);
     }
-    const isZelTeam = await serviceHelper.verifyZelTeamSession(headers);
-    if (isZelTeam) {
-      const message = serviceHelper.createSuccessMessage('zelteam');
-      res.json(message);
-      return;
-    }
-    const isUser = await serviceHelper.verifyUserSession(headers);
-    if (isUser) {
-      const message = serviceHelper.createSuccessMessage('user');
-      res.json(message);
-      return;
-    }
-    const message = serviceHelper.createErrorMessage('none');
-    res.json(message);
-  } catch (error) {
-    log.error(error);
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
-    res.json(errMessage);
-  }
+  });
 }
 
 async function adjustCruxID(req, res) {

@@ -154,32 +154,19 @@ export default {
       const zelidauth = localStorage.getItem('zelidauth');
       const auth = qs.parse(zelidauth);
       this.$store.commit('setPrivilage', 'none');
-      if (auth) {
-        if (auth.zelid) {
-          if (auth.zelid === this.config.zelTeamZelId) {
-            this.$store.commit('setPrivilage', 'zelteam');
-          } else if (auth.zelid === this.userconfig.zelid) {
-            this.$store.commit('setPrivilage', 'admin');
-          } else if (auth.zelid.length > 24) { // very basic check that does the job
-            this.$store.commit('setPrivilage', 'user');
-          } else {
+      if (auth && auth.zelid && auth.signature) {
+        try {
+          const response = await zelIDService.checkUserLogged(auth.zelid, auth.signature); // todo make it post. As signature may contain /
+          console.log(response);
+          const privilege = response.data.data.message;
+          this.$store.commit('setPrivilage', privilege);
+          if (privilege === 'none') {
             localStorage.removeItem('zelidauth');
           }
+        } catch (error) {
+          console.log(error);
         }
       }
-      // if (auth && auth.zelid && auth.signature) {
-      //   try {
-      //     const response = await zelIDService.checkUserLogged(auth.zelid, auth.signature); // todo make it post. As signature may contain /
-      //     console.log(response);
-      //     const privilege = response.data.data.message;
-      //     this.$store.commit('setPrivilage', privilege);
-      //     if (privilege === 'none') {
-      //       localStorage.removeItem('zelidauth');
-      //     }
-      //   } catch (error) {
-      //     console.log(error);
-      //   }
-      // }
     },
     getZelIdLoginPhrase() {
       zelIDService.loginPhrase()
