@@ -2231,6 +2231,9 @@ async function checkApplicationNameConflicts(zelAppSpecFormatted) {
   if (zelappExists) {
     throw new Error(`ZelApp ${zelAppSpecFormatted.name} already assigned to local application. ZelApp has to be registered under different name.`);
   }
+  if (zelAppSpecFormatted.name.toLowerCase() === 'share') {
+    throw new Error(`ZelApp ${zelAppSpecFormatted.name} already assigned to Flux main application. ZelApp has to be registered under different name.`);
+  }
   return true;
 }
 async function storeZelAppTemporaryMessage(message, furtherVerification = false) {
