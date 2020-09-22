@@ -2120,6 +2120,7 @@ export default {
     console.log(auth);
     this.getZelNodeStatus();
     this.zelappsGetInstalledZelApps();
+    this.getRandomPort();
     this.switcher(this.zelAppsSection);
   },
   methods: {
@@ -2134,6 +2135,7 @@ export default {
           this.zelappsGetListGlobalZelApps();
           break;
         case 'registerzelapp':
+          this.getRandomPort();
           this.registrationInformation();
           this.checkFluxCommunication();
           break;
@@ -3242,6 +3244,11 @@ export default {
           this.zelAppLocations = zelappLocations;
         }
       }
+    },
+    getRandomPort() {
+      const min = 31001;
+      const max = 39998;
+      this.zelAppRegistrationSpecification.port = Math.floor(Math.random() * (max - min) + min);
     },
   },
 };
