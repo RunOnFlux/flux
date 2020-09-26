@@ -3956,6 +3956,7 @@ async function checkAndRemoveApplicationInstance() {
       throw new Error('Failed to get installed Apps');
     }
     const installedApps = installedAppsRes.data;
+    // FIXME filter local apps!
     // eslint-disable-next-line no-restricted-syntax
     for (const installedApp of installedApps) {
       // eslint-disable-next-line no-await-in-loop
@@ -3980,6 +3981,8 @@ async function checkAndRemoveApplicationInstance() {
   }
 }
 
+// TODO FOR LOCAL APPS.
+// TODO soft updates - do not update storage
 async function reinstallOldApplications() {
   try {
     const synced = await checkSynced();
