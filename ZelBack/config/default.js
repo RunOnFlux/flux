@@ -55,9 +55,9 @@ module.exports = {
   zelapps: {
     // in zel per month (blocksLasting)
     price: {
-      cpu: 1, // per 0.1 cpu core,
-      ram: 0.4, // per 100mb,
-      hdd: 0.2, // per 1gb,
+      cpu: 3, // per 0.1 cpu core,
+      ram: 1, // per 100mb,
+      hdd: 0.5, // per 1gb,
     },
     address: 't1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6',
     epochstart: 694000,
