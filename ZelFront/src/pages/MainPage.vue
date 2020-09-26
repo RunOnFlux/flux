@@ -156,7 +156,7 @@ export default {
       this.$store.commit('setPrivilage', 'none');
       if (auth && auth.zelid && auth.signature) {
         try {
-          const response = await zelIDService.checkUserLogged(auth.zelid, auth.signature); // todo make it post. As signature may contain /
+          const response = await zelIDService.checkUserLogged(auth.zelid, auth.signature);
           console.log(response);
           const privilege = response.data.data.message;
           this.$store.commit('setPrivilage', privilege);

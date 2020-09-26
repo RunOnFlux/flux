@@ -79,6 +79,6 @@ export default {
       zelid,
       signature,
     };
-    return Api().post('/zelid/checkprivilege', data);
+    return Api().post('/zelid/checkprivilege', qs.stringify(data));
   },
 };
