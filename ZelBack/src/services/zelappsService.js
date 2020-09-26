@@ -3593,6 +3593,20 @@ async function getRunningAppList(appName) {
   return results;
 }
 
+async function getApplicationGlobalSpecifications(appName) {
+  const db = serviceHelper.databaseConnection();
+  const database = db.db(config.database.zelappsglobal.database);
+
+  const query = { name: new RegExp(`^${appName}$`, 'i') };
+  const projection = {
+    projection: {
+      _id: 0,
+    },
+  };
+  const zelappInfo = await serviceHelper.findOneInDatabase(database, globalZelAppsInformation, query, projection);
+  return zelappInfo;
+}
+
 async function getApplicationSpecifications(appName) {
   // zelAppSpecs: {
   //   version: 1,
@@ -3630,7 +3644,11 @@ async function getApplicationSpecifications(appName) {
       _id: 0,
     },
   };
-  const zelappInfo = await serviceHelper.findOneInDatabase(database, globalZelAppsInformation, query, projection);
+  let zelappInfo = await serviceHelper.findOneInDatabase(database, globalZelAppsInformation, query, projection);
+  if (zelappInfo) {
+    const allZelApps = await availableZelApps();
+    zelappInfo = allZelApps.find((zelapp) => zelapp.name.toLowerCase() === appName.toLowerCase());
+  }
   return zelappInfo;
 }
 
@@ -3747,7 +3765,7 @@ async function trySpawningGlobalApplication() {
     }
     // check if node is capable to run it according to specifications
     // get app specifications
-    const appSpecifications = await getApplicationSpecifications(randomApp);
+    const appSpecifications = await getApplicationGlobalSpecifications(randomApp);
     if (!appSpecifications) {
       throw new Error(`Specifications for application ${randomApp} were not found!`);
     }
@@ -3822,8 +3840,9 @@ async function checkAndNotifyPeersOfRunningApps() {
     // eslint-disable-next-line no-restricted-syntax
     for (const stoppedApp of stoppedApps) {
       try {
+        // proceed ONLY if its global App
         // eslint-disable-next-line no-await-in-loop
-        const appDetails = await getApplicationSpecifications(stoppedApp);
+        const appDetails = await getApplicationGlobalSpecifications(stoppedApp);
         if (appDetails) {
           log.warn(`${stoppedApp} is stopped but shall be running. Starting...`);
           // it is a stopped global zelapp. Try to run it.
@@ -3956,23 +3975,26 @@ async function checkAndRemoveApplicationInstance() {
       throw new Error('Failed to get installed Apps');
     }
     const installedApps = installedAppsRes.data;
-    // FIXME filter local apps!
     // eslint-disable-next-line no-restricted-syntax
     for (const installedApp of installedApps) {
       // eslint-disable-next-line no-await-in-loop
       const runningAppList = await getRunningAppList(installedApp.name);
       if (runningAppList.length > config.zelapps.maximumInstances) {
-        log.info(`Application ${installedApp.name} is already spawned on ${runningAppList.length} instances. Checking removal availability..`);
-        const randomNumber = Math.floor((Math.random() * config.zelapps.removal.probability));
-        if (randomNumber === 0) {
-          log.warn(`Removing application ${installedApp.name} locally`);
-          // eslint-disable-next-line no-await-in-loop
-          await removeZelAppLocally(installedApp.name);
-          log.warn(`Application ${installedApp.name} locally removed`);
-          // eslint-disable-next-line no-await-in-loop
-          await serviceHelper.delay(config.zelapps.removal.delay * 1000); // wait for 6 mins so we dont have more removals at the same time
-        } else {
-          log.info(`Other Fluxes are evaluating application ${installedApp.name} removal.`);
+        // eslint-disable-next-line no-await-in-loop
+        const appDetails = await getApplicationGlobalSpecifications(installedApp.name);
+        if (appDetails) {
+          log.info(`Application ${installedApp.name} is already spawned on ${runningAppList.length} instances. Checking removal availability..`);
+          const randomNumber = Math.floor((Math.random() * config.zelapps.removal.probability));
+          if (randomNumber === 0) {
+            log.warn(`Removing application ${installedApp.name} locally`);
+            // eslint-disable-next-line no-await-in-loop
+            await removeZelAppLocally(installedApp.name);
+            log.warn(`Application ${installedApp.name} locally removed`);
+            // eslint-disable-next-line no-await-in-loop
+            await serviceHelper.delay(config.zelapps.removal.delay * 1000); // wait for 6 mins so we dont have more removals at the same time
+          } else {
+            log.info(`Other Fluxes are evaluating application ${installedApp.name} removal.`);
+          }
         }
       }
     }
@@ -4234,6 +4256,7 @@ module.exports = {
   getRunningAppList,
   trySpawningGlobalApplication,
   getApplicationSpecifications,
+  getApplicationGlobalSpecifications,
   getApplicationSpecificationAPI,
   getApplicationOwnerAPI,
   checkAndNotifyPeersOfRunningApps,
