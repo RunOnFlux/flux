@@ -4243,6 +4243,7 @@ module.exports = {
   getAppPrice,
   reinstallOldApplications,
   checkAndRemoveApplicationInstance,
+  checkZelAppTemporaryMessageExistence,
 };
 
 // reenable min connections for registrations/updates before main release
