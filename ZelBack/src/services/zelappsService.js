@@ -3645,7 +3645,7 @@ async function getApplicationSpecifications(appName) {
     },
   };
   let zelappInfo = await serviceHelper.findOneInDatabase(database, globalZelAppsInformation, query, projection);
-  if (zelappInfo) {
+  if (!zelappInfo) {
     const allZelApps = await availableZelApps();
     zelappInfo = allZelApps.find((zelapp) => zelapp.name.toLowerCase() === appName.toLowerCase());
   }
