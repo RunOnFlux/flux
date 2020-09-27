@@ -204,6 +204,13 @@ async function getApplicationOwner(appName) {
   if (appSpecs) {
     return appSpecs.owner;
   }
+  // eslint-disable-next-line global-require
+  const { availableZelApps } = require('./zelappsService');
+  const allZelApps = await availableZelApps();
+  const zelappInfo = allZelApps.find((zelapp) => zelapp.name.toLowerCase() === appName.toLowerCase());
+  if (zelappInfo) {
+    return zelappInfo.owner;
+  }
   return null;
 }
 
