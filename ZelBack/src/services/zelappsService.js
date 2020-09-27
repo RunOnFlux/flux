@@ -4363,7 +4363,50 @@ async function softRedeploy(zelappSpecs, res) {
     await softRemoveZelAppLocally(zelappSpecs.name, res);
     log.warn('Application softly removed. Awaiting installation...');
     await serviceHelper.delay(config.zelapps.removal.delay * 1000); // wait for delay mins
-    await softRegisterZelAppLocally(zelappSpecs, res);
+    // run the verification
+    // get tier and adjust specifications
+    const tier = await zelnodeTier();
+    const appSpecifications = zelappSpecs;
+    if (appSpecifications.tiered) {
+      const hddTier = `hdd${tier}`;
+      const ramTier = `ram${tier}`;
+      const cpuTier = `cpu${tier}`;
+      appSpecifications.cpu = appSpecifications[cpuTier] || appSpecifications.cpu;
+      appSpecifications.ram = appSpecifications[ramTier] || appSpecifications.ram;
+      appSpecifications.hdd = appSpecifications[hddTier] || appSpecifications.hdd;
+    }
+    // verify requirements
+    await checkZelAppRequirements(appSpecifications);
+    // register
+    await softRegisterZelAppLocally(appSpecifications, res);
+    log.info('Application softly redeployed');
+  } catch (error) {
+    log.error(error);
+    removeZelAppLocally(zelappSpecs.name, res, true);
+  }
+}
+
+async function hardRedeploy(zelappSpecs, res) {
+  try {
+    await removeZelAppLocally(zelappSpecs.name, res);
+    log.warn('Application removed. Awaiting installation...');
+    await serviceHelper.delay(config.zelapps.removal.delay * 1000); // wait for delay mins
+    // run the verification
+    // get tier and adjust specifications
+    const tier = await zelnodeTier();
+    const appSpecifications = zelappSpecs;
+    if (appSpecifications.tiered) {
+      const hddTier = `hdd${tier}`;
+      const ramTier = `ram${tier}`;
+      const cpuTier = `cpu${tier}`;
+      appSpecifications.cpu = appSpecifications[cpuTier] || appSpecifications.cpu;
+      appSpecifications.ram = appSpecifications[ramTier] || appSpecifications.ram;
+      appSpecifications.hdd = appSpecifications[hddTier] || appSpecifications.hdd;
+    }
+    // verify requirements
+    await checkZelAppRequirements(appSpecifications);
+    // register
+    await registerZelAppLocally(appSpecifications, res);
     log.info('Application softly redeployed');
   } catch (error) {
     log.error(error);
@@ -4568,7 +4611,7 @@ async function getAppPrice(req, res) {
   });
 }
 
-async function softRedeployAPI(req, res) {
+async function redeployAPI(req, res) {
   try {
     let { appname } = req.params;
     appname = appname || req.query.appname;
@@ -4576,6 +4619,10 @@ async function softRedeployAPI(req, res) {
     if (!appname) {
       throw new Error('No ZelApp specified');
     }
+
+    let { force } = req.params;
+    force = force || req.query.force || false;
+    force = serviceHelper.ensureBoolean(force);
 
     const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, appname);
     if (!authorized) {
@@ -4591,7 +4638,11 @@ async function softRedeployAPI(req, res) {
 
     res.setHeader('Content-Type', 'application/json');
 
-    softRedeploy(specifications, res);
+    if (force) {
+      hardRedeploy(specifications, res);
+    } else {
+      softRedeploy(specifications, res);
+    }
   } catch (error) {
     log.error(error);
     const errorResponse = serviceHelper.createErrorMessage(
@@ -4676,7 +4727,7 @@ module.exports = {
   softRegisterZelAppLocally,
   softRemoveZelAppLocally,
   softRedeploy,
-  softRedeployAPI,
+  redeployAPI,
 };
 
 // reenable min connections for registrations/updates before main release
