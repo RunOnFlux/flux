@@ -3956,6 +3956,12 @@ async function getApplicationGlobalSpecifications(appName) {
   return zelappInfo;
 }
 
+async function getApplicationLocalSpecifications(appName) {
+  const allZelApps = await availableZelApps();
+  const zelappInfo = allZelApps.find((zelapp) => zelapp.name.toLowerCase() === appName.toLowerCase());
+  return zelappInfo;
+}
+
 async function getApplicationSpecifications(appName) {
   // zelAppSpecs: {
   //   version: 1,
@@ -4618,6 +4624,7 @@ module.exports = {
   trySpawningGlobalApplication,
   getApplicationSpecifications,
   getApplicationGlobalSpecifications,
+  getApplicationLocalSpecifications,
   getApplicationSpecificationAPI,
   getApplicationOwnerAPI,
   checkAndNotifyPeersOfRunningApps,
