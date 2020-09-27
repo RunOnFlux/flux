@@ -4568,6 +4568,41 @@ async function getAppPrice(req, res) {
   });
 }
 
+async function softRedeployAPI(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname;
+
+    if (!appname) {
+      throw new Error('No ZelApp specified');
+    }
+
+    const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, appname);
+    if (!authorized) {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+      return;
+    }
+
+    const specifications = await getApplicationSpecifications(appname);
+    if (!specifications) {
+      throw new Error('Application not found');
+    }
+
+    res.setHeader('Content-Type', 'application/json');
+
+    softRedeploy(specifications, res);
+  } catch (error) {
+    log.error(error);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
+}
+
 module.exports = {
   dockerListContainers,
   zelAppPull,
@@ -4641,6 +4676,7 @@ module.exports = {
   softRegisterZelAppLocally,
   softRemoveZelAppLocally,
   softRedeploy,
+  softRedeployAPI,
 };
 
 // reenable min connections for registrations/updates before main release
