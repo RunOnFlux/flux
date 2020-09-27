@@ -1321,7 +1321,8 @@ async function createZelAppVolume(zelAppSpecifications, res) {
   return message;
 }
 
-async function removeZelAppLocally(zelapp, res) {
+// force determines if some a check for app not found is skipped
+async function removeZelAppLocally(zelapp, res, force = false) {
   try {
     // remove zelapp from local machine.
     // find in database, stop zelapp, remove container, close port delete data associated on system, remove from database
@@ -1337,16 +1338,14 @@ async function removeZelAppLocally(zelapp, res) {
     const dbopen = serviceHelper.databaseConnection();
 
     const zelappsDatabase = dbopen.db(config.database.zelappslocal.database);
-    // temporary fix!
-    if (zelapp === 'FoldingAtHome') {
-      // eslint-disable-next-line no-param-reassign
-      zelapp = 'zelFoldingAthome';
-    }
+
     const zelappsQuery = { name: zelapp };
     const zelappsProjection = {};
     const zelAppSpecifications = await serviceHelper.findOneInDatabase(zelappsDatabase, localZelAppsInformation, zelappsQuery, zelappsProjection);
     if (!zelAppSpecifications) {
-      throw new Error('ZelApp not found');
+      if (!force) {
+        throw new Error('ZelApp not found');
+      }
     }
 
     // simplifying ignore error messages for now
@@ -1523,6 +1522,133 @@ async function removeZelAppLocally(zelapp, res) {
   }
 }
 
+// removal WITHOUT storage deletion and catches. For app reload. Only for internal useage. We throwing in functinos using this
+async function softRemoveZelAppLocally(zelapp, res) {
+  // remove zelapp from local machine.
+  // find in database, stop zelapp, remove container, close port, remove from database
+  // we want to remove the image as well (repotag) what if other container uses the same image -> then it shall result in an error so ok anyway
+  if (!zelapp) {
+    throw new Error('No ZelApp specified');
+  }
+
+  const zelappId = getZelAppIdentifier(zelapp);
+
+  // first find the zelAppSpecifications in our database.
+  // connect to mongodb
+  const dbopen = serviceHelper.databaseConnection();
+
+  const zelappsDatabase = dbopen.db(config.database.zelappslocal.database);
+
+  const zelappsQuery = { name: zelapp };
+  const zelappsProjection = {};
+  const zelAppSpecifications = await serviceHelper.findOneInDatabase(zelappsDatabase, localZelAppsInformation, zelappsQuery, zelappsProjection);
+  if (!zelAppSpecifications) {
+    throw new Error('ZelApp not found');
+  }
+
+  // simplifying ignore error messages for now
+  const stopStatus = {
+    status: 'Stopping ZelApp...',
+  };
+  log.info(stopStatus);
+  if (res) {
+    res.write(serviceHelper.ensureString(stopStatus));
+  }
+
+  await zelAppDockerStop(zelappId);
+
+  const stopStatus2 = {
+    status: 'ZelApp stopped',
+  };
+  log.info(stopStatus2);
+  if (res) {
+    res.write(serviceHelper.ensureString(stopStatus2));
+  }
+
+  const removeStatus = {
+    status: 'Removing ZelApp container...',
+  };
+  log.info(removeStatus);
+  if (res) {
+    res.write(serviceHelper.ensureString(removeStatus));
+  }
+
+  await zelAppDockerRemove(zelappId);
+
+  const removeStatus2 = {
+    status: 'ZelApp container removed',
+  };
+  log.info(removeStatus2);
+  if (res) {
+    res.write(serviceHelper.ensureString(removeStatus2));
+  }
+
+  const imageStatus = {
+    status: 'Removing ZelApp image...',
+  };
+  log.info(imageStatus);
+  if (res) {
+    res.write(serviceHelper.ensureString(imageStatus));
+  }
+  await zelAppDockerImageRemove(zelAppSpecifications.repotag).catch((error) => {
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    log.error(errorResponse);
+    if (res) {
+      res.write(serviceHelper.ensureString(errorResponse));
+    }
+  });
+  const imageStatus2 = {
+    status: 'ZelApp image operations done',
+  };
+  log.info(imageStatus2);
+  if (res) {
+    res.write(serviceHelper.ensureString(imageStatus2));
+  }
+
+  const portStatus = {
+    status: 'Denying ZelApp port...',
+  };
+  log.info(portStatus);
+  if (res) {
+    res.write(serviceHelper.ensureString(portStatus));
+  }
+  await zelfluxCommunication.denyPort(zelAppSpecifications.port);
+  const portStatus2 = {
+    status: 'Port denied',
+  };
+  log.info(portStatus2);
+  if (res) {
+    res.write(serviceHelper.ensureString(portStatus2));
+  }
+
+  const databaseStatus = {
+    status: 'Cleaning up database...',
+  };
+  log.info(databaseStatus);
+  if (res) {
+    res.write(serviceHelper.ensureString(databaseStatus));
+  }
+  await serviceHelper.findOneAndDeleteInDatabase(zelappsDatabase, localZelAppsInformation, zelappsQuery, zelappsProjection);
+  const databaseStatus2 = {
+    status: 'Database cleaned',
+  };
+  log.info(databaseStatus2);
+  if (res) {
+    res.write(serviceHelper.ensureString(databaseStatus2));
+  }
+
+  const zelappRemovalResponse = serviceHelper.createDataMessage(`ZelApp ${zelapp} was partially removed`);
+  log.info(zelappRemovalResponse);
+  if (res) {
+    res.write(serviceHelper.ensureString(zelappRemovalResponse));
+    res.end();
+  }
+}
+
 async function removeZelAppLocallyApi(req, res) {
   try {
     const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
@@ -1536,12 +1662,16 @@ async function removeZelAppLocallyApi(req, res) {
       let { zelapp } = req.params;
       zelapp = zelapp || req.query.zelapp;
 
+      let { force } = req.params;
+      force = force || req.query.force || false;
+      force = serviceHelper.ensureBoolean(force);
+
       if (!zelapp) {
         throw new Error('No ZelApp specified');
       }
 
       res.setHeader('Content-Type', 'application/json');
-      removeZelAppLocally(zelapp, res);
+      removeZelAppLocally(zelapp, res, force);
     }
   } catch (error) {
     log.error(error);
@@ -1811,6 +1941,225 @@ async function registerZelAppLocally(zelAppSpecifications, res) {
             res.write(serviceHelper.ensureString(removeStatus));
           }
           removeZelAppLocally(zelappName, res);
+        });
+        if (!zelapp) {
+          return;
+        }
+        const zelappResponse = serviceHelper.createDataMessage(zelapp);
+        log.info(zelappResponse);
+        if (res) {
+          res.write(serviceHelper.ensureString(zelappResponse));
+          res.end();
+        }
+      }
+    });
+  } catch (error) {
+    log.error(error);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    if (res) {
+      res.write(serviceHelper.ensureString(errorResponse));
+      res.end();
+    }
+  }
+}
+
+// register zelapp with volume already existing
+async function softRegisterZelAppLocally(zelAppSpecifications, res) {
+  // cpu, ram, hdd were assigned to correct tiered specs.
+  // get applications specifics from zelapp messages database
+  // check if hash is in blockchain
+  // register and launch according to specifications in message
+  try {
+    const zelappName = zelAppSpecifications.name;
+    const precheckForInstallation = {
+      status: 'Running initial checks for ZelApp...',
+    };
+    log.info(precheckForInstallation);
+    if (res) {
+      res.write(serviceHelper.ensureString(precheckForInstallation));
+    }
+    // connect to mongodb
+    const dbOpenTest = {
+      status: 'Connecting to database...',
+    };
+    log.info(dbOpenTest);
+    if (res) {
+      res.write(serviceHelper.ensureString(dbOpenTest));
+    }
+    const dbopen = serviceHelper.databaseConnection();
+
+    const zelappsDatabase = dbopen.db(config.database.zelappslocal.database);
+    const zelappsQuery = { name: zelappName };
+    const zelappsProjection = {
+      projection: {
+        _id: 0,
+        name: 1,
+      },
+    };
+
+    // check if zelfluxDockerNetwork exists, if not create
+    const fluxNetworkStatus = {
+      status: 'Checking Flux network...',
+    };
+    log.info(fluxNetworkStatus);
+    if (res) {
+      res.write(serviceHelper.ensureString(fluxNetworkStatus));
+    }
+    const fluxNet = await createFluxNetwork();
+    const fluxNetResponse = serviceHelper.createDataMessage(fluxNet);
+    log.info(fluxNetResponse);
+    if (res) {
+      res.write(serviceHelper.ensureString(fluxNetResponse));
+    }
+
+    // check if app is already installed
+    const checkDb = {
+      status: 'Checking database...',
+    };
+    log.info(checkDb);
+    if (res) {
+      res.write(serviceHelper.ensureString(checkDb));
+    }
+    const zelappResult = await serviceHelper.findOneInDatabase(zelappsDatabase, localZelAppsInformation, zelappsQuery, zelappsProjection);
+    if (zelappResult) {
+      throw new Error('ZelApp already installed');
+    }
+
+    const checkParameters = {
+      status: 'Checking ZelApp requirements...',
+    };
+    log.info(checkParameters);
+    if (res) {
+      res.write(serviceHelper.ensureString(checkParameters));
+    }
+
+    await checkZelAppRequirements(zelAppSpecifications);
+
+    // prechecks done
+    const zelAppInstallation = {
+      status: 'Initiating ZelApp installation...',
+    };
+    log.info(zelAppInstallation);
+    if (res) {
+      res.write(serviceHelper.ensureString(zelAppInstallation));
+    }
+    // register the zelapp
+    await serviceHelper.insertOneToDatabase(zelappsDatabase, localZelAppsInformation, zelAppSpecifications);
+
+    // pull image
+    // eslint-disable-next-line no-unused-vars
+    dockerPullStream(zelAppSpecifications.repotag, res, async (error, dataLog) => {
+      if (error) {
+        const errorResponse = serviceHelper.createErrorMessage(
+          error.message || error,
+          error.name,
+          error.code,
+        );
+        log.error(errorResponse);
+        if (res) {
+          res.write(serviceHelper.ensureString(errorResponse));
+        }
+        const removeStatus = serviceHelper.createErrorMessage('Error occured. Initiating ZelApp removal');
+        log.info(removeStatus);
+        if (res) {
+          res.write(serviceHelper.ensureString(removeStatus));
+        }
+        removeZelAppLocally(zelappName, res, true);
+      } else {
+        const pullStatus = {
+          status: 'Pulling global ZelApp was successful',
+        };
+        if (res) {
+          res.write(serviceHelper.ensureString(pullStatus));
+        }
+
+        const createZelApp = {
+          status: 'Creating local ZelApp',
+        };
+        log.info(createZelApp);
+        if (res) {
+          res.write(serviceHelper.ensureString(createZelApp));
+        }
+
+        const dockerCreated = await zelAppDockerCreate(zelAppSpecifications).catch((e) => {
+          const errorResponse = serviceHelper.createErrorMessage(
+            e.message || e,
+            e.name,
+            e.code,
+          );
+          log.error(errorResponse);
+          if (res) {
+            res.write(serviceHelper.ensureString(errorResponse));
+          }
+          const removeStatus = serviceHelper.createErrorMessage('Error occured. Initiating ZelApp removal');
+          log.info(removeStatus);
+          if (res) {
+            res.write(serviceHelper.ensureString(removeStatus));
+          }
+          removeZelAppLocally(zelappName, res, true);
+        });
+        if (!dockerCreated) {
+          return;
+        }
+        const portStatusInitial = {
+          status: 'Allowing ZelApp port...',
+        };
+        log.info(portStatusInitial);
+        if (res) {
+          res.write(serviceHelper.ensureString(portStatusInitial));
+        }
+        const portResponse = await zelfluxCommunication.allowPort(zelAppSpecifications.port);
+        if (portResponse.status === true) {
+          const portStatus = {
+            status: 'Port OK',
+          };
+          log.info(portStatus);
+          if (res) {
+            res.write(serviceHelper.ensureString(portStatus));
+          }
+        } else {
+          const portStatus = {
+            status: 'Error: Port FAILed to open.',
+          };
+          log.info(portStatus);
+          if (res) {
+            res.write(serviceHelper.ensureString(portStatus));
+          }
+          const removeStatus = serviceHelper.createErrorMessage('Error occured. Initiating ZelApp removal');
+          log.info(removeStatus);
+          if (res) {
+            res.write(serviceHelper.ensureString(removeStatus));
+          }
+          removeZelAppLocally(zelappName, res, true);
+          return;
+        }
+        const startStatus = {
+          status: 'Starting ZelApp...',
+        };
+        log.info(startStatus);
+        if (res) {
+          res.write(serviceHelper.ensureString(startStatus));
+        }
+        const zelapp = await zelAppDockerStart(getZelAppIdentifier(zelAppSpecifications.name)).catch((error2) => {
+          const errorResponse = serviceHelper.createErrorMessage(
+            error2.message || error2,
+            error2.name,
+            error2.code,
+          );
+          log.error(errorResponse);
+          if (res) {
+            res.write(serviceHelper.ensureString(errorResponse));
+          }
+          const removeStatus = serviceHelper.createErrorMessage('Error occured. Initiating ZelApp removal');
+          log.info(removeStatus);
+          if (res) {
+            res.write(serviceHelper.ensureString(removeStatus));
+          }
+          removeZelAppLocally(zelappName, res, true);
         });
         if (!zelapp) {
           return;
@@ -4003,8 +4352,20 @@ async function checkAndRemoveApplicationInstance() {
   }
 }
 
+async function softRedeploy(zelappSpecs, res) {
+  try {
+    await softRemoveZelAppLocally(zelappSpecs.name, res);
+    log.warn('Application softly removed. Awaiting installation...');
+    await serviceHelper.delay(config.zelapps.removal.delay * 1000); // wait for delay mins
+    await softRegisterZelAppLocally(zelappSpecs, res);
+    log.info('Application softly redeployed');
+  } catch (error) {
+    log.error(error);
+    removeZelAppLocally(zelappSpecs.name, res, true);
+  }
+}
+
 // TODO FOR LOCAL APPS.
-// TODO soft updates - do not update storage
 async function reinstallOldApplications() {
   try {
     const synced = await checkSynced();
@@ -4270,6 +4631,9 @@ module.exports = {
   reinstallOldApplications,
   checkAndRemoveApplicationInstance,
   checkZelAppTemporaryMessageExistence,
+  softRegisterZelAppLocally,
+  softRemoveZelAppLocally,
+  softRedeploy,
 };
 
 // reenable min connections for registrations/updates before main release

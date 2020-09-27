@@ -704,7 +704,7 @@ module.exports = (app, expressWs) => {
   app.post('/zelapps/zelappexec', (req, res) => {
     zelappsService.zelAppExec(req, res);
   });
-  app.get('/zelapps/zelappremove/:zelapp?', (req, res) => {
+  app.get('/zelapps/zelappremove/:zelapp?/:force?', (req, res) => {
     zelappsService.removeZelAppLocallyApi(req, res);
   });
   app.get('/zelapps/installtemporarylocalapp/FoldingAtHomeB', (req, res) => {
