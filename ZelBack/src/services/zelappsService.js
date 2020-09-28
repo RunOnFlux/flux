@@ -2346,7 +2346,7 @@ async function availableZelApps(req, res) {
     {
       name: 'KadenaChainWebNode', // corresponds to docker name and this name is stored in zelapps mongo database
       description: 'Kadena is a fast, secure, and scalable blockchain using the Chainweb consensus protocol. '
-       + 'Chainweb is a braided, parallelized Proof Of Work consensus mechanism that improves throughput and scalability in executing transactions on the blockchain while maintaining the security and integrity found in Bitcoin.',
+        + 'Chainweb is a braided, parallelized Proof Of Work consensus mechanism that improves throughput and scalability in executing transactions on the blockchain while maintaining the security and integrity found in Bitcoin.',
       repotag: 'kadena/chainweb-node:latest',
       owner: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
       port: 30004,
@@ -2440,6 +2440,47 @@ async function verifyRepository(repotag) {
   return true;
 }
 
+async function checkWhitelistedRepository(repotag) {
+  if (typeof repotag !== 'string') {
+    throw new Error('Invalid repotag');
+  }
+  const splittedRepo = repotag.split(':');
+  if (splittedRepo[0] && splittedRepo[1] && !splittedRepo[2]) {
+    const resWhitelistRepo = await serviceHelper.axiosGet('https://zel.network/project/zelflux/repositories.html');
+
+    if (!resWhitelistRepo) {
+      throw new Error('Unable to communicate with Zel Services! Try again later.');
+    }
+
+    const repos = resWhitelistRepo.data;
+    const whitelisted = repos.includes(repotag);
+    if (!whitelisted) {
+      throw new Error('Repository is not whitelisted. Please contact Zel Team.');
+    }
+  } else {
+    throw new Error('Repository is not in valid format namespace/repository:tag');
+  }
+  return true;
+}
+
+async function checkWhitelistedZelID(zelid) {
+  if (typeof zelid !== 'string') {
+    throw new Error('Invalid Owner ZelID');
+  }
+  const resZelIDs = await serviceHelper.axiosGet('https://zel.network/project/zelflux/zelids.html');
+
+  if (!resZelIDs) {
+    throw new Error('Unable to communicate with Zel Services! Try again later.');
+  }
+
+  const zelids = resZelIDs.data;
+  const whitelisted = zelids.includes(zelid);
+  if (!whitelisted) {
+    throw new Error('Owner Zel ID is not whitelisted. Please contact Zel Team.');
+  }
+  return true;
+}
+
 async function verifyZelAppSpecifications(zelAppSpecifications) {
   if (typeof zelAppSpecifications !== 'object') {
     throw new Error('Invalid ZelApp Specifications');
@@ -2483,6 +2524,12 @@ async function verifyZelAppSpecifications(zelAppSpecifications) {
 
   // check repotag if available for download
   await verifyRepository(zelAppSpecifications.repotag);
+
+  // check repository whitelisted
+  await checkWhitelistedRepository(zelAppSpecifications.repotag);
+
+  // check Zel ID whitelisted
+  await checkWhitelistedZelID(zelAppSpecifications.owner);
 }
 
 async function ensureCorrectApplicationPort(zelAppSpecFormatted) {
