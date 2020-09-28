@@ -377,6 +377,7 @@ async function zelAppDockerCreate(zelAppSpecifications) {
     Tty: false,
     ExposedPorts: {
       [`${zelAppSpecifications.port.toString()}/tcp`]: {},
+      [`${zelAppSpecifications.containerPort.toString()}/tcp`]: {},
     },
     HostConfig: {
       NanoCPUs: zelAppSpecifications.cpu * 1e9,
