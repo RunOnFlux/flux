@@ -4659,6 +4659,30 @@ async function redeployAPI(req, res) {
   }
 }
 
+async function whitelistedRepositories(req, res) {
+  try {
+    const whitelisted = await serviceHelper.axiosGet('https://zel.network/project/zelflux/repositories.html');
+    const resultsResponse = serviceHelper.createDataMessage(whitelisted.data);
+    res.json(resultsResponse);
+  } catch (error) {
+    log.error(error);
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+  }
+}
+
+async function whitelistedZelIDs(req, res) {
+  try {
+    const whitelisted = await serviceHelper.axiosGet('https://zel.network/project/zelflux/zelids.html');
+    const resultsResponse = serviceHelper.createDataMessage(whitelisted.data);
+    res.json(resultsResponse);
+  } catch (error) {
+    log.error(error);
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+  }
+}
+
 module.exports = {
   dockerListContainers,
   zelAppPull,
@@ -4734,6 +4758,8 @@ module.exports = {
   softRemoveZelAppLocally,
   softRedeploy,
   redeployAPI,
+  whitelistedRepositories,
+  whitelistedZelIDs,
 };
 
 // reenable min connections for registrations/updates before main release

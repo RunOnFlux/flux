@@ -278,6 +278,12 @@ module.exports = (app, expressWs) => {
   app.post('/zelapps/calculateprice', (req, res) => { // returns price in zel for both new registration of zelapp and update of zelapp
     zelappsService.getAppPrice(req, res);
   });
+  app.get('/zelapps/whitelistedrepositories', (req, res) => {
+    zelappsService.whitelistedRepositories(req, res);
+  });
+  app.get('/zelapps/whitelistedzelids', (req, res) => {
+    zelappsService.whitelistedZelIDs(req, res);
+  });
 
   // app.get('/explorer/allutxos', (req, res) => {
   //   explorerService.getAllUtxos(req, res);
