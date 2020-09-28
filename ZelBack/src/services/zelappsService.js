@@ -1659,19 +1659,19 @@ async function removeZelAppLocallyApi(req, res) {
       // remove zelapp from local machine.
       // find in database, stop zelapp, remove container, close port delete data associated on system, remove from database
       // if other container uses the same image -> then it shall result in an error so ok anyway
-      let { zelapp } = req.params;
-      zelapp = zelapp || req.query.zelapp;
+      let { appname } = req.params;
+      appname = appname || req.query.appname;
 
       let { force } = req.params;
       force = force || req.query.force || false;
       force = serviceHelper.ensureBoolean(force);
 
-      if (!zelapp) {
+      if (!appname) {
         throw new Error('No ZelApp specified');
       }
 
       res.setHeader('Content-Type', 'application/json');
-      removeZelAppLocally(zelapp, res, force);
+      removeZelAppLocally(appname, res, force);
     }
   } catch (error) {
     log.error(error);
@@ -2343,57 +2343,6 @@ async function availableZelApps(req, res) {
       hash: 'localappinstancehashABCDE', // hash of app message
       height: 0, // height of tx on which it was
     },
-    // {
-    //   name: 'SuperMario', // corresponds to docker name and this name is stored in zelapps mongo database
-    //   description: 'LoL SuperMario',
-    //   repotag: 'pengbai/docker-supermario:latest',
-    //   owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-    //   port: 30001,
-    //   tiered: false,
-    //   cpu: 0.2, // true resource registered for app. If not tiered only this is available
-    //   ram: 200, // true resource registered for app
-    //   hdd: 1, // true resource registered for app
-    //   enviromentParameters: [],
-    //   commands: [],
-    //   containerPort: 8080,
-    //   containerData: '/tmp', // cannot be root todo in verification
-    //   hash: 'ahashofappmessage', // hash of app message
-    //   height: 3, // height of tx on which it was
-    // },
-    // {
-    //   name: 'PacMan', // corresponds to docker name and this name is stored in zelapps mongo database
-    //   description: 'LoL PacMan',
-    //   repotag: 'uzyexe/pacman:latest',
-    //   owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-    //   port: 30002,
-    //   tiered: false,
-    //   cpu: 0.2, // true resource registered for app. If not tiered only this is available
-    //   ram: 200, // true resource registered for app
-    //   hdd: 1, // true resource registered for app
-    //   enviromentParameters: [],
-    //   commands: [],
-    //   containerPort: 80,
-    //   containerData: '/tmp', // cannot be root todo in verification
-    //   hash: 'ahashofappmessage', // hash of app message
-    //   height: 4, // height of tx on which it was
-    // },
-    // {
-    //   name: 'dibi-UND', // corresponds to docker name and this name is stored in zelapps mongo database
-    //   description: 'dibi fetch basic description',
-    //   repotag: 't1dev/dibi-fetch:latest',
-    //   owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-    //   port: 30003,
-    //   tiered: false,
-    //   cpu: 0.2, // true resource registered for app. If not tiered only this is available
-    //   ram: 200, // true resource registered for app
-    //   hdd: 1, // true resource registered for app
-    //   enviromentParameters: [],
-    //   commands: [],
-    //   containerPort: 80,
-    //   containerData: '/tmp', // cannot be root todo in verification
-    //   hash: 'ahashofappmessage', // hash of app message
-    //   height: 2, // height of tx on which it was
-    // },
     {
       name: 'KadenaChainWebNode', // corresponds to docker name and this name is stored in zelapps mongo database
       description: 'Kadena is a fast, secure, and scalable blockchain using the Chainweb consensus protocol. '
@@ -3841,14 +3790,14 @@ async function getZelAppsLocations(req, res) {
 
 async function getZelAppsLocation(req, res) {
   try {
-    let { zelapp } = req.params;
-    zelapp = zelapp || req.query.zelapp;
-    if (!zelapp) {
+    let { appname } = req.params;
+    appname = appname || req.query.appname;
+    if (!appname) {
       throw new Error('No ZelApp name specified');
     }
     const dbopen = serviceHelper.databaseConnection();
     const database = dbopen.db(config.database.zelappsglobal.database);
-    const query = { name: new RegExp(`^${zelapp}$`, 'i') }; // case insensitive
+    const query = { name: new RegExp(`^${appname}$`, 'i') }; // case insensitive
     const projection = {
       projection: {
         _id: 0,
@@ -4003,6 +3952,25 @@ async function getApplicationSpecifications(appName) {
   if (!zelappInfo) {
     const allZelApps = await availableZelApps();
     zelappInfo = allZelApps.find((zelapp) => zelapp.name.toLowerCase() === appName.toLowerCase());
+  }
+  return zelappInfo;
+}
+
+// case sensitive
+async function getStrictApplicationSpecifications(appName) {
+  const db = serviceHelper.databaseConnection();
+  const database = db.db(config.database.zelappsglobal.database);
+
+  const query = { name: appName };
+  const projection = {
+    projection: {
+      _id: 0,
+    },
+  };
+  let zelappInfo = await serviceHelper.findOneInDatabase(database, globalZelAppsInformation, query, projection);
+  if (!zelappInfo) {
+    const allZelApps = await availableZelApps();
+    zelappInfo = allZelApps.find((zelapp) => zelapp.name === appName);
   }
   return zelappInfo;
 }
@@ -4414,7 +4382,8 @@ async function hardRedeploy(zelappSpecs, res) {
   }
 }
 
-// TODO FOR LOCAL APPS.
+// TODO reinstall probability roughly 50%
+// TODO distinguish soft and hard
 async function reinstallOldApplications() {
   try {
     const synced = await checkSynced();
@@ -4428,8 +4397,6 @@ async function reinstallOldApplications() {
       throw new Error('Failed to get installed Apps');
     }
     const installedApps = installedAppsRes.data;
-    const dbopen = serviceHelper.databaseConnection();
-    const databaseZelApps = dbopen.db(config.database.zelappsglobal.database);
     // eslint-disable-next-line no-restricted-syntax
     for (const installedApp of installedApps) {
       // get current zelapp specifications for the zelapp name
@@ -4437,11 +4404,8 @@ async function reinstallOldApplications() {
       // if same, do nothing. if different remove and install.
 
       // eslint-disable-next-line no-await-in-loop
-      const queryZelApp = { name: installedApp.name };
-      const projectionZelApp = { projection: { _id: 0 } };
-      // eslint-disable-next-line no-await-in-loop
-      const result = await serviceHelper.findOneInDatabase(databaseZelApps, globalZelAppsInformation, queryZelApp, projectionZelApp);
-      if (result && result.hash !== installedApp.hash) {
+      const appSpecifications = await getStrictApplicationSpecifications(installedApp.name);
+      if (appSpecifications && appSpecifications.hash !== installedApp.hash) {
         // eslint-disable-next-line no-await-in-loop
         log.warn(`Application ${installedApp.name} version is obsolete. Reinstalling.`);
         log.warn('Beginning removal...');
@@ -4451,12 +4415,6 @@ async function reinstallOldApplications() {
         // eslint-disable-next-line no-await-in-loop
         await serviceHelper.delay(config.zelapps.removal.delay * 1000); // wait for delay mins so we dont have more removals at the same time
         // check if node is capable to run it according to specifications
-        // get app specifications
-        // eslint-disable-next-line no-await-in-loop
-        const appSpecifications = await getApplicationSpecifications(result.name);
-        if (!appSpecifications) {
-          throw new Error(`Specifications for application ${result.name} were not found!`);
-        }
         // run the verification
         // get tier and adjust specifications
         // eslint-disable-next-line no-await-in-loop
@@ -4479,7 +4437,7 @@ async function reinstallOldApplications() {
         // eslint-disable-next-line no-await-in-loop
         await serviceHelper.delay(config.zelapps.removal.delay * 1000); // wait for delay mins so we dont have more removals at the same time
       }
-      // else do nothing as its probably just local application or app is up to date
+      // else specifications do not exist anymore, app shall expire itself
     }
   } catch (error) {
     log.error(error);
@@ -4709,6 +4667,7 @@ module.exports = {
   getRunningAppList,
   trySpawningGlobalApplication,
   getApplicationSpecifications,
+  getStrictApplicationSpecifications,
   getApplicationGlobalSpecifications,
   getApplicationLocalSpecifications,
   getApplicationSpecificationAPI,
