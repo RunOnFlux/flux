@@ -4429,8 +4429,6 @@ async function hardRedeploy(zelappSpecs, res) {
   }
 }
 
-// TODO reinstall probability roughly 50%
-// TODO distinguish soft and hard
 async function reinstallOldApplications() {
   try {
     const synced = await checkSynced();
@@ -4452,37 +4450,72 @@ async function reinstallOldApplications() {
 
       // eslint-disable-next-line no-await-in-loop
       const appSpecifications = await getStrictApplicationSpecifications(installedApp.name);
+      const randomNumber = Math.floor((Math.random() * config.zelapps.redeploy.probability)); // 50%
       if (appSpecifications && appSpecifications.hash !== installedApp.hash) {
         // eslint-disable-next-line no-await-in-loop
-        log.warn(`Application ${installedApp.name} version is obsolete. Reinstalling.`);
-        log.warn('Beginning removal...');
-        // eslint-disable-next-line no-await-in-loop
-        await removeZelAppLocally(installedApp.name);
-        log.warn('Application removed. Awaiting installation...');
-        // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay(config.zelapps.removal.delay * 1000); // wait for delay mins so we dont have more removals at the same time
-        // check if node is capable to run it according to specifications
-        // run the verification
-        // get tier and adjust specifications
-        // eslint-disable-next-line no-await-in-loop
-        const tier = await zelnodeTier();
-        if (appSpecifications.tiered) {
-          const hddTier = `hdd${tier}`;
-          const ramTier = `ram${tier}`;
-          const cpuTier = `cpu${tier}`;
-          appSpecifications.cpu = appSpecifications[cpuTier] || appSpecifications.cpu;
-          appSpecifications.ram = appSpecifications[ramTier] || appSpecifications.ram;
-          appSpecifications.hdd = appSpecifications[hddTier] || appSpecifications.hdd;
-        }
-        // verify requirements
-        // eslint-disable-next-line no-await-in-loop
-        await checkZelAppRequirements(appSpecifications);
+        log.warn(`Application ${installedApp.name} version is obsolete.`);
+        if (randomNumber === 0) {
+          // check if node is capable to run it according to specifications
+          // run the verification
+          // get tier and adjust specifications
+          // eslint-disable-next-line no-await-in-loop
+          const tier = await zelnodeTier();
+          if (appSpecifications.tiered) {
+            const hddTier = `hdd${tier}`;
+            const ramTier = `ram${tier}`;
+            const cpuTier = `cpu${tier}`;
+            appSpecifications.cpu = appSpecifications[cpuTier] || appSpecifications.cpu;
+            appSpecifications.ram = appSpecifications[ramTier] || appSpecifications.ram;
+            appSpecifications.hdd = appSpecifications[hddTier] || appSpecifications.hdd;
+          }
+          // verify requirements
+          // eslint-disable-next-line no-await-in-loop
+          await checkZelAppRequirements(appSpecifications);
 
-        // install the app
-        // eslint-disable-next-line no-await-in-loop
-        await registerZelAppLocally(appSpecifications);
-        // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay(config.zelapps.removal.delay * 1000); // wait for delay mins so we dont have more removals at the same time
+          if (appSpecifications.hdd === installedApp.hdd) {
+            log.warn('Beginning Soft Redeployment...');
+            // soft redeployment
+            try {
+            // eslint-disable-next-line no-await-in-loop
+              await softRemoveZelAppLocally(installedApp.name);
+              log.warn('Application softly removed. Awaiting installation...');
+              // eslint-disable-next-line no-await-in-loop
+              await serviceHelper.delay(config.zelapps.removal.delay * 1000); // wait for delay mins so we dont have more removals at the same time
+
+              // install the app
+              // eslint-disable-next-line no-await-in-loop
+              await softRegisterZelAppLocally(appSpecifications);
+
+              // eslint-disable-next-line no-await-in-loop
+              await serviceHelper.delay(config.zelapps.redeploy.delay * 1000); // wait for delay mins so we dont have more removals at the same time
+            } catch (error) {
+              log.error(error);
+              removeZelAppLocally(appSpecifications.name, null, true);
+            }
+          } else {
+            log.warn('Beginning Hard Redeployment...');
+            // hard redeployment
+            try {
+            // eslint-disable-next-line no-await-in-loop
+              await removeZelAppLocally(installedApp.name);
+              log.warn('Application removed. Awaiting installation...');
+              // eslint-disable-next-line no-await-in-loop
+              await serviceHelper.delay(config.zelapps.removal.delay * 1000); // wait for delay mins so we dont have more removals at the same time
+
+              // install the app
+              // eslint-disable-next-line no-await-in-loop
+              await registerZelAppLocally(appSpecifications);
+
+              // eslint-disable-next-line no-await-in-loop
+              await serviceHelper.delay(config.zelapps.redeploy.delay * 1000); // wait for delay mins so we dont have more removals at the same time
+            } catch (error) {
+              log.error(error);
+              removeZelAppLocally(appSpecifications.name, null, true);
+            }
+          }
+        } else {
+          log.info('Other Fluxes are redeploying application. Waiting for next round.');
+        }
       }
       // else specifications do not exist anymore, app shall expire itself
     }
