@@ -18,9 +18,9 @@ function ensureString(parameter) {
   return typeof parameter === 'string' ? parameter : JSON.stringify(parameter);
 }
 
-function error(...args) {
+function error(args) {
   try {
-    console.error(...args);
+    console.error(args);
     // write to file
     const datadir = `${homeDirPath}zelflux`;
     const filepath = `${datadir}/error.log`;
@@ -30,7 +30,10 @@ function error(...args) {
       flag = 'w'; // rewrite file
     }
     const stream = fs.createWriteStream(filepath, { flags: flag });
-    stream.write(`${new Date().toISOString()}          ${ensureString(...args.message || [...args])}\n`);
+    stream.write(`${new Date().toISOString()}          ${ensureString(args.message || args)}\n`);
+    if (args.stack && typeof args.stack === 'string') {
+      stream.write(`${args.stack}\n`);
+    }
     stream.end();
   } catch (err) {
     console.error('This shall not have happened');
@@ -41,15 +44,15 @@ function error(...args) {
 module.exports = {
   error,
 
-  warn(...args) {
-    console.warn(...args);
+  warn(args) {
+    console.warn(args);
   },
 
-  info(...args) {
-    console.log(...args);
+  info(args) {
+    console.log(args);
   },
 
-  debug(...args) {
-    console.log(...args);
+  debug(args) {
+    console.log(args);
   },
 };
