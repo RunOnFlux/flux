@@ -4434,7 +4434,7 @@ async function hardRedeploy(zelappSpecs, res) {
     await checkZelAppRequirements(appSpecifications);
     // register
     await registerZelAppLocally(appSpecifications, res);
-    log.info('Application softly redeployed');
+    log.info('Application redeployed');
   } catch (error) {
     log.error(error);
     removeZelAppLocally(zelappSpecs.name, res, true);
