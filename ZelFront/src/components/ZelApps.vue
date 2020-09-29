@@ -847,7 +847,47 @@
             {{ callResponse.data }}
           </div>
           <div v-if="managementMenuItem == 'appinstances'">
-            {{ callResponse.data }}
+          <el-table
+            :data="callResponse.data"
+            empty-text="No Instances Running"
+            style="width: 100%"
+          >
+            <el-table-column type="expand">
+              <template slot-scope="props">
+                <p>Broadcasted At: {{ new Date(props.row.broadcastedAt).toLocaleString('en-GB', timeoptions) }}</p>
+                <p>Expire At: {{ new Date(props.row.expireAt).toLocaleString('en-GB', timeoptions) }}</p>
+              </template>
+            </el-table-column>
+            <el-table-column
+              label="Name"
+              prop="name"
+              sortable
+            >
+            </el-table-column>
+            <el-table-column
+              label="IP"
+              prop="ip"
+              sortable
+            >
+            </el-table-column>
+            <el-table-column
+              label="Hash"
+              prop="hash"
+              sortable
+            >
+            </el-table-column>
+            <el-table-column
+              label="Visit"
+              prop="visit"
+              sortable
+            >
+              <template slot-scope="scope">
+                <ElButton @click="openSite('http://' + scope.row.ip + ':' + callBResponse.data.port)">
+                  Visit
+                </ElButton>
+              </template>
+            </el-table-column>
+          </el-table>
           </div>
 
           <div v-if="managementMenuItem == 'applogs'">
@@ -1450,8 +1490,20 @@
       </el-container>
     </div>
     <div v-if="zelAppsSection === 'registerzelapp'">
+      <div>
+        Note: Only verified developers and images can currently run on Flux. To become a verified developer with whitelisted images, please contact Zel Team via
+        <el-link
+          href="https://discord.io/zel"
+          target="_blank"
+          type="primary"
+        >
+          Discord
+        </el-link>.
+        <br><br>
+      </div>
       <div v-if="!fluxCommunication">
         Warning: Connected Flux is not communicating properly with Flux network
+        <br><br>
       </div>
       <div class="zelapps-register">
         <el-form
@@ -2140,6 +2192,7 @@ export default {
   },
   methods: {
     switcher(value) {
+      this.managedApplication = '';
       switch (value) {
         case 'localzelapps':
           this.zelAppLocations = [];
