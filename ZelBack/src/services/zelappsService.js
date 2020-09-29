@@ -195,10 +195,7 @@ async function dockerContainerLogsStream(idOrName, res, callback) {
               mystream.destroy();
             }, 2000);
           } catch (error) {
-            throw new Error({
-              message:
-                'An error obtaining log data of an application has occured',
-            });
+            throw new Error('An error obtaining log data of an application has occured');
           }
         }
       },
@@ -1003,7 +1000,7 @@ async function zelFluxUsage(req, res) {
     if (zelcashGetInfo.status === 'success') {
       zelcashHeight = zelcashGetInfo.data.blocks;
     } else {
-      log.error(zelcashGetInfo.data);
+      log.error(zelcashGetInfo.data.message || zelcashGetInfo.data);
     }
     let cpuCores = 0;
     const cpus = os.cpus();
@@ -2815,7 +2812,7 @@ async function registerZelAppGlobalyApi(req, res) {
       if (zelcashGetInfo.status === 'success') {
         zelcashHeight = zelcashGetInfo.data.blocks;
       } else {
-        throw new Error(zelcashGetInfo.data);
+        throw new Error(zelcashGetInfo.data.message || zelcashGetInfo.data);
       }
 
       if (owner !== config.zelTeamZelId && zelcashHeight < config.zelapps.publicepochstart) {
@@ -3881,7 +3878,7 @@ async function checkSynced() {
     if (zelcashGetInfo.status === 'success') {
       zelcashHeight = zelcashGetInfo.data.blocks;
     } else {
-      throw new Error(zelcashGetInfo.data.data);
+      throw new Error(zelcashGetInfo.data.message || zelcashGetInfo.data);
     }
     const dbopen = serviceHelper.databaseConnection();
     const database = dbopen.db(config.database.zelcash.database);
@@ -4635,7 +4632,7 @@ async function getAppPrice(req, res) {
         if (zelcashGetInfo.status === 'success') {
           zelcashHeight = zelcashGetInfo.data.blocks;
         } else {
-          throw new Error(zelcashGetInfo.data.data);
+          throw new Error(zelcashGetInfo.data.message || zelcashGetInfo.data);
         }
         const heightDifference = zelcashHeight - zelappInfo.height; // has to be lower than 22000
         const perc = (config.zelapps.blocksLasting - heightDifference) / config.zelapps.blocksLasting;

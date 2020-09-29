@@ -476,7 +476,7 @@ function verifyZelID(address) {
   let isValid = false;
   try {
     if (!address) {
-      throw new Error({ message: 'Missing parameters for message verification' });
+      throw new Error('Missing parameters for message verification');
     }
 
     if (address.length > 36) {
@@ -496,7 +496,7 @@ function verifyMessage(message, address, signature) {
   let signingAddress = address;
   try {
     if (!address || !message || !signature) {
-      throw new Error({ message: 'Missing parameters for message verification' });
+      throw new Error('Missing parameters for message verification');
     }
 
     if (address.length > 36) {
