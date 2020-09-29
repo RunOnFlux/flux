@@ -1323,7 +1323,7 @@ async function createZelAppVolume(zelAppSpecifications, res) {
 }
 
 // force determines if some a check for app not found is skipped
-async function removeZelAppLocally(zelapp, res, force = false) {
+async function removeZelAppLocally(zelapp, res, force = false, endResponse = true) {
   try {
     // remove zelapp from local machine.
     // find in database, stop zelapp, remove container, close port delete data associated on system, remove from database
@@ -1507,7 +1507,9 @@ async function removeZelAppLocally(zelapp, res, force = false) {
     log.info(zelappRemovalResponse);
     if (res) {
       res.write(serviceHelper.ensureString(zelappRemovalResponse));
-      res.end();
+      if (endResponse) {
+        res.end();
+      }
     }
   } catch (error) {
     log.error(error);
@@ -1518,7 +1520,9 @@ async function removeZelAppLocally(zelapp, res, force = false) {
     );
     if (res) {
       res.write(serviceHelper.ensureString(errorResponse));
-      res.end();
+      if (endResponse) {
+        res.end();
+      }
     }
   }
 }
@@ -1646,7 +1650,6 @@ async function softRemoveZelAppLocally(zelapp, res) {
   log.info(zelappRemovalResponse);
   if (res) {
     res.write(serviceHelper.ensureString(zelappRemovalResponse));
-    res.end();
   }
 }
 
@@ -4404,7 +4407,7 @@ async function softRedeploy(zelappSpecs, res) {
 
 async function hardRedeploy(zelappSpecs, res) {
   try {
-    await removeZelAppLocally(zelappSpecs.name, res);
+    await removeZelAppLocally(zelappSpecs.name, res, false, false);
     log.warn('Application removed. Awaiting installation...');
     await serviceHelper.delay(config.zelapps.removal.delay * 1000); // wait for delay mins
     // run the verification

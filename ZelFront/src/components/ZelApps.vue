@@ -417,18 +417,6 @@
           </el-table>
         </el-tab-pane>
       </el-tabs>
-      <div
-        v-if="output"
-        class='actionCenter'
-      >
-        <br>
-        <el-input
-          type="textarea"
-          autosize
-          v-model="stringOutput"
-        >
-        </el-input>
-      </div>
     </div>
     <div v-if="zelAppsSection === 'globalzelapps'">
       <el-tabs
@@ -521,19 +509,6 @@
           </el-table>
         </el-tab-pane>
       </el-tabs>
-      <div
-        v-if="output"
-        class='actionCenter'
-      >
-        <br>
-        <el-input
-          v-if="output"
-          type="textarea"
-          autosize
-          v-model="stringOutput"
-        >
-        </el-input>
-      </div>
     </div>
     <div v-if="managedApplication">
       <el-page-header
@@ -985,6 +960,34 @@
             >
               <ElButton slot="reference">
                 Unpause ZelApp
+              </ElButton>
+            </el-popconfirm>
+            <el-divider></el-divider>
+            <p>
+              ZelApp can be redeployed with or without data reinitiation. Hard redeployement removes the ZelApp including its attached data storage volume. Soft redeployemment will reuse already existing data application.
+            </p>
+            <el-popconfirm
+              confirmButtonText='Redeploy'
+              cancelButtonText='No, Thanks'
+              icon="el-icon-info"
+              iconColor="orange"
+              title="Redeploys ZelApp without data removal"
+              @onConfirm="redeployZelAppSoft(managedApplication)"
+            >
+              <ElButton slot="reference">
+                Soft Redeploy ZelApp
+              </ElButton>
+            </el-popconfirm>
+            <el-popconfirm
+              confirmButtonText='Redeploy'
+              cancelButtonText='No, Thanks'
+              icon="el-icon-info"
+              iconColor="red"
+              title="Redeploys ZelApp with data removal"
+              @onConfirm="redeployZelAppHard(managedApplication)"
+            >
+              <ElButton slot="reference">
+                Hard Redeploy ZelApp
               </ElButton>
             </el-popconfirm>
             <el-divider></el-divider>
@@ -1744,6 +1747,18 @@
         </div>
       </div>
     </div>
+    <div
+      v-if="output"
+      class='actionCenter'
+    >
+      <br>
+      <el-input
+        type="textarea"
+        autosize
+        v-model="stringOutput"
+      >
+      </el-input>
+    </div>
   </div>
 </template>
 
@@ -2244,6 +2259,38 @@ export default {
       }
       this.zelappsGetListAllZelApps();
       console.log(response);
+    },
+    redeployZelAppSoft(zelapp) {
+      this.redeployZelApp(zelapp, false);
+    },
+    redeployZelAppHard(zelapp) {
+      this.redeployZelApp(zelapp, true);
+    },
+    async redeployZelApp(zelapp, force) {
+      const self = this;
+      this.output = '';
+      vue.$customMes.success('Redeploying ZelApp');
+      const zelidauth = localStorage.getItem('zelidauth');
+      const axiosConfig = {
+        headers: {
+          zelidauth,
+        },
+        onDownloadProgress(progressEvent) {
+          console.log(progressEvent.target.response);
+          self.output = JSON.parse(`[${progressEvent.target.response.replace(/}{/g, '},{')}]`);
+        },
+      };
+      const response = await ZelAppsService.justAPI().get(`/zelapps/redeploy/${zelapp}/${force}`, axiosConfig);
+      if (response.data.status === 'error') {
+        vue.$customMes.error(response.data.data.message || response.data.data);
+      } else {
+        this.output = JSON.parse(`[${response.data.replace(/}{/g, '},{')}]`);
+        if (this.output[this.output.length - 1].status === 'error') {
+          vue.$customMes.error(this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
+        } else {
+          vue.$customMes.success(this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
+        }
+      }
     },
     async removeZelApp(zelapp) {
       const self = this;
