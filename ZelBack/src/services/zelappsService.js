@@ -4380,8 +4380,12 @@ async function checkAndRemoveApplicationInstance() {
 async function softRedeploy(zelappSpecs, res) {
   try {
     await softRemoveZelAppLocally(zelappSpecs.name, res);
-    log.warn('Application softly removed. Awaiting installation...');
-    await serviceHelper.delay(config.zelapps.removal.delay * 1000); // wait for delay mins
+    const zelappRedeployResponse = serviceHelper.createDataMessage('Application softly removed. Awaiting installation...');
+    log.info(zelappRedeployResponse);
+    if (res) {
+      res.write(serviceHelper.ensureString(zelappRedeployResponse));
+    }
+    await serviceHelper.delay(config.zelapps.redeploy.delay * 1000); // wait for delay mins
     // run the verification
     // get tier and adjust specifications
     const tier = await zelnodeTier();
@@ -4408,8 +4412,12 @@ async function softRedeploy(zelappSpecs, res) {
 async function hardRedeploy(zelappSpecs, res) {
   try {
     await removeZelAppLocally(zelappSpecs.name, res, false, false);
-    log.warn('Application removed. Awaiting installation...');
-    await serviceHelper.delay(config.zelapps.removal.delay * 1000); // wait for delay mins
+    const zelappRedeployResponse = serviceHelper.createDataMessage('Application removed. Awaiting installation...');
+    log.info(zelappRedeployResponse);
+    if (res) {
+      res.write(serviceHelper.ensureString(zelappRedeployResponse));
+    }
+    await serviceHelper.delay(config.zelapps.redeploy.delay * 1000); // wait for delay mins
     // run the verification
     // get tier and adjust specifications
     const tier = await zelnodeTier();

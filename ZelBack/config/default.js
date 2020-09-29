@@ -79,7 +79,7 @@ module.exports = {
     },
     redeploy: {
       probability: 2, // 50%
-      delay: 200,
+      delay: 180,
     },
     blocksLasting: 22000, // registered app will live for 22000 of blocks 44000 minutes ~= 1 month
     expireZelAppsPeriod: 100, // every 100 blocks we run a check that deletes apps specifications and stops/removes the application from existence if it has been lastly updated more than 22k blocks ago
