@@ -142,7 +142,7 @@
       <el-divider></el-divider>
       <p>
         Options to rescan Flux databases from a given blockheight and rebuild them since. Rescanning may take several hours and shall be used only when an unrecoverable error is present in databases with a known blockheight.
-        Rescanning Flux databases is a deeper option than just explorer databases and so while rescanning entire Flux databases, explorer parst will be rescanned as well.
+        Rescanning Flux databases is a deeper option than just explorer databases and so while rescanning entire Flux databases, explorer parts will be rescanned as well.
       </p>
       BlockHeight:
       <el-input-number
