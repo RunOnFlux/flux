@@ -23,20 +23,20 @@ const cmdAsync = util.promisify(nodecmd.get);
 const docker = new Docker();
 
 const scannedHeightCollection =
-    config.database.zelcash.collections.scannedHeight;
+  config.database.zelcash.collections.scannedHeight;
 const zelappsHashesCollection =
-    config.database.zelcash.collections.zelappsHashes;
+  config.database.zelcash.collections.zelappsHashes;
 
 const localZelAppsInformation =
-    config.database.zelappslocal.collections.zelappsInformation;
+  config.database.zelappslocal.collections.zelappsInformation;
 const globalZelAppsMessages =
-    config.database.zelappsglobal.collections.zelappsMessages;
+  config.database.zelappsglobal.collections.zelappsMessages;
 const globalZelAppsInformation =
-    config.database.zelappsglobal.collections.zelappsInformation;
+  config.database.zelappsglobal.collections.zelappsInformation;
 const globalZelAppsTempMessages =
-    config.database.zelappsglobal.collections.zelappsTemporaryMessages;
+  config.database.zelappsglobal.collections.zelappsTemporaryMessages;
 const globalZelAppsLocations =
-    config.database.zelappsglobal.collections.zelappsLocations;
+  config.database.zelappsglobal.collections.zelappsLocations;
 
 function getZelAppIdentifier(zelappName) {
   // this id is used for volumes, docker names so we know it reall belongs to
@@ -62,7 +62,7 @@ function getCollateralInfo(collateralOutpoint) {
   const b = a.split(', ');
   const txhash = b[0].substr(10, b[0].length);
   const txindex = serviceHelper.ensureNumber(b[1].split(')')[0]);
-  return {txhash, txindex};
+  return { txhash, txindex };
 }
 
 async function dockerCreateNetwork(options) {
@@ -95,9 +95,10 @@ async function dockerContainerInspect(idOrName) {
   // container ID or name
   const containers = await dockerListContainers(true);
   const myContainer = containers.find(
-      (container) =>
-          (container.Names[0] === getZelAppDockerNameIdentifier(idOrName) ||
-           container.Id === idOrName));
+    (container) =>
+      container.Names[0] === getZelAppDockerNameIdentifier(idOrName) ||
+      container.Id === idOrName
+  );
   const dockerContainer = docker.getContainer(myContainer.Id);
   const response = await dockerContainer.inspect();
   return response;
@@ -107,15 +108,15 @@ async function dockerContainerStats(idOrName) {
   // container ID or name
   const containers = await dockerListContainers(true);
   const myContainer = containers.find(
-      (container) =>
-          (container.Names[0] === getZelAppDockerNameIdentifier(idOrName) ||
-           container.Id === idOrName));
+    (container) =>
+      container.Names[0] === getZelAppDockerNameIdentifier(idOrName) ||
+      container.Id === idOrName
+  );
   const dockerContainer = docker.getContainer(myContainer.Id);
   const options = {
-    stream : false,
+    stream: false,
   };
-  const response = await dockerContainer.stats(
-      options); // output hw usage statistics just once
+  const response = await dockerContainer.stats(options); // output hw usage statistics just once
   return response;
 }
 
@@ -123,9 +124,10 @@ async function dockerContainerChanges(idOrName) {
   // container ID or name
   const containers = await dockerListContainers(true);
   const myContainer = containers.find(
-      (container) =>
-          (container.Names[0] === getZelAppDockerNameIdentifier(idOrName) ||
-           container.Id === idOrName));
+    (container) =>
+      container.Names[0] === getZelAppDockerNameIdentifier(idOrName) ||
+      container.Id === idOrName
+  );
   const dockerContainer = docker.getContainer(myContainer.Id);
   const response = await dockerContainer.changes();
   return response.toString();
@@ -157,16 +159,16 @@ function dockerPullStream(repoTag, res, callback) {
 async function dockerContainerExec(container, cmd, env, res, callback) {
   try {
     const options = {
-      AttachStdin : false,
-      AttachStdout : true,
-      AttachStderr : true,
-      Cmd : cmd,
-      Env : env,
-      Tty : false,
+      AttachStdin: false,
+      AttachStdout: true,
+      AttachStderr: true,
+      Cmd: cmd,
+      Env: env,
+      Tty: false,
     };
     const optionsExecStart = {
-      Detach : false,
-      Tty : false,
+      Detach: false,
+      Tty: false,
     };
 
     const exec = await container.exec(options);
@@ -187,9 +189,10 @@ async function dockerContainerLogsStream(idOrName, res, callback) {
     // container ID or name
     const containers = await dockerListContainers(true);
     const myContainer = containers.find(
-        (container) =>
-            (container.Names[0] === getZelAppDockerNameIdentifier(idOrName) ||
-             container.Id === idOrName));
+      (container) =>
+        container.Names[0] === getZelAppDockerNameIdentifier(idOrName) ||
+        container.Id === idOrName
+    );
     const dockerContainer = docker.getContainer(myContainer.Id);
     const logStream = new stream.PassThrough();
     logStream.on('data', (chunk) => {
@@ -197,29 +200,32 @@ async function dockerContainerLogsStream(idOrName, res, callback) {
     });
 
     dockerContainer.logs(
-        {
-          follow : true,
-          stdout : true,
-          stderr : true,
-        },
-        (err, mystream) => {
-          if (err) {
-            callback(err);
-          } else {
-            try {
-              dockerContainer.modem.demuxStream(mystream, logStream, logStream);
-              mystream.on('end', () => {
-                logStream.end();
-                callback(null);
-              });
+      {
+        follow: true,
+        stdout: true,
+        stderr: true,
+      },
+      (err, mystream) => {
+        if (err) {
+          callback(err);
+        } else {
+          try {
+            dockerContainer.modem.demuxStream(mystream, logStream, logStream);
+            mystream.on('end', () => {
+              logStream.end();
+              callback(null);
+            });
 
-              setTimeout(() => { mystream.destroy(); }, 2000);
-            } catch (error) {
-              throw new Error(
-                  'An error obtaining log data of an application has occured');
-            }
+            setTimeout(() => {
+              mystream.destroy();
+            }, 2000);
+          } catch (error) {
+            throw new Error(
+              'An error obtaining log data of an application has occured'
+            );
           }
-        },
+        }
+      }
     );
   } catch (error) {
     callback(error);
@@ -230,16 +236,17 @@ async function dockerContainerLogs(idOrName, lines) {
   // container ID or name
   const containers = await dockerListContainers(true);
   const myContainer = containers.find(
-      (container) =>
-          (container.Names[0] === getZelAppDockerNameIdentifier(idOrName) ||
-           container.Id === idOrName));
+    (container) =>
+      container.Names[0] === getZelAppDockerNameIdentifier(idOrName) ||
+      container.Id === idOrName
+  );
   const dockerContainer = docker.getContainer(myContainer.Id);
 
   const options = {
-    follow : false,
-    stdout : true,
-    stderr : true,
-    tail : lines,
+    follow: false,
+    stdout: true,
+    stderr: true,
+    tail: lines,
   };
   const logs = await dockerContainer.logs(options);
   return logs.toString();
@@ -247,10 +254,12 @@ async function dockerContainerLogs(idOrName, lines) {
 
 async function zelAppPull(req, res) {
   try {
-    const authorized =
-        await serviceHelper.verifyPrivilege('adminandzelteam', req);
+    const authorized = await serviceHelper.verifyPrivilege(
+      'adminandzelteam',
+      req
+    );
     if (authorized) {
-      let {repotag} = req.params;
+      let { repotag } = req.params;
       repotag = repotag || req.query.repotag;
       if (!repotag) {
         throw new Error('No Docker repository specified');
@@ -271,9 +280,9 @@ async function zelAppPull(req, res) {
   } catch (error) {
     log.error(error);
     const errorResponse = serviceHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
+      error.message || error,
+      error.name,
+      error.code
     );
     res.json(errorResponse);
   }
@@ -283,8 +292,9 @@ async function listRunningZelApps(req, res) {
   try {
     let zelapps = await dockerListContainers(false);
     if (zelapps.length > 0) {
-      zelapps =
-          zelapps.filter((zelapp) => zelapp.Names[0].substr(1, 3) === 'zel');
+      zelapps = zelapps.filter(
+        (zelapp) => zelapp.Names[0].substr(1, 3) === 'zel'
+      );
     }
     const modifiedZelApps = [];
     zelapps.forEach((zelapp) => {
@@ -301,9 +311,9 @@ async function listRunningZelApps(req, res) {
   } catch (error) {
     log.error(error);
     const errorResponse = serviceHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
+      error.message || error,
+      error.name,
+      error.code
     );
     return res ? res.json(errorResponse) : errorResponse;
   }
@@ -314,8 +324,9 @@ async function listAllZelApps(req, res) {
   try {
     let zelapps = await dockerListContainers(true);
     if (zelapps.length > 0) {
-      zelapps =
-          zelapps.filter((zelapp) => zelapp.Names[0].substr(1, 3) === 'zel');
+      zelapps = zelapps.filter(
+        (zelapp) => zelapp.Names[0].substr(1, 3) === 'zel'
+      );
     }
     const modifiedZelApps = [];
     zelapps.forEach((zelapp) => {
@@ -332,9 +343,9 @@ async function listAllZelApps(req, res) {
   } catch (error) {
     log.error(error);
     const errorResponse = serviceHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
+      error.message || error,
+      error.name,
+      error.code
     );
     return res ? res.json(errorResponse) : errorResponse;
   }
@@ -348,9 +359,9 @@ async function listZelAppsImages(req, res) {
   } catch (error) {
     log.error(error);
     const errorResponse = serviceHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
+      error.message || error,
+      error.name,
+      error.code
     );
     return res ? res.json(errorResponse) : errorResponse;
   }
@@ -363,13 +374,14 @@ async function zelnodeTier() {
   if (zelnodeStatus.status === 'error') {
     throw zelnodeStatus.data;
   }
-  const collateralInformation =
-      getCollateralInfo(zelnodeStatus.data.collateral);
+  const collateralInformation = getCollateralInfo(
+    zelnodeStatus.data.collateral
+  );
   // get transaction information about collateralInformation.txhash
   const request = {
-    params : {
-      txid : collateralInformation.txhash,
-      verbose : 1,
+    params: {
+      txid: collateralInformation.txhash,
+      verbose: 1,
     },
   };
   const txInformation = await zelcashService.getRawTransaction(request);
@@ -377,7 +389,7 @@ async function zelnodeTier() {
     throw txInformation.data;
   }
   // get collateralInformation.txindex vout
-  const {value} = txInformation.data.vout[collateralInformation.txindex];
+  const { value } = txInformation.data.vout[collateralInformation.txindex];
   if (value === 10000) {
     return 'basic';
   }
@@ -392,42 +404,44 @@ async function zelnodeTier() {
 
 async function zelAppDockerCreate(zelAppSpecifications) {
   const options = {
-    Image : zelAppSpecifications.repotag,
-    name : getZelAppIdentifier(zelAppSpecifications.name),
-    AttachStdin : true,
-    AttachStdout : true,
-    AttachStderr : true,
-    Cmd : zelAppSpecifications.commands,
-    Env : zelAppSpecifications.enviromentParameters,
-    Tty : false,
-    ExposedPorts : {
-      [`${zelAppSpecifications.port.toString()}/tcp`] : {},
-      [`${zelAppSpecifications.containerPort.toString()}/tcp`] : {},
+    Image: zelAppSpecifications.repotag,
+    name: getZelAppIdentifier(zelAppSpecifications.name),
+    AttachStdin: true,
+    AttachStdout: true,
+    AttachStderr: true,
+    Cmd: zelAppSpecifications.commands,
+    Env: zelAppSpecifications.enviromentParameters,
+    Tty: false,
+    ExposedPorts: {
+      [`${zelAppSpecifications.port.toString()}/tcp`]: {},
+      [`${zelAppSpecifications.containerPort.toString()}/tcp`]: {},
     },
-    HostConfig : {
-      NanoCPUs : zelAppSpecifications.cpu * 1e9,
-      Memory : zelAppSpecifications.ram * 1024 * 1024,
-      Binds : [ `${
-          zelappsFolder + getZelAppIdentifier(zelAppSpecifications.name)}:${
-          zelAppSpecifications.containerData}` ],
-      Ulimits : [
+    HostConfig: {
+      NanoCPUs: zelAppSpecifications.cpu * 1e9,
+      Memory: zelAppSpecifications.ram * 1024 * 1024,
+      Binds: [
+        `${zelappsFolder + getZelAppIdentifier(zelAppSpecifications.name)}:${
+          zelAppSpecifications.containerData
+        }`,
+      ],
+      Ulimits: [
         {
-          Name : 'nofile',
-          Soft : 100000,
-          Hard : 100000, // 1048576
+          Name: 'nofile',
+          Soft: 100000,
+          Hard: 100000, // 1048576
         },
       ],
-      PortBindings : {
-        [`${zelAppSpecifications.containerPort.toString()}/tcp`] : [
+      PortBindings: {
+        [`${zelAppSpecifications.containerPort.toString()}/tcp`]: [
           {
-            HostPort : zelAppSpecifications.port.toString(),
+            HostPort: zelAppSpecifications.port.toString(),
           },
         ],
       },
-      RestartPolicy : {
-        Name : 'unless-stopped',
+      RestartPolicy: {
+        Name: 'unless-stopped',
       },
-      NetworkMode : 'zelfluxDockerNetwork',
+      NetworkMode: 'zelfluxDockerNetwork',
     },
   };
 
@@ -442,9 +456,10 @@ async function zelAppDockerStart(idOrName) {
   // container ID or name
   const containers = await dockerListContainers(true);
   const myContainer = containers.find(
-      (container) =>
-          (container.Names[0] === getZelAppDockerNameIdentifier(idOrName) ||
-           container.Id === idOrName));
+    (container) =>
+      container.Names[0] === getZelAppDockerNameIdentifier(idOrName) ||
+      container.Id === idOrName
+  );
   const dockerContainer = docker.getContainer(myContainer.Id);
 
   await dockerContainer.start(); // may throw
@@ -455,9 +470,10 @@ async function zelAppDockerStop(idOrName) {
   // container ID or name
   const containers = await dockerListContainers(true);
   const myContainer = containers.find(
-      (container) =>
-          (container.Names[0] === getZelAppDockerNameIdentifier(idOrName) ||
-           container.Id === idOrName));
+    (container) =>
+      container.Names[0] === getZelAppDockerNameIdentifier(idOrName) ||
+      container.Id === idOrName
+  );
   const dockerContainer = docker.getContainer(myContainer.Id);
 
   await dockerContainer.stop();
@@ -468,9 +484,10 @@ async function zelAppDockerRestart(idOrName) {
   // container ID or name
   const containers = await dockerListContainers(true);
   const myContainer = containers.find(
-      (container) =>
-          (container.Names[0] === getZelAppDockerNameIdentifier(idOrName) ||
-           container.Id === idOrName));
+    (container) =>
+      container.Names[0] === getZelAppDockerNameIdentifier(idOrName) ||
+      container.Id === idOrName
+  );
   const dockerContainer = docker.getContainer(myContainer.Id);
 
   await dockerContainer.restart();
@@ -481,9 +498,10 @@ async function zelAppDockerKill(idOrName) {
   // container ID or name
   const containers = await dockerListContainers(true);
   const myContainer = containers.find(
-      (container) =>
-          (container.Names[0] === getZelAppDockerNameIdentifier(idOrName) ||
-           container.Id === idOrName));
+    (container) =>
+      container.Names[0] === getZelAppDockerNameIdentifier(idOrName) ||
+      container.Id === idOrName
+  );
   const dockerContainer = docker.getContainer(myContainer.Id);
 
   await dockerContainer.kill();
@@ -494,9 +512,10 @@ async function zelAppDockerRemove(idOrName) {
   // container ID or name
   const containers = await dockerListContainers(true);
   const myContainer = containers.find(
-      (container) =>
-          (container.Names[0] === getZelAppDockerNameIdentifier(idOrName) ||
-           container.Id === idOrName));
+    (container) =>
+      container.Names[0] === getZelAppDockerNameIdentifier(idOrName) ||
+      container.Id === idOrName
+  );
   const dockerContainer = docker.getContainer(myContainer.Id);
 
   await dockerContainer.remove();
@@ -515,9 +534,10 @@ async function zelAppDockerPause(idOrName) {
   // container ID or name
   const containers = await dockerListContainers(true);
   const myContainer = containers.find(
-      (container) =>
-          (container.Names[0] === getZelAppDockerNameIdentifier(idOrName) ||
-           container.Id === idOrName));
+    (container) =>
+      container.Names[0] === getZelAppDockerNameIdentifier(idOrName) ||
+      container.Id === idOrName
+  );
   const dockerContainer = docker.getContainer(myContainer.Id);
 
   await dockerContainer.pause();
@@ -528,9 +548,10 @@ async function zelAppDockerUnpase(idOrName) {
   // container ID or name
   const containers = await dockerListContainers(true);
   const myContainer = containers.find(
-      (container) =>
-          (container.Names[0] === getZelAppDockerNameIdentifier(idOrName) ||
-           container.Id === idOrName));
+    (container) =>
+      container.Names[0] === getZelAppDockerNameIdentifier(idOrName) ||
+      container.Id === idOrName
+  );
   const dockerContainer = docker.getContainer(myContainer.Id);
 
   await dockerContainer.unpause();
@@ -541,9 +562,10 @@ async function zelAppDockerTop(idOrName) {
   // container ID or name
   const containers = await dockerListContainers(true);
   const myContainer = containers.find(
-      (container) =>
-          (container.Names[0] === getZelAppDockerNameIdentifier(idOrName) ||
-           container.Id === idOrName));
+    (container) =>
+      container.Names[0] === getZelAppDockerNameIdentifier(idOrName) ||
+      container.Id === idOrName
+  );
   const dockerContainer = docker.getContainer(myContainer.Id);
 
   const processes = await dockerContainer.top();
@@ -552,15 +574,18 @@ async function zelAppDockerTop(idOrName) {
 
 async function zelAppStart(req, res) {
   try {
-    let {appname} = req.params;
+    let { appname } = req.params;
     appname = appname || req.query.appname;
 
     if (!appname) {
       throw new Error('No ZelApp specified');
     }
 
-    const authorized =
-        await serviceHelper.verifyPrivilege('appownerabove', req, appname);
+    const authorized = await serviceHelper.verifyPrivilege(
+      'appownerabove',
+      req,
+      appname
+    );
     if (!authorized) {
       const errMessage = serviceHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
@@ -573,9 +598,9 @@ async function zelAppStart(req, res) {
   } catch (error) {
     log.error(error);
     const errorResponse = serviceHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
+      error.message || error,
+      error.name,
+      error.code
     );
     return res ? res.json(errorResponse) : errorResponse;
   }
@@ -583,15 +608,18 @@ async function zelAppStart(req, res) {
 
 async function zelAppStop(req, res) {
   try {
-    let {appname} = req.params;
+    let { appname } = req.params;
     appname = appname || req.query.appname;
 
     if (!appname) {
       throw new Error('No ZelApp specified');
     }
 
-    const authorized =
-        await serviceHelper.verifyPrivilege('appownerabove', req, appname);
+    const authorized = await serviceHelper.verifyPrivilege(
+      'appownerabove',
+      req,
+      appname
+    );
     if (!authorized) {
       const errMessage = serviceHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
@@ -604,9 +632,9 @@ async function zelAppStop(req, res) {
   } catch (error) {
     log.error(error);
     const errorResponse = serviceHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
+      error.message || error,
+      error.name,
+      error.code
     );
     return res ? res.json(errorResponse) : errorResponse;
   }
@@ -614,15 +642,18 @@ async function zelAppStop(req, res) {
 
 async function zelAppRestart(req, res) {
   try {
-    let {appname} = req.params;
+    let { appname } = req.params;
     appname = appname || req.query.appname;
 
     if (!appname) {
       throw new Error('No ZelApp specified');
     }
 
-    const authorized =
-        await serviceHelper.verifyPrivilege('appownerabove', req, appname);
+    const authorized = await serviceHelper.verifyPrivilege(
+      'appownerabove',
+      req,
+      appname
+    );
     if (!authorized) {
       const errMessage = serviceHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
@@ -635,9 +666,9 @@ async function zelAppRestart(req, res) {
   } catch (error) {
     log.error(error);
     const errorResponse = serviceHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
+      error.message || error,
+      error.name,
+      error.code
     );
     return res ? res.json(errorResponse) : errorResponse;
   }
@@ -645,13 +676,15 @@ async function zelAppRestart(req, res) {
 
 async function zelAppKill(req, res) {
   try {
-    const authorized =
-        await serviceHelper.verifyPrivilege('adminandzelteam', req);
+    const authorized = await serviceHelper.verifyPrivilege(
+      'adminandzelteam',
+      req
+    );
     if (!authorized) {
       const errMessage = serviceHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
     }
-    let {appname} = req.params;
+    let { appname } = req.params;
     appname = appname || req.query.appname;
 
     if (!appname) {
@@ -665,9 +698,9 @@ async function zelAppKill(req, res) {
   } catch (error) {
     log.error(error);
     const errorResponse = serviceHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
+      error.message || error,
+      error.name,
+      error.code
     );
     return res ? res.json(errorResponse) : errorResponse;
   }
@@ -675,15 +708,18 @@ async function zelAppKill(req, res) {
 
 async function zelAppPause(req, res) {
   try {
-    let {appname} = req.params;
+    let { appname } = req.params;
     appname = appname || req.query.appname;
 
     if (!appname) {
       throw new Error('No ZelApp specified');
     }
 
-    const authorized =
-        await serviceHelper.verifyPrivilege('appownerabove', req, appname);
+    const authorized = await serviceHelper.verifyPrivilege(
+      'appownerabove',
+      req,
+      appname
+    );
     if (!authorized) {
       const errMessage = serviceHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
@@ -696,9 +732,9 @@ async function zelAppPause(req, res) {
   } catch (error) {
     log.error(error);
     const errorResponse = serviceHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
+      error.message || error,
+      error.name,
+      error.code
     );
     return res ? res.json(errorResponse) : errorResponse;
   }
@@ -706,15 +742,18 @@ async function zelAppPause(req, res) {
 
 async function zelAppUnpause(req, res) {
   try {
-    let {appname} = req.params;
+    let { appname } = req.params;
     appname = appname || req.query.appname;
 
     if (!appname) {
       throw new Error('No ZelApp specified');
     }
 
-    const authorized =
-        await serviceHelper.verifyPrivilege('appownerabove', req, appname);
+    const authorized = await serviceHelper.verifyPrivilege(
+      'appownerabove',
+      req,
+      appname
+    );
     if (!authorized) {
       const errMessage = serviceHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
@@ -727,9 +766,9 @@ async function zelAppUnpause(req, res) {
   } catch (error) {
     log.error(error);
     const errorResponse = serviceHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
+      error.message || error,
+      error.name,
+      error.code
     );
     return res ? res.json(errorResponse) : errorResponse;
   }
@@ -738,11 +777,14 @@ async function zelAppUnpause(req, res) {
 async function zelAppTop(req, res) {
   try {
     // List processes running inside a container
-    let {appname} = req.params;
+    let { appname } = req.params;
     appname = appname || req.query.appname;
 
-    const authorized =
-        await serviceHelper.verifyPrivilege('appownerabove', req, appname);
+    const authorized = await serviceHelper.verifyPrivilege(
+      'appownerabove',
+      req,
+      appname
+    );
     if (!authorized) {
       const errMessage = serviceHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
@@ -759,9 +801,9 @@ async function zelAppTop(req, res) {
   } catch (error) {
     log.error(error);
     const errorResponse = serviceHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
+      error.message || error,
+      error.name,
+      error.code
     );
     return res ? res.json(errorResponse) : errorResponse;
   }
@@ -769,17 +811,20 @@ async function zelAppTop(req, res) {
 
 async function zelAppLog(req, res) {
   try {
-    let {appname} = req.params;
+    let { appname } = req.params;
     appname = appname || req.query.appname;
 
-    let {lines} = req.params;
+    let { lines } = req.params;
     lines = lines || req.query.lines || 'all';
 
     if (!appname) {
       throw new Error('No ZelApp specified');
     }
-    const authorized =
-        await serviceHelper.verifyPrivilege('appownerabove', req, appname);
+    const authorized = await serviceHelper.verifyPrivilege(
+      'appownerabove',
+      req,
+      appname
+    );
     if (authorized === true) {
       const logs = await dockerContainerLogs(appname, lines);
       const dataMessage = serviceHelper.createDataMessage(logs);
@@ -791,9 +836,9 @@ async function zelAppLog(req, res) {
   } catch (error) {
     log.error(error);
     const errorResponse = serviceHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
+      error.message || error,
+      error.name,
+      error.code
     );
     res.json(errorResponse);
   }
@@ -801,23 +846,26 @@ async function zelAppLog(req, res) {
 
 async function zelAppLogStream(req, res) {
   try {
-    let {appname} = req.params;
+    let { appname } = req.params;
     appname = appname || req.query.appname;
 
     if (!appname) {
       throw new Error('No ZelApp specified');
     }
-    const authorized =
-        await serviceHelper.verifyPrivilege('appownerabove', req, appname);
+    const authorized = await serviceHelper.verifyPrivilege(
+      'appownerabove',
+      req,
+      appname
+    );
     if (authorized === true) {
       res.setHeader('Content-Type', 'application/json');
       dockerContainerLogsStream(appname, res, (error) => {
         if (error) {
           log.error(error);
           const errorResponse = serviceHelper.createErrorMessage(
-              error.message || error,
-              error.name,
-              error.code,
+            error.message || error,
+            error.name,
+            error.code
           );
           res.write(errorResponse);
           res.end();
@@ -832,9 +880,9 @@ async function zelAppLogStream(req, res) {
   } catch (error) {
     log.error(error);
     const errorResponse = serviceHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
+      error.message || error,
+      error.name,
+      error.code
     );
     res.json(errorResponse);
   }
@@ -842,13 +890,16 @@ async function zelAppLogStream(req, res) {
 
 async function zelAppInspect(req, res) {
   try {
-    let {appname} = req.params;
+    let { appname } = req.params;
     appname = appname || req.query.appname;
     if (!appname) {
       throw new Error('No ZelApp specified');
     }
-    const authorized =
-        await serviceHelper.verifyPrivilege('appownerabove', req, appname);
+    const authorized = await serviceHelper.verifyPrivilege(
+      'appownerabove',
+      req,
+      appname
+    );
     if (authorized === true) {
       const response = await dockerContainerInspect(appname);
       const zelappResponse = serviceHelper.createDataMessage(response);
@@ -860,9 +911,9 @@ async function zelAppInspect(req, res) {
   } catch (error) {
     log.error(error);
     const errMessage = serviceHelper.createErrorMessage(
-        error.message,
-        error.name,
-        error.code,
+      error.message,
+      error.name,
+      error.code
     );
     res.json(errMessage);
   }
@@ -870,13 +921,16 @@ async function zelAppInspect(req, res) {
 
 async function zelAppStats(req, res) {
   try {
-    let {appname} = req.params;
+    let { appname } = req.params;
     appname = appname || req.query.appname;
     if (!appname) {
       throw new Error('No ZelApp specified');
     }
-    const authorized =
-        await serviceHelper.verifyPrivilege('appownerabove', req, appname);
+    const authorized = await serviceHelper.verifyPrivilege(
+      'appownerabove',
+      req,
+      appname
+    );
     if (authorized === true) {
       const response = await dockerContainerStats(appname);
       const zelappResponse = serviceHelper.createDataMessage(response);
@@ -888,9 +942,9 @@ async function zelAppStats(req, res) {
   } catch (error) {
     log.error(error);
     const errMessage = serviceHelper.createErrorMessage(
-        error.message,
-        error.name,
-        error.code,
+      error.message,
+      error.name,
+      error.code
     );
     res.json(errMessage);
   }
@@ -898,13 +952,16 @@ async function zelAppStats(req, res) {
 
 async function zelAppChanges(req, res) {
   try {
-    let {appname} = req.params;
+    let { appname } = req.params;
     appname = appname || req.query.appname;
     if (!appname) {
       throw new Error('No ZelApp specified');
     }
-    const authorized =
-        await serviceHelper.verifyPrivilege('appownerabove', req, appname);
+    const authorized = await serviceHelper.verifyPrivilege(
+      'appownerabove',
+      req,
+      appname
+    );
     if (authorized === true) {
       const response = await dockerContainerChanges(appname);
       const zelappResponse = serviceHelper.createDataMessage(response);
@@ -916,9 +973,9 @@ async function zelAppChanges(req, res) {
   } catch (error) {
     log.error(error);
     const errMessage = serviceHelper.createErrorMessage(
-        error.message,
-        error.name,
-        error.code,
+      error.message,
+      error.name,
+      error.code
     );
     res.json(errMessage);
   }
@@ -926,7 +983,9 @@ async function zelAppChanges(req, res) {
 
 async function zelAppExec(req, res) {
   let body = '';
-  req.on('data', (data) => { body += data; });
+  req.on('data', (data) => {
+    body += data;
+  });
   req.on('end', async () => {
     try {
       const processedBody = serviceHelper.ensureObject(body);
@@ -940,7 +999,10 @@ async function zelAppExec(req, res) {
       }
 
       const authorized = await serviceHelper.verifyPrivilege(
-          'appowner', req, processedBody.appname);
+        'appowner',
+        req,
+        processedBody.appname
+      );
       if (authorized === true) {
         let cmd = processedBody.cmd || [];
         let env = processedBody.env || [];
@@ -950,10 +1012,11 @@ async function zelAppExec(req, res) {
 
         const containers = await dockerListContainers(true);
         const myContainer = containers.find(
-            (container) =>
-                (container.Names[0] ===
-                     getZelAppDockerNameIdentifier(processedBody.appname) ||
-                 container.Id === processedBody.appname));
+          (container) =>
+            container.Names[0] ===
+              getZelAppDockerNameIdentifier(processedBody.appname) ||
+            container.Id === processedBody.appname
+        );
         const dockerContainer = docker.getContainer(myContainer.Id);
 
         res.setHeader('Content-Type', 'application/json');
@@ -962,9 +1025,9 @@ async function zelAppExec(req, res) {
           if (error) {
             log.error(error);
             const errorResponse = serviceHelper.createErrorMessage(
-                error.message || error,
-                error.name,
-                error.code,
+              error.message || error,
+              error.name,
+              error.code
             );
             res.write(errorResponse);
             res.end();
@@ -979,9 +1042,9 @@ async function zelAppExec(req, res) {
     } catch (error) {
       log.error(error);
       const errorResponse = serviceHelper.createErrorMessage(
-          error.message || error,
-          error.name,
-          error.code,
+        error.message || error,
+        error.name,
+        error.code
       );
       res.json(errorResponse);
     }
@@ -989,7 +1052,7 @@ async function zelAppExec(req, res) {
 }
 
 async function zelShareFile(req, res) {
-  let {file} = req.params;
+  let { file } = req.params;
   file = file || req.query.file;
 
   const dirpath = path.join(__dirname, '../../../');
@@ -1001,18 +1064,21 @@ async function zelShareFile(req, res) {
 async function createFluxNetwork() {
   // check if zelfluxDockerNetwork exists
   const fluxNetworkOptions = {
-    Name : 'zelfluxDockerNetwork',
-    IPAM : {
-      Config : [ {
-        Subnet : '172.16.0.0/16',
-        Gateway : '172.16.0.1',
-      } ],
+    Name: 'zelfluxDockerNetwork',
+    IPAM: {
+      Config: [
+        {
+          Subnet: '172.16.0.0/16',
+          Gateway: '172.16.0.1',
+        },
+      ],
     },
   };
   let fluxNetworkExists = true;
   const networkID = docker.getNetwork(fluxNetworkOptions.Name);
-  await dockerNetworkInspect(networkID).catch(
-      () => { fluxNetworkExists = false; });
+  await dockerNetworkInspect(networkID).catch(() => {
+    fluxNetworkExists = false;
+  });
   let response;
   // create or check docker network
   if (!fluxNetworkExists) {
@@ -1025,8 +1091,10 @@ async function createFluxNetwork() {
 
 async function createZelFluxNetwork(req, res) {
   try {
-    const authorized =
-        await serviceHelper.verifyPrivilege('adminandzelteam', req);
+    const authorized = await serviceHelper.verifyPrivilege(
+      'adminandzelteam',
+      req
+    );
     if (!authorized) {
       const errMessage = serviceHelper.errUnauthorizedMessage();
       return res.json(errMessage);
@@ -1037,9 +1105,9 @@ async function createZelFluxNetwork(req, res) {
   } catch (error) {
     log.error(error);
     const errorResponse = serviceHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
+      error.message || error,
+      error.name,
+      error.code
     );
     return res.json(errorResponse);
   }
@@ -1049,22 +1117,26 @@ async function zelFluxUsage(req, res) {
   try {
     const dbopen = serviceHelper.databaseConnection();
     const database = dbopen.db(config.database.zelcash.database);
-    const query = {generalScannedHeight : {$gte : 0}};
+    const query = { generalScannedHeight: { $gte: 0 } };
     const projection = {
-      projection : {
-        _id : 0,
-        generalScannedHeight : 1,
+      projection: {
+        _id: 0,
+        generalScannedHeight: 1,
       },
     };
     const result = await serviceHelper.findOneInDatabase(
-        database, scannedHeightCollection, query, projection);
+      database,
+      scannedHeightCollection,
+      query,
+      projection
+    );
     if (!result) {
       log.error('Scanning not initiated');
     }
     let explorerHeight = 999999999;
     if (result) {
       explorerHeight =
-          serviceHelper.ensureNumber(result.generalScannedHeight) || 999999999;
+        serviceHelper.ensureNumber(result.generalScannedHeight) || 999999999;
     }
     const zelcashGetInfo = await zelcashService.getInfo();
     let zelcashHeight = 1;
@@ -1082,7 +1154,7 @@ async function zelFluxUsage(req, res) {
       cpuCores = 8;
     }
     let cpuUsage = 0;
-    if (explorerHeight < (zelcashHeight - 5)) {
+    if (explorerHeight < zelcashHeight - 5) {
       // Initial scanning is in progress
       cpuUsage += 0.5;
     } else if (explorerHeight < zelcashHeight) {
@@ -1094,16 +1166,19 @@ async function zelFluxUsage(req, res) {
 
     // load usedResources of zelapps
     const zelappsDatabase = dbopen.db(config.database.zelappslocal.database);
-    const zelappsQuery = {cpu : {$gte : 0}};
+    const zelappsQuery = { cpu: { $gte: 0 } };
     const zelappsProjection = {
-      projection : {
-        _id : 0,
-        cpu : 1,
+      projection: {
+        _id: 0,
+        cpu: 1,
       },
     };
     const zelappsResult = await serviceHelper.findInDatabase(
-        zelappsDatabase, localZelAppsInformation, zelappsQuery,
-        zelappsProjection);
+      zelappsDatabase,
+      localZelAppsInformation,
+      zelappsQuery,
+      zelappsProjection
+    );
     let zelAppsCpusLocked = 0;
     zelappsResult.forEach((zelapp) => {
       zelAppsCpusLocked += serviceHelper.ensureNumber(zelapp.cpu) || 0;
@@ -1125,9 +1200,9 @@ async function zelFluxUsage(req, res) {
   } catch (error) {
     log.error(error);
     const errorResponse = serviceHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
+      error.message || error,
+      error.name,
+      error.code
     );
     return res ? res.json(errorResponse) : errorResponse;
   }
@@ -1137,18 +1212,21 @@ async function zelappsResources(req, res) {
   try {
     const dbopen = serviceHelper.databaseConnection();
     const zelappsDatabase = dbopen.db(config.database.zelappslocal.database);
-    const zelappsQuery = {cpu : {$gte : 0}};
+    const zelappsQuery = { cpu: { $gte: 0 } };
     const zelappsProjection = {
-      projection : {
-        _id : 0,
-        cpu : 1,
-        ram : 1,
-        hdd : 1,
+      projection: {
+        _id: 0,
+        cpu: 1,
+        ram: 1,
+        hdd: 1,
       },
     };
     const zelappsResult = await serviceHelper.findInDatabase(
-        zelappsDatabase, localZelAppsInformation, zelappsQuery,
-        zelappsProjection);
+      zelappsDatabase,
+      localZelAppsInformation,
+      zelappsQuery,
+      zelappsProjection
+    );
     let zelAppsCpusLocked = 0;
     let zelAppsRamLocked = 0;
     let zelAppsHddLocked = 0;
@@ -1167,9 +1245,9 @@ async function zelappsResources(req, res) {
   } catch (error) {
     log.error(error);
     const errorResponse = serviceHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
+      error.message || error,
+      error.name,
+      error.code
     );
     return res ? res.json(errorResponse) : errorResponse;
   }
@@ -1180,7 +1258,7 @@ async function createZelAppVolume(zelAppSpecifications, res) {
   const zelappId = getZelAppIdentifier(zelAppSpecifications.name);
 
   const searchSpace = {
-    status : 'Searching available space...',
+    status: 'Searching available space...',
   };
   log.info(searchSpace);
   if (res) {
@@ -1189,16 +1267,21 @@ async function createZelAppVolume(zelAppSpecifications, res) {
 
   // we want whole numbers in GB
   const options = {
-    prefixMultiplier : 'GB',
-    isDisplayPrefixMultiplier : false,
-    precision : 0,
+    prefixMultiplier: 'GB',
+    isDisplayPrefixMultiplier: false,
+    precision: 0,
   };
 
-  const dfres = await dfAsync(options).catch((error) => { throw error; });
+  const dfres = await dfAsync(options).catch((error) => {
+    throw error;
+  });
   const okVolumes = [];
   dfres.forEach((volume) => {
-    if (volume.filesystem.includes('/dev/') &&
-        !volume.filesystem.includes('loop') && !volume.mount.includes('boot')) {
+    if (
+      volume.filesystem.includes('/dev/') &&
+      !volume.filesystem.includes('loop') &&
+      !volume.mount.includes('boot')
+    ) {
       okVolumes.push(volume);
     } else if (volume.filesystem.includes('loop') && volume.mount === '/') {
       okVolumes.push(volume);
@@ -1209,17 +1292,17 @@ async function createZelAppVolume(zelAppSpecifications, res) {
   const tier = await zelnodeTier();
   const totalSpaceOnNode = config.fluxSpecifics.hdd[tier];
   const useableSpaceOnNode =
-      totalSpaceOnNode - config.lockedSystemResources.hdd;
+    totalSpaceOnNode - config.lockedSystemResources.hdd;
   const resourcesLocked = await zelappsResources();
   if (resourcesLocked.status !== 'success') {
     throw new Error(
-        'Unable to obtain locked system resources by ZelApps. Aborting.');
+      'Unable to obtain locked system resources by ZelApps. Aborting.'
+    );
   }
   const hddLockedByApps = resourcesLocked.data.zelAppsHddLocked;
   const availableSpaceForZelApps =
-      useableSpaceOnNode - hddLockedByApps +
-      zelAppSpecifications.hdd; // because our application is already accounted
-                                // in locked resources
+    useableSpaceOnNode - hddLockedByApps + zelAppSpecifications.hdd; // because our application is already accounted
+  // in locked resources
   // bigger or equal so we have the 1 gb free...
   if (zelAppSpecifications.hdd >= availableSpaceForZelApps) {
     throw new Error('Insufficient space on ZelNode to spawn an application');
@@ -1239,7 +1322,8 @@ async function createZelAppVolume(zelAppSpecifications, res) {
   if (zelAppSpecifications.hdd >= totalAvailableSpaceLeft) {
     // sadly user free space is not enough for this application
     throw new Error(
-        'Insufficient space on ZelNode. Space is already assigned to system files');
+      'Insufficient space on ZelNode. Space is already assigned to system files'
+    );
   }
 
   // check if space is not sharded in some bad way. Always count the
@@ -1249,8 +1333,10 @@ async function createZelAppVolume(zelAppSpecifications, res) {
   for (let i = 0; i < totalVolumes; i += 1) {
     // check available volumes one by one. If a sufficient is found. Use this
     // one.
-    if (okVolumes[i].available >
-        zelAppSpecifications.hdd + zelfluxSystemReserve) {
+    if (
+      okVolumes[i].available >
+      zelAppSpecifications.hdd + zelfluxSystemReserve
+    ) {
       useThisVolume = okVolumes[i];
       break;
     }
@@ -1263,7 +1349,7 @@ async function createZelAppVolume(zelAppSpecifications, res) {
   // now we know there is a space and we have a volum we can operate with. Let's
   // do volume magic
   const searchSpace2 = {
-    status : 'Space found',
+    status: 'Space found',
   };
   log.info(searchSpace2);
   if (res) {
@@ -1271,25 +1357,20 @@ async function createZelAppVolume(zelAppSpecifications, res) {
   }
 
   const allocateSpace = {
-    status : 'Allocating space, this may take a while...',
+    status: 'Allocating space, this may take a while...',
   };
   log.info(allocateSpace);
   if (res) {
     res.write(serviceHelper.ensureString(allocateSpace));
   }
   // space hdd * 10, thats why 0 at the end. As we have 100mb bs.
-  let execDD = `sudo dd if=/dev/zero of=${useThisVolume.mount}/${
-      zelappId}TEMP bs=107374182 count=${
-      zelAppSpecifications.hdd}0`; // eg /mnt/sthMounted/zelappTEMP
+  let execDD = `sudo dd if=/dev/zero of=${useThisVolume.mount}/${zelappId}TEMP bs=107374182 count=${zelAppSpecifications.hdd}0`; // eg /mnt/sthMounted/zelappTEMP
   if (useThisVolume.mount === '/') {
-    execDD = `sudo dd if=/dev/zero of=${useThisVolume.mount}tmp/${
-        zelappId}TEMP bs=107374182 count=${
-        zelAppSpecifications
-            .hdd}0`; // if root mount then temp file is /tmp/zelappTEMP
+    execDD = `sudo dd if=/dev/zero of=${useThisVolume.mount}tmp/${zelappId}TEMP bs=107374182 count=${zelAppSpecifications.hdd}0`; // if root mount then temp file is /tmp/zelappTEMP
   }
   await cmdAsync(execDD);
   const allocateSpace2 = {
-    status : 'Space allocated',
+    status: 'Space allocated',
   };
   log.info(allocateSpace2);
   if (res) {
@@ -1297,7 +1378,7 @@ async function createZelAppVolume(zelAppSpecifications, res) {
   }
 
   const makeFilesystem = {
-    status : 'Creating filesystem...',
+    status: 'Creating filesystem...',
   };
   log.info(makeFilesystem);
   if (res) {
@@ -1309,7 +1390,7 @@ async function createZelAppVolume(zelAppSpecifications, res) {
   }
   await cmdAsync(execFS);
   const makeFilesystem2 = {
-    status : 'Filesystem created',
+    status: 'Filesystem created',
   };
   log.info(makeFilesystem2);
   if (res) {
@@ -1317,7 +1398,7 @@ async function createZelAppVolume(zelAppSpecifications, res) {
   }
 
   const makeDirectory = {
-    status : 'Making directory...',
+    status: 'Making directory...',
   };
   log.info(makeDirectory);
   if (res) {
@@ -1326,7 +1407,7 @@ async function createZelAppVolume(zelAppSpecifications, res) {
   const execDIR = `sudo mkdir -p ${zelappsFolder + zelappId}`;
   await cmdAsync(execDIR);
   const makeDirectory2 = {
-    status : 'Directory made',
+    status: 'Directory made',
   };
   log.info(makeDirectory2);
   if (res) {
@@ -1334,21 +1415,23 @@ async function createZelAppVolume(zelAppSpecifications, res) {
   }
 
   const mountingStatus = {
-    status : 'Mounting volume...',
+    status: 'Mounting volume...',
   };
   log.info(mountingStatus);
   if (res) {
     res.write(serviceHelper.ensureString(mountingStatus));
   }
   let execMount = `sudo mount -o loop ${useThisVolume.mount}/${zelappId}TEMP ${
-      zelappsFolder + zelappId}`;
+    zelappsFolder + zelappId
+  }`;
   if (useThisVolume.mount === '/') {
     execMount = `sudo mount -o loop ${useThisVolume.mount}tmp/${zelappId}TEMP ${
-        zelappsFolder + zelappId}`;
+      zelappsFolder + zelappId
+    }`;
   }
   await cmdAsync(execMount);
   const mountingStatus2 = {
-    status : 'Volume mounted',
+    status: 'Volume mounted',
   };
   log.info(execMount);
   if (res) {
@@ -1356,7 +1439,7 @@ async function createZelAppVolume(zelAppSpecifications, res) {
   }
 
   const aloocationRemoval = {
-    status : 'Removing allocation...',
+    status: 'Removing allocation...',
   };
   log.info(aloocationRemoval);
   if (res) {
@@ -1368,7 +1451,7 @@ async function createZelAppVolume(zelAppSpecifications, res) {
   }
   await cmdAsync(execRemoveAlloc);
   const aloocationRemoval2 = {
-    status : 'Allocation removed',
+    status: 'Allocation removed',
   };
   log.info(aloocationRemoval2);
   if (res) {
@@ -1376,17 +1459,18 @@ async function createZelAppVolume(zelAppSpecifications, res) {
   }
 
   const spaceVerification = {
-    status : 'Beginning space verification. This may take a while...',
+    status: 'Beginning space verification. This may take a while...',
   };
   log.info(spaceVerification);
   if (res) {
     res.write(serviceHelper.ensureString(spaceVerification));
   }
-  const execVerif = `sudo dd if=/dev/zero of=${zelappsFolder + zelappId}/${
-      zelappId}VERTEMP bs=96636763 count=${zelAppSpecifications.hdd}0`; // 90%
+  const execVerif = `sudo dd if=/dev/zero of=${
+    zelappsFolder + zelappId
+  }/${zelappId}VERTEMP bs=96636763 count=${zelAppSpecifications.hdd}0`; // 90%
   await cmdAsync(execVerif);
   const spaceVerification2 = {
-    status : 'Verification written...',
+    status: 'Verification written...',
   };
   log.info(spaceVerification2);
   if (res) {
@@ -1394,31 +1478,36 @@ async function createZelAppVolume(zelAppSpecifications, res) {
   }
 
   const finaliseSpace = {
-    status : 'Finalising space assignment',
+    status: 'Finalising space assignment',
   };
   log.info(finaliseSpace);
   if (res) {
     res.write(serviceHelper.ensureString(finaliseSpace));
   }
-  const execFinal =
-      `sudo rm -rf ${zelappsFolder + zelappId}/${zelappId}VERTEMP`;
+  const execFinal = `sudo rm -rf ${
+    zelappsFolder + zelappId
+  }/${zelappId}VERTEMP`;
   await cmdAsync(execFinal);
   const finaliseSpace2 = {
-    status :
-        `Space for ZelApp ${zelAppSpecifications.name} created and assigned.`,
+    status: `Space for ZelApp ${zelAppSpecifications.name} created and assigned.`,
   };
   log.info(finaliseSpace2);
   if (res) {
     res.write(serviceHelper.ensureString(finaliseSpace2));
   }
-  const message =
-      serviceHelper.createSuccessMessage('ZelApp volume creation completed.');
+  const message = serviceHelper.createSuccessMessage(
+    'ZelApp volume creation completed.'
+  );
   return message;
 }
 
 // force determines if some a check for app not found is skipped
-async function removeZelAppLocally(zelapp, res, force = false,
-                                   endResponse = true) {
+async function removeZelAppLocally(
+  zelapp,
+  res,
+  force = false,
+  endResponse = true
+) {
   try {
     // remove zelapp from local machine.
     // find in database, stop zelapp, remove container, close port delete data
@@ -1437,11 +1526,14 @@ async function removeZelAppLocally(zelapp, res, force = false,
 
     const zelappsDatabase = dbopen.db(config.database.zelappslocal.database);
 
-    const zelappsQuery = {name : zelapp};
+    const zelappsQuery = { name: zelapp };
     const zelappsProjection = {};
     const zelAppSpecifications = await serviceHelper.findOneInDatabase(
-        zelappsDatabase, localZelAppsInformation, zelappsQuery,
-        zelappsProjection);
+      zelappsDatabase,
+      localZelAppsInformation,
+      zelappsQuery,
+      zelappsProjection
+    );
     if (!zelAppSpecifications) {
       if (!force) {
         throw new Error('ZelApp not found');
@@ -1450,7 +1542,7 @@ async function removeZelAppLocally(zelapp, res, force = false,
 
     // simplifying ignore error messages for now
     const stopStatus = {
-      status : 'Stopping ZelApp...',
+      status: 'Stopping ZelApp...',
     };
     log.info(stopStatus);
     if (res) {
@@ -1458,16 +1550,16 @@ async function removeZelAppLocally(zelapp, res, force = false,
     }
     await zelAppDockerStop(zelappId).catch((error) => {
       const errorResponse = serviceHelper.createErrorMessage(
-          error.message || error,
-          error.name,
-          error.code,
+        error.message || error,
+        error.name,
+        error.code
       );
       if (res) {
         res.write(serviceHelper.ensureString(errorResponse));
       }
     });
     const stopStatus2 = {
-      status : 'ZelApp stopped',
+      status: 'ZelApp stopped',
     };
     log.info(stopStatus2);
     if (res) {
@@ -1475,7 +1567,7 @@ async function removeZelAppLocally(zelapp, res, force = false,
     }
 
     const removeStatus = {
-      status : 'Removing ZelApp container...',
+      status: 'Removing ZelApp container...',
     };
     log.info(removeStatus);
     if (res) {
@@ -1483,9 +1575,9 @@ async function removeZelAppLocally(zelapp, res, force = false,
     }
     await zelAppDockerRemove(zelappId).catch((error) => {
       const errorResponse = serviceHelper.createErrorMessage(
-          error.message || error,
-          error.name,
-          error.code,
+        error.message || error,
+        error.name,
+        error.code
       );
       log.error(errorResponse);
       if (res) {
@@ -1493,7 +1585,7 @@ async function removeZelAppLocally(zelapp, res, force = false,
       }
     });
     const removeStatus2 = {
-      status : 'ZelApp container removed',
+      status: 'ZelApp container removed',
     };
     log.info(removeStatus2);
     if (res) {
@@ -1501,26 +1593,27 @@ async function removeZelAppLocally(zelapp, res, force = false,
     }
 
     const imageStatus = {
-      status : 'Removing ZelApp image...',
+      status: 'Removing ZelApp image...',
     };
     log.info(imageStatus);
     if (res) {
       res.write(serviceHelper.ensureString(imageStatus));
     }
-    await zelAppDockerImageRemove(zelAppSpecifications.repotag)
-        .catch((error) => {
-          const errorResponse = serviceHelper.createErrorMessage(
-              error.message || error,
-              error.name,
-              error.code,
-          );
-          log.error(errorResponse);
-          if (res) {
-            res.write(serviceHelper.ensureString(errorResponse));
-          }
-        });
+    await zelAppDockerImageRemove(zelAppSpecifications.repotag).catch(
+      (error) => {
+        const errorResponse = serviceHelper.createErrorMessage(
+          error.message || error,
+          error.name,
+          error.code
+        );
+        log.error(errorResponse);
+        if (res) {
+          res.write(serviceHelper.ensureString(errorResponse));
+        }
+      }
+    );
     const imageStatus2 = {
-      status : 'ZelApp image operations done',
+      status: 'ZelApp image operations done',
     };
     log.info(imageStatus2);
     if (res) {
@@ -1528,7 +1621,7 @@ async function removeZelAppLocally(zelapp, res, force = false,
     }
 
     const portStatus = {
-      status : 'Denying ZelApp port...',
+      status: 'Denying ZelApp port...',
     };
     log.info(portStatus);
     if (res) {
@@ -1536,7 +1629,7 @@ async function removeZelAppLocally(zelapp, res, force = false,
     }
     await zelfluxCommunication.denyPort(zelAppSpecifications.port);
     const portStatus2 = {
-      status : 'Port denied',
+      status: 'Port denied',
     };
     log.info(portStatus2);
     if (res) {
@@ -1544,7 +1637,7 @@ async function removeZelAppLocally(zelapp, res, force = false,
     }
 
     const unmuontStatus = {
-      status : 'Unmounting volume...',
+      status: 'Unmounting volume...',
     };
     log.info(unmuontStatus);
     if (res) {
@@ -1552,28 +1645,28 @@ async function removeZelAppLocally(zelapp, res, force = false,
     }
     const execUnmount = `sudo umount ${zelappsFolder + zelappId}`;
     await cmdAsync(execUnmount)
-        .then(() => {
-          const unmuontStatus2 = {
-            status : 'Volume unmounted',
-          };
-          log.info(unmuontStatus2);
-          if (res) {
-            res.write(serviceHelper.ensureString(unmuontStatus2));
-          }
-        })
-        .catch((e) => {
-          log.error(e);
-          const unmuontStatus3 = {
-            status : 'An error occured while unmounting storage. Continuing...',
-          };
-          log.info(unmuontStatus3);
-          if (res) {
-            res.write(serviceHelper.ensureString(unmuontStatus3));
-          }
-        });
+      .then(() => {
+        const unmuontStatus2 = {
+          status: 'Volume unmounted',
+        };
+        log.info(unmuontStatus2);
+        if (res) {
+          res.write(serviceHelper.ensureString(unmuontStatus2));
+        }
+      })
+      .catch((e) => {
+        log.error(e);
+        const unmuontStatus3 = {
+          status: 'An error occured while unmounting storage. Continuing...',
+        };
+        log.info(unmuontStatus3);
+        if (res) {
+          res.write(serviceHelper.ensureString(unmuontStatus3));
+        }
+      });
 
     const cleaningStatus = {
-      status : 'Cleaning up data...',
+      status: 'Cleaning up data...',
     };
     log.info(cleaningStatus);
     if (res) {
@@ -1582,7 +1675,7 @@ async function removeZelAppLocally(zelapp, res, force = false,
     const execDelete = `sudo rm -rf ${zelappsFolder + zelappId}`;
     await cmdAsync(execDelete);
     const cleaningStatus2 = {
-      status : 'Data cleaned',
+      status: 'Data cleaned',
     };
     log.info(cleaningStatus2);
     if (res) {
@@ -1590,17 +1683,20 @@ async function removeZelAppLocally(zelapp, res, force = false,
     }
 
     const databaseStatus = {
-      status : 'Cleaning up database...',
+      status: 'Cleaning up database...',
     };
     log.info(databaseStatus);
     if (res) {
       res.write(serviceHelper.ensureString(databaseStatus));
     }
     await serviceHelper.findOneAndDeleteInDatabase(
-        zelappsDatabase, localZelAppsInformation, zelappsQuery,
-        zelappsProjection);
+      zelappsDatabase,
+      localZelAppsInformation,
+      zelappsQuery,
+      zelappsProjection
+    );
     const databaseStatus2 = {
-      status : 'Database cleaned',
+      status: 'Database cleaned',
     };
     log.info(databaseStatus2);
     if (res) {
@@ -1608,7 +1704,8 @@ async function removeZelAppLocally(zelapp, res, force = false,
     }
 
     const zelappRemovalResponse = serviceHelper.createDataMessage(
-        `ZelApp ${zelapp} was successfuly removed`);
+      `ZelApp ${zelapp} was successfuly removed`
+    );
     log.info(zelappRemovalResponse);
     if (res) {
       res.write(serviceHelper.ensureString(zelappRemovalResponse));
@@ -1619,9 +1716,9 @@ async function removeZelAppLocally(zelapp, res, force = false,
   } catch (error) {
     log.error(error);
     const errorResponse = serviceHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
+      error.message || error,
+      error.name,
+      error.code
     );
     if (res) {
       res.write(serviceHelper.ensureString(errorResponse));
@@ -1652,18 +1749,21 @@ async function softRemoveZelAppLocally(zelapp, res) {
 
   const zelappsDatabase = dbopen.db(config.database.zelappslocal.database);
 
-  const zelappsQuery = {name : zelapp};
+  const zelappsQuery = { name: zelapp };
   const zelappsProjection = {};
   const zelAppSpecifications = await serviceHelper.findOneInDatabase(
-      zelappsDatabase, localZelAppsInformation, zelappsQuery,
-      zelappsProjection);
+    zelappsDatabase,
+    localZelAppsInformation,
+    zelappsQuery,
+    zelappsProjection
+  );
   if (!zelAppSpecifications) {
     throw new Error('ZelApp not found');
   }
 
   // simplifying ignore error messages for now
   const stopStatus = {
-    status : 'Stopping ZelApp...',
+    status: 'Stopping ZelApp...',
   };
   log.info(stopStatus);
   if (res) {
@@ -1673,7 +1773,7 @@ async function softRemoveZelAppLocally(zelapp, res) {
   await zelAppDockerStop(zelappId);
 
   const stopStatus2 = {
-    status : 'ZelApp stopped',
+    status: 'ZelApp stopped',
   };
   log.info(stopStatus2);
   if (res) {
@@ -1681,7 +1781,7 @@ async function softRemoveZelAppLocally(zelapp, res) {
   }
 
   const removeStatus = {
-    status : 'Removing ZelApp container...',
+    status: 'Removing ZelApp container...',
   };
   log.info(removeStatus);
   if (res) {
@@ -1691,7 +1791,7 @@ async function softRemoveZelAppLocally(zelapp, res) {
   await zelAppDockerRemove(zelappId);
 
   const removeStatus2 = {
-    status : 'ZelApp container removed',
+    status: 'ZelApp container removed',
   };
   log.info(removeStatus2);
   if (res) {
@@ -1699,7 +1799,7 @@ async function softRemoveZelAppLocally(zelapp, res) {
   }
 
   const imageStatus = {
-    status : 'Removing ZelApp image...',
+    status: 'Removing ZelApp image...',
   };
   log.info(imageStatus);
   if (res) {
@@ -1707,9 +1807,9 @@ async function softRemoveZelAppLocally(zelapp, res) {
   }
   await zelAppDockerImageRemove(zelAppSpecifications.repotag).catch((error) => {
     const errorResponse = serviceHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
+      error.message || error,
+      error.name,
+      error.code
     );
     log.error(errorResponse);
     if (res) {
@@ -1717,7 +1817,7 @@ async function softRemoveZelAppLocally(zelapp, res) {
     }
   });
   const imageStatus2 = {
-    status : 'ZelApp image operations done',
+    status: 'ZelApp image operations done',
   };
   log.info(imageStatus2);
   if (res) {
@@ -1725,7 +1825,7 @@ async function softRemoveZelAppLocally(zelapp, res) {
   }
 
   const portStatus = {
-    status : 'Denying ZelApp port...',
+    status: 'Denying ZelApp port...',
   };
   log.info(portStatus);
   if (res) {
@@ -1733,7 +1833,7 @@ async function softRemoveZelAppLocally(zelapp, res) {
   }
   await zelfluxCommunication.denyPort(zelAppSpecifications.port);
   const portStatus2 = {
-    status : 'Port denied',
+    status: 'Port denied',
   };
   log.info(portStatus2);
   if (res) {
@@ -1741,25 +1841,29 @@ async function softRemoveZelAppLocally(zelapp, res) {
   }
 
   const databaseStatus = {
-    status : 'Cleaning up database...',
+    status: 'Cleaning up database...',
   };
   log.info(databaseStatus);
   if (res) {
     res.write(serviceHelper.ensureString(databaseStatus));
   }
   await serviceHelper.findOneAndDeleteInDatabase(
-      zelappsDatabase, localZelAppsInformation, zelappsQuery,
-      zelappsProjection);
+    zelappsDatabase,
+    localZelAppsInformation,
+    zelappsQuery,
+    zelappsProjection
+  );
   const databaseStatus2 = {
-    status : 'Database cleaned',
+    status: 'Database cleaned',
   };
   log.info(databaseStatus2);
   if (res) {
     res.write(serviceHelper.ensureString(databaseStatus2));
   }
 
-  const zelappRemovalResponse =
-      serviceHelper.createDataMessage(`ZelApp ${zelapp} was partially removed`);
+  const zelappRemovalResponse = serviceHelper.createDataMessage(
+    `ZelApp ${zelapp} was partially removed`
+  );
   log.info(zelappRemovalResponse);
   if (res) {
     res.write(serviceHelper.ensureString(zelappRemovalResponse));
@@ -1768,8 +1872,10 @@ async function softRemoveZelAppLocally(zelapp, res) {
 
 async function removeZelAppLocallyApi(req, res) {
   try {
-    const authorized =
-        await serviceHelper.verifyPrivilege('adminandzelteam', req);
+    const authorized = await serviceHelper.verifyPrivilege(
+      'adminandzelteam',
+      req
+    );
     if (!authorized) {
       const errMessage = serviceHelper.errUnauthorizedMessage();
       res.json(errMessage);
@@ -1778,10 +1884,10 @@ async function removeZelAppLocallyApi(req, res) {
       // find in database, stop zelapp, remove container, close port delete data
       // associated on system, remove from database if other container uses the
       // same image -> then it shall result in an error so ok anyway
-      let {appname} = req.params;
+      let { appname } = req.params;
       appname = appname || req.query.appname;
 
-      let {force} = req.params;
+      let { force } = req.params;
       force = force || req.query.force || false;
       force = serviceHelper.ensureBoolean(force);
 
@@ -1795,9 +1901,9 @@ async function removeZelAppLocallyApi(req, res) {
   } catch (error) {
     log.error(error);
     const errorResponse = serviceHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
+      error.message || error,
+      error.name,
+      error.code
     );
     res.json(errorResponse);
   }
@@ -1809,12 +1915,13 @@ async function checkZelAppRequirements(zelAppSpecs) {
   const resourcesLocked = await zelappsResources();
   if (resourcesLocked.status !== 'success') {
     throw new Error(
-        'Unable to obtain locked system resources by ZelApps. Aborting.');
+      'Unable to obtain locked system resources by ZelApps. Aborting.'
+    );
   }
 
   const totalSpaceOnNode = config.fluxSpecifics.hdd[tier];
   const useableSpaceOnNode =
-      totalSpaceOnNode - config.lockedSystemResources.hdd;
+    totalSpaceOnNode - config.lockedSystemResources.hdd;
   const hddLockedByApps = resourcesLocked.data.zelAppsHddLocked;
   const availableSpaceForZelApps = useableSpaceOnNode - hddLockedByApps;
   // bigger or equal so we have the 1 gb free...
@@ -1830,7 +1937,8 @@ async function checkZelAppRequirements(zelAppSpecs) {
   // bigger or equal so we have the 1 gb free...
   if (adjustedZelAppCpu >= availableCpuForZelApps) {
     throw new Error(
-        'Insufficient CPU power on ZelNode to spawn an application');
+      'Insufficient CPU power on ZelNode to spawn an application'
+    );
   }
 
   const totalRamOnNode = config.fluxSpecifics.ram[tier];
@@ -1852,7 +1960,7 @@ async function registerZelAppLocally(zelAppSpecifications, res) {
   try {
     const zelappName = zelAppSpecifications.name;
     const precheckForInstallation = {
-      status : 'Running initial checks for ZelApp...',
+      status: 'Running initial checks for ZelApp...',
     };
     log.info(precheckForInstallation);
     if (res) {
@@ -1860,7 +1968,7 @@ async function registerZelAppLocally(zelAppSpecifications, res) {
     }
     // connect to mongodb
     const dbOpenTest = {
-      status : 'Connecting to database...',
+      status: 'Connecting to database...',
     };
     log.info(dbOpenTest);
     if (res) {
@@ -1869,17 +1977,17 @@ async function registerZelAppLocally(zelAppSpecifications, res) {
     const dbopen = serviceHelper.databaseConnection();
 
     const zelappsDatabase = dbopen.db(config.database.zelappslocal.database);
-    const zelappsQuery = {name : zelappName};
+    const zelappsQuery = { name: zelappName };
     const zelappsProjection = {
-      projection : {
-        _id : 0,
-        name : 1,
+      projection: {
+        _id: 0,
+        name: 1,
       },
     };
 
     // check if zelfluxDockerNetwork exists, if not create
     const fluxNetworkStatus = {
-      status : 'Checking Flux network...',
+      status: 'Checking Flux network...',
     };
     log.info(fluxNetworkStatus);
     if (res) {
@@ -1894,21 +2002,24 @@ async function registerZelAppLocally(zelAppSpecifications, res) {
 
     // check if app is already installed
     const checkDb = {
-      status : 'Checking database...',
+      status: 'Checking database...',
     };
     log.info(checkDb);
     if (res) {
       res.write(serviceHelper.ensureString(checkDb));
     }
     const zelappResult = await serviceHelper.findOneInDatabase(
-        zelappsDatabase, localZelAppsInformation, zelappsQuery,
-        zelappsProjection);
+      zelappsDatabase,
+      localZelAppsInformation,
+      zelappsQuery,
+      zelappsProjection
+    );
     if (zelappResult) {
       throw new Error('ZelApp already installed');
     }
 
     const checkParameters = {
-      status : 'Checking ZelApp requirements...',
+      status: 'Checking ZelApp requirements...',
     };
     log.info(checkParameters);
     if (res) {
@@ -1919,7 +2030,7 @@ async function registerZelAppLocally(zelAppSpecifications, res) {
 
     // prechecks done
     const zelAppInstallation = {
-      status : 'Initiating ZelApp installation...',
+      status: 'Initiating ZelApp installation...',
     };
     log.info(zelAppInstallation);
     if (res) {
@@ -1927,176 +2038,189 @@ async function registerZelAppLocally(zelAppSpecifications, res) {
     }
     // register the zelapp
     await serviceHelper.insertOneToDatabase(
-        zelappsDatabase, localZelAppsInformation, zelAppSpecifications);
+      zelappsDatabase,
+      localZelAppsInformation,
+      zelAppSpecifications
+    );
 
     // pull image
     // eslint-disable-next-line no-unused-vars
     dockerPullStream(
-        zelAppSpecifications.repotag, res, async (error, dataLog) => {
-          if (error) {
+      zelAppSpecifications.repotag,
+      res,
+      async (error, dataLog) => {
+        if (error) {
+          const errorResponse = serviceHelper.createErrorMessage(
+            error.message || error,
+            error.name,
+            error.code
+          );
+          log.error(errorResponse);
+          if (res) {
+            res.write(serviceHelper.ensureString(errorResponse));
+          }
+          const removeStatus = serviceHelper.createErrorMessage(
+            'Error occured. Initiating ZelApp removal'
+          );
+          log.info(removeStatus);
+          if (res) {
+            res.write(serviceHelper.ensureString(removeStatus));
+          }
+          removeZelAppLocally(zelappName, res);
+        } else {
+          const pullStatus = {
+            status: 'Pulling global ZelApp was successful',
+          };
+          if (res) {
+            res.write(serviceHelper.ensureString(pullStatus));
+          }
+
+          const volumeOK = await createZelAppVolume(
+            zelAppSpecifications,
+            res
+          ).catch((errr) => {
             const errorResponse = serviceHelper.createErrorMessage(
-                error.message || error,
-                error.name,
-                error.code,
+              errr.message || errr,
+              errr.name,
+              errr.code
+            );
+            log.error(errorResponse);
+            if (res) {
+              res.write(serviceHelper.ensureString(errorResponse));
+            }
+
+            const removeStatus = serviceHelper.createErrorMessage(
+              'Error occured. Initiating ZelApp removal'
+            );
+            log.info(removeStatus);
+            if (res) {
+              res.write(serviceHelper.ensureString(removeStatus));
+            }
+            removeZelAppLocally(zelappName, res);
+          });
+
+          if (!volumeOK) {
+            return;
+          }
+          log.info(volumeOK);
+          if (res) {
+            res.write(serviceHelper.ensureString(volumeOK));
+          }
+
+          const createZelApp = {
+            status: 'Creating local ZelApp',
+          };
+          log.info(createZelApp);
+          if (res) {
+            res.write(serviceHelper.ensureString(createZelApp));
+          }
+
+          const dockerCreated = await zelAppDockerCreate(
+            zelAppSpecifications
+          ).catch((e) => {
+            const errorResponse = serviceHelper.createErrorMessage(
+              e.message || e,
+              e.name,
+              e.code
             );
             log.error(errorResponse);
             if (res) {
               res.write(serviceHelper.ensureString(errorResponse));
             }
             const removeStatus = serviceHelper.createErrorMessage(
-                'Error occured. Initiating ZelApp removal');
+              'Error occured. Initiating ZelApp removal'
+            );
             log.info(removeStatus);
             if (res) {
               res.write(serviceHelper.ensureString(removeStatus));
             }
             removeZelAppLocally(zelappName, res);
-          } else {
-            const pullStatus = {
-              status : 'Pulling global ZelApp was successful',
-            };
-            if (res) {
-              res.write(serviceHelper.ensureString(pullStatus));
-            }
-
-            const volumeOK =
-                await createZelAppVolume(zelAppSpecifications, res)
-                    .catch((errr) => {
-                      const errorResponse = serviceHelper.createErrorMessage(
-                          errr.message || errr,
-                          errr.name,
-                          errr.code,
-                      );
-                      log.error(errorResponse);
-                      if (res) {
-                        res.write(serviceHelper.ensureString(errorResponse));
-                      }
-
-                      const removeStatus = serviceHelper.createErrorMessage(
-                          'Error occured. Initiating ZelApp removal');
-                      log.info(removeStatus);
-                      if (res) {
-                        res.write(serviceHelper.ensureString(removeStatus));
-                      }
-                      removeZelAppLocally(zelappName, res);
-                    });
-
-            if (!volumeOK) {
-              return;
-            }
-            log.info(volumeOK);
-            if (res) {
-              res.write(serviceHelper.ensureString(volumeOK));
-            }
-
-            const createZelApp = {
-              status : 'Creating local ZelApp',
-            };
-            log.info(createZelApp);
-            if (res) {
-              res.write(serviceHelper.ensureString(createZelApp));
-            }
-
-            const dockerCreated =
-                await zelAppDockerCreate(zelAppSpecifications).catch((e) => {
-                  const errorResponse = serviceHelper.createErrorMessage(
-                      e.message || e,
-                      e.name,
-                      e.code,
-                  );
-                  log.error(errorResponse);
-                  if (res) {
-                    res.write(serviceHelper.ensureString(errorResponse));
-                  }
-                  const removeStatus = serviceHelper.createErrorMessage(
-                      'Error occured. Initiating ZelApp removal');
-                  log.info(removeStatus);
-                  if (res) {
-                    res.write(serviceHelper.ensureString(removeStatus));
-                  }
-                  removeZelAppLocally(zelappName, res);
-                });
-            if (!dockerCreated) {
-              return;
-            }
-            const portStatusInitial = {
-              status : 'Allowing ZelApp port...',
-            };
-            log.info(portStatusInitial);
-            if (res) {
-              res.write(serviceHelper.ensureString(portStatusInitial));
-            }
-            const portResponse =
-                await zelfluxCommunication.allowPort(zelAppSpecifications.port);
-            if (portResponse.status === true) {
-              const portStatus = {
-                status : 'Port OK',
-              };
-              log.info(portStatus);
-              if (res) {
-                res.write(serviceHelper.ensureString(portStatus));
-              }
-            } else {
-              const portStatus = {
-                status : 'Error: Port FAILed to open.',
-              };
-              log.info(portStatus);
-              if (res) {
-                res.write(serviceHelper.ensureString(portStatus));
-              }
-              const removeStatus = serviceHelper.createErrorMessage(
-                  'Error occured. Initiating ZelApp removal');
-              log.info(removeStatus);
-              if (res) {
-                res.write(serviceHelper.ensureString(removeStatus));
-              }
-              removeZelAppLocally(zelappName, res);
-              return;
-            }
-            const startStatus = {
-              status : 'Starting ZelApp...',
-            };
-            log.info(startStatus);
-            if (res) {
-              res.write(serviceHelper.ensureString(startStatus));
-            }
-            const zelapp =
-                await zelAppDockerStart(
-                    getZelAppIdentifier(zelAppSpecifications.name))
-                    .catch((error2) => {
-                      const errorResponse = serviceHelper.createErrorMessage(
-                          error2.message || error2,
-                          error2.name,
-                          error2.code,
-                      );
-                      log.error(errorResponse);
-                      if (res) {
-                        res.write(serviceHelper.ensureString(errorResponse));
-                      }
-                      const removeStatus = serviceHelper.createErrorMessage(
-                          'Error occured. Initiating ZelApp removal');
-                      log.info(removeStatus);
-                      if (res) {
-                        res.write(serviceHelper.ensureString(removeStatus));
-                      }
-                      removeZelAppLocally(zelappName, res);
-                    });
-            if (!zelapp) {
-              return;
-            }
-            const zelappResponse = serviceHelper.createDataMessage(zelapp);
-            log.info(zelappResponse);
-            if (res) {
-              res.write(serviceHelper.ensureString(zelappResponse));
-              res.end();
-            }
+          });
+          if (!dockerCreated) {
+            return;
           }
-        });
+          const portStatusInitial = {
+            status: 'Allowing ZelApp port...',
+          };
+          log.info(portStatusInitial);
+          if (res) {
+            res.write(serviceHelper.ensureString(portStatusInitial));
+          }
+          const portResponse = await zelfluxCommunication.allowPort(
+            zelAppSpecifications.port
+          );
+          if (portResponse.status === true) {
+            const portStatus = {
+              status: 'Port OK',
+            };
+            log.info(portStatus);
+            if (res) {
+              res.write(serviceHelper.ensureString(portStatus));
+            }
+          } else {
+            const portStatus = {
+              status: 'Error: Port FAILed to open.',
+            };
+            log.info(portStatus);
+            if (res) {
+              res.write(serviceHelper.ensureString(portStatus));
+            }
+            const removeStatus = serviceHelper.createErrorMessage(
+              'Error occured. Initiating ZelApp removal'
+            );
+            log.info(removeStatus);
+            if (res) {
+              res.write(serviceHelper.ensureString(removeStatus));
+            }
+            removeZelAppLocally(zelappName, res);
+            return;
+          }
+          const startStatus = {
+            status: 'Starting ZelApp...',
+          };
+          log.info(startStatus);
+          if (res) {
+            res.write(serviceHelper.ensureString(startStatus));
+          }
+          const zelapp = await zelAppDockerStart(
+            getZelAppIdentifier(zelAppSpecifications.name)
+          ).catch((error2) => {
+            const errorResponse = serviceHelper.createErrorMessage(
+              error2.message || error2,
+              error2.name,
+              error2.code
+            );
+            log.error(errorResponse);
+            if (res) {
+              res.write(serviceHelper.ensureString(errorResponse));
+            }
+            const removeStatus = serviceHelper.createErrorMessage(
+              'Error occured. Initiating ZelApp removal'
+            );
+            log.info(removeStatus);
+            if (res) {
+              res.write(serviceHelper.ensureString(removeStatus));
+            }
+            removeZelAppLocally(zelappName, res);
+          });
+          if (!zelapp) {
+            return;
+          }
+          const zelappResponse = serviceHelper.createDataMessage(zelapp);
+          log.info(zelappResponse);
+          if (res) {
+            res.write(serviceHelper.ensureString(zelappResponse));
+            res.end();
+          }
+        }
+      }
+    );
   } catch (error) {
     log.error(error);
     const errorResponse = serviceHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
+      error.message || error,
+      error.name,
+      error.code
     );
     if (res) {
       res.write(serviceHelper.ensureString(errorResponse));
@@ -2114,7 +2238,7 @@ async function softRegisterZelAppLocally(zelAppSpecifications, res) {
   try {
     const zelappName = zelAppSpecifications.name;
     const precheckForInstallation = {
-      status : 'Running initial checks for ZelApp...',
+      status: 'Running initial checks for ZelApp...',
     };
     log.info(precheckForInstallation);
     if (res) {
@@ -2122,7 +2246,7 @@ async function softRegisterZelAppLocally(zelAppSpecifications, res) {
     }
     // connect to mongodb
     const dbOpenTest = {
-      status : 'Connecting to database...',
+      status: 'Connecting to database...',
     };
     log.info(dbOpenTest);
     if (res) {
@@ -2131,17 +2255,17 @@ async function softRegisterZelAppLocally(zelAppSpecifications, res) {
     const dbopen = serviceHelper.databaseConnection();
 
     const zelappsDatabase = dbopen.db(config.database.zelappslocal.database);
-    const zelappsQuery = {name : zelappName};
+    const zelappsQuery = { name: zelappName };
     const zelappsProjection = {
-      projection : {
-        _id : 0,
-        name : 1,
+      projection: {
+        _id: 0,
+        name: 1,
       },
     };
 
     // check if zelfluxDockerNetwork exists, if not create
     const fluxNetworkStatus = {
-      status : 'Checking Flux network...',
+      status: 'Checking Flux network...',
     };
     log.info(fluxNetworkStatus);
     if (res) {
@@ -2156,21 +2280,24 @@ async function softRegisterZelAppLocally(zelAppSpecifications, res) {
 
     // check if app is already installed
     const checkDb = {
-      status : 'Checking database...',
+      status: 'Checking database...',
     };
     log.info(checkDb);
     if (res) {
       res.write(serviceHelper.ensureString(checkDb));
     }
     const zelappResult = await serviceHelper.findOneInDatabase(
-        zelappsDatabase, localZelAppsInformation, zelappsQuery,
-        zelappsProjection);
+      zelappsDatabase,
+      localZelAppsInformation,
+      zelappsQuery,
+      zelappsProjection
+    );
     if (zelappResult) {
       throw new Error('ZelApp already installed');
     }
 
     const checkParameters = {
-      status : 'Checking ZelApp requirements...',
+      status: 'Checking ZelApp requirements...',
     };
     log.info(checkParameters);
     if (res) {
@@ -2181,7 +2308,7 @@ async function softRegisterZelAppLocally(zelAppSpecifications, res) {
 
     // prechecks done
     const zelAppInstallation = {
-      status : 'Initiating ZelApp installation...',
+      status: 'Initiating ZelApp installation...',
     };
     log.info(zelAppInstallation);
     if (res) {
@@ -2189,146 +2316,157 @@ async function softRegisterZelAppLocally(zelAppSpecifications, res) {
     }
     // register the zelapp
     await serviceHelper.insertOneToDatabase(
-        zelappsDatabase, localZelAppsInformation, zelAppSpecifications);
+      zelappsDatabase,
+      localZelAppsInformation,
+      zelAppSpecifications
+    );
 
     // pull image
     // eslint-disable-next-line no-unused-vars
     dockerPullStream(
-        zelAppSpecifications.repotag, res, async (error, dataLog) => {
-          if (error) {
+      zelAppSpecifications.repotag,
+      res,
+      async (error, dataLog) => {
+        if (error) {
+          const errorResponse = serviceHelper.createErrorMessage(
+            error.message || error,
+            error.name,
+            error.code
+          );
+          log.error(errorResponse);
+          if (res) {
+            res.write(serviceHelper.ensureString(errorResponse));
+          }
+          const removeStatus = serviceHelper.createErrorMessage(
+            'Error occured. Initiating ZelApp removal'
+          );
+          log.info(removeStatus);
+          if (res) {
+            res.write(serviceHelper.ensureString(removeStatus));
+          }
+          removeZelAppLocally(zelappName, res, true);
+        } else {
+          const pullStatus = {
+            status: 'Pulling global ZelApp was successful',
+          };
+          if (res) {
+            res.write(serviceHelper.ensureString(pullStatus));
+          }
+
+          const createZelApp = {
+            status: 'Creating local ZelApp',
+          };
+          log.info(createZelApp);
+          if (res) {
+            res.write(serviceHelper.ensureString(createZelApp));
+          }
+
+          const dockerCreated = await zelAppDockerCreate(
+            zelAppSpecifications
+          ).catch((e) => {
             const errorResponse = serviceHelper.createErrorMessage(
-                error.message || error,
-                error.name,
-                error.code,
+              e.message || e,
+              e.name,
+              e.code
             );
             log.error(errorResponse);
             if (res) {
               res.write(serviceHelper.ensureString(errorResponse));
             }
             const removeStatus = serviceHelper.createErrorMessage(
-                'Error occured. Initiating ZelApp removal');
+              'Error occured. Initiating ZelApp removal'
+            );
             log.info(removeStatus);
             if (res) {
               res.write(serviceHelper.ensureString(removeStatus));
             }
             removeZelAppLocally(zelappName, res, true);
-          } else {
-            const pullStatus = {
-              status : 'Pulling global ZelApp was successful',
-            };
-            if (res) {
-              res.write(serviceHelper.ensureString(pullStatus));
-            }
-
-            const createZelApp = {
-              status : 'Creating local ZelApp',
-            };
-            log.info(createZelApp);
-            if (res) {
-              res.write(serviceHelper.ensureString(createZelApp));
-            }
-
-            const dockerCreated =
-                await zelAppDockerCreate(zelAppSpecifications).catch((e) => {
-                  const errorResponse = serviceHelper.createErrorMessage(
-                      e.message || e,
-                      e.name,
-                      e.code,
-                  );
-                  log.error(errorResponse);
-                  if (res) {
-                    res.write(serviceHelper.ensureString(errorResponse));
-                  }
-                  const removeStatus = serviceHelper.createErrorMessage(
-                      'Error occured. Initiating ZelApp removal');
-                  log.info(removeStatus);
-                  if (res) {
-                    res.write(serviceHelper.ensureString(removeStatus));
-                  }
-                  removeZelAppLocally(zelappName, res, true);
-                });
-            if (!dockerCreated) {
-              return;
-            }
-            const portStatusInitial = {
-              status : 'Allowing ZelApp port...',
-            };
-            log.info(portStatusInitial);
-            if (res) {
-              res.write(serviceHelper.ensureString(portStatusInitial));
-            }
-            const portResponse =
-                await zelfluxCommunication.allowPort(zelAppSpecifications.port);
-            if (portResponse.status === true) {
-              const portStatus = {
-                status : 'Port OK',
-              };
-              log.info(portStatus);
-              if (res) {
-                res.write(serviceHelper.ensureString(portStatus));
-              }
-            } else {
-              const portStatus = {
-                status : 'Error: Port FAILed to open.',
-              };
-              log.info(portStatus);
-              if (res) {
-                res.write(serviceHelper.ensureString(portStatus));
-              }
-              const removeStatus = serviceHelper.createErrorMessage(
-                  'Error occured. Initiating ZelApp removal');
-              log.info(removeStatus);
-              if (res) {
-                res.write(serviceHelper.ensureString(removeStatus));
-              }
-              removeZelAppLocally(zelappName, res, true);
-              return;
-            }
-            const startStatus = {
-              status : 'Starting ZelApp...',
-            };
-            log.info(startStatus);
-            if (res) {
-              res.write(serviceHelper.ensureString(startStatus));
-            }
-            const zelapp =
-                await zelAppDockerStart(
-                    getZelAppIdentifier(zelAppSpecifications.name))
-                    .catch((error2) => {
-                      const errorResponse = serviceHelper.createErrorMessage(
-                          error2.message || error2,
-                          error2.name,
-                          error2.code,
-                      );
-                      log.error(errorResponse);
-                      if (res) {
-                        res.write(serviceHelper.ensureString(errorResponse));
-                      }
-                      const removeStatus = serviceHelper.createErrorMessage(
-                          'Error occured. Initiating ZelApp removal');
-                      log.info(removeStatus);
-                      if (res) {
-                        res.write(serviceHelper.ensureString(removeStatus));
-                      }
-                      removeZelAppLocally(zelappName, res, true);
-                    });
-            if (!zelapp) {
-              return;
-            }
-            const zelappResponse = serviceHelper.createDataMessage(zelapp);
-            log.info(zelappResponse);
-            if (res) {
-              res.write(serviceHelper.ensureString(zelappResponse));
-              res.end();
-            }
+          });
+          if (!dockerCreated) {
+            return;
           }
-        });
+          const portStatusInitial = {
+            status: 'Allowing ZelApp port...',
+          };
+          log.info(portStatusInitial);
+          if (res) {
+            res.write(serviceHelper.ensureString(portStatusInitial));
+          }
+          const portResponse = await zelfluxCommunication.allowPort(
+            zelAppSpecifications.port
+          );
+          if (portResponse.status === true) {
+            const portStatus = {
+              status: 'Port OK',
+            };
+            log.info(portStatus);
+            if (res) {
+              res.write(serviceHelper.ensureString(portStatus));
+            }
+          } else {
+            const portStatus = {
+              status: 'Error: Port FAILed to open.',
+            };
+            log.info(portStatus);
+            if (res) {
+              res.write(serviceHelper.ensureString(portStatus));
+            }
+            const removeStatus = serviceHelper.createErrorMessage(
+              'Error occured. Initiating ZelApp removal'
+            );
+            log.info(removeStatus);
+            if (res) {
+              res.write(serviceHelper.ensureString(removeStatus));
+            }
+            removeZelAppLocally(zelappName, res, true);
+            return;
+          }
+          const startStatus = {
+            status: 'Starting ZelApp...',
+          };
+          log.info(startStatus);
+          if (res) {
+            res.write(serviceHelper.ensureString(startStatus));
+          }
+          const zelapp = await zelAppDockerStart(
+            getZelAppIdentifier(zelAppSpecifications.name)
+          ).catch((error2) => {
+            const errorResponse = serviceHelper.createErrorMessage(
+              error2.message || error2,
+              error2.name,
+              error2.code
+            );
+            log.error(errorResponse);
+            if (res) {
+              res.write(serviceHelper.ensureString(errorResponse));
+            }
+            const removeStatus = serviceHelper.createErrorMessage(
+              'Error occured. Initiating ZelApp removal'
+            );
+            log.info(removeStatus);
+            if (res) {
+              res.write(serviceHelper.ensureString(removeStatus));
+            }
+            removeZelAppLocally(zelappName, res, true);
+          });
+          if (!zelapp) {
+            return;
+          }
+          const zelappResponse = serviceHelper.createDataMessage(zelapp);
+          log.info(zelappResponse);
+          if (res) {
+            res.write(serviceHelper.ensureString(zelappResponse));
+            res.end();
+          }
+        }
+      }
+    );
   } catch (error) {
     log.error(error);
     const errorResponse = serviceHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
+      error.message || error,
+      error.name,
+      error.code
     );
     if (res) {
       res.write(serviceHelper.ensureString(errorResponse));
@@ -2342,28 +2480,31 @@ function appPricePerMonth(dataForZelAppRegistration) {
     return new Error('Application specification not provided');
   }
   if (dataForZelAppRegistration.tiered) {
-    const cpuTotalCount = dataForZelAppRegistration.cpubasic +
-                          dataForZelAppRegistration.cpusuper +
-                          dataForZelAppRegistration.cpubamf;
+    const cpuTotalCount =
+      dataForZelAppRegistration.cpubasic +
+      dataForZelAppRegistration.cpusuper +
+      dataForZelAppRegistration.cpubamf;
     const cpuPrice = cpuTotalCount * config.zelapps.price.cpu * 10;
     const cpuTotal = cpuPrice / 3;
-    const ramTotalCount = dataForZelAppRegistration.rambasic +
-                          dataForZelAppRegistration.ramsuper +
-                          dataForZelAppRegistration.rambamf;
+    const ramTotalCount =
+      dataForZelAppRegistration.rambasic +
+      dataForZelAppRegistration.ramsuper +
+      dataForZelAppRegistration.rambamf;
     const ramPrice = (ramTotalCount * config.zelapps.price.ram) / 100;
     const ramTotal = ramPrice / 3;
-    const hddTotalCount = dataForZelAppRegistration.hddbasic +
-                          dataForZelAppRegistration.hddsuper +
-                          dataForZelAppRegistration.hddbamf;
+    const hddTotalCount =
+      dataForZelAppRegistration.hddbasic +
+      dataForZelAppRegistration.hddsuper +
+      dataForZelAppRegistration.hddbamf;
     const hddPrice = hddTotalCount * config.zelapps.price.hdd;
     const hddTotal = hddPrice / 3;
     const totalPrice = cpuTotal + ramTotal + hddTotal;
     return Number(Math.ceil(totalPrice * 100) / 100);
   }
   const cpuTotal =
-      dataForZelAppRegistration.cpu * config.zelapps.price.cpu * 10;
+    dataForZelAppRegistration.cpu * config.zelapps.price.cpu * 10;
   const ramTotal =
-      (dataForZelAppRegistration.ram * config.zelapps.price.ram) / 100;
+    (dataForZelAppRegistration.ram * config.zelapps.price.ram) / 100;
   const hddTotal = dataForZelAppRegistration.hdd * config.zelapps.price.hdd;
   const totalPrice = cpuTotal + ramTotal + hddTotal;
   return Number(Math.ceil(totalPrice * 100) / 100);
@@ -2371,77 +2512,101 @@ function appPricePerMonth(dataForZelAppRegistration) {
 
 function checkHWParameters(zelAppSpecs) {
   // check specs parameters. JS precision
-  if ((zelAppSpecs.cpu * 10) % 1 !== 0 ||
-      (zelAppSpecs.cpu * 10) >
-          (config.fluxSpecifics.cpu.bamf - config.lockedSystemResources.cpu) ||
-      zelAppSpecs.cpu < 0.1) {
+  if (
+    (zelAppSpecs.cpu * 10) % 1 !== 0 ||
+    zelAppSpecs.cpu * 10 >
+      config.fluxSpecifics.cpu.bamf - config.lockedSystemResources.cpu ||
+    zelAppSpecs.cpu < 0.1
+  ) {
     return new Error('CPU badly assigned');
   }
-  if (zelAppSpecs.ram % 100 !== 0 ||
-      zelAppSpecs.ram >
-          (config.fluxSpecifics.ram.bamf - config.lockedSystemResources.ram) ||
-      zelAppSpecs.ram < 100) {
+  if (
+    zelAppSpecs.ram % 100 !== 0 ||
+    zelAppSpecs.ram >
+      config.fluxSpecifics.ram.bamf - config.lockedSystemResources.ram ||
+    zelAppSpecs.ram < 100
+  ) {
     return new Error('RAM badly assigned');
   }
-  if (zelAppSpecs.hdd % 1 !== 0 ||
-      zelAppSpecs.hdd >
-          (config.fluxSpecifics.hdd.bamf - config.lockedSystemResources.hdd) ||
-      zelAppSpecs.hdd < 1) {
+  if (
+    zelAppSpecs.hdd % 1 !== 0 ||
+    zelAppSpecs.hdd >
+      config.fluxSpecifics.hdd.bamf - config.lockedSystemResources.hdd ||
+    zelAppSpecs.hdd < 1
+  ) {
     return new Error('SSD badly assigned');
   }
   if (zelAppSpecs.tiered) {
-    if ((zelAppSpecs.cpubasic * 10) % 1 !== 0 ||
-        (zelAppSpecs.cpubasic * 10) > (config.fluxSpecifics.cpu.basic -
-                                       config.lockedSystemResources.cpu) ||
-        zelAppSpecs.cpubasic < 0.1) {
+    if (
+      (zelAppSpecs.cpubasic * 10) % 1 !== 0 ||
+      zelAppSpecs.cpubasic * 10 >
+        config.fluxSpecifics.cpu.basic - config.lockedSystemResources.cpu ||
+      zelAppSpecs.cpubasic < 0.1
+    ) {
       return new Error('CPU for BASIC badly assigned');
     }
-    if (zelAppSpecs.rambasic % 100 !== 0 ||
-        zelAppSpecs.rambasic > (config.fluxSpecifics.ram.basic -
-                                config.lockedSystemResources.ram) ||
-        zelAppSpecs.rambasic < 100) {
+    if (
+      zelAppSpecs.rambasic % 100 !== 0 ||
+      zelAppSpecs.rambasic >
+        config.fluxSpecifics.ram.basic - config.lockedSystemResources.ram ||
+      zelAppSpecs.rambasic < 100
+    ) {
       return new Error('RAM for BASIC badly assigned');
     }
-    if (zelAppSpecs.hddbasic % 1 !== 0 ||
-        zelAppSpecs.hddbasic > (config.fluxSpecifics.hdd.basic -
-                                config.lockedSystemResources.hdd) ||
-        zelAppSpecs.hddbasic < 1) {
+    if (
+      zelAppSpecs.hddbasic % 1 !== 0 ||
+      zelAppSpecs.hddbasic >
+        config.fluxSpecifics.hdd.basic - config.lockedSystemResources.hdd ||
+      zelAppSpecs.hddbasic < 1
+    ) {
       return new Error('SSD for BASIC badly assigned');
     }
-    if ((zelAppSpecs.cpusuper * 10) % 1 !== 0 ||
-        (zelAppSpecs.cpusuper * 10) > (config.fluxSpecifics.cpu.super -
-                                       config.lockedSystemResources.cpu) ||
-        zelAppSpecs.cpusuper < 0.1) {
+    if (
+      (zelAppSpecs.cpusuper * 10) % 1 !== 0 ||
+      zelAppSpecs.cpusuper * 10 >
+        config.fluxSpecifics.cpu.super - config.lockedSystemResources.cpu ||
+      zelAppSpecs.cpusuper < 0.1
+    ) {
       return new Error('CPU for SUPER badly assigned');
     }
-    if (zelAppSpecs.ramsuper % 100 !== 0 ||
-        zelAppSpecs.ramsuper > (config.fluxSpecifics.ram.super -
-                                config.lockedSystemResources.ram) ||
-        zelAppSpecs.ramsuper < 100) {
+    if (
+      zelAppSpecs.ramsuper % 100 !== 0 ||
+      zelAppSpecs.ramsuper >
+        config.fluxSpecifics.ram.super - config.lockedSystemResources.ram ||
+      zelAppSpecs.ramsuper < 100
+    ) {
       return new Error('RAM for SUPER badly assigned');
     }
-    if (zelAppSpecs.hddsuper % 1 !== 0 ||
-        zelAppSpecs.hddsuper > (config.fluxSpecifics.hdd.super -
-                                config.lockedSystemResources.hdd) ||
-        zelAppSpecs.hddsuper < 1) {
+    if (
+      zelAppSpecs.hddsuper % 1 !== 0 ||
+      zelAppSpecs.hddsuper >
+        config.fluxSpecifics.hdd.super - config.lockedSystemResources.hdd ||
+      zelAppSpecs.hddsuper < 1
+    ) {
       return new Error('SSD for SUPER badly assigned');
     }
-    if ((zelAppSpecs.cpubamf * 10) % 1 !== 0 ||
-        (zelAppSpecs.cpubamf * 10) > (config.fluxSpecifics.cpu.bamf -
-                                      config.lockedSystemResources.cpu) ||
-        zelAppSpecs.cpubamf < 0.1) {
+    if (
+      (zelAppSpecs.cpubamf * 10) % 1 !== 0 ||
+      zelAppSpecs.cpubamf * 10 >
+        config.fluxSpecifics.cpu.bamf - config.lockedSystemResources.cpu ||
+      zelAppSpecs.cpubamf < 0.1
+    ) {
       return new Error('CPU for BAMF badly assigned');
     }
-    if (zelAppSpecs.rambamf % 100 !== 0 ||
-        zelAppSpecs.rambamf > (config.fluxSpecifics.ram.bamf -
-                               config.lockedSystemResources.ram) ||
-        zelAppSpecs.rambamf < 100) {
+    if (
+      zelAppSpecs.rambamf % 100 !== 0 ||
+      zelAppSpecs.rambamf >
+        config.fluxSpecifics.ram.bamf - config.lockedSystemResources.ram ||
+      zelAppSpecs.rambamf < 100
+    ) {
       return new Error('RAM for BAMF badly assigned');
     }
-    if (zelAppSpecs.hddbamf % 1 !== 0 ||
-        zelAppSpecs.hddbamf > (config.fluxSpecifics.hdd.bamf -
-                               config.lockedSystemResources.hdd) ||
-        zelAppSpecs.hddbamf < 1) {
+    if (
+      zelAppSpecs.hddbamf % 1 !== 0 ||
+      zelAppSpecs.hddbamf >
+        config.fluxSpecifics.hdd.bamf - config.lockedSystemResources.hdd ||
+      zelAppSpecs.hddbamf < 1
+    ) {
       return new Error('SSD for BAMF badly assigned');
     }
   }
@@ -2453,17 +2618,19 @@ async function getZelAppsTemporaryMessages(req, res) {
 
   const database = db.db(config.database.zelappsglobal.database);
   const query = {};
-  const projection = {projection : {_id : 0}};
+  const projection = { projection: { _id: 0 } };
   const results = await serviceHelper
-                      .findInDatabase(database, globalZelAppsTempMessages,
-                                      query, projection)
-                      .catch((error) => {
-                        const errMessage = serviceHelper.createErrorMessage(
-                            error.message, error.name, error.code);
-                        res.json(errMessage);
-                        log.error(error);
-                        throw error;
-                      });
+    .findInDatabase(database, globalZelAppsTempMessages, query, projection)
+    .catch((error) => {
+      const errMessage = serviceHelper.createErrorMessage(
+        error.message,
+        error.name,
+        error.code
+      );
+      res.json(errMessage);
+      log.error(error);
+      throw error;
+    });
   const resultsResponse = serviceHelper.createDataMessage(results);
   res.json(resultsResponse);
 }
@@ -2480,17 +2647,19 @@ async function getZelAppsPermanentMessages(req, res) {
 
   const database = db.db(config.database.zelappsglobal.database);
   const query = {};
-  const projection = {projection : {_id : 0}};
-  const results =
-      await serviceHelper
-          .findInDatabase(database, globalZelAppsMessages, query, projection)
-          .catch((error) => {
-            const errMessage = serviceHelper.createErrorMessage(
-                error.message, error.name, error.code);
-            res.json(errMessage);
-            log.error(error);
-            throw error;
-          });
+  const projection = { projection: { _id: 0 } };
+  const results = await serviceHelper
+    .findInDatabase(database, globalZelAppsMessages, query, projection)
+    .catch((error) => {
+      const errMessage = serviceHelper.createErrorMessage(
+        error.message,
+        error.name,
+        error.code
+      );
+      res.json(errMessage);
+      log.error(error);
+      throw error;
+    });
   const resultsResponse = serviceHelper.createDataMessage(results);
   res.json(resultsResponse);
 }
@@ -2500,15 +2669,22 @@ async function getGlobalZelAppsSpecifications(req, res) {
     const db = serviceHelper.databaseConnection();
     const database = db.db(config.database.zelappsglobal.database);
     const query = {};
-    const projection = {projection : {_id : 0}};
+    const projection = { projection: { _id: 0 } };
     const results = await serviceHelper.findInDatabase(
-        database, globalZelAppsInformation, query, projection);
+      database,
+      globalZelAppsInformation,
+      query,
+      projection
+    );
     const resultsResponse = serviceHelper.createDataMessage(results);
     res.json(resultsResponse);
   } catch (error) {
     log.error(error);
-    const errMessage =
-        serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const errMessage = serviceHelper.createErrorMessage(
+      error.message,
+      error.name,
+      error.code
+    );
     res.json(errMessage);
   }
 }
@@ -2519,59 +2695,56 @@ async function availableZelApps(req, res) {
   const zelapps = [
     {
       // zelapp specifications
-      name : 'FoldingAtHomeB',
-      description : 'Folding @ Home is cool :)',
-      repotag : 'yurinnick/folding-at-home:latest',
-      owner : '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-      tiered : true,
-      port : 30000,
-      cpu : 0.5,
-      ram : 500,
-      hdd : 5,
-      cpubasic : 0.5,
-      cpusuper : 1,
-      cpubamf : 2,
-      rambasic : 500,
-      ramsuper : 1000,
-      rambamf : 4000,
-      hddbasic : 5,
-      hddsuper : 5,
-      hddbamf : 5,
-      enviromentParameters : [
-        `USER=${userconfig.initial.zelid}`, 'TEAM=262156', 'ENABLE_GPU=false',
-        'ENABLE_SMP=true'
+      name: 'FoldingAtHomeB',
+      description: 'Folding @ Home is cool :)',
+      repotag: 'yurinnick/folding-at-home:latest',
+      owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+      tiered: true,
+      port: 30000,
+      cpu: 0.5,
+      ram: 500,
+      hdd: 5,
+      cpubasic: 0.5,
+      cpusuper: 1,
+      cpubamf: 2,
+      rambasic: 500,
+      ramsuper: 1000,
+      rambamf: 4000,
+      hddbasic: 5,
+      hddsuper: 5,
+      hddbamf: 5,
+      enviromentParameters: [
+        `USER=${userconfig.initial.zelid}`,
+        'TEAM=262156',
+        'ENABLE_GPU=false',
+        'ENABLE_SMP=true',
       ],
-      commands : [
-        '--allow',
-        '0/0',
-        '--web-allow',
-        '0/0',
-      ],
-      containerPort : 7396,
-      containerData : '/config',
-      hash : 'localappinstancehashABCDE', // hash of app message
-      height : 0,                         // height of tx on which it was
+      commands: ['--allow', '0/0', '--web-allow', '0/0'],
+      containerPort: 7396,
+      containerData: '/config',
+      hash: 'localappinstancehashABCDE', // hash of app message
+      height: 0, // height of tx on which it was
     },
     {
-      name : 'KadenaChainWebNode', // corresponds to docker name and this name
-                                   // is stored in zelapps mongo database
-      description :
-          'Kadena is a fast, secure, and scalable blockchain using the Chainweb consensus protocol. ' +
-              'Chainweb is a braided, parallelized Proof Of Work consensus mechanism that improves throughput and scalability in executing transactions on the blockchain while maintaining the security and integrity found in Bitcoin.',
-      repotag : 'kadena/chainweb-node:latest',
-      owner : '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
-      port : 30004,
-      tiered : false,
-      cpu : 2, // true resource registered for app. If not tiered only this is
-               // available
-      ram : 4000, // true resource registered for app
-      hdd : 40,   // true resource registered for app
-      enviromentParameters : [ 'CHAINWEB_PORT=30004', 'LOGLEVEL=warn' ],
-      commands : [],
-      containerPort : 30004,
-      containerData : '/data', // cannot be root todo in verification
-      hash : 'localSpecificationsVersion1', // hash of app message
-      height : 680000,                      // height of tx on which it was
+      name: 'KadenaChainWebNode', // corresponds to docker name and this name
+      // is stored in zelapps mongo database
+      description:
+        'Kadena is a fast, secure, and scalable blockchain using the Chainweb consensus protocol. ' +
+        'Chainweb is a braided, parallelized Proof Of Work consensus mechanism that improves throughput and scalability in executing transactions on the blockchain while maintaining the security and integrity found in Bitcoin.',
+      repotag: 'kadena/chainweb-node:latest',
+      owner: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
+      port: 30004,
+      tiered: false,
+      cpu: 2, // true resource registered for app. If not tiered only this is
+      // available
+      ram: 4000, // true resource registered for app
+      hdd: 40, // true resource registered for app
+      enviromentParameters: ['CHAINWEB_PORT=30004', 'LOGLEVEL=warn'],
+      commands: [],
+      containerPort: 30004,
+      containerData: '/data', // cannot be root todo in verification
+      hash: 'localSpecificationsVersion1', // hash of app message
+      height: 680000, // height of tx on which it was
     },
   ];
 
@@ -2588,9 +2761,12 @@ async function verifyAppHash(message) {
    * @param timestamp number
    * @param signature string
    */
-  const messToHash = message.type + message.version +
-                     JSON.stringify(message.zelAppSpecifications) +
-                     message.timestamp + message.signature;
+  const messToHash =
+    message.type +
+    message.version +
+    JSON.stringify(message.zelAppSpecifications) +
+    message.timestamp +
+    message.signature;
   const messageHASH = await messageHash(messToHash);
   if (messageHASH !== message.hash) {
     throw new Error('Invalid ZelApp hash received!');
@@ -2598,43 +2774,68 @@ async function verifyAppHash(message) {
   return true;
 }
 
-async function verifyZelAppMessageSignature(type, version, zelAppSpec,
-                                            timestamp, signature) {
-  if (typeof zelAppSpec !== 'object' && typeof timestamp !== 'number' &&
-      typeof signature !== 'string' && typeof version !== 'number' &&
-      typeof type !== 'string') {
+async function verifyZelAppMessageSignature(
+  type,
+  version,
+  zelAppSpec,
+  timestamp,
+  signature
+) {
+  if (
+    typeof zelAppSpec !== 'object' &&
+    typeof timestamp !== 'number' &&
+    typeof signature !== 'string' &&
+    typeof version !== 'number' &&
+    typeof type !== 'string'
+  ) {
     throw new Error('Invalid ZelApp message specifications');
   }
   const messageToVerify =
-      type + version + JSON.stringify(zelAppSpec) + timestamp;
-  const isValidSignature =
-      serviceHelper.verifyMessage(messageToVerify, zelAppSpec.owner, signature);
+    type + version + JSON.stringify(zelAppSpec) + timestamp;
+  const isValidSignature = serviceHelper.verifyMessage(
+    messageToVerify,
+    zelAppSpec.owner,
+    signature
+  );
   if (isValidSignature !== true) {
     const errorMessage =
-        isValidSignature === false
-            ? 'Received signature is invalid or ZelApp specifications are not properly formatted'
-            : isValidSignature;
+      isValidSignature === false
+        ? 'Received signature is invalid or ZelApp specifications are not properly formatted'
+        : isValidSignature;
     throw new Error(errorMessage);
   }
   return true;
 }
 
 async function verifyZelAppMessageUpdateSignature(
-    type, version, zelAppSpec, timestamp, signature, zelappOwner) {
-  if (typeof zelAppSpec !== 'object' && typeof timestamp !== 'number' &&
-      typeof signature !== 'string' && typeof version !== 'number' &&
-      typeof type !== 'string') {
+  type,
+  version,
+  zelAppSpec,
+  timestamp,
+  signature,
+  zelappOwner
+) {
+  if (
+    typeof zelAppSpec !== 'object' &&
+    typeof timestamp !== 'number' &&
+    typeof signature !== 'string' &&
+    typeof version !== 'number' &&
+    typeof type !== 'string'
+  ) {
     throw new Error('Invalid ZelApp message specifications');
   }
   const messageToVerify =
-      type + version + JSON.stringify(zelAppSpec) + timestamp;
-  const isValidSignature =
-      serviceHelper.verifyMessage(messageToVerify, zelappOwner, signature);
+    type + version + JSON.stringify(zelAppSpec) + timestamp;
+  const isValidSignature = serviceHelper.verifyMessage(
+    messageToVerify,
+    zelappOwner,
+    signature
+  );
   if (isValidSignature !== true) {
     const errorMessage =
-        isValidSignature === false
-            ? 'Received signature does not correspond with ZelApp owner or ZelApp specifications are not properly formatted'
-            : isValidSignature;
+      isValidSignature === false
+        ? 'Received signature does not correspond with ZelApp owner or ZelApp specifications are not properly formatted'
+        : isValidSignature;
     throw new Error(errorMessage);
   }
   return true;
@@ -2646,17 +2847,19 @@ async function verifyRepository(repotag) {
   }
   const splittedRepo = repotag.split(':');
   if (splittedRepo[0] && splittedRepo[1] && !splittedRepo[2]) {
-    const resDocker =
-        await serviceHelper
-            .axiosGet(`https://hub.docker.com/v2/repositories/${
-                splittedRepo[0]}/tags/${splittedRepo[1]}`)
-            .catch(() => {
-              throw new Error(
-                  'Repository is not in valid format namespace/repository:tag');
-            });
+    const resDocker = await serviceHelper
+      .axiosGet(
+        `https://hub.docker.com/v2/repositories/${splittedRepo[0]}/tags/${splittedRepo[1]}`
+      )
+      .catch(() => {
+        throw new Error(
+          'Repository is not in valid format namespace/repository:tag'
+        );
+      });
     if (!resDocker) {
       throw new Error(
-          'Unable to communicate with Docker Hub! Try again later.');
+        'Unable to communicate with Docker Hub! Try again later.'
+      );
     }
     if (resDocker.data.errinfo) {
       throw new Error('Docker image not found');
@@ -2672,7 +2875,8 @@ async function verifyRepository(repotag) {
     }
   } else {
     throw new Error(
-        'Repository is not in valid format namespace/repository:tag');
+      'Repository is not in valid format namespace/repository:tag'
+    );
   }
   return true;
 }
@@ -2684,22 +2888,26 @@ async function checkWhitelistedRepository(repotag) {
   const splittedRepo = repotag.split(':');
   if (splittedRepo[0] && splittedRepo[1] && !splittedRepo[2]) {
     const resWhitelistRepo = await serviceHelper.axiosGet(
-        'https://zel.network/project/zelflux/repositories.html');
+      'https://zel.network/project/zelflux/repositories.html'
+    );
 
     if (!resWhitelistRepo) {
       throw new Error(
-          'Unable to communicate with Zel Services! Try again later.');
+        'Unable to communicate with Zel Services! Try again later.'
+      );
     }
 
     const repos = resWhitelistRepo.data;
     const whitelisted = repos.includes(repotag);
     if (!whitelisted) {
       throw new Error(
-          'Repository is not whitelisted. Please contact Zel Team.');
+        'Repository is not whitelisted. Please contact Zel Team.'
+      );
     }
   } else {
     throw new Error(
-        'Repository is not in valid format namespace/repository:tag');
+      'Repository is not in valid format namespace/repository:tag'
+    );
   }
   return true;
 }
@@ -2709,18 +2917,21 @@ async function checkWhitelistedZelID(zelid) {
     throw new Error('Invalid Owner ZelID');
   }
   const resZelIDs = await serviceHelper.axiosGet(
-      'https://zel.network/project/zelflux/zelids.html');
+    'https://zel.network/project/zelflux/zelids.html'
+  );
 
   if (!resZelIDs) {
     throw new Error(
-        'Unable to communicate with Zel Services! Try again later.');
+      'Unable to communicate with Zel Services! Try again later.'
+    );
   }
 
   const zelids = resZelIDs.data;
   const whitelisted = zelids.includes(zelid);
   if (!whitelisted) {
     throw new Error(
-        'Owner Zel ID is not whitelisted. Please contact Zel Team.');
+      'Owner Zel ID is not whitelisted. Please contact Zel Team.'
+    );
   }
   return true;
 }
@@ -2738,14 +2949,16 @@ async function verifyZelAppSpecifications(zelAppSpecifications) {
   // furthermore name cannot contain any special character
   if (!zelAppSpecifications.name.match(/^[a-zA-Z0-9]+$/)) {
     throw new Error(
-        'ZelApp name contains special characters. Only a-z, A-Z and 0-9 are allowed');
+      'ZelApp name contains special characters. Only a-z, A-Z and 0-9 are allowed'
+    );
   }
   if (zelAppSpecifications.name.startsWith('zel')) {
     throw new Error('ZelApp name can not start with zel');
   }
   if (zelAppSpecifications.description.length > 256) {
     throw new Error(
-        'Description is too long. Maximum of 256 characters is allowed');
+      'Description is too long. Maximum of 256 characters is allowed'
+    );
   }
   const parameters = checkHWParameters(zelAppSpecifications);
   if (parameters !== true) {
@@ -2754,22 +2967,28 @@ async function verifyZelAppSpecifications(zelAppSpecifications) {
   }
 
   // check port is within range
-  if (zelAppSpecifications.port < config.zelapps.portMin ||
-      zelAppSpecifications.port > config.zelapps.portMax) {
-    throw new Error(`Assigned port is not within ZelApps range ${
-        config.zelapps.portMin}-${config.zelapps.portMax}`);
+  if (
+    zelAppSpecifications.port < config.zelapps.portMin ||
+    zelAppSpecifications.port > config.zelapps.portMax
+  ) {
+    throw new Error(
+      `Assigned port is not within ZelApps range ${config.zelapps.portMin}-${config.zelapps.portMax}`
+    );
   }
 
   // check if containerPort makes sense
-  if (zelAppSpecifications.containerPort < 0 ||
-      zelAppSpecifications.containerPort > 65535) {
+  if (
+    zelAppSpecifications.containerPort < 0 ||
+    zelAppSpecifications.containerPort > 65535
+  ) {
     throw new Error('Container Port is not within system limits 0-65535');
   }
 
   // check wheter shared Folder is not root
   if (zelAppSpecifications.containerData.length < 2) {
     throw new Error(
-        'ZelApp container data folder not specified. If no data folder is whished, use /tmp');
+      'ZelApp container data folder not specified. If no data folder is whished, use /tmp'
+    );
   }
 
   // check repotag if available for download
@@ -2785,23 +3004,27 @@ async function verifyZelAppSpecifications(zelAppSpecifications) {
 async function ensureCorrectApplicationPort(zelAppSpecFormatted) {
   const dbopen = serviceHelper.databaseConnection();
   const zelappsDatabase = dbopen.db(config.database.zelappsglobal.database);
-  const portQuery = {port : zelAppSpecFormatted.port};
+  const portQuery = { port: zelAppSpecFormatted.port };
   const portProjection = {
-    projection : {
-      _id : 0,
-      name : 1,
+    projection: {
+      _id: 0,
+      name: 1,
     },
   };
   const portResult = await serviceHelper.findOneInDatabase(
-      zelappsDatabase, globalZelAppsInformation, portQuery, portProjection);
+    zelappsDatabase,
+    globalZelAppsInformation,
+    portQuery,
+    portProjection
+  );
   if (!portResult) {
     return true;
   }
 
   if (portResult.name !== zelAppSpecFormatted.name) {
-    throw new Error(`ZelApp ${
-        zelAppSpecFormatted
-            .name} port already registered with different application. Your ZelApp has to use different port.`);
+    throw new Error(
+      `ZelApp ${zelAppSpecFormatted.name} port already registered with different application. Your ZelApp has to use different port.`
+    );
   }
   return true;
 }
@@ -2812,42 +3035,48 @@ async function checkApplicationNameConflicts(zelAppSpecFormatted) {
 
   const zelappsDatabase = dbopen.db(config.database.zelappsglobal.database);
   const zelappsQuery = {
-    name : new RegExp(`^${zelAppSpecFormatted.name}$`, 'i')
+    name: new RegExp(`^${zelAppSpecFormatted.name}$`, 'i'),
   }; // case insensitive
   const zelappsProjection = {
-    projection : {
-      _id : 0,
-      name : 1,
+    projection: {
+      _id: 0,
+      name: 1,
     },
   };
   const zelappResult = await serviceHelper.findOneInDatabase(
-      zelappsDatabase, globalZelAppsInformation, zelappsQuery,
-      zelappsProjection);
+    zelappsDatabase,
+    globalZelAppsInformation,
+    zelappsQuery,
+    zelappsProjection
+  );
 
   if (zelappResult) {
-    throw new Error(`ZelApp ${
-        zelAppSpecFormatted
-            .name} already registered. ZelApp has to be registered under different name.`);
+    throw new Error(
+      `ZelApp ${zelAppSpecFormatted.name} already registered. ZelApp has to be registered under different name.`
+    );
   }
 
   const localApps = await availableZelApps();
-  const zelappExists =
-      localApps.find((localApp) => localApp.name.toLowerCase() ===
-                                   zelAppSpecFormatted.name.toLowerCase());
+  const zelappExists = localApps.find(
+    (localApp) =>
+      localApp.name.toLowerCase() === zelAppSpecFormatted.name.toLowerCase()
+  );
   if (zelappExists) {
-    throw new Error(`ZelApp ${
-        zelAppSpecFormatted
-            .name} already assigned to local application. ZelApp has to be registered under different name.`);
+    throw new Error(
+      `ZelApp ${zelAppSpecFormatted.name} already assigned to local application. ZelApp has to be registered under different name.`
+    );
   }
   if (zelAppSpecFormatted.name.toLowerCase() === 'share') {
-    throw new Error(`ZelApp ${
-        zelAppSpecFormatted
-            .name} already assigned to Flux main application. ZelApp has to be registered under different name.`);
+    throw new Error(
+      `ZelApp ${zelAppSpecFormatted.name} already assigned to Flux main application. ZelApp has to be registered under different name.`
+    );
   }
   return true;
 }
-async function storeZelAppTemporaryMessage(message,
-                                           furtherVerification = false) {
+async function storeZelAppTemporaryMessage(
+  message,
+  furtherVerification = false
+) {
   /* message object
    * @param type string
    * @param version number
@@ -2856,12 +3085,15 @@ async function storeZelAppTemporaryMessage(message,
    * @param timestamp number
    * @param signature string
    */
-  if (typeof message !== 'object' && typeof message.type !== 'string' &&
-      typeof message.version !== 'number' &&
-      typeof message.zelAppSpecifications !== 'object' &&
-      typeof message.signature !== 'string' &&
-      typeof message.timestamp !== 'number' &&
-      typeof message.hash !== 'string') {
+  if (
+    typeof message !== 'object' &&
+    typeof message.type !== 'string' &&
+    typeof message.version !== 'number' &&
+    typeof message.zelAppSpecifications !== 'object' &&
+    typeof message.signature !== 'string' &&
+    typeof message.timestamp !== 'number' &&
+    typeof message.hash !== 'string'
+  ) {
     return new Error('Invalid ZelApp message for storing');
   }
   // data shall already be verified by the broadcasting node. But verify all
@@ -2873,9 +3105,13 @@ async function storeZelAppTemporaryMessage(message,
       await verifyAppHash(message);
       await ensureCorrectApplicationPort(message.zelAppSpecifications);
       await checkApplicationNameConflicts(message.zelAppSpecifications);
-      await verifyZelAppMessageSignature(message.type, message.version,
-                                         message.zelAppSpecifications,
-                                         message.timestamp, message.signature);
+      await verifyZelAppMessageSignature(
+        message.type,
+        message.version,
+        message.zelAppSpecifications,
+        message.timestamp,
+        message.signature
+      );
     } else if (message.type === 'zelappupdate') {
       // stadard verifications
       await verifyZelAppSpecifications(message.zelAppSpecifications);
@@ -2886,57 +3122,74 @@ async function storeZelAppTemporaryMessage(message,
       const db = serviceHelper.databaseConnection();
       const database = db.db(config.database.zelappsglobal.database);
       // may throw
-      const query = {name : message.zelAppSpecifications.name};
+      const query = { name: message.zelAppSpecifications.name };
       const projection = {
-        projection : {
-          _id : 0,
+        projection: {
+          _id: 0,
         },
       };
       const zelappInfo = await serviceHelper.findOneInDatabase(
-          database, globalZelAppsInformation, query, projection);
+        database,
+        globalZelAppsInformation,
+        query,
+        projection
+      );
       if (!zelappInfo) {
         throw new Error(
-            'ZelApp update message received but application does not exists!');
+          'ZelApp update message received but application does not exists!'
+        );
       }
       if (zelappInfo.repotag !== message.zelAppSpecifications.repotag) {
         throw new Error('ZelApp update of repotag is not allowed');
       }
-      const {owner} = zelappInfo;
+      const { owner } = zelappInfo;
       // here signature is checked against PREVIOUS zelapp owner
       await verifyZelAppMessageUpdateSignature(
-          message.type, message.version, message.zelAppSpecifications,
-          message.timestamp, message.signature, owner);
+        message.type,
+        message.version,
+        message.zelAppSpecifications,
+        message.timestamp,
+        message.signature,
+        owner
+      );
     } else {
       throw new Error('Invalid ZelApp message received');
     }
   }
 
   const receivedAt = Date.now();
-  const validTill = receivedAt + (60 * 60 * 1000); // 60 minutes
+  const validTill = receivedAt + 60 * 60 * 1000; // 60 minutes
 
   const db = serviceHelper.databaseConnection();
   const database = db.db(config.database.zelappsglobal.database);
   const newMessage = {
-    zelAppSpecifications : message.zelAppSpecifications,
-    type : message.type, // shall be zelappregister, zelappupdate
-    version : message.version,
-    hash : message.hash,
-    timestamp : message.timestamp,
-    signature : message.signature,
-    receivedAt : new Date(receivedAt),
-    expireAt : new Date(validTill),
+    zelAppSpecifications: message.zelAppSpecifications,
+    type: message.type, // shall be zelappregister, zelappupdate
+    version: message.version,
+    hash: message.hash,
+    timestamp: message.timestamp,
+    signature: message.signature,
+    receivedAt: new Date(receivedAt),
+    expireAt: new Date(validTill),
   };
   const value = newMessage;
-  const query = {hash : newMessage.hash};
+  const query = { hash: newMessage.hash };
   const projection = {};
   const result = await serviceHelper.findOneInDatabase(
-      database, globalZelAppsTempMessages, query, projection);
+    database,
+    globalZelAppsTempMessages,
+    query,
+    projection
+  );
   if (result) {
     // it is already stored
     return false;
   }
-  await serviceHelper.insertOneToDatabase(database, globalZelAppsTempMessages,
-                                          value);
+  await serviceHelper.insertOneToDatabase(
+    database,
+    globalZelAppsTempMessages,
+    value
+  );
   // it is stored and rebroadcasted
   return true;
 }
@@ -2950,65 +3203,80 @@ async function storeZelAppRunningMessage(message) {
    * @param name string
    * @param ip string
    */
-  if (typeof message !== 'object' && typeof message.type !== 'string' &&
-      typeof message.version !== 'number' &&
-      typeof message.broadcastedAt !== 'number' &&
-      typeof message.hash !== 'string' && typeof message.name !== 'string' &&
-      typeof message.ip !== 'string') {
+  if (
+    typeof message !== 'object' &&
+    typeof message.type !== 'string' &&
+    typeof message.version !== 'number' &&
+    typeof message.broadcastedAt !== 'number' &&
+    typeof message.hash !== 'string' &&
+    typeof message.name !== 'string' &&
+    typeof message.ip !== 'string'
+  ) {
     return new Error('Invalid ZelApp Running message for storing');
   }
 
-  const validTill = message.broadcastedAt + (3900 * 1000); // 3900 seconds
+  const validTill = message.broadcastedAt + 3900 * 1000; // 3900 seconds
 
   if (validTill < new Date().getTime()) {
     // reject old message
     return false;
   }
 
-  const randomDelay = Math.floor((Math.random() * 1280)) + 240;
+  const randomDelay = Math.floor(Math.random() * 1280) + 240;
   await serviceHelper.delay(randomDelay);
 
   const db = serviceHelper.databaseConnection();
   const database = db.db(config.database.zelappsglobal.database);
   const newZelAppRunningMessage = {
-    name : message.name,
-    hash : message.hash, // hash of application specifics that are running
-    ip : message.ip,
-    broadcastedAt : new Date(message.broadcastedAt),
-    expireAt : new Date(validTill),
+    name: message.name,
+    hash: message.hash, // hash of application specifics that are running
+    ip: message.ip,
+    broadcastedAt: new Date(message.broadcastedAt),
+    expireAt: new Date(validTill),
   };
 
   // indexes over name, hash, ip. Then name + ip and name + ip + broadcastedAt.
   const queryFind = {
-    name : newZelAppRunningMessage.name,
-    ip : newZelAppRunningMessage.ip,
-    broadcastedAt : {$gte : newZelAppRunningMessage.broadcastedAt}
+    name: newZelAppRunningMessage.name,
+    ip: newZelAppRunningMessage.ip,
+    broadcastedAt: { $gte: newZelAppRunningMessage.broadcastedAt },
   };
-  const projection = {_id : 0};
+  const projection = { _id: 0 };
   // we already have the exact same data
   const result = await serviceHelper.findOneInDatabase(
-      database, globalZelAppsLocations, queryFind, projection);
+    database,
+    globalZelAppsLocations,
+    queryFind,
+    projection
+  );
   if (result) {
     // it is already stored
     return false;
   }
   const queryUpdate = {
-    name : newZelAppRunningMessage.name,
-    ip : newZelAppRunningMessage.ip
+    name: newZelAppRunningMessage.name,
+    ip: newZelAppRunningMessage.ip,
   };
-  const update = {$set : newZelAppRunningMessage};
+  const update = { $set: newZelAppRunningMessage };
   const options = {
-    upsert : true,
+    upsert: true,
   };
-  await serviceHelper.updateOneInDatabase(database, globalZelAppsLocations,
-                                          queryUpdate, update, options);
+  await serviceHelper.updateOneInDatabase(
+    database,
+    globalZelAppsLocations,
+    queryUpdate,
+    update,
+    options
+  );
   // it is stored and rebroadcasted
   return true;
 }
 
 async function registerZelAppGlobalyApi(req, res) {
   let body = '';
-  req.on('data', (data) => { body += data; });
+  req.on('data', (data) => {
+    body += data;
+  });
   req.on('end', async () => {
     try {
       const authorized = await serviceHelper.verifyPrivilege('user', req);
@@ -3019,12 +3287,14 @@ async function registerZelAppGlobalyApi(req, res) {
       // first  check if this node is available for application registration -
       // has at least 5 outgoing connections and 2 incoming connections (that is
       // sufficient as it means it is confirmed and works correctly)
-      if (zelfluxCommunication.outgoingPeers.length <
-              config.zelapps.minOutgoing ||
-          zelfluxCommunication.incomingPeers.length <
-              config.zelapps.minIncoming) {
+      if (
+        zelfluxCommunication.outgoingPeers.length <
+          config.zelapps.minOutgoing ||
+        zelfluxCommunication.incomingPeers.length < config.zelapps.minIncoming
+      ) {
         throw new Error(
-            'Sorry, This Flux does not have enough peers for safe application registration');
+          'Sorry, This Flux does not have enough peers for safe application registration'
+        );
       }
       const processedBody = serviceHelper.ensureObject(body);
       // Note. Actually signature, timestamp is not needed. But we require it
@@ -3033,18 +3303,21 @@ async function registerZelAppGlobalyApi(req, res) {
       // they dont exist in global database first lets check if all fields are
       // present and have propper format excpet tiered and teired specifications
       // and those can be ommited
-      let {zelAppSpecification} = processedBody;
-      let {timestamp} = processedBody;
-      let {signature} = processedBody;
-      let messageType =
-          processedBody.type; // determines how data is treated in the future
-      let typeVersion =
-          processedBody
-              .version; // further determines how data is treated in the future
-      if (!zelAppSpecification || !timestamp || !signature || !messageType ||
-          !typeVersion) {
+      let { zelAppSpecification } = processedBody;
+      let { timestamp } = processedBody;
+      let { signature } = processedBody;
+      let messageType = processedBody.type; // determines how data is treated in the future
+      let typeVersion = processedBody.version; // further determines how data is treated in the future
+      if (
+        !zelAppSpecification ||
+        !timestamp ||
+        !signature ||
+        !messageType ||
+        !typeVersion
+      ) {
         throw new Error(
-            'Incomplete message received. Check if specifications, type, version, timestamp and siganture are provided.');
+          'Incomplete message received. Check if specifications, type, version, timestamp and siganture are provided.'
+        );
       }
       if (messageType !== 'zelappregister') {
         throw new Error('Invalid type of message');
@@ -3058,25 +3331,37 @@ async function registerZelAppGlobalyApi(req, res) {
       messageType = serviceHelper.ensureString(messageType);
       typeVersion = serviceHelper.ensureNumber(typeVersion);
 
-      let {version} = zelAppSpecification; // shall be 1
-      let {name} = zelAppSpecification;
-      let {description} = zelAppSpecification;
-      let {repotag} = zelAppSpecification;
-      let {owner} = zelAppSpecification;
-      let {port} = zelAppSpecification;
-      let {enviromentParameters} = zelAppSpecification;
-      let {commands} = zelAppSpecification;
-      let {containerPort} = zelAppSpecification;
-      let {containerData} = zelAppSpecification;
-      let {cpu} = zelAppSpecification;
-      let {ram} = zelAppSpecification;
-      let {hdd} = zelAppSpecification;
-      const {tiered} = zelAppSpecification;
+      let { version } = zelAppSpecification; // shall be 1
+      let { name } = zelAppSpecification;
+      let { description } = zelAppSpecification;
+      let { repotag } = zelAppSpecification;
+      let { owner } = zelAppSpecification;
+      let { port } = zelAppSpecification;
+      let { enviromentParameters } = zelAppSpecification;
+      let { commands } = zelAppSpecification;
+      let { containerPort } = zelAppSpecification;
+      let { containerData } = zelAppSpecification;
+      let { cpu } = zelAppSpecification;
+      let { ram } = zelAppSpecification;
+      let { hdd } = zelAppSpecification;
+      const { tiered } = zelAppSpecification;
 
       // check if signature of received data is correct
-      if (!version || !name || !description || !repotag || !owner || !port ||
-          !enviromentParameters || !commands || !containerPort ||
-          !containerData || !cpu || !ram || !hdd) {
+      if (
+        !version ||
+        !name ||
+        !description ||
+        !repotag ||
+        !owner ||
+        !port ||
+        !enviromentParameters ||
+        !commands ||
+        !containerPort ||
+        !containerData ||
+        !cpu ||
+        !ram ||
+        !hdd
+      ) {
         throw new Error('Missing ZelApp specification parameter');
       }
       version = serviceHelper.ensureNumber(version);
@@ -3112,7 +3397,8 @@ async function registerZelAppGlobalyApi(req, res) {
       hdd = serviceHelper.ensureNumber(hdd);
       if (typeof tiered !== 'boolean') {
         throw new Error(
-            'Invalid tiered value obtained. Only boolean as true or false allowed.');
+          'Invalid tiered value obtained. Only boolean as true or false allowed.'
+        );
       }
 
       const zelcashGetInfo = await zelcashService.getInfo();
@@ -3123,43 +3409,55 @@ async function registerZelAppGlobalyApi(req, res) {
         throw new Error(zelcashGetInfo.data.message || zelcashGetInfo.data);
       }
 
-      if (owner !== config.zelTeamZelId &&
-          zelcashHeight < config.zelapps.publicepochstart) {
+      if (
+        owner !== config.zelTeamZelId &&
+        zelcashHeight < config.zelapps.publicepochstart
+      ) {
         throw new Error('Global Registration open on the 10th of October 2020');
       }
 
       // finalised parameters that will get stored in global database
       const zelAppSpecFormatted = {
-        version,                                   // integer
-        name,                                      // string
-        description,                               // string
-        repotag,                                   // string
-        owner,                                     // zelid string
-        port,                                      // integer
-        enviromentParameters : envParamsCorrected, // array of strings
-        commands : commandsCorrected,              // array of strings
-        containerPort,                             // integer
-        containerData,                             // string
-        cpu,                                       // float 0.1 step
-        ram,                                       // integer 100 step (mb)
-        hdd,                                       // integer 1 step
-        tiered,                                    // boolean
+        version, // integer
+        name, // string
+        description, // string
+        repotag, // string
+        owner, // zelid string
+        port, // integer
+        enviromentParameters: envParamsCorrected, // array of strings
+        commands: commandsCorrected, // array of strings
+        containerPort, // integer
+        containerData, // string
+        cpu, // float 0.1 step
+        ram, // integer 100 step (mb)
+        hdd, // integer 1 step
+        tiered, // boolean
       };
 
       if (tiered) {
-        let {cpubasic} = zelAppSpecification;
-        let {cpusuper} = zelAppSpecification;
-        let {cpubamf} = zelAppSpecification;
-        let {rambasic} = zelAppSpecification;
-        let {ramsuper} = zelAppSpecification;
-        let {rambamf} = zelAppSpecification;
-        let {hddbasic} = zelAppSpecification;
-        let {hddsuper} = zelAppSpecification;
-        let {hddbamf} = zelAppSpecification;
-        if (!cpubasic || !cpusuper || !cpubamf || !rambasic || !ramsuper ||
-            !rambamf || !hddbasic || !hddsuper || !hddbamf) {
+        let { cpubasic } = zelAppSpecification;
+        let { cpusuper } = zelAppSpecification;
+        let { cpubamf } = zelAppSpecification;
+        let { rambasic } = zelAppSpecification;
+        let { ramsuper } = zelAppSpecification;
+        let { rambamf } = zelAppSpecification;
+        let { hddbasic } = zelAppSpecification;
+        let { hddsuper } = zelAppSpecification;
+        let { hddbamf } = zelAppSpecification;
+        if (
+          !cpubasic ||
+          !cpusuper ||
+          !cpubamf ||
+          !rambasic ||
+          !ramsuper ||
+          !rambamf ||
+          !hddbasic ||
+          !hddsuper ||
+          !hddbamf
+        ) {
           throw new Error(
-              'ZelApp was requested as tiered setup but specifications are missing');
+            'ZelApp was requested as tiered setup but specifications are missing'
+          );
         }
         cpubasic = serviceHelper.ensureNumber(cpubasic);
         cpusuper = serviceHelper.ensureNumber(cpusuper);
@@ -3196,16 +3494,24 @@ async function registerZelAppGlobalyApi(req, res) {
       // if signature is not correct, then specifications are not correct type
       // or bad message received. Respond with 'Received message is invalid';
       await verifyZelAppMessageSignature(
-          messageType, typeVersion, zelAppSpecFormatted, timestamp, signature);
+        messageType,
+        typeVersion,
+        zelAppSpecFormatted,
+        timestamp,
+        signature
+      );
 
       // if all ok, then sha256 hash of entire message = message + timestamp +
       // signature. We are hashing all to have always unique value. If hashing
       // just specificiations, if application goes back to previous
       // specifications, it may possess some issues if we have indeed correct
       // state We respond with a hash that is supposed to go to transaction.
-      const message = messageType + typeVersion +
-                      JSON.stringify(zelAppSpecFormatted) + timestamp +
-                      signature;
+      const message =
+        messageType +
+        typeVersion +
+        JSON.stringify(zelAppSpecFormatted) +
+        timestamp +
+        signature;
       const messageHASH = await messageHash(message);
       const responseHash = serviceHelper.createDataMessage(messageHASH);
       // now all is great. Store zelAppSpecFormatted, timestamp, signature and
@@ -3213,23 +3519,24 @@ async function registerZelAppGlobalyApi(req, res) {
       // Broadcast this message to all outgoing connections.
       const temporaryZelAppMessage = {
         // specification of temp message
-        type : messageType,
-        version : typeVersion,
-        zelAppSpecifications : zelAppSpecFormatted,
-        hash : messageHASH,
+        type: messageType,
+        version: typeVersion,
+        zelAppSpecifications: zelAppSpecFormatted,
+        hash: messageHASH,
         timestamp,
         signature,
       };
       await storeZelAppTemporaryMessage(temporaryZelAppMessage, false);
       await zelfluxCommunication.broadcastTemporaryZelAppMessage(
-          temporaryZelAppMessage);
+        temporaryZelAppMessage
+      );
       return res.json(responseHash);
     } catch (error) {
       log.warn(error);
       const errorResponse = serviceHelper.createErrorMessage(
-          error.message || error,
-          error.name,
-          error.code,
+        error.message || error,
+        error.name,
+        error.code
       );
       return res.json(errorResponse);
     }
@@ -3239,7 +3546,9 @@ async function registerZelAppGlobalyApi(req, res) {
 // price handled in UI and available in API
 async function updateZelAppGlobalyApi(req, res) {
   let body = '';
-  req.on('data', (data) => { body += data; });
+  req.on('data', (data) => {
+    body += data;
+  });
   req.on('end', async () => {
     try {
       const authorized = await serviceHelper.verifyPrivilege('user', req);
@@ -3250,12 +3559,14 @@ async function updateZelAppGlobalyApi(req, res) {
       // first  check if this node is available for application update - has at
       // least 5 outgoing connections and 2 incoming connections (that is
       // sufficient as it means it is confirmed and works correctly)
-      if (zelfluxCommunication.outgoingPeers.length <
-              config.zelapps.minOutgoing ||
-          zelfluxCommunication.incomingPeers.length <
-              config.zelapps.minIncoming) {
+      if (
+        zelfluxCommunication.outgoingPeers.length <
+          config.zelapps.minOutgoing ||
+        zelfluxCommunication.incomingPeers.length < config.zelapps.minIncoming
+      ) {
         throw new Error(
-            'Sorry, This Flux does not have enough peers for safe application update');
+          'Sorry, This Flux does not have enough peers for safe application update'
+        );
       }
       const processedBody = serviceHelper.ensureObject(body);
       // Note. Actually signature, timestamp is not needed. But we require it
@@ -3264,18 +3575,21 @@ async function updateZelAppGlobalyApi(req, res) {
       // they dont exist in global database first lets check if all fields are
       // present and have propper format excpet tiered and teired specifications
       // and those can be ommited
-      let {zelAppSpecification} = processedBody;
-      let {timestamp} = processedBody;
-      let {signature} = processedBody;
-      let messageType =
-          processedBody.type; // determines how data is treated in the future
-      let typeVersion =
-          processedBody
-              .version; // further determines how data is treated in the future
-      if (!zelAppSpecification || !timestamp || !signature || !messageType ||
-          !typeVersion) {
+      let { zelAppSpecification } = processedBody;
+      let { timestamp } = processedBody;
+      let { signature } = processedBody;
+      let messageType = processedBody.type; // determines how data is treated in the future
+      let typeVersion = processedBody.version; // further determines how data is treated in the future
+      if (
+        !zelAppSpecification ||
+        !timestamp ||
+        !signature ||
+        !messageType ||
+        !typeVersion
+      ) {
         throw new Error(
-            'Incomplete message received. Check if specifications, timestamp, type, version and siganture are provided.');
+          'Incomplete message received. Check if specifications, timestamp, type, version and siganture are provided.'
+        );
       }
       if (messageType !== 'zelappupdate') {
         throw new Error('Invalid type of message');
@@ -3289,25 +3603,37 @@ async function updateZelAppGlobalyApi(req, res) {
       messageType = serviceHelper.ensureString(messageType);
       typeVersion = serviceHelper.ensureNumber(typeVersion);
 
-      let {version} = zelAppSpecification; // shall be 1
-      let {name} = zelAppSpecification;
-      let {description} = zelAppSpecification;
-      let {repotag} = zelAppSpecification;
-      let {owner} = zelAppSpecification;
-      let {port} = zelAppSpecification;
-      let {enviromentParameters} = zelAppSpecification;
-      let {commands} = zelAppSpecification;
-      let {containerPort} = zelAppSpecification;
-      let {containerData} = zelAppSpecification;
-      let {cpu} = zelAppSpecification;
-      let {ram} = zelAppSpecification;
-      let {hdd} = zelAppSpecification;
-      const {tiered} = zelAppSpecification;
+      let { version } = zelAppSpecification; // shall be 1
+      let { name } = zelAppSpecification;
+      let { description } = zelAppSpecification;
+      let { repotag } = zelAppSpecification;
+      let { owner } = zelAppSpecification;
+      let { port } = zelAppSpecification;
+      let { enviromentParameters } = zelAppSpecification;
+      let { commands } = zelAppSpecification;
+      let { containerPort } = zelAppSpecification;
+      let { containerData } = zelAppSpecification;
+      let { cpu } = zelAppSpecification;
+      let { ram } = zelAppSpecification;
+      let { hdd } = zelAppSpecification;
+      const { tiered } = zelAppSpecification;
 
       // check if signature of received data is correct
-      if (!version || !name || !description || !repotag || !owner || !port ||
-          !enviromentParameters || !commands || !containerPort ||
-          !containerData || !cpu || !ram || !hdd) {
+      if (
+        !version ||
+        !name ||
+        !description ||
+        !repotag ||
+        !owner ||
+        !port ||
+        !enviromentParameters ||
+        !commands ||
+        !containerPort ||
+        !containerData ||
+        !cpu ||
+        !ram ||
+        !hdd
+      ) {
         throw new Error('Missing ZelApp specification parameter');
       }
       version = serviceHelper.ensureNumber(version);
@@ -3343,41 +3669,52 @@ async function updateZelAppGlobalyApi(req, res) {
       hdd = serviceHelper.ensureNumber(hdd);
       if (typeof tiered !== 'boolean') {
         throw new Error(
-            'Invalid tiered value obtained. Only boolean as true or false allowed.');
+          'Invalid tiered value obtained. Only boolean as true or false allowed.'
+        );
       }
 
       // finalised parameters that will get stored in global database
       const zelAppSpecFormatted = {
-        version,                                   // integer
-        name,                                      // string
-        description,                               // string
-        repotag,                                   // string
-        owner,                                     // zelid string
-        port,                                      // integer
-        enviromentParameters : envParamsCorrected, // array of strings
-        commands : commandsCorrected,              // array of strings
-        containerPort,                             // integer
-        containerData,                             // string
-        cpu,                                       // float 0.1 step
-        ram,                                       // integer 100 step (mb)
-        hdd,                                       // integer 1 step
-        tiered,                                    // boolean
+        version, // integer
+        name, // string
+        description, // string
+        repotag, // string
+        owner, // zelid string
+        port, // integer
+        enviromentParameters: envParamsCorrected, // array of strings
+        commands: commandsCorrected, // array of strings
+        containerPort, // integer
+        containerData, // string
+        cpu, // float 0.1 step
+        ram, // integer 100 step (mb)
+        hdd, // integer 1 step
+        tiered, // boolean
       };
 
       if (tiered) {
-        let {cpubasic} = zelAppSpecification;
-        let {cpusuper} = zelAppSpecification;
-        let {cpubamf} = zelAppSpecification;
-        let {rambasic} = zelAppSpecification;
-        let {ramsuper} = zelAppSpecification;
-        let {rambamf} = zelAppSpecification;
-        let {hddbasic} = zelAppSpecification;
-        let {hddsuper} = zelAppSpecification;
-        let {hddbamf} = zelAppSpecification;
-        if (!cpubasic || !cpusuper || !cpubamf || !rambasic || !ramsuper ||
-            !rambamf || !hddbasic || !hddsuper || !hddbamf) {
+        let { cpubasic } = zelAppSpecification;
+        let { cpusuper } = zelAppSpecification;
+        let { cpubamf } = zelAppSpecification;
+        let { rambasic } = zelAppSpecification;
+        let { ramsuper } = zelAppSpecification;
+        let { rambamf } = zelAppSpecification;
+        let { hddbasic } = zelAppSpecification;
+        let { hddsuper } = zelAppSpecification;
+        let { hddbamf } = zelAppSpecification;
+        if (
+          !cpubasic ||
+          !cpusuper ||
+          !cpubamf ||
+          !rambasic ||
+          !ramsuper ||
+          !rambamf ||
+          !hddbasic ||
+          !hddsuper ||
+          !hddbamf
+        ) {
           throw new Error(
-              'ZelApp was requested as tiered setup but specifications are missing');
+            'ZelApp was requested as tiered setup but specifications are missing'
+          );
         }
         cpubasic = serviceHelper.ensureNumber(cpubasic);
         cpusuper = serviceHelper.ensureNumber(cpusuper);
@@ -3411,37 +3748,48 @@ async function updateZelAppGlobalyApi(req, res) {
       const db = serviceHelper.databaseConnection();
       const database = db.db(config.database.zelappsglobal.database);
       // may throw
-      const query = {name : zelAppSpecFormatted.name};
+      const query = { name: zelAppSpecFormatted.name };
       const projection = {
-        projection : {
-          _id : 0,
+        projection: {
+          _id: 0,
         },
       };
       const zelappInfo = await serviceHelper.findOneInDatabase(
-          database, globalZelAppsInformation, query, projection);
+        database,
+        globalZelAppsInformation,
+        query,
+        projection
+      );
       if (!zelappInfo) {
         throw new Error(
-            'ZelApp update received but application to update does not exists!');
+          'ZelApp update received but application to update does not exists!'
+        );
       }
       if (zelappInfo.repotag !== zelAppSpecFormatted.repotag) {
         throw new Error('ZelApp update of repotag is not allowed');
       }
-      const zelAppOwner =
-          zelappInfo
-              .owner; // ensure previous zelapp owner is signing this message
+      const zelAppOwner = zelappInfo.owner; // ensure previous zelapp owner is signing this message
       // here signature is checked against PREVIOUS zelapp owner
-      await verifyZelAppMessageUpdateSignature(messageType, typeVersion,
-                                               zelAppSpecFormatted, timestamp,
-                                               signature, zelAppOwner);
+      await verifyZelAppMessageUpdateSignature(
+        messageType,
+        typeVersion,
+        zelAppSpecFormatted,
+        timestamp,
+        signature,
+        zelAppOwner
+      );
 
       // if all ok, then sha256 hash of entire message = message + timestamp +
       // signature. We are hashing all to have always unique value. If hashing
       // just specificiations, if application goes back to previous
       // specifications, it may possess some issues if we have indeed correct
       // state We respond with a hash that is supposed to go to transaction.
-      const message = messageType + typeVersion +
-                      JSON.stringify(zelAppSpecFormatted) + timestamp +
-                      signature;
+      const message =
+        messageType +
+        typeVersion +
+        JSON.stringify(zelAppSpecFormatted) +
+        timestamp +
+        signature;
       const messageHASH = await messageHash(message);
       const responseHash = serviceHelper.createDataMessage(messageHASH);
       // now all is great. Store zelAppSpecFormatted, timestamp, signature and
@@ -3449,23 +3797,24 @@ async function updateZelAppGlobalyApi(req, res) {
       // Broadcast this message to all outgoing connections.
       const temporaryZelAppMessage = {
         // specification of temp message
-        type : messageType,
-        version : typeVersion,
-        zelAppSpecifications : zelAppSpecFormatted,
-        hash : messageHASH,
+        type: messageType,
+        version: typeVersion,
+        zelAppSpecifications: zelAppSpecFormatted,
+        hash: messageHASH,
         timestamp,
         signature,
       };
       await storeZelAppTemporaryMessage(temporaryZelAppMessage, false);
       await zelfluxCommunication.broadcastTemporaryZelAppMessage(
-          temporaryZelAppMessage);
+        temporaryZelAppMessage
+      );
       return res.json(responseHash);
     } catch (error) {
       log.warn(error);
       const errorResponse = serviceHelper.createErrorMessage(
-          error.message || error,
-          error.name,
-          error.code,
+        error.message || error,
+        error.name,
+        error.code
       );
       return res.json(errorResponse);
     }
@@ -3474,12 +3823,15 @@ async function updateZelAppGlobalyApi(req, res) {
 
 async function installTemporaryLocalApplication(req, res, applicationName) {
   try {
-    const authorized =
-        await serviceHelper.verifyPrivilege('adminandzelteam', req);
+    const authorized = await serviceHelper.verifyPrivilege(
+      'adminandzelteam',
+      req
+    );
     if (authorized) {
       const allZelApps = await availableZelApps();
-      const zelAppSpecifications =
-          allZelApps.find((zelapp) => zelapp.name === applicationName);
+      const zelAppSpecifications = allZelApps.find(
+        (zelapp) => zelapp.name === applicationName
+      );
       if (!zelAppSpecifications) {
         throw new Error('Application Specifications not found');
       }
@@ -3489,19 +3841,19 @@ async function installTemporaryLocalApplication(req, res, applicationName) {
         const tier = await zelnodeTier();
         if (tier === 'basic') {
           zelAppSpecifications.cpu =
-              zelAppSpecifications.cpubasic || zelAppSpecifications.cpu;
+            zelAppSpecifications.cpubasic || zelAppSpecifications.cpu;
           zelAppSpecifications.ram =
-              zelAppSpecifications.rambasic || zelAppSpecifications.ram;
+            zelAppSpecifications.rambasic || zelAppSpecifications.ram;
         } else if (tier === 'super') {
           zelAppSpecifications.cpu =
-              zelAppSpecifications.cpusuper || zelAppSpecifications.cpu;
+            zelAppSpecifications.cpusuper || zelAppSpecifications.cpu;
           zelAppSpecifications.ram =
-              zelAppSpecifications.ramsuper || zelAppSpecifications.ram;
+            zelAppSpecifications.ramsuper || zelAppSpecifications.ram;
         } else if (tier === 'bamf') {
           zelAppSpecifications.cpu =
-              zelAppSpecifications.cpubamf || zelAppSpecifications.cpu;
+            zelAppSpecifications.cpubamf || zelAppSpecifications.cpu;
           zelAppSpecifications.ram =
-              zelAppSpecifications.rambamf || zelAppSpecifications.ram;
+            zelAppSpecifications.rambamf || zelAppSpecifications.ram;
         } else {
           throw new Error('Unrecognised ZelNode tier');
         }
@@ -3516,9 +3868,9 @@ async function installTemporaryLocalApplication(req, res, applicationName) {
   } catch (error) {
     log.error(error);
     const errorResponse = serviceHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
+      error.message || error,
+      error.name,
+      error.code
     );
     res.json(errorResponse);
   }
@@ -3533,36 +3885,38 @@ async function installedZelApps(req, res) {
     const zelappsDatabase = dbopen.db(config.database.zelappslocal.database);
     let zelappsQuery = {};
     if (req && req.params && req.query) {
-      let {appname} =
-          req.params; // we accept both help/command and help?command=getinfo
+      let { appname } = req.params; // we accept both help/command and help?command=getinfo
       appname = appname || req.query.appname;
       if (appname) {
         zelappsQuery = {
-          name : appname,
+          name: appname,
         };
       }
     } else if (req && typeof req === 'string') {
       // consider it as appname
       zelappsQuery = {
-        name : req,
+        name: req,
       };
     }
     const zelappsProjection = {
-      projection : {
-        _id : 0,
+      projection: {
+        _id: 0,
       },
     };
     const zelApps = await serviceHelper.findInDatabase(
-        zelappsDatabase, localZelAppsInformation, zelappsQuery,
-        zelappsProjection);
+      zelappsDatabase,
+      localZelAppsInformation,
+      zelappsQuery,
+      zelappsProjection
+    );
     const dataResponse = serviceHelper.createDataMessage(zelApps);
     return res ? res.json(dataResponse) : dataResponse;
   } catch (error) {
     log.error(error);
     const errorResponse = serviceHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
+      error.message || error,
+      error.name,
+      error.code
     );
     return res ? res.json(errorResponse) : errorResponse;
   }
@@ -3574,8 +3928,8 @@ async function requestZelAppMessage(hash) {
   // does not have it requests further
   console.log(hash);
   const message = {
-    type : 'zelapprequest',
-    version : 1,
+    type: 'zelapprequest',
+    version: 1,
     hash,
   };
   await zelfluxCommunication.broadcastMessageToOutgoing(message);
@@ -3595,25 +3949,29 @@ async function storeZelAppPermanentMessage(message) {
    * @param height number
    * @param valueSat number
    */
-  if (typeof message !== 'object' && typeof message.type !== 'string' &&
-      typeof message.version !== 'number' &&
-      typeof message.zelAppSpecifications !== 'object' &&
-      typeof message.signature !== 'string' &&
-      typeof message.timestamp !== 'number' &&
-      typeof message.hash !== 'string' && typeof message.txid !== 'string' &&
-      typeof message.height !== 'number' &&
-      typeof message.valueSat !== 'number') {
+  if (
+    typeof message !== 'object' &&
+    typeof message.type !== 'string' &&
+    typeof message.version !== 'number' &&
+    typeof message.zelAppSpecifications !== 'object' &&
+    typeof message.signature !== 'string' &&
+    typeof message.timestamp !== 'number' &&
+    typeof message.hash !== 'string' &&
+    typeof message.txid !== 'string' &&
+    typeof message.height !== 'number' &&
+    typeof message.valueSat !== 'number'
+  ) {
     return new Error('Invalid ZelApp message for storing');
   }
 
   const db = serviceHelper.databaseConnection();
   const database = db.db(config.database.zelappsglobal.database);
   await serviceHelper
-      .insertOneToDatabase(database, globalZelAppsMessages, message)
-      .catch((error) => {
-        log.error(error);
-        throw error;
-      });
+    .insertOneToDatabase(database, globalZelAppsMessages, message)
+    .catch((error) => {
+      log.error(error);
+      throw error;
+    });
   return true;
 }
 
@@ -3649,26 +4007,40 @@ async function updateZelAppSpecifications(zelAppSpecs) {
     const db = serviceHelper.databaseConnection();
     const database = db.db(config.database.zelappsglobal.database);
 
-    const query = {name : zelAppSpecs.name};
-    const update = {$set : zelAppSpecs};
+    const query = { name: zelAppSpecs.name };
+    const update = { $set: zelAppSpecs };
     const options = {
-      upsert : true,
+      upsert: true,
     };
     const projection = {
-      projection : {
-        _id : 0,
+      projection: {
+        _id: 0,
       },
     };
     const zelappInfo = await serviceHelper.findOneInDatabase(
-        database, globalZelAppsInformation, query, projection);
+      database,
+      globalZelAppsInformation,
+      query,
+      projection
+    );
     if (zelappInfo) {
       if (zelappInfo.height < zelAppSpecs.height) {
         await serviceHelper.updateOneInDatabase(
-            database, globalZelAppsInformation, query, update, options);
+          database,
+          globalZelAppsInformation,
+          query,
+          update,
+          options
+        );
       }
     } else {
       await serviceHelper.updateOneInDatabase(
-          database, globalZelAppsInformation, query, update, options);
+        database,
+        globalZelAppsInformation,
+        query,
+        update,
+        options
+      );
     }
   } catch (error) {
     // retry
@@ -3709,26 +4081,40 @@ async function updateZelAppSpecsForRescanReindex(zelAppSpecs) {
   const db = serviceHelper.databaseConnection();
   const database = db.db(config.database.zelappsglobal.database);
 
-  const query = {name : zelAppSpecs.name};
-  const update = {$set : zelAppSpecs};
+  const query = { name: zelAppSpecs.name };
+  const update = { $set: zelAppSpecs };
   const options = {
-    upsert : true,
+    upsert: true,
   };
   const projection = {
-    projection : {
-      _id : 0,
+    projection: {
+      _id: 0,
     },
   };
   const zelappInfo = await serviceHelper.findOneInDatabase(
-      database, globalZelAppsInformation, query, projection);
+    database,
+    globalZelAppsInformation,
+    query,
+    projection
+  );
   if (zelappInfo) {
     if (zelappInfo.height < zelAppSpecs.height) {
       await serviceHelper.updateOneInDatabase(
-          database, globalZelAppsInformation, query, update, options);
+        database,
+        globalZelAppsInformation,
+        query,
+        update,
+        options
+      );
     }
   } else {
-    await serviceHelper.updateOneInDatabase(database, globalZelAppsInformation,
-                                            query, update, options);
+    await serviceHelper.updateOneInDatabase(
+      database,
+      globalZelAppsInformation,
+      query,
+      update,
+      options
+    );
   }
   return true;
 }
@@ -3737,7 +4123,7 @@ async function checkZelAppMessageExistence(hash) {
   try {
     const dbopen = serviceHelper.databaseConnection();
     const zelappsDatabase = dbopen.db(config.database.zelappsglobal.database);
-    const zelappsQuery = {hash};
+    const zelappsQuery = { hash };
     const zelappsProjection = {};
     // a permanent global zelappmessage looks like this:
     // const permanentZelAppMessage = {
@@ -3752,8 +4138,11 @@ async function checkZelAppMessageExistence(hash) {
     //   valueSat,
     // };
     const zelappResult = await serviceHelper.findOneInDatabase(
-        zelappsDatabase, globalZelAppsMessages, zelappsQuery,
-        zelappsProjection);
+      zelappsDatabase,
+      globalZelAppsMessages,
+      zelappsQuery,
+      zelappsProjection
+    );
     if (zelappResult) {
       return zelappResult;
     }
@@ -3768,7 +4157,7 @@ async function checkZelAppTemporaryMessageExistence(hash) {
   try {
     const dbopen = serviceHelper.databaseConnection();
     const zelappsDatabase = dbopen.db(config.database.zelappsglobal.database);
-    const zelappsQuery = {hash};
+    const zelappsQuery = { hash };
     const zelappsProjection = {};
     // a temporary zelappmessage looks like this:
     // const newMessage = {
@@ -3782,8 +4171,11 @@ async function checkZelAppTemporaryMessageExistence(hash) {
     //   expireAt: new Date(validTill),
     // };
     const zelappResult = await serviceHelper.findOneInDatabase(
-        zelappsDatabase, globalZelAppsTempMessages, zelappsQuery,
-        zelappsProjection);
+      zelappsDatabase,
+      globalZelAppsTempMessages,
+      zelappsQuery,
+      zelappsProjection
+    );
     if (zelappResult) {
       return zelappResult;
     }
@@ -3797,11 +4189,16 @@ async function checkZelAppTemporaryMessageExistence(hash) {
 async function zelappHashHasMessage(hash) {
   const db = serviceHelper.databaseConnection();
   const database = db.db(config.database.zelcash.database);
-  const query = {hash};
-  const update = {$set : {message : true}};
+  const query = { hash };
+  const update = { $set: { message: true } };
   const options = {};
-  await serviceHelper.updateOneInDatabase(database, zelappsHashesCollection,
-                                          query, update, options);
+  await serviceHelper.updateOneInDatabase(
+    database,
+    zelappsHashesCollection,
+    query,
+    update,
+    options
+  );
   return true;
 }
 
@@ -3809,10 +4206,11 @@ async function zelappHashHasMessage(hash) {
 // the txid handles zelappregister type and zelappupdate type.
 async function checkAndRequestZelApp(hash, txid, height, valueSat, i = 0) {
   try {
-    const randomDelay = Math.floor((Math.random() * 1280)) + 420;
+    const randomDelay = Math.floor(Math.random() * 1280) + 420;
     await serviceHelper.delay(randomDelay);
     const appMessageExists = await checkZelAppMessageExistence(hash);
-    if (appMessageExists === false) { // otherwise do nothing
+    if (appMessageExists === false) {
+      // otherwise do nothing
       // we surely do not have that message in permanent storaage.
       // check temporary message storage
       // if we have it in temporary storage, get the temporary message
@@ -3820,15 +4218,15 @@ async function checkAndRequestZelApp(hash, txid, height, valueSat, i = 0) {
       if (tempMessage) {
         // temp message means its all ok. store it as permanent zelapp message
         const permanentZelAppMessage = {
-          type : tempMessage.type,
-          version : tempMessage.version,
-          zelAppSpecifications : tempMessage.zelAppSpecifications,
-          hash : tempMessage.hash,
-          timestamp : tempMessage.timestamp,
-          signature : tempMessage.signature,
-          txid : serviceHelper.ensureString(txid),
-          height : serviceHelper.ensureNumber(height),
-          valueSat : serviceHelper.ensureNumber(valueSat),
+          type: tempMessage.type,
+          version: tempMessage.version,
+          zelAppSpecifications: tempMessage.zelAppSpecifications,
+          hash: tempMessage.hash,
+          timestamp: tempMessage.timestamp,
+          signature: tempMessage.signature,
+          txid: serviceHelper.ensureString(txid),
+          height: serviceHelper.ensureNumber(height),
+          valueSat: serviceHelper.ensureNumber(valueSat),
         };
         await storeZelAppPermanentMessage(permanentZelAppMessage);
         // await update zelapphashes that we already have it stored
@@ -3842,7 +4240,7 @@ async function checkAndRequestZelApp(hash, txid, height, valueSat, i = 0) {
           }
           if (valueSat >= appPrice * 1e8) {
             const updateForSpecifications =
-                permanentZelAppMessage.zelAppSpecifications;
+              permanentZelAppMessage.zelAppSpecifications;
             updateForSpecifications.hash = permanentZelAppMessage.hash;
             updateForSpecifications.height = permanentZelAppMessage.height;
             // object of zelAppSpecifications extended for hash and height
@@ -3854,14 +4252,18 @@ async function checkAndRequestZelApp(hash, txid, height, valueSat, i = 0) {
           const db = serviceHelper.databaseConnection();
           const database = db.db(config.database.zelappsglobal.database);
           // may throw
-          const query = {name : tempMessage.zelAppSpecifications.name};
+          const query = { name: tempMessage.zelAppSpecifications.name };
           const projection = {
-            projection : {
-              _id : 0,
+            projection: {
+              _id: 0,
             },
           };
           const zelappInfo = await serviceHelper.findOneInDatabase(
-              database, globalZelAppsInformation, query, projection);
+            database,
+            globalZelAppsInformation,
+            query,
+            projection
+          );
           // here comparison of height differences and specifications
           // price shall be price for standard registration plus minus already
           // paid price according to old specifics. height remains height valid
@@ -3870,14 +4272,13 @@ async function checkAndRequestZelApp(hash, txid, height, valueSat, i = 0) {
           const previousSpecsPrice = appPricePerMonth(zelappInfo);
           // what is the height difference
           const heightDifference =
-              permanentZelAppMessage.height -
-              zelappInfo.height; // has to be lower than 22000
-          const perc = (config.zelapps.blocksLasting - heightDifference) /
-                       config.zelapps.blocksLasting;
+            permanentZelAppMessage.height - zelappInfo.height; // has to be lower than 22000
+          const perc =
+            (config.zelapps.blocksLasting - heightDifference) /
+            config.zelapps.blocksLasting;
           let actualPriceToPay = appPrice * 0.9;
           if (perc > 0) {
-            actualPriceToPay = (appPrice - (perc * previousSpecsPrice)) *
-                               0.9; // discount for missing heights. Allow 90%
+            actualPriceToPay = (appPrice - perc * previousSpecsPrice) * 0.9; // discount for missing heights. Allow 90%
           }
           actualPriceToPay = Number(Math.ceil(actualPriceToPay * 100) / 100);
           if (actualPriceToPay < 1) {
@@ -3885,7 +4286,7 @@ async function checkAndRequestZelApp(hash, txid, height, valueSat, i = 0) {
           }
           if (valueSat >= actualPriceToPay * 1e8) {
             const updateForSpecifications =
-                permanentZelAppMessage.zelAppSpecifications;
+              permanentZelAppMessage.zelAppSpecifications;
             updateForSpecifications.hash = permanentZelAppMessage.hash;
             updateForSpecifications.height = permanentZelAppMessage.height;
             // object of zelAppSpecifications extended for hash and height
@@ -3918,7 +4319,9 @@ async function checkAndRequestZelApp(hash, txid, height, valueSat, i = 0) {
 
 async function checkDockerAccessibility(req, res) {
   let body = '';
-  req.on('data', (data) => { body += data; });
+  req.on('data', (data) => {
+    body += data;
+  });
   req.on('end', async () => {
     try {
       const authorized = await serviceHelper.verifyPrivilege('user', req);
@@ -3934,15 +4337,16 @@ async function checkDockerAccessibility(req, res) {
       }
 
       await verifyRepository(processedBody.repotag);
-      const message =
-          serviceHelper.createSuccessMessage('Repotag is accessible');
+      const message = serviceHelper.createSuccessMessage(
+        'Repotag is accessible'
+      );
       return res.json(message);
     } catch (error) {
       log.warn(error);
       const errorResponse = serviceHelper.createErrorMessage(
-          error.message || error,
-          error.name,
-          error.code,
+        error.message || error,
+        error.name,
+        error.code
       );
       return res.json(errorResponse);
     }
@@ -3957,9 +4361,9 @@ function registrationInformation(req, res) {
   } catch (error) {
     log.error(error);
     const errorResponse = serviceHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
+      error.message || error,
+      error.name,
+      error.code
     );
     res.json(errorResponse);
   }
@@ -3972,36 +4376,52 @@ async function reindexGlobalAppsInformation() {
   try {
     const db = serviceHelper.databaseConnection();
     const database = db.db(config.database.zelappsglobal.database);
-    await serviceHelper.dropCollection(database, globalZelAppsInformation)
-        .catch((error) => {
-          if (error.message !== 'ns not found') {
-            throw error;
-          }
-        });
-    await database.collection(globalZelAppsInformation)
-        .createIndex(
-            {name : 1},
-            {name : 'query for getting zelapp based on zelapp specs name'});
-    await database.collection(globalZelAppsInformation)
-        .createIndex(
-            {owner : 1},
-            {name : 'query for getting zelapp based on zelapp specs owner'});
-    await database.collection(globalZelAppsInformation)
-        .createIndex({repotag : 1},
-                     {name : 'query for getting zelapp based on image'});
-    await database.collection(globalZelAppsInformation)
-        .createIndex({height : 1}, {
-          name : 'query for getting zelapp based on last height update'
-        }); // we need to know the height of app adjustment
-    await database.collection(globalZelAppsInformation)
-        .createIndex({hash : 1}, {
-          name : 'query for getting zelapp based on last hash'
-        }); // we need to know the hash of the last message update which is the
-            // true identifier
+    await serviceHelper
+      .dropCollection(database, globalZelAppsInformation)
+      .catch((error) => {
+        if (error.message !== 'ns not found') {
+          throw error;
+        }
+      });
+    await database
+      .collection(globalZelAppsInformation)
+      .createIndex(
+        { name: 1 },
+        { name: 'query for getting zelapp based on zelapp specs name' }
+      );
+    await database
+      .collection(globalZelAppsInformation)
+      .createIndex(
+        { owner: 1 },
+        { name: 'query for getting zelapp based on zelapp specs owner' }
+      );
+    await database
+      .collection(globalZelAppsInformation)
+      .createIndex(
+        { repotag: 1 },
+        { name: 'query for getting zelapp based on image' }
+      );
+    await database.collection(globalZelAppsInformation).createIndex(
+      { height: 1 },
+      {
+        name: 'query for getting zelapp based on last height update',
+      }
+    ); // we need to know the height of app adjustment
+    await database.collection(globalZelAppsInformation).createIndex(
+      { hash: 1 },
+      {
+        name: 'query for getting zelapp based on last hash',
+      }
+    ); // we need to know the hash of the last message update which is the
+    // true identifier
     const query = {};
-    const projection = {projection : {_id : 0}};
+    const projection = { projection: { _id: 0 } };
     const results = await serviceHelper.findInDatabase(
-        database, globalZelAppsMessages, query, projection);
+      database,
+      globalZelAppsMessages,
+      query,
+      projection
+    );
     // eslint-disable-next-line no-restricted-syntax
     for (const message of results) {
       const updateForSpecifications = message.zelAppSpecifications;
@@ -4022,28 +4442,43 @@ async function reindexGlobalAppsLocation() {
   try {
     const db = serviceHelper.databaseConnection();
     const database = db.db(config.database.zelappsglobal.database);
-    await serviceHelper.dropCollection(database, globalZelAppsLocations)
-        .catch((error) => {
-          if (error.message !== 'ns not found') {
-            throw error;
-          }
-        });
-    await database.collection(globalZelAppsLocations).createIndex({name : 1}, {
-      name : 'query for getting zelapp location based on zelapp specs name'
-    });
-    await database.collection(globalZelAppsLocations).createIndex({hash : 1}, {
-      name : 'query for getting zelapp location based on zelapp hash'
-    });
-    await database.collection(globalZelAppsLocations).createIndex({ip : 1}, {
-      name : 'query for getting zelapp location based on ip'
-    });
-    await database.collection(globalZelAppsLocations)
-        .createIndex({name : 1, ip : 1},
-                     {name : 'query for getting app based on ip and name'});
-    await database.collection(globalZelAppsLocations)
-        .createIndex(
-            {name : 1, ip : 1, broadcastedAt : 1},
-            {name : 'query for getting app to ensure we possess a message'});
+    await serviceHelper
+      .dropCollection(database, globalZelAppsLocations)
+      .catch((error) => {
+        if (error.message !== 'ns not found') {
+          throw error;
+        }
+      });
+    await database.collection(globalZelAppsLocations).createIndex(
+      { name: 1 },
+      {
+        name: 'query for getting zelapp location based on zelapp specs name',
+      }
+    );
+    await database.collection(globalZelAppsLocations).createIndex(
+      { hash: 1 },
+      {
+        name: 'query for getting zelapp location based on zelapp hash',
+      }
+    );
+    await database.collection(globalZelAppsLocations).createIndex(
+      { ip: 1 },
+      {
+        name: 'query for getting zelapp location based on ip',
+      }
+    );
+    await database
+      .collection(globalZelAppsLocations)
+      .createIndex(
+        { name: 1, ip: 1 },
+        { name: 'query for getting app based on ip and name' }
+      );
+    await database
+      .collection(globalZelAppsLocations)
+      .createIndex(
+        { name: 1, ip: 1, broadcastedAt: 1 },
+        { name: 'query for getting app to ensure we possess a message' }
+      );
     return true;
   } catch (error) {
     log.error(error);
@@ -4053,25 +4488,35 @@ async function reindexGlobalAppsLocation() {
 
 // function goes over all global zelapps messages and updates global zelapps
 // infromation database
-async function rescanGlobalAppsInformation(height = 0,
-                                           removeLastInformation = false) {
+async function rescanGlobalAppsInformation(
+  height = 0,
+  removeLastInformation = false
+) {
   try {
     const db = serviceHelper.databaseConnection();
     const database = db.db(config.database.zelappsglobal.database);
-    await serviceHelper.dropCollection(database, globalZelAppsInformation)
-        .catch((error) => {
-          if (error.message !== 'ns not found') {
-            throw error;
-          }
-        });
-    const query = {height : {$gte : height}};
-    const projection = {projection : {_id : 0}};
+    await serviceHelper
+      .dropCollection(database, globalZelAppsInformation)
+      .catch((error) => {
+        if (error.message !== 'ns not found') {
+          throw error;
+        }
+      });
+    const query = { height: { $gte: height } };
+    const projection = { projection: { _id: 0 } };
     const results = await serviceHelper.findInDatabase(
-        database, globalZelAppsMessages, query, projection);
+      database,
+      globalZelAppsMessages,
+      query,
+      projection
+    );
 
     if (removeLastInformation === true) {
       await serviceHelper.removeDocumentsFromCollection(
-          database, globalZelAppsInformation, query);
+        database,
+        globalZelAppsInformation,
+        query
+      );
     }
 
     // eslint-disable-next-line no-restricted-syntax
@@ -4091,8 +4536,10 @@ async function rescanGlobalAppsInformation(height = 0,
 
 async function reindexGlobalAppsLocationAPI(req, res) {
   try {
-    const authorized =
-        await serviceHelper.verifyPrivilege('adminandzelteam', req);
+    const authorized = await serviceHelper.verifyPrivilege(
+      'adminandzelteam',
+      req
+    );
     if (authorized === true) {
       await reindexGlobalAppsLocation();
       const message = serviceHelper.createSuccessMessage('Reindex successfull');
@@ -4104,9 +4551,9 @@ async function reindexGlobalAppsLocationAPI(req, res) {
   } catch (error) {
     log.error(error);
     const errorResponse = serviceHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
+      error.message || error,
+      error.name,
+      error.code
     );
     res.json(errorResponse);
   }
@@ -4114,8 +4561,10 @@ async function reindexGlobalAppsLocationAPI(req, res) {
 
 async function reindexGlobalAppsInformationAPI(req, res) {
   try {
-    const authorized =
-        await serviceHelper.verifyPrivilege('adminandzelteam', req);
+    const authorized = await serviceHelper.verifyPrivilege(
+      'adminandzelteam',
+      req
+    );
     if (authorized === true) {
       await reindexGlobalAppsInformation();
       const message = serviceHelper.createSuccessMessage('Reindex successfull');
@@ -4127,9 +4576,9 @@ async function reindexGlobalAppsInformationAPI(req, res) {
   } catch (error) {
     log.error(error);
     const errorResponse = serviceHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
+      error.message || error,
+      error.name,
+      error.code
     );
     res.json(errorResponse);
   }
@@ -4137,29 +4586,35 @@ async function reindexGlobalAppsInformationAPI(req, res) {
 
 async function rescanGlobalAppsInformationAPI(req, res) {
   try {
-    const authorized =
-        await serviceHelper.verifyPrivilege('adminandzelteam', req);
+    const authorized = await serviceHelper.verifyPrivilege(
+      'adminandzelteam',
+      req
+    );
     if (authorized === true) {
-      let {blockheight} =
-          req.params; // we accept both help/command and help?command=getinfo
+      let { blockheight } = req.params; // we accept both help/command and help?command=getinfo
       blockheight = blockheight || req.query.blockheight;
       if (!blockheight) {
-        const errMessage =
-            serviceHelper.createErrorMessage('No blockheight provided');
+        const errMessage = serviceHelper.createErrorMessage(
+          'No blockheight provided'
+        );
         res.json(errMessage);
       }
       blockheight = serviceHelper.ensureNumber(blockheight);
       const dbopen = serviceHelper.databaseConnection();
       const database = dbopen.db(config.database.zelcash.database);
-      const query = {generalScannedHeight : {$gte : 0}};
+      const query = { generalScannedHeight: { $gte: 0 } };
       const projection = {
-        projection : {
-          _id : 0,
-          generalScannedHeight : 1,
+        projection: {
+          _id: 0,
+          generalScannedHeight: 1,
         },
       };
       const currentHeight = await serviceHelper.findOneInDatabase(
-          database, scannedHeightCollection, query, projection);
+        database,
+        scannedHeightCollection,
+        query,
+        projection
+      );
       if (!currentHeight) {
         throw new Error('No scanned height found');
       }
@@ -4169,11 +4624,12 @@ async function rescanGlobalAppsInformationAPI(req, res) {
       if (blockheight < 0) {
         throw new Error('BlockHeight lower than 0');
       }
-      let {removelastinformation} = req.params;
+      let { removelastinformation } = req.params;
       removelastinformation =
-          removelastinformation || req.query.removelastinformation || false;
-      removelastinformation =
-          serviceHelper.ensureBoolean(removelastinformation);
+        removelastinformation || req.query.removelastinformation || false;
+      removelastinformation = serviceHelper.ensureBoolean(
+        removelastinformation
+      );
       await rescanGlobalAppsInformation(blockheight, removelastinformation);
       const message = serviceHelper.createSuccessMessage('Rescan successfull');
       res.json(message);
@@ -4184,9 +4640,9 @@ async function rescanGlobalAppsInformationAPI(req, res) {
   } catch (error) {
     log.error(error);
     const errorResponse = serviceHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
+      error.message || error,
+      error.name,
+      error.code
     );
     res.json(errorResponse);
   }
@@ -4198,23 +4654,31 @@ async function continuousZelAppHashesCheck() {
     // get zelapp hashes that do not have a message;
     const dbopen = serviceHelper.databaseConnection();
     const database = dbopen.db(config.database.zelcash.database);
-    const query = {message : false};
+    const query = { message: false };
     const projection = {
-      projection : {
-        _id : 0,
-        txid : 1,
-        hash : 1,
-        height : 1,
-        value : 1,
-        message : 1,
+      projection: {
+        _id: 0,
+        txid: 1,
+        hash: 1,
+        height: 1,
+        value: 1,
+        message: 1,
       },
     };
     const results = await serviceHelper.findInDatabase(
-        database, zelappsHashesCollection, query, projection);
+      database,
+      zelappsHashesCollection,
+      query,
+      projection
+    );
     // eslint-disable-next-line no-restricted-syntax
     for (const result of results) {
-      checkAndRequestZelApp(result.hash, result.txid, result.height,
-                            result.value);
+      checkAndRequestZelApp(
+        result.hash,
+        result.txid,
+        result.height,
+        result.value
+      );
       // eslint-disable-next-line no-await-in-loop
       await serviceHelper.delay(1234);
     }
@@ -4229,25 +4693,29 @@ async function getZelAppHashes(req, res) {
     const database = dbopen.db(config.database.zelcash.database);
     const query = {};
     const projection = {
-      projection : {
-        _id : 0,
-        txid : 1,
-        hash : 1,
-        height : 1,
-        value : 1,
-        message : 1,
+      projection: {
+        _id: 0,
+        txid: 1,
+        hash: 1,
+        height: 1,
+        value: 1,
+        message: 1,
       },
     };
     const results = await serviceHelper.findInDatabase(
-        database, zelappsHashesCollection, query, projection);
+      database,
+      zelappsHashesCollection,
+      query,
+      projection
+    );
     const resultsResponse = serviceHelper.createDataMessage(results);
     res.json(resultsResponse);
   } catch (error) {
     log.error(error);
     const errorResponse = serviceHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
+      error.message || error,
+      error.name,
+      error.code
     );
     res.json(errorResponse);
   }
@@ -4259,25 +4727,29 @@ async function getZelAppsLocations(req, res) {
     const database = dbopen.db(config.database.zelappsglobal.database);
     const query = {};
     const projection = {
-      projection : {
-        _id : 0,
-        name : 1,
-        hash : 1,
-        ip : 1,
-        broadcastedAt : 1,
-        expireAt : 1,
+      projection: {
+        _id: 0,
+        name: 1,
+        hash: 1,
+        ip: 1,
+        broadcastedAt: 1,
+        expireAt: 1,
       },
     };
     const results = await serviceHelper.findInDatabase(
-        database, globalZelAppsLocations, query, projection);
+      database,
+      globalZelAppsLocations,
+      query,
+      projection
+    );
     const resultsResponse = serviceHelper.createDataMessage(results);
     res.json(resultsResponse);
   } catch (error) {
     log.error(error);
     const errorResponse = serviceHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
+      error.message || error,
+      error.name,
+      error.code
     );
     res.json(errorResponse);
   }
@@ -4285,34 +4757,38 @@ async function getZelAppsLocations(req, res) {
 
 async function getZelAppsLocation(req, res) {
   try {
-    let {appname} = req.params;
+    let { appname } = req.params;
     appname = appname || req.query.appname;
     if (!appname) {
       throw new Error('No ZelApp name specified');
     }
     const dbopen = serviceHelper.databaseConnection();
     const database = dbopen.db(config.database.zelappsglobal.database);
-    const query = {name : new RegExp(`^${appname}$`, 'i')}; // case insensitive
+    const query = { name: new RegExp(`^${appname}$`, 'i') }; // case insensitive
     const projection = {
-      projection : {
-        _id : 0,
-        name : 1,
-        hash : 1,
-        ip : 1,
-        broadcastedAt : 1,
-        expireAt : 1,
+      projection: {
+        _id: 0,
+        name: 1,
+        hash: 1,
+        ip: 1,
+        broadcastedAt: 1,
+        expireAt: 1,
       },
     };
     const results = await serviceHelper.findInDatabase(
-        database, globalZelAppsLocations, query, projection);
+      database,
+      globalZelAppsLocations,
+      query,
+      projection
+    );
     const resultsResponse = serviceHelper.createDataMessage(results);
     res.json(resultsResponse);
   } catch (error) {
     log.error(error);
     const errorResponse = serviceHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
+      error.message || error,
+      error.name,
+      error.code
     );
     res.json(errorResponse);
   }
@@ -4331,23 +4807,30 @@ async function checkSynced() {
     }
     const dbopen = serviceHelper.databaseConnection();
     const database = dbopen.db(config.database.zelcash.database);
-    const query = {generalScannedHeight : {$gte : 0}};
+    const query = { generalScannedHeight: { $gte: 0 } };
     const projection = {
-      projection : {
-        _id : 0,
-        generalScannedHeight : 1,
+      projection: {
+        _id: 0,
+        generalScannedHeight: 1,
       },
     };
     const result = await serviceHelper.findOneInDatabase(
-        database, scannedHeightCollection, query, projection);
+      database,
+      scannedHeightCollection,
+      query,
+      projection
+    );
     if (!result) {
       throw new Error('Scanning not initiated');
     }
-    const explorerHeight =
-        serviceHelper.ensureNumber(result.generalScannedHeight);
+    const explorerHeight = serviceHelper.ensureNumber(
+      result.generalScannedHeight
+    );
 
-    if (explorerHeight + 1 === zelcashHeight ||
-        explorerHeight === zelcashHeight) {
+    if (
+      explorerHeight + 1 === zelcashHeight ||
+      explorerHeight === zelcashHeight
+    ) {
       return true;
     }
     return false;
@@ -4362,9 +4845,13 @@ async function getAllGlobalApplicationsNames() {
     const db = serviceHelper.databaseConnection();
     const database = db.db(config.database.zelappsglobal.database);
     const query = {};
-    const projection = {projection : {_id : 0, name : 1}};
+    const projection = { projection: { _id: 0, name: 1 } };
     const results = await serviceHelper.findInDatabase(
-        database, globalZelAppsInformation, query, projection);
+      database,
+      globalZelAppsInformation,
+      query,
+      projection
+    );
     const names = results.map((result) => result.name);
     return names;
   } catch (error) {
@@ -4377,19 +4864,23 @@ async function getRunningAppList(appName) {
   console.log(appName);
   const dbopen = serviceHelper.databaseConnection();
   const database = dbopen.db(config.database.zelappsglobal.database);
-  const query = {name : appName};
+  const query = { name: appName };
   const projection = {
-    projection : {
-      _id : 0,
-      name : 1,
-      hash : 1,
-      ip : 1,
-      broadcastedAt : 1,
-      expireAt : 1,
+    projection: {
+      _id: 0,
+      name: 1,
+      hash: 1,
+      ip: 1,
+      broadcastedAt: 1,
+      expireAt: 1,
     },
   };
   const results = await serviceHelper.findInDatabase(
-      database, globalZelAppsLocations, query, projection);
+    database,
+    globalZelAppsLocations,
+    query,
+    projection
+  );
   return results;
 }
 
@@ -4397,21 +4888,26 @@ async function getApplicationGlobalSpecifications(appName) {
   const db = serviceHelper.databaseConnection();
   const database = db.db(config.database.zelappsglobal.database);
 
-  const query = {name : new RegExp(`^${appName}$`, 'i')};
+  const query = { name: new RegExp(`^${appName}$`, 'i') };
   const projection = {
-    projection : {
-      _id : 0,
+    projection: {
+      _id: 0,
     },
   };
   const zelappInfo = await serviceHelper.findOneInDatabase(
-      database, globalZelAppsInformation, query, projection);
+    database,
+    globalZelAppsInformation,
+    query,
+    projection
+  );
   return zelappInfo;
 }
 
 async function getApplicationLocalSpecifications(appName) {
   const allZelApps = await availableZelApps();
-  const zelappInfo = allZelApps.find((zelapp) => zelapp.name.toLowerCase() ===
-                                                 appName.toLowerCase());
+  const zelappInfo = allZelApps.find(
+    (zelapp) => zelapp.name.toLowerCase() === appName.toLowerCase()
+  );
   return zelappInfo;
 }
 
@@ -4446,18 +4942,23 @@ async function getApplicationSpecifications(appName) {
   const db = serviceHelper.databaseConnection();
   const database = db.db(config.database.zelappsglobal.database);
 
-  const query = {name : new RegExp(`^${appName}$`, 'i')};
+  const query = { name: new RegExp(`^${appName}$`, 'i') };
   const projection = {
-    projection : {
-      _id : 0,
+    projection: {
+      _id: 0,
     },
   };
   let zelappInfo = await serviceHelper.findOneInDatabase(
-      database, globalZelAppsInformation, query, projection);
+    database,
+    globalZelAppsInformation,
+    query,
+    projection
+  );
   if (!zelappInfo) {
     const allZelApps = await availableZelApps();
-    zelappInfo = allZelApps.find((zelapp) => zelapp.name.toLowerCase() ===
-                                             appName.toLowerCase());
+    zelappInfo = allZelApps.find(
+      (zelapp) => zelapp.name.toLowerCase() === appName.toLowerCase()
+    );
   }
   return zelappInfo;
 }
@@ -4467,14 +4968,18 @@ async function getStrictApplicationSpecifications(appName) {
   const db = serviceHelper.databaseConnection();
   const database = db.db(config.database.zelappsglobal.database);
 
-  const query = {name : appName};
+  const query = { name: appName };
   const projection = {
-    projection : {
-      _id : 0,
+    projection: {
+      _id: 0,
     },
   };
   let zelappInfo = await serviceHelper.findOneInDatabase(
-      database, globalZelAppsInformation, query, projection);
+    database,
+    globalZelAppsInformation,
+    query,
+    projection
+  );
   if (!zelappInfo) {
     const allZelApps = await availableZelApps();
     zelappInfo = allZelApps.find((zelapp) => zelapp.name === appName);
@@ -4484,7 +4989,7 @@ async function getStrictApplicationSpecifications(appName) {
 
 async function getApplicationSpecificationAPI(req, res) {
   try {
-    let {appname} = req.params;
+    let { appname } = req.params;
     appname = appname || req.query.appname;
     if (!appname) {
       throw new Error('No Application Name specified');
@@ -4498,9 +5003,9 @@ async function getApplicationSpecificationAPI(req, res) {
   } catch (error) {
     log.error(error);
     const errorResponse = serviceHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
+      error.message || error,
+      error.name,
+      error.code
     );
     res.json(errorResponse);
   }
@@ -4508,7 +5013,7 @@ async function getApplicationSpecificationAPI(req, res) {
 
 async function getApplicationOwnerAPI(req, res) {
   try {
-    let {appname} = req.params;
+    let { appname } = req.params;
     appname = appname || req.query.appname;
     if (!appname) {
       throw new Error('No Application Name specified');
@@ -4522,9 +5027,9 @@ async function getApplicationOwnerAPI(req, res) {
   } catch (error) {
     log.error(error);
     const errorResponse = serviceHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
+      error.message || error,
+      error.name,
+      error.code
     );
     res.json(errorResponse);
   }
@@ -4546,7 +5051,7 @@ async function trySpawningGlobalApplication() {
     const globalAppNames = await getAllGlobalApplicationsNames();
     // pick a random one
     const numberOfGlobalApps = globalAppNames.length;
-    const randomAppnumber = Math.floor((Math.random() * numberOfGlobalApps));
+    const randomAppnumber = Math.floor(Math.random() * numberOfGlobalApps);
     const randomApp = globalAppNames[randomAppnumber];
     if (!randomApp) {
       log.info('No application specifications found');
@@ -4558,8 +5063,9 @@ async function trySpawningGlobalApplication() {
     // TODO evaluate if its not better to check locally running applications!
     const runningAppList = await getRunningAppList(randomApp);
     if (runningAppList.length >= config.zelapps.minimumInstances) {
-      log.info(`Application ${randomApp} is already spawned on ${
-          runningAppList.length} instances`);
+      log.info(
+        `Application ${randomApp} is already spawned on ${runningAppList.length} instances`
+      );
       await serviceHelper.delay(config.zelapps.installation.delay * 1000);
       trySpawningGlobalApplication();
       return;
@@ -4570,9 +5076,10 @@ async function trySpawningGlobalApplication() {
     if (benchmarkResponse.status === 'success') {
       const benchmarkResponseData = JSON.parse(benchmarkResponse.data);
       if (benchmarkResponseData.ipaddress) {
-        myIP = benchmarkResponseData.ipaddress.length > 5
-                   ? benchmarkResponseData.ipaddress
-                   : null;
+        myIP =
+          benchmarkResponseData.ipaddress.length > 5
+            ? benchmarkResponseData.ipaddress
+            : null;
       }
     }
     if (myIP === null) {
@@ -4580,8 +5087,9 @@ async function trySpawningGlobalApplication() {
     }
     // check if app not running on this device
     if (runningAppList.find((document) => document.ip === myIP)) {
-      log.info(`Application ${
-          randomApp} is reported as already running on this Flux`);
+      log.info(
+        `Application ${randomApp} is reported as already running on this Flux`
+      );
       await serviceHelper.delay(config.zelapps.installation.delay * 1000);
       trySpawningGlobalApplication();
       return;
@@ -4591,9 +5099,11 @@ async function trySpawningGlobalApplication() {
     if (runningApps.status !== 'success') {
       throw new Error('Unable to check running apps on this Flux');
     }
-    if (runningApps.data.find(
-            (app) =>
-                app.Names[0].substr(4, app.Names[0].length) === randomApp)) {
+    if (
+      runningApps.data.find(
+        (app) => app.Names[0].substr(4, app.Names[0].length) === randomApp
+      )
+    ) {
       log.info(`${randomApp} application is already running on this Flux`);
       await serviceHelper.delay(config.zelapps.installation.delay * 1000);
       trySpawningGlobalApplication();
@@ -4601,11 +5111,13 @@ async function trySpawningGlobalApplication() {
     }
     // check if node is capable to run it according to specifications
     // get app specifications
-    const appSpecifications =
-        await getApplicationGlobalSpecifications(randomApp);
+    const appSpecifications = await getApplicationGlobalSpecifications(
+      randomApp
+    );
     if (!appSpecifications) {
       throw new Error(
-          `Specifications for application ${randomApp} were not found!`);
+        `Specifications for application ${randomApp} were not found!`
+      );
     }
     // run the verification
     // get tier and adjust specifications
@@ -4615,19 +5127,20 @@ async function trySpawningGlobalApplication() {
       const ramTier = `ram${tier}`;
       const cpuTier = `cpu${tier}`;
       appSpecifications.cpu =
-          appSpecifications[cpuTier] || appSpecifications.cpu;
+        appSpecifications[cpuTier] || appSpecifications.cpu;
       appSpecifications.ram =
-          appSpecifications[ramTier] || appSpecifications.ram;
+        appSpecifications[ramTier] || appSpecifications.ram;
       appSpecifications.hdd =
-          appSpecifications[hddTier] || appSpecifications.hdd;
+        appSpecifications[hddTier] || appSpecifications.hdd;
     }
     // verify requirements
     await checkZelAppRequirements(appSpecifications);
 
     // if all ok Check hashes comparison if its out turn to start the app. 1%
     // probability.
-    const randomNumber =
-        Math.floor((Math.random() * config.zelapps.installation.probability));
+    const randomNumber = Math.floor(
+      Math.random() * config.zelapps.installation.probability
+    );
     if (randomNumber !== 0) {
       log.info('Other Fluxes are evaluating application installation');
       await serviceHelper.delay(config.zelapps.installation.delay * 1000);
@@ -4656,9 +5169,10 @@ async function checkAndNotifyPeersOfRunningApps() {
     if (benchmarkResponse.status === 'success') {
       const benchmarkResponseData = JSON.parse(benchmarkResponse.data);
       if (benchmarkResponseData.ipaddress) {
-        myIP = benchmarkResponseData.ipaddress.length > 5
-                   ? benchmarkResponseData.ipaddress
-                   : null;
+        myIP =
+          benchmarkResponseData.ipaddress.length > 5
+            ? benchmarkResponseData.ipaddress
+            : null;
       }
     }
     if (myIP === null) {
@@ -4677,12 +5191,14 @@ async function checkAndNotifyPeersOfRunningApps() {
     const installedApps = installedAppsRes.data;
     const runningApps = runningAppsRes.data;
     const installedAppsNames = installedApps.map((app) => app.name);
-    const runningAppsNames =
-        runningApps.map((app) => app.Names[0].substr(4, app.Names[0].length));
+    const runningAppsNames = runningApps.map((app) =>
+      app.Names[0].substr(4, app.Names[0].length)
+    );
     // installed always is bigger array than running
     const runningSet = new Set(runningAppsNames);
     const stoppedApps = installedAppsNames.filter(
-        (installedApp) => !runningSet.has(installedApp));
+      (installedApp) => !runningSet.has(installedApp)
+    );
     // check if stoppedApp is a global application present in specifics. If so,
     // try to start it. eslint-disable-next-line no-restricted-syntax
     for (const stoppedApp of stoppedApps) {
@@ -4692,7 +5208,8 @@ async function checkAndNotifyPeersOfRunningApps() {
         const appDetails = await getApplicationGlobalSpecifications(stoppedApp);
         if (appDetails) {
           log.warn(
-              `${stoppedApp} is stopped but shall be running. Starting...`);
+            `${stoppedApp} is stopped but shall be running. Starting...`
+          );
           // it is a stopped global zelapp. Try to run it.
           const zelappId = getZelAppIdentifier(stoppedApp);
           // eslint-disable-next-line no-await-in-loop
@@ -4705,8 +5222,9 @@ async function checkAndNotifyPeersOfRunningApps() {
         await removeZelAppLocally(stoppedApp);
       }
     }
-    const installedAndRunning = installedApps.filter(
-        (installedApp) => runningAppsNames.includes(installedApp.name));
+    const installedAndRunning = installedApps.filter((installedApp) =>
+      runningAppsNames.includes(installedApp.name)
+    );
     // eslint-disable-next-line no-restricted-syntax
     for (const application of installedAndRunning) {
       log.info(`${application.name} is running properly. Broadcasting status.`);
@@ -4715,12 +5233,11 @@ async function checkAndNotifyPeersOfRunningApps() {
         // we can distinguish pure local apps from global with hash and height
         const broadcastedAt = new Date().getTime();
         const newZelAppRunningMessage = {
-          type : 'zelapprunning',
-          version : 1,
-          name : application.name,
-          hash : application
-                     .hash, // hash of application specifics that are running
-          ip : myIP,
+          type: 'zelapprunning',
+          version: 1,
+          name: application.name,
+          hash: application.hash, // hash of application specifics that are running
+          ip: myIP,
           broadcastedAt,
         };
 
@@ -4731,12 +5248,14 @@ async function checkAndNotifyPeersOfRunningApps() {
         await serviceHelper.delay(2345);
         // eslint-disable-next-line no-await-in-loop
         await zelfluxCommunication.broadcastMessageToOutgoing(
-            newZelAppRunningMessage);
+          newZelAppRunningMessage
+        );
         // eslint-disable-next-line no-await-in-loop
         await serviceHelper.delay(2345);
         // eslint-disable-next-line no-await-in-loop
         await zelfluxCommunication.broadcastMessageToIncoming(
-            newZelAppRunningMessage);
+          newZelAppRunningMessage
+        );
         // broadcast messages about running apps to all peers
       } catch (err) {
         log.error(err);
@@ -4761,39 +5280,50 @@ async function expireGlobalApplications() {
     // get current height
     const dbopen = serviceHelper.databaseConnection();
     const database = dbopen.db(config.database.zelcash.database);
-    const query = {generalScannedHeight : {$gte : 0}};
+    const query = { generalScannedHeight: { $gte: 0 } };
     const projection = {
-      projection : {
-        _id : 0,
-        generalScannedHeight : 1,
+      projection: {
+        _id: 0,
+        generalScannedHeight: 1,
       },
     };
     const result = await serviceHelper.findOneInDatabase(
-        database, scannedHeightCollection, query, projection);
+      database,
+      scannedHeightCollection,
+      query,
+      projection
+    );
     if (!result) {
       throw new Error('Scanning not initiated');
     }
-    const explorerHeight =
-        serviceHelper.ensureNumber(result.generalScannedHeight);
+    const explorerHeight = serviceHelper.ensureNumber(
+      result.generalScannedHeight
+    );
     const expirationHeight = explorerHeight - config.zelapps.blocksLasting;
     // get global applications specification that have up to date data
     // find applications that have specifications height lower than
     // expirationHeight
     const databaseZelApps = dbopen.db(config.database.zelappsglobal.database);
-    const queryZelApps = {height : {$lt : expirationHeight}};
-    const projectionZelApps = {projection : {_id : 0, name : 1}};
+    const queryZelApps = { height: { $lt: expirationHeight } };
+    const projectionZelApps = { projection: { _id: 0, name: 1 } };
     const results = await serviceHelper.findInDatabase(
-        databaseZelApps, globalZelAppsInformation, queryZelApps,
-        projectionZelApps);
+      databaseZelApps,
+      globalZelAppsInformation,
+      queryZelApps,
+      projectionZelApps
+    );
     const appNamesToExpire = results.map((res) => res.name);
     // remove appNamesToExpire apps from global database
     // eslint-disable-next-line no-restricted-syntax
     for (const appName of appNamesToExpire) {
-      const queryDeleteApp = {name : appName};
+      const queryDeleteApp = { name: appName };
       // eslint-disable-next-line no-await-in-loop
       await serviceHelper.findOneAndDeleteInDatabase(
-          databaseZelApps, globalZelAppsInformation, queryDeleteApp,
-          projectionZelApps);
+        databaseZelApps,
+        globalZelAppsInformation,
+        queryDeleteApp,
+        projectionZelApps
+      );
     }
 
     // get list of locally installed apps.
@@ -4802,8 +5332,9 @@ async function expireGlobalApplications() {
       throw new Error('Failed to get installed Apps');
     }
     const installedApps = installedAppsRes.data;
-    const appsToRemove =
-        installedApps.filter((app) => appNamesToExpire.includes(app.name));
+    const appsToRemove = installedApps.filter((app) =>
+      appNamesToExpire.includes(app.name)
+    );
     const appsToRemoveNames = appsToRemove.map((app) => app.name);
     // remove appsToRemoveNames apps from locally running
     // eslint-disable-next-line no-restricted-syntax
@@ -4811,9 +5342,8 @@ async function expireGlobalApplications() {
       // eslint-disable-next-line no-await-in-loop
       await removeZelAppLocally(appName);
       // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay(6 * 60 *
-                                1000); // wait for 6 mins so we dont have more
-                                       // removals at the same time
+      await serviceHelper.delay(6 * 60 * 1000); // wait for 6 mins so we dont have more
+      // removals at the same time
     }
   } catch (error) {
     log.error(error);
@@ -4844,26 +5374,28 @@ async function checkAndRemoveApplicationInstance() {
       const runningAppList = await getRunningAppList(installedApp.name);
       if (runningAppList.length > config.zelapps.maximumInstances) {
         // eslint-disable-next-line no-await-in-loop
-        const appDetails =
-            await getApplicationGlobalSpecifications(installedApp.name);
+        const appDetails = await getApplicationGlobalSpecifications(
+          installedApp.name
+        );
         if (appDetails) {
-          log.info(`Application ${installedApp.name} is already spawned on ${
-              runningAppList
-                  .length} instances. Checking removal availability..`);
-          const randomNumber =
-              Math.floor((Math.random() * config.zelapps.removal.probability));
+          log.info(
+            `Application ${installedApp.name} is already spawned on ${runningAppList.length} instances. Checking removal availability..`
+          );
+          const randomNumber = Math.floor(
+            Math.random() * config.zelapps.removal.probability
+          );
           if (randomNumber === 0) {
             log.warn(`Removing application ${installedApp.name} locally`);
             // eslint-disable-next-line no-await-in-loop
             await removeZelAppLocally(installedApp.name);
             log.warn(`Application ${installedApp.name} locally removed`);
             // eslint-disable-next-line no-await-in-loop
-            await serviceHelper.delay(config.zelapps.removal.delay *
-                                      1000); // wait for 6 mins so we dont have
-                                             // more removals at the same time
+            await serviceHelper.delay(config.zelapps.removal.delay * 1000); // wait for 6 mins so we dont have
+            // more removals at the same time
           } else {
-            log.info(`Other Fluxes are evaluating application ${
-                installedApp.name} removal.`);
+            log.info(
+              `Other Fluxes are evaluating application ${installedApp.name} removal.`
+            );
           }
         }
       }
@@ -4877,13 +5409,13 @@ async function softRedeploy(zelappSpecs, res) {
   try {
     await softRemoveZelAppLocally(zelappSpecs.name, res);
     const zelappRedeployResponse = serviceHelper.createDataMessage(
-        'Application softly removed. Awaiting installation...');
+      'Application softly removed. Awaiting installation...'
+    );
     log.info(zelappRedeployResponse);
     if (res) {
       res.write(serviceHelper.ensureString(zelappRedeployResponse));
     }
-    await serviceHelper.delay(config.zelapps.redeploy.delay *
-                              1000); // wait for delay mins
+    await serviceHelper.delay(config.zelapps.redeploy.delay * 1000); // wait for delay mins
     // run the verification
     // get tier and adjust specifications
     const tier = await zelnodeTier();
@@ -4893,11 +5425,11 @@ async function softRedeploy(zelappSpecs, res) {
       const ramTier = `ram${tier}`;
       const cpuTier = `cpu${tier}`;
       appSpecifications.cpu =
-          appSpecifications[cpuTier] || appSpecifications.cpu;
+        appSpecifications[cpuTier] || appSpecifications.cpu;
       appSpecifications.ram =
-          appSpecifications[ramTier] || appSpecifications.ram;
+        appSpecifications[ramTier] || appSpecifications.ram;
       appSpecifications.hdd =
-          appSpecifications[hddTier] || appSpecifications.hdd;
+        appSpecifications[hddTier] || appSpecifications.hdd;
     }
     // verify requirements
     await checkZelAppRequirements(appSpecifications);
@@ -4914,13 +5446,13 @@ async function hardRedeploy(zelappSpecs, res) {
   try {
     await removeZelAppLocally(zelappSpecs.name, res, false, false);
     const zelappRedeployResponse = serviceHelper.createDataMessage(
-        'Application removed. Awaiting installation...');
+      'Application removed. Awaiting installation...'
+    );
     log.info(zelappRedeployResponse);
     if (res) {
       res.write(serviceHelper.ensureString(zelappRedeployResponse));
     }
-    await serviceHelper.delay(config.zelapps.redeploy.delay *
-                              1000); // wait for delay mins
+    await serviceHelper.delay(config.zelapps.redeploy.delay * 1000); // wait for delay mins
     // run the verification
     // get tier and adjust specifications
     const tier = await zelnodeTier();
@@ -4930,11 +5462,11 @@ async function hardRedeploy(zelappSpecs, res) {
       const ramTier = `ram${tier}`;
       const cpuTier = `cpu${tier}`;
       appSpecifications.cpu =
-          appSpecifications[cpuTier] || appSpecifications.cpu;
+        appSpecifications[cpuTier] || appSpecifications.cpu;
       appSpecifications.ram =
-          appSpecifications[ramTier] || appSpecifications.ram;
+        appSpecifications[ramTier] || appSpecifications.ram;
       appSpecifications.hdd =
-          appSpecifications[hddTier] || appSpecifications.hdd;
+        appSpecifications[hddTier] || appSpecifications.hdd;
     }
     // verify requirements
     await checkZelAppRequirements(appSpecifications);
@@ -4967,10 +5499,12 @@ async function reinstallOldApplications() {
       // if same, do nothing. if different remove and install.
 
       // eslint-disable-next-line no-await-in-loop
-      const appSpecifications =
-          await getStrictApplicationSpecifications(installedApp.name);
+      const appSpecifications = await getStrictApplicationSpecifications(
+        installedApp.name
+      );
       const randomNumber = Math.floor(
-          (Math.random() * config.zelapps.redeploy.probability)); // 50%
+        Math.random() * config.zelapps.redeploy.probability
+      ); // 50%
       if (appSpecifications && appSpecifications.hash !== installedApp.hash) {
         // eslint-disable-next-line no-await-in-loop
         log.warn(`Application ${installedApp.name} version is obsolete.`);
@@ -4985,11 +5519,11 @@ async function reinstallOldApplications() {
             const ramTier = `ram${tier}`;
             const cpuTier = `cpu${tier}`;
             appSpecifications.cpu =
-                appSpecifications[cpuTier] || appSpecifications.cpu;
+              appSpecifications[cpuTier] || appSpecifications.cpu;
             appSpecifications.ram =
-                appSpecifications[ramTier] || appSpecifications.ram;
+              appSpecifications[ramTier] || appSpecifications.ram;
             appSpecifications.hdd =
-                appSpecifications[hddTier] || appSpecifications.hdd;
+              appSpecifications[hddTier] || appSpecifications.hdd;
           }
           // verify requirements
           // eslint-disable-next-line no-await-in-loop
@@ -5003,20 +5537,16 @@ async function reinstallOldApplications() {
               await softRemoveZelAppLocally(installedApp.name);
               log.warn('Application softly removed. Awaiting installation...');
               // eslint-disable-next-line no-await-in-loop
-              await serviceHelper.delay(
-                  config.zelapps.removal.delay *
-                  1000); // wait for delay mins so we dont have more removals at
-                         // the same time
+              await serviceHelper.delay(config.zelapps.removal.delay * 1000); // wait for delay mins so we dont have more removals at
+              // the same time
 
               // install the app
               // eslint-disable-next-line no-await-in-loop
               await softRegisterZelAppLocally(appSpecifications);
 
               // eslint-disable-next-line no-await-in-loop
-              await serviceHelper.delay(
-                  config.zelapps.redeploy.delay *
-                  1000); // wait for delay mins so we dont have more removals at
-                         // the same time
+              await serviceHelper.delay(config.zelapps.redeploy.delay * 1000); // wait for delay mins so we dont have more removals at
+              // the same time
             } catch (error) {
               log.error(error);
               removeZelAppLocally(appSpecifications.name, null, true);
@@ -5029,20 +5559,16 @@ async function reinstallOldApplications() {
               await removeZelAppLocally(installedApp.name);
               log.warn('Application removed. Awaiting installation...');
               // eslint-disable-next-line no-await-in-loop
-              await serviceHelper.delay(
-                  config.zelapps.removal.delay *
-                  1000); // wait for delay mins so we dont have more removals at
-                         // the same time
+              await serviceHelper.delay(config.zelapps.removal.delay * 1000); // wait for delay mins so we dont have more removals at
+              // the same time
 
               // install the app
               // eslint-disable-next-line no-await-in-loop
               await registerZelAppLocally(appSpecifications);
 
               // eslint-disable-next-line no-await-in-loop
-              await serviceHelper.delay(
-                  config.zelapps.redeploy.delay *
-                  1000); // wait for delay mins so we dont have more removals at
-                         // the same time
+              await serviceHelper.delay(config.zelapps.redeploy.delay * 1000); // wait for delay mins so we dont have more removals at
+              // the same time
             } catch (error) {
               log.error(error);
               removeZelAppLocally(appSpecifications.name, null, true);
@@ -5050,7 +5576,8 @@ async function reinstallOldApplications() {
           }
         } else {
           log.info(
-              'Other Fluxes are redeploying application. Waiting for next round.');
+            'Other Fluxes are redeploying application. Waiting for next round.'
+          );
         }
       }
       // else specifications do not exist anymore, app shall expire itself
@@ -5062,7 +5589,9 @@ async function reinstallOldApplications() {
 
 async function getAppPrice(req, res) {
   let body = '';
-  req.on('data', (data) => { body += data; });
+  req.on('data', (data) => {
+    body += data;
+  });
   req.on('end', async () => {
     try {
       const processedBody = serviceHelper.ensureObject(body);
@@ -5070,11 +5599,11 @@ async function getAppPrice(req, res) {
 
       zelAppSpecification = serviceHelper.ensureObject(zelAppSpecification);
 
-      let {name} = zelAppSpecification;
-      let {cpu} = zelAppSpecification;
-      let {ram} = zelAppSpecification;
-      let {hdd} = zelAppSpecification;
-      const {tiered} = zelAppSpecification;
+      let { name } = zelAppSpecification;
+      let { cpu } = zelAppSpecification;
+      let { ram } = zelAppSpecification;
+      let { hdd } = zelAppSpecification;
+      const { tiered } = zelAppSpecification;
 
       // check if signature of received data is correct
       if (!name || !cpu || !ram || !hdd) {
@@ -5087,32 +5616,43 @@ async function getAppPrice(req, res) {
       hdd = serviceHelper.ensureNumber(hdd);
       if (typeof tiered !== 'boolean') {
         throw new Error(
-            'Invalid tiered value obtained. Only boolean as true or false allowed.');
+          'Invalid tiered value obtained. Only boolean as true or false allowed.'
+        );
       }
 
       // finalised parameters that will get stored in global database
       const zelAppSpecFormatted = {
-        name,   // string
-        cpu,    // float 0.1 step
-        ram,    // integer 100 step (mb)
-        hdd,    // integer 1 step
+        name, // string
+        cpu, // float 0.1 step
+        ram, // integer 100 step (mb)
+        hdd, // integer 1 step
         tiered, // boolean
       };
 
       if (tiered) {
-        let {cpubasic} = zelAppSpecification;
-        let {cpusuper} = zelAppSpecification;
-        let {cpubamf} = zelAppSpecification;
-        let {rambasic} = zelAppSpecification;
-        let {ramsuper} = zelAppSpecification;
-        let {rambamf} = zelAppSpecification;
-        let {hddbasic} = zelAppSpecification;
-        let {hddsuper} = zelAppSpecification;
-        let {hddbamf} = zelAppSpecification;
-        if (!cpubasic || !cpusuper || !cpubamf || !rambasic || !ramsuper ||
-            !rambamf || !hddbasic || !hddsuper || !hddbamf) {
+        let { cpubasic } = zelAppSpecification;
+        let { cpusuper } = zelAppSpecification;
+        let { cpubamf } = zelAppSpecification;
+        let { rambasic } = zelAppSpecification;
+        let { ramsuper } = zelAppSpecification;
+        let { rambamf } = zelAppSpecification;
+        let { hddbasic } = zelAppSpecification;
+        let { hddsuper } = zelAppSpecification;
+        let { hddbamf } = zelAppSpecification;
+        if (
+          !cpubasic ||
+          !cpusuper ||
+          !cpubamf ||
+          !rambasic ||
+          !ramsuper ||
+          !rambamf ||
+          !hddbasic ||
+          !hddsuper ||
+          !hddbamf
+        ) {
           throw new Error(
-              'ZelApp was requested as tiered setup but specifications are missing');
+            'ZelApp was requested as tiered setup but specifications are missing'
+          );
         }
         cpubasic = serviceHelper.ensureNumber(cpubasic);
         cpusuper = serviceHelper.ensureNumber(cpusuper);
@@ -5144,14 +5684,18 @@ async function getAppPrice(req, res) {
       const db = serviceHelper.databaseConnection();
       const database = db.db(config.database.zelappsglobal.database);
       // may throw
-      const query = {name : zelAppSpecFormatted.name};
+      const query = { name: zelAppSpecFormatted.name };
       const projection = {
-        projection : {
-          _id : 0,
+        projection: {
+          _id: 0,
         },
       };
       const zelappInfo = await serviceHelper.findOneInDatabase(
-          database, globalZelAppsInformation, query, projection);
+        database,
+        globalZelAppsInformation,
+        query,
+        projection
+      );
       let actualPriceToPay = appPricePerMonth(zelAppSpecFormatted);
       if (zelappInfo) {
         const previousSpecsPrice = appPricePerMonth(zelappInfo);
@@ -5163,12 +5707,12 @@ async function getAppPrice(req, res) {
         } else {
           throw new Error(zelcashGetInfo.data.message || zelcashGetInfo.data);
         }
-        const heightDifference =
-            zelcashHeight - zelappInfo.height; // has to be lower than 22000
-        const perc = (config.zelapps.blocksLasting - heightDifference) /
-                     config.zelapps.blocksLasting;
+        const heightDifference = zelcashHeight - zelappInfo.height; // has to be lower than 22000
+        const perc =
+          (config.zelapps.blocksLasting - heightDifference) /
+          config.zelapps.blocksLasting;
         if (perc > 0) {
-          actualPriceToPay -= (perc * previousSpecsPrice);
+          actualPriceToPay -= perc * previousSpecsPrice;
         }
       }
       actualPriceToPay = Number(Math.ceil(actualPriceToPay * 100) / 100);
@@ -5180,9 +5724,9 @@ async function getAppPrice(req, res) {
     } catch (error) {
       log.warn(error);
       const errorResponse = serviceHelper.createErrorMessage(
-          error.message || error,
-          error.name,
-          error.code,
+        error.message || error,
+        error.name,
+        error.code
       );
       return res.json(errorResponse);
     }
@@ -5191,19 +5735,22 @@ async function getAppPrice(req, res) {
 
 async function redeployAPI(req, res) {
   try {
-    let {appname} = req.params;
+    let { appname } = req.params;
     appname = appname || req.query.appname;
 
     if (!appname) {
       throw new Error('No ZelApp specified');
     }
 
-    let {force} = req.params;
+    let { force } = req.params;
     force = force || req.query.force || false;
     force = serviceHelper.ensureBoolean(force);
 
-    const authorized =
-        await serviceHelper.verifyPrivilege('appownerabove', req, appname);
+    const authorized = await serviceHelper.verifyPrivilege(
+      'appownerabove',
+      req,
+      appname
+    );
     if (!authorized) {
       const errMessage = serviceHelper.errUnauthorizedMessage();
       res.json(errMessage);
@@ -5225,9 +5772,9 @@ async function redeployAPI(req, res) {
   } catch (error) {
     log.error(error);
     const errorResponse = serviceHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
+      error.message || error,
+      error.name,
+      error.code
     );
     res.json(errorResponse);
   }
@@ -5236,13 +5783,17 @@ async function redeployAPI(req, res) {
 async function whitelistedRepositories(req, res) {
   try {
     const whitelisted = await serviceHelper.axiosGet(
-        'https://zel.network/project/zelflux/repositories.html');
+      'https://zel.network/project/zelflux/repositories.html'
+    );
     const resultsResponse = serviceHelper.createDataMessage(whitelisted.data);
     res.json(resultsResponse);
   } catch (error) {
     log.error(error);
-    const errMessage =
-        serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const errMessage = serviceHelper.createErrorMessage(
+      error.message,
+      error.name,
+      error.code
+    );
     res.json(errMessage);
   }
 }
@@ -5250,13 +5801,17 @@ async function whitelistedRepositories(req, res) {
 async function whitelistedZelIDs(req, res) {
   try {
     const whitelisted = await serviceHelper.axiosGet(
-        'https://zel.network/project/zelflux/zelids.html');
+      'https://zel.network/project/zelflux/zelids.html'
+    );
     const resultsResponse = serviceHelper.createDataMessage(whitelisted.data);
     res.json(resultsResponse);
   } catch (error) {
     log.error(error);
-    const errMessage =
-        serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const errMessage = serviceHelper.createErrorMessage(
+      error.message,
+      error.name,
+      error.code
+    );
     res.json(errMessage);
   }
 }
