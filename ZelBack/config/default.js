@@ -55,9 +55,9 @@ module.exports = {
   zelapps: {
     // in zel per month (blocksLasting)
     price: {
-      cpu: 1, // per 0.1 cpu core,
-      ram: 0.4, // per 100mb,
-      hdd: 0.2, // per 1gb,
+      cpu: 3, // per 0.1 cpu core,
+      ram: 1, // per 100mb,
+      hdd: 0.5, // per 1gb,
     },
     address: 't1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6',
     epochstart: 694000,
@@ -70,12 +70,16 @@ module.exports = {
     minOutgoing: 5,
     minIncoming: 2,
     installation: {
-      probability: 100, // 100
+      probability: 100, // 1%
       delay: 120, // in seconds
     },
     removal: {
-      probability: 20,
+      probability: 25, // 4%
       delay: 300,
+    },
+    redeploy: {
+      probability: 2, // 50%
+      delay: 180,
     },
     blocksLasting: 22000, // registered app will live for 22000 of blocks 44000 minutes ~= 1 month
     expireZelAppsPeriod: 100, // every 100 blocks we run a check that deletes apps specifications and stops/removes the application from existence if it has been lastly updated more than 22k blocks ago

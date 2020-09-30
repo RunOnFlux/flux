@@ -204,6 +204,13 @@ async function getApplicationOwner(appName) {
   if (appSpecs) {
     return appSpecs.owner;
   }
+  // eslint-disable-next-line global-require
+  const { availableZelApps } = require('./zelappsService');
+  const allZelApps = await availableZelApps();
+  const zelappInfo = allZelApps.find((zelapp) => zelapp.name.toLowerCase() === appName.toLowerCase());
+  if (zelappInfo) {
+    return zelappInfo.owner;
+  }
   return null;
 }
 
@@ -469,7 +476,7 @@ function verifyZelID(address) {
   let isValid = false;
   try {
     if (!address) {
-      throw new Error({ message: 'Missing parameters for message verification' });
+      throw new Error('Missing parameters for message verification');
     }
 
     if (address.length > 36) {
@@ -489,7 +496,7 @@ function verifyMessage(message, address, signature) {
   let signingAddress = address;
   try {
     if (!address || !message || !signature) {
-      throw new Error({ message: 'Missing parameters for message verification' });
+      throw new Error('Missing parameters for message verification');
     }
 
     if (address.length > 36) {

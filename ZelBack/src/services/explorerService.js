@@ -469,7 +469,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
     if (zelcashGetInfo.status === 'success') {
       zelcashHeight = zelcashGetInfo.data.blocks;
     } else {
-      throw new Error(zelcashGetInfo.data);
+      throw new Error(zelcashGetInfo.data.message || zelcashGetInfo.data);
     }
     // get scanned height from our database;
     // get height from blockchain?
@@ -580,7 +580,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
       } else if (scannedBlockHeight > config.zelcash.chainValidHeight) {
         const zelcashGetChainTips = await zelcashService.getChainTips();
         if (zelcashGetChainTips.status !== 'success') {
-          throw new Error(zelcashGetChainTips.data);
+          throw new Error(zelcashGetChainTips.data.message || zelcashGetInfo.data);
         }
         const reorganisations = zelcashGetChainTips.data;
         // database can be off for up to 2 blocks compared to zel chain

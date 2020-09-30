@@ -186,9 +186,6 @@ module.exports = (app, expressWs) => {
   app.get('/zelid/emergencyphrase', (req, res) => {
     zelidService.emergencyPhrase(req, res);
   });
-  app.get('/zelid/checkprivilege/:zelid?/:signature?', (req, res) => {
-    zelidService.checkLoggedUser(req, res);
-  });
 
   app.get('/zelflux/info', (req, res) => {
     zelnodeService.getZelFluxInfo(req, res);
@@ -272,7 +269,7 @@ module.exports = (app, expressWs) => {
   app.get('/zelapps/hashes', (req, res) => {
     zelappsService.getZelAppHashes(req, res);
   });
-  app.get('/zelapps/location/:zelapp?', (req, res) => {
+  app.get('/zelapps/location/:appname?', (req, res) => {
     zelappsService.getZelAppsLocation(req, res);
   });
   app.get('/zelapps/locations', (req, res) => {
@@ -280,6 +277,12 @@ module.exports = (app, expressWs) => {
   });
   app.post('/zelapps/calculateprice', (req, res) => { // returns price in zel for both new registration of zelapp and update of zelapp
     zelappsService.getAppPrice(req, res);
+  });
+  app.get('/zelapps/whitelistedrepositories', (req, res) => {
+    zelappsService.whitelistedRepositories(req, res);
+  });
+  app.get('/zelapps/whitelistedzelids', (req, res) => {
+    zelappsService.whitelistedZelIDs(req, res);
   });
 
   // app.get('/explorer/allutxos', (req, res) => {
@@ -707,7 +710,7 @@ module.exports = (app, expressWs) => {
   app.post('/zelapps/zelappexec', (req, res) => {
     zelappsService.zelAppExec(req, res);
   });
-  app.get('/zelapps/zelappremove/:zelapp?', (req, res) => {
+  app.get('/zelapps/zelappremove/:appname?/:force?', (req, res) => {
     zelappsService.removeZelAppLocallyApi(req, res);
   });
   app.get('/zelapps/installtemporarylocalapp/FoldingAtHomeB', (req, res) => {
@@ -716,15 +719,6 @@ module.exports = (app, expressWs) => {
   app.get('/zelapps/installtemporarylocalapp/KadenaChainWebNode', (req, res) => {
     zelappsService.installTemporaryLocalApplication(req, res, 'KadenaChainWebNode');
   });
-  // app.get('/zelapps/installtemporarylocalapp/dibi-UND', (req, res) => {
-  //   zelappsService.installTemporaryLocalApplication(req, res, 'dibi-UND');
-  // });
-  // app.get('/zelapps/installtemporarylocalapp/SuperMario', (req, res) => {
-  //   zelappsService.installTemporaryLocalApplication(req, res, 'SuperMario');
-  // });
-  // app.get('/zelapps/installtemporarylocalapp/PacMan', (req, res) => {
-  //   zelappsService.installTemporaryLocalApplication(req, res, 'PacMan');
-  // });
   app.get('/zelapps/createzelfluxnetwork', (req, res) => {
     zelappsService.createZelFluxNetwork(req, res);
   });
@@ -737,6 +731,9 @@ module.exports = (app, expressWs) => {
   app.get('/zelapps/reindexglobalappslocation', (req, res) => {
     zelappsService.reindexGlobalAppsLocationAPI(req, res);
   });
+  app.get('/zelapps/redeploy/:appname?/:force?', (req, res) => {
+    zelappsService.redeployAPI(req, res);
+  });
 
   // POST PUBLIC methods route
   app.post('/zelid/verifylogin', (req, res) => {
@@ -744,6 +741,9 @@ module.exports = (app, expressWs) => {
   });
   app.post('/zelid/providesign', (req, res) => {
     zelidService.provideSign(req, res);
+  });
+  app.post('/zelid/checkprivilege', (req, res) => {
+    zelidService.checkLoggedUser(req, res);
   });
 
   app.post('/zelcash/createrawtransaction', (req, res) => {

@@ -1,6 +1,9 @@
 <template>
   <div>
-    <div v-if="zelAppsSection === 'localzelapps'">
+    <div
+      :key="uniqueKey"
+      v-if="zelAppsSection === 'localzelapps'"
+    >
       <el-tabs
         v-if="!managedApplication"
         v-model="activeName"
@@ -196,7 +199,7 @@
           name="available"
         >
           <el-table
-            ref="availableLocalTable"
+            ref="appInfoTable"
             :data="availableZelApps.data"
             empty-text="No ZelApp available"
             style="width: 100%"
@@ -205,7 +208,7 @@
             <el-table-column type="expand">
               <template slot-scope="props">
                 <p>Description: {{ props.row.description }}</p>
-                <p> Owner: {{ props.row.owner }}</p>
+                <p>Owner: {{ props.row.owner }}</p>
                 <p>Hash: {{ props.row.hash }}</p>
                 <p>Locations:</p>
                 <div
@@ -417,20 +420,11 @@
           </el-table>
         </el-tab-pane>
       </el-tabs>
-      <div
-        v-if="output"
-        class='actionCenter'
-      >
-        <br>
-        <el-input
-          type="textarea"
-          autosize
-          v-model="stringOutput"
-        >
-        </el-input>
-      </div>
     </div>
-    <div v-if="zelAppsSection === 'globalzelapps'">
+    <div
+      :key="uniqueKey"
+      v-if="zelAppsSection === 'globalzelapps'"
+    >
       <el-tabs
         v-if=!managedApplication
         v-model="activeNameGlobal"
@@ -440,10 +434,31 @@
           name="activeapps"
         >
           <el-table
+            ref="appInfoTable"
             :data="globalZelAppSpecs.data"
             empty-text="No global ZelApp"
             style="width: 100%"
+            @expand-change="loadLocations"
           >
+            <el-table-column type="expand">
+              <template slot-scope="props">
+                <p>Description: {{ props.row.description }}</p>
+                <p>Owner: {{ props.row.owner }}</p>
+                <p>Hash: {{ props.row.hash }}</p>
+                <p>Repository: {{ props.row.repotag }}</p>
+                <p>Locations:</p>
+                <div
+                  v-for="location in zelAppLocations"
+                  :key="location.ip"
+                >
+                  <p>{{ location.ip }}
+                    <ElButton @click="openSite('http://' + location.ip + ':' + props.row.port)">
+                      Visit
+                    </ElButton>
+                  </p>
+                </div>
+              </template>
+            </el-table-column>
             <el-table-column
               label="Name"
               prop="name"
@@ -451,6 +466,15 @@
             >
               <template slot-scope="scope">
                 {{ getZelAppName(scope.row.name) }}
+              </template>
+            </el-table-column>
+            <el-table-column
+              label="Repository"
+              prop="repotag"
+              sortable
+            >
+              <template slot-scope="scope">
+                {{ scope.row.repotag }}
               </template>
             </el-table-column>
             <el-table-column
@@ -477,10 +501,31 @@
           name="myapps"
         >
           <el-table
+            ref="appInfoTable"
             :data="myGlobalApps"
             empty-text="No global ZelApp owned"
             style="width: 100%"
+            @expand-change="loadLocations"
           >
+            <el-table-column type="expand">
+              <template slot-scope="props">
+                <p>Description: {{ props.row.description }}</p>
+                <p>Owner: {{ props.row.owner }}</p>
+                <p>Hash: {{ props.row.hash }}</p>
+                <p>Repository: {{ props.row.repotag }}</p>
+                <p>Locations:</p>
+                <div
+                  v-for="location in zelAppLocations"
+                  :key="location.ip"
+                >
+                  <p>{{ location.ip }}
+                    <ElButton @click="openSite('http://' + location.ip + ':' + props.row.port)">
+                      Visit
+                    </ElButton>
+                  </p>
+                </div>
+              </template>
+            </el-table-column>
             <el-table-column
               label="Name"
               prop="name"
@@ -488,6 +533,15 @@
             >
               <template slot-scope="scope">
                 {{ getZelAppName(scope.row.name) }}
+              </template>
+            </el-table-column>
+            <el-table-column
+              label="Repository"
+              prop="repotag"
+              sortable
+            >
+              <template slot-scope="scope">
+                {{ scope.row.repotag }}
               </template>
             </el-table-column>
             <el-table-column
@@ -521,19 +575,6 @@
           </el-table>
         </el-tab-pane>
       </el-tabs>
-      <div
-        v-if="output"
-        class='actionCenter'
-      >
-        <br>
-        <el-input
-          v-if="output"
-          type="textarea"
-          autosize
-          v-model="stringOutput"
-        >
-        </el-input>
-      </div>
     </div>
     <div v-if="managedApplication">
       <el-page-header
@@ -872,7 +913,47 @@
             {{ callResponse.data }}
           </div>
           <div v-if="managementMenuItem == 'appinstances'">
-            {{ callResponse.data }}
+            <el-table
+              :data="callResponse.data"
+              empty-text="No Instances Running"
+              style="width: 100%"
+            >
+              <el-table-column type="expand">
+                <template slot-scope="props">
+                  <p>Broadcasted At: {{ new Date(props.row.broadcastedAt).toLocaleString('en-GB', timeoptions) }}</p>
+                  <p>Expire At: {{ new Date(props.row.expireAt).toLocaleString('en-GB', timeoptions) }}</p>
+                </template>
+              </el-table-column>
+              <el-table-column
+                label="Name"
+                prop="name"
+                sortable
+              >
+              </el-table-column>
+              <el-table-column
+                label="IP"
+                prop="ip"
+                sortable
+              >
+              </el-table-column>
+              <el-table-column
+                label="Hash"
+                prop="hash"
+                sortable
+              >
+              </el-table-column>
+              <el-table-column
+                label="Visit"
+                prop="visit"
+                sortable
+              >
+                <template slot-scope="scope">
+                  <ElButton @click="openSite('http://' + scope.row.ip + ':' + callBResponse.data.port)">
+                    Visit
+                  </ElButton>
+                </template>
+              </el-table-column>
+            </el-table>
           </div>
 
           <div v-if="managementMenuItem == 'applogs'">
@@ -985,6 +1066,34 @@
             >
               <ElButton slot="reference">
                 Unpause ZelApp
+              </ElButton>
+            </el-popconfirm>
+            <el-divider></el-divider>
+            <p>
+              ZelApp can be redeployed with or without data reinitiation. Hard redeployement removes the ZelApp including its attached data storage volume. Soft redeployemment will reuse already existing data application.
+            </p>
+            <el-popconfirm
+              confirmButtonText='Redeploy'
+              cancelButtonText='No, Thanks'
+              icon="el-icon-info"
+              iconColor="orange"
+              title="Redeploys ZelApp without data removal"
+              @onConfirm="redeployZelAppSoft(managedApplication)"
+            >
+              <ElButton slot="reference">
+                Soft Redeploy ZelApp
+              </ElButton>
+            </el-popconfirm>
+            <el-popconfirm
+              confirmButtonText='Redeploy'
+              cancelButtonText='No, Thanks'
+              icon="el-icon-info"
+              iconColor="red"
+              title="Redeploys ZelApp with data removal"
+              @onConfirm="redeployZelAppHard(managedApplication)"
+            >
+              <ElButton slot="reference">
+                Hard Redeploy ZelApp
               </ElButton>
             </el-popconfirm>
             <el-divider></el-divider>
@@ -1447,8 +1556,20 @@
       </el-container>
     </div>
     <div v-if="zelAppsSection === 'registerzelapp'">
+      <div>
+        Note: Only verified developers and images can currently run on Flux. To become a verified developer with whitelisted images, please contact Zel Team via
+        <el-link
+          href="https://discord.io/zel"
+          target="_blank"
+          type="primary"
+        >
+          Discord
+        </el-link>.
+        <br><br>
+      </div>
       <div v-if="!fluxCommunication">
         Warning: Connected Flux is not communicating properly with Flux network
+        <br><br>
       </div>
       <div class="zelapps-register">
         <el-form
@@ -1744,6 +1865,18 @@
         </div>
       </div>
     </div>
+    <div
+      v-if="output"
+      class='actionCenter'
+    >
+      <br>
+      <el-input
+        type="textarea"
+        autosize
+        v-model="stringOutput"
+      >
+      </el-input>
+    </div>
   </div>
 </template>
 
@@ -1887,9 +2020,9 @@ export default {
       zelapps: {
         // in zel per month
         price: {
-          cpu: 1, // per 0.1 cpu core,
-          ram: 0.4, // per 100mb,
-          hdd: 0.2, // per 1gb,
+          cpu: 3, // per 0.1 cpu core,
+          ram: 1, // per 100mb,
+          hdd: 0.5, // per 1gb,
         },
         address: 't1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6', // apps registration address
         epochstart: 694000, // zelapps epoch blockheight start
@@ -1922,6 +2055,7 @@ export default {
       },
       currentHeight: 0,
       zelAppLocations: [],
+      uniqueKey: 1,
     };
   },
   computed: {
@@ -2120,10 +2254,12 @@ export default {
     console.log(auth);
     this.getZelNodeStatus();
     this.zelappsGetInstalledZelApps();
+    this.getRandomPort();
     this.switcher(this.zelAppsSection);
   },
   methods: {
     switcher(value) {
+      this.managedApplication = '';
       switch (value) {
         case 'localzelapps':
           this.zelAppLocations = [];
@@ -2134,12 +2270,14 @@ export default {
           this.zelappsGetListGlobalZelApps();
           break;
         case 'registerzelapp':
+          this.getRandomPort();
           this.registrationInformation();
           this.checkFluxCommunication();
           break;
         default:
           console.log('ZelApps Section: Unrecognized method');
       }
+      this.uniqueKey += this.uniqueKey;
     },
     async getZelCashInfo() {
       const zelcashGetInfo = await ZelCashService.getInfo();
@@ -2242,6 +2380,38 @@ export default {
       }
       this.zelappsGetListAllZelApps();
       console.log(response);
+    },
+    redeployZelAppSoft(zelapp) {
+      this.redeployZelApp(zelapp, false);
+    },
+    redeployZelAppHard(zelapp) {
+      this.redeployZelApp(zelapp, true);
+    },
+    async redeployZelApp(zelapp, force) {
+      const self = this;
+      this.output = '';
+      vue.$customMes.success('Redeploying ZelApp');
+      const zelidauth = localStorage.getItem('zelidauth');
+      const axiosConfig = {
+        headers: {
+          zelidauth,
+        },
+        onDownloadProgress(progressEvent) {
+          console.log(progressEvent.target.response);
+          self.output = JSON.parse(`[${progressEvent.target.response.replace(/}{/g, '},{')}]`);
+        },
+      };
+      const response = await ZelAppsService.justAPI().get(`/zelapps/redeploy/${zelapp}/${force}`, axiosConfig);
+      if (response.data.status === 'error') {
+        vue.$customMes.error(response.data.data.message || response.data.data);
+      } else {
+        this.output = JSON.parse(`[${response.data.replace(/}{/g, '},{')}]`);
+        if (this.output[this.output.length - 1].status === 'error') {
+          vue.$customMes.error(this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
+        } else {
+          vue.$customMes.success(this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
+        }
+      }
     },
     async removeZelApp(zelapp) {
       const self = this;
@@ -2997,7 +3167,7 @@ export default {
     },
     getZelAppName(zelappName) {
       // this id is used for volumes, docker names so we know it reall belongs to zelflux
-      if (zelappName.startsWith('zel')) {
+      if (zelappName && zelappName.startsWith('zel')) {
         return zelappName.substr(3, zelappName.length);
       }
       return zelappName;
@@ -3169,7 +3339,7 @@ export default {
     },
     getZelAppIdentifier() {
       // this id is used for volumes, docker names so we know it reall belongs to zelflux
-      if (this.managedApplication.startsWith('zel')) {
+      if (this.managedApplication && this.managedApplication.startsWith('zel')) {
         return this.managedApplication;
       }
       return `zel${this.managedApplication}`;
@@ -3177,7 +3347,7 @@ export default {
     getZelAppDockerNameIdentifier() {
       // this id is used for volumes, docker names so we know it reall belongs to zelflux
       const name = this.getZelAppIdentifier();
-      if (name.startsWith('/')) {
+      if (name && name.startsWith('/')) {
         return name;
       }
       return `/${name}`;
@@ -3228,7 +3398,7 @@ export default {
         const hideRow = expanded.find((hiderow) => hiderow.name !== row.name);
         if (hideRow) {
           console.log(hideRow);
-          this.$refs.availableLocalTable.toggleRowExpansion(hideRow);
+          this.$refs.appInfoTable.toggleRowExpansion(hideRow);
         }
       }
       if (expanded && (expanded.length === 2 || this.zelAppLocations.length === 0)) {
@@ -3242,6 +3412,11 @@ export default {
           this.zelAppLocations = zelappLocations;
         }
       }
+    },
+    getRandomPort() {
+      const min = 31001;
+      const max = 39998;
+      this.zelAppRegistrationSpecification.port = Math.floor(Math.random() * (max - min) + min);
     },
   },
 };
