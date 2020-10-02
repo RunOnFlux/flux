@@ -239,9 +239,6 @@ module.exports = (app, expressWs) => {
   app.get('/zelapps/availablezelapps', (req, res) => {
     zelappsService.availableZelApps(req, res);
   });
-  app.get('/zelapps/zelshare/getfile/:file?', (req, res) => {
-    zelappsService.zelShareFile(req, res);
-  });
   app.get('/zelapps/zelfluxusage', (req, res) => {
     zelappsService.zelFluxUsage(req, res);
   });
@@ -842,5 +839,13 @@ module.exports = (app, expressWs) => {
   // communication between multiple zelflux solution is on this:
   app.ws('/ws/zelflux', (ws, req) => {
     zelfluxCommunication.handleIncomingConnection(ws, req, expressWs.getWss('/ws/zelflux'));
+  });
+
+  // ZelShare
+  app.get('/zelapps/zelshare/getfile/:file?', (req, res) => {
+    zelappsService.zelShareFile(req, res);
+  });
+  app.post('/zelapps/zelshare/uploadfile', (req, res) => {
+    zelappsService.zelShareFile(req, res);
   });
 };
