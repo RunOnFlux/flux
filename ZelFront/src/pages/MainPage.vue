@@ -88,6 +88,7 @@
         Loading...
       </h4>
     </div>
+     <ZelShare />
     <div class="footer">
       <Footer />
     </div>
@@ -110,6 +111,7 @@ const ZelNode = () => import('@/components/ZelNode.vue');
 const ZelAdmin = () => import('@/components/ZelAdmin.vue');
 const ZelApps = () => import('@/components/ZelApps.vue');
 const Explorer = () => import('@/components/Explorer.vue');
+const ZelShare = () => import('@/components/ZelShare.vue');
 
 const qs = require('qs');
 
@@ -119,7 +121,7 @@ const vue = new Vue();
 export default {
   name: 'MainPage',
   components: {
-    Header, Footer, Login, ZelCash, ZelBench, ZelNode, ZelAdmin, ZelApps, Explorer,
+    Header, Footer, Login, ZelCash, ZelBench, ZelNode, ZelAdmin, ZelApps, Explorer, ZelShare,
   },
   data() {
     return {

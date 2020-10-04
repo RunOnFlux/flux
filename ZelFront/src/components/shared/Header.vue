@@ -228,6 +228,12 @@
         <el-menu-item index="4-1">Local ZelApps</el-menu-item>
         <el-menu-item index="4-2">Global ZelApps</el-menu-item>
         <el-menu-item index="4-3">Register ZelApp</el-menu-item>
+        <el-menu-item
+          v-if="privilage === 'admin'"
+          index="4-4"
+        >
+          ZelShare Storage
+        </el-menu-item>
       </el-submenu>
       <el-submenu
         v-if="privilage === 'user' || privilage === 'admin' || privilage === 'zelteam'"
@@ -454,6 +460,9 @@ export default {
           break;
         case '4-3':
           this.$store.commit('setZelAppsSection', 'registerzelapp');
+          break;
+        case '4-4':
+          this.$store.commit('setZelAppsSection', 'zelshare');
           break;
         case '10-1':
           this.$store.commit('setZelAdminSection', 'loggedsessions');

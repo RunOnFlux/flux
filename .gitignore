@@ -17,6 +17,7 @@ ZelFront/test/e2e/reports/
 ZelFront/selenium-debug.log
 ZelFront/package-lock.json
 config/userconfig.js
+ZelApps
 
 # Editor directories and files
 .idea

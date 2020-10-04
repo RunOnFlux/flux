@@ -1877,6 +1877,9 @@
       >
       </el-input>
     </div>
+    <div v-if="zelAppsSection === 'zelshare'">
+      <ZelShare />
+    </div>
   </div>
 </template>
 
@@ -1887,6 +1890,8 @@ import Vue from 'vue';
 import ZelCashService from '@/services/ZelCashService';
 import ZelAppsService from '@/services/ZelAppsService';
 
+const ZelShare = () => import('@/components/ZelShare.vue');
+
 const store = require('store');
 const qs = require('qs');
 
@@ -1896,6 +1901,9 @@ const vue = new Vue();
 
 export default {
   name: 'ZelApps',
+  components: {
+    ZelShare,
+  },
   data() {
     return {
       timeoptions: {

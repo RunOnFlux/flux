@@ -10,8 +10,8 @@
       >
         <el-option
           key="Default"
-          :label="`http://${externalip}:${port}`"
-          :value="`http://${externalip}:${port}`"
+          :label="`http://${userconfig.externalip}:${port}`"
+          :value="`http://${userconfig.externalip}:${port}`"
         >
         </el-option>
       </el-select>
@@ -39,7 +39,6 @@ import ZelNodeService from '@/services/ZelNodeService';
 const store = require('store');
 
 const config = require('../../../../ZelBack/config/default');
-const userconfig = require('../../../../config/userconfig');
 
 Vue.use(Vuex);
 const vue = new Vue();
@@ -49,17 +48,17 @@ export default {
   data() {
     return {
       backendURL: '',
-      externalip: userconfig.initial.ipaddress,
       port: config.server.apiport,
     };
   },
   computed: {
     ...mapState([
+      'userconfig',
       'zelfluxVersion',
     ]),
   },
   mounted() {
-    this.backendURL = store.get('backendURL') || `http://${this.externalip}:${this.port}`;
+    this.backendURL = store.get('backendURL') || `http://${this.userconfig.externalip}:${this.port}`;
     const self = this;
     ZelNodeService.getZelFluxVersion()
       .then((response) => {

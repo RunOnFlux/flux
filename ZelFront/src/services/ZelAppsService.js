@@ -186,6 +186,28 @@ export default {
   getAppPirce(specifications) {
     return Api().post('/zelapps/calculateprice', JSON.stringify(specifications));
   },
+  getFolder(zelidauthHeader, folder) {
+    return Api().get(`/zelapps/zelshare/getfolder/${folder}`, {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    });
+  },
+  createFolder(zelidauthHeader, folder) {
+    return Api().get(`/zelapps/zelshare/createfolder/${folder}`, {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    });
+  },
+  getFile(zelidauthHeader, file) {
+    console.log(file);
+    return Api().get(`/zelapps/zelshare/getfile/${file}`, {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    });
+  },
   justAPI() {
     return Api();
   },

@@ -1,0 +1,363 @@
+<template>
+  <div>
+    <el-table
+      ref="shareTable"
+      :data="folderContentFilter"
+      style="width: 100%"
+      :default-sort="{prop: 'name', order: 'ascending'}"
+      :default-sort-method="sortNameFolder"
+    >
+      <template slot="empty">
+        <slot
+          name="empty"
+          v-if="$slots.empty"
+        >
+          <p v-if="loadingFolder">
+            Local Specifications loading<i class="el-icon-loading"></i>
+          </p>
+          <p v-else-if="filterFolder">
+            No files found
+          </p>
+          <p v-else>
+            Folder is empty
+          </p>
+        </slot>
+      </template>
+      <el-table-column
+        label="Name"
+        prop="name"
+        sortable
+        :sort-orders="['ascending','descending']"
+        :sort-method="sortNameFolder"
+      >
+        <template slot="header">
+          <el-button
+            style="padding: 5px; margin-right: 20px;"
+            circle
+            icon="el-icon-top"
+            type="info"
+            size="mini"
+            @click="changeFolder('..'); sortTableByNameManual();"
+          >
+          </el-button>
+          Name
+        </template>
+        <template slot-scope="scope">
+          <p v-if="scope.row.isDirectory">
+            <el-link
+              type="primary"
+              @click="changeFolder(scope.row.name);"
+            >
+              {{ scope.row.name }}
+            </el-link>
+          </p>
+          <p v-else>
+            {{ scope.row.name }}
+          </p>
+        </template>
+      </el-table-column>
+      <el-table-column
+        label="Changed"
+        prop="modifiedAt"
+        :sort-orders="['ascending','descending']"
+        sortable
+      >
+        <template slot-scope="scope">
+          {{ new Date(scope.row.modifiedAt).toLocaleString('en-GB', timeoptions) }}
+        </template>
+      </el-table-column>
+      <el-table-column
+        label="Type"
+        prop="type"
+        sortable
+        :sort-orders="['ascending','descending']"
+        :sort-method="sortTypeFolder"
+      >
+        <template slot-scope="scope">
+          <p v-if="scope.row.isDirectory">
+            Folder
+          </p>
+          <p v-else-if="scope.row.isFile">
+            File
+          </p>
+          <p v-else-if="scope.row.isSymbolicLink">
+            File
+          </p>
+          <p v-else>
+            Other
+          </p>
+        </template>
+      </el-table-column>
+      <el-table-column
+        label="Size"
+        prop="size"
+        :sort-orders="['ascending','descending']"
+        sortable
+      >
+        <template slot-scope="scope">
+          <p v-if="scope.row.size > 0">
+            {{ beautifyValue((scope.row.size / 1000).toFixed(0)) }} KB
+          </p>
+        </template>
+      </el-table-column>
+      <el-table-column
+        align="right"
+        width="200px"
+      >
+        <template slot="header">
+          <el-input
+            v-model="filterFolder"
+            size="mini"
+            placeholder="Type to search"
+          />
+        </template>
+        <template slot-scope="scope">
+          <el-button
+            v-if="scope.row.isFile"
+            icon="el-icon-download"
+            size="mini"
+            type="info"
+            @click="download(scope.row.name)"
+          >Download</el-button>
+        </template>
+      </el-table-column>
+      <el-table-column
+        align="right"
+        width="165px"
+      >
+        <template slot="header">
+          <el-button
+            icon="el-icon-upload"
+            size="mini"
+            type="info"
+            @click="uploadFilesDialog = true"
+          >
+            Upload
+          </el-button>
+          <el-button
+            style="padding: 5px;"
+            icon="el-icon-folder-add"
+            circle
+            size="mini"
+            type="info"
+            @click="createDirectoryDialogVisible = true"
+          >
+          </el-button>
+        </template>
+      </el-table-column>
+    </el-table>
+    <el-dialog
+      :close-on-click-modal="false"
+      :close-on-press-escape="false"
+      :show-close="true"
+      title="Upload files"
+      :visible.sync="uploadFilesDialog"
+      width="75%"
+    >
+      <el-upload
+        drag
+        :headers="zelidHeader"
+        :action="getUploadFolder"
+        multiple
+      >
+        <i class="el-icon-upload"></i>
+        <div class="el-upload__text">Drop file here or <em>click to upload</em></div>
+        <div
+          class="el-upload__tip"
+          slot="tip"
+        >File size is limited to 1GB</div>
+      </el-upload>
+    </el-dialog>
+    <el-dialog
+      :close-on-click-modal="true"
+      :close-on-press-escape="true"
+      :show-close="true"
+      title="Create Directory"
+      :visible.sync="createDirectoryDialogVisible"
+      width="75%"
+      @close="newDirName = ''"
+    >
+      <ElInput
+        type="text"
+        placeholder="Write new direcotry name..."
+        v-model="newDirName"
+      >
+        <template slot="prepend">Directory Name</template>
+      </ElInput>
+      <br><br>
+      <el-button
+        type="info"
+        @click="createFolder(newDirName);"
+      >
+        Create Directory
+      </el-button>
+    </el-dialog>
+  </div>
+</template>
+
+<script>
+import Vuex, { mapState } from 'vuex';
+import Vue from 'vue';
+
+import ZelAppsService from '@/services/ZelAppsService';
+
+const store = require('store');
+
+Vue.use(Vuex);
+const vue = new Vue();
+
+export default {
+  name: 'ZelShare',
+  data() {
+    return {
+      timeoptions: {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      },
+      loadingFolder: false,
+      folderView: [],
+      currentFolder: '',
+      uploadFilesDialog: false,
+      filterFolder: '',
+      createDirectoryDialogVisible: false,
+      newDirName: '',
+    };
+  },
+  computed: {
+    ...mapState([
+      'userconfig',
+    ]),
+    zelidHeader() {
+      const zelidauth = localStorage.getItem('zelidauth');
+      const headers = {
+        zelidauth,
+      };
+      return headers;
+    },
+    ipAddress() {
+      const backendURL = store.get('backendURL');
+      if (backendURL) {
+        return `${store.get('backendURL').split(':')[0]}:${store.get('backendURL').split(':')[1]}`;
+      }
+      return `http://${this.userconfig.externalip}`;
+    },
+    folderContentFilter() {
+      const filteredFolder = this.folderView.filter((data) => JSON.stringify(data.name).toLowerCase().includes(this.filterFolder.toLowerCase()));
+      return filteredFolder.filter((data) => data.name !== '.gitkeep');
+    },
+    getUploadFolder() {
+      if (this.currentFolder) {
+        const folder = encodeURIComponent(this.currentFolder);
+        console.log(this.currentFolder);
+        console.log(folder);
+        console.log(`${this.ipAddress}:16127/zelapps/zelshare/uploadfile/${folder}`);
+        return `${this.ipAddress}:16127/zelapps/zelshare/uploadfile/${folder}`;
+      }
+      return `${this.ipAddress}:16127/zelapps/zelshare/uploadfile`;
+    },
+  },
+  mounted() {
+    this.loadingFolder = true;
+    this.loadFolder(this.currentFolder); // empty string for main folder
+  },
+  methods: {
+    sortNameFolder(a, b) {
+      return (a.isDirectory ? `..${a.name}` : a.name).localeCompare(b.isDirectory ? `..${b.name}` : b.name);
+    },
+    sortTypeFolder(a, b) {
+      if (a.isDirectory && b.isFile) return 1;
+      if (a.isFile && b.isDirectory) return -1;
+      return 0;
+    },
+    sortTableByNameManual() {
+      this.$refs.shareTable.clearSort();
+    },
+    changeFolder(name) {
+      if (name === '..') {
+        const folderArrray = this.currentFolder.split('/');
+        folderArrray.pop();
+        this.currentFolder = folderArrray.join('/');
+      } else if (this.currentFolder === '') {
+        this.currentFolder = name;
+      } else {
+        this.currentFolder = `${this.currentFolder}/${name}`;
+      }
+      this.loadFolder(this.currentFolder);
+    },
+    async loadFolder(path) {
+      try {
+        this.filterFolder = '';
+        this.folderView = [];
+        this.loadingFolder = true;
+        const response = await ZelAppsService.getFolder(this.zelidHeader.zelidauth, encodeURIComponent(path));
+        this.loadingFolder = false;
+        if (response.data.status === 'success') {
+          this.folderView = response.data.data;
+        } else {
+          vue.$customMes.error(response.data.data.message || response.data.data);
+        }
+      } catch (error) {
+        this.loadingFolder = false;
+        console.log(error.message);
+        vue.$customMes.error(error.message || error);
+      }
+    },
+    async createFolder(path) {
+      try {
+        let folderPath = path;
+        if (this.currentFolder === '') {
+          folderPath = path;
+        } else {
+          folderPath = `${this.currentFolder}/${path}`;
+        }
+        const response = await ZelAppsService.createFolder(this.zelidHeader.zelidauth, encodeURIComponent(folderPath));
+        if (response.data.status === 'error') {
+          vue.$customMes.error(response.data.data.message || response.data.data);
+        } else {
+          this.loadFolder(this.currentFolder);
+          this.createDirectoryDialogVisible = false;
+        }
+      } catch (error) {
+        this.loadingFolder = false;
+        console.log(error.message);
+        vue.$customMes.error(error.message || error);
+      }
+    },
+    async download(name) {
+      try {
+        const folder = this.currentFolder;
+        const fileName = folder ? `${folder}/${name}` : name;
+        const axiosConfig = {
+          headers: this.zelidHeader,
+          responseType: 'blob',
+        };
+        const response = await ZelAppsService.justAPI().get(`/zelapps/zelshare/getfile/${encodeURIComponent(fileName)}`, axiosConfig);
+        if (response.data.status === 'error') {
+          vue.$customMes.error(response.data.data.message || response.data.data);
+        } else {
+          const url = window.URL
+            .createObjectURL(new Blob([response.data]));
+          const link = document.createElement('a');
+          link.href = url;
+          link.setAttribute('download', name);
+          document.body.appendChild(link);
+          link.click();
+        }
+      } catch (error) {
+        console.log(error.message);
+        vue.$customMes.error(error.message || error);
+      }
+    },
+    beautifyValue(valueInText) {
+      const str = valueInText.split('.');
+      if (str[0].length >= 4) {
+        str[0] = str[0].replace(/(\d)(?=(\d{3})+$)/g, '$1,');
+      }
+      return str.join('.');
+    },
+  },
+};
+</script>

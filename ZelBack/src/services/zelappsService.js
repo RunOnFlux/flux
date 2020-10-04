@@ -7,6 +7,8 @@ const stream = require('stream');
 const path = require('path');
 const nodecmd = require('node-cmd');
 const df = require('node-df');
+const fs = require('fs');
+const formidable = require('formidable');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
 const zelfluxCommunication = require('./zelfluxCommunication');
@@ -917,16 +919,6 @@ async function zelAppExec(req, res) {
       res.json(errorResponse);
     }
   });
-}
-
-async function zelShareFile(req, res) {
-  let { file } = req.params;
-  file = file || req.query.file;
-
-  const dirpath = path.join(__dirname, '../../../');
-  const filepath = `${dirpath}ZelApps/ZelShare/${file}`;
-
-  return res.sendFile(filepath);
 }
 
 async function createFluxNetwork() {
@@ -4485,7 +4477,7 @@ async function reinstallOldApplications() {
             log.warn('Beginning Soft Redeployment...');
             // soft redeployment
             try {
-            // eslint-disable-next-line no-await-in-loop
+              // eslint-disable-next-line no-await-in-loop
               await softRemoveZelAppLocally(installedApp.name);
               log.warn('Application softly removed. Awaiting installation...');
               // eslint-disable-next-line no-await-in-loop
@@ -4505,7 +4497,7 @@ async function reinstallOldApplications() {
             log.warn('Beginning Hard Redeployment...');
             // hard redeployment
             try {
-            // eslint-disable-next-line no-await-in-loop
+              // eslint-disable-next-line no-await-in-loop
               await removeZelAppLocally(installedApp.name);
               log.warn('Application removed. Awaiting installation...');
               // eslint-disable-next-line no-await-in-loop
@@ -4725,6 +4717,145 @@ async function whitelistedZelIDs(req, res) {
   }
 }
 
+// ZelShare specific
+async function zelShareFile(req, res) {
+  let { file } = req.params;
+  file = file || req.query.file;
+  file = decodeURIComponent(file);
+
+  const dirpath = path.join(__dirname, '../../../');
+  const filepath = `${dirpath}ZelApps/ZelShare/${file}`;
+
+  return res.sendFile(filepath);
+}
+
+async function zelShareGetFolder(req, res) {
+  try {
+    let { folder } = req.params;
+    folder = folder || req.query.folder || '';
+    folder = decodeURIComponent(folder);
+
+    const dirpath = path.join(__dirname, '../../../');
+    const filepath = `${dirpath}ZelApps/ZelShare/${folder}`;
+    const options = {
+      withFileTypes: false,
+    };
+    const files = await fs.promises.readdir(filepath, options);
+    const filesWithDetails = [];
+    // eslint-disable-next-line no-restricted-syntax
+    for (const file of files) {
+      // eslint-disable-next-line no-await-in-loop
+      const fileStats = await fs.promises.lstat(`${filepath}/${file}`);
+      const isDirectory = fileStats.isDirectory();
+      const isFile = fileStats.isFile();
+      const isSymbolicLink = fileStats.isSymbolicLink();
+      const detailedFile = {
+        name: file,
+        size: fileStats.size, // bytes
+        isDirectory,
+        isFile,
+        isSymbolicLink,
+        createdAt: fileStats.birthtime,
+        modifiedAt: fileStats.mtime,
+      };
+      filesWithDetails.push(detailedFile);
+    }
+    const resultsResponse = serviceHelper.createDataMessage(filesWithDetails);
+    res.json(resultsResponse);
+  } catch (error) {
+    log.error(error);
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+  }
+}
+
+async function zelShareCreateFolder(req, res) {
+  try {
+    let { folder } = req.params;
+    folder = folder || req.query.folder || '';
+    folder = decodeURIComponent(folder);
+
+    const dirpath = path.join(__dirname, '../../../');
+    const filepath = `${dirpath}ZelApps/ZelShare/${folder}`;
+
+    await fs.promises.mkdir(filepath);
+
+    const resultsResponse = serviceHelper.createSuccessMessage('Folder Created');
+    res.json(resultsResponse);
+  } catch (error) {
+    log.error(error);
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+  }
+}
+
+async function zelShareUpload(req, res) {
+  try {
+    console.log(req.params);
+    let { folder } = req.params;
+    folder = folder || req.query.folder || '';
+    folder = decodeURIComponent(folder);
+    if (folder) {
+      folder += '/';
+    }
+    const dirpath = path.join(__dirname, '../../../');
+    const uploadDir = `${dirpath}ZelApps/ZelShare/${folder}`;
+    const options = {
+      multiples: true,
+      uploadDir,
+      maxFileSize: 1024 * 1024 * 1024, // 1gb
+      hash: true,
+      keepExtensions: true,
+    };
+    const form = formidable(options);
+    form.parse(req)
+      .on('fileBegin', (name, file) => {
+        console.log(name);
+        console.log(file);
+        res.write(serviceHelper.ensureString(file.name));
+        const filepath = `${dirpath}ZelApps/ZelShare/${folder}${file.name}`;
+        // eslint-disable-next-line no-param-reassign
+        file.path = filepath;
+      })
+      .on('progress', (bytesReceived, bytesExpected) => {
+        // console.log('PROGRESS');
+        res.write(serviceHelper.ensureString([bytesReceived, bytesExpected]));
+      })
+      .on('field', (name, field) => {
+        console.log('Field', name, field);
+        // console.log(name);
+        // console.log(field);
+        // res.write(serviceHelper.ensureString(field));
+      })
+      .on('file', (name, file) => {
+        // console.log('Uploaded file', name, file);
+        res.write(serviceHelper.ensureString(file));
+      })
+      .on('aborted', () => {
+        console.error('Request aborted by the user');
+        if (res) {
+          res.end();
+        }
+      })
+      .on('error', (error) => {
+        const errorResponse = serviceHelper.createErrorMessage(
+          error.message || error,
+          error.name,
+          error.code,
+        );
+        if (res) {
+          res.write(serviceHelper.ensureString(errorResponse));
+          res.end();
+        }
+      })
+      .on('end', () => {
+        res.end();
+      });
+  } catch (error) {
+    log.error(error);
+  }
+}
+
 module.exports = {
   dockerListContainers,
   zelAppPull,
@@ -4744,7 +4875,6 @@ module.exports = {
   zelAppStats,
   zelAppChanges,
   zelAppExec,
-  zelShareFile,
   zelFluxUsage,
   removeZelAppLocally,
   registerZelAppLocally,
@@ -4802,6 +4932,10 @@ module.exports = {
   redeployAPI,
   whitelistedRepositories,
   whitelistedZelIDs,
+  zelShareFile,
+  zelShareGetFolder,
+  zelShareCreateFolder,
+  zelShareUpload,
 };
 
 // reenable min connections for registrations/updates before main release

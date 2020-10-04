@@ -845,7 +845,13 @@ module.exports = (app, expressWs) => {
   app.get('/zelapps/zelshare/getfile/:file?', (req, res) => {
     zelappsService.zelShareFile(req, res);
   });
-  app.post('/zelapps/zelshare/uploadfile', (req, res) => {
-    zelappsService.zelShareFile(req, res);
+  app.get('/zelapps/zelshare/getfolder/:folder?', (req, res) => {
+    zelappsService.zelShareGetFolder(req, res);
+  });
+  app.get('/zelapps/zelshare/createfolder/:folder?', (req, res) => {
+    zelappsService.zelShareCreateFolder(req, res);
+  });
+  app.post('/zelapps/zelshare/uploadfile/:folder?', (req, res) => {
+    zelappsService.zelShareUpload(req, res);
   });
 };
