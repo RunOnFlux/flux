@@ -469,7 +469,7 @@ export default {
           vue.$customMes.error(response.data.data.message || response.data.data);
         } else {
           this.loadFolder(this.currentFolder, true);
-          vue.$$customMes.success(`${name} deleted`);
+          vue.$customMes.success(`${name} deleted`);
         }
       } catch (error) {
         console.log(error.message);
