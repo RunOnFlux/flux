@@ -4807,7 +4807,11 @@ async function zelShareUpload(req, res) {
       hash: true,
       keepExtensions: true,
     };
+    await fs.promises.access(uploadDir); // check folder exists
     const form = formidable(options);
+    form.on('error', () => {
+      throw new Error('formidable path error');
+    });
     form.parse(req)
       .on('fileBegin', (name, file) => {
         console.log(name);

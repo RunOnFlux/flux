@@ -113,12 +113,35 @@
         </template>
         <template slot-scope="scope">
           <el-button
-            v-if="scope.row.isFile"
+            v-if="scope.row.isFile && !downloaded[scope.row.name]"
             icon="el-icon-download"
             size="mini"
             type="info"
             @click="download(scope.row.name)"
           >Download</el-button>
+          <p v-if="total[scope.row.name] && downloaded[scope.row.name]">
+            {{ (downloaded[scope.row.name] / 1e6).toFixed(2) + " / " + (total[scope.row.name] / 1e6).toFixed(2) }} MB
+            <br>
+            {{ ((downloaded[scope.row.name] / total[scope.row.name]) * 100).toFixed(2) + "%" }}
+            <i
+              v-if="total[scope.row.name] && downloaded[scope.row.name] && total[scope.row.name] === downloaded[scope.row.name]"
+              class="el-icon-success"
+            ></i>
+            <el-tooltip
+              v-if="total[scope.row.name] && downloaded[scope.row.name] && total[scope.row.name] !== downloaded[scope.row.name]"
+              content="Cancel Download"
+              placement="top"
+            >
+              <el-button
+                v-if="total[scope.row.name] && downloaded[scope.row.name] && total[scope.row.name] !== downloaded[scope.row.name]"
+                type="danger"
+                icon="el-icon-close"
+                circle
+                size="mini"
+                @click="cancelDownload(scope.row.name)"
+              ></el-button>
+            </el-tooltip>
+          </p>
         </template>
       </el-table-column>
       <el-table-column
@@ -198,6 +221,7 @@
 <script>
 import Vuex, { mapState } from 'vuex';
 import Vue from 'vue';
+import axios from 'axios';
 
 import ZelAppsService from '@/services/ZelAppsService';
 
@@ -224,6 +248,9 @@ export default {
       filterFolder: '',
       createDirectoryDialogVisible: false,
       newDirName: '',
+      abortToken: {},
+      downloaded: {},
+      total: {},
     };
   },
   computed: {
@@ -326,20 +353,36 @@ export default {
         vue.$customMes.error(error.message || error);
       }
     },
+    cancelDownload(name) {
+      this.abortToken[name].cancel(`Download of ${name} cancelled`);
+      this.downloaded[name] = '';
+      this.total[name] = '';
+    },
     async download(name) {
       try {
+        const self = this;
+        if (self.abortToken[name]) {
+          self.abortToken[name].cancel();
+        }
+        const sourceCancelToken = axios.CancelToken;
+        const cancelToken = sourceCancelToken.source();
+        this.$set(this.abortToken, name, cancelToken);
         const folder = this.currentFolder;
         const fileName = folder ? `${folder}/${name}` : name;
         const axiosConfig = {
           headers: this.zelidHeader,
           responseType: 'blob',
+          onDownloadProgress(progressEvent) {
+            Vue.set(self.downloaded, name, progressEvent.loaded);
+            Vue.set(self.total, name, progressEvent.total);
+          },
+          cancelToken: self.abortToken[name].token,
         };
         const response = await ZelAppsService.justAPI().get(`/zelapps/zelshare/getfile/${encodeURIComponent(fileName)}`, axiosConfig);
         if (response.data.status === 'error') {
           vue.$customMes.error(response.data.data.message || response.data.data);
         } else {
-          const url = window.URL
-            .createObjectURL(new Blob([response.data]));
+          const url = window.URL.createObjectURL(new Blob([response.data]));
           const link = document.createElement('a');
           link.href = url;
           link.setAttribute('download', name);
@@ -348,7 +391,13 @@ export default {
         }
       } catch (error) {
         console.log(error.message);
-        vue.$customMes.error(error.message || error);
+        if (error.message) {
+          if (!error.message.startsWith('Download')) {
+            vue.$customMes.error(error.message || error);
+          }
+        } else {
+          vue.$customMes.error(error);
+        }
       }
     },
     beautifyValue(valueInText) {
