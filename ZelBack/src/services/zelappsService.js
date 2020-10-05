@@ -4808,40 +4808,37 @@ async function zelShareUpload(req, res) {
       keepExtensions: true,
     };
     await fs.promises.access(uploadDir); // check folder exists
-    const form = formidable(options);
-    form.on('error', () => {
-      throw new Error('formidable path error');
-    });
-    form.parse(req)
-      .on('fileBegin', (name, file) => {
+    const promiseFormidable = new Promise((resolve, reject) => {
+      const form = formidable(options);
+      form.on('fileBegin', (name, file) => {
         console.log(name);
         console.log(file);
         res.write(serviceHelper.ensureString(file.name));
         const filepath = `${dirpath}ZelApps/ZelShare/${folder}${file.name}`;
         // eslint-disable-next-line no-param-reassign
         file.path = filepath;
-      })
-      .on('progress', (bytesReceived, bytesExpected) => {
+      });
+      form.on('progress', (bytesReceived, bytesExpected) => {
         // console.log('PROGRESS');
         res.write(serviceHelper.ensureString([bytesReceived, bytesExpected]));
-      })
-      .on('field', (name, field) => {
+      });
+      form.on('field', (name, field) => {
         console.log('Field', name, field);
         // console.log(name);
         // console.log(field);
         // res.write(serviceHelper.ensureString(field));
-      })
-      .on('file', (name, file) => {
+      });
+      form.on('file', (name, file) => {
         // console.log('Uploaded file', name, file);
         res.write(serviceHelper.ensureString(file));
-      })
-      .on('aborted', () => {
+      });
+      form.on('aborted', () => {
         console.error('Request aborted by the user');
         if (res) {
           res.end();
         }
-      })
-      .on('error', (error) => {
+      });
+      form.on('error', (error) => {
         const errorResponse = serviceHelper.createErrorMessage(
           error.message || error,
           error.name,
@@ -4851,10 +4848,13 @@ async function zelShareUpload(req, res) {
           res.write(serviceHelper.ensureString(errorResponse));
           res.end();
         }
-      })
-      .on('end', () => {
+      });
+      form.on('end', () => {
         res.end();
       });
+      form.parse(req, (err, files, fields) => (err ? reject(err) : resolve({ files, fields })));
+    });
+    await promiseFormidable();
   } catch (error) {
     log.error(error);
   }
