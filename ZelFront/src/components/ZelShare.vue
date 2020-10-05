@@ -105,43 +105,47 @@
         width="200px"
       >
         <template slot="header">
-          <el-input
-            v-model="filterFolder"
-            size="mini"
-            placeholder="Type to search"
-          />
+          <p style="text-align: center">
+            <el-input
+              v-model="filterFolder"
+              size="mini"
+              placeholder="Type to search"
+            />
+          </p>
         </template>
         <template slot-scope="scope">
-          <el-button
-            v-if="scope.row.isFile && !downloaded[scope.row.name]"
-            icon="el-icon-download"
-            size="mini"
-            type="info"
-            @click="download(scope.row.name)"
-          >Download</el-button>
-          <p v-if="total[scope.row.name] && downloaded[scope.row.name]">
-            {{ (downloaded[scope.row.name] / 1e6).toFixed(2) + " / " + (total[scope.row.name] / 1e6).toFixed(2) }} MB
-            <br>
-            {{ ((downloaded[scope.row.name] / total[scope.row.name]) * 100).toFixed(2) + "%" }}
-            <i
-              v-if="total[scope.row.name] && downloaded[scope.row.name] && total[scope.row.name] === downloaded[scope.row.name]"
-              class="el-icon-success"
-            ></i>
-            <el-tooltip
-              v-if="total[scope.row.name] && downloaded[scope.row.name] && total[scope.row.name] !== downloaded[scope.row.name]"
-              content="Cancel Download"
-              placement="top"
-            >
-              <el-button
+          <div style="text-align: center">
+            <el-button
+              v-if="scope.row.isFile && !downloaded[scope.row.name]"
+              icon="el-icon-download"
+              size="mini"
+              type="info"
+              @click="download(scope.row.name)"
+            >Download</el-button>
+            <p v-if="total[scope.row.name] && downloaded[scope.row.name]">
+              {{ (downloaded[scope.row.name] / 1e6).toFixed(2) + " / " + (total[scope.row.name] / 1e6).toFixed(2) }} MB
+              <br>
+              {{ ((downloaded[scope.row.name] / total[scope.row.name]) * 100).toFixed(2) + "%" }}
+              <i
+                v-if="total[scope.row.name] && downloaded[scope.row.name] && total[scope.row.name] === downloaded[scope.row.name]"
+                class="el-icon-success"
+              ></i>
+              <el-tooltip
                 v-if="total[scope.row.name] && downloaded[scope.row.name] && total[scope.row.name] !== downloaded[scope.row.name]"
-                type="danger"
-                icon="el-icon-close"
-                circle
-                size="mini"
-                @click="cancelDownload(scope.row.name)"
-              ></el-button>
-            </el-tooltip>
-          </p>
+                content="Cancel Download"
+                placement="top"
+              >
+                <el-button
+                  v-if="total[scope.row.name] && downloaded[scope.row.name] && total[scope.row.name] !== downloaded[scope.row.name]"
+                  type="danger"
+                  icon="el-icon-close"
+                  circle
+                  size="mini"
+                  @click="cancelDownload(scope.row.name)"
+                ></el-button>
+              </el-tooltip>
+            </p>
+          </div>
         </template>
       </el-table-column>
       <el-table-column
@@ -149,23 +153,49 @@
         width="165px"
       >
         <template slot="header">
-          <el-button
-            icon="el-icon-upload"
-            size="mini"
-            type="info"
-            @click="uploadFilesDialog = true"
-          >
-            Upload
-          </el-button>
-          <el-button
-            style="padding: 5px;"
-            icon="el-icon-folder-add"
-            circle
-            size="mini"
-            type="info"
-            @click="createDirectoryDialogVisible = true"
-          >
-          </el-button>
+          <p style="text-align: center">
+            <el-button
+              icon="el-icon-upload"
+              size="mini"
+              type="info"
+              @click="uploadFilesDialog = true"
+            >
+              Upload
+            </el-button>
+            <el-button
+              style="padding: 5px;"
+              icon="el-icon-folder-add"
+              circle
+              size="mini"
+              type="info"
+              @click="createDirectoryDialogVisible = true"
+            >
+            </el-button>
+          </p>
+        </template>
+        <template slot-scope="scope">
+          <p style="text-align: center">
+            <el-popconfirm
+              v-if="scope.row.isFile"
+              confirmButtonText='Delete'
+              cancelButtonText='No, Thanks'
+              icon="el-icon-delete"
+              iconColor="red"
+              title="Permanently delete file?"
+              confirmButtonType="danger"
+              cancelButtonType="info"
+              @onConfirm="deleteFile(scope.row.name)"
+            >
+              <el-button
+                slot="reference"
+                icon="el-icon-delete"
+                size="mini"
+                type="danger"
+              >
+                Delete
+              </el-button>
+            </el-popconfirm>
+          </p>
         </template>
       </el-table-column>
     </el-table>
@@ -429,6 +459,22 @@ export default {
     },
     refreshFolder() {
       this.loadFolder(this.currentFolder, true);
+    },
+    async deleteFile(name) {
+      try {
+        const folder = this.currentFolder;
+        const fileName = folder ? `${folder}/${name}` : name;
+        const response = await ZelAppsService.removeFile(this.zelidHeader.zelidauth, encodeURIComponent(fileName));
+        if (response.data.status === 'error') {
+          vue.$customMes.error(response.data.data.message || response.data.data);
+        } else {
+          this.loadFolder(this.currentFolder, true);
+          vue.$$customMes.success(`${name} deleted`);
+        }
+      } catch (error) {
+        console.log(error.message);
+        vue.$customMes.error(error.message || error);
+      }
     },
   },
 };

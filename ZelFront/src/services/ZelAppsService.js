@@ -208,6 +208,14 @@ export default {
       },
     });
   },
+  removeFile(zelidauthHeader, file) {
+    console.log(file);
+    return Api().get(`/zelapps/zelshare/removefile/${file}`, {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    });
+  },
   justAPI() {
     return Api();
   },
