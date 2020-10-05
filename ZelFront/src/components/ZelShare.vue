@@ -195,6 +195,26 @@
                 Delete
               </el-button>
             </el-popconfirm>
+            <el-popconfirm
+              v-if="scope.row.isDirectory"
+              confirmButtonText='Delete'
+              cancelButtonText='No, Thanks'
+              icon="el-icon-delete"
+              iconColor="red"
+              title="Only empty directories can be deleted for security reasons. Delete directory?"
+              confirmButtonType="danger"
+              cancelButtonType="info"
+              @onConfirm="deleteFolder(scope.row.name)"
+            >
+              <el-button
+                slot="reference"
+                icon="el-icon-delete"
+                size="mini"
+                type="danger"
+              >
+                Delete
+              </el-button>
+            </el-popconfirm>
           </p>
         </template>
       </el-table-column>
@@ -372,9 +392,7 @@ export default {
     async createFolder(path) {
       try {
         let folderPath = path;
-        if (this.currentFolder === '') {
-          folderPath = path;
-        } else {
+        if (this.currentFolder !== '') {
           folderPath = `${this.currentFolder}/${path}`;
         }
         const response = await ZelAppsService.createFolder(this.zelidHeader.zelidauth, encodeURIComponent(folderPath));
@@ -430,7 +448,7 @@ export default {
         console.log(error.message);
         if (error.message) {
           if (!error.message.startsWith('Download')) {
-            vue.$customMes.error(error.message || error);
+            vue.$customMes.error(error.message);
           }
         } else {
           vue.$customMes.error(error);
@@ -470,6 +488,24 @@ export default {
         } else {
           this.loadFolder(this.currentFolder, true);
           vue.$customMes.success(`${name} deleted`);
+        }
+      } catch (error) {
+        console.log(error.message);
+        vue.$customMes.error(error.message || error);
+      }
+    },
+    async deleteFolder(foldername) {
+      try {
+        let folderPath = foldername;
+        if (this.currentFolder !== '') {
+          folderPath = `${this.currentFolder}/${foldername}`;
+        }
+        const response = await ZelAppsService.removeFile(this.zelidHeader.zelidauth, encodeURIComponent(folderPath));
+        if (response.data.status === 'error') {
+          vue.$customMes.error(response.data.data.message || response.data.data);
+        } else {
+          this.loadFolder(this.currentFolder, true);
+          vue.$customMes.success(`${foldername} deleted`);
         }
       } catch (error) {
         console.log(error.message);

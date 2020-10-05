@@ -4787,6 +4787,43 @@ async function zelShareRemoveFile(req, res) {
   }
 }
 
+async function zelShareRemoveFolder(req, res) {
+  try {
+    const authorized = await serviceHelper.verifyPrivilege('admin', req);
+    if (authorized) {
+      let { folder } = req.params;
+      folder = folder || req.query.folder;
+      folder = decodeURIComponent(folder);
+      if (!folder) {
+        throw new Error('No folder specified');
+      }
+
+      const dirpath = path.join(__dirname, '../../../');
+      const filepath = `${dirpath}ZelApps/ZelShare/${folder}`;
+      await fs.promises.rmdir(filepath);
+
+      const response = serviceHelper.createSuccessMessage('Folder Removed');
+      res.json(response);
+    } else {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    try {
+      res.write(serviceHelper.ensureString(errorResponse));
+      res.end();
+    } catch (e) {
+      log.error(e);
+    }
+  }
+}
+
 async function zelShareGetFolder(req, res) {
   try {
     const authorized = await serviceHelper.verifyPrivilege('admin', req);
@@ -5034,6 +5071,7 @@ module.exports = {
   zelShareCreateFolder,
   zelShareUpload,
   zelShareRemoveFile,
+  zelShareRemoveFolder,
 };
 
 // reenable min connections for registrations/updates before main release

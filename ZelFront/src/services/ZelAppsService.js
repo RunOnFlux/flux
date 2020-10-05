@@ -201,7 +201,6 @@ export default {
     });
   },
   getFile(zelidauthHeader, file) {
-    console.log(file);
     return Api().get(`/zelapps/zelshare/getfile/${file}`, {
       headers: {
         zelidauth: zelidauthHeader,
@@ -209,8 +208,14 @@ export default {
     });
   },
   removeFile(zelidauthHeader, file) {
-    console.log(file);
     return Api().get(`/zelapps/zelshare/removefile/${file}`, {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    });
+  },
+  removeFolder(zelidauthHeader, folder) {
+    return Api().get(`/zelapps/zelshare/removefolder/${folder}`, {
       headers: {
         zelidauth: zelidauthHeader,
       },

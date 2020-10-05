@@ -857,4 +857,7 @@ module.exports = (app, expressWs) => {
   app.get('/zelapps/zelshare/removefile/:file?', (req, res) => {
     zelappsService.zelShareRemoveFile(req, res);
   });
+  app.get('/zelapps/zelshare/removefolder/:folder?', (req, res) => {
+    zelappsService.zelShareRemoveFolder(req, res);
+  });
 };
