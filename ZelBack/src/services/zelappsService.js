@@ -4807,38 +4807,39 @@ async function zelShareUpload(req, res) {
       hash: true,
       keepExtensions: true,
     };
-    await fs.promises.access(uploadDir); // check folder exists
-    const promiseFormidable = new Promise((resolve, reject) => {
-      const form = formidable(options);
-      form.on('fileBegin', (name, file) => {
+    // eslint-disable-next-line no-bitwise
+    await fs.promises.access(uploadDir, fs.constants.F_OK | fs.constants.W_OK); // check folder exists and write ability
+    const form = formidable(options);
+    form.parse(req)
+      .on('fileBegin', (name, file) => {
         console.log(name);
         console.log(file);
         res.write(serviceHelper.ensureString(file.name));
         const filepath = `${dirpath}ZelApps/ZelShare/${folder}${file.name}`;
         // eslint-disable-next-line no-param-reassign
         file.path = filepath;
-      });
-      form.on('progress', (bytesReceived, bytesExpected) => {
+      })
+      .on('progress', (bytesReceived, bytesExpected) => {
         // console.log('PROGRESS');
         res.write(serviceHelper.ensureString([bytesReceived, bytesExpected]));
-      });
-      form.on('field', (name, field) => {
+      })
+      .on('field', (name, field) => {
         console.log('Field', name, field);
         // console.log(name);
         // console.log(field);
         // res.write(serviceHelper.ensureString(field));
-      });
-      form.on('file', (name, file) => {
+      })
+      .on('file', (name, file) => {
         // console.log('Uploaded file', name, file);
         res.write(serviceHelper.ensureString(file));
-      });
-      form.on('aborted', () => {
+      })
+      .on('aborted', () => {
         console.error('Request aborted by the user');
         if (res) {
           res.end();
         }
-      });
-      form.on('error', (error) => {
+      })
+      .on('error', (error) => {
         const errorResponse = serviceHelper.createErrorMessage(
           error.message || error,
           error.name,
@@ -4848,15 +4849,21 @@ async function zelShareUpload(req, res) {
           res.write(serviceHelper.ensureString(errorResponse));
           res.end();
         }
-      });
-      form.on('end', () => {
+      })
+      .on('end', () => {
         res.end();
       });
-      form.parse(req, (err, files, fields) => (err ? reject(err) : resolve({ files, fields })));
-    });
-    await promiseFormidable();
   } catch (error) {
     log.error(error);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    if (res) {
+      res.write(serviceHelper.ensureString(errorResponse));
+      res.end();
+    }
   }
 }
 
