@@ -4812,16 +4812,24 @@ async function zelShareUpload(req, res) {
     const form = formidable(options);
     form.parse(req)
       .on('fileBegin', (name, file) => {
-        console.log(name);
-        console.log(file);
-        res.write(serviceHelper.ensureString(file.name));
-        const filepath = `${dirpath}ZelApps/ZelShare/${folder}${file.name}`;
-        // eslint-disable-next-line no-param-reassign
-        file.path = filepath;
+        try {
+          console.log(name);
+          console.log(file);
+          res.write(serviceHelper.ensureString(file.name));
+          const filepath = `${dirpath}ZelApps/ZelShare/${folder}${file.name}`;
+          // eslint-disable-next-line no-param-reassign
+          file.path = filepath;
+        } catch (error) {
+          log.error(error);
+        }
       })
       .on('progress', (bytesReceived, bytesExpected) => {
-        // console.log('PROGRESS');
-        res.write(serviceHelper.ensureString([bytesReceived, bytesExpected]));
+        try {
+          // console.log('PROGRESS');
+          res.write(serviceHelper.ensureString([bytesReceived, bytesExpected]));
+        } catch (error) {
+          log.error(error);
+        }
       })
       .on('field', (name, field) => {
         console.log('Field', name, field);
@@ -4830,34 +4838,46 @@ async function zelShareUpload(req, res) {
         // res.write(serviceHelper.ensureString(field));
       })
       .on('file', (name, file) => {
-        // console.log('Uploaded file', name, file);
-        res.write(serviceHelper.ensureString(file));
+        try {
+          // console.log('Uploaded file', name, file);
+          res.write(serviceHelper.ensureString(file));
+        } catch (error) {
+          log.error(error);
+        }
       })
       .on('aborted', () => {
         console.error('Request aborted by the user');
-        if (res) {
-          res.end();
-        }
       })
       .on('error', (error) => {
+        log.error(error);
         const errorResponse = serviceHelper.createErrorMessage(
           error.message || error,
           error.name,
           error.code,
         );
-        if (res) {
+        try {
           res.write(serviceHelper.ensureString(errorResponse));
           res.end();
+        } catch (e) {
+          log.error(e);
         }
       })
       .on('end', () => {
-        res.end();
+        try {
+          res.end();
+        } catch (error) {
+          log.error(error);
+        }
       });
   } catch (error) {
     log.error(error);
     if (res) {
       // res.set('Connection', 'close');
-      res.connection.destroy();
+      try {
+        res.connection.destroy();
+      } catch (e) {
+        log.error(e);
+      }
     }
   }
 }
