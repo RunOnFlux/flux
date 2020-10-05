@@ -4855,14 +4855,9 @@ async function zelShareUpload(req, res) {
       });
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
     if (res) {
-      res.write(serviceHelper.ensureString(errorResponse));
-      res.end();
+      // res.set('Connection', 'close');
+      res.connection.destroy();
     }
   }
 }
