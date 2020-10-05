@@ -175,12 +175,16 @@
       :show-close="true"
       title="Upload files"
       :visible.sync="uploadFilesDialog"
+      @close="refreshFolder"
       width="75%"
     >
       <el-upload
         drag
         :headers="zelidHeader"
         :action="getUploadFolder"
+        :on-error="uploadError"
+        :on-success="uploadSuccess"
+        thumbnail-mode="true"
         multiple
       >
         <i class="el-icon-upload"></i>
@@ -251,6 +255,7 @@ export default {
       abortToken: {},
       downloaded: {},
       total: {},
+      working: false,
     };
   },
   computed: {
@@ -314,10 +319,12 @@ export default {
       }
       this.loadFolder(this.currentFolder);
     },
-    async loadFolder(path) {
+    async loadFolder(path, soft = false) {
       try {
         this.filterFolder = '';
-        this.folderView = [];
+        if (!soft) {
+          this.folderView = [];
+        }
         this.loadingFolder = true;
         const response = await ZelAppsService.getFolder(this.zelidHeader.zelidauth, encodeURIComponent(path));
         this.loadingFolder = false;
@@ -344,7 +351,7 @@ export default {
         if (response.data.status === 'error') {
           vue.$customMes.error(response.data.data.message || response.data.data);
         } else {
-          this.loadFolder(this.currentFolder);
+          this.loadFolder(this.currentFolder, true);
           this.createDirectoryDialogVisible = false;
         }
       } catch (error) {
@@ -406,6 +413,22 @@ export default {
         str[0] = str[0].replace(/(\d)(?=(\d{3})+$)/g, '$1,');
       }
       return str.join('.');
+    },
+    uploadError(error, file) {
+      vue.$customMes.error(`Error uploading ${file.name}`);
+    },
+    uploadSuccess() {
+      const self = this;
+      if (!this.working) {
+        this.working = true;
+        this.loadFolder(this.currentFolder, true);
+        setTimeout(() => {
+          self.working = false;
+        }, 500);
+      }
+    },
+    refreshFolder() {
+      this.loadFolder(this.currentFolder, true);
     },
   },
 };
