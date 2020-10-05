@@ -4719,14 +4719,35 @@ async function whitelistedZelIDs(req, res) {
 
 // ZelShare specific
 async function zelShareFile(req, res) {
-  let { file } = req.params;
-  file = file || req.query.file;
-  file = decodeURIComponent(file);
+  try {
+    const authorized = await serviceHelper.verifyPrivilege('admin', req);
+    if (authorized) {
+      let { file } = req.params;
+      file = file || req.query.file;
+      file = decodeURIComponent(file);
 
-  const dirpath = path.join(__dirname, '../../../');
-  const filepath = `${dirpath}ZelApps/ZelShare/${file}`;
+      const dirpath = path.join(__dirname, '../../../');
+      const filepath = `${dirpath}ZelApps/ZelShare/${file}`;
 
-  return res.sendFile(filepath);
+      res.sendFile(filepath);
+    } else {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    try {
+      res.write(serviceHelper.ensureString(errorResponse));
+      res.end();
+    } catch (e) {
+      log.error(e);
+    }
+  }
 }
 
 async function zelShareRemoveFile(req, res) {
@@ -4768,37 +4789,43 @@ async function zelShareRemoveFile(req, res) {
 
 async function zelShareGetFolder(req, res) {
   try {
-    let { folder } = req.params;
-    folder = folder || req.query.folder || '';
-    folder = decodeURIComponent(folder);
+    const authorized = await serviceHelper.verifyPrivilege('admin', req);
+    if (authorized) {
+      let { folder } = req.params;
+      folder = folder || req.query.folder || '';
+      folder = decodeURIComponent(folder);
 
-    const dirpath = path.join(__dirname, '../../../');
-    const filepath = `${dirpath}ZelApps/ZelShare/${folder}`;
-    const options = {
-      withFileTypes: false,
-    };
-    const files = await fs.promises.readdir(filepath, options);
-    const filesWithDetails = [];
-    // eslint-disable-next-line no-restricted-syntax
-    for (const file of files) {
-      // eslint-disable-next-line no-await-in-loop
-      const fileStats = await fs.promises.lstat(`${filepath}/${file}`);
-      const isDirectory = fileStats.isDirectory();
-      const isFile = fileStats.isFile();
-      const isSymbolicLink = fileStats.isSymbolicLink();
-      const detailedFile = {
-        name: file,
-        size: fileStats.size, // bytes
-        isDirectory,
-        isFile,
-        isSymbolicLink,
-        createdAt: fileStats.birthtime,
-        modifiedAt: fileStats.mtime,
+      const dirpath = path.join(__dirname, '../../../');
+      const filepath = `${dirpath}ZelApps/ZelShare/${folder}`;
+      const options = {
+        withFileTypes: false,
       };
-      filesWithDetails.push(detailedFile);
+      const files = await fs.promises.readdir(filepath, options);
+      const filesWithDetails = [];
+      // eslint-disable-next-line no-restricted-syntax
+      for (const file of files) {
+        // eslint-disable-next-line no-await-in-loop
+        const fileStats = await fs.promises.lstat(`${filepath}/${file}`);
+        const isDirectory = fileStats.isDirectory();
+        const isFile = fileStats.isFile();
+        const isSymbolicLink = fileStats.isSymbolicLink();
+        const detailedFile = {
+          name: file,
+          size: fileStats.size, // bytes
+          isDirectory,
+          isFile,
+          isSymbolicLink,
+          createdAt: fileStats.birthtime,
+          modifiedAt: fileStats.mtime,
+        };
+        filesWithDetails.push(detailedFile);
+      }
+      const resultsResponse = serviceHelper.createDataMessage(filesWithDetails);
+      res.json(resultsResponse);
+    } else {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
     }
-    const resultsResponse = serviceHelper.createDataMessage(filesWithDetails);
-    res.json(resultsResponse);
   } catch (error) {
     log.error(error);
     const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
@@ -4808,17 +4835,23 @@ async function zelShareGetFolder(req, res) {
 
 async function zelShareCreateFolder(req, res) {
   try {
-    let { folder } = req.params;
-    folder = folder || req.query.folder || '';
-    folder = decodeURIComponent(folder);
+    const authorized = await serviceHelper.verifyPrivilege('admin', req);
+    if (authorized) {
+      let { folder } = req.params;
+      folder = folder || req.query.folder || '';
+      folder = decodeURIComponent(folder);
 
-    const dirpath = path.join(__dirname, '../../../');
-    const filepath = `${dirpath}ZelApps/ZelShare/${folder}`;
+      const dirpath = path.join(__dirname, '../../../');
+      const filepath = `${dirpath}ZelApps/ZelShare/${folder}`;
 
-    await fs.promises.mkdir(filepath);
+      await fs.promises.mkdir(filepath);
 
-    const resultsResponse = serviceHelper.createSuccessMessage('Folder Created');
-    res.json(resultsResponse);
+      const resultsResponse = serviceHelper.createSuccessMessage('Folder Created');
+      res.json(resultsResponse);
+    } else {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
   } catch (error) {
     log.error(error);
     const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
@@ -4828,7 +4861,11 @@ async function zelShareCreateFolder(req, res) {
 
 async function zelShareUpload(req, res) {
   try {
-    console.log(req.params);
+    console.log(req.headers);
+    const authorized = await serviceHelper.verifyPrivilege('admin', req);
+    if (!authorized) {
+      throw new Error('Unauthorized. Access denied.');
+    }
     let { folder } = req.params;
     folder = folder || req.query.folder || '';
     folder = decodeURIComponent(folder);
