@@ -4861,7 +4861,6 @@ async function zelShareCreateFolder(req, res) {
 
 async function zelShareUpload(req, res) {
   try {
-    console.log(req.headers);
     const authorized = await serviceHelper.verifyPrivilege('admin', req);
     if (!authorized) {
       throw new Error('Unauthorized. Access denied.');
@@ -4887,8 +4886,6 @@ async function zelShareUpload(req, res) {
     form.parse(req)
       .on('fileBegin', (name, file) => {
         try {
-          console.log(name);
-          console.log(file);
           res.write(serviceHelper.ensureString(file.name));
           const filepath = `${dirpath}ZelApps/ZelShare/${folder}${file.name}`;
           // eslint-disable-next-line no-param-reassign
