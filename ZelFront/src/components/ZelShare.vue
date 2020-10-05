@@ -500,7 +500,7 @@ export default {
         if (this.currentFolder !== '') {
           folderPath = `${this.currentFolder}/${foldername}`;
         }
-        const response = await ZelAppsService.removeFile(this.zelidHeader.zelidauth, encodeURIComponent(folderPath));
+        const response = await ZelAppsService.removeFolder(this.zelidHeader.zelidauth, encodeURIComponent(folderPath));
         if (response.data.status === 'error') {
           vue.$customMes.error(response.data.data.message || response.data.data);
         } else {
