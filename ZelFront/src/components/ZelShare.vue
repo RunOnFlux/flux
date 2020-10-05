@@ -7,22 +7,17 @@
       :default-sort="{prop: 'name', order: 'ascending'}"
       :default-sort-method="sortNameFolder"
     >
-      <template slot="empty">
-        <slot
-          name="empty"
-          v-if="$slots.empty"
-        >
-          <p v-if="loadingFolder">
-            Local Specifications loading<i class="el-icon-loading"></i>
-          </p>
-          <p v-else-if="filterFolder">
-            No files found
-          </p>
-          <p v-else>
-            Folder is empty
-          </p>
-        </slot>
-      </template>
+      <div slot="empty">
+        <p v-if="loadingFolder">
+          Loading folder <i class="el-icon-loading"></i>
+        </p>
+        <p v-else-if="filterFolder">
+          No files found
+        </p>
+        <p v-else>
+          Folder is empty
+        </p>
+      </div>
       <el-table-column
         label="Name"
         prop="name"
@@ -490,7 +485,6 @@ export default {
           vue.$customMes.success(`${name} deleted`);
         }
       } catch (error) {
-        console.log(error.message);
         vue.$customMes.error(error.message || error);
       }
     },
@@ -501,14 +495,18 @@ export default {
           folderPath = `${this.currentFolder}/${foldername}`;
         }
         const response = await ZelAppsService.removeFolder(this.zelidHeader.zelidauth, encodeURIComponent(folderPath));
+        console.log(response.data);
         if (response.data.status === 'error') {
-          vue.$customMes.error(response.data.data.message || response.data.data);
+          if (response.data.data.code === 'ENOTEMPTY') {
+            vue.$customMes.error(`Directory ${foldername} is not empty!`);
+          } else {
+            vue.$customMes.error(response.data.data.message || response.data.data);
+          }
         } else {
           this.loadFolder(this.currentFolder, true);
           vue.$customMes.success(`${foldername} deleted`);
         }
       } catch (error) {
-        console.log(error.message);
         vue.$customMes.error(error.message || error);
       }
     },
