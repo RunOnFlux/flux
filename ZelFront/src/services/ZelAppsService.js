@@ -228,6 +228,13 @@ export default {
       },
     });
   },
+  storageStats(zelidauthHeader) {
+    return Api().get('/zelapps/zelshare/stats', {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    });
+  },
   justAPI() {
     return Api();
   },

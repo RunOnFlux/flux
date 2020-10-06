@@ -4937,6 +4937,97 @@ async function zelShareFileExists(req, res) {
   }
 }
 
+function getAllFiles(dirPath, arrayOfFiles) {
+  const files = fs.readdirSync(dirPath);
+
+  // eslint-disable-next-line no-param-reassign
+  arrayOfFiles = arrayOfFiles || [];
+
+  files.forEach((file) => {
+    if (fs.statSync(`${dirPath}/${file}`).isDirectory()) {
+      // eslint-disable-next-line no-param-reassign
+      arrayOfFiles = getAllFiles(`${dirPath}/${file}`, arrayOfFiles);
+    } else {
+      arrayOfFiles.push(path.join(__dirname, dirPath, file));
+    }
+  });
+  return arrayOfFiles;
+}
+
+function getZelShareSize() {
+  const dirpath = path.join(__dirname, '../../../');
+  const directoryPath = `${dirpath}ZelApps/ZelShare`;
+
+  const arrayOfFiles = getAllFiles(directoryPath);
+
+  let totalSize = 0;
+
+  arrayOfFiles.forEach((filePath) => {
+    totalSize += fs.statSync(filePath).size;
+  });
+  return (totalSize / 1e9); // in 'GB'
+}
+
+async function getSpaceAvailableForZelShare() {
+  const dfAsync = util.promisify(df);
+  // we want whole numbers in GB
+  const options = {
+    prefixMultiplier: 'GB',
+    isDisplayPrefixMultiplier: false,
+    precision: 0,
+  };
+
+  const dfres = await dfAsync(options).catch((error) => {
+    throw error;
+  });
+  const okVolumes = [];
+  dfres.forEach((volume) => {
+    if (volume.filesystem.includes('/dev/') && !volume.filesystem.includes('loop') && !volume.mount.includes('boot')) {
+      okVolumes.push(volume);
+    } else if (volume.filesystem.includes('loop') && volume.mount === '/') {
+      okVolumes.push(volume);
+    }
+  });
+  console.log(okVolumes);
+
+  // now we know that most likely there is a space available. IF user does not have his own stuff on the node or space may be sharded accross hdds.
+  let availableSpace = 0;
+  okVolumes.forEach((volume) => {
+    availableSpace += serviceHelper.ensureNumber(volume.available);
+  });
+  // space that is further reserved for zelflux os and that will be later substracted from available space. Max 30.
+  const tier = await zelnodeTier();
+  const lockedSpaceOnNode = config.fluxSpecifics.hdd[tier];
+  const extraSpaceOnNode = availableSpace - lockedSpaceOnNode > 0 ? availableSpace - lockedSpaceOnNode : 0; // shall always be above 0. Put precaution to place anyway
+  const spaceAvailableForZelShare = 2 + extraSpaceOnNode;
+  return spaceAvailableForZelShare;
+}
+
+async function zelShareSpaceAvailableTotal(req, res) {
+  try {
+    const authorized = await serviceHelper.verifyPrivilege('admin', req);
+    if (authorized) {
+      const spaceAvailableForZelShare = await getSpaceAvailableForZelShare();
+      let spaceUsedByZelShare = getZelShareSize();
+      spaceUsedByZelShare = Number(spaceUsedByZelShare.toFixed(6));
+      const data = {
+        available: spaceAvailableForZelShare - spaceUsedByZelShare,
+        used: spaceUsedByZelShare,
+        total: spaceAvailableForZelShare,
+      };
+      const resultsResponse = serviceHelper.createDataMessage(data);
+      res.json(resultsResponse);
+    } else {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+  }
+}
+
 async function zelShareUpload(req, res) {
   try {
     const authorized = await serviceHelper.verifyPrivilege('admin', req);
@@ -4958,6 +5049,13 @@ async function zelShareUpload(req, res) {
       hash: true,
       keepExtensions: true,
     };
+    const spaceAvailableForZelShare = await getSpaceAvailableForZelShare();
+    let spaceUsedByZelShare = getZelShareSize();
+    spaceUsedByZelShare = Number(spaceUsedByZelShare.toFixed(6));
+    const available = spaceAvailableForZelShare - spaceUsedByZelShare;
+    if (available <= 0) {
+      throw new Error('ZelShare Storage is full');
+    }
     // eslint-disable-next-line no-bitwise
     await fs.promises.access(uploadDir, fs.constants.F_OK | fs.constants.W_OK); // check folder exists and write ability
     const form = formidable(options);
@@ -5114,6 +5212,7 @@ module.exports = {
   zelShareRemoveFile,
   zelShareRemoveFolder,
   zelShareFileExists,
+  zelShareSpaceAvailableTotal,
 };
 
 // reenable min connections for registrations/updates before main release

@@ -863,4 +863,7 @@ module.exports = (app, expressWs) => {
   app.get('/zelapps/zelshare/fileexists/:file?', (req, res) => {
     zelappsService.zelShareFileExists(req, res);
   });
+  app.get('/zelapps/zelshare/stats', (req, res) => {
+    zelappsService.zelShareStorageStats(req, res);
+  });
 };

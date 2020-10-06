@@ -90,7 +90,7 @@
         sortable
       >
         <template slot-scope="scope">
-          <p v-if="scope.row.size > 0">
+          <p v-if="scope.row.size > 0 && scope.row.isFile">
             {{ beautifyValue((scope.row.size / 1000).toFixed(0)) }} KB
           </p>
         </template>
@@ -302,6 +302,11 @@ export default {
       downloaded: {},
       total: {},
       working: false,
+      storage: {
+        used: 0,
+        total: 2,
+        available: 2,
+      },
     };
   },
   computed: {
@@ -340,6 +345,7 @@ export default {
   mounted() {
     this.loadingFolder = true;
     this.loadFolder(this.currentFolder); // empty string for main folder
+    this.storageStats();
   },
   methods: {
     sortNameFolder(a, b) {
@@ -352,6 +358,22 @@ export default {
     },
     sortTableByNameManual() {
       this.$refs.shareTable.clearSort();
+    },
+    async storageStats() {
+      try {
+        const response = await ZelAppsService.storageStats(this.zelidHeader.zelidauth);
+        console.log(response);
+        if (response.data.status === 'success') {
+          this.folderView = response.data.data;
+          this.storage.total = response.data.data.total;
+          this.storage.used = response.data.data.used;
+          this.storage.available = response.data.data.available;
+        } else {
+          vue.$customMes.error(response.data.data.message || response.data.data);
+        }
+      } catch (error) {
+        vue.$customMes.error(error.message || error);
+      }
     },
     changeFolder(name) {
       if (name === '..') {
@@ -477,6 +499,7 @@ export default {
     },
     refreshFolder() {
       this.loadFolder(this.currentFolder, true);
+      this.storageStats();
     },
     async deleteFile(name) {
       try {
@@ -515,27 +538,18 @@ export default {
         vue.$customMes.error(error.message || error);
       }
     },
-    async beforeUpload(file) {
-      try {
-        // check if file already exists
-        const folder = this.currentFolder;
-        const fileName = folder ? `${folder}/${file}` : file;
-        const responseExists = await ZelAppsService.fileExists(this.zelidHeader.zelidauth, encodeURIComponent(fileName));
-        console.log(responseExists);
-        if (responseExists.data.status === 'error') {
-          vue.$customMes.error(responseExists.data.data.message || responseExists.data.data);
-          return false;
-        }
-        if (responseExists.data.data.fileExists) {
-          // file already exists
-          return false;
-        }
-        // TODO check if storage is not full
-        return true;
-      } catch (error) {
-        vue.$customMes.error(error.message || error);
+    beforeUpload(file) {
+      // check if file already exists
+      if (this.storage.available <= 0) {
+        vue.$message.error('Storage space is full');
         return false;
       }
+      const fileExists = this.folderView.find((currentFile) => currentFile.name === file.name);
+      if (fileExists) {
+        vue.$message.info(`File ${file.name} already exists`);
+        return false;
+      }
+      return true;
     },
   },
 };
