@@ -725,7 +725,7 @@
               <p>
                 Registered on Blockheight: {{ callResponse.data.height }}
               </p>
-              <p>
+              <p v-if="callResponse.data.hash.length === 64">
                 Expires on Blockheight: {{ callResponse.data.height + 22000 }}
               </p>
               <p>
@@ -816,7 +816,7 @@
               <p>
                 Registered on Blockheight: {{ callBResponse.data.height }}
               </p>
-              <p>
+              <p v-if="callResponse.data.hash.length === 64">
                 Expires on Blockheight: {{ callBResponse.data.height + 22000 }}
               </p>
               <p>
@@ -1176,7 +1176,7 @@
               <p>
                 Registered on Blockheight: {{ callBResponse.data.height }}
               </p>
-              <p>
+              <p v-if="callResponse.data.hash.length === 64">
                 Expires on Blockheight: {{ callBResponse.data.height + 22000 }}
               </p>
               <p>
