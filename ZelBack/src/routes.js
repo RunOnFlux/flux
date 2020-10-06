@@ -1,3 +1,5 @@
+const apicache = require('apicache');
+
 const zelcashService = require('./services/zelcashService');
 const zelbenchService = require('./services/zelbenchService');
 const zelidService = require('./services/zelidService');
@@ -6,36 +8,38 @@ const zelfluxCommunication = require('./services/zelfluxCommunication');
 const zelappsService = require('./services/zelappsService');
 const explorerService = require('./services/explorerService');
 
+const cache = apicache.middleware;
+
 module.exports = (app, expressWs) => {
   // GET PUBLIC methods
-  app.get('/zelcash/help/:command?', (req, res) => { // accept both help/command and ?command=getinfo. If ommited, default help will be displayed. Other calls works in similar way
+  app.get('/zelcash/help/:command?', cache('1 minute'), (req, res) => { // accept both help/command and ?command=getinfo. If ommited, default help will be displayed. Other calls works in similar way
     zelcashService.help(req, res);
   });
-  app.get('/zelcash/getinfo', (req, res) => {
+  app.get('/zelcash/getinfo', cache('10 seconds'), (req, res) => {
     zelcashService.getInfo(req, res);
   });
-  app.get('/zelcash/getzelnodestatus', (req, res) => {
+  app.get('/zelcash/getzelnodestatus', cache('10 seconds'), (req, res) => {
     zelcashService.getZelNodeStatus(req, res);
   });
-  app.get('/zelcash/listzelnodes/:filter?', (req, res) => {
+  app.get('/zelcash/listzelnodes/:filter?', cache('10 seconds'), (req, res) => {
     zelcashService.listZelNodes(req, res);
   });
-  app.get('/zelcash/viewdeterministiczelnodelist/:filter?', (req, res) => {
+  app.get('/zelcash/viewdeterministiczelnodelist/:filter?', cache('10 seconds'), (req, res) => {
     zelcashService.viewDeterministicZelNodeList(req, res);
   });
-  app.get('/zelcash/znsync/:mode?', (req, res) => {
+  app.get('/zelcash/znsync/:mode?', cache('1 minute'), (req, res) => {
     zelcashService.znsync(req, res);
   });
-  app.get('/zelcash/decodezelnodebroadcast/:hexstring?', (req, res) => {
+  app.get('/zelcash/decodezelnodebroadcast/:hexstring?', cache('10 seconds'), (req, res) => {
     zelcashService.decodeZelNodeBroadcast(req, res);
   });
-  app.get('/zelcash/getzelnodecount', (req, res) => {
+  app.get('/zelcash/getzelnodecount', cache('30 seconds'), (req, res) => {
     zelcashService.getZelNodeCount(req, res);
   });
-  app.get('/zelcash/getdoslist', (req, res) => {
+  app.get('/zelcash/getdoslist', cache('1 minute'), (req, res) => {
     zelcashService.getDOSList(req, res);
   });
-  app.get('/zelcash/getstartlist', (req, res) => {
+  app.get('/zelcash/getstartlist', cache('1 minute'), (req, res) => {
     zelcashService.getStartList(req, res);
   });
   app.get('/zelcash/getzelnodescores/:blocks?', (req, res) => { // defaults to 10

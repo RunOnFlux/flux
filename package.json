@@ -47,6 +47,7 @@
     "ciconfig": "cp sampleUserConfig.js config/userconfig.js && mkdir ~/.zelcash && cp sampleZelCashConfig.conf ~/.zelcash/zelcash.conf"
   },
   "dependencies": {
+    "apicache": "1.5.2",
     "axios": "^0.19.0",
     "bitcoin": "^3.0.1",
     "bitcoinjs-lib": "^5.1.6",
@@ -63,8 +64,10 @@
     "formidable": "^2.0.0-canary.20200504.1",
     "fullnode": "file:lib/fullnode",
     "inquirer": "^7.0.0",
+    "lru-cache": "^6.0.0",
     "mongodb": "^3.4.0",
     "morgan": "^1.9.1",
+    "node-cache": "^5.1.2",
     "node-cmd": "^3.0.0",
     "node-df": "^0.1.4",
     "nodemon": "^2.0.2",
