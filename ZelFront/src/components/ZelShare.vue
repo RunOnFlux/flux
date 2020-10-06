@@ -364,7 +364,6 @@ export default {
         const response = await ZelAppsService.storageStats(this.zelidHeader.zelidauth);
         console.log(response);
         if (response.data.status === 'success') {
-          this.folderView = response.data.data;
           this.storage.total = response.data.data.total;
           this.storage.used = response.data.data.used;
           this.storage.available = response.data.data.available;

@@ -4954,7 +4954,7 @@ function getAllFiles(dirPath, arrayOfFiles) {
       // eslint-disable-next-line no-param-reassign
       arrayOfFiles = getAllFiles(`${dirPath}/${file}`, arrayOfFiles);
     } else {
-      arrayOfFiles.push(path.join(__dirname, dirPath, file));
+      arrayOfFiles.push(`${dirPath}/${file}`);
     }
   });
   return arrayOfFiles;
@@ -5008,7 +5008,12 @@ async function getSpaceAvailableForZelShare() {
   // space that is further reserved for zelflux os and that will be later substracted from available space. Max 30.
   const tier = await zelnodeTier();
   const lockedSpaceOnNode = config.fluxSpecifics.hdd[tier];
-  const extraSpaceOnNode = availableSpace - lockedSpaceOnNode > 0 ? availableSpace - lockedSpaceOnNode : 0; // shall always be above 0. Put precaution to place anyway
+
+  const resourcesLocked = await zelappsResources();
+  const hddLockedByApps = resourcesLocked.data.zelAppsHddLocked; // as this does not count since its loop
+
+  const extraSpaceOnNode = availableSpace - lockedSpaceOnNode + hddLockedByApps > 0 ? availableSpace - lockedSpaceOnNode + hddLockedByApps : 0; // shall always be above 0. Put precaution to place anyway
+  // const extraSpaceOnNode = availableSpace - lockedSpaceOnNode > 0 ? availableSpace - lockedSpaceOnNode : 0;
   const spaceAvailableForZelShare = 2 + extraSpaceOnNode;
   return spaceAvailableForZelShare;
 }
