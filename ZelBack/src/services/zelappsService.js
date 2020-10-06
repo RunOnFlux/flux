@@ -4896,6 +4896,47 @@ async function zelShareCreateFolder(req, res) {
   }
 }
 
+async function zelShareFileExists(req, res) {
+  try {
+    const authorized = await serviceHelper.verifyPrivilege('admin', req);
+    if (authorized) {
+      let { file } = req.params;
+      file = file || req.query.file;
+      file = decodeURIComponent(file);
+
+      const dirpath = path.join(__dirname, '../../../');
+      const filepath = `${dirpath}ZelApps/ZelShare/${file}`;
+      let fileExists = true;
+      try {
+        await fs.promises.access(filepath, fs.constants.F_OK); // check folder exists and write ability
+      } catch (error) {
+        fileExists = false;
+      }
+      const data = {
+        fileExists,
+      };
+      const resultsResponse = serviceHelper.createDataMessage(data);
+      res.json(resultsResponse);
+    } else {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    try {
+      res.write(serviceHelper.ensureString(errorResponse));
+      res.end();
+    } catch (e) {
+      log.error(e);
+    }
+  }
+}
+
 async function zelShareUpload(req, res) {
   try {
     const authorized = await serviceHelper.verifyPrivilege('admin', req);
@@ -4913,7 +4954,7 @@ async function zelShareUpload(req, res) {
     const options = {
       multiples: true,
       uploadDir,
-      maxFileSize: 1024 * 1024 * 1024, // 1gb
+      maxFileSize: 5 * 1024 * 1024 * 1024, // 5gb
       hash: true,
       keepExtensions: true,
     };
@@ -5072,6 +5113,7 @@ module.exports = {
   zelShareUpload,
   zelShareRemoveFile,
   zelShareRemoveFolder,
+  zelShareFileExists,
 };
 
 // reenable min connections for registrations/updates before main release

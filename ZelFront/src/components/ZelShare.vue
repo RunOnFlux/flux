@@ -229,6 +229,7 @@
         :action="getUploadFolder"
         :on-error="uploadError"
         :on-success="uploadSuccess"
+        :before-upload="beforeUpload"
         thumbnail-mode="true"
         multiple
       >
@@ -237,7 +238,7 @@
         <div
           class="el-upload__tip"
           slot="tip"
-        >File size is limited to 1GB</div>
+        >File size is limited to 5GB</div>
       </el-upload>
     </el-dialog>
     <el-dialog
@@ -392,7 +393,11 @@ export default {
         }
         const response = await ZelAppsService.createFolder(this.zelidHeader.zelidauth, encodeURIComponent(folderPath));
         if (response.data.status === 'error') {
-          vue.$customMes.error(response.data.data.message || response.data.data);
+          if (response.data.data.code === 'EEXIST') {
+            vue.$customMes.error(`Folder ${path} already exists`);
+          } else {
+            vue.$customMes.error(response.data.data.message || response.data.data);
+          }
         } else {
           this.loadFolder(this.currentFolder, true);
           this.createDirectoryDialogVisible = false;
@@ -508,6 +513,28 @@ export default {
         }
       } catch (error) {
         vue.$customMes.error(error.message || error);
+      }
+    },
+    async beforeUpload(file) {
+      try {
+        // check if file already exists
+        const folder = this.currentFolder;
+        const fileName = folder ? `${folder}/${file}` : file;
+        const responseExists = await ZelAppsService.fileExists(this.zelidHeader.zelidauth, encodeURIComponent(fileName));
+        console.log(responseExists);
+        if (responseExists.data.status === 'error') {
+          vue.$customMes.error(responseExists.data.data.message || responseExists.data.data);
+          return false;
+        }
+        if (responseExists.data.data.fileExists) {
+          // file already exists
+          return false;
+        }
+        // TODO check if storage is not full
+        return true;
+      } catch (error) {
+        vue.$customMes.error(error.message || error);
+        return false;
       }
     },
   },

@@ -221,6 +221,13 @@ export default {
       },
     });
   },
+  fileExists(zelidauthHeader, file) {
+    return Api().get(`/zelapps/zelshare/fileexists/${file}`, {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    });
+  },
   justAPI() {
     return Api();
   },
