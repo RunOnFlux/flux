@@ -80,10 +80,14 @@ async function myZelNodeIP() {
 
 async function deterministicZelNodeList() {
   try {
+    const request = {
+      params: {},
+      query: {},
+    };
     let zelnodeList = [];
     zelnodeList = myCache.get('zelnodeList');
     if (!zelnodeList) {
-      const zelcashZelNodeList = await zelcashService.viewDeterministicZelNodeList();
+      const zelcashZelNodeList = await zelcashService.viewDeterministicZelNodeList(request);
       if (zelcashZelNodeList.status === 'success') {
         zelnodeList = zelcashZelNodeList.data || [];
         myCache.set('zelnodeList', zelnodeList); // default ttl of 60 sec
