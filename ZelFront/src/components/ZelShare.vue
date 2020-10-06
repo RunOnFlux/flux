@@ -1,5 +1,14 @@
 <template>
   <div>
+    <p class="spaceLeft">
+      <el-progress
+        :text-inside="true"
+        :percentage="percentage"
+        :color="customColors"
+        :stroke-width="20"
+      ></el-progress>
+      {{ storage.used.toFixed(2) + ' / ' + storage.total.toFixed(2) }} GB
+    </p>
     <el-table
       ref="shareTable"
       :data="folderContentFilter"
@@ -307,12 +316,23 @@ export default {
         total: 2,
         available: 2,
       },
+      customColors: [
+        { color: '#6f7ad3', percentage: 20 },
+        { color: '#1989fa', percentage: 40 },
+        { color: '#5cb87a', percentage: 60 },
+        { color: '#e6a23c', percentage: 80 },
+        { color: '#f56c6c', percentage: 100 },
+      ],
     };
   },
   computed: {
     ...mapState([
       'userconfig',
     ]),
+    percentage() {
+      const perc = (this.storage.used / this.storage.total) * 100;
+      return Number(perc.toFixed(2));
+    },
     zelidHeader() {
       const zelidauth = localStorage.getItem('zelidauth');
       const headers = {
