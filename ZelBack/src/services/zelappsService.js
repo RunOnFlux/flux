@@ -4944,7 +4944,13 @@ function getAllFiles(dirPath, arrayOfFiles) {
   arrayOfFiles = arrayOfFiles || [];
 
   files.forEach((file) => {
-    if (fs.statSync(`${dirPath}/${file}`).isDirectory()) {
+    let isDirectory = false;
+    try {
+      isDirectory = fs.statSync(`${dirPath}/${file}`).isDirectory();
+    } catch (error) {
+      log.warn(error);
+    }
+    if (isDirectory) {
       // eslint-disable-next-line no-param-reassign
       arrayOfFiles = getAllFiles(`${dirPath}/${file}`, arrayOfFiles);
     } else {
@@ -4963,7 +4969,11 @@ function getZelShareSize() {
   let totalSize = 0;
 
   arrayOfFiles.forEach((filePath) => {
-    totalSize += fs.statSync(filePath).size;
+    try {
+      totalSize += fs.statSync(filePath).size;
+    } catch (error) {
+      log.warn(error);
+    }
   });
   return (totalSize / 1e9); // in 'GB'
 }
