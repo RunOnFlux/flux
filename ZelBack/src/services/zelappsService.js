@@ -5003,7 +5003,7 @@ async function getSpaceAvailableForZelShare() {
   return spaceAvailableForZelShare;
 }
 
-async function zelShareSpaceAvailableTotal(req, res) {
+async function zelShareStorageStats(req, res) {
   try {
     const authorized = await serviceHelper.verifyPrivilege('admin', req);
     if (authorized) {
@@ -5212,7 +5212,7 @@ module.exports = {
   zelShareRemoveFile,
   zelShareRemoveFolder,
   zelShareFileExists,
-  zelShareSpaceAvailableTotal,
+  zelShareStorageStats,
 };
 
 // reenable min connections for registrations/updates before main release
