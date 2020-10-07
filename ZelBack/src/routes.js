@@ -12,139 +12,139 @@ const cache = apicache.middleware;
 
 module.exports = (app, expressWs) => {
   // GET PUBLIC methods
-  app.get('/zelcash/help/:command?', cache('1 minute'), (req, res) => { // accept both help/command and ?command=getinfo. If ommited, default help will be displayed. Other calls works in similar way
+  app.get('/zelcash/help/:command?', cache('1 hour'), (req, res) => { // accept both help/command and ?command=getinfo. If ommited, default help will be displayed. Other calls works in similar way
     zelcashService.help(req, res);
   });
-  app.get('/zelcash/getinfo', cache('10 seconds'), (req, res) => {
+  app.get('/zelcash/getinfo', cache('30 seconds'), (req, res) => {
     zelcashService.getInfo(req, res);
   });
-  app.get('/zelcash/getzelnodestatus', cache('10 seconds'), (req, res) => {
+  app.get('/zelcash/getzelnodestatus', cache('30 seconds'), (req, res) => {
     zelcashService.getZelNodeStatus(req, res);
   });
-  app.get('/zelcash/listzelnodes/:filter?', cache('10 seconds'), (req, res) => {
+  app.get('/zelcash/listzelnodes/:filter?', cache('30 seconds'), (req, res) => {
     zelcashService.listZelNodes(req, res);
   });
-  app.get('/zelcash/viewdeterministiczelnodelist/:filter?', cache('10 seconds'), (req, res) => {
+  app.get('/zelcash/viewdeterministiczelnodelist/:filter?', cache('30 seconds'), (req, res) => {
     zelcashService.viewDeterministicZelNodeList(req, res);
   });
-  app.get('/zelcash/znsync/:mode?', cache('1 minute'), (req, res) => {
+  app.get('/zelcash/znsync/:mode?', cache('30 seconds'), (req, res) => {
     zelcashService.znsync(req, res);
   });
-  app.get('/zelcash/decodezelnodebroadcast/:hexstring?', cache('10 seconds'), (req, res) => {
+  app.get('/zelcash/decodezelnodebroadcast/:hexstring?', cache('30 seconds'), (req, res) => {
     zelcashService.decodeZelNodeBroadcast(req, res);
   });
   app.get('/zelcash/getzelnodecount', cache('30 seconds'), (req, res) => {
     zelcashService.getZelNodeCount(req, res);
   });
-  app.get('/zelcash/getdoslist', cache('1 minute'), (req, res) => {
+  app.get('/zelcash/getdoslist', cache('30 seconds'), (req, res) => {
     zelcashService.getDOSList(req, res);
   });
-  app.get('/zelcash/getstartlist', cache('1 minute'), (req, res) => {
+  app.get('/zelcash/getstartlist', cache('30 seconds'), (req, res) => {
     zelcashService.getStartList(req, res);
   });
-  app.get('/zelcash/getzelnodescores/:blocks?', (req, res) => { // defaults to 10
+  app.get('/zelcash/getzelnodescores/:blocks?', cache('30 seconds'), (req, res) => { // defaults to 10
     zelcashService.getZelNodeScores(req, res);
   });
-  app.get('/zelcash/getzelnodewinners/:blocks?/:filter?', (req, res) => {
+  app.get('/zelcash/getzelnodewinners/:blocks?/:filter?', cache('30 seconds'), (req, res) => {
     zelcashService.getZelNodeWinners(req, res);
   });
-  app.get('/zelcash/relayzelnodebroadcast/:hexstring?', (req, res) => {
+  app.get('/zelcash/relayzelnodebroadcast/:hexstring?', cache('30 seconds'), (req, res) => {
     zelcashService.relayZelNodeBroadcast(req, res);
   });
-  app.get('/zelcash/spork/:name?/:value?', (req, res) => {
+  app.get('/zelcash/spork/:name?/:value?', cache('30 seconds'), (req, res) => {
     zelcashService.spork(req, res);
   });
-  app.get('/zelcash/zelnodecurrentwinner', (req, res) => {
+  app.get('/zelcash/zelnodecurrentwinner', cache('30 seconds'), (req, res) => {
     zelcashService.zelNodeCurrentWinner(req, res);
   });
-  app.get('/zelcash/zelnodedebug', (req, res) => {
+  app.get('/zelcash/zelnodedebug', cache('30 seconds'), (req, res) => {
     zelcashService.zelNodeDebug(req, res);
   });
-  app.get('/zelcash/getbestblockhash', (req, res) => {
+  app.get('/zelcash/getbestblockhash', cache('30 seconds'), (req, res) => {
     zelcashService.getBestBlockHash(req, res);
   });
-  app.get('/zelcash/getblock/:hashheight?/:verbosity?', (req, res) => {
+  app.get('/zelcash/getblock/:hashheight?/:verbosity?', cache('30 seconds'), (req, res) => {
     zelcashService.getBlock(req, res);
   });
-  app.get('/zelcash/getblockchaininfo', (req, res) => {
+  app.get('/zelcash/getblockchaininfo', cache('30 seconds'), (req, res) => {
     zelcashService.getBlockchainInfo(req, res);
   });
-  app.get('/zelcash/getblockcount', (req, res) => {
+  app.get('/zelcash/getblockcount', cache('30 seconds'), (req, res) => {
     zelcashService.getBlockCount(req, res);
   });
-  app.get('/zelcash/getblockhash/:index?', (req, res) => {
+  app.get('/zelcash/getblockhash/:index?', cache('30 seconds'), (req, res) => {
     zelcashService.getBlockHash(req, res);
   });
-  app.get('/zelcash/getblockheader/:hash?/:verbose?', (req, res) => {
+  app.get('/zelcash/getblockheader/:hash?/:verbose?', cache('30 seconds'), (req, res) => {
     zelcashService.getBlockHeader(req, res);
   });
-  app.get('/zelcash/getchaintips', (req, res) => {
+  app.get('/zelcash/getchaintips', cache('30 seconds'), (req, res) => {
     zelcashService.getChainTips(req, res);
   });
-  app.get('/zelcash/getdifficulty', (req, res) => {
+  app.get('/zelcash/getdifficulty', cache('30 seconds'), (req, res) => {
     zelcashService.getDifficulty(req, res);
   });
-  app.get('/zelcash/getmempoolinfo', (req, res) => {
+  app.get('/zelcash/getmempoolinfo', cache('30 seconds'), (req, res) => {
     zelcashService.getMempoolInfo(req, res);
   });
-  app.get('/zelcash/getrawmempool/:verbose?', (req, res) => {
+  app.get('/zelcash/getrawmempool/:verbose?', cache('30 seconds'), (req, res) => {
     zelcashService.getRawMemPool(req, res);
   });
-  app.get('/zelcash/gettxout/:txid?/:n?/:includemempool?', (req, res) => {
+  app.get('/zelcash/gettxout/:txid?/:n?/:includemempool?', cache('30 seconds'), (req, res) => {
     zelcashService.getTxOut(req, res);
   });
-  app.get('/zelcash/gettxoutproof/:txids?/:blockhash?', (req, res) => { // comma separated list of txids. For example: /gettxoutproof/abc,efg,asd/blockhash
+  app.get('/zelcash/gettxoutproof/:txids?/:blockhash?', cache('30 seconds'), (req, res) => { // comma separated list of txids. For example: /gettxoutproof/abc,efg,asd/blockhash
     zelcashService.getTxOutProof(req, res);
   });
-  app.get('/zelcash/gettxoutsetinfo', (req, res) => {
+  app.get('/zelcash/gettxoutsetinfo', cache('30 seconds'), (req, res) => {
     zelcashService.getTxOutSetInfo(req, res);
   });
-  app.get('/zelcash/verifytxoutproof/:proof?', (req, res) => {
+  app.get('/zelcash/verifytxoutproof/:proof?', cache('30 seconds'), (req, res) => {
     zelcashService.verifyTxOutProof(req, res);
   });
-  app.get('/zelcash/getblocksubsidy/:height?', (req, res) => {
+  app.get('/zelcash/getblocksubsidy/:height?', cache('30 seconds'), (req, res) => {
     zelcashService.getBlockSubsidy(req, res);
   });
-  app.get('/zelcash/getblocktemplate/:jsonrequestobject?', (req, res) => {
+  app.get('/zelcash/getblocktemplate/:jsonrequestobject?', cache('30 seconds'), (req, res) => {
     zelcashService.getBlockTemplate(req, res);
   });
-  app.get('/zelcash/getlocalsolps', (req, res) => {
+  app.get('/zelcash/getlocalsolps', cache('30 seconds'), (req, res) => {
     zelcashService.getLocalSolPs(req, res);
   });
-  app.get('/zelcash/getmininginfo', (req, res) => {
+  app.get('/zelcash/getmininginfo', cache('30 seconds'), (req, res) => {
     zelcashService.getMiningInfo(req, res);
   });
-  app.get('/zelcash/getnetworkhashps/:blocks?/:height?', (req, res) => {
+  app.get('/zelcash/getnetworkhashps/:blocks?/:height?', cache('30 seconds'), (req, res) => {
     zelcashService.getNetworkHashPs(req, res);
   });
-  app.get('/zelcash/getnetworksolps/:blocks?/:height?', (req, res) => {
+  app.get('/zelcash/getnetworksolps/:blocks?/:height?', cache('30 seconds'), (req, res) => {
     zelcashService.getNetworkSolPs(req, res);
   });
-  app.get('/zelcash/getconnectioncount', (req, res) => {
+  app.get('/zelcash/getconnectioncount', cache('30 seconds'), (req, res) => {
     zelcashService.getConnectionCount(req, res);
   });
-  app.get('/zelcash/getdeprecationinfo', (req, res) => {
+  app.get('/zelcash/getdeprecationinfo', cache('30 seconds'), (req, res) => {
     zelcashService.getDeprecationInfo(req, res);
   });
-  app.get('/zelcash/getnettotals', (req, res) => {
+  app.get('/zelcash/getnettotals', cache('30 seconds'), (req, res) => {
     zelcashService.getNetTotals(req, res);
   });
-  app.get('/zelcash/getnetworkinfo', (req, res) => {
+  app.get('/zelcash/getnetworkinfo', cache('30 seconds'), (req, res) => {
     zelcashService.getNetworkInfo(req, res);
   });
-  app.get('/zelcash/getpeerinfo', (req, res) => {
+  app.get('/zelcash/getpeerinfo', cache('30 seconds'), (req, res) => {
     zelcashService.getPeerInfo(req, res);
   });
-  app.get('/zelcash/listbanned', (req, res) => {
+  app.get('/zelcash/listbanned', cache('30 seconds'), (req, res) => {
     zelcashService.listBanned(req, res);
   });
   app.get('/zelcash/createrawtransaction/:transactions?/:addresses?/:locktime?/:expiryheight?', (req, res) => {
     zelcashService.createRawTransaction(req, res);
   });
-  app.get('/zelcash/decoderawtransaction/:hexstring?', (req, res) => {
+  app.get('/zelcash/decoderawtransaction/:hexstring?', cache('30 seconds'), (req, res) => {
     zelcashService.decodeRawTransaction(req, res);
   });
-  app.get('/zelcash/decodescript/:hex?', (req, res) => {
+  app.get('/zelcash/decodescript/:hex?', cache('30 seconds'), (req, res) => {
     zelcashService.decodeScript(req, res);
   });
   app.get('/zelcash/fundrawtransaction/:hexstring?', (req, res) => {
@@ -159,28 +159,28 @@ module.exports = (app, expressWs) => {
   app.get('/zelcash/createmultisig/:n?/:keys?', (req, res) => {
     zelcashService.createMultiSig(req, res);
   });
-  app.get('/zelcash/estimatefee/:nblocks?', (req, res) => {
+  app.get('/zelcash/estimatefee/:nblocks?', cache('30 seconds'), (req, res) => {
     zelcashService.estimateFee(req, res);
   });
-  app.get('/zelcash/estimatepriority/:nblocks?', (req, res) => {
+  app.get('/zelcash/estimatepriority/:nblocks?', cache('30 seconds'), (req, res) => {
     zelcashService.estimatePriority(req, res);
   });
-  app.get('/zelcash/validateaddress/:zelcashaddress?', (req, res) => {
+  app.get('/zelcash/validateaddress/:zelcashaddress?', cache('30 seconds'), (req, res) => {
     zelcashService.validateAddress(req, res);
   });
-  app.get('/zelcash/verifymessage/:zelcashaddress?/:signature?/:message?', (req, res) => {
+  app.get('/zelcash/verifymessage/:zelcashaddress?/:signature?/:message?', cache('30 seconds'), (req, res) => {
     zelcashService.verifyMessage(req, res);
   });
-  app.get('/zelcash/gettransaction/:txid?/:includewatchonly?', (req, res) => {
+  app.get('/zelcash/gettransaction/:txid?/:includewatchonly?', cache('30 seconds'), (req, res) => {
     zelcashService.getTransaction(req, res);
   });
-  app.get('/zelcash/zvalidateaddress/:zaddr?', (req, res) => {
+  app.get('/zelcash/zvalidateaddress/:zaddr?', cache('30 seconds'), (req, res) => {
     zelcashService.zValidateAddress(req, res);
   });
-  app.get('/zelcash/getbenchmarks', (req, res) => {
+  app.get('/zelcash/getbenchmarks', cache('30 seconds'), (req, res) => {
     zelcashService.getBenchmarks(req, res);
   });
-  app.get('/zelcash/getbenchstatus', (req, res) => {
+  app.get('/zelcash/getbenchstatus', cache('30 seconds'), (req, res) => {
     zelcashService.getBenchStatus(req, res);
   });
 
@@ -191,98 +191,98 @@ module.exports = (app, expressWs) => {
     zelidService.emergencyPhrase(req, res);
   });
 
-  app.get('/zelflux/info', (req, res) => {
+  app.get('/zelflux/info', cache('30 seconds'), (req, res) => {
     zelnodeService.getZelFluxInfo(req, res);
   });
   app.get('/zelflux/timezone', (req, res) => {
     zelnodeService.getZelFluxTimezone(req, res);
   });
-  app.get('/zelflux/version', (req, res) => {
+  app.get('/zelflux/version', cache('30 seconds'), (req, res) => {
     zelnodeService.getZelFluxVersion(req, res);
   });
-  app.get('/zelflux/ip', (req, res) => {
+  app.get('/zelflux/ip', cache('30 seconds'), (req, res) => {
     zelnodeService.getZelFluxIP(req, res);
   });
-  app.get('/zelflux/zelid', (req, res) => {
+  app.get('/zelflux/zelid', cache('30 seconds'), cache('30 seconds'), (req, res) => {
     zelnodeService.getZelFluxZelID(req, res);
   });
-  app.get('/zelflux/cruxid', (req, res) => {
+  app.get('/zelflux/cruxid', cache('30 seconds'), (req, res) => {
     zelnodeService.getZelFluxCruxID(req, res);
   });
-  app.get('/zelflux/dosstate', (req, res) => {
+  app.get('/zelflux/dosstate', cache('30 seconds'), (req, res) => {
     zelfluxCommunication.getDOSState(req, res);
   });
-  app.get('/zelflux/connectedpeers', (req, res) => {
+  app.get('/zelflux/connectedpeers', cache('30 seconds'), (req, res) => {
     zelfluxCommunication.connectedPeers(req, res);
   });
-  app.get('/zelflux/connectedpeersinfo', (req, res) => {
+  app.get('/zelflux/connectedpeersinfo', cache('30 seconds'), (req, res) => {
     zelfluxCommunication.connectedPeersInfo(req, res);
   });
-  app.get('/zelflux/incomingconnections', (req, res) => {
+  app.get('/zelflux/incomingconnections', cache('30 seconds'), (req, res) => {
     zelfluxCommunication.getIncomingConnections(req, res, expressWs.getWss('/ws/zelflux'));
   });
-  app.get('/zelflux/incomingconnectionsinfo', (req, res) => {
+  app.get('/zelflux/incomingconnectionsinfo', cache('30 seconds'), (req, res) => {
     zelfluxCommunication.getIncomingConnectionsInfo(req, res, expressWs.getWss('/ws/zelflux'));
   });
-  app.get('/zelflux/checkfluxavailability/:ip?', (req, res) => {
+  app.get('/zelflux/checkfluxavailability/:ip?', cache('30 seconds'), (req, res) => {
     zelfluxCommunication.checkFluxAvailability(req, res);
   });
 
-  app.get('/zelapps/listrunningzelapps', (req, res) => {
+  app.get('/zelapps/listrunningzelapps', cache('30 seconds'), (req, res) => {
     zelappsService.listRunningZelApps(req, res);
   });
-  app.get('/zelapps/listallzelapps', (req, res) => {
+  app.get('/zelapps/listallzelapps', cache('30 seconds'), (req, res) => {
     zelappsService.listAllZelApps(req, res);
   });
-  app.get('/zelapps/listzelappsimages', (req, res) => {
+  app.get('/zelapps/listzelappsimages', cache('30 seconds'), (req, res) => {
     zelappsService.listZelAppsImages(req, res);
   });
-  app.get('/zelapps/installedzelapps/:appname?', (req, res) => {
+  app.get('/zelapps/installedzelapps/:appname?', cache('30 seconds'), (req, res) => {
     zelappsService.installedZelApps(req, res);
   });
-  app.get('/zelapps/availablezelapps', (req, res) => {
+  app.get('/zelapps/availablezelapps', cache('30 seconds'), (req, res) => {
     zelappsService.availableZelApps(req, res);
   });
-  app.get('/zelapps/zelfluxusage', (req, res) => {
+  app.get('/zelapps/zelfluxusage', cache('30 seconds'), (req, res) => {
     zelappsService.zelFluxUsage(req, res);
   });
-  app.get('/zelapps/zelappsresources', (req, res) => {
+  app.get('/zelapps/zelappsresources', cache('30 seconds'), (req, res) => {
     zelappsService.zelappsResources(req, res);
   });
-  app.get('/zelapps/registrationinformation', (req, res) => {
+  app.get('/zelapps/registrationinformation', cache('30 seconds'), (req, res) => {
     zelappsService.registrationInformation(req, res);
   });
-  app.get('/zelapps/temporarymessages', (req, res) => {
+  app.get('/zelapps/temporarymessages', cache('30 seconds'), (req, res) => {
     zelappsService.getZelAppsTemporaryMessages(req, res);
   });
-  app.get('/zelapps/permanentmessages', (req, res) => {
+  app.get('/zelapps/permanentmessages', cache('30 seconds'), (req, res) => {
     zelappsService.getZelAppsPermanentMessages(req, res);
   });
-  app.get('/zelapps/globalappsspecifications', (req, res) => {
+  app.get('/zelapps/globalappsspecifications', cache('30 seconds'), (req, res) => {
     zelappsService.getGlobalZelAppsSpecifications(req, res);
   });
-  app.get('/zelapps/appspecifications/:appname?', (req, res) => {
+  app.get('/zelapps/appspecifications/:appname?', cache('30 seconds'), (req, res) => {
     zelappsService.getApplicationSpecificationAPI(req, res);
   });
-  app.get('/zelapps/appowner/:appname?', (req, res) => {
+  app.get('/zelapps/appowner/:appname?', cache('30 seconds'), (req, res) => {
     zelappsService.getApplicationOwnerAPI(req, res);
   });
-  app.get('/zelapps/hashes', (req, res) => {
+  app.get('/zelapps/hashes', cache('30 seconds'), (req, res) => {
     zelappsService.getZelAppHashes(req, res);
   });
-  app.get('/zelapps/location/:appname?', (req, res) => {
+  app.get('/zelapps/location/:appname?', cache('30 seconds'), (req, res) => {
     zelappsService.getZelAppsLocation(req, res);
   });
-  app.get('/zelapps/locations', (req, res) => {
+  app.get('/zelapps/locations', cache('30 seconds'), (req, res) => {
     zelappsService.getZelAppsLocations(req, res);
   });
   app.post('/zelapps/calculateprice', (req, res) => { // returns price in zel for both new registration of zelapp and update of zelapp
     zelappsService.getAppPrice(req, res);
   });
-  app.get('/zelapps/whitelistedrepositories', (req, res) => {
+  app.get('/zelapps/whitelistedrepositories', cache('30 seconds'), (req, res) => {
     zelappsService.whitelistedRepositories(req, res);
   });
-  app.get('/zelapps/whitelistedzelids', (req, res) => {
+  app.get('/zelapps/whitelistedzelids', cache('30 seconds'), (req, res) => {
     zelappsService.whitelistedZelIDs(req, res);
   });
 
@@ -299,50 +299,50 @@ module.exports = (app, expressWs) => {
   //   explorerService.getAllZelNodeTransactions(req, res);
   // });
   // filter can be IP, address, collateralHash.
-  app.get('/explorer/zelnodetxs/:filter?', (req, res) => {
+  app.get('/explorer/zelnodetxs/:filter?', cache('30 seconds'), (req, res) => {
     explorerService.getFilteredZelNodeTxs(req, res);
   });
-  app.get('/explorer/utxo/:address?', (req, res) => {
+  app.get('/explorer/utxo/:address?', cache('30 seconds'), (req, res) => {
     explorerService.getAddressUtxos(req, res);
   });
-  app.get('/explorer/transactions/:address?', (req, res) => {
+  app.get('/explorer/transactions/:address?', cache('30 seconds'), (req, res) => {
     explorerService.getAddressTransactions(req, res);
   });
-  app.get('/explorer/balance/:address?', (req, res) => {
+  app.get('/explorer/balance/:address?', cache('30 seconds'), (req, res) => {
     explorerService.getAddressBalance(req, res);
   });
-  app.get('/explorer/scannedheight', (req, res) => {
+  app.get('/explorer/scannedheight', cache('30 seconds'), (req, res) => {
     explorerService.getScannedHeight(req, res);
   });
 
   // GET PROTECTED API - User level
-  app.get('/zelcash/prioritisetransaction/:txid?/:prioritydelta?/:feedelta?', (req, res) => {
+  app.get('/zelcash/prioritisetransaction/:txid?/:prioritydelta?/:feedelta?', cache('30 seconds'), (req, res) => {
     zelcashService.prioritiseTransaction(req, res);
   });
-  app.get('/zelcash/submitblock/:hexdata?/:jsonparametersobject?', (req, res) => {
+  app.get('/zelcash/submitblock/:hexdata?/:jsonparametersobject?', cache('30 seconds'), (req, res) => {
     zelcashService.submitBlock(req, res);
   });
 
-  app.get('/zelid/loggedsessions', (req, res) => {
+  app.get('/zelid/loggedsessions', cache('30 seconds'), (req, res) => {
     zelidService.loggedSessions(req, res);
   });
-  app.get('/zelid/logoutcurrentsession', (req, res) => {
+  app.get('/zelid/logoutcurrentsession', cache('30 seconds'), (req, res) => {
     zelidService.logoutCurrentSession(req, res);
   });
-  app.get('/zelid/logoutallsessions', (req, res) => {
+  app.get('/zelid/logoutallsessions', cache('30 seconds'), (req, res) => {
     zelidService.logoutAllSessions(req, res);
   });
 
-  app.get('/zelbench/getstatus', (req, res) => {
+  app.get('/zelbench/getstatus', cache('30 seconds'), (req, res) => {
     zelbenchService.getStatus(req, res);
   });
-  app.get('/zelbench/help/:command?', (req, res) => {
+  app.get('/zelbench/help/:command?', cache('1 hour'), (req, res) => {
     zelbenchService.help(req, res);
   });
-  app.get('/zelbench/getbenchmarks', (req, res) => {
+  app.get('/zelbench/getbenchmarks', cache('30 seconds'), (req, res) => {
     zelbenchService.getBenchmarks(req, res);
   });
-  app.get('/zelbench/getinfo', (req, res) => {
+  app.get('/zelbench/getinfo', cache('30 seconds'), (req, res) => {
     zelbenchService.getInfo(req, res);
   });
 

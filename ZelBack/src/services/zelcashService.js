@@ -1,5 +1,6 @@
 const zelcashrpc = require('zelcashrpc');
 const fullnode = require('fullnode');
+const LRU = require('lru-cache');
 const serviceHelper = require('./serviceHelper');
 const userconfig = require('../../../config/userconfig');
 
@@ -16,13 +17,43 @@ const client = new zelcashrpc.Client({
   timeout: 60000,
 });
 
+// default cache
+const LRUoptions = {
+  max: 500, // store 500 values for up to 15 seconds of other zelcash calls
+  maxAge: 1000 * 15, // 15 seconds
+};
+const cache = new LRU(LRUoptions);
+
+const blockCache = new LRU(1000); // store 1k blocks in cache
+
+const rawTxCache = new LRU(10000); // store 10k txs in cache
+
 let response = serviceHelper.createErrorMessage();
 
 async function executeCall(rpc, params) {
   let callResponse;
   const rpcparameters = params || [];
   try {
-    const data = await client[rpc](...rpcparameters);
+    let data;
+    if (rpc === 'getBlock') {
+      data = blockCache.get(rpc + serviceHelper.ensureString(rpcparameters));
+      if (!data) {
+        data = await client[rpc](...rpcparameters);
+        blockCache.set(rpc + serviceHelper.ensureString(rpcparameters), data);
+      }
+    } else if (rpc === 'getRawTransaction') {
+      data = rawTxCache.get(rpc + serviceHelper.ensureString(rpcparameters));
+      if (!data) {
+        data = await client[rpc](...rpcparameters);
+        rawTxCache.set(rpc + serviceHelper.ensureString(rpcparameters), data);
+      }
+    } else {
+      data = cache.get(rpc + serviceHelper.ensureString(rpcparameters));
+      if (!data) {
+        data = await client[rpc](...rpcparameters);
+        cache.set(rpc + serviceHelper.ensureString(rpcparameters), data);
+      }
+    }
     const successResponse = serviceHelper.createDataMessage(data);
     callResponse = successResponse;
   } catch (error) {

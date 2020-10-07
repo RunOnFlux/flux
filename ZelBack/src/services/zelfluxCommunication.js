@@ -93,7 +93,7 @@ async function deterministicZelNodeList() {
         myCache.set('zelnodeList', zelnodeList); // default ttl of 60 sec
       }
     }
-    return zelnodeList;
+    return zelnodeList || [];
   } catch (error) {
     log.error(error);
     return [];
@@ -1033,49 +1033,53 @@ async function checkMyFluxAvailability(zelnodelist) {
 }
 
 async function checkDeterministicNodesCollisions() {
-  // get my external ip address
-  // get zelnode list with filter on this ip address
-  // if it returns more than 1 object, shut down.
-  // another precatuion might be comparing zelnode list on multiple zelnodes. evaulate in the future
-  const myIP = await myZelNodeIP();
-  myFluxIP = myIP;
-  if (myIP !== null) {
-    const zelnodeList = await deterministicZelNodeList();
-    const result = zelnodeList.filter((zelnode) => zelnode.ip === myIP);
-    const zelnodeStatus = await zelcashService.getZelNodeStatus();
-    if (zelnodeStatus.status === 'success') { // different scenario is caught elsewhere
-      const myCollateral = zelnodeStatus.data.collateral;
-      const myZelNode = result.find((zelnode) => zelnode.collateral === myCollateral);
-      if (result.length > 1) {
-        log.warn('Multiple ZelNode instances detected');
-        if (myZelNode) {
-          const myBlockHeight = myZelNode.readded_confirmed_height || myZelNode.confirmed_height; // todo we may want to introduce new readded heights and readded confirmations
-          const filterEarlierSame = result.filter((zelnode) => (zelnode.readded_confirmed_height || zelnode.confirmed_height) <= myBlockHeight);
-          // keep running only older collaterals
-          if (filterEarlierSame.length >= 1) {
-            log.error('Flux earlier collision detection');
+  try {
+    // get my external ip address
+    // get zelnode list with filter on this ip address
+    // if it returns more than 1 object, shut down.
+    // another precatuion might be comparing zelnode list on multiple zelnodes. evaulate in the future
+    const myIP = await myZelNodeIP();
+    myFluxIP = myIP;
+    if (myIP !== null) {
+      const zelnodeList = await deterministicZelNodeList();
+      const result = zelnodeList.filter((zelnode) => zelnode.ip === myIP);
+      const zelnodeStatus = await zelcashService.getZelNodeStatus();
+      if (zelnodeStatus.status === 'success') { // different scenario is caught elsewhere
+        const myCollateral = zelnodeStatus.data.collateral;
+        const myZelNode = result.find((zelnode) => zelnode.collateral === myCollateral);
+        if (result.length > 1) {
+          log.warn('Multiple ZelNode instances detected');
+          if (myZelNode) {
+            const myBlockHeight = myZelNode.readded_confirmed_height || myZelNode.confirmed_height; // todo we may want to introduce new readded heights and readded confirmations
+            const filterEarlierSame = result.filter((zelnode) => (zelnode.readded_confirmed_height || zelnode.confirmed_height) <= myBlockHeight);
+            // keep running only older collaterals
+            if (filterEarlierSame.length >= 1) {
+              log.error('Flux earlier collision detection');
+              dosState = 100;
+              dosMessage = 'Flux earlier collision detection';
+              return;
+            }
+          }
+          // prevent new activation
+        } else if (result.length === 1) {
+          if (!myZelNode) {
+            log.error('Flux collision detection');
             dosState = 100;
-            dosMessage = 'Flux earlier collision detection';
+            dosMessage = 'Flux collision detection';
             return;
           }
         }
-        // prevent new activation
-      } else if (result.length === 1) {
-        if (!myZelNode) {
-          log.error('Flux collision detection');
-          dosState = 100;
-          dosMessage = 'Flux collision detection';
-          return;
-        }
+      }
+      checkMyFluxAvailability(zelnodeList);
+    } else {
+      dosState += 1;
+      if (dosState > 10) {
+        dosMessage = dosMessage || 'Flux IP detection failed';
+        log.error(dosMessage);
       }
     }
-    checkMyFluxAvailability(zelnodeList);
-  } else {
-    dosState += 1;
-    if (dosState > 10) {
-      dosMessage = dosMessage || 'Flux IP detection failed';
-      log.error(dosMessage);
-    }
+  } catch (error) {
+    log.error(error);
   }
 }
 
@@ -1151,41 +1155,45 @@ async function allowPortApi(req, res) {
 }
 
 async function adjustFirewall() {
-  const execA = 'sudo ufw status | grep Status';
-  const execB = `sudo ufw allow ${config.server.apiport}`;
-  const execC = `sudo ufw allow out ${config.server.apiport}`;
-  const execD = `sudo ufw allow ${config.server.zelfrontport}`;
-  const execE = `sudo ufw allow out ${config.server.zelfrontport}`;
-  const cmdAsync = util.promisify(cmd.get);
+  try {
+    const execA = 'sudo ufw status | grep Status';
+    const execB = `sudo ufw allow ${config.server.apiport}`;
+    const execC = `sudo ufw allow out ${config.server.apiport}`;
+    const execD = `sudo ufw allow ${config.server.zelfrontport}`;
+    const execE = `sudo ufw allow out ${config.server.zelfrontport}`;
+    const cmdAsync = util.promisify(cmd.get);
 
-  const cmdresA = await cmdAsync(execA);
-  if (serviceHelper.ensureString(cmdresA).includes('Status: active')) {
-    const cmdresB = await cmdAsync(execB);
-    if (serviceHelper.ensureString(cmdresB).includes('updated') || serviceHelper.ensureString(cmdresB).includes('existing') || serviceHelper.ensureString(cmdresB).includes('added')) {
-      log.info('Incoming Firewall adjusted for ZelBack port');
+    const cmdresA = await cmdAsync(execA);
+    if (serviceHelper.ensureString(cmdresA).includes('Status: active')) {
+      const cmdresB = await cmdAsync(execB);
+      if (serviceHelper.ensureString(cmdresB).includes('updated') || serviceHelper.ensureString(cmdresB).includes('existing') || serviceHelper.ensureString(cmdresB).includes('added')) {
+        log.info('Incoming Firewall adjusted for ZelBack port');
+      } else {
+        log.info('Failed to adjust Firewall for incoming ZelBack port');
+      }
+      const cmdresC = await cmdAsync(execC);
+      if (serviceHelper.ensureString(cmdresC).includes('updated') || serviceHelper.ensureString(cmdresC).includes('existing') || serviceHelper.ensureString(cmdresC).includes('added')) {
+        log.info('Outgoing Firewall adjusted for ZelBack port');
+      } else {
+        log.info('Failed to adjust Firewall for outgoing ZelBack port');
+      }
+      const cmdresD = await cmdAsync(execD);
+      if (serviceHelper.ensureString(cmdresD).includes('updated') || serviceHelper.ensureString(cmdresD).includes('existing') || serviceHelper.ensureString(cmdresD).includes('added')) {
+        log.info('Incoming Firewall adjusted for ZelFront port');
+      } else {
+        log.info('Failed to adjust Firewall for incoming ZelFront port');
+      }
+      const cmdresE = await cmdAsync(execE);
+      if (serviceHelper.ensureString(cmdresE).includes('updated') || serviceHelper.ensureString(cmdresE).includes('existing') || serviceHelper.ensureString(cmdresE).includes('added')) {
+        log.info('Outgoing Firewall adjusted for ZelFront port');
+      } else {
+        log.info('Failed to adjust Firewall for outgoing ZelFront port');
+      }
     } else {
-      log.info('Failed to adjust Firewall for incoming ZelBack port');
+      log.info('Firewall is not active. Adjusting not applied');
     }
-    const cmdresC = await cmdAsync(execC);
-    if (serviceHelper.ensureString(cmdresC).includes('updated') || serviceHelper.ensureString(cmdresC).includes('existing') || serviceHelper.ensureString(cmdresC).includes('added')) {
-      log.info('Outgoing Firewall adjusted for ZelBack port');
-    } else {
-      log.info('Failed to adjust Firewall for outgoing ZelBack port');
-    }
-    const cmdresD = await cmdAsync(execD);
-    if (serviceHelper.ensureString(cmdresD).includes('updated') || serviceHelper.ensureString(cmdresD).includes('existing') || serviceHelper.ensureString(cmdresD).includes('added')) {
-      log.info('Incoming Firewall adjusted for ZelFront port');
-    } else {
-      log.info('Failed to adjust Firewall for incoming ZelFront port');
-    }
-    const cmdresE = await cmdAsync(execE);
-    if (serviceHelper.ensureString(cmdresE).includes('updated') || serviceHelper.ensureString(cmdresE).includes('existing') || serviceHelper.ensureString(cmdresE).includes('added')) {
-      log.info('Outgoing Firewall adjusted for ZelFront port');
-    } else {
-      log.info('Failed to adjust Firewall for outgoing ZelFront port');
-    }
-  } else {
-    log.info('Firewall is not active. Adjusting not applied');
+  } catch (error) {
+    log.error(error);
   }
 }
 
