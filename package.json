@@ -67,7 +67,6 @@
     "lru-cache": "^6.0.0",
     "mongodb": "^3.4.0",
     "morgan": "^1.9.1",
-    "node-cache": "^5.1.2",
     "node-cmd": "^3.0.0",
     "node-df": "^0.1.4",
     "nodemon": "^2.0.2",

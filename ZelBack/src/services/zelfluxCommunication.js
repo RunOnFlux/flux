@@ -3,7 +3,7 @@ const WebSocket = require('ws');
 const bitcoinjs = require('bitcoinjs-lib');
 const config = require('config');
 const cmd = require('node-cmd');
-const NodeCache = require('node-cache');
+const LRU = require('lru-cache');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
 const log = require('../lib/log');
@@ -24,7 +24,12 @@ let dosMessage = null;
 let myFluxIP = null;
 
 let response = serviceHelper.createErrorMessage();
-const myCache = new NodeCache({ stdTTL: 60, checkperiod: 30, useClones: true });
+// default cache
+const LRUoptions = {
+  max: 200, // store 200 values, we shall not have more values at any period
+  maxAge: 1000 * 120, // 120 seconds
+};
+const myCache = new LRU(LRUoptions);
 
 // basic check for a version of other flux.
 async function isFluxAvailable(ip) {
@@ -78,19 +83,21 @@ async function myZelNodeIP() {
   return myIP;
 }
 
-async function deterministicZelNodeList() {
+async function deterministicZelNodeList(filter) {
   try {
     const request = {
-      params: {},
+      params: {
+        filter,
+      },
       query: {},
     };
     let zelnodeList = [];
-    zelnodeList = myCache.get('zelnodeList');
+    zelnodeList = myCache.get(`zelnodeList${serviceHelper.ensureString(filter)}`);
     if (!zelnodeList) {
       const zelcashZelNodeList = await zelcashService.viewDeterministicZelNodeList(request);
       if (zelcashZelNodeList.status === 'success') {
         zelnodeList = zelcashZelNodeList.data || [];
-        myCache.set('zelnodeList', zelnodeList); // default ttl of 60 sec
+        myCache.set(`zelnodeList${serviceHelper.ensureString(filter)}`, zelnodeList); // can be zelnodeListundefined for main list
       }
     }
     return zelnodeList || [];
@@ -149,6 +156,14 @@ async function verifyFluxBroadcast(data, obtainedZelNodeList, currentTimeStamp) 
     }
   }
   if (!zelnode) {
+    const zl = await deterministicZelNodeList(pubKey); // this itself is sufficient.
+    if (zl.length === 1) {
+      if (zl[0].pubkey === pubKey) {
+        [zelnode] = zl;
+      }
+    }
+  }
+  if (!zelnode) { // if filtering fails, fetch all the list and run find method
     // eslint-disable-next-line no-param-reassign
     obtainedZelNodeList = await deterministicZelNodeList(); // support for daemons that do not have filtering via public key
     zelnode = await obtainedZelNodeList.find((key) => key.pubkey === pubKey);

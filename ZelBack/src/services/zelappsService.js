@@ -9,6 +9,7 @@ const nodecmd = require('node-cmd');
 const df = require('node-df');
 const fs = require('fs');
 const formidable = require('formidable');
+const LRU = require('lru-cache');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
 const zelfluxCommunication = require('./zelfluxCommunication');
@@ -32,6 +33,13 @@ const globalZelAppsMessages = config.database.zelappsglobal.collections.zelappsM
 const globalZelAppsInformation = config.database.zelappsglobal.collections.zelappsInformation;
 const globalZelAppsTempMessages = config.database.zelappsglobal.collections.zelappsTemporaryMessages;
 const globalZelAppsLocations = config.database.zelappsglobal.collections.zelappsLocations;
+
+// default cache
+const LRUoptions = {
+  max: 500, // store 500 values, we shall not have more values at any period
+  maxAge: 1000 * 60 * 10, // 10 minutes
+};
+const myCache = new LRU(LRUoptions);
 
 function getZelAppIdentifier(zelappName) {
   // this id is used for volumes, docker names so we know it reall belongs to zelflux
@@ -2586,6 +2594,11 @@ async function storeZelAppTemporaryMessage(message, furtherVerification = false)
   if (typeof message !== 'object' && typeof message.type !== 'string' && typeof message.version !== 'number' && typeof message.zelAppSpecifications !== 'object' && typeof message.signature !== 'string' && typeof message.timestamp !== 'number' && typeof message.hash !== 'string') {
     return new Error('Invalid ZelApp message for storing');
   }
+  // check if we have the message in cache. If yes, return false. If not, store it and continue
+  if (myCache.has(serviceHelper.ensureString(message))) {
+    return 0;
+  }
+  myCache.set(serviceHelper.ensureString(message), message);
   // data shall already be verified by the broadcasting node. But verify all again.
   if (furtherVerification) {
     if (message.type === 'zelappregister') {
@@ -2666,7 +2679,13 @@ async function storeZelAppRunningMessage(message) {
     return new Error('Invalid ZelApp Running message for storing');
   }
 
-  const validTill = message.broadcastedAt + (3900 * 1000); // 3900 seconds
+  // check if we have the message in cache. If yes, return false. If not, store it and continue
+  if (myCache.has(serviceHelper.ensureString(message))) {
+    return false;
+  }
+  myCache.set(serviceHelper.ensureString(message), message);
+
+  const validTill = message.broadcastedAt + (65 * 60 * 1000); // 3900 seconds
 
   if (validTill < new Date().getTime()) {
     // reject old message
