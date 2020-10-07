@@ -2596,8 +2596,9 @@ async function storeZelAppTemporaryMessage(message, furtherVerification = false)
   }
   // check if we have the message in cache. If yes, return false. If not, store it and continue
   if (myCache.has(serviceHelper.ensureString(message))) {
-    return 0;
+    return false;
   }
+  console.log(message);
   myCache.set(serviceHelper.ensureString(message), message);
   // data shall already be verified by the broadcasting node. But verify all again.
   if (furtherVerification) {
@@ -2683,6 +2684,7 @@ async function storeZelAppRunningMessage(message) {
   if (myCache.has(serviceHelper.ensureString(message))) {
     return false;
   }
+  console.log(message);
   myCache.set(serviceHelper.ensureString(message), message);
 
   const validTill = message.broadcastedAt + (65 * 60 * 1000); // 3900 seconds

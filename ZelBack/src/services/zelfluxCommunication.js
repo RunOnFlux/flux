@@ -29,7 +29,9 @@ const LRUoptions = {
   max: 200, // store 200 values, we shall not have more values at any period
   maxAge: 1000 * 120, // 120 seconds
 };
+
 const myCache = new LRU(LRUoptions);
+const myMessageCache = new LRU(200);
 
 // basic check for a version of other flux.
 async function isFluxAvailable(ip) {
@@ -209,7 +211,6 @@ async function sendToAllPeers(data, wsList) {
   try {
     let removals = [];
     let ipremovals = [];
-    // console.log(data);
     // wsList is always a sublist of outgoingConnections
     const outConList = wsList || outgoingConnections;
     // eslint-disable-next-line no-restricted-syntax
@@ -254,7 +255,6 @@ async function sendToAllIncomingConnections(data, wsList) {
   try {
     let removals = [];
     let ipremovals = [];
-    // console.log(data);
     // wsList is always a sublist of incomingConnections
     const incConList = wsList || incomingConnections;
     // eslint-disable-next-line no-restricted-syntax
@@ -373,6 +373,12 @@ async function respondWithAppMessage(message, ws) {
     // check if we have it database of permanent zelappMessages
     // eslint-disable-next-line global-require
     const zelappsService = require('./zelappsService');
+    const tempMesResponse = myMessageCache.get(serviceHelper.ensureString(message));
+    if (tempMesResponse) {
+      sendMessageToWS(tempMesResponse, ws);
+      return;
+    }
+    console.log(message);
     const permanentMessage = await zelappsService.checkZelAppMessageExistence(message.data.hash);
     if (permanentMessage) {
       // message exists in permanent storage. Create a message and broadcast it to the fromIP peer
@@ -395,6 +401,7 @@ async function respondWithAppMessage(message, ws) {
         timestamp: permanentMessage.timestamp,
         signature: permanentMessage.signature,
       };
+      myMessageCache.set(serviceHelper.ensureString(message), temporaryZelAppMessage);
       sendMessageToWS(temporaryZelAppMessage, ws);
     } else {
       const existingTemporaryMessage = await zelappsService.checkZelAppTemporaryMessageExistence(message.data.hash);
@@ -418,6 +425,7 @@ async function respondWithAppMessage(message, ws) {
           timestamp: existingTemporaryMessage.timestamp,
           signature: existingTemporaryMessage.signature,
         };
+        myMessageCache.set(serviceHelper.ensureString(message), temporaryZelAppMessage);
         sendMessageToWS(temporaryZelAppMessage, ws);
       }
       // else do nothing. We do not have this message. And this Flux would be requesting it from other peers soon too.
@@ -439,7 +447,6 @@ function handleIncomingConnection(ws, req, expressWS) {
   // verify data integrity, if not signed, close connection
   ws.on('message', async (msg) => {
     const currentTimeStamp = Date.now(); // ms
-    console.log(msg);
     const messageOK = await verifyFluxBroadcast(msg, undefined, currentTimeStamp);
     const timestampOK = await verifyTimestampInFluxBroadcast(msg, currentTimeStamp);
     if (messageOK === true && timestampOK === true) {
@@ -557,7 +564,6 @@ async function broadcastMessageToOutgoingFromUser(req, res) {
 }
 
 async function broadcastMessageToOutgoingFromUserPost(req, res) {
-  console.log(req.headers);
   let body = '';
   req.on('data', (data) => {
     body += data;
@@ -601,7 +607,6 @@ async function broadcastMessageToIncomingFromUser(req, res) {
 }
 
 async function broadcastMessageToIncomingFromUserPost(req, res) {
-  console.log(req.headers);
   let body = '';
   req.on('data', (data) => {
     body += data;
@@ -646,7 +651,6 @@ async function broadcastMessageFromUser(req, res) {
 }
 
 async function broadcastMessageFromUserPost(req, res) {
-  console.log(req.headers);
   let body = '';
   req.on('data', (data) => {
     body += data;
@@ -694,6 +698,7 @@ async function getRandomConnection() {
 }
 
 async function initiateAndHandleConnection(ip) {
+  console.log(`#connectionsOut: ${outgoingConnections.length}`);
   const wsuri = `ws://${ip}:${config.server.apiport}/ws/zelflux/`;
   const websocket = new WebSocket(wsuri);
 
@@ -705,7 +710,6 @@ async function initiateAndHandleConnection(ip) {
     };
     outgoingPeers.push(peer);
     broadcastMessageToOutgoing('Hello Flux');
-    console.log(`#connectionsOut: ${outgoingConnections.length}`);
   });
 
   websocket.onclose = (evt) => {
@@ -725,12 +729,10 @@ async function initiateAndHandleConnection(ip) {
         log.info(`Connection ${conIP} removed from outgoingPeers`);
       }
     }
-    console.log(`#connectionsOut: ${outgoingConnections.length}`);
   };
 
   websocket.onmessage = async (evt) => {
     // incoming messages from outgoing connections
-    console.log(evt.data);
     const currentTimeStamp = Date.now(); // ms
     const messageOK = await verifyOriginalFluxBroadcast(evt.data, undefined, currentTimeStamp);
     if (messageOK === true) {
@@ -785,7 +787,6 @@ async function initiateAndHandleConnection(ip) {
         log.info(`Connection ${conIP} removed from outgoingPeers`);
       }
     }
-    console.log(`#connectionsOut: ${outgoingConnections.length}`);
   };
 }
 
@@ -1233,7 +1234,7 @@ async function broadcastTemporaryZelAppMessage(message) {
   * @param timestamp number
   * @param signature string
   */
-  console.log(message);
+  log.info(message);
   // no verification of message before broadcasting. Broadcasting happens always after data have been verified and are stored in our db. It is up to receiving node to verify it and store and rebroadcast.
   if (typeof message !== 'object' && typeof message.type !== 'string' && typeof message.version !== 'number' && typeof message.zelAppSpecifications !== 'object' && typeof message.signature !== 'string' && typeof message.timestamp !== 'number' && typeof message.hash !== 'string') {
     return new Error('Invalid ZelApp message for storing');
@@ -1255,7 +1256,7 @@ async function broadcastZelAppRunningMessage(message) {
   * @param hash string
   * @param ip string
   */
-  console.log(message);
+  log.info(message);
   // no verification of message before broadcasting. Broadcasting happens always after data have been verified and are stored in our db. It is up to receiving node to verify it and store and rebroadcast.
   if (typeof message !== 'object' && typeof message.type !== 'string' && typeof message.version !== 'number' && typeof message.broadcastedAt !== 'number' && typeof message.name !== 'string' && typeof message.hash !== 'string' && typeof message.ip !== 'string') {
     return new Error('Invalid ZelApp Running message for storing');
