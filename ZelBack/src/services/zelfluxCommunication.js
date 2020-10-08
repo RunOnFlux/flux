@@ -26,12 +26,12 @@ let myFluxIP = null;
 let response = serviceHelper.createErrorMessage();
 // default cache
 const LRUoptions = {
-  max: 200, // store 200 values, we shall not have more values at any period
-  maxAge: 1000 * 120, // 120 seconds
+  max: 250, // store 250 values, we shall not have more values at any period
+  maxAge: 1000 * 150, // 150 seconds slightly over average blocktime. Allowing 1 block expired too.
 };
 
 const myCache = new LRU(LRUoptions);
-const myMessageCache = new LRU(200);
+const myMessageCache = new LRU(250);
 
 // basic check for a version of other flux.
 async function isFluxAvailable(ip) {
