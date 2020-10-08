@@ -16,6 +16,7 @@ const client = new zelcashrpc.Client({
   pass: rpcpassword,
   timeout: 60000,
 });
+let zelcashCallRunning = false;
 
 // default cache
 const LRUoptions = {
@@ -24,9 +25,9 @@ const LRUoptions = {
 };
 const cache = new LRU(LRUoptions);
 
-const blockCache = new LRU(1000); // store 1k blocks in cache
+const blockCache = new LRU(1500); // store 1.5k blocks in cache
 
-const rawTxCache = new LRU(10000); // store 10k txs in cache
+const rawTxCache = new LRU(30000); // store 30k txs in cache
 
 let response = serviceHelper.createErrorMessage();
 
@@ -35,24 +36,30 @@ async function executeCall(rpc, params) {
   const rpcparameters = params || [];
   try {
     let data;
+    if (zelcashCallRunning) {
+      const randomDelay = Math.floor((Math.random() * 250)) + 50;
+      await serviceHelper.delay(randomDelay);
+    }
+    if (zelcashCallRunning) {
+      const randomDelay = Math.floor((Math.random() * 150)) + 50;
+      await serviceHelper.delay(randomDelay);
+    }
+    if (zelcashCallRunning) {
+      const randomDelay = Math.floor((Math.random() * 50)) + 50;
+      await serviceHelper.delay(randomDelay);
+    }
     if (rpc === 'getBlock') {
       data = blockCache.get(rpc + serviceHelper.ensureString(rpcparameters));
-      if (!data) {
-        data = await client[rpc](...rpcparameters);
-        blockCache.set(rpc + serviceHelper.ensureString(rpcparameters), data);
-      }
     } else if (rpc === 'getRawTransaction') {
       data = rawTxCache.get(rpc + serviceHelper.ensureString(rpcparameters));
-      if (!data) {
-        data = await client[rpc](...rpcparameters);
-        rawTxCache.set(rpc + serviceHelper.ensureString(rpcparameters), data);
-      }
     } else {
       data = cache.get(rpc + serviceHelper.ensureString(rpcparameters));
-      if (!data) {
-        data = await client[rpc](...rpcparameters);
-        cache.set(rpc + serviceHelper.ensureString(rpcparameters), data);
-      }
+    }
+    if (!data) {
+      zelcashCallRunning = true;
+      data = await client[rpc](...rpcparameters);
+      blockCache.set(rpc + serviceHelper.ensureString(rpcparameters), data);
+      zelcashCallRunning = false;
     }
     const successResponse = serviceHelper.createDataMessage(data);
     callResponse = successResponse;

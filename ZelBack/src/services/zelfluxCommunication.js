@@ -378,7 +378,7 @@ async function respondWithAppMessage(message, ws) {
       sendMessageToWS(tempMesResponse, ws);
       return;
     }
-    console.log(message);
+    console.log(serviceHelper.ensureString(message));
     const permanentMessage = await zelappsService.checkZelAppMessageExistence(message.data.hash);
     if (permanentMessage) {
       // message exists in permanent storage. Create a message and broadcast it to the fromIP peer
