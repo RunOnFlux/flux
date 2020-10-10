@@ -4764,10 +4764,11 @@ async function zelShareDatabaseShareFile(file) {
     if (result) {
       return result;
     }
+    const string = file + new Date().getTime().toString() + Math.floor((Math.random() * 999999999999999)).toString();
 
     const fileDetail = {
       name: file,
-      token: crypto.createHash('sha256').update(file + new Date().getTime() + Math.floor((Math.random() * 999999999999999))).digest('hex'),
+      token: crypto.createHash('sha256').update(string).digest('hex'),
     };
     // put the utxo to our mongoDB utxoIndex collection.
     await serviceHelper.insertOneToDatabase(databaseZelShare, sharedCollection, fileDetail);
