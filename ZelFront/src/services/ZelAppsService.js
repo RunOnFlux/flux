@@ -214,6 +214,20 @@ export default {
       },
     });
   },
+  shareFile(zelidauthHeader, file) {
+    return Api().get(`/zelapps/zelshare/sharefile/${file}`, {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    });
+  },
+  unshareFile(zelidauthHeader, file) {
+    return Api().get(`/zelapps/zelshare/unsharefile/${file}`, {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    });
+  },
   removeFolder(zelidauthHeader, folder) {
     return Api().get(`/zelapps/zelshare/removefolder/${folder}`, {
       headers: {

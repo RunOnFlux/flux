@@ -149,6 +149,36 @@
                 ></el-button>
               </el-tooltip>
             </p>
+            <el-button
+              v-if="scope.row.isFile && scope.row.shareHash"
+              type="success"
+              icon="el-icon-share"
+              circle
+              size="mini"
+              @click="unshareFile(scope.row.name)"
+            ></el-button>
+            <el-button
+              v-if="scope.row.isFile && !scope.row.shareHash"
+              type="info"
+              icon="el-icon-share"
+              circle
+              size="mini"
+              @click="shareFile(scope.row.name)"
+            ></el-button>
+            <el-popover
+              placement="top"
+              title="ZelShare Link"
+              trigger="click"
+              :content="createZelShareLink(scope.row.shareName, scope.row.shareHash)"
+            >
+              <el-button
+                v-if="scope.row.isFile && scope.row.shareHash"
+                type="info"
+                icon="el-icon-message"
+                circle
+                size="mini"
+              ></el-button>
+            </el-popover>
           </div>
         </template>
       </el-table-column>
@@ -535,6 +565,36 @@ export default {
         vue.$customMes.error(error.message || error);
       }
     },
+    async shareFile(name) {
+      try {
+        const folder = this.currentFolder;
+        const fileName = folder ? `${folder}/${name}` : name;
+        const response = await ZelAppsService.shareFile(this.zelidHeader.zelidauth, encodeURIComponent(fileName));
+        if (response.data.status === 'error') {
+          vue.$customMes.error(response.data.data.message || response.data.data);
+        } else {
+          this.loadFolder(this.currentFolder, true);
+          vue.$customMes.success(`${name} shared`);
+        }
+      } catch (error) {
+        vue.$customMes.error(error.message || error);
+      }
+    },
+    async unshareFile(name) {
+      try {
+        const folder = this.currentFolder;
+        const fileName = folder ? `${folder}/${name}` : name;
+        const response = await ZelAppsService.unshareFile(this.zelidHeader.zelidauth, encodeURIComponent(fileName));
+        if (response.data.status === 'error') {
+          vue.$customMes.error(response.data.data.message || response.data.data);
+        } else {
+          this.loadFolder(this.currentFolder, true);
+          vue.$customMes.success(`${name} unshared`);
+        }
+      } catch (error) {
+        vue.$customMes.error(error.message || error);
+      }
+    },
     async deleteFolder(foldername) {
       try {
         let folderPath = foldername;
@@ -569,6 +629,9 @@ export default {
         return false;
       }
       return true;
+    },
+    createZelShareLink(name, hash) {
+      return `${this.ipAddress}:16127/zelapps/zelshare/getfile/${name}/${hash}`;
     },
   },
 };

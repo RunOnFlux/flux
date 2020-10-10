@@ -4827,6 +4827,7 @@ async function zelShareUnshareFile(req, res) {
     if (authorized) {
       let { file } = req.params;
       file = file || req.query.file;
+      file = encodeURIComponent(file);
       await zelShareDatabaseFileDelete(file);
       const resultsResponse = serviceHelper.createSuccessMessage('File sharing disabled');
       res.json(resultsResponse);
@@ -4856,6 +4857,7 @@ async function zelShareShareFile(req, res) {
     if (authorized) {
       let { file } = req.params;
       file = file || req.query.file;
+      file = encodeURIComponent(file);
       const fileDetails = await zelShareDatabaseShareFile(file);
       const resultsResponse = serviceHelper.createDataMessage(fileDetails);
       res.json(resultsResponse);
@@ -4942,12 +4944,13 @@ async function zelShareRemoveFile(req, res) {
     if (authorized) {
       let { file } = req.params;
       file = file || req.query.file;
-      const fileURI = file;
+      const fileURI = encodeURIComponent(file);
       file = decodeURIComponent(file);
       if (!file) {
         throw new Error('No file specified');
       }
       // stop sharing
+
       await zelShareDatabaseFileDelete(fileURI);
 
       const dirpath = path.join(__dirname, '../../../');
