@@ -5202,18 +5202,15 @@ async function getSpaceAvailableForZelShare() {
   console.log(okVolumes);
 
   // now we know that most likely there is a space available. IF user does not have his own stuff on the node or space may be sharded accross hdds.
-  let availableSpace = 0;
+  let totalSpace = 0;
   okVolumes.forEach((volume) => {
-    availableSpace += serviceHelper.ensureNumber(volume.available);
+    totalSpace += serviceHelper.ensureNumber(volume.size);
   });
   // space that is further reserved for zelflux os and that will be later substracted from available space. Max 30.
   const tier = await zelnodeTier();
   const lockedSpaceOnNode = config.fluxSpecifics.hdd[tier];
 
-  const resourcesLocked = await zelappsResources();
-  const hddLockedByApps = resourcesLocked.data.zelAppsHddLocked; // as this does not count since its loop
-
-  const extraSpaceOnNode = availableSpace - lockedSpaceOnNode + hddLockedByApps > 0 ? availableSpace - lockedSpaceOnNode + hddLockedByApps : 0; // shall always be above 0. Put precaution to place anyway
+  const extraSpaceOnNode = totalSpace - lockedSpaceOnNode > 0 ? totalSpace - lockedSpaceOnNode : 0; // shall always be above 0. Put precaution to place anyway
   // const extraSpaceOnNode = availableSpace - lockedSpaceOnNode > 0 ? availableSpace - lockedSpaceOnNode : 0;
   const spaceAvailableForZelShare = 2 + extraSpaceOnNode;
   return spaceAvailableForZelShare;
