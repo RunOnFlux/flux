@@ -632,7 +632,7 @@ export default {
       return true;
     },
     createZelShareLink(name, token) {
-      return `${this.ipAddress}:16127/zelapps/zelshare/getfile/${name}/${token}`;
+      return `${this.ipAddress}:16127/zelapps/zelshare/getfile/${name}?token=${token}`;
     },
   },
 };
