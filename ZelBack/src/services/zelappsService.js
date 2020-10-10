@@ -4821,7 +4821,6 @@ async function zelShareGetSharedFiles(req, res) {
   }
 }
 
-
 async function zelShareUnshareFile(req, res) {
   try {
     const authorized = await serviceHelper.verifyPrivilege('admin', req);
@@ -5036,7 +5035,10 @@ async function zelShareGetFolder(req, res) {
       for (const file of files) {
         // eslint-disable-next-line no-await-in-loop
         const fileStats = await fs.promises.lstat(`${filepath}/${file}`);
-        const fileURI = encodeURIComponent(`${folder}/${file}`);
+        let fileURI = encodeURIComponent(file);
+        if (folder) {
+          fileURI = encodeURIComponent(`${folder}/${file}`);
+        }
         const fileShared = sharedFiles.find((sharedfile) => sharedfile.name === fileURI);
         let shareToken;
         let shareFile;
