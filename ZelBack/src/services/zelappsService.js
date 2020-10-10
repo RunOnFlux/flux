@@ -4744,7 +4744,7 @@ async function zelShareDatabaseFileDelete(file) {
     const databaseZelShare = dbopen.db(config.database.zelshare.database);
     const sharedCollection = config.database.zelshare.collections.shared;
     const queryZelShare = { name: file };
-    const projectionZelShare = { projection: { _id: 0, name: 1, hash: 1 } };
+    const projectionZelShare = { projection: { _id: 0, name: 1, token: 1 } };
     await serviceHelper.findOneAndDeleteInDatabase(databaseZelShare, sharedCollection, queryZelShare, projectionZelShare);
     return true;
   } catch (error) {
@@ -4759,7 +4759,7 @@ async function zelShareDatabaseShareFile(file) {
     const databaseZelShare = dbopen.db(config.database.zelshare.database);
     const sharedCollection = config.database.zelshare.collections.shared;
     const queryZelShare = { name: file };
-    const projectionZelShare = { projection: { _id: 0, name: 1, hash: 1 } };
+    const projectionZelShare = { projection: { _id: 0, name: 1, token: 1 } };
     const result = await serviceHelper.findOneInDatabase(databaseZelShare, sharedCollection, queryZelShare, projectionZelShare);
     if (result) {
       return result;
@@ -4767,7 +4767,7 @@ async function zelShareDatabaseShareFile(file) {
 
     const fileDetail = {
       name: file,
-      hash: crypto.createHash('sha256').update(file).digest('hex'),
+      token: crypto.createHash('sha256').update(file + new Date().getTime() + Math.floor((Math.random() * 999999999999999))).digest('hex'),
     };
     // put the utxo to our mongoDB utxoIndex collection.
     await serviceHelper.insertOneToDatabase(databaseZelShare, sharedCollection, fileDetail);
@@ -4784,7 +4784,7 @@ async function zelShareSharedFiles() {
     const databaseZelShare = dbopen.db(config.database.zelshare.database);
     const sharedCollection = config.database.zelshare.collections.shared;
     const queryZelShare = { };
-    const projectionZelShare = { projection: { _id: 0, name: 1, hash: 1 } };
+    const projectionZelShare = { projection: { _id: 0, name: 1, token: 1 } };
     const results = await serviceHelper.findInDatabase(databaseZelShare, sharedCollection, queryZelShare, projectionZelShare);
     return results;
   } catch (error) {
@@ -4896,9 +4896,9 @@ async function zelShareFile(req, res) {
     } else {
       let { file } = req.params;
       file = file || req.query.file;
-      let { hash } = req.params;
-      hash = hash || req.query.hash;
-      if (!file || !hash) {
+      let { token } = req.params;
+      token = token || req.query.token;
+      if (!file || !token) {
         const errMessage = serviceHelper.errUnauthorizedMessage();
         res.json(errMessage);
         return;
@@ -4907,8 +4907,8 @@ async function zelShareFile(req, res) {
       const dbopen = serviceHelper.databaseConnection();
       const databaseZelShare = dbopen.db(config.database.zelshare.database);
       const sharedCollection = config.database.zelshare.collections.shared;
-      const queryZelShare = { name: fileURI, hash };
-      const projectionZelShare = { projection: { _id: 0, name: 1, hash: 1 } };
+      const queryZelShare = { name: fileURI, token };
+      const projectionZelShare = { projection: { _id: 0, name: 1, token: 1 } };
       const result = await serviceHelper.findOneInDatabase(databaseZelShare, sharedCollection, queryZelShare, projectionZelShare);
       if (!result) {
         const errMessage = serviceHelper.errUnauthorizedMessage();
@@ -5037,10 +5037,10 @@ async function zelShareGetFolder(req, res) {
         const fileStats = await fs.promises.lstat(`${filepath}/${file}`);
         const fileURI = encodeURIComponent(`${folder}/${file}`);
         const fileShared = sharedFiles.find((sharedfile) => sharedfile.name === fileURI);
-        let shareHash;
+        let shareToken;
         let shareFile;
         if (fileShared) {
-          shareHash = fileShared.hash;
+          shareToken = fileShared.token;
           shareFile = fileShared.name;
         }
         const isDirectory = fileStats.isDirectory();
@@ -5054,7 +5054,7 @@ async function zelShareGetFolder(req, res) {
           isSymbolicLink,
           createdAt: fileStats.birthtime,
           modifiedAt: fileStats.mtime,
-          shareHash,
+          shareToken,
           shareFile,
         };
         filesWithDetails.push(detailedFile);

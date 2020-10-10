@@ -846,7 +846,7 @@ module.exports = (app, expressWs) => {
   });
 
   // ZelShare
-  app.get('/zelapps/zelshare/getfile/:file?/:hash?', (req, res) => {
+  app.get('/zelapps/zelshare/getfile/:file?/:token?', (req, res) => {
     zelappsService.zelShareFile(req, res);
   });
   app.get('/zelapps/zelshare/getfolder/:folder?', (req, res) => {

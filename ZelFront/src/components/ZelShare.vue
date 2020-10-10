@@ -150,7 +150,7 @@
               </el-tooltip>
             </p>
             <el-button
-              v-if="scope.row.isFile && scope.row.shareHash"
+              v-if="scope.row.isFile && scope.row.shareToken"
               type="success"
               icon="el-icon-share"
               circle
@@ -158,7 +158,7 @@
               @click="unshareFile(scope.row.name)"
             ></el-button>
             <el-button
-              v-if="scope.row.isFile && !scope.row.shareHash"
+              v-if="scope.row.isFile && !scope.row.shareToken"
               type="info"
               icon="el-icon-share"
               circle
@@ -166,13 +166,13 @@
               @click="shareFile(scope.row.name)"
             ></el-button>
             <el-tooltip
-              v-if="scope.row.isFile && scope.row.shareHash"
-              :content="createZelShareLink(scope.row.shareFile, scope.row.shareHash)"
+              v-if="scope.row.isFile && scope.row.shareToken"
+              :content="createZelShareLink(scope.row.shareFile, scope.row.shareToken)"
               placement="top"
               enterable
             >
               <el-button
-                v-if="scope.row.isFile && scope.row.shareHash"
+                v-if="scope.row.isFile && scope.row.shareToken"
                 type="info"
                 icon="el-icon-message"
                 circle
@@ -630,8 +630,8 @@ export default {
       }
       return true;
     },
-    createZelShareLink(name, hash) {
-      return `${this.ipAddress}:16127/zelapps/zelshare/getfile/${name}/${hash}`;
+    createZelShareLink(name, token) {
+      return `${this.ipAddress}:16127/zelapps/zelshare/getfile/${name}/${token}`;
     },
   },
 };
