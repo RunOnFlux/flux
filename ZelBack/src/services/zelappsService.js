@@ -1130,7 +1130,6 @@ async function createZelAppVolume(zelAppSpecifications, res) {
       okVolumes.push(volume);
     }
   });
-  console.log(okVolumes);
 
   const tier = await zelnodeTier();
   const totalSpaceOnNode = config.fluxSpecifics.hdd[tier];
@@ -5201,7 +5200,6 @@ async function getSpaceAvailableForZelShare() {
       okVolumes.push(volume);
     }
   });
-  console.log(okVolumes);
 
   // now we know that most likely there is a space available. IF user does not have his own stuff on the node or space may be sharded accross hdds.
   let totalSpace = 0;
