@@ -4738,6 +4738,147 @@ async function whitelistedZelIDs(req, res) {
   }
 }
 
+async function zelShareDatabaseFileDelete(file) {
+  try {
+    const dbopen = serviceHelper.databaseConnection();
+    const databaseZelShare = dbopen.db(config.database.zelshare.database);
+    const sharedCollection = config.database.zelshare.collections.shared;
+    const queryZelShare = { name: file };
+    const projectionZelShare = { projection: { _id: 0, name: 1, hash: 1 } };
+    await serviceHelper.findOneAndDeleteInDatabase(databaseZelShare, sharedCollection, queryZelShare, projectionZelShare);
+    return true;
+  } catch (error) {
+    log.error(error);
+    throw error;
+  }
+}
+
+async function zelShareDatabaseShareFile(file) {
+  try {
+    const dbopen = serviceHelper.databaseConnection();
+    const databaseZelShare = dbopen.db(config.database.zelshare.database);
+    const sharedCollection = config.database.zelshare.collections.shared;
+    const queryZelShare = { name: file };
+    const projectionZelShare = { projection: { _id: 0, name: 1, hash: 1 } };
+    const result = await serviceHelper.findOneInDatabase(databaseZelShare, sharedCollection, queryZelShare, projectionZelShare);
+    if (result) {
+      return result;
+    }
+
+    const fileDetail = {
+      name: file,
+      hash: crypto.createHash('sha256').update(file).digest('hex'),
+    };
+    // put the utxo to our mongoDB utxoIndex collection.
+    await serviceHelper.insertOneToDatabase(databaseZelShare, sharedCollection, fileDetail);
+    return fileDetail;
+  } catch (error) {
+    log.error(error);
+    throw error;
+  }
+}
+
+async function zelShareSharedFiles() {
+  try {
+    const dbopen = serviceHelper.databaseConnection();
+    const databaseZelShare = dbopen.db(config.database.zelshare.database);
+    const sharedCollection = config.database.zelshare.collections.shared;
+    const queryZelShare = { };
+    const projectionZelShare = { projection: { _id: 0, name: 1, hash: 1 } };
+    const results = await serviceHelper.findInDatabase(databaseZelShare, sharedCollection, queryZelShare, projectionZelShare);
+    return results;
+  } catch (error) {
+    log.error(error);
+    throw error;
+  }
+}
+
+async function zelShareGetSharedFiles(req, res) {
+  try {
+    const authorized = await serviceHelper.verifyPrivilege('admin', req);
+    if (authorized) {
+      const files = await zelShareSharedFiles();
+      const resultsResponse = serviceHelper.createDataMessage(files);
+      res.json(resultsResponse);
+    } else {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    try {
+      res.write(serviceHelper.ensureString(errorResponse));
+      res.end();
+    } catch (e) {
+      log.error(e);
+    }
+  }
+}
+
+
+async function zelShareUnshareFile(req, res) {
+  try {
+    const authorized = await serviceHelper.verifyPrivilege('admin', req);
+    if (authorized) {
+      let { file } = req.params;
+      file = file || req.query.file;
+      await zelShareDatabaseFileDelete(file);
+      const resultsResponse = serviceHelper.createSuccessMessage('File sharing disabled');
+      res.json(resultsResponse);
+    } else {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    try {
+      res.write(serviceHelper.ensureString(errorResponse));
+      res.end();
+    } catch (e) {
+      log.error(e);
+    }
+  }
+}
+
+async function zelShareShareFile(req, res) {
+  try {
+    const authorized = await serviceHelper.verifyPrivilege('admin', req);
+    if (authorized) {
+      let { file } = req.params;
+      file = file || req.query.file;
+      const fileDetails = await zelShareDatabaseShareFile(file);
+      const resultsResponse = serviceHelper.createDataMessage(fileDetails);
+      res.json(resultsResponse);
+    } else {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    try {
+      res.write(serviceHelper.ensureString(errorResponse));
+      res.end();
+    } catch (e) {
+      log.error(e);
+    }
+  }
+}
+
 // ZelShare specific
 async function zelShareFile(req, res) {
   try {
@@ -4752,8 +4893,32 @@ async function zelShareFile(req, res) {
 
       res.sendFile(filepath);
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
-      res.json(errMessage);
+      let { file } = req.params;
+      file = file || req.query.file;
+      let { hash } = req.params;
+      hash = hash || req.query.hash;
+      if (!file || !hash) {
+        const errMessage = serviceHelper.errUnauthorizedMessage();
+        res.json(errMessage);
+        return;
+      }
+      const dbopen = serviceHelper.databaseConnection();
+      const databaseZelShare = dbopen.db(config.database.zelshare.database);
+      const sharedCollection = config.database.zelshare.collections.shared;
+      const queryZelShare = { name: file, hash };
+      const projectionZelShare = { projection: { _id: 0, name: 1, hash: 1 } };
+      const result = await serviceHelper.findOneInDatabase(databaseZelShare, sharedCollection, queryZelShare, projectionZelShare);
+      if (!result) {
+        const errMessage = serviceHelper.errUnauthorizedMessage();
+        res.json(errMessage);
+        return;
+      }
+      file = decodeURIComponent(file);
+
+      const dirpath = path.join(__dirname, '../../../');
+      const filepath = `${dirpath}ZelApps/ZelShare/${file}`;
+
+      res.sendFile(filepath);
     }
   } catch (error) {
     log.error(error);
@@ -4777,10 +4942,13 @@ async function zelShareRemoveFile(req, res) {
     if (authorized) {
       let { file } = req.params;
       file = file || req.query.file;
+      const fileURI = file;
       file = decodeURIComponent(file);
       if (!file) {
         throw new Error('No file specified');
       }
+      // stop sharing
+      await zelShareDatabaseFileDelete(fileURI);
 
       const dirpath = path.join(__dirname, '../../../');
       const filepath = `${dirpath}ZelApps/ZelShare/${file}`;
@@ -4860,10 +5028,22 @@ async function zelShareGetFolder(req, res) {
       };
       const files = await fs.promises.readdir(filepath, options);
       const filesWithDetails = [];
+      let sharedFiles = await zelShareSharedFiles().catch((error) => {
+        log.error(error);
+      });
+      sharedFiles = sharedFiles || [];
       // eslint-disable-next-line no-restricted-syntax
       for (const file of files) {
         // eslint-disable-next-line no-await-in-loop
         const fileStats = await fs.promises.lstat(`${filepath}/${file}`);
+        const fileURI = encodeURIComponent(`${folder}/${file}`);
+        const fileShared = sharedFiles.find((sharedfile) => sharedfile.name === fileURI);
+        let shareHash;
+        let shareFile;
+        if (fileShared) {
+          shareHash = fileShared.hash;
+          shareFile = fileShared.name;
+        }
         const isDirectory = fileStats.isDirectory();
         const isFile = fileStats.isFile();
         const isSymbolicLink = fileStats.isSymbolicLink();
@@ -4875,6 +5055,8 @@ async function zelShareGetFolder(req, res) {
           isSymbolicLink,
           createdAt: fileStats.birthtime,
           modifiedAt: fileStats.mtime,
+          shareHash,
+          shareFile,
         };
         filesWithDetails.push(detailedFile);
       }
@@ -5249,6 +5431,9 @@ module.exports = {
   zelShareRemoveFolder,
   zelShareFileExists,
   zelShareStorageStats,
+  zelShareUnshareFile,
+  zelShareShareFile,
+  zelShareGetSharedFiles,
 };
 
 // reenable min connections for registrations/updates before main release

@@ -41,6 +41,12 @@ module.exports = {
         zelappsLocations: 'zelappslocation', // stores location of zelapps as documents containing name, hash, ip, obtainedAt
       },
     },
+    zelshare: {
+      database: 'zelshare',
+      collections: {
+        shared: 'shared',
+      },
+    },
   },
   zelbench: {
     port: 16225,

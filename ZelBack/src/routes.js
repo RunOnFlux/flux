@@ -846,7 +846,7 @@ module.exports = (app, expressWs) => {
   });
 
   // ZelShare
-  app.get('/zelapps/zelshare/getfile/:file?', (req, res) => {
+  app.get('/zelapps/zelshare/getfile/:file?/:hash?', (req, res) => {
     zelappsService.zelShareFile(req, res);
   });
   app.get('/zelapps/zelshare/getfolder/:folder?', (req, res) => {
@@ -869,5 +869,14 @@ module.exports = (app, expressWs) => {
   });
   app.get('/zelapps/zelshare/stats', (req, res) => {
     zelappsService.zelShareStorageStats(req, res);
+  });
+  app.get('/zelapps/zelshare/sharefile/:file?', (req, res) => {
+    zelappsService.zelShareShareFile(req, res);
+  });
+  app.get('/zelapps/zelshare/unsharefile/:file?', (req, res) => {
+    zelappsService.zelShareUnshareFile(req, res);
+  });
+  app.get('/zelapps/zelshare/sharedfiles', (req, res) => {
+    zelappsService.zelShareGetSharedFiles(req, res);
   });
 };
