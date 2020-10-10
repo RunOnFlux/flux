@@ -166,6 +166,7 @@
               @click="shareFile(scope.row.name)"
             ></el-button>
             <el-tooltip
+              v-if="scope.row.isFile && scope.row.shareHash"
               :content="createZelShareLink(scope.row.shareFile, scope.row.shareHash)"
               placement="top"
               enterable
