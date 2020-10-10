@@ -233,7 +233,11 @@ h4 {
   display: inline-block;
 }
 
-.el-menu--collapse .el-submenu .is-opened > .el-submenu__title .el-submenu__icon-arrow {
+.el-menu--collapse
+  .el-submenu
+  .is-opened
+  > .el-submenu__title
+  .el-submenu__icon-arrow {
   -webkit-transform: rotateZ(180deg);
   -ms-transform: rotateZ(180deg);
   transform: rotateZ(180deg);
@@ -347,4 +351,15 @@ h4 {
   margin-top: 30px;
   margin-bottom: 30px;
   width: 96%;
+}
+
+.width25 {
+  width: 25%;
+}
+
+.spaceLeft {
+  margin-top: -20px;
+  display: grid;
+  grid-template-columns: auto 150px;
+  margin-bottom: 10px;
 }

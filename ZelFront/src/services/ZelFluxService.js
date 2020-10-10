@@ -46,6 +46,16 @@ export default {
       },
     });
   },
+  adjustCruxID(zelidauthHeader, cruxid) {
+    return Api().get(`/zelid/adjustcruxid/${cruxid}`, {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    });
+  },
+  getCruxID() {
+    return Api().get('/zelflux/cruxid');
+  },
   // DEBUG
   tailFluxDebug(zelidauthHeader) {
     return Api().get('/zelnode/tailzelfluxerrorlog', {

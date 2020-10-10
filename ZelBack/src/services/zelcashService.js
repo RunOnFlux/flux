@@ -1,5 +1,6 @@
 const zelcashrpc = require('zelcashrpc');
 const fullnode = require('fullnode');
+const LRU = require('lru-cache');
 const serviceHelper = require('./serviceHelper');
 const userconfig = require('../../../config/userconfig');
 
@@ -15,6 +16,18 @@ const client = new zelcashrpc.Client({
   pass: rpcpassword,
   timeout: 60000,
 });
+let zelcashCallRunning = false;
+
+// default cache
+const LRUoptions = {
+  max: 500, // store 500 values for up to 20 seconds of other zelcash calls
+  maxAge: 1000 * 20, // 20 seconds
+};
+const cache = new LRU(LRUoptions);
+
+const blockCache = new LRU(1500); // store 1.5k blocks in cache
+
+const rawTxCache = new LRU(30000); // store 30k txs in cache
 
 let response = serviceHelper.createErrorMessage();
 
@@ -22,7 +35,48 @@ async function executeCall(rpc, params) {
   let callResponse;
   const rpcparameters = params || [];
   try {
-    const data = await client[rpc](...rpcparameters);
+    let data;
+    if (zelcashCallRunning) {
+      const randomDelay = Math.floor((Math.random() * 250)) + 60;
+      await serviceHelper.delay(randomDelay);
+    }
+    if (zelcashCallRunning) {
+      const randomDelay = Math.floor((Math.random() * 200)) + 50;
+      await serviceHelper.delay(randomDelay);
+    }
+    if (zelcashCallRunning) {
+      const randomDelay = Math.floor((Math.random() * 150)) + 40;
+      await serviceHelper.delay(randomDelay);
+    }
+    if (zelcashCallRunning) {
+      const randomDelay = Math.floor((Math.random() * 100)) + 30;
+      await serviceHelper.delay(randomDelay);
+    }
+    if (zelcashCallRunning) {
+      const randomDelay = Math.floor((Math.random() * 75)) + 25;
+      await serviceHelper.delay(randomDelay);
+    }
+    if (zelcashCallRunning) {
+      const randomDelay = Math.floor((Math.random() * 50)) + 20;
+      await serviceHelper.delay(randomDelay);
+    }
+    if (zelcashCallRunning) {
+      const randomDelay = Math.floor((Math.random() * 25)) + 10;
+      await serviceHelper.delay(randomDelay);
+    }
+    if (rpc === 'getBlock') {
+      data = blockCache.get(rpc + serviceHelper.ensureString(rpcparameters));
+    } else if (rpc === 'getRawTransaction') {
+      data = rawTxCache.get(rpc + serviceHelper.ensureString(rpcparameters));
+    } else {
+      data = cache.get(rpc + serviceHelper.ensureString(rpcparameters));
+    }
+    if (!data) {
+      zelcashCallRunning = true;
+      data = await client[rpc](...rpcparameters);
+      blockCache.set(rpc + serviceHelper.ensureString(rpcparameters), data);
+      zelcashCallRunning = false;
+    }
     const successResponse = serviceHelper.createDataMessage(data);
     callResponse = successResponse;
   } catch (error) {

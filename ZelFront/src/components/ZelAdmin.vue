@@ -71,6 +71,30 @@
     </div>
     <div v-if="zelAdminSection === 'manageflux'">
       <p>
+        Manage your Crux ID. In case of additional node rewards, users can send you assets to the following Crux ID.
+      </p>
+      <br>
+      <el-input
+        class="width25"
+        placeholder="Crux ID"
+        v-model="cruxidInput"
+      >
+      </el-input>
+      <br>
+      <el-popconfirm
+        confirmButtonText='Update'
+        cancelButtonText='No, Thanks'
+        icon="el-icon-info"
+        iconColor="orange"
+        title="Flux will now update your Crux ID."
+        @onConfirm="adjustCruxID()"
+      >
+        <ElButton slot="reference">
+          Update Crux ID
+        </ElButton>
+      </el-popconfirm>
+      <el-divider></el-divider>
+      <p>
         Update your Flux to the latest version. Every Flux has to run the newest version to stay on par with the network.
       </p>
       <el-dialog
@@ -529,6 +553,7 @@ import Vuex, { mapState } from 'vuex';
 import Vue from 'vue';
 import axios from 'axios';
 
+import ZelFluxService from '@/services/ZelFluxService';
 import zelIDService from '@/services/ZelIDService';
 import ZelNodeService from '@/services/ZelNodeService';
 import ZelCashService from '@/services/ZelCashService';
@@ -554,6 +579,7 @@ export default {
       rescanExplorerHeight: 0,
       rescanGlobalAppsHeight: 0,
       removeLastInformation: false,
+      cruxidInput: '',
     };
   },
   computed: {
@@ -587,6 +613,7 @@ export default {
           this.loggedSessions();
           break;
         case 'manageflux':
+          this.getCruxID();
           this.getLatestZelFluxVersion();
           break;
         case 'managezelcash':
@@ -604,6 +631,10 @@ export default {
         default:
           console.log('zelAdmin Section: Unrecognized method'); // should not be seeable if all works correctly
       }
+    },
+    async getCruxID() {
+      const response = await ZelFluxService.getCruxID();
+      this.cruxidInput = response.data.data;
     },
     updateZelFlux() {
       const zelidauth = localStorage.getItem('zelidauth');
@@ -1258,6 +1289,20 @@ export default {
           console.log(e);
           vue.$customMes.error(e.toString());
         });
+    },
+    async adjustCruxID() {
+      const cruxId = this.cruxidInput;
+      const zelidauth = localStorage.getItem('zelidauth');
+      try {
+        const cruxIDResponse = await ZelFluxService.adjustCruxID(zelidauth, cruxId);
+        if (cruxIDResponse.data.status === 'error') {
+          vue.$customMes.error(cruxIDResponse.data.data.message || cruxIDResponse.data.data);
+        } else {
+          vue.$customMes.success(cruxIDResponse.data.data.message || cruxIDResponse.data.data);
+        }
+      } catch (error) {
+        vue.$customMes.error(error.message || error);
+      }
     },
   },
 };
