@@ -4888,7 +4888,6 @@ async function zelShareFile(req, res) {
     if (authorized) {
       let { file } = req.params;
       file = file || req.query.file;
-      file = decodeURIComponent(file);
 
       const dirpath = path.join(__dirname, '../../../');
       const filepath = `${dirpath}ZelApps/ZelShare/${file}`;
@@ -4904,10 +4903,11 @@ async function zelShareFile(req, res) {
         res.json(errMessage);
         return;
       }
+      const fileURI = encodeURIComponent(file);
       const dbopen = serviceHelper.databaseConnection();
       const databaseZelShare = dbopen.db(config.database.zelshare.database);
       const sharedCollection = config.database.zelshare.collections.shared;
-      const queryZelShare = { name: file, hash };
+      const queryZelShare = { name: fileURI, hash };
       const projectionZelShare = { projection: { _id: 0, name: 1, hash: 1 } };
       const result = await serviceHelper.findOneInDatabase(databaseZelShare, sharedCollection, queryZelShare, projectionZelShare);
       if (!result) {
@@ -4915,7 +4915,6 @@ async function zelShareFile(req, res) {
         res.json(errMessage);
         return;
       }
-      file = decodeURIComponent(file);
 
       const dirpath = path.join(__dirname, '../../../');
       const filepath = `${dirpath}ZelApps/ZelShare/${file}`;
@@ -4945,7 +4944,6 @@ async function zelShareRemoveFile(req, res) {
       let { file } = req.params;
       file = file || req.query.file;
       const fileURI = encodeURIComponent(file);
-      file = decodeURIComponent(file);
       if (!file) {
         throw new Error('No file specified');
       }
@@ -4985,7 +4983,6 @@ async function zelShareRemoveFolder(req, res) {
     if (authorized) {
       let { folder } = req.params;
       folder = folder || req.query.folder;
-      folder = decodeURIComponent(folder);
       if (!folder) {
         throw new Error('No folder specified');
       }
@@ -5022,7 +5019,6 @@ async function zelShareGetFolder(req, res) {
     if (authorized) {
       let { folder } = req.params;
       folder = folder || req.query.folder || '';
-      folder = decodeURIComponent(folder);
 
       const dirpath = path.join(__dirname, '../../../');
       const filepath = `${dirpath}ZelApps/ZelShare/${folder}`;
@@ -5082,7 +5078,6 @@ async function zelShareCreateFolder(req, res) {
     if (authorized) {
       let { folder } = req.params;
       folder = folder || req.query.folder || '';
-      folder = decodeURIComponent(folder);
 
       const dirpath = path.join(__dirname, '../../../');
       const filepath = `${dirpath}ZelApps/ZelShare/${folder}`;
@@ -5108,7 +5103,6 @@ async function zelShareFileExists(req, res) {
     if (authorized) {
       let { file } = req.params;
       file = file || req.query.file;
-      file = decodeURIComponent(file);
 
       const dirpath = path.join(__dirname, '../../../');
       const filepath = `${dirpath}ZelApps/ZelShare/${file}`;
@@ -5257,7 +5251,6 @@ async function zelShareUpload(req, res) {
     }
     let { folder } = req.params;
     folder = folder || req.query.folder || '';
-    folder = decodeURIComponent(folder);
     if (folder) {
       folder += '/';
     }

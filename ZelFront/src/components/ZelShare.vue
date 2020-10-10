@@ -165,11 +165,10 @@
               size="mini"
               @click="shareFile(scope.row.name)"
             ></el-button>
-            <el-popover
+            <el-tooltip
+              :content="createZelShareLink(scope.row.shareFile, scope.row.shareHash)"
               placement="top"
-              title="ZelShare Link"
-              trigger="click"
-              :content="createZelShareLink(scope.row.shareName, scope.row.shareHash)"
+              enterable
             >
               <el-button
                 v-if="scope.row.isFile && scope.row.shareHash"
@@ -178,7 +177,7 @@
                 circle
                 size="mini"
               ></el-button>
-            </el-popover>
+            </el-tooltip>
           </div>
         </template>
       </el-table-column>
