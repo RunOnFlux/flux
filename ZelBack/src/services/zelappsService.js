@@ -1130,7 +1130,6 @@ async function createZelAppVolume(zelAppSpecifications, res) {
       okVolumes.push(volume);
     }
   });
-  console.log(okVolumes);
 
   const tier = await zelnodeTier();
   const totalSpaceOnNode = config.fluxSpecifics.hdd[tier];
@@ -4821,7 +4820,6 @@ async function zelShareGetSharedFiles(req, res) {
   }
 }
 
-
 async function zelShareUnshareFile(req, res) {
   try {
     const authorized = await serviceHelper.verifyPrivilege('admin', req);
@@ -5036,7 +5034,10 @@ async function zelShareGetFolder(req, res) {
       for (const file of files) {
         // eslint-disable-next-line no-await-in-loop
         const fileStats = await fs.promises.lstat(`${filepath}/${file}`);
-        const fileURI = encodeURIComponent(`${folder}/${file}`);
+        let fileURI = encodeURIComponent(file);
+        if (folder) {
+          fileURI = encodeURIComponent(`${folder}/${file}`);
+        }
         const fileShared = sharedFiles.find((sharedfile) => sharedfile.name === fileURI);
         let shareToken;
         let shareFile;
@@ -5199,7 +5200,6 @@ async function getSpaceAvailableForZelShare() {
       okVolumes.push(volume);
     }
   });
-  console.log(okVolumes);
 
   // now we know that most likely there is a space available. IF user does not have his own stuff on the node or space may be sharded accross hdds.
   let totalSpace = 0;

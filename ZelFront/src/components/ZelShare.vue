@@ -138,7 +138,7 @@
                 v-if="total[scope.row.name] && downloaded[scope.row.name] && total[scope.row.name] !== downloaded[scope.row.name]"
                 content="Cancel Download"
                 placement="top"
-                hide-after="6000"
+                :hide-after="6000"
               >
                 <el-button
                   v-if="total[scope.row.name] && downloaded[scope.row.name] && total[scope.row.name] !== downloaded[scope.row.name]"
