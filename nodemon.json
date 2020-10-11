@@ -1,5 +1,5 @@
 {
   "events": {
-      "crash": "npm install"
+      "crash": "npm install --production"
     }
  }
