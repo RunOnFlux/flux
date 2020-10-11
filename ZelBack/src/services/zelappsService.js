@@ -4489,9 +4489,6 @@ async function reinstallOldApplications() {
             appSpecifications.ram = appSpecifications[ramTier] || appSpecifications.ram;
             appSpecifications.hdd = appSpecifications[hddTier] || appSpecifications.hdd;
           }
-          // verify requirements
-          // eslint-disable-next-line no-await-in-loop
-          await checkZelAppRequirements(appSpecifications);
 
           if (appSpecifications.hdd === installedApp.hdd) {
             log.warn('Beginning Soft Redeployment...');
@@ -4501,14 +4498,13 @@ async function reinstallOldApplications() {
               await softRemoveZelAppLocally(installedApp.name);
               log.warn('Application softly removed. Awaiting installation...');
               // eslint-disable-next-line no-await-in-loop
-              await serviceHelper.delay(config.zelapps.removal.delay * 1000); // wait for delay mins so we dont have more removals at the same time
+              await serviceHelper.delay(config.zelapps.redeploy.delay * 1000); // wait for delay mins so we dont have more removals at the same time
+              // eslint-disable-next-line no-await-in-loop
+              await checkZelAppRequirements(appSpecifications);
 
               // install the app
               // eslint-disable-next-line no-await-in-loop
               await softRegisterZelAppLocally(appSpecifications);
-
-              // eslint-disable-next-line no-await-in-loop
-              await serviceHelper.delay(config.zelapps.redeploy.delay * 1000); // wait for delay mins so we dont have more removals at the same time
             } catch (error) {
               log.error(error);
               removeZelAppLocally(appSpecifications.name, null, true);
@@ -4521,14 +4517,13 @@ async function reinstallOldApplications() {
               await removeZelAppLocally(installedApp.name);
               log.warn('Application removed. Awaiting installation...');
               // eslint-disable-next-line no-await-in-loop
-              await serviceHelper.delay(config.zelapps.removal.delay * 1000); // wait for delay mins so we dont have more removals at the same time
+              await serviceHelper.delay(config.zelapps.redeploy.delay * 1000); // wait for delay mins so we dont have more removals at the same time
+              // eslint-disable-next-line no-await-in-loop
+              await checkZelAppRequirements(appSpecifications);
 
               // install the app
               // eslint-disable-next-line no-await-in-loop
               await registerZelAppLocally(appSpecifications);
-
-              // eslint-disable-next-line no-await-in-loop
-              await serviceHelper.delay(config.zelapps.redeploy.delay * 1000); // wait for delay mins so we dont have more removals at the same time
             } catch (error) {
               log.error(error);
               removeZelAppLocally(appSpecifications.name, null, true);
@@ -4783,7 +4778,7 @@ async function zelShareSharedFiles() {
     const dbopen = serviceHelper.databaseConnection();
     const databaseZelShare = dbopen.db(config.database.zelshare.database);
     const sharedCollection = config.database.zelshare.collections.shared;
-    const queryZelShare = { };
+    const queryZelShare = {};
     const projectionZelShare = { projection: { _id: 0, name: 1, token: 1 } };
     const results = await serviceHelper.findInDatabase(databaseZelShare, sharedCollection, queryZelShare, projectionZelShare);
     return results;

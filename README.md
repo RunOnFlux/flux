@@ -49,6 +49,12 @@ This application is open source and distributed under the GNU AGPLv3 licence
 
 Flux needs Zelcashd to be ruuning, to setup Zelcashd follow [these instructions.](https://github.com/zelcash/ZelNodeInstallv3)
 
+build-essential is a recommended dependency
+```bash
+
+sudo apt-get build-essential
+```
+
 Setup Mongodb on Ubuntu 16.04 (LTS):
 
 ```bash
