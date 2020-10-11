@@ -47,6 +47,7 @@
     "ciconfig": "cp sampleUserConfig.js config/userconfig.js && mkdir ~/.zelcash && cp sampleZelCashConfig.conf ~/.zelcash/zelcash.conf"
   },
   "dependencies": {
+    "@vue/cli-plugin-e2e-cypress": "^4.5.6",
     "@vue/cli-plugin-babel": "^4.5.6",
     "@vue/cli-service": "^4.5.6",
     "apicache": "1.5.2",
@@ -86,7 +87,6 @@
     "zeltrezjs": "^2.10.0"
   },
   "devDependencies": {
-    "@vue/cli-plugin-e2e-cypress": "^4.5.6",
     "@vue/cli-plugin-eslint": "^4.5.6",
     "@vue/cli-plugin-unit-mocha": "^4.5.6",
     "@vue/eslint-config-airbnb": "^5.1.0",

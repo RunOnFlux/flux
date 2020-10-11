@@ -8,22 +8,22 @@ module.exports = {
     '@vue/airbnb',
   ],
   rules: {
-    "max-len": [
-      "error",
+    'max-len': [
+      'error',
       {
-        "code": 300,
-        "ignoreUrls": true,
-        "ignoreTrailingComments": true
-      }
+        code: 300,
+        ignoreUrls: true,
+        ignoreTrailingComments: true,
+      },
     ],
-    "no-console": "off",
-    "import/extensions": [
-      "error",
-      "never",
+    'no-console': 'off',
+    'import/extensions': [
+      'error',
+      'never',
     ],
-    "linebreak-style": [
-      "error",
-      "unix",
+    'linebreak-style': [
+      'error',
+      'unix',
     ],
   },
   parserOptions: {
