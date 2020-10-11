@@ -4499,6 +4499,8 @@ async function reinstallOldApplications() {
               log.warn('Application softly removed. Awaiting installation...');
               // eslint-disable-next-line no-await-in-loop
               await serviceHelper.delay(config.zelapps.redeploy.delay * 1000); // wait for delay mins so we dont have more removals at the same time
+              // eslint-disable-next-line no-await-in-loop
+              await checkZelAppRequirements(appSpecifications);
 
               // install the app
               // eslint-disable-next-line no-await-in-loop
@@ -4516,6 +4518,8 @@ async function reinstallOldApplications() {
               log.warn('Application removed. Awaiting installation...');
               // eslint-disable-next-line no-await-in-loop
               await serviceHelper.delay(config.zelapps.redeploy.delay * 1000); // wait for delay mins so we dont have more removals at the same time
+              // eslint-disable-next-line no-await-in-loop
+              await checkZelAppRequirements(appSpecifications);
 
               // install the app
               // eslint-disable-next-line no-await-in-loop
@@ -4774,7 +4778,7 @@ async function zelShareSharedFiles() {
     const dbopen = serviceHelper.databaseConnection();
     const databaseZelShare = dbopen.db(config.database.zelshare.database);
     const sharedCollection = config.database.zelshare.collections.shared;
-    const queryZelShare = { };
+    const queryZelShare = {};
     const projectionZelShare = { projection: { _id: 0, name: 1, token: 1 } };
     const results = await serviceHelper.findInDatabase(databaseZelShare, sharedCollection, queryZelShare, projectionZelShare);
     return results;
