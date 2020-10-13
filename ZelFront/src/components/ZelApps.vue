@@ -2510,7 +2510,7 @@ export default {
     async getZelNodeStatus() {
       const response = await ZelCashService.getZelNodeStatus();
       if (response.data.status === 'success') {
-        this.tier = response.data.tier;
+        this.tier = response.data.data.tier;
       }
     },
     resolveCpu(zelapp) {
