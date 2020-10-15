@@ -362,7 +362,11 @@ async function handleZelAppRunningMessage(message, fromIP) {
 async function sendMessageToWS(message, ws) {
   try {
     const pongResponse = await serialiseAndSignZelFluxBroadcast(message);
-    ws.send(pongResponse);
+    try {
+      ws.send(pongResponse);
+    } catch (e) {
+      console.error(e);
+    }
   } catch (error) {
     log.error(error);
   }
@@ -462,7 +466,11 @@ function handleIncomingConnection(ws, req, expressWS) {
           const newMessage = msgObj.data;
           newMessage.message = 'pong';
           const pongResponse = await serialiseAndSignZelFluxBroadcast(newMessage);
-          ws.send(pongResponse);
+          try {
+            ws.send(pongResponse);
+          } catch (error) {
+            console.log(error);
+          }
         } else if (msgObj.data.type === 'HeartBeat' && msgObj.data.message === 'pong') { // we know that data exists. This is measuring rtt from incoming conn
           const newerTimeStamp = Date.now(); // ms, get a bit newer time that has passed verification of broadcast
           const rtt = newerTimeStamp - msgObj.data.timestamp;
@@ -475,7 +483,11 @@ function handleIncomingConnection(ws, req, expressWS) {
             }
           }
         } else {
-          ws.send(`Flux ${userconfig.initial.ipaddress} says message received!`);
+          try {
+            ws.send(`Flux ${userconfig.initial.ipaddress} says message received!`);
+          } catch (error) {
+            console.log(error);
+          }
         }
       } catch (e) {
         log.error(e);
@@ -490,14 +502,14 @@ function handleIncomingConnection(ws, req, expressWS) {
       try {
         ws.send(`Flux ${userconfig.initial.ipaddress} says message received but your message is outdated!`);
       } catch (e) {
-        log.error(e);
+        console.error(e);
       }
     } else {
       // we dont like this peer as it sent wrong message. Lets close the connection
       try {
         ws.close(1008); // close as of policy violation?
       } catch (e) {
-        log.error(e);
+        console.error(e);
       }
     }
   });
