@@ -36,7 +36,7 @@
         </el-col>
         <el-col :span="18">
           <div class="grid-content bg-purple-light">
-            {{ transactionDetail.confirmations }}
+            {{ height - transactionDetail.height }}
           </div>
         </el-col>
       </el-row>
@@ -423,6 +423,12 @@ export default {
       type: Object,
       default() {
         return { version: 0 };
+      },
+    },
+    height: {
+      type: Number,
+      default() {
+        return 0;
       },
     },
   },

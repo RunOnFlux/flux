@@ -23,11 +23,22 @@ const LRUoptions = {
   max: 500, // store 500 values for up to 20 seconds of other zelcash calls
   maxAge: 1000 * 20, // 20 seconds
 };
+
 const cache = new LRU(LRUoptions);
 
-const blockCache = new LRU(1500); // store 1.5k blocks in cache
+const LRUoptionsBlocks = {
+  max: 1500, // store 500 values for up to 20 seconds of other zelcash calls
+  maxAge: 1000 * 60 * 60, // 1 hour
+};
 
-const rawTxCache = new LRU(30000); // store 30k txs in cache
+const blockCache = new LRU(LRUoptionsBlocks); // store 1.5k blocks in cache
+
+const LRUoptionsTxs = {
+  max: 30000, // store 500 values for up to 20 seconds of other zelcash calls
+  maxAge: 1000 * 60 * 60, // 1 hour
+};
+
+const rawTxCache = new LRU(LRUoptionsTxs); // store 30k txs in cache
 
 let response = serviceHelper.createErrorMessage();
 

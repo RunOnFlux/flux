@@ -92,7 +92,7 @@
           </el-col>
           <el-col :span="18">
             <div class="grid-content bg-purple-light">
-              {{ blocksWithTransaction[height].confirmations }}
+              {{ getInfoResponse.data.blocks - blocksWithTransaction[height].height }}
             </div>
           </el-col>
         </el-row>
@@ -240,7 +240,7 @@
           v-for="transaction in blocksWithTransaction[height].transactions"
           :key="transaction.txid"
         >
-          <Transaction :transaction="transaction" />
+          <Transaction :transaction="transaction" :height="getInfoResponse.data.blocks" />
           <br>
         </div>
         <div v-if="blocksWithTransaction[height].transactions">
@@ -354,7 +354,7 @@
       </h3>
     </div>
     <div>
-      {{ 'Synced: ' + scannedHeight + '/' + getInfoResponse.data.blocks}}
+      {{ 'Synced: ' + scannedHeight + '/' + getInfoResponse.data.blocks }}
     </div>
   </div>
 </template>
@@ -446,6 +446,7 @@ export default {
           this.getSyncedHeight();
           break;
         case 'block':
+          this.zelcashGetInfo();
           // nothing to do
           break;
         case 'address':

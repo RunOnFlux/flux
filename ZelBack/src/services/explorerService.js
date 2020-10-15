@@ -394,8 +394,17 @@ async function processBlock(blockHeight) {
       if (blockDataVerbose.confirmations > 1) {
         processBlock(blockDataVerbose.height + 1);
       } else {
-        // eslint-disable-next-line no-use-before-define
-        initiateBlockProcessor(false, false);
+        const zelcashGetInfo = await zelcashService.getInfo();
+        let zelcashHeight = 0;
+        if (zelcashGetInfo.status === 'success') {
+          zelcashHeight = zelcashGetInfo.data.blocks;
+        }
+        if (zelcashHeight > blockDataVerbose.height) {
+          processBlock(blockDataVerbose.height + 1);
+        } else {
+          // eslint-disable-next-line no-use-before-define
+          initiateBlockProcessor(false, false);
+        }
       }
     }
   } catch (error) {
