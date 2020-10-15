@@ -36,7 +36,7 @@
         </el-col>
         <el-col :span="18">
           <div class="grid-content bg-purple-light">
-            {{ height - transactionDetail.height }}
+            {{ transactionDetail.height ? height - transactionDetail.height + 1 : 0 }}
           </div>
         </el-col>
       </el-row>
@@ -225,7 +225,7 @@
                   Newly generated coins
                 </div>
                 <div
-                  :key="transactionDetail.senders[i - 1]"
+                  :key="transactionDetail.senders[i - 1].value || transactionDetail.senders[i - 1]"
                   v-else-if="typeof transactionDetail.senders[i - 1] === 'object'"
                 >
                   {{ transactionDetail.senders[i - 1].value }} ZEL
@@ -445,7 +445,6 @@ export default {
     };
   },
   mounted() {
-    console.log('here');
     this.processTransaction(this.transaction);
   },
   methods: {

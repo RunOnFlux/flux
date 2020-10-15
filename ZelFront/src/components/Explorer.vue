@@ -92,7 +92,7 @@
           </el-col>
           <el-col :span="18">
             <div class="grid-content bg-purple-light">
-              {{ getInfoResponse.data.blocks - blocksWithTransaction[height].height }}
+              {{ getInfoResponse.data.blocks - blocksWithTransaction[height].height + 1 }}
             </div>
           </el-col>
         </el-row>
@@ -314,7 +314,7 @@
           v-for="transaction in addressWithTransactions[address].fetchedTransactions"
           :key="transaction.txid"
         >
-          <Transaction :transaction="transaction" />
+          <Transaction :transaction="transaction" :height="getInfoResponse.data.blocks" />
           <br>
         </div>
         <div v-if="addressWithTransactions[address].fetchedTransactions">
@@ -345,7 +345,7 @@
         Loading Transaction...
       </el-row>
       <div v-if="transactionDetail.txid">
-        <Transaction :transaction="transactionDetail" />
+        <Transaction :transaction="transactionDetail" :height="getInfoResponse.data.blocks" />
       </div>
     </div>
     <div v-if="errorMessage !== ''">
