@@ -4883,10 +4883,20 @@ async function zelShareFile(req, res) {
       let { file } = req.params;
       file = file || req.query.file;
 
+      if (!file) {
+        const errorResponse = serviceHelper.createErrorMessage('No file specified');
+        res.json(errorResponse);
+        return;
+      }
+
       const dirpath = path.join(__dirname, '../../../');
       const filepath = `${dirpath}ZelApps/ZelShare/${file}`;
 
-      res.sendFile(filepath);
+      // beautify name
+      const fileNameArray = file.split('/');
+      const fileName = fileNameArray[fileNameArray.length - 1];
+
+      res.download(filepath, fileName);
     } else {
       let { file } = req.params;
       file = file || req.query.file;
@@ -4913,7 +4923,11 @@ async function zelShareFile(req, res) {
       const dirpath = path.join(__dirname, '../../../');
       const filepath = `${dirpath}ZelApps/ZelShare/${file}`;
 
-      res.sendFile(filepath);
+      // beautify name
+      const fileNameArray = file.split('/');
+      const fileName = fileNameArray[fileNameArray.length - 1];
+
+      res.download(filepath, fileName);
     }
   } catch (error) {
     log.error(error);

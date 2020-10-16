@@ -254,7 +254,7 @@ async function zelcashDebug(req, res) {
   const datadir = zelcashService.getConfigValue('datadir') || `${homeDirPath}.zelcash`;
   const filepath = `${datadir}/debug.log`;
 
-  return res.sendFile(filepath);
+  return res.download(filepath, 'debug.log');
 }
 
 async function zelbenchDebug(req, res) {
@@ -267,7 +267,7 @@ async function zelbenchDebug(req, res) {
   const datadir = `${homeDirPath}.zelbenchmark`;
   const filepath = `${datadir}/debug.log`;
 
-  return res.sendFile(filepath);
+  return res.download(filepath, 'debug.log');
 }
 
 async function tailZelCashDebug(req, res) {
@@ -324,7 +324,7 @@ async function zelfluxErrorLog(req, res) {
   const datadir = `${homeDirPath}zelflux`;
   const filepath = `${datadir}/error.log`;
 
-  return res.sendFile(filepath);
+  return res.download(filepath, 'error.log');
 }
 
 async function tailFluxErrorLog(req, res) {
