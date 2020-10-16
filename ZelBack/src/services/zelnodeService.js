@@ -314,29 +314,80 @@ async function tailZelBenchDebug(req, res) {
   }
 }
 
-async function zelfluxErrorLog(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
-  if (!authorized) {
-    const errMessage = serviceHelper.errUnauthorizedMessage();
-    return res.json(errMessage);
-  }
+async function zelfluxLog(req, res, filelog) {
   const homeDirPath = path.join(__dirname, '../../../../');
   const datadir = `${homeDirPath}zelflux`;
-  const filepath = `${datadir}/error.log`;
+  const filepath = `${datadir}/${filelog}.log`;
 
-  return res.download(filepath, 'error.log');
+  return res.download(filepath, `${filelog}.log`);
 }
 
-async function tailFluxErrorLog(req, res) {
+async function zelfluxErrorLog(req, res) {
+  try {
+    const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
+    if (!authorized) {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+      return;
+    }
+    zelfluxLog(req, res, 'error');
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+async function zelfluxWarnLog(req, res) {
+  try {
+    const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
+    if (!authorized) {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+      return;
+    }
+    zelfluxLog(req, res, 'warn');
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+async function zelfluxInfoLog(req, res) {
+  try {
+    const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
+    if (!authorized) {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+      return;
+    }
+    zelfluxLog(req, res, 'info');
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+async function zelfluxDebugLog(req, res) {
+  try {
+    const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
+    if (!authorized) {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+      return;
+    }
+    zelfluxLog(req, res, 'debug');
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+async function tailFluxLog(req, res, logfile) {
   const authorized = await serviceHelper.verifyAdminAndZelTeamSession(req.headers);
   if (authorized === true) {
     const homeDirPath = path.join(__dirname, '../../../../');
     const datadir = `${homeDirPath}zelflux`;
-    const filepath = `${datadir}/error.log`;
+    const filepath = `${datadir}/${logfile}.log`;
     const exec = `tail -n 100 ${filepath}`;
     cmd.get(exec, (err, data) => {
       if (err) {
-        const errMessage = serviceHelper.createErrorMessage(`Error obtaining Flux error file: ${err.message}`, err.name, err.code);
+        const errMessage = serviceHelper.createErrorMessage(`Error obtaining Flux ${logfile} file: ${err.message}`, err.name, err.code);
         res.json(errMessage);
         return;
       }
@@ -346,6 +397,62 @@ async function tailFluxErrorLog(req, res) {
   } else {
     const errMessage = serviceHelper.errUnauthorizedMessage();
     res.json(errMessage);
+  }
+}
+
+async function tailFluxErrorLog(req, res) {
+  try {
+    const authorized = await serviceHelper.verifyAdminAndZelTeamSession(req.headers);
+    if (authorized === true) {
+      tailFluxLog(req, res, 'error');
+    } else {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+async function tailFluxWarnLog(req, res) {
+  try {
+    const authorized = await serviceHelper.verifyAdminAndZelTeamSession(req.headers);
+    if (authorized === true) {
+      tailFluxLog(req, res, 'warn');
+    } else {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+async function tailFluxInfoLog(req, res) {
+  try {
+    const authorized = await serviceHelper.verifyAdminAndZelTeamSession(req.headers);
+    if (authorized === true) {
+      tailFluxLog(req, res, 'info');
+    } else {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+async function tailFluxDebugLog(req, res) {
+  try {
+    const authorized = await serviceHelper.verifyAdminAndZelTeamSession(req.headers);
+    if (authorized === true) {
+      tailFluxLog(req, res, 'debug');
+    } else {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
   }
 }
 
@@ -473,7 +580,6 @@ module.exports = {
   getZelFluxCruxID,
   zelcashDebug,
   zelbenchDebug,
-  zelfluxErrorLog,
   getZelFluxTimezone,
   getZelFluxInfo,
   startZelBench,
@@ -481,4 +587,11 @@ module.exports = {
   tailZelCashDebug,
   tailZelBenchDebug,
   tailFluxErrorLog,
+  tailFluxWarnLog,
+  tailFluxDebugLog,
+  tailFluxInfoLog,
+  zelfluxErrorLog,
+  zelfluxWarnLog,
+  zelfluxInfoLog,
+  zelfluxDebugLog,
 };

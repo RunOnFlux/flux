@@ -626,8 +626,26 @@ module.exports = (app, expressWs) => {
   app.get('/zelnode/zelfluxerrorlog', (req, res) => {
     zelnodeService.zelfluxErrorLog(req, res);
   });
+  app.get('/zelnode/zelfluxwarnlog', (req, res) => {
+    zelnodeService.zelfluxWarnLog(req, res);
+  });
+  app.get('/zelnode/zelfluxdebuglog', (req, res) => {
+    zelnodeService.zelfluxDebugLog(req, res);
+  });
+  app.get('/zelnode/zelfluxinfolog', (req, res) => {
+    zelnodeService.zelfluxInfoLog(req, res);
+  });
   app.get('/zelnode/tailzelfluxerrorlog', (req, res) => {
     zelnodeService.tailFluxErrorLog(req, res);
+  });
+  app.get('/zelnode/tailzelfluxwarnlog', (req, res) => {
+    zelnodeService.tailFluxWarnLog(req, res);
+  });
+  app.get('/zelnode/tailzelfluxdebuglog', (req, res) => {
+    zelnodeService.tailFluxDebugLog(req, res);
+  });
+  app.get('/zelnode/tailzelfluxinfolog', (req, res) => {
+    zelnodeService.tailFluxInfoLog(req, res);
   });
 
   app.get('/zelflux/broadcastmessage/:data?', (req, res) => {
