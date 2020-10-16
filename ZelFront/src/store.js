@@ -12,6 +12,7 @@ export default new Vuex.Store({
     userconfig: {
       zelid: userconfig.initial.zelid,
       externalip: userconfig.initial.ipaddress,
+      curxid: userconfig.initial.curxid,
     },
     config: {
       apiPort: config.server.apiport,

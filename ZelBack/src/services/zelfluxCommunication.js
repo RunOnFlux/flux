@@ -4,6 +4,8 @@ const bitcoinjs = require('bitcoinjs-lib');
 const config = require('config');
 const cmd = require('node-cmd');
 const LRU = require('lru-cache');
+const fs = require('fs').promises;
+const path = require('path');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
 const log = require('../lib/log');
@@ -1060,6 +1062,34 @@ async function checkMyFluxAvailability(zelnodelist) {
   }
 }
 
+async function adjustExternalIP(ip) {
+  try {
+    const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
+    // https://github.com/sindresorhus/ip-regex/blob/master/index.js#L8
+    const v4 = '(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]\\d|\\d)(?:\\.(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]\\d|\\d)){3}';
+    const v4exact = new RegExp(`^${v4}$`);
+    if (!v4exact.test(ip)) {
+      log.warn(`Gathered IP ${ip} is not a valid format`);
+      return;
+    }
+    if (ip === userconfig.initial.ipaddress) {
+      return;
+    }
+    const dataToWrite = `module.exports = {
+        initial: {
+          ipaddress: '${ip}',
+          zelid: '${userconfig.initial.zelid}',
+          cruxid: '${userconfig.initial.cruxid}',
+          testnet: '${userconfig.initial.testnet || 'false'}',
+        }
+      }`;
+
+    await fs.writeFile(fluxDirPath, dataToWrite);
+  } catch (error) {
+    log.error(error);
+  }
+}
+
 async function checkDeterministicNodesCollisions() {
   try {
     // get my external ip address
@@ -1099,6 +1129,7 @@ async function checkDeterministicNodesCollisions() {
         }
       }
       checkMyFluxAvailability(zelnodeList);
+      adjustExternalIP(myIP);
     } else {
       dosState += 1;
       if (dosState > 10) {

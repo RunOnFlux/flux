@@ -671,7 +671,7 @@ async function adjustCruxID(req, res) {
           ipaddress: '${userconfig.initial.ipaddress}',
           zelid: '${userconfig.initial.zelid}',
           cruxid: '${cruxid}',
-          testnet: false
+          testnet: '${userconfig.initial.testnet || 'false'}',
         }
       }`;
 
