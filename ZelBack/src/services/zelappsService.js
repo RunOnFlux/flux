@@ -4747,6 +4747,21 @@ async function zelShareDatabaseFileDelete(file) {
   }
 }
 
+// removes documents that starts with the path queried
+async function zelShareDatabaseFileDeleteMultiple(pathstart) {
+  try {
+    const dbopen = serviceHelper.databaseConnection();
+    const databaseZelShare = dbopen.db(config.database.zelshare.database);
+    const sharedCollection = config.database.zelshare.collections.shared;
+    const queryZelShare = { name: new RegExp(`^${pathstart}`) }; // has to start with this path
+    await serviceHelper.removeDocumentsFromCollection(databaseZelShare, sharedCollection, queryZelShare);
+    return true;
+  } catch (error) {
+    log.error(error);
+    throw error;
+  }
+}
+
 async function zelShareDatabaseShareFile(file) {
   try {
     const dbopen = serviceHelper.databaseConnection();
@@ -4928,6 +4943,61 @@ async function zelShareFile(req, res) {
       const fileName = fileNameArray[fileNameArray.length - 1];
 
       res.download(filepath, fileName);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    try {
+      res.write(serviceHelper.ensureString(errorResponse));
+      res.end();
+    } catch (e) {
+      log.error(e);
+    }
+  }
+}
+
+// oldpath is relative path to default zelshare directory; newname is just a new name of folder/file
+async function zelShareRename(req, res) {
+  try {
+    const authorized = await serviceHelper.verifyPrivilege('admin', req);
+    if (authorized) {
+      let { oldpath } = req.params;
+      oldpath = oldpath || req.query.oldpath;
+      if (!oldpath) {
+        throw new Error('No file nor folder to rename specified');
+      }
+      let { newname } = req.params;
+      newname = newname || req.query.newname;
+      if (!newname) {
+        throw new Error('No new name specified');
+      }
+      if (newname.includes('/')) {
+        throw new Error('No new name is invalid');
+      }
+      // stop sharing of ALL files that start with the path
+      const folderpath = oldpath.split('/').pop();
+      folderpath.join('/');
+      if (folderpath) {
+        const fileURI = encodeURIComponent(folderpath);
+        await zelShareDatabaseFileDeleteMultiple(fileURI);
+      } else {
+        const fileURI = encodeURIComponent(oldpath);
+        await zelShareDatabaseFileDelete(fileURI);
+      }
+      const dirpath = path.join(__dirname, '../../../');
+      const oldfullpath = `${dirpath}ZelApps/ZelShare/${oldpath}`;
+      const newfullpath = `${dirpath}ZelApps/ZelShare/${folderpath}/${newname}`;
+      await fs.promises.rename(oldfullpath, newfullpath);
+
+      const response = serviceHelper.createSuccessMessage('Rename successful');
+      res.json(response);
+    } else {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
@@ -5437,6 +5507,7 @@ module.exports = {
   zelShareUnshareFile,
   zelShareShareFile,
   zelShareGetSharedFiles,
+  zelShareRename,
 };
 
 // reenable min connections for registrations/updates before main release

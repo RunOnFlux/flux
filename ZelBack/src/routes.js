@@ -897,4 +897,7 @@ module.exports = (app, expressWs) => {
   app.get('/zelapps/zelshare/sharedfiles', (req, res) => {
     zelappsService.zelShareGetSharedFiles(req, res);
   });
+  app.get('/zelapps/zelshare/rename/:oldpath?/:newname?', (req, res) => {
+    zelappsService.zelShareGetSharedFiles(req, res);
+  });
 };
