@@ -667,13 +667,13 @@ async function adjustCruxID(req, res) {
       }
       const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
       const dataToWrite = `module.exports = {
-        initial: {
-          ipaddress: '${userconfig.initial.ipaddress}',
-          zelid: '${userconfig.initial.zelid}',
-          cruxid: '${cruxid}',
-          testnet: '${userconfig.initial.testnet || 'false'}',
-        }
-      }`;
+  initial: {
+    paddress: '${userconfig.initial.ipaddress}',
+    zelid: '${userconfig.initial.zelid}',
+    cruxid: '${cruxid}',
+    testnet: '${userconfig.initial.testnet || false}',
+  }
+}`;
 
       await fs.writeFile(fluxDirPath, dataToWrite);
 

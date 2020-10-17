@@ -1077,13 +1077,13 @@ async function adjustExternalIP(ip) {
     }
     log.info(`Adjusting External IP from ${userconfig.initial.ipaddress} to ${ip}`);
     const dataToWrite = `module.exports = {
-        initial: {
-          ipaddress: '${ip}',
-          zelid: '${userconfig.initial.zelid}',
-          cruxid: '${userconfig.initial.cruxid}',
-          testnet: '${userconfig.initial.testnet || 'false'}',
-        }
-      }`;
+  initial: {
+    ipaddress: '${ip}',
+    zelid: '${userconfig.initial.zelid}',
+    cruxid: '${userconfig.initial.cruxid}',
+    testnet: '${userconfig.initial.testnet || false}',
+  }
+}`;
 
     await fs.writeFile(fluxDirPath, dataToWrite);
   } catch (error) {
