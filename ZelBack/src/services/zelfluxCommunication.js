@@ -1079,8 +1079,8 @@ async function adjustExternalIP(ip) {
     const dataToWrite = `module.exports = {
   initial: {
     ipaddress: '${ip}',
-    zelid: '${userconfig.initial.zelid}',
-    cruxid: '${userconfig.initial.cruxid}',
+    zelid: '${userconfig.initial.zelid || config.zelTeamZelId}',
+    cruxid: '${userconfig.initial.cruxid || ''}',
     testnet: ${userconfig.initial.testnet || false},
   }
 }`;
