@@ -363,3 +363,7 @@ h4 {
   grid-template-columns: auto 150px;
   margin-bottom: 10px;
 }
+
+.notvisible {
+  visibility: hidden;
+}

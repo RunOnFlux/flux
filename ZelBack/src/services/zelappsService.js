@@ -4981,16 +4981,16 @@ async function zelShareRename(req, res) {
       // stop sharing of ALL files that start with the path
       const folderpath = oldpath.split('/').pop();
       folderpath.join('/');
-      if (folderpath) {
-        const fileURI = encodeURIComponent(folderpath);
-        await zelShareDatabaseFileDeleteMultiple(fileURI);
-      } else {
-        const fileURI = encodeURIComponent(oldpath);
-        await zelShareDatabaseFileDelete(fileURI);
-      }
+
+      const fileURI = encodeURIComponent(oldpath);
+      await zelShareDatabaseFileDeleteMultiple(fileURI);
+
       const dirpath = path.join(__dirname, '../../../');
       const oldfullpath = `${dirpath}ZelApps/ZelShare/${oldpath}`;
-      const newfullpath = `${dirpath}ZelApps/ZelShare/${folderpath}/${newname}`;
+      let newfullpath = `${dirpath}ZelApps/ZelShare/${newname}`;
+      if (folderpath) {
+        newfullpath = `${dirpath}ZelApps/ZelShare/${folderpath}/${newname}`;
+      }
       await fs.promises.rename(oldfullpath, newfullpath);
 
       const response = serviceHelper.createSuccessMessage('Rename successful');

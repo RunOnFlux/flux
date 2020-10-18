@@ -118,14 +118,86 @@
           </p>
         </template>
         <template slot-scope="scope">
-          <div style="text-align: center">
-            <el-button
-              v-if="scope.row.isFile && !downloaded[scope.row.name]"
-              icon="el-icon-download"
-              size="mini"
-              type="info"
-              @click="download(scope.row.name)"
-            >Download</el-button>
+          <div style="text-align: left">
+            <el-tooltip
+              content="Download"
+              placement="top"
+              :hide-after="6000"
+            >
+              <el-button
+                v-if="scope.row.isFile"
+                icon="el-icon-download"
+                circle
+                :disabled="downloaded[scope.row.name] ? true : false"
+                size="mini"
+                type="info"
+                @click="download(scope.row.name)"
+              ></el-button>
+              <el-button
+                v-else
+                icon="el-icon-download"
+                circle
+                size="mini"
+                type="info"
+                class="notvisible"
+              ></el-button>
+            </el-tooltip>
+            <el-tooltip
+              content="Rename"
+              placement="top"
+              :hide-after="6000"
+            >
+              <el-button
+                type="info"
+                icon="el-icon-edit"
+                circle
+                size="mini"
+                @click="rename(scope.row.name)"
+              ></el-button>
+            </el-tooltip>
+            <el-tooltip
+              content="Unshare file"
+              placement="top"
+              :hide-after="6000"
+            >
+              <el-button
+                v-if="scope.row.isFile && scope.row.shareToken"
+                type="success"
+                icon="el-icon-share"
+                circle
+                size="mini"
+                @click="unshareFile(scope.row.name)"
+              ></el-button>
+            </el-tooltip>
+            <el-tooltip
+              content="Share file"
+              placement="top"
+              :hide-after="6000"
+            >
+              <el-button
+                v-if="scope.row.isFile && !scope.row.shareToken"
+                type="info"
+                icon="el-icon-share"
+                circle
+                size="mini"
+                @click="shareFile(scope.row.name)"
+              ></el-button>
+            </el-tooltip>
+            <el-tooltip
+              v-if="scope.row.isFile && scope.row.shareToken"
+              :content="createZelShareLink(scope.row.shareFile, scope.row.shareToken)"
+              placement="top"
+              enterable
+              :hide-after="15000"
+            >
+              <el-button
+                v-if="scope.row.isFile && scope.row.shareToken"
+                type="info"
+                icon="el-icon-message"
+                circle
+                size="mini"
+              ></el-button>
+            </el-tooltip>
             <p v-if="total[scope.row.name] && downloaded[scope.row.name]">
               {{ (downloaded[scope.row.name] / 1e6).toFixed(2) + " / " + (total[scope.row.name] / 1e6).toFixed(2) }} MB
               <br>
@@ -150,36 +222,6 @@
                 ></el-button>
               </el-tooltip>
             </p>
-            <el-button
-              v-if="scope.row.isFile && scope.row.shareToken"
-              type="success"
-              icon="el-icon-share"
-              circle
-              size="mini"
-              @click="unshareFile(scope.row.name)"
-            ></el-button>
-            <el-button
-              v-if="scope.row.isFile && !scope.row.shareToken"
-              type="info"
-              icon="el-icon-share"
-              circle
-              size="mini"
-              @click="shareFile(scope.row.name)"
-            ></el-button>
-            <el-tooltip
-              v-if="scope.row.isFile && scope.row.shareToken"
-              :content="createZelShareLink(scope.row.shareFile, scope.row.shareToken)"
-              placement="top"
-              enterable
-            >
-              <el-button
-                v-if="scope.row.isFile && scope.row.shareToken"
-                type="info"
-                icon="el-icon-message"
-                circle
-                size="mini"
-              ></el-button>
-            </el-tooltip>
           </div>
         </template>
       </el-table-column>
@@ -189,67 +231,92 @@
       >
         <template slot="header">
           <p style="text-align: center">
-            <el-button
-              icon="el-icon-upload"
-              size="mini"
-              type="info"
-              @click="uploadFilesDialog = true"
+            <el-tooltip
+              content="Upload"
+              placement="top"
+              :hide-after="6000"
             >
-              Upload
-            </el-button>
-            <el-button
-              style="padding: 5px;"
-              icon="el-icon-folder-add"
-              circle
-              size="mini"
-              type="info"
-              @click="createDirectoryDialogVisible = true"
+              <el-button
+                icon="el-icon-upload"
+                size="mini"
+                circle
+                type="info"
+                @click="uploadFilesDialog = true"
+              >
+              </el-button>
+            </el-tooltip>
+            <el-tooltip
+              content="Create folder"
+              placement="top"
+              :hide-after="6000"
             >
-            </el-button>
+              <el-button
+                style="padding: 5px;"
+                icon="el-icon-folder-add"
+                circle
+                size="mini"
+                type="info"
+                @click="createDirectoryDialogVisible = true"
+              >
+              </el-button>
+            </el-tooltip>
           </p>
         </template>
         <template slot-scope="scope">
           <p style="text-align: center">
-            <el-popconfirm
-              v-if="scope.row.isFile"
-              confirmButtonText='Delete'
-              cancelButtonText='No, Thanks'
-              icon="el-icon-delete"
-              iconColor="red"
-              title="Permanently delete file?"
-              confirmButtonType="danger"
-              cancelButtonType="info"
-              @onConfirm="deleteFile(scope.row.name)"
+            <el-tooltip
+              content="Delete"
+              placement="top"
+              :hide-after="6000"
             >
-              <el-button
-                slot="reference"
+              <el-popconfirm
+                v-if="scope.row.isFile"
+                confirmButtonText='Delete'
+                cancelButtonText='No, Thanks'
                 icon="el-icon-delete"
-                size="mini"
-                type="danger"
+                iconColor="red"
+                title="Permanently delete file?"
+                confirmButtonType="danger"
+                cancelButtonType="info"
+                @onConfirm="deleteFile(scope.row.name)"
               >
-                Delete
-              </el-button>
-            </el-popconfirm>
-            <el-popconfirm
-              v-if="scope.row.isDirectory"
-              confirmButtonText='Delete'
-              cancelButtonText='No, Thanks'
-              icon="el-icon-delete"
-              iconColor="red"
-              title="Only empty directories can be deleted for security reasons. Delete directory?"
-              confirmButtonType="danger"
-              cancelButtonType="info"
-              @onConfirm="deleteFolder(scope.row.name)"
+                <el-button
+                  slot="reference"
+                  icon="el-icon-delete"
+                  circle
+                  size="mini"
+                  type="danger"
+                >
+                </el-button>
+              </el-popconfirm>
+            </el-tooltip>
+            <el-tooltip
+              content="Share file"
+              placement="top"
+              :hide-after="6000"
             >
-              <el-button
-                slot="reference"
+              <el-popconfirm
+                v-if="scope.row.isDirectory"
+                confirmButtonText='Delete'
+                cancelButtonText='No, Thanks'
                 icon="el-icon-delete"
-                size="mini"
-                type="danger"
+                iconColor="red"
+                title="Only empty directories can be deleted for security reasons. Delete directory?"
+                confirmButtonType="danger"
+                cancelButtonType="info"
+                @onConfirm="deleteFolder(scope.row.name)"
               >
-                Delete
-              </el-button>
-            </el-popconfirm>
+
+                <el-button
+                  slot="reference"
+                  icon="el-icon-delete"
+                  circle
+                  size="mini"
+                  type="danger"
+                >
+                </el-button>
+              </el-popconfirm>
+            </el-tooltip>
           </p>
         </template>
       </el-table-column>
@@ -305,6 +372,29 @@
         Create Directory
       </el-button>
     </el-dialog>
+    <el-dialog
+      :close-on-click-modal="true"
+      :close-on-press-escape="true"
+      :show-close="true"
+      title="Rename"
+      :visible.sync="renameDialogVisible"
+      width="75%"
+    >
+      <ElInput
+        type="text"
+        placeholder="Write new name..."
+        v-model="newName"
+      >
+        <template slot="prepend">Name</template>
+      </ElInput>
+      <br><br>
+      <el-button
+        type="info"
+        @click="confirmRename();"
+      >
+        Rename
+      </el-button>
+    </el-dialog>
   </div>
 </template>
 
@@ -337,6 +427,9 @@ export default {
       uploadFilesDialog: false,
       filterFolder: '',
       createDirectoryDialogVisible: false,
+      renameDialogVisible: false,
+      newName: '',
+      fileRenaming: '',
       newDirName: '',
       abortToken: {},
       downloaded: {},
@@ -633,6 +726,31 @@ export default {
     },
     createZelShareLink(name, token) {
       return `${this.ipAddress}:16127/zelapps/zelshare/getfile/${name}?token=${token}`;
+    },
+    rename(name) {
+      this.renameDialogVisible = true;
+      let folderPath = name;
+      if (this.currentFolder !== '') {
+        folderPath = `${this.currentFolder}/${name}`;
+      }
+      this.fileRenaming = folderPath;
+      this.newName = name;
+    },
+    async confirmRename() {
+      this.renameDialogVisible = false;
+      try {
+        const oldpath = this.fileRenaming;
+        const newname = this.newName;
+        const response = await ZelAppsService.renameFileFolder(this.zelidHeader.zelidauth, encodeURIComponent(oldpath), newname);
+        console.log(response);
+        if (response.data.status === 'error') {
+          vue.$customMes.error(response.data.data.message || response.data.data);
+        } else {
+          this.loadFolder(this.currentFolder, true);
+        }
+      } catch (error) {
+        vue.$customMes.error(error.message || error);
+      }
     },
   },
 };

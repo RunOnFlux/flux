@@ -249,6 +249,13 @@ export default {
       },
     });
   },
+  renameFileFolder(zelidauthHeader, oldpath, newname) {
+    return Api().get(`/zelapps/zelshare/rename/${oldpath}/${newname}`, {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    });
+  },
   justAPI() {
     return Api();
   },
