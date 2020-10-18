@@ -201,6 +201,8 @@
             <p v-if="total[scope.row.name] && downloaded[scope.row.name]">
               {{ (downloaded[scope.row.name] / 1e6).toFixed(2) + " / " + (total[scope.row.name] / 1e6).toFixed(2) }} MB
               <br>
+              {{ ((downloaded[scope.row.name] / 1e6) / (timeStamp[scope.row.name] / 1000)).toFixed(2) }} MB/s
+              <br>
               {{ ((downloaded[scope.row.name] / total[scope.row.name]) * 100).toFixed(2) + "%" }}
               <i
                 v-if="total[scope.row.name] && downloaded[scope.row.name] && total[scope.row.name] === downloaded[scope.row.name]"
@@ -434,6 +436,7 @@ export default {
       abortToken: {},
       downloaded: {},
       total: {},
+      timeStamp: {},
       working: false,
       storage: {
         used: 0,
@@ -589,12 +592,17 @@ export default {
         this.$set(this.abortToken, name, cancelToken);
         const folder = this.currentFolder;
         const fileName = folder ? `${folder}/${name}` : name;
+        let initialTime;
         const axiosConfig = {
           headers: this.zelidHeader,
           responseType: 'blob',
           onDownloadProgress(progressEvent) {
+            if (!initialTime) {
+              initialTime = progressEvent.timeStamp;
+            }
             Vue.set(self.downloaded, name, progressEvent.loaded);
             Vue.set(self.total, name, progressEvent.total);
+            Vue.set(self.timeStamp, name, progressEvent.timeStamp - initialTime);
           },
           cancelToken: self.abortToken[name].token,
         };
