@@ -4979,16 +4979,15 @@ async function zelShareRename(req, res) {
         throw new Error('No new name is invalid');
       }
       // stop sharing of ALL files that start with the path
-      const folderpath = oldpath.split('/').pop();
-      folderpath.join('/');
-
       const fileURI = encodeURIComponent(oldpath);
       await zelShareDatabaseFileDeleteMultiple(fileURI);
 
       const dirpath = path.join(__dirname, '../../../');
       const oldfullpath = `${dirpath}ZelApps/ZelShare/${oldpath}`;
       let newfullpath = `${dirpath}ZelApps/ZelShare/${newname}`;
+      const folderpath = fileURI.split('%2F').pop();
       if (folderpath) {
+        folderpath.join('/');
         newfullpath = `${dirpath}ZelApps/ZelShare/${folderpath}/${newname}`;
       }
       await fs.promises.rename(oldfullpath, newfullpath);
