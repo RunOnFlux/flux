@@ -4985,10 +4985,11 @@ async function zelShareRename(req, res) {
       const dirpath = path.join(__dirname, '../../../');
       const oldfullpath = `${dirpath}ZelApps/ZelShare/${oldpath}`;
       let newfullpath = `${dirpath}ZelApps/ZelShare/${newname}`;
-      fileURI.split('%2F').pop();
-      if (fileURI) {
-        fileURI.join('/');
-        newfullpath = `${dirpath}ZelApps/ZelShare/${fileURI}/${newname}`;
+      const fileURIArray = fileURI.split('%2F');
+      fileURIArray.pop();
+      if (fileURIArray) {
+        const renamingFolder = fileURIArray.join('/');
+        newfullpath = `${dirpath}ZelApps/ZelShare/${renamingFolder}/${newname}`;
       }
       await fs.promises.rename(oldfullpath, newfullpath);
 
