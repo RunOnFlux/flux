@@ -746,6 +746,11 @@ export default {
         if (response.data.status === 'error') {
           vue.$customMes.error(response.data.data.message || response.data.data);
         } else {
+          if (oldpath.includes('/')) {
+            vue.$customMes.success(`${oldpath.split('/').pop()} renamed to ${newname}`);
+          } else {
+            vue.$customMes.success(`${oldpath} renamed to ${newname}`);
+          }
           this.loadFolder(this.currentFolder, true);
         }
       } catch (error) {
