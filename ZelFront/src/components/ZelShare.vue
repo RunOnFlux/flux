@@ -329,7 +329,7 @@
       :show-close="true"
       title="Upload files"
       :visible.sync="uploadFilesDialog"
-      @close="refreshFolder"
+      @close="uploadClose"
       width="75%"
     >
       <el-upload
@@ -339,6 +339,7 @@
         :on-error="uploadError"
         :on-success="uploadSuccess"
         :before-upload="beforeUpload"
+        :on-progress="onProgressUpload"
         thumbnail-mode="true"
         multiple
       >
@@ -348,6 +349,13 @@
           class="el-upload__tip"
           slot="tip"
         >File size is limited to 5GB</div>
+        <div v-if="uploadTotal">
+          {{ (uploadUploaded / 1e6).toFixed(2) + " / " + (uploadTotal / 1e6).toFixed(2) }} MB
+          <br>
+          {{ ((uploadUploaded / 1e6) / ((currentUploadTime - uploadTimeStart) / 1000)).toFixed(2) }} MB/s
+          <br>
+          {{ ((uploadUploaded / uploadTotal) * 100).toFixed(2) + "%" }}
+        </div>
       </el-upload>
     </el-dialog>
     <el-dialog
@@ -450,6 +458,10 @@ export default {
         { color: '#e6a23c', percentage: 80 },
         { color: '#f56c6c', percentage: 100 },
       ],
+      uploadTotal: '',
+      uploadUploaded: '',
+      uploadTimeStart: '',
+      currentUploadTime: '',
     };
   },
   computed: {
@@ -647,6 +659,29 @@ export default {
           self.working = false;
         }, 500);
       }
+    },
+    onProgressUpload(event, file, fileList) {
+      if (!this.uploadTimeStart) {
+        this.uploadTimeStart = new Date().getTime();
+      }
+      this.currentUploadTime = new Date().getTime();
+      console.log(event);
+      console.log(file);
+      console.log(fileList);
+      let uploadTotal = 0;
+      let uploadUploaded = 0;
+      fileList.forEach((f) => {
+        uploadTotal += f.size;
+        uploadUploaded += (f.size * (f.percentage / 100));
+      });
+      this.uploadTotal = uploadTotal;
+      this.uploadUploaded = uploadUploaded;
+    },
+    uploadClose() {
+      this.refreshFolder();
+      this.uploadTotal = '';
+      this.uploadUploaded = '';
+      this.uploadTimeStart = '';
     },
     refreshFolder() {
       this.loadFolder(this.currentFolder, true);
