@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="zelsharesection">
     <p class="spaceLeft">
       <el-progress
         :text-inside="true"
@@ -183,12 +183,11 @@
                 @click="shareFile(scope.row.name)"
               ></el-button>
             </el-tooltip>
-            <el-tooltip
-              v-if="scope.row.isFile && scope.row.shareToken"
-              :content="createZelShareLink(scope.row.shareFile, scope.row.shareToken)"
+            <el-popover
               placement="top"
-              enterable
-              :hide-after="15000"
+              title="Share Link"
+              trigger="hover"
+              :content="createZelShareLink(scope.row.shareFile, scope.row.shareToken)"
             >
               <el-button
                 v-if="scope.row.isFile && scope.row.shareToken"
@@ -196,8 +195,9 @@
                 icon="el-icon-message"
                 circle
                 size="mini"
+                slot="reference"
               ></el-button>
-            </el-tooltip>
+            </el-popover>
             <p v-if="total[scope.row.name] && downloaded[scope.row.name]">
               {{ (downloaded[scope.row.name] / 1e6).toFixed(2) + " / " + (total[scope.row.name] / 1e6).toFixed(2) }} MB
               <br>
