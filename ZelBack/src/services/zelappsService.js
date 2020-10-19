@@ -10,6 +10,7 @@ const df = require('node-df');
 const fs = require('fs');
 const formidable = require('formidable');
 const LRU = require('lru-cache');
+const archiver = require('archiver');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
 const zelfluxCommunication = require('./zelfluxCommunication');
@@ -4891,7 +4892,7 @@ async function zelShareShareFile(req, res) {
 }
 
 // ZelShare specific
-async function zelShareFile(req, res) {
+async function zelShareDownloadFile(req, res) {
   try {
     const authorized = await serviceHelper.verifyPrivilege('admin', req);
     if (authorized) {
@@ -4939,10 +4940,70 @@ async function zelShareFile(req, res) {
       const filepath = `${dirpath}ZelApps/ZelShare/${file}`;
 
       // beautify name
-      const fileNameArray = file.split('/');
+      const fileNameArray = filepath.split('/');
       const fileName = fileNameArray[fileNameArray.length - 1];
 
       res.download(filepath, fileName);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    try {
+      res.write(serviceHelper.ensureString(errorResponse));
+      res.end();
+    } catch (e) {
+      log.error(e);
+    }
+  }
+}
+
+async function zelShareDownloadFolder(req, res) {
+  try {
+    const authorized = await serviceHelper.verifyPrivilege('admin', req);
+    if (authorized) {
+      let { folder } = req.params;
+      folder = folder || req.query.folder;
+
+      if (!folder) {
+        const errorResponse = serviceHelper.createErrorMessage('No folder specified');
+        res.json(errorResponse);
+        return;
+      }
+
+      const dirpath = path.join(__dirname, '../../../');
+      const folderpath = `${dirpath}ZelApps/ZelShare/${folder}`;
+
+      // beautify name
+      const folderNameArray = folderpath.split('/');
+      const folderName = folderNameArray[folderNameArray.length - 1];
+
+      // childProcess.execSync('zip -r DEISER_NAME_OF_ZIP *', {
+      //   cwd: folderpath,
+      // });
+
+      // const downloadPath = `${folderpath}/${folderName}.zip`;
+
+      // res.download(downloadPath, `${folderName}.zip`);
+
+      // Tell the browser that this is a zip file.
+      res.writeHead(200, {
+        'Content-Type': 'application/zip',
+        'Content-disposition': `attachment; filename=${folderName}.zip`,
+      });
+
+      const zip = archiver('zip');
+
+      // Send the file to the page output.
+      zip.pipe(res);
+      zip.glob('*', { cwd: folderpath }).finalize();
+    } else {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+      return;
     }
   } catch (error) {
     log.error(error);
@@ -5496,7 +5557,7 @@ module.exports = {
   redeployAPI,
   whitelistedRepositories,
   whitelistedZelIDs,
-  zelShareFile,
+  zelShareDownloadFile,
   zelShareGetFolder,
   zelShareCreateFolder,
   zelShareUpload,
@@ -5508,6 +5569,7 @@ module.exports = {
   zelShareShareFile,
   zelShareGetSharedFiles,
   zelShareRename,
+  zelShareDownloadFolder,
 };
 
 // reenable min connections for registrations/updates before main release

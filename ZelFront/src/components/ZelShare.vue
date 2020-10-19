@@ -120,7 +120,7 @@
         <template slot-scope="scope">
           <div style="text-align: left">
             <el-tooltip
-              content="Download"
+              content="Download File"
               placement="top"
               :hide-after="6000"
             >
@@ -133,13 +133,20 @@
                 type="info"
                 @click="download(scope.row.name)"
               ></el-button>
+            </el-tooltip>
+            <el-tooltip
+              content="Download zip of folder"
+              placement="top"
+              :hide-after="6000"
+            >
               <el-button
-                v-else
+                v-if="scope.row.isDirectory"
                 icon="el-icon-download"
                 circle
+                :disabled="downloaded[scope.row.name] ? true : false"
                 size="mini"
                 type="info"
-                class="notvisible"
+                @click="download(scope.row.name, true)"
               ></el-button>
             </el-tooltip>
             <el-tooltip
@@ -593,7 +600,7 @@ export default {
       this.downloaded[name] = '';
       this.total[name] = '';
     },
-    async download(name) {
+    async download(name, isFolder = false) {
       try {
         const self = this;
         if (self.abortToken[name]) {
@@ -618,7 +625,12 @@ export default {
           },
           cancelToken: self.abortToken[name].token,
         };
-        const response = await ZelAppsService.justAPI().get(`/zelapps/zelshare/getfile/${encodeURIComponent(fileName)}`, axiosConfig);
+        let response;
+        if (isFolder) {
+          response = await ZelAppsService.justAPI().get(`/zelapps/zelshare/getfolder/${encodeURIComponent(fileName)}`, axiosConfig);
+        } else {
+          response = await ZelAppsService.justAPI().get(`/zelapps/zelshare/getfile/${encodeURIComponent(fileName)}`, axiosConfig);
+        }
         if (response.data.status === 'error') {
           vue.$customMes.error(response.data.data.message || response.data.data);
         } else {

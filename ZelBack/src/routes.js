@@ -865,7 +865,7 @@ module.exports = (app, expressWs) => {
 
   // ZelShare
   app.get('/zelapps/zelshare/getfile/:file?/:token?', (req, res) => {
-    zelappsService.zelShareFile(req, res);
+    zelappsService.zelShareDownloadFile(req, res);
   });
   app.get('/zelapps/zelshare/getfolder/:folder?', (req, res) => {
     zelappsService.zelShareGetFolder(req, res);
@@ -899,5 +899,8 @@ module.exports = (app, expressWs) => {
   });
   app.get('/zelapps/zelshare/rename/:oldpath?/:newname?', (req, res) => {
     zelappsService.zelShareRename(req, res);
+  });
+  app.get('/zelapps/zelshare/getfolder/:folder?', (req, res) => {
+    zelappsService.zelShareDownloadFolder(req, res);
   });
 };
