@@ -4948,6 +4948,65 @@ async function zelShareShareFile(req, res) {
 }
 
 // ZelShare specific
+async function zelShareDownloadFolder(req, res, authorized = false) {
+  try {
+    let auth = authorized;
+    if (!auth) {
+      auth = await serviceHelper.verifyPrivilege('admin', req);
+    }
+
+    if (auth) {
+      let { folder } = req.params;
+      folder = folder || req.query.folder;
+
+      if (!folder) {
+        const errorResponse = serviceHelper.createErrorMessage('No folder specified');
+        res.json(errorResponse);
+        return;
+      }
+
+      const dirpath = path.join(__dirname, '../../../');
+      const folderpath = `${dirpath}ZelApps/ZelShare/${folder}`;
+
+      // beautify name
+      const folderNameArray = folderpath.split('/');
+      const folderName = folderNameArray[folderNameArray.length - 1];
+
+      // const size = getZelShareSpecificFolderSize(folderpath);
+
+      // Tell the browser that this is a zip file.
+      res.writeHead(200, {
+        'Content-Type': 'application/zip',
+        'Content-disposition': `attachment; filename=${folderName}.zip`,
+      });
+
+      const zip = archiver('zip');
+
+      // Send the file to the page output.
+      zip.pipe(res);
+      zip.glob('**/*', { cwd: folderpath });
+      zip.finalize();
+    } else {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+      return;
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    try {
+      res.write(serviceHelper.ensureString(errorResponse));
+      res.end();
+    } catch (e) {
+      log.error(e);
+    }
+  }
+}
+
 async function zelShareDownloadFile(req, res) {
   try {
     const authorized = await serviceHelper.verifyPrivilege('admin', req);
@@ -4992,69 +5051,24 @@ async function zelShareDownloadFile(req, res) {
         return;
       }
 
+      // check if file is file. If directory use zelshareDwonloadFolder
       const dirpath = path.join(__dirname, '../../../');
       const filepath = `${dirpath}ZelApps/ZelShare/${file}`;
+      const fileStats = await fs.promises.lstat(filepath);
+      const isDirectory = fileStats.isDirectory();
 
-      // beautify name
-      const fileNameArray = filepath.split('/');
-      const fileName = fileNameArray[fileNameArray.length - 1];
+      if (isDirectory) {
+        const modifiedReq = req;
+        modifiedReq.params.folder = req.params.file;
+        modifiedReq.quer.folder = req.query.file;
+        zelShareDownloadFolder(modifiedReq, res, true);
+      } else {
+        // beautify name
+        const fileNameArray = filepath.split('/');
+        const fileName = fileNameArray[fileNameArray.length - 1];
 
-      res.download(filepath, fileName);
-    }
-  } catch (error) {
-    log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    try {
-      res.write(serviceHelper.ensureString(errorResponse));
-      res.end();
-    } catch (e) {
-      log.error(e);
-    }
-  }
-}
-
-async function zelShareDownloadFolder(req, res) {
-  try {
-    const authorized = await serviceHelper.verifyPrivilege('admin', req);
-    if (authorized) {
-      let { folder } = req.params;
-      folder = folder || req.query.folder;
-
-      if (!folder) {
-        const errorResponse = serviceHelper.createErrorMessage('No folder specified');
-        res.json(errorResponse);
-        return;
+        res.download(filepath, fileName);
       }
-
-      const dirpath = path.join(__dirname, '../../../');
-      const folderpath = `${dirpath}ZelApps/ZelShare/${folder}`;
-
-      // beautify name
-      const folderNameArray = folderpath.split('/');
-      const folderName = folderNameArray[folderNameArray.length - 1];
-
-      // const size = getZelShareSpecificFolderSize(folderpath);
-
-      // Tell the browser that this is a zip file.
-      res.writeHead(200, {
-        'Content-Type': 'application/zip',
-        'Content-disposition': `attachment; filename=${folderName}.zip`,
-      });
-
-      const zip = archiver('zip');
-
-      // Send the file to the page output.
-      zip.pipe(res);
-      zip.glob('**/*', { cwd: folderpath });
-      zip.finalize();
-    } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
-      res.json(errMessage);
-      return;
     }
   } catch (error) {
     log.error(error);

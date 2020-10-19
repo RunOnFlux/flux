@@ -168,7 +168,7 @@
               :hide-after="6000"
             >
               <el-button
-                v-if="scope.row.isFile && scope.row.shareToken"
+                v-if="scope.row.shareToken"
                 type="success"
                 icon="el-icon-share"
                 circle
@@ -182,7 +182,7 @@
               :hide-after="6000"
             >
               <el-button
-                v-if="scope.row.isFile && !scope.row.shareToken"
+                v-if="!scope.row.shareToken"
                 type="info"
                 icon="el-icon-share"
                 circle
@@ -197,7 +197,7 @@
               :content="createZelShareLink(scope.row.shareFile, scope.row.shareToken)"
             >
               <el-button
-                v-if="scope.row.isFile && scope.row.shareToken"
+                v-if="scope.row.shareToken"
                 type="info"
                 icon="el-icon-message"
                 circle
