@@ -99,7 +99,7 @@
         sortable
       >
         <template slot-scope="scope">
-          <p v-if="scope.row.size > 0 && scope.row.isFile">
+          <p v-if="scope.row.size > 0">
             {{ beautifyValue((scope.row.size / 1000).toFixed(0)) }} KB
           </p>
         </template>
@@ -146,7 +146,7 @@
                 :disabled="downloaded[scope.row.name] ? true : false"
                 size="mini"
                 type="info"
-                @click="download(scope.row.name, true)"
+                @click="download(scope.row.name, true, scope.row.size)"
               ></el-button>
             </el-tooltip>
             <el-tooltip
@@ -600,7 +600,7 @@ export default {
       this.downloaded[name] = '';
       this.total[name] = '';
     },
-    async download(name, isFolder = false) {
+    async download(name, isFolder = false, maxTotalSize = 0) {
       try {
         const self = this;
         if (self.abortToken[name]) {
@@ -620,7 +620,13 @@ export default {
               initialTime = progressEvent.timeStamp;
             }
             Vue.set(self.downloaded, name, progressEvent.loaded);
-            Vue.set(self.total, name, progressEvent.total);
+            if (progressEvent.total) {
+              Vue.set(self.total, name, progressEvent.total);
+            } else if (progressEvent.target && progressEvent.target.response && progressEvent.target.response.size) {
+              Vue.set(self.total, name, progressEvent.target.response.size);
+            } else {
+              Vue.set(self.total, name, maxTotalSize);
+            }
             Vue.set(self.timeStamp, name, progressEvent.timeStamp - initialTime);
           },
           cancelToken: self.abortToken[name].token,
@@ -631,6 +637,7 @@ export default {
         } else {
           response = await ZelAppsService.justAPI().get(`/zelapps/zelshare/getfile/${encodeURIComponent(fileName)}`, axiosConfig);
         }
+        console.log(response);
         if (response.data.status === 'error') {
           vue.$customMes.error(response.data.data.message || response.data.data);
         } else {

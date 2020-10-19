@@ -5037,13 +5037,12 @@ async function zelShareDownloadFolder(req, res) {
       const folderNameArray = folderpath.split('/');
       const folderName = folderNameArray[folderNameArray.length - 1];
 
-      const size = getZelShareSpecificFolderSize(folderpath);
+      // const size = getZelShareSpecificFolderSize(folderpath);
 
       // Tell the browser that this is a zip file.
       res.writeHead(200, {
         'Content-Type': 'application/zip',
         'Content-disposition': `attachment; filename=${folderName}.zip`,
-        'Content-Length': size,
       });
 
       const zip = archiver('zip');
@@ -5240,9 +5239,13 @@ async function zelShareGetFolder(req, res) {
         const isDirectory = fileStats.isDirectory();
         const isFile = fileStats.isFile();
         const isSymbolicLink = fileStats.isSymbolicLink();
+        let fileFolderSize = fileStats.size;
+        if (isDirectory) {
+          fileFolderSize = getZelShareSpecificFolderSize(`${filepath}/${file}`);
+        }
         const detailedFile = {
           name: file,
-          size: fileStats.size, // bytes
+          size: fileFolderSize, // bytes
           isDirectory,
           isFile,
           isSymbolicLink,
