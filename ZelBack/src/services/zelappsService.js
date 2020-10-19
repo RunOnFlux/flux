@@ -5060,7 +5060,7 @@ async function zelShareDownloadFile(req, res) {
       if (isDirectory) {
         const modifiedReq = req;
         modifiedReq.params.folder = req.params.file;
-        modifiedReq.quer.folder = req.query.file;
+        modifiedReq.query.folder = req.query.file;
         zelShareDownloadFolder(modifiedReq, res, true);
       } else {
         // beautify name

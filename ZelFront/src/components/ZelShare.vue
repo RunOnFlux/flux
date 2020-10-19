@@ -191,6 +191,7 @@
               ></el-button>
             </el-tooltip>
             <el-popover
+              :key="scope.row.shareToken"
               placement="top"
               title="Share Link"
               trigger="hover"
