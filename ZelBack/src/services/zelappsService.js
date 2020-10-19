@@ -4999,7 +4999,8 @@ async function zelShareDownloadFolder(req, res) {
 
       // Send the file to the page output.
       zip.pipe(res);
-      zip.glob('*', { cwd: folderpath }).finalize();
+      zip.glob('*', { cwd: folderpath });
+      zip.finalize();
     } else {
       const errMessage = serviceHelper.errUnauthorizedMessage();
       res.json(errMessage);

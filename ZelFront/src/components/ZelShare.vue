@@ -627,7 +627,7 @@ export default {
         };
         let response;
         if (isFolder) {
-          response = await ZelAppsService.justAPI().get(`/zelapps/zelshare/getfolder/${encodeURIComponent(fileName)}`, axiosConfig);
+          response = await ZelAppsService.justAPI().get(`/zelapps/zelshare/downloadfolder/${encodeURIComponent(fileName)}`, axiosConfig);
         } else {
           response = await ZelAppsService.justAPI().get(`/zelapps/zelshare/getfile/${encodeURIComponent(fileName)}`, axiosConfig);
         }

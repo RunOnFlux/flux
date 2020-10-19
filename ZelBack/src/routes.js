@@ -900,7 +900,7 @@ module.exports = (app, expressWs) => {
   app.get('/zelapps/zelshare/rename/:oldpath?/:newname?', (req, res) => {
     zelappsService.zelShareRename(req, res);
   });
-  app.get('/zelapps/zelshare/getfolder/:folder?', (req, res) => {
+  app.get('/zelapps/zelshare/downloadfolder/:folder?', (req, res) => {
     zelappsService.zelShareDownloadFolder(req, res);
   });
 };
