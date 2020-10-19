@@ -314,7 +314,7 @@ async function tailZelBenchDebug(req, res) {
   }
 }
 
-async function zelfluxLog(req, res, filelog) {
+async function zelfluxLog(res, filelog) {
   const homeDirPath = path.join(__dirname, '../../../../');
   const datadir = `${homeDirPath}zelflux`;
   const filepath = `${datadir}/${filelog}.log`;
@@ -330,7 +330,7 @@ async function zelfluxErrorLog(req, res) {
       res.json(errMessage);
       return;
     }
-    zelfluxLog(req, res, 'error');
+    zelfluxLog(res, 'error');
   } catch (error) {
     log.error(error);
   }
@@ -344,7 +344,7 @@ async function zelfluxWarnLog(req, res) {
       res.json(errMessage);
       return;
     }
-    zelfluxLog(req, res, 'warn');
+    zelfluxLog(res, 'warn');
   } catch (error) {
     log.error(error);
   }
@@ -358,7 +358,7 @@ async function zelfluxInfoLog(req, res) {
       res.json(errMessage);
       return;
     }
-    zelfluxLog(req, res, 'info');
+    zelfluxLog(res, 'info');
   } catch (error) {
     log.error(error);
   }
@@ -372,7 +372,7 @@ async function zelfluxDebugLog(req, res) {
       res.json(errMessage);
       return;
     }
-    zelfluxLog(req, res, 'debug');
+    zelfluxLog(res, 'debug');
   } catch (error) {
     log.error(error);
   }
