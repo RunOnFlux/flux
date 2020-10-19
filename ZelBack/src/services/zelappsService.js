@@ -4763,6 +4763,62 @@ async function zelShareDatabaseFileDeleteMultiple(pathstart) {
   }
 }
 
+function getAllFiles(dirPath, arrayOfFiles) {
+  const files = fs.readdirSync(dirPath);
+
+  // eslint-disable-next-line no-param-reassign
+  arrayOfFiles = arrayOfFiles || [];
+
+  files.forEach((file) => {
+    let isDirectory = false;
+    try {
+      isDirectory = fs.statSync(`${dirPath}/${file}`).isDirectory();
+    } catch (error) {
+      log.warn(error);
+    }
+    if (isDirectory) {
+      // eslint-disable-next-line no-param-reassign
+      arrayOfFiles = getAllFiles(`${dirPath}/${file}`, arrayOfFiles);
+    } else {
+      arrayOfFiles.push(`${dirPath}/${file}`);
+    }
+  });
+  return arrayOfFiles;
+}
+
+function getZelShareSize() {
+  const dirpath = path.join(__dirname, '../../../');
+  const directoryPath = `${dirpath}ZelApps/ZelShare`;
+
+  const arrayOfFiles = getAllFiles(directoryPath);
+
+  let totalSize = 0;
+
+  arrayOfFiles.forEach((filePath) => {
+    try {
+      totalSize += fs.statSync(filePath).size;
+    } catch (error) {
+      log.warn(error);
+    }
+  });
+  return (totalSize / 1e9); // in 'GB'
+}
+
+function getZelShareSpecificFolderSize(folder) {
+  const arrayOfFiles = getAllFiles(folder);
+
+  let totalSize = 0;
+
+  arrayOfFiles.forEach((filePath) => {
+    try {
+      totalSize += fs.statSync(filePath).size;
+    } catch (error) {
+      log.warn(error);
+    }
+  });
+  return (totalSize); // in 'B'
+}
+
 async function zelShareDatabaseShareFile(file) {
   try {
     const dbopen = serviceHelper.databaseConnection();
@@ -4981,25 +5037,20 @@ async function zelShareDownloadFolder(req, res) {
       const folderNameArray = folderpath.split('/');
       const folderName = folderNameArray[folderNameArray.length - 1];
 
-      // childProcess.execSync('zip -r DEISER_NAME_OF_ZIP *', {
-      //   cwd: folderpath,
-      // });
-
-      // const downloadPath = `${folderpath}/${folderName}.zip`;
-
-      // res.download(downloadPath, `${folderName}.zip`);
+      const size = getZelShareSpecificFolderSize(folderpath);
 
       // Tell the browser that this is a zip file.
       res.writeHead(200, {
         'Content-Type': 'application/zip',
         'Content-disposition': `attachment; filename=${folderName}.zip`,
+        'Content-Length': size,
       });
 
       const zip = archiver('zip');
 
       // Send the file to the page output.
       zip.pipe(res);
-      zip.glob('*', { cwd: folderpath });
+      zip.glob('**/*', { cwd: folderpath });
       zip.finalize();
     } else {
       const errMessage = serviceHelper.errUnauthorizedMessage();
@@ -5278,47 +5329,6 @@ async function zelShareFileExists(req, res) {
       log.error(e);
     }
   }
-}
-
-function getAllFiles(dirPath, arrayOfFiles) {
-  const files = fs.readdirSync(dirPath);
-
-  // eslint-disable-next-line no-param-reassign
-  arrayOfFiles = arrayOfFiles || [];
-
-  files.forEach((file) => {
-    let isDirectory = false;
-    try {
-      isDirectory = fs.statSync(`${dirPath}/${file}`).isDirectory();
-    } catch (error) {
-      log.warn(error);
-    }
-    if (isDirectory) {
-      // eslint-disable-next-line no-param-reassign
-      arrayOfFiles = getAllFiles(`${dirPath}/${file}`, arrayOfFiles);
-    } else {
-      arrayOfFiles.push(`${dirPath}/${file}`);
-    }
-  });
-  return arrayOfFiles;
-}
-
-function getZelShareSize() {
-  const dirpath = path.join(__dirname, '../../../');
-  const directoryPath = `${dirpath}ZelApps/ZelShare`;
-
-  const arrayOfFiles = getAllFiles(directoryPath);
-
-  let totalSize = 0;
-
-  arrayOfFiles.forEach((filePath) => {
-    try {
-      totalSize += fs.statSync(filePath).size;
-    } catch (error) {
-      log.warn(error);
-    }
-  });
-  return (totalSize / 1e9); // in 'GB'
 }
 
 async function getSpaceAvailableForZelShare() {
