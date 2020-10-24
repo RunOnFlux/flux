@@ -48,7 +48,7 @@
   },
   "dependencies": {
     "apicache": "1.5.2",
-    "axios": "^0.20.0",
+    "axios": "^0.21.0",
     "bitcoin": "^3.0.1",
     "bitcoinjs-lib": "^5.2.0",
     "bitcoinjs-message": "^2.1.3",
