@@ -588,6 +588,52 @@ async function adjustCruxID(req, res) {
     paddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
     zelid: '${userconfig.initial.zelid || config.zelTeamZelId}',
     cruxid: '${cruxid}',
+    kadena: ${userconfig.initial.kadena || ''},
+    testnet: ${userconfig.initial.testnet || false},
+  }
+}`;
+
+      await fs.writeFile(fluxDirPath, dataToWrite);
+
+      const successMessage = serviceHelper.createSuccessMessage('CruxID adjusted');
+      res.json(successMessage);
+    } else {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+  }
+}
+
+async function adjustKadenaAccount(req, res) {
+  try {
+    const authorized = await serviceHelper.verifyAdminSession(req.headers);
+    if (authorized === true) {
+      let { account } = req.params;
+      account = account || req.query.account;
+      let { chainid } = req.params;
+      chainid = chainid || req.query.chainid;
+      if (!account) {
+        throw new Error('No Kadena Account provided');
+      }
+      if (!chainid) {
+        throw new Error('No Kadena Chain ID provided');
+      }
+      const chainIDNumber = serviceHelper.ensureNumber(chainid);
+      if (chainIDNumber > 20 || chainIDNumber < 0 || Number.isNaN(chainIDNumber)) {
+        throw new Error(`Invalid Chain ID ${chainid} provided.`);
+      }
+      const kadenaURI = `kadena:${account}?chainid=${chainid}`;
+      const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
+      const dataToWrite = `module.exports = {
+  initial: {
+    paddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
+    zelid: '${userconfig.initial.zelid || config.zelTeamZelId}',
+    cruxid: '${userconfig.initial.cruxid || ''}',
+    kadena: ${kadenaURI},
     testnet: ${userconfig.initial.testnet || false},
   }
 }`;
@@ -637,4 +683,5 @@ module.exports = {
   zelfluxInfoLog,
   zelfluxDebugLog,
   adjustCruxID,
+  adjustKadenaAccount,
 };

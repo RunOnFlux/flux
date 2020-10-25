@@ -553,6 +553,9 @@ module.exports = (app, expressWs) => {
   app.get('/zelflux/adjustcruxid/:cruxid?', (req, res) => { // note this essentially rebuilds flux use with caution!
     zelnodeService.adjustCruxID(req, res);
   });
+  app.get('/zelflux/adjustkadena/:account?/:chainid?', (req, res) => { // note this essentially rebuilds flux use with caution!
+    zelnodeService.adjustKadenaAccount(req, res);
+  });
   app.get('/zelnode/reindexzelcash', (req, res) => {
     zelnodeService.reindexZelCash(req, res);
   });
