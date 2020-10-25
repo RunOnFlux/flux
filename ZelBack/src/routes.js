@@ -549,10 +549,10 @@ module.exports = (app, expressWs) => {
   app.get('/zelid/logoutallusers', (req, res) => {
     zelidService.logoutAllUsers(req, res);
   });
-  app.get('/zelflux/adjustcruxid/:cruxid?', (req, res) => { // note this essentially rebuilds flux use with caution!
-    zelidService.adjustCruxID(req, res);
-  });
 
+  app.get('/zelflux/adjustcruxid/:cruxid?', (req, res) => { // note this essentially rebuilds flux use with caution!
+    zelnodeService.adjustCruxID(req, res);
+  });
   app.get('/zelnode/reindexzelcash', (req, res) => {
     zelnodeService.reindexZelCash(req, res);
   });

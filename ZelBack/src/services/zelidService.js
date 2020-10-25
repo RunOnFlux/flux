@@ -1,8 +1,6 @@
 const config = require('config');
 const bitcoinMessage = require('bitcoinjs-message');
 const qs = require('qs');
-const fs = require('fs').promises;
-const path = require('path');
 
 const userconfig = require('../../../config/userconfig');
 const log = require('../lib/log');
@@ -650,46 +648,6 @@ async function checkLoggedUser(req, res) {
   });
 }
 
-async function adjustCruxID(req, res) {
-  try {
-    const authorized = await serviceHelper.verifyAdminSession(req.headers);
-    if (authorized === true) {
-      let { cruxid } = req.params;
-      cruxid = cruxid || req.query.cruxid;
-      if (!cruxid) {
-        throw new Error('No Crux ID provided');
-      }
-      if (!cruxid.includes('@')) {
-        throw new Error('Invalid Crux ID provided');
-      }
-      if (!cruxid.includes('.crux')) {
-        throw new Error('Invalid Crux ID provided');
-      }
-      const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
-      const dataToWrite = `module.exports = {
-  initial: {
-    paddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
-    zelid: '${userconfig.initial.zelid || config.zelTeamZelId}',
-    cruxid: '${cruxid}',
-    testnet: ${userconfig.initial.testnet || false},
-  }
-}`;
-
-      await fs.writeFile(fluxDirPath, dataToWrite);
-
-      const successMessage = serviceHelper.createSuccessMessage('CruxID adjusted');
-      res.json(successMessage);
-    } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
-      res.json(errMessage);
-    }
-  } catch (error) {
-    log.error(error);
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
-    res.json(errMessage);
-  }
-}
-
 module.exports = {
   loginPhrase,
   emergencyPhrase,
@@ -705,5 +663,4 @@ module.exports = {
   wsRespondLoginPhrase,
   wsRespondSignature,
   checkLoggedUser,
-  adjustCruxID,
 };
