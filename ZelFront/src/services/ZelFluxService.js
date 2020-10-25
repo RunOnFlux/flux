@@ -47,7 +47,7 @@ export default {
     });
   },
   adjustCruxID(zelidauthHeader, cruxid) {
-    return Api().get(`/zelid/adjustcruxid/${cruxid}`, {
+    return Api().get(`/zelflux/adjustcruxid/${cruxid}`, {
       headers: {
         zelidauth: zelidauthHeader,
       },

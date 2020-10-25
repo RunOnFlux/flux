@@ -549,7 +549,7 @@ module.exports = (app, expressWs) => {
   app.get('/zelid/logoutallusers', (req, res) => {
     zelidService.logoutAllUsers(req, res);
   });
-  app.get('/zelid/adjustcruxid/:cruxid?', (req, res) => { // note this essentially rebuilds flux use with caution!
+  app.get('/zelflux/adjustcruxid/:cruxid?', (req, res) => { // note this essentially rebuilds flux use with caution!
     zelidService.adjustCruxID(req, res);
   });
 
