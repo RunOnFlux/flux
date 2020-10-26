@@ -95,6 +95,39 @@
       </el-popconfirm>
       <el-divider></el-divider>
       <p>
+        Running Kadena node makes you eligible for Kadena Rewards. Adjust your Kadena Account and Chain ID to ensure the reward distribution.
+      </p>
+      <br>
+      Account:
+      <el-input
+        class="width50"
+        placeholder="Kadena Account"
+        v-model="kadenaAccountInput"
+      >
+      </el-input>
+      Chain ID:
+      <el-input-number
+        v-model="kadenaChainIDInput"
+        controls-position="right"
+        :min="0"
+        :max="19"
+      >
+      </el-input-number>
+      <br>
+      <el-popconfirm
+        confirmButtonText='Update'
+        cancelButtonText='No, Thanks'
+        icon="el-icon-info"
+        iconColor="orange"
+        title="Flux will now update your Kadena Account"
+        @onConfirm="adjustKadena()"
+      >
+        <ElButton slot="reference">
+          Update Kadena account
+        </ElButton>
+      </el-popconfirm>
+      <el-divider></el-divider>
+      <p>
         Update your Flux to the latest version. Every Flux has to run the newest version to stay on par with the network.
       </p>
       <el-dialog
@@ -580,6 +613,8 @@ export default {
       rescanGlobalAppsHeight: 0,
       removeLastInformation: false,
       cruxidInput: '',
+      kadenaAccountInput: '',
+      kadenaChainIDInput: '',
     };
   },
   computed: {
@@ -614,6 +649,7 @@ export default {
           break;
         case 'manageflux':
           this.getCruxID();
+          this.getKadenaAccount();
           this.getLatestZelFluxVersion();
           break;
         case 'managezelcash':
@@ -634,7 +670,19 @@ export default {
     },
     async getCruxID() {
       const response = await ZelFluxService.getCruxID();
-      this.cruxidInput = response.data.data;
+      if (response.data.status === 'success' && response.data.data) {
+        this.cruxidInput = response.data.data;
+      }
+    },
+    async getKadenaAccount() {
+      const response = await ZelFluxService.getKadenaAccount();
+      if (response.data.status === 'success' && response.data.data) {
+        const acc = response.data.data.split('?chainid=');
+        const chainID = acc.pop();
+        const account = acc.join('?chainid=').substr(7);
+        this.kadenaAccountInput = account;
+        this.kadenaChainIDInput = chainID;
+      }
     },
     updateZelFlux() {
       const zelidauth = localStorage.getItem('zelidauth');
@@ -1295,6 +1343,21 @@ export default {
       const zelidauth = localStorage.getItem('zelidauth');
       try {
         const cruxIDResponse = await ZelFluxService.adjustCruxID(zelidauth, cruxId);
+        if (cruxIDResponse.data.status === 'error') {
+          vue.$customMes.error(cruxIDResponse.data.data.message || cruxIDResponse.data.data);
+        } else {
+          vue.$customMes.success(cruxIDResponse.data.data.message || cruxIDResponse.data.data);
+        }
+      } catch (error) {
+        vue.$customMes.error(error.message || error);
+      }
+    },
+    async adjustKadena() {
+      const account = this.kadenaAccountInput;
+      const chainid = this.kadenaChainIDInput;
+      const zelidauth = localStorage.getItem('zelidauth');
+      try {
+        const cruxIDResponse = await ZelFluxService.adjustKadena(zelidauth, account, chainid);
         if (cruxIDResponse.data.status === 'error') {
           vue.$customMes.error(cruxIDResponse.data.data.message || cruxIDResponse.data.data);
         } else {

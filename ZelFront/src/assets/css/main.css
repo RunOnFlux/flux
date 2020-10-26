@@ -358,7 +358,11 @@ h4 {
 }
 
 .width25 {
-  width: 25%;
+  width: 25% !important;
+}
+
+.width50 {
+  width: 50% !important;
 }
 
 .spaceLeft {

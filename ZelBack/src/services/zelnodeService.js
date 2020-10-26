@@ -245,6 +245,12 @@ function getZelFluxCruxID(req, res) {
   return res ? res.json(message) : message;
 }
 
+function getZelFluxKadena(req, res) {
+  const kadena = userconfig.initial.kadena || null;
+  const message = serviceHelper.createDataMessage(kadena);
+  return res ? res.json(message) : message;
+}
+
 async function zelcashDebug(req, res) {
   const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
   if (!authorized) {
@@ -666,6 +672,7 @@ module.exports = {
   getZelFluxIP,
   getZelFluxZelID,
   getZelFluxCruxID,
+  getZelFluxKadena,
   zelcashDebug,
   zelbenchDebug,
   getZelFluxTimezone,

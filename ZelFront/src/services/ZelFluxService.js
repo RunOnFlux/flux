@@ -53,8 +53,18 @@ export default {
       },
     });
   },
+  adjustKadena(zelidauthHeader, account, chainid) {
+    return Api().get(`/zelflux/adjustkadena/${account}/${chainid}`, {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    });
+  },
   getCruxID() {
     return Api().get('/zelflux/cruxid');
+  },
+  kadenaAccount() {
+    return Api().get('/zelflux/kadena');
   },
   // DEBUG
   tailFluxLog(name, zelidauthHeader) {

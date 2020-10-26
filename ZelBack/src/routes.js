@@ -209,6 +209,9 @@ module.exports = (app, expressWs) => {
   app.get('/zelflux/cruxid', cache('30 seconds'), (req, res) => {
     zelnodeService.getZelFluxCruxID(req, res);
   });
+  app.get('/zelflux/kadena', cache('30 seconds'), (req, res) => {
+    zelnodeService.getZelFluxKadena(req, res);
+  });
   app.get('/zelflux/dosstate', cache('30 seconds'), (req, res) => {
     zelfluxCommunication.getDOSState(req, res);
   });
