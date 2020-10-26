@@ -646,7 +646,7 @@ async function adjustKadenaAccount(req, res) {
 
       await fs.writeFile(fluxDirPath, dataToWrite);
 
-      const successMessage = serviceHelper.createSuccessMessage('CruxID adjusted');
+      const successMessage = serviceHelper.createSuccessMessage('Kadena account adjusted');
       res.json(successMessage);
     } else {
       const errMessage = serviceHelper.errUnauthorizedMessage();
