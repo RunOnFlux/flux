@@ -594,7 +594,7 @@ async function adjustCruxID(req, res) {
     paddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
     zelid: '${userconfig.initial.zelid || config.zelTeamZelId}',
     cruxid: '${cruxid}',
-    kadena: ${userconfig.initial.kadena || ''},
+    kadena: '${userconfig.initial.kadena || ''}',
     testnet: ${userconfig.initial.testnet || false},
   }
 }`;
@@ -639,7 +639,7 @@ async function adjustKadenaAccount(req, res) {
     paddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
     zelid: '${userconfig.initial.zelid || config.zelTeamZelId}',
     cruxid: '${userconfig.initial.cruxid || ''}',
-    kadena: ${kadenaURI},
+    kadena: '${kadenaURI}',
     testnet: ${userconfig.initial.testnet || false},
   }
 }`;

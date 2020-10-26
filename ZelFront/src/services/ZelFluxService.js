@@ -63,7 +63,7 @@ export default {
   getCruxID() {
     return Api().get('/zelflux/cruxid');
   },
-  kadenaAccount() {
+  getKadenaAccount() {
     return Api().get('/zelflux/kadena');
   },
   // DEBUG

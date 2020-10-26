@@ -1081,7 +1081,7 @@ async function adjustExternalIP(ip) {
     ipaddress: '${ip}',
     zelid: '${userconfig.initial.zelid || config.zelTeamZelId}',
     cruxid: '${userconfig.initial.cruxid || ''}',
-    kadena: ${userconfig.initial.kadena || ''},
+    kadena: '${userconfig.initial.kadena || ''}',
     testnet: ${userconfig.initial.testnet || false},
   }
 }`;
