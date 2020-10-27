@@ -1,5 +1,7 @@
 const cmd = require('node-cmd');
 const path = require('path');
+const config = require('config');
+const fs = require('fs').promises;
 
 const log = require('../lib/log');
 const packageJson = require('../../../package.json');
@@ -243,6 +245,12 @@ function getZelFluxCruxID(req, res) {
   return res ? res.json(message) : message;
 }
 
+function getZelFluxKadena(req, res) {
+  const kadena = userconfig.initial.kadena || null;
+  const message = serviceHelper.createDataMessage(kadena);
+  return res ? res.json(message) : message;
+}
+
 async function zelcashDebug(req, res) {
   const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
   if (!authorized) {
@@ -254,7 +262,7 @@ async function zelcashDebug(req, res) {
   const datadir = zelcashService.getConfigValue('datadir') || `${homeDirPath}.zelcash`;
   const filepath = `${datadir}/debug.log`;
 
-  return res.sendFile(filepath);
+  return res.download(filepath, 'debug.log');
 }
 
 async function zelbenchDebug(req, res) {
@@ -267,7 +275,7 @@ async function zelbenchDebug(req, res) {
   const datadir = `${homeDirPath}.zelbenchmark`;
   const filepath = `${datadir}/debug.log`;
 
-  return res.sendFile(filepath);
+  return res.download(filepath, 'debug.log');
 }
 
 async function tailZelCashDebug(req, res) {
@@ -314,29 +322,80 @@ async function tailZelBenchDebug(req, res) {
   }
 }
 
-async function zelfluxErrorLog(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
-  if (!authorized) {
-    const errMessage = serviceHelper.errUnauthorizedMessage();
-    return res.json(errMessage);
-  }
+async function zelfluxLog(res, filelog) {
   const homeDirPath = path.join(__dirname, '../../../../');
   const datadir = `${homeDirPath}zelflux`;
-  const filepath = `${datadir}/error.log`;
+  const filepath = `${datadir}/${filelog}.log`;
 
-  return res.sendFile(filepath);
+  return res.download(filepath, `${filelog}.log`);
 }
 
-async function tailFluxErrorLog(req, res) {
+async function zelfluxErrorLog(req, res) {
+  try {
+    const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
+    if (!authorized) {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+      return;
+    }
+    zelfluxLog(res, 'error');
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+async function zelfluxWarnLog(req, res) {
+  try {
+    const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
+    if (!authorized) {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+      return;
+    }
+    zelfluxLog(res, 'warn');
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+async function zelfluxInfoLog(req, res) {
+  try {
+    const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
+    if (!authorized) {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+      return;
+    }
+    zelfluxLog(res, 'info');
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+async function zelfluxDebugLog(req, res) {
+  try {
+    const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
+    if (!authorized) {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+      return;
+    }
+    zelfluxLog(res, 'debug');
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+async function tailFluxLog(req, res, logfile) {
   const authorized = await serviceHelper.verifyAdminAndZelTeamSession(req.headers);
   if (authorized === true) {
     const homeDirPath = path.join(__dirname, '../../../../');
     const datadir = `${homeDirPath}zelflux`;
-    const filepath = `${datadir}/error.log`;
+    const filepath = `${datadir}/${logfile}.log`;
     const exec = `tail -n 100 ${filepath}`;
     cmd.get(exec, (err, data) => {
       if (err) {
-        const errMessage = serviceHelper.createErrorMessage(`Error obtaining Flux error file: ${err.message}`, err.name, err.code);
+        const errMessage = serviceHelper.createErrorMessage(`Error obtaining Flux ${logfile} file: ${err.message}`, err.name, err.code);
         res.json(errMessage);
         return;
       }
@@ -346,6 +405,62 @@ async function tailFluxErrorLog(req, res) {
   } else {
     const errMessage = serviceHelper.errUnauthorizedMessage();
     res.json(errMessage);
+  }
+}
+
+async function tailFluxErrorLog(req, res) {
+  try {
+    const authorized = await serviceHelper.verifyAdminAndZelTeamSession(req.headers);
+    if (authorized === true) {
+      tailFluxLog(req, res, 'error');
+    } else {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+async function tailFluxWarnLog(req, res) {
+  try {
+    const authorized = await serviceHelper.verifyAdminAndZelTeamSession(req.headers);
+    if (authorized === true) {
+      tailFluxLog(req, res, 'warn');
+    } else {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+async function tailFluxInfoLog(req, res) {
+  try {
+    const authorized = await serviceHelper.verifyAdminAndZelTeamSession(req.headers);
+    if (authorized === true) {
+      tailFluxLog(req, res, 'info');
+    } else {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+async function tailFluxDebugLog(req, res) {
+  try {
+    const authorized = await serviceHelper.verifyAdminAndZelTeamSession(req.headers);
+    if (authorized === true) {
+      tailFluxLog(req, res, 'debug');
+    } else {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
   }
 }
 
@@ -458,6 +573,92 @@ async function getZelFluxInfo(req, res) {
   }
 }
 
+async function adjustCruxID(req, res) {
+  try {
+    const authorized = await serviceHelper.verifyAdminSession(req.headers);
+    if (authorized === true) {
+      let { cruxid } = req.params;
+      cruxid = cruxid || req.query.cruxid;
+      if (!cruxid) {
+        throw new Error('No Crux ID provided');
+      }
+      if (!cruxid.includes('@')) {
+        throw new Error('Invalid Crux ID provided');
+      }
+      if (!cruxid.includes('.crux')) {
+        throw new Error('Invalid Crux ID provided');
+      }
+      const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
+      const dataToWrite = `module.exports = {
+  initial: {
+    paddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
+    zelid: '${userconfig.initial.zelid || config.zelTeamZelId}',
+    cruxid: '${cruxid}',
+    kadena: '${userconfig.initial.kadena || ''}',
+    testnet: ${userconfig.initial.testnet || false},
+  }
+}`;
+
+      await fs.writeFile(fluxDirPath, dataToWrite);
+
+      const successMessage = serviceHelper.createSuccessMessage('CruxID adjusted');
+      res.json(successMessage);
+    } else {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+  }
+}
+
+async function adjustKadenaAccount(req, res) {
+  try {
+    const authorized = await serviceHelper.verifyAdminSession(req.headers);
+    if (authorized === true) {
+      let { account } = req.params;
+      account = account || req.query.account;
+      let { chainid } = req.params;
+      chainid = chainid || req.query.chainid;
+      if (!account) {
+        throw new Error('No Kadena Account provided');
+      }
+      if (!chainid) {
+        throw new Error('No Kadena Chain ID provided');
+      }
+      const chainIDNumber = serviceHelper.ensureNumber(chainid);
+      if (chainIDNumber > 20 || chainIDNumber < 0 || Number.isNaN(chainIDNumber)) {
+        throw new Error(`Invalid Chain ID ${chainid} provided.`);
+      }
+      const kadenaURI = `kadena:${account}?chainid=${chainid}`;
+      const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
+      const dataToWrite = `module.exports = {
+  initial: {
+    paddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
+    zelid: '${userconfig.initial.zelid || config.zelTeamZelId}',
+    cruxid: '${userconfig.initial.cruxid || ''}',
+    kadena: '${kadenaURI}',
+    testnet: ${userconfig.initial.testnet || false},
+  }
+}`;
+
+      await fs.writeFile(fluxDirPath, dataToWrite);
+
+      const successMessage = serviceHelper.createSuccessMessage('Kadena account adjusted');
+      res.json(successMessage);
+    } else {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+  }
+}
+
 module.exports = {
   startZelCash,
   updateZelFlux,
@@ -471,9 +672,9 @@ module.exports = {
   getZelFluxIP,
   getZelFluxZelID,
   getZelFluxCruxID,
+  getZelFluxKadena,
   zelcashDebug,
   zelbenchDebug,
-  zelfluxErrorLog,
   getZelFluxTimezone,
   getZelFluxInfo,
   startZelBench,
@@ -481,4 +682,13 @@ module.exports = {
   tailZelCashDebug,
   tailZelBenchDebug,
   tailFluxErrorLog,
+  tailFluxWarnLog,
+  tailFluxDebugLog,
+  tailFluxInfoLog,
+  zelfluxErrorLog,
+  zelfluxWarnLog,
+  zelfluxInfoLog,
+  zelfluxDebugLog,
+  adjustCruxID,
+  adjustKadenaAccount,
 };

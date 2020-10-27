@@ -10,6 +10,7 @@ const df = require('node-df');
 const fs = require('fs');
 const formidable = require('formidable');
 const LRU = require('lru-cache');
+const archiver = require('archiver');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
 const zelfluxCommunication = require('./zelfluxCommunication');
@@ -4747,6 +4748,77 @@ async function zelShareDatabaseFileDelete(file) {
   }
 }
 
+// removes documents that starts with the path queried
+async function zelShareDatabaseFileDeleteMultiple(pathstart) {
+  try {
+    const dbopen = serviceHelper.databaseConnection();
+    const databaseZelShare = dbopen.db(config.database.zelshare.database);
+    const sharedCollection = config.database.zelshare.collections.shared;
+    const queryZelShare = { name: new RegExp(`^${pathstart}`) }; // has to start with this path
+    await serviceHelper.removeDocumentsFromCollection(databaseZelShare, sharedCollection, queryZelShare);
+    return true;
+  } catch (error) {
+    log.error(error);
+    throw error;
+  }
+}
+
+function getAllFiles(dirPath, arrayOfFiles) {
+  const files = fs.readdirSync(dirPath);
+
+  // eslint-disable-next-line no-param-reassign
+  arrayOfFiles = arrayOfFiles || [];
+
+  files.forEach((file) => {
+    let isDirectory = false;
+    try {
+      isDirectory = fs.statSync(`${dirPath}/${file}`).isDirectory();
+    } catch (error) {
+      log.warn(error);
+    }
+    if (isDirectory) {
+      // eslint-disable-next-line no-param-reassign
+      arrayOfFiles = getAllFiles(`${dirPath}/${file}`, arrayOfFiles);
+    } else {
+      arrayOfFiles.push(`${dirPath}/${file}`);
+    }
+  });
+  return arrayOfFiles;
+}
+
+function getZelShareSize() {
+  const dirpath = path.join(__dirname, '../../../');
+  const directoryPath = `${dirpath}ZelApps/ZelShare`;
+
+  const arrayOfFiles = getAllFiles(directoryPath);
+
+  let totalSize = 0;
+
+  arrayOfFiles.forEach((filePath) => {
+    try {
+      totalSize += fs.statSync(filePath).size;
+    } catch (error) {
+      log.warn(error);
+    }
+  });
+  return (totalSize / 1e9); // in 'GB'
+}
+
+function getZelShareSpecificFolderSize(folder) {
+  const arrayOfFiles = getAllFiles(folder);
+
+  let totalSize = 0;
+
+  arrayOfFiles.forEach((filePath) => {
+    try {
+      totalSize += fs.statSync(filePath).size;
+    } catch (error) {
+      log.warn(error);
+    }
+  });
+  return (totalSize); // in 'B'
+}
+
 async function zelShareDatabaseShareFile(file) {
   try {
     const dbopen = serviceHelper.databaseConnection();
@@ -4876,17 +4948,86 @@ async function zelShareShareFile(req, res) {
 }
 
 // ZelShare specific
-async function zelShareFile(req, res) {
+async function zelShareDownloadFolder(req, res, authorized = false) {
+  try {
+    let auth = authorized;
+    if (!auth) {
+      auth = await serviceHelper.verifyPrivilege('admin', req);
+    }
+
+    if (auth) {
+      let { folder } = req.params;
+      folder = folder || req.query.folder;
+
+      if (!folder) {
+        const errorResponse = serviceHelper.createErrorMessage('No folder specified');
+        res.json(errorResponse);
+        return;
+      }
+
+      const dirpath = path.join(__dirname, '../../../');
+      const folderpath = `${dirpath}ZelApps/ZelShare/${folder}`;
+
+      // beautify name
+      const folderNameArray = folderpath.split('/');
+      const folderName = folderNameArray[folderNameArray.length - 1];
+
+      // const size = getZelShareSpecificFolderSize(folderpath);
+
+      // Tell the browser that this is a zip file.
+      res.writeHead(200, {
+        'Content-Type': 'application/zip',
+        'Content-disposition': `attachment; filename=${folderName}.zip`,
+      });
+
+      const zip = archiver('zip');
+
+      // Send the file to the page output.
+      zip.pipe(res);
+      zip.glob('**/*', { cwd: folderpath });
+      zip.finalize();
+    } else {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+      return;
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    try {
+      res.write(serviceHelper.ensureString(errorResponse));
+      res.end();
+    } catch (e) {
+      log.error(e);
+    }
+  }
+}
+
+async function zelShareDownloadFile(req, res) {
   try {
     const authorized = await serviceHelper.verifyPrivilege('admin', req);
     if (authorized) {
       let { file } = req.params;
       file = file || req.query.file;
 
+      if (!file) {
+        const errorResponse = serviceHelper.createErrorMessage('No file specified');
+        res.json(errorResponse);
+        return;
+      }
+
       const dirpath = path.join(__dirname, '../../../');
       const filepath = `${dirpath}ZelApps/ZelShare/${file}`;
 
-      res.sendFile(filepath);
+      // beautify name
+      const fileNameArray = file.split('/');
+      const fileName = fileNameArray[fileNameArray.length - 1];
+
+      res.download(filepath, fileName);
     } else {
       let { file } = req.params;
       file = file || req.query.file;
@@ -4910,10 +5051,79 @@ async function zelShareFile(req, res) {
         return;
       }
 
+      // check if file is file. If directory use zelshareDwonloadFolder
       const dirpath = path.join(__dirname, '../../../');
       const filepath = `${dirpath}ZelApps/ZelShare/${file}`;
+      const fileStats = await fs.promises.lstat(filepath);
+      const isDirectory = fileStats.isDirectory();
 
-      res.sendFile(filepath);
+      if (isDirectory) {
+        const modifiedReq = req;
+        modifiedReq.params.folder = req.params.file;
+        modifiedReq.query.folder = req.query.file;
+        zelShareDownloadFolder(modifiedReq, res, true);
+      } else {
+        // beautify name
+        const fileNameArray = filepath.split('/');
+        const fileName = fileNameArray[fileNameArray.length - 1];
+
+        res.download(filepath, fileName);
+      }
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    try {
+      res.write(serviceHelper.ensureString(errorResponse));
+      res.end();
+    } catch (e) {
+      log.error(e);
+    }
+  }
+}
+
+// oldpath is relative path to default zelshare directory; newname is just a new name of folder/file
+async function zelShareRename(req, res) {
+  try {
+    const authorized = await serviceHelper.verifyPrivilege('admin', req);
+    if (authorized) {
+      let { oldpath } = req.params;
+      oldpath = oldpath || req.query.oldpath;
+      if (!oldpath) {
+        throw new Error('No file nor folder to rename specified');
+      }
+      let { newname } = req.params;
+      newname = newname || req.query.newname;
+      if (!newname) {
+        throw new Error('No new name specified');
+      }
+      if (newname.includes('/')) {
+        throw new Error('No new name is invalid');
+      }
+      // stop sharing of ALL files that start with the path
+      const fileURI = encodeURIComponent(oldpath);
+      await zelShareDatabaseFileDeleteMultiple(fileURI);
+
+      const dirpath = path.join(__dirname, '../../../');
+      const oldfullpath = `${dirpath}ZelApps/ZelShare/${oldpath}`;
+      let newfullpath = `${dirpath}ZelApps/ZelShare/${newname}`;
+      const fileURIArray = fileURI.split('%2F');
+      fileURIArray.pop();
+      if (fileURIArray.length > 0) {
+        const renamingFolder = fileURIArray.join('/');
+        newfullpath = `${dirpath}ZelApps/ZelShare/${renamingFolder}/${newname}`;
+      }
+      await fs.promises.rename(oldfullpath, newfullpath);
+
+      const response = serviceHelper.createSuccessMessage('Rename successful');
+      res.json(response);
+    } else {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
@@ -5043,9 +5253,13 @@ async function zelShareGetFolder(req, res) {
         const isDirectory = fileStats.isDirectory();
         const isFile = fileStats.isFile();
         const isSymbolicLink = fileStats.isSymbolicLink();
+        let fileFolderSize = fileStats.size;
+        if (isDirectory) {
+          fileFolderSize = getZelShareSpecificFolderSize(`${filepath}/${file}`);
+        }
         const detailedFile = {
           name: file,
-          size: fileStats.size, // bytes
+          size: fileFolderSize, // bytes
           isDirectory,
           isFile,
           isSymbolicLink,
@@ -5132,47 +5346,6 @@ async function zelShareFileExists(req, res) {
       log.error(e);
     }
   }
-}
-
-function getAllFiles(dirPath, arrayOfFiles) {
-  const files = fs.readdirSync(dirPath);
-
-  // eslint-disable-next-line no-param-reassign
-  arrayOfFiles = arrayOfFiles || [];
-
-  files.forEach((file) => {
-    let isDirectory = false;
-    try {
-      isDirectory = fs.statSync(`${dirPath}/${file}`).isDirectory();
-    } catch (error) {
-      log.warn(error);
-    }
-    if (isDirectory) {
-      // eslint-disable-next-line no-param-reassign
-      arrayOfFiles = getAllFiles(`${dirPath}/${file}`, arrayOfFiles);
-    } else {
-      arrayOfFiles.push(`${dirPath}/${file}`);
-    }
-  });
-  return arrayOfFiles;
-}
-
-function getZelShareSize() {
-  const dirpath = path.join(__dirname, '../../../');
-  const directoryPath = `${dirpath}ZelApps/ZelShare`;
-
-  const arrayOfFiles = getAllFiles(directoryPath);
-
-  let totalSize = 0;
-
-  arrayOfFiles.forEach((filePath) => {
-    try {
-      totalSize += fs.statSync(filePath).size;
-    } catch (error) {
-      log.warn(error);
-    }
-  });
-  return (totalSize / 1e9); // in 'GB'
 }
 
 async function getSpaceAvailableForZelShare() {
@@ -5412,7 +5585,7 @@ module.exports = {
   redeployAPI,
   whitelistedRepositories,
   whitelistedZelIDs,
-  zelShareFile,
+  zelShareDownloadFile,
   zelShareGetFolder,
   zelShareCreateFolder,
   zelShareUpload,
@@ -5423,6 +5596,8 @@ module.exports = {
   zelShareUnshareFile,
   zelShareShareFile,
   zelShareGetSharedFiles,
+  zelShareRename,
+  zelShareDownloadFolder,
 };
 
 // reenable min connections for registrations/updates before main release

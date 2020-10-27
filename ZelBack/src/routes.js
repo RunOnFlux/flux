@@ -209,6 +209,9 @@ module.exports = (app, expressWs) => {
   app.get('/zelflux/cruxid', cache('30 seconds'), (req, res) => {
     zelnodeService.getZelFluxCruxID(req, res);
   });
+  app.get('/zelflux/kadena', cache('30 seconds'), (req, res) => {
+    zelnodeService.getZelFluxKadena(req, res);
+  });
   app.get('/zelflux/dosstate', cache('30 seconds'), (req, res) => {
     zelfluxCommunication.getDOSState(req, res);
   });
@@ -549,10 +552,13 @@ module.exports = (app, expressWs) => {
   app.get('/zelid/logoutallusers', (req, res) => {
     zelidService.logoutAllUsers(req, res);
   });
-  app.get('/zelid/adjustcruxid/:cruxid?', (req, res) => { // note this essentially rebuilds flux use with caution!
-    zelidService.adjustCruxID(req, res);
-  });
 
+  app.get('/zelflux/adjustcruxid/:cruxid?', (req, res) => { // note this essentially rebuilds flux use with caution!
+    zelnodeService.adjustCruxID(req, res);
+  });
+  app.get('/zelflux/adjustkadena/:account?/:chainid?', (req, res) => { // note this essentially rebuilds flux use with caution!
+    zelnodeService.adjustKadenaAccount(req, res);
+  });
   app.get('/zelnode/reindexzelcash', (req, res) => {
     zelnodeService.reindexZelCash(req, res);
   });
@@ -626,8 +632,26 @@ module.exports = (app, expressWs) => {
   app.get('/zelnode/zelfluxerrorlog', (req, res) => {
     zelnodeService.zelfluxErrorLog(req, res);
   });
+  app.get('/zelnode/zelfluxwarnlog', (req, res) => {
+    zelnodeService.zelfluxWarnLog(req, res);
+  });
+  app.get('/zelnode/zelfluxdebuglog', (req, res) => {
+    zelnodeService.zelfluxDebugLog(req, res);
+  });
+  app.get('/zelnode/zelfluxinfolog', (req, res) => {
+    zelnodeService.zelfluxInfoLog(req, res);
+  });
   app.get('/zelnode/tailzelfluxerrorlog', (req, res) => {
     zelnodeService.tailFluxErrorLog(req, res);
+  });
+  app.get('/zelnode/tailzelfluxwarnlog', (req, res) => {
+    zelnodeService.tailFluxWarnLog(req, res);
+  });
+  app.get('/zelnode/tailzelfluxdebuglog', (req, res) => {
+    zelnodeService.tailFluxDebugLog(req, res);
+  });
+  app.get('/zelnode/tailzelfluxinfolog', (req, res) => {
+    zelnodeService.tailFluxInfoLog(req, res);
   });
 
   app.get('/zelflux/broadcastmessage/:data?', (req, res) => {
@@ -847,7 +871,7 @@ module.exports = (app, expressWs) => {
 
   // ZelShare
   app.get('/zelapps/zelshare/getfile/:file?/:token?', (req, res) => {
-    zelappsService.zelShareFile(req, res);
+    zelappsService.zelShareDownloadFile(req, res);
   });
   app.get('/zelapps/zelshare/getfolder/:folder?', (req, res) => {
     zelappsService.zelShareGetFolder(req, res);
@@ -878,5 +902,11 @@ module.exports = (app, expressWs) => {
   });
   app.get('/zelapps/zelshare/sharedfiles', (req, res) => {
     zelappsService.zelShareGetSharedFiles(req, res);
+  });
+  app.get('/zelapps/zelshare/rename/:oldpath?/:newname?', (req, res) => {
+    zelappsService.zelShareRename(req, res);
+  });
+  app.get('/zelapps/zelshare/downloadfolder/:folder?', (req, res) => {
+    zelappsService.zelShareDownloadFolder(req, res);
   });
 };

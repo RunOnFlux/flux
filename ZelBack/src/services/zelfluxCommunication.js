@@ -4,6 +4,8 @@ const bitcoinjs = require('bitcoinjs-lib');
 const config = require('config');
 const cmd = require('node-cmd');
 const LRU = require('lru-cache');
+const fs = require('fs').promises;
+const path = require('path');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
 const log = require('../lib/log');
@@ -362,7 +364,11 @@ async function handleZelAppRunningMessage(message, fromIP) {
 async function sendMessageToWS(message, ws) {
   try {
     const pongResponse = await serialiseAndSignZelFluxBroadcast(message);
-    ws.send(pongResponse);
+    try {
+      ws.send(pongResponse);
+    } catch (e) {
+      console.error(e);
+    }
   } catch (error) {
     log.error(error);
   }
@@ -462,7 +468,11 @@ function handleIncomingConnection(ws, req, expressWS) {
           const newMessage = msgObj.data;
           newMessage.message = 'pong';
           const pongResponse = await serialiseAndSignZelFluxBroadcast(newMessage);
-          ws.send(pongResponse);
+          try {
+            ws.send(pongResponse);
+          } catch (error) {
+            console.log(error);
+          }
         } else if (msgObj.data.type === 'HeartBeat' && msgObj.data.message === 'pong') { // we know that data exists. This is measuring rtt from incoming conn
           const newerTimeStamp = Date.now(); // ms, get a bit newer time that has passed verification of broadcast
           const rtt = newerTimeStamp - msgObj.data.timestamp;
@@ -475,7 +485,11 @@ function handleIncomingConnection(ws, req, expressWS) {
             }
           }
         } else {
-          ws.send(`Flux ${userconfig.initial.ipaddress} says message received!`);
+          try {
+            ws.send(`Flux ${userconfig.initial.ipaddress} says message received!`);
+          } catch (error) {
+            console.log(error);
+          }
         }
       } catch (e) {
         log.error(e);
@@ -490,14 +504,14 @@ function handleIncomingConnection(ws, req, expressWS) {
       try {
         ws.send(`Flux ${userconfig.initial.ipaddress} says message received but your message is outdated!`);
       } catch (e) {
-        log.error(e);
+        console.error(e);
       }
     } else {
       // we dont like this peer as it sent wrong message. Lets close the connection
       try {
         ws.close(1008); // close as of policy violation?
       } catch (e) {
-        log.error(e);
+        console.error(e);
       }
     }
   });
@@ -1048,6 +1062,36 @@ async function checkMyFluxAvailability(zelnodelist) {
   }
 }
 
+async function adjustExternalIP(ip) {
+  try {
+    const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
+    // https://github.com/sindresorhus/ip-regex/blob/master/index.js#L8
+    const v4 = '(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]\\d|\\d)(?:\\.(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]\\d|\\d)){3}';
+    const v4exact = new RegExp(`^${v4}$`);
+    if (!v4exact.test(ip)) {
+      log.warn(`Gathered IP ${ip} is not a valid format`);
+      return;
+    }
+    if (ip === userconfig.initial.ipaddress) {
+      return;
+    }
+    log.info(`Adjusting External IP from ${userconfig.initial.ipaddress} to ${ip}`);
+    const dataToWrite = `module.exports = {
+  initial: {
+    ipaddress: '${ip}',
+    zelid: '${userconfig.initial.zelid || config.zelTeamZelId}',
+    cruxid: '${userconfig.initial.cruxid || ''}',
+    kadena: '${userconfig.initial.kadena || ''}',
+    testnet: ${userconfig.initial.testnet || false},
+  }
+}`;
+
+    await fs.writeFile(fluxDirPath, dataToWrite);
+  } catch (error) {
+    log.error(error);
+  }
+}
+
 async function checkDeterministicNodesCollisions() {
   try {
     // get my external ip address
@@ -1087,6 +1131,7 @@ async function checkDeterministicNodesCollisions() {
         }
       }
       checkMyFluxAvailability(zelnodeList);
+      adjustExternalIP(myIP);
     } else {
       dosState += 1;
       if (dosState > 10) {

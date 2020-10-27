@@ -329,6 +329,10 @@ h4 {
   margin-left: 10px;
 }
 
+.zelsharesection .el-popover__reference {
+  margin-left: 10px;
+}
+
 .helpSectionData {
   text-align: left;
 }
@@ -354,7 +358,11 @@ h4 {
 }
 
 .width25 {
-  width: 25%;
+  width: 25% !important;
+}
+
+.width50 {
+  width: 50% !important;
 }
 
 .spaceLeft {
@@ -362,4 +370,8 @@ h4 {
   display: grid;
   grid-template-columns: auto 150px;
   margin-bottom: 10px;
+}
+
+.notvisible {
+  visibility: hidden;
 }

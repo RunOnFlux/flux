@@ -47,7 +47,14 @@ export default {
     });
   },
   adjustCruxID(zelidauthHeader, cruxid) {
-    return Api().get(`/zelid/adjustcruxid/${cruxid}`, {
+    return Api().get(`/zelflux/adjustcruxid/${cruxid}`, {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    });
+  },
+  adjustKadena(zelidauthHeader, account, chainid) {
+    return Api().get(`/zelflux/adjustkadena/${account}/${chainid}`, {
       headers: {
         zelidauth: zelidauthHeader,
       },
@@ -56,9 +63,12 @@ export default {
   getCruxID() {
     return Api().get('/zelflux/cruxid');
   },
+  getKadenaAccount() {
+    return Api().get('/zelflux/kadena');
+  },
   // DEBUG
-  tailFluxDebug(zelidauthHeader) {
-    return Api().get('/zelnode/tailzelfluxerrorlog', {
+  tailFluxLog(name, zelidauthHeader) {
+    return Api().get(`/zelnode/tailzelflux${name}log`, {
       headers: {
         zelidauth: zelidauthHeader,
       },

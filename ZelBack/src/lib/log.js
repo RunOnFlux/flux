@@ -18,23 +18,66 @@ function ensureString(parameter) {
   return typeof parameter === 'string' ? parameter : JSON.stringify(parameter);
 }
 
+function writeToFile(filepath, args) {
+  const size = getFilesizeInBytes(filepath);
+  let flag = 'a+';
+  if (size > (25 * 1024 * 1024)) { // 25MB
+    flag = 'w'; // rewrite file
+  }
+  const stream = fs.createWriteStream(filepath, { flags: flag });
+  stream.write(`${new Date().toISOString()}          ${ensureString(args.message || args)}\n`);
+  if (args.stack && typeof args.stack === 'string') {
+    stream.write(`${args.stack}\n`);
+  }
+  stream.end();
+}
+
 function error(args) {
   try {
     console.error(args);
     // write to file
     const datadir = `${homeDirPath}zelflux`;
     const filepath = `${datadir}/error.log`;
-    const size = getFilesizeInBytes(filepath);
-    let flag = 'a+';
-    if (size > (25 * 1000 * 1000)) { // 25MB
-      flag = 'w'; // rewrite file
-    }
-    const stream = fs.createWriteStream(filepath, { flags: flag });
-    stream.write(`${new Date().toISOString()}          ${ensureString(args.message || args)}\n`);
-    if (args.stack && typeof args.stack === 'string') {
-      stream.write(`${args.stack}\n`);
-    }
-    stream.end();
+    writeToFile(filepath, args);
+  } catch (err) {
+    console.error('This shall not have happened');
+    console.error(err);
+  }
+}
+
+function warn(args) {
+  try {
+    console.warn(args);
+    // write to file
+    const datadir = `${homeDirPath}zelflux`;
+    const filepath = `${datadir}/warn.log`;
+    writeToFile(filepath, args);
+  } catch (err) {
+    console.error('This shall not have happened');
+    console.error(err);
+  }
+}
+
+function info(args) {
+  try {
+    console.log(args);
+    // write to file
+    const datadir = `${homeDirPath}zelflux`;
+    const filepath = `${datadir}/info.log`;
+    writeToFile(filepath, args);
+  } catch (err) {
+    console.error('This shall not have happened');
+    console.error(err);
+  }
+}
+
+function debug(args) {
+  try {
+    console.log(args);
+    // write to file
+    const datadir = `${homeDirPath}zelflux`;
+    const filepath = `${datadir}/debug.log`;
+    writeToFile(filepath, args);
   } catch (err) {
     console.error('This shall not have happened');
     console.error(err);
@@ -43,16 +86,7 @@ function error(args) {
 
 module.exports = {
   error,
-
-  warn(args) {
-    console.warn(args);
-  },
-
-  info(args) {
-    console.log(args);
-  },
-
-  debug(args) {
-    console.log(args);
-  },
+  warn,
+  info,
+  debug,
 };

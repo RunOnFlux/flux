@@ -1,6 +1,6 @@
 {
   "name": "zelflux",
-  "version": "1.2.3",
+  "version": "1.3.0",
   "description": "Flux - Node Daemon. The entrace to the Flux network.",
   "repository": {
     "type": "git",
@@ -48,6 +48,7 @@
   },
   "dependencies": {
     "apicache": "1.5.2",
+    "archiver": "^5.0.2",
     "axios": "^0.20.0",
     "bitcoin": "^3.0.1",
     "bitcoinjs-lib": "^5.2.0",

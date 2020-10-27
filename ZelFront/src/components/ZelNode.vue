@@ -193,62 +193,77 @@
     </div>
     <div v-if="zelNodeSection === 'debug'">
       <div>
-        <p>Following action will download Flux debug file. This may take a few minutes depending on file size</p>
+        <p>Following section can download or show Flux log files. This may take up to a few minutes depending on file size</p>
       </div>
-      <el-popconfirm
-        confirmButtonText='Download Debug'
-        cancelButtonText='No, Thanks'
-        icon="el-icon-info"
-        iconColor="red"
-        title="Download Flux Debug file?"
-        @onConfirm="downloadFluxDebugFile()"
+      <el-row :gutter="20">
+        <el-col
+          :span="6"
+          :key="logType"
+          v-for="logType in logTypes"
+        >
+          <el-popconfirm
+            :confirmButtonText="`Download ${logType}.log`"
+            cancelButtonText='No, Thanks'
+            icon="el-icon-info"
+            iconColor="orange"
+            :title="`Download Flux ${logType}.log file?`"
+            @onConfirm="downloadFluxLogFile(logType)"
+          >
+            <ElButton slot="reference">
+              Download {{ logType }} file
+            </ElButton>
+          </el-popconfirm>
+          <p
+            v-if="total[logType] && downloaded[logType]"
+            style="margin: 0px; height: 30px;"
+          >
+            {{ (downloaded[logType] / 1e6).toFixed(2) + " / " + (total[logType] / 1e6).toFixed(2) }} MB - {{ ((downloaded[logType] / total[logType]) * 100).toFixed(2) + "%" }}
+            <el-tooltip
+              content="Cancel Download"
+              placement="top"
+            >
+              <el-button
+                v-if="total[logType] && downloaded[logType] && total[logType] !== downloaded[logType]"
+                type="danger"
+                icon="el-icon-close"
+                circle
+                size="mini"
+                @click="cancelDownload(logType)"
+              ></el-button>
+            </el-tooltip>
+          </p>
+          <p
+            v-else
+            style="margin: 0px; height: 30px;"
+          >
+            &nbsp;
+            <br>
+          </p>
+          <br>
+          <div>
+            <el-popconfirm
+              :confirmButtonText="`Show ${logType}.log`"
+              cancelButtonText='No, Thanks'
+              icon="el-icon-info"
+              iconColor="orange"
+              :title="`Show Flux ${logType}.log file?`"
+              @onConfirm="tailFluxLog(logType)"
+            >
+              <ElButton slot="reference">
+                Show {{ logType }} file
+              </ElButton>
+            </el-popconfirm>
+            <br>
+          </div>
+        </el-col>
+      </el-row>
+      <el-input
+        v-if="callResponse.data.message"
+        type="textarea"
+        autosize
+        v-model="fluxLogTail"
       >
-        <ElButton slot="reference">
-          Download Debug File
-        </ElButton>
-      </el-popconfirm>
-      <p v-if="total && downloaded">
-        {{ (downloaded / 1e6).toFixed(2) + " / " + (total / 1e6).toFixed(2) }} MB - {{ ((downloaded / total) * 100).toFixed(2) + "%" }}
-        <el-tooltip
-          content="Cancel Download"
-          placement="top"
-        >
-          <el-button
-            v-if="total && downloaded && total !== downloaded"
-            type="danger"
-            icon="el-icon-close"
-            circle
-            size="mini"
-            @click="cancelDownload"
-          ></el-button>
-        </el-tooltip>
-      </p>
-      <br><br>
-      <div>
-        <div>
-          <p>Following action will show last 100 lines of Flux debug file</p>
-        </div>
-        <el-popconfirm
-          confirmButtonText='Show Debug'
-          cancelButtonText='No, Thanks'
-          icon="el-icon-info"
-          iconColor="red"
-          title="Show Flux Debug file?"
-          @onConfirm="tailFluxDebug()"
-        >
-          <ElButton slot="reference">
-            Show Debug File
-          </ElButton>
-        </el-popconfirm>
-        <br><br>
-        <el-input
-          v-if="callResponse.data.message"
-          type="textarea"
-          autosize
-          v-model="fluxDebugTail"
-        >
-        </el-input>
-      </div>
+      </el-input>
     </div>
   </div>
 </template>
@@ -256,6 +271,7 @@
 <script>
 import Vuex, { mapState } from 'vuex';
 import Vue from 'vue';
+import axios from 'axios';
 
 import ZelCashService from '@/services/ZelCashService';
 import ZelFluxService from '@/services/ZelFluxService';
@@ -285,9 +301,10 @@ export default {
       incomingConnections: [],
       filterConnectedPeer: '',
       connectPeerIP: '',
-      total: '',
-      downloaded: '',
       abortToken: {},
+      downloaded: {},
+      total: {},
+      logTypes: ['error', 'warn', 'info', 'debug'],
     };
   },
   computed: {
@@ -296,7 +313,7 @@ export default {
       'userconfig',
       'zelNodeSection',
     ]),
-    fluxDebugTail() {
+    fluxLogTail() {
       if (this.callResponse.data.message) {
         return this.callResponse.data.message.split('\n').reverse().filter((el) => el !== '').join('\n');
       }
@@ -458,37 +475,57 @@ export default {
           vue.$customMes.error(e.toString());
         });
     },
-    cancelDownload() {
-      this.abortToken.cancel('User download cancelled');
-      this.downloaded = '';
-      this.total = '';
+    cancelDownload(name) {
+      this.abortToken[name].cancel(`Download of ${name} cancelled`);
+      this.downloaded[name] = '';
+      this.total[name] = '';
     },
-    async downloadFluxDebugFile() {
-      const self = this;
-      self.abortToken = ZelFluxService.cancelToken();
-      const zelidauth = localStorage.getItem('zelidauth');
-      const axiosConfig = {
-        headers: {
-          zelidauth,
-        },
-        responseType: 'blob',
-        onDownloadProgress(progressEvent) {
-          self.downloaded = progressEvent.loaded;
-          self.total = progressEvent.total;
-        },
-        cancelToken: self.abortToken.token,
-      };
-      const response = await ZelFluxService.justAPI().get('/zelnode/zelfluxerrorlog', axiosConfig);
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', 'debug.log');
-      document.body.appendChild(link);
-      link.click();
+    async downloadFluxLogFile(name) {
+      try {
+        const self = this;
+        if (self.abortToken[name]) {
+          self.abortToken[name].cancel();
+        }
+        const sourceCancelToken = axios.CancelToken;
+        const cancelToken = sourceCancelToken.source();
+        this.$set(this.abortToken, name, cancelToken);
+        const zelidauth = localStorage.getItem('zelidauth');
+        const axiosConfig = {
+          headers: {
+            zelidauth,
+          },
+          responseType: 'blob',
+          onDownloadProgress(progressEvent) {
+            Vue.set(self.downloaded, name, progressEvent.loaded);
+            Vue.set(self.total, name, progressEvent.total);
+          },
+          cancelToken: self.abortToken[name].token,
+        };
+        const response = await ZelFluxService.justAPI().get(`/zelnode/zelflux${name}log`, axiosConfig);
+        if (response.data.status === 'error') {
+          vue.$customMes.error(response.data.data.message || response.data.data);
+        } else {
+          const url = window.URL.createObjectURL(new Blob([response.data]));
+          const link = document.createElement('a');
+          link.href = url;
+          link.setAttribute('download', `${name}.log`);
+          document.body.appendChild(link);
+          link.click();
+        }
+      } catch (error) {
+        console.log(error.message);
+        if (error.message) {
+          if (!error.message.startsWith('Download')) {
+            vue.$customMes.error(error.message);
+          }
+        } else {
+          vue.$customMes.error(error);
+        }
+      }
     },
-    tailFluxDebug() {
+    tailFluxLog(name) {
       const zelidauth = localStorage.getItem('zelidauth');
-      ZelFluxService.tailFluxDebug(zelidauth)
+      ZelFluxService.tailFluxLog(name, zelidauth)
         .then((response) => {
           if (response.data.status === 'error') {
             vue.$customMes.error(response.data.data.message || response.data.data);
@@ -499,7 +536,7 @@ export default {
         })
         .catch((error) => {
           console.log(error);
-          vue.$customMes.error('Error while trying to get latest debug of Flux');
+          vue.$customMes.error(`Error while trying to get latest ${name}.log of Flux`);
         });
     },
   },
