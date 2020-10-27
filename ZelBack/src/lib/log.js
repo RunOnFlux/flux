@@ -21,7 +21,7 @@ function ensureString(parameter) {
 function writeToFile(filepath, args) {
   const size = getFilesizeInBytes(filepath);
   let flag = 'a+';
-  if (size > (25 * 1000 * 1000)) { // 25MB
+  if (size > (25 * 1024 * 1024)) { // 25MB
     flag = 'w'; // rewrite file
   }
   const stream = fs.createWriteStream(filepath, { flags: flag });
