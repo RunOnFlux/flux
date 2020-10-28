@@ -203,7 +203,7 @@ module.exports = (app, expressWs) => {
   app.get('/zelflux/ip', cache('30 seconds'), (req, res) => {
     zelnodeService.getZelFluxIP(req, res);
   });
-  app.get('/zelflux/zelid', cache('30 seconds'), cache('30 seconds'), (req, res) => {
+  app.get('/zelflux/zelid', cache('30 seconds'), (req, res) => {
     zelnodeService.getZelFluxZelID(req, res);
   });
   app.get('/zelflux/cruxid', cache('30 seconds'), (req, res) => {
