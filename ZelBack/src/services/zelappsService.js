@@ -1350,24 +1350,26 @@ async function removeZelAppLocally(zelapp, res, force = false, endResponse = tru
       }
       // get it from global Specifications
       zelAppSpecifications = await serviceHelper.findOneInDatabase(database, globalZelAppsInformation, zelappsQuery, zelappsProjection);
-      // get it from locally available Specifications
-      // eslint-disable-next-line no-use-before-define
-      const allZelApps = await availableZelApps();
-      zelAppSpecifications = allZelApps.find((app) => app.name === zelapp);
-      // get it from permanent messages
       if (!zelAppSpecifications) {
-        const query = {};
-        const projection = { projection: { _id: 0 } };
-        const messages = await serviceHelper.findInDatabase(database, globalZelAppsMessages, query, projection);
-        const appMessages = messages.filter((message) => message.zelAppSpecifications.name === zelapp);
-        let currentSpecifications;
-        appMessages.forEach((message) => {
-          if (!currentSpecifications || message.height > currentSpecifications.height) {
-            currentSpecifications = message;
+        // get it from locally available Specifications
+        // eslint-disable-next-line no-use-before-define
+        const allZelApps = await availableZelApps();
+        zelAppSpecifications = allZelApps.find((app) => app.name === zelapp);
+        // get it from permanent messages
+        if (!zelAppSpecifications) {
+          const query = {};
+          const projection = { projection: { _id: 0 } };
+          const messages = await serviceHelper.findInDatabase(database, globalZelAppsMessages, query, projection);
+          const appMessages = messages.filter((message) => message.zelAppSpecifications.name === zelapp);
+          let currentSpecifications;
+          appMessages.forEach((message) => {
+            if (!currentSpecifications || message.height > currentSpecifications.height) {
+              currentSpecifications = message;
+            }
+          });
+          if (currentSpecifications && currentSpecifications.height) {
+            zelAppSpecifications = currentSpecifications.zelAppSpecifications;
           }
-        });
-        if (currentSpecifications && currentSpecifications.height) {
-          zelAppSpecifications = currentSpecifications.zelAppSpecifications;
         }
       }
     }
