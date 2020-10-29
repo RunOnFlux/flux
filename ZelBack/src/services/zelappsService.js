@@ -1360,13 +1360,13 @@ async function removeZelAppLocally(zelapp, res, force = false, endResponse = tru
         const projection = { projection: { _id: 0 } };
         const messages = await serviceHelper.findInDatabase(database, globalZelAppsMessages, query, projection);
         const appMessages = messages.filter((message) => message.zelAppSpecifications.name === zelapp);
-        let currentSpecifications = {};
+        let currentSpecifications;
         appMessages.forEach((message) => {
-          if (message.height > currentSpecifications.height) {
+          if (!currentSpecifications || message.height > currentSpecifications.height) {
             currentSpecifications = message;
           }
         });
-        if (currentSpecifications.height) {
+        if (currentSpecifications && currentSpecifications.height) {
           zelAppSpecifications = currentSpecifications.zelAppSpecifications;
         }
       }
