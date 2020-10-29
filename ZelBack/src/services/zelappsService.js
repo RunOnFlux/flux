@@ -1339,6 +1339,7 @@ async function removeZelAppLocally(zelapp, res, force = false, endResponse = tru
     const dbopen = serviceHelper.databaseConnection();
 
     const zelappsDatabase = dbopen.db(config.database.zelappslocal.database);
+    const database = dbopen.db(config.database.zelappsglobal.database);
 
     const zelappsQuery = { name: zelapp };
     const zelappsProjection = {};
@@ -1348,7 +1349,7 @@ async function removeZelAppLocally(zelapp, res, force = false, endResponse = tru
         throw new Error('ZelApp not found');
       }
       // get it from global Specifications
-      zelAppSpecifications = await serviceHelper.findOneInDatabase(zelappsDatabase, globalZelAppsInformation, zelappsQuery, zelappsProjection);
+      zelAppSpecifications = await serviceHelper.findOneInDatabase(database, globalZelAppsInformation, zelappsQuery, zelappsProjection);
       // get it from locally available Specifications
       // eslint-disable-next-line no-use-before-define
       const allZelApps = await availableZelApps();
@@ -1357,7 +1358,7 @@ async function removeZelAppLocally(zelapp, res, force = false, endResponse = tru
       if (!zelAppSpecifications) {
         const query = {};
         const projection = { projection: { _id: 0 } };
-        const messages = await serviceHelper.findInDatabase(zelappsDatabase, globalZelAppsMessages, query, projection);
+        const messages = await serviceHelper.findInDatabase(database, globalZelAppsMessages, query, projection);
         const appMessages = messages.filter((message) => message.zelAppSpecifications.name === zelapp);
         let currentSpecifications = {};
         appMessages.forEach((message) => {
