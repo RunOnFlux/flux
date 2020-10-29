@@ -1355,7 +1355,9 @@ async function removeZelAppLocally(zelapp, res, force = false, endResponse = tru
       zelAppSpecifications = allZelApps.find((app) => app.name === zelapp);
       // get it from permanent messages
       if (!zelAppSpecifications) {
-        const messages = await serviceHelper.findOneInDatabase(zelappsDatabase, globalZelAppsMessages, zelappsQuery, zelappsProjection);
+        const query = {};
+        const projection = { projection: { _id: 0 } };
+        const messages = await serviceHelper.findInDatabase(zelappsDatabase, globalZelAppsMessages, query, projection);
         const appMessages = messages.filter((message) => message.zelAppSpecifications.name === zelapp);
         let currentSpecifications = {};
         appMessages.forEach((message) => {
