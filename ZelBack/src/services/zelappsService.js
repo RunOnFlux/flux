@@ -42,6 +42,8 @@ const LRUoptions = {
 };
 const myCache = new LRU(LRUoptions);
 
+let removalInProgress = false;
+
 function getZelAppIdentifier(zelappName) {
   // this id is used for volumes, docker names so we know it reall belongs to zelflux
   if (zelappName.startsWith('zel')) {
@@ -1325,6 +1327,7 @@ async function removeZelAppLocally(zelapp, res, force = false, endResponse = tru
     // remove zelapp from local machine.
     // find in database, stop zelapp, remove container, close port delete data associated on system, remove from database
     // we want to remove the image as well (repotag) what if other container uses the same image -> then it shall result in an error so ok anyway
+    removalInProgress = true;
     if (!zelapp) {
       throw new Error('No ZelApp specified');
     }
@@ -1336,13 +1339,38 @@ async function removeZelAppLocally(zelapp, res, force = false, endResponse = tru
     const dbopen = serviceHelper.databaseConnection();
 
     const zelappsDatabase = dbopen.db(config.database.zelappslocal.database);
+    const database = dbopen.db(config.database.zelappsglobal.database);
 
     const zelappsQuery = { name: zelapp };
     const zelappsProjection = {};
-    const zelAppSpecifications = await serviceHelper.findOneInDatabase(zelappsDatabase, localZelAppsInformation, zelappsQuery, zelappsProjection);
+    let zelAppSpecifications = await serviceHelper.findOneInDatabase(zelappsDatabase, localZelAppsInformation, zelappsQuery, zelappsProjection);
     if (!zelAppSpecifications) {
       if (!force) {
         throw new Error('ZelApp not found');
+      }
+      // get it from global Specifications
+      zelAppSpecifications = await serviceHelper.findOneInDatabase(database, globalZelAppsInformation, zelappsQuery, zelappsProjection);
+      if (!zelAppSpecifications) {
+        // get it from locally available Specifications
+        // eslint-disable-next-line no-use-before-define
+        const allZelApps = await availableZelApps();
+        zelAppSpecifications = allZelApps.find((app) => app.name === zelapp);
+        // get it from permanent messages
+        if (!zelAppSpecifications) {
+          const query = {};
+          const projection = { projection: { _id: 0 } };
+          const messages = await serviceHelper.findInDatabase(database, globalZelAppsMessages, query, projection);
+          const appMessages = messages.filter((message) => message.zelAppSpecifications.name === zelapp);
+          let currentSpecifications;
+          appMessages.forEach((message) => {
+            if (!currentSpecifications || message.height > currentSpecifications.height) {
+              currentSpecifications = message;
+            }
+          });
+          if (currentSpecifications && currentSpecifications.height) {
+            zelAppSpecifications = currentSpecifications.zelAppSpecifications;
+          }
+        }
       }
     }
 
@@ -1508,7 +1536,9 @@ async function removeZelAppLocally(zelapp, res, force = false, endResponse = tru
         res.end();
       }
     }
+    removalInProgress = false;
   } catch (error) {
+    removalInProgress = false;
     log.error(error);
     const errorResponse = serviceHelper.createErrorMessage(
       error.message || error,
@@ -4231,8 +4261,13 @@ async function checkAndNotifyPeersOfRunningApps() {
           log.warn(`${stoppedApp} is stopped but shall be running. Starting...`);
           // it is a stopped global zelapp. Try to run it.
           const zelappId = getZelAppIdentifier(stoppedApp);
-          // eslint-disable-next-line no-await-in-loop
-          await zelAppDockerStart(zelappId);
+          // check if some removal is in progress as if it is dont start it!
+          if (!removalInProgress) {
+            // eslint-disable-next-line no-await-in-loop
+            await zelAppDockerStart(zelappId);
+          } else {
+            log.warn(`Not starting ${stoppedApp} as of application removal in progress`);
+          }
         }
       } catch (err) {
         log.error(err);

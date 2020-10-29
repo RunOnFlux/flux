@@ -55,10 +55,10 @@ async function startFluxFunctions() {
     }, 4 * 60 * 1000);
     log.info('Flux Block Processing Service started');
     setTimeout(() => {
-      // after 10 minutes of running ok.
+      // after 16 minutes of running ok.
       log.info('Starting to spawn applications');
       zelappsService.trySpawningGlobalApplication();
-    }, 10 * 60 * 1000);
+    }, 16 * 60 * 1000);
   } catch (e) {
     log.error(e);
     setTimeout(() => {

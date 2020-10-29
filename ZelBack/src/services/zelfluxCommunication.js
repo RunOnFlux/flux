@@ -222,7 +222,7 @@ async function sendToAllPeers(data, wsList) {
         await serviceHelper.delay(100);
         client.send(data);
       } catch (e) {
-        log.error(e);
+        console.log(e);
         removals.push(client);
         try {
           const ip = client._socket.remoteAddress;
@@ -266,7 +266,7 @@ async function sendToAllIncomingConnections(data, wsList) {
         await serviceHelper.delay(100);
         client.send(data);
       } catch (e) {
-        log.error(e);
+        console.log(e);
         removals.push(client);
         try {
           const ip = client._socket.remoteAddress;
