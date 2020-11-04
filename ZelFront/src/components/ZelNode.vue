@@ -207,6 +207,7 @@
             icon="el-icon-info"
             iconColor="orange"
             :title="`Download Flux ${logType}.log file?`"
+            @onConfirm="downloadFluxLogFile(logType)"
             @confirm="downloadFluxLogFile(logType)"
           >
             <ElButton slot="reference">
@@ -247,6 +248,7 @@
               icon="el-icon-info"
               iconColor="orange"
               :title="`Show Flux ${logType}.log file?`"
+              @onConfirm="tailFluxLog(logType)"
               @confirm="tailFluxLog(logType)"
             >
               <ElButton slot="reference">

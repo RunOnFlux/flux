@@ -288,6 +288,7 @@
                 title="Permanently delete file?"
                 confirmButtonType="danger"
                 cancelButtonType="info"
+                @onConfirm="deleteFile(scope.row.name)"
                 @confirm="deleteFile(scope.row.name)"
               >
                 <el-button
@@ -314,6 +315,7 @@
                 title="Only empty directories can be deleted for security reasons. Delete directory?"
                 confirmButtonType="danger"
                 cancelButtonType="info"
+                @onConfirm="deleteFolder(scope.row.name)"
                 @confirm="deleteFolder(scope.row.name)"
               >
 

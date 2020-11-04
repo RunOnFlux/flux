@@ -56,6 +56,7 @@
                   icon="el-icon-info"
                   iconColor="red"
                   title="Stops Application"
+                  @onConfirm="stopZelApp(scope.row.Names[0].substr(1, scope.row.Names[0].length))"
                   @confirm="stopZelApp(scope.row.Names[0].substr(1, scope.row.Names[0].length))"
                 >
                   <ElButton slot="reference">
@@ -130,6 +131,7 @@
                   icon="el-icon-info"
                   iconColor="green"
                   title="Starts Application"
+                  @onConfirm="startZelApp(scope.row.name)"
                   @confirm="startZelApp(scope.row.name)"
                 >
                   <ElButton slot="reference">
@@ -142,6 +144,7 @@
                   icon="el-icon-info"
                   iconColor="orange"
                   title="Retarts Application"
+                  @onConfirm="restartZelApp(scope.row.name)"
                   @confirm="restartZelApp(scope.row.name)"
                 >
                   <ElButton slot="reference">
@@ -163,6 +166,7 @@
                   icon="el-icon-info"
                   iconColor="red"
                   title="Removes Application"
+                  @onConfirm="removeZelApp(scope.row.name)"
                   @confirm="removeZelApp(scope.row.name)"
                 >
                   <ElButton slot="reference">
@@ -184,6 +188,7 @@
                   icon="el-icon-info"
                   iconColor="green"
                   title="Opens Application management centre"
+                  @onConfirm="openAppManagement(scope.row.name)"
                   @confirm="openAppManagement(scope.row.name)"
                 >
                   <ElButton slot="reference">
@@ -284,6 +289,7 @@
                   icon="el-icon-info"
                   iconColor="green"
                   title="Installs Application"
+                  @onConfirm="installTemporaryLocalApp(scope.row.name)"
                   @confirm="installTemporaryLocalApp(scope.row.name)"
                 >
                   <ElButton slot="reference">
@@ -357,6 +363,7 @@
                   icon="el-icon-info"
                   iconColor="green"
                   title="Starts Application"
+                  @onConfirm="startZelApp(scope.row.name)"
                   @confirm="startZelApp(scope.row.name)"
                 >
                   <ElButton slot="reference">
@@ -369,6 +376,7 @@
                   icon="el-icon-info"
                   iconColor="orange"
                   title="Retarts Application"
+                  @onConfirm="restartZelApp(scope.row.name)"
                   @confirm="restartZelApp(scope.row.name)"
                 >
                   <ElButton slot="reference">
@@ -389,6 +397,7 @@
                   icon="el-icon-info"
                   iconColor="red"
                   title="Removes Application"
+                  @onConfirm="removeZelApp(scope.row.name)"
                   @confirm="removeZelApp(scope.row.name)"
                 >
                   <ElButton slot="reference">
@@ -409,6 +418,7 @@
                   icon="el-icon-info"
                   iconColor="green"
                   title="Opens Application management centre"
+                  @onConfirm="openAppManagement(scope.row.name)"
                   @confirm="openAppManagement(scope.row.name)"
                 >
                   <ElButton slot="reference">
@@ -966,6 +976,7 @@
               icon="el-icon-info"
               iconColor="orange"
               title="Download Log file?"
+              @onConfirm="downloadApplicationLog()"
               @confirm="downloadApplicationLog()"
             >
               <ElButton slot="reference">
@@ -1010,6 +1021,7 @@
               icon="el-icon-info"
               iconColor="green"
               title="Starts ZelApp"
+              @onConfirm="startZelApp(managedApplication)"
               @confirm="startZelApp(managedApplication)"
             >
               <ElButton slot="reference">
@@ -1022,6 +1034,7 @@
               icon="el-icon-info"
               iconColor="red"
               title="Stops ZelApp"
+              @onConfirm="stopZelApp(managedApplication)"
               @confirm="stopZelApp(managedApplication)"
             >
               <ElButton slot="reference">
@@ -1034,6 +1047,7 @@
               icon="el-icon-info"
               iconColor="orange"
               title="Restarts ZelApp"
+              @onConfirm="restartZelApp(managedApplication)"
               @confirm="restartZelApp(managedApplication)"
             >
               <ElButton slot="reference">
@@ -1050,6 +1064,7 @@
               icon="el-icon-info"
               iconColor="orange"
               title="Pauses ZelApp"
+              @onConfirm="pauseZelApp(managedApplication)"
               @confirm="pauseZelApp(managedApplication)"
             >
               <ElButton slot="reference">
@@ -1062,6 +1077,7 @@
               icon="el-icon-info"
               iconColor="orange"
               title="Unpauses ZelApp"
+              @onConfirm="unpauseZelApp(managedApplication)"
               @confirm="unpauseZelApp(managedApplication)"
             >
               <ElButton slot="reference">
@@ -1078,6 +1094,7 @@
               icon="el-icon-info"
               iconColor="orange"
               title="Redeploys ZelApp without data removal"
+              @onConfirm="redeployZelAppSoft(managedApplication)"
               @confirm="redeployZelAppSoft(managedApplication)"
             >
               <ElButton slot="reference">
@@ -1090,6 +1107,7 @@
               icon="el-icon-info"
               iconColor="red"
               title="Redeploys ZelApp with data removal"
+              @onConfirm="redeployZelAppHard(managedApplication)"
               @confirm="redeployZelAppHard(managedApplication)"
             >
               <ElButton slot="reference">
@@ -1106,6 +1124,7 @@
               icon="el-icon-info"
               iconColor="red"
               title="Removes ZelApp"
+              @onConfirm="removeZelApp(managedApplication)"
               @confirm="removeZelApp(managedApplication)"
             >
               <ElButton slot="reference">
