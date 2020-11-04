@@ -55,7 +55,7 @@
         icon="el-icon-info"
         iconColor="green"
         title="Starts ZelBench daemon"
-        @onConfirm="startZelBench()"
+        @confirm="startZelBench()"
       >
         <ElButton slot="reference">
           Start ZelBench
@@ -72,7 +72,7 @@
         icon="el-icon-info"
         iconColor="orange"
         title="Restarts ZelBench daemon"
-        @onConfirm="restartZelBench()"
+        @confirm="restartZelBench()"
       >
         <ElButton slot="reference">
           Restart ZelBench
@@ -89,7 +89,7 @@
         icon="el-icon-info"
         iconColor="red"
         title="Stops ZelBench daemon"
-        @onConfirm="stopZelBench()"
+        @confirm="stopZelBench()"
       >
         <ElButton slot="reference">
           Stop ZelBench
@@ -171,7 +171,7 @@
           icon="el-icon-info"
           iconColor="orange"
           title="Runs a complete new test of node benchmarking"
-          @onConfirm="restartBenchmarks()"
+          @confirm="restartBenchmarks()"
         >
           <ElButton slot="reference">
             Restart Benchmarks
@@ -199,7 +199,7 @@
           icon="el-icon-info"
           iconColor="orange"
           title="Signs valid hex of ZelNode transaction"
-          @onConfirm="signZelNodeTransaction()"
+          @confirm="signZelNodeTransaction()"
         >
           <ElButton slot="reference">
             Sign Transaction
@@ -228,7 +228,7 @@
         icon="el-icon-info"
         iconColor="red"
         title="Download ZelBench Debug file?"
-        @onConfirm="downloadZelBenchDebugFile()"
+        @confirm="downloadZelBenchDebugFile()"
       >
         <ElButton slot="reference">
           Download Debug File
@@ -261,7 +261,7 @@
           icon="el-icon-info"
           iconColor="red"
           title="Show ZelBench Debug file?"
-          @onConfirm="tailZelBenchDebug()"
+          @confirm="tailZelBenchDebug()"
         >
           <ElButton slot="reference">
             Show Debug File
