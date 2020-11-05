@@ -289,6 +289,7 @@
                 confirmButtonType="danger"
                 cancelButtonType="info"
                 @onConfirm="deleteFile(scope.row.name)"
+                @confirm="deleteFile(scope.row.name)"
               >
                 <el-button
                   slot="reference"
@@ -315,6 +316,7 @@
                 confirmButtonType="danger"
                 cancelButtonType="info"
                 @onConfirm="deleteFolder(scope.row.name)"
+                @confirm="deleteFolder(scope.row.name)"
               >
 
                 <el-button

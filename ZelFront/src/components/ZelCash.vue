@@ -143,6 +143,7 @@
         iconColor="red"
         title="Reindexes ZelCash daemon"
         @onConfirm="rescanZelCash()"
+        @confirm="rescanZelCash()"
       >
         <ElButton slot="reference">
           Rescan ZelCash
@@ -160,6 +161,7 @@
         iconColor="red"
         title="Reindex ZelCash Blockchain"
         @onConfirm="reindexZelCash()"
+        @confirm="reindexZelCash()"
       >
         <ElButton slot="reference">
           Reindex ZelCash
@@ -177,6 +179,7 @@
         iconColor="green"
         title="Starts ZelCash daemon"
         @onConfirm="startZelCash()"
+        @confirm="startZelCash()"
       >
         <ElButton slot="reference">
           Start ZelCash
@@ -194,6 +197,7 @@
         iconColor="orange"
         title="Restarts ZelCash daemon"
         @onConfirm="restartZelCash()"
+        @confirm="restartZelCash()"
       >
         <ElButton slot="reference">
           Restart ZelCash
@@ -211,6 +215,7 @@
         iconColor="red"
         title="Stops ZelCash daemon"
         @onConfirm="stopZelCash()"
+        @confirm="stopZelCash()"
       >
         <ElButton slot="reference">
           Stop ZelCash
@@ -590,6 +595,7 @@
         iconColor="green"
         title="Start ZelBench Daemon"
         @onConfirm="zelcashStartZelBenchd()"
+        @confirm="zelcashStartZelBenchd()"
       >
         <ElButton slot="reference">
           Start ZelBench
@@ -607,6 +613,7 @@
         iconColor="red"
         title="Stop ZelBench Daemon"
         @onConfirm="zelcashStopZelBenchd()"
+        @confirm="zelcashStopZelBenchd()"
       >
         <ElButton slot="reference">
           Stop ZelBench
@@ -741,6 +748,7 @@
         iconColor="red"
         title="Download ZelCash Debug file?"
         @onConfirm="downloadZelCashDebugFile()"
+        @confirm="downloadZelCashDebugFile()"
       >
         <ElButton slot="reference">
           Download Debug File
@@ -774,6 +782,7 @@
           iconColor="red"
           title="Show ZelCash Debug file?"
           @onConfirm="tailZelCashDebug()"
+          @confirm="tailZelCashDebug()"
         >
           <ElButton slot="reference">
             Show Debug File

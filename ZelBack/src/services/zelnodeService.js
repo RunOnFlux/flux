@@ -591,7 +591,7 @@ async function adjustCruxID(req, res) {
       const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
       const dataToWrite = `module.exports = {
   initial: {
-    paddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
+    ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
     zelid: '${userconfig.initial.zelid || config.zelTeamZelId}',
     cruxid: '${cruxid}',
     kadena: '${userconfig.initial.kadena || ''}',
@@ -636,7 +636,7 @@ async function adjustKadenaAccount(req, res) {
       const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
       const dataToWrite = `module.exports = {
   initial: {
-    paddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
+    ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
     zelid: '${userconfig.initial.zelid || config.zelTeamZelId}',
     cruxid: '${userconfig.initial.cruxid || ''}',
     kadena: '${kadenaURI}',

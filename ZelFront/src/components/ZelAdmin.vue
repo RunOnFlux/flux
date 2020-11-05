@@ -44,6 +44,7 @@
               iconColor="red"
               title="This action will log out your selected session."
               @onConfirm="logoutSpecificSession(scope.$index, scope.row)"
+              @confirm="logoutSpecificSession(scope.$index, scope.row)"
             >
               <ElButton
                 size="mini"
@@ -63,6 +64,7 @@
         iconColor="red"
         title="This action will log out ALL your sessions include the one currently used!"
         @onConfirm="logoutAllSessions()"
+        @confirm="logoutAllSessions()"
       >
         <ElButton slot="reference">
           Log Out all sessions
@@ -88,6 +90,7 @@
         iconColor="orange"
         title="Flux will now update your Crux ID."
         @onConfirm="adjustCruxID()"
+        @confirm="adjustCruxID()"
       >
         <ElButton slot="reference">
           Update Crux ID
@@ -121,6 +124,7 @@
         iconColor="orange"
         title="Flux will now update your Kadena Account"
         @onConfirm="adjustKadena()"
+        @confirm="adjustKadena()"
       >
         <ElButton slot="reference">
           Update Kadena account
@@ -147,6 +151,7 @@
         iconColor="orange"
         title="Flux will now begin updating itself."
         @onConfirm="updateZelFlux()"
+        @confirm="updateZelFlux()"
       >
         <ElButton slot="reference">
           Update Flux
@@ -163,6 +168,7 @@
         iconColor="red"
         title="Rebuilds Flux User Interface. Useful for resolving minor UI issues."
         @onConfirm="rebuildZelFront()"
+        @confirm="rebuildZelFront()"
       >
         <ElButton slot="reference">
           Rebuild ZelFront
@@ -179,6 +185,7 @@
         iconColor="red"
         title="Reindexes ALL Flux databases and rebuilds them from scratch"
         @onConfirm="reindexFlux()"
+        @confirm="reindexFlux()"
       >
         <ElButton slot="reference">
           Reindex Flux databases
@@ -191,6 +198,7 @@
         iconColor="red"
         title="Reindexes Explorer tied databases and rebuilds them from scratch"
         @onConfirm="reindexExplorer()"
+        @confirm="reindexExplorer()"
       >
         <ElButton slot="reference">
           Reindex Explorer databases
@@ -216,6 +224,7 @@
         iconColor="red"
         title="Rescans ALL Flux databases and rebuilds them from scratch"
         @onConfirm="rescanFlux()"
+        @confirm="rescanFlux()"
       >
         <ElButton slot="reference">
           Rescan Flux databases
@@ -237,6 +246,7 @@
         iconColor="red"
         title="Rescans Explorer tied databases and rebuilds them from scratch"
         @onConfirm="rescanExplorer()"
+        @confirm="rescanExplorer()"
       >
         <ElButton slot="reference">
           Rescan Explorer databases
@@ -273,6 +283,7 @@
         iconColor="red"
         title="Rescans Global Applications from stored permanent messages given a blockheight."
         @onConfirm="rescanGlobalApps()"
+        @confirm="rescanGlobalApps()"
       >
         <ElButton slot="reference">
           Rescan Global Apps Information
@@ -289,6 +300,7 @@
         iconColor="red"
         title="Reindexes Global Application Speicifications from stored permanent messages"
         @onConfirm="reindexGlobalApps()"
+        @confirm="reindexGlobalApps()"
       >
         <ElButton slot="reference">
           Reindex Global Apps Information
@@ -305,6 +317,7 @@
         iconColor="red"
         title="Reindexes that drops information about where each application on the network is located and rebuilds collection indexes. Locations will be rebuild from incoming messages."
         @onConfirm="reindexLocations()"
+        @confirm="reindexLocations()"
       >
         <ElButton slot="reference">
           Reindex Global Apps Locations
@@ -321,6 +334,7 @@
         iconColor="red"
         title="This will restart Flux block processing which is a crucial process for Explorer and Apps functionality. Use with caution!"
         @onConfirm="restartBlockProcessing()"
+        @confirm="restartBlockProcessing()"
       >
         <ElButton slot="reference">
           Restart Block Processing
@@ -333,6 +347,7 @@
         iconColor="red"
         title="This will stop Flux block processing which is a crucial process for Explorer and Apps functionality. Your node may go offline if block processing is not running!"
         @onConfirm="stopBlockProcessing()"
+        @confirm="stopBlockProcessing()"
       >
         <ElButton slot="reference">
           Stop Block Processing
@@ -350,6 +365,7 @@
         iconColor="orange"
         title="Updates ZelCash daemon to the latest version"
         @onConfirm="updateZelCash()"
+        @confirm="updateZelCash()"
       >
         <ElButton slot="reference">
           Update ZelCash
@@ -366,6 +382,7 @@
         iconColor="green"
         title="Starts ZelCash daemon"
         @onConfirm="startZelCash()"
+        @confirm="startZelCash()"
       >
         <ElButton slot="reference">
           Start ZelCash
@@ -378,6 +395,7 @@
         iconColor="red"
         title="Stops ZelCash daemon"
         @onConfirm="stopZelCash()"
+        @confirm="stopZelCash()"
       >
         <ElButton slot="reference">
           Stop ZelCash
@@ -390,6 +408,7 @@
         iconColor="orange"
         title="Restarts ZelCash daemon"
         @onConfirm="restartZelCash()"
+        @confirm="restartZelCash()"
       >
         <ElButton slot="reference">
           Restart ZelCash
@@ -414,6 +433,7 @@
         iconColor="red"
         title="Rescan ZelCash daemon"
         @onConfirm="rescanZelCash()"
+        @confirm="rescanZelCash()"
       >
         <ElButton slot="reference">
           Rescan ZelCash
@@ -430,6 +450,7 @@
         iconColor="red"
         title="Reindexes ZelCash daemon"
         @onConfirm="reindexZelCash()"
+        @confirm="reindexZelCash()"
       >
         <ElButton slot="reference">
           Reindex ZelCash
@@ -447,6 +468,7 @@
         iconColor="orange"
         title="Updates Zel daemon to the latest version"
         @onConfirm="updateZelBench()"
+        @confirm="updateZelBench()"
       >
         <ElButton slot="reference">
           Update ZelBench
@@ -463,6 +485,7 @@
         iconColor="green"
         title="Starts ZelBench daemon"
         @onConfirm="startZelBench()"
+        @confirm="startZelBench()"
       >
         <ElButton slot="reference">
           Start ZelBench
@@ -475,6 +498,7 @@
         iconColor="red"
         title="Stops ZelBench daemon"
         @onConfirm="stopZelBench()"
+        @confirm="stopZelBench()"
       >
         <ElButton slot="reference">
           Stop ZelBench
@@ -487,6 +511,7 @@
         iconColor="orange"
         title="Restarts ZelBench daemon"
         @onConfirm="restartZelBench()"
+        @confirm="restartZelBench()"
       >
         <ElButton slot="reference">
           Restart ZelBench
@@ -503,6 +528,7 @@
         iconColor="orange"
         title="Runs a complete new test of node benchmarking"
         @onConfirm="restartBenchmarks()"
+        @confirm="restartBenchmarks()"
       >
         <ElButton slot="reference">
           Restart Benchmarks
@@ -553,6 +579,7 @@
               iconColor="red"
               title="This action will log out selected user session."
               @onConfirm="logoutSpecificSession(scope.$index, scope.row)"
+              @confirm="logoutSpecificSession(scope.$index, scope.row)"
             >
               <ElButton
                 size="mini"
@@ -572,6 +599,7 @@
         iconColor="red"
         title="This action will log out ALL users including you!"
         @onConfirm="logOutAllUsers()"
+        @confirm="logOutAllUsers()"
       >
         <ElButton slot="reference">
           Log Out all users
