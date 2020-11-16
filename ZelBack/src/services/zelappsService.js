@@ -2752,7 +2752,7 @@ async function storeZelAppRunningMessage(message) {
     upsert: true,
   };
   await serviceHelper.updateOneInDatabase(database, globalZelAppsLocations, queryUpdate, update, options);
-  // it is stored and rebroadcasted
+  // it is now stored, rebroadcast
   return true;
 }
 
