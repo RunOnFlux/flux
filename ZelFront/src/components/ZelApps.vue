@@ -1533,7 +1533,7 @@
                 <br>
                 <a
                   @click="initiateSignWSUpdate"
-                  :href="'zel:?action=sign&message=' + dataToSign + '&icon=http%3A%2F%2Fzelid.io%2Fimg%2FzelID.svg&callback=http%3A%2F%2F' + userconfig.externalip + ':' + config.apiPort + '%2Fzelid%2Fprovidesign%2F'"
+                  :href="'zel:?action=sign&message=' + dataToSign + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Fzelcash%2Fzelflux%2Fmaster%2FZelFront%2Fsrc%2Fassets%2Fimg%2FzelID.svg&callback=http%3A%2F%2F' + userconfig.externalip + ':' + config.apiPort + '%2Fzelid%2Fprovidesign%2F'"
                 >
                   <img
                     class="zelidLogin"
@@ -1845,7 +1845,7 @@
             <br>
             <a
               @click="initiateSignWS"
-              :href="'zel:?action=sign&message=' + dataToSign + '&icon=http%3A%2F%2Fzelid.io%2Fimg%2FzelID.svg&callback=http%3A%2F%2F' + userconfig.externalip + ':' + config.apiPort + '%2Fzelid%2Fprovidesign%2F'"
+              :href="'zel:?action=sign&message=' + dataToSign + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Fzelcash%2Fzelflux%2Fmaster%2FZelFront%2Fsrc%2Fassets%2Fimg%2FzelID.svg&callback=http%3A%2F%2F' + userconfig.externalip + ':' + config.apiPort + '%2Fzelid%2Fprovidesign%2F'"
             >
               <img
                 class="zelidLogin"
