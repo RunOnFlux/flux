@@ -2377,7 +2377,9 @@ async function availableZelApps(req, res) {
     {
       name: 'KadenaChainWebNode', // corresponds to docker name and this name is stored in zelapps mongo database
       description: 'Kadena is a fast, secure, and scalable blockchain using the Chainweb consensus protocol. '
-        + 'Chainweb is a braided, parallelized Proof Of Work consensus mechanism that improves throughput and scalability in executing transactions on the blockchain while maintaining the security and integrity found in Bitcoin.',
+        + 'Chainweb is a braided, parallelized Proof Of Work consensus mechanism that improves throughput and scalability in executing transactions on the blockchain while maintaining the security and integrity found in Bitcoin. '
+        + 'The healty information tells you if node is running. If you just installed the docker it can say unhealty for almost 1 hour because on first run a bootstrap is downloaded and extracted to make your node sync faster before the node is started. '
+        + 'Do not stop or restart the docker in the first hour after instal. To check if your kadena node is sycned go to https://yourPublicIp:30004/chainweb/0.0/mainnet01/cut and compare it with Kadena explorer. Thank you.',
       repotag: 'kadena/chainweb-node:latest',
       owner: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
       port: 30004,
