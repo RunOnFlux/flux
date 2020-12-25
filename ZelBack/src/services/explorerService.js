@@ -76,10 +76,7 @@ async function getSenderForZelNodeTx(txid, vout) {
   };
 
   // find the utxo from global utxo list
-  let txContent = await serviceHelper.findOneInDatabase(database, utxoIndexCollection, query, projection).catch((error) => {
-    log.error(error);
-    throw error;
-  });
+  let txContent = await serviceHelper.findOneInDatabase(database, utxoIndexCollection, query, projection);
   if (!txContent) {
     log.info(`Transaction ${txid} ${vout} not found in database. Falling back to previous ZelNode transaction`);
     const queryZelNode = {
@@ -104,10 +101,7 @@ async function getSenderForZelNodeTx(txid, vout) {
       },
     };
     // find previous zelnode transaction that
-    txContent = await serviceHelper.findOneInDatabase(database, zelnodeTransactionCollection, queryZelNode, projectionZelNode).catch((error) => {
-      log.error(error);
-      throw error;
-    });
+    txContent = await serviceHelper.findOneInDatabase(database, zelnodeTransactionCollection, queryZelNode, projectionZelNode);
   }
   if (!txContent) {
     log.warn(`Transaction ${txid} ${vout} was not found anywhere. Uncomplete tx!`);
@@ -197,10 +191,7 @@ async function processTransaction(txContent, height) {
           coinbase,
         };
         // put the utxo to our mongoDB utxoIndex collection.
-        await serviceHelper.insertOneToDatabase(database, utxoIndexCollection, utxoDetail).catch((error) => {
-          log.error(error);
-          throw error;
-        });
+        await serviceHelper.insertOneToDatabase(database, utxoIndexCollection, utxoDetail);
       }
     }));
 
@@ -240,6 +231,8 @@ async function processBlockTransactions(txs, height) {
     // eslint-disable-next-line no-await-in-loop
     const txContent = await processTransaction(transaction, height);
     transactions.push(txContent);
+    // eslint-disable-next-line no-await-in-loop
+    await serviceHelper.delay(15);
   }
   return transactions;
 }
@@ -412,8 +405,14 @@ async function processBlock(blockHeight) {
     log.error('Block processor encountered an error.');
     log.error(error);
     if (blockProccessingCanContinue) {
-      // eslint-disable-next-line no-use-before-define
-      initiateBlockProcessor(true, false);
+      if (error.message && error.message.includes('duplicate key')) {
+        // do a deep rescan
+        // eslint-disable-next-line no-use-before-define
+        initiateBlockProcessor(true, true);
+      } else {
+        // eslint-disable-next-line no-use-before-define
+        initiateBlockProcessor(true, false);
+      }
     }
   }
 }

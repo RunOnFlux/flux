@@ -347,7 +347,7 @@ async function handleZelAppRunningMessage(message, fromIP) {
     // do furtherVerification of message
     // eslint-disable-next-line global-require
     const zelappsService = require('./zelappsService');
-    const rebroadcastToPeers = await zelappsService.storeZelAppRunningMessage(message.data, true);
+    const rebroadcastToPeers = await zelappsService.storeZelAppRunningMessage(message.data);
     if (rebroadcastToPeers === true) {
       const messageString = serviceHelper.ensureString(message);
       const wsListOut = outgoingConnections.filter((client) => client._socket.remoteAddress !== fromIP);
