@@ -73,31 +73,6 @@
     </div>
     <div v-if="zelAdminSection === 'manageflux'">
       <p>
-        Manage your Crux ID. In case of additional node rewards, users can send you assets to the following Crux ID.
-      </p>
-      <br>
-      <el-input
-        class="width25"
-        placeholder="Crux ID"
-        v-model="cruxidInput"
-      >
-      </el-input>
-      <br>
-      <el-popconfirm
-        confirmButtonText='Update'
-        cancelButtonText='No, Thanks'
-        icon="el-icon-info"
-        iconColor="orange"
-        title="Flux will now update your Crux ID."
-        @onConfirm="adjustCruxID()"
-        @confirm="adjustCruxID()"
-      >
-        <ElButton slot="reference">
-          Update Crux ID
-        </ElButton>
-      </el-popconfirm>
-      <el-divider></el-divider>
-      <p>
         Running Kadena node makes you eligible for Kadena Rewards. Adjust your Kadena Account and Chain ID to ensure the reward distribution.
       </p>
       <br>
