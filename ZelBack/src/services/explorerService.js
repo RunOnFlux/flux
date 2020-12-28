@@ -357,9 +357,9 @@ async function processBlock(blockHeight) {
       const result = await serviceHelper.collectionStats(database, utxoIndexCollection);
       const resultB = await serviceHelper.collectionStats(database, addressTransactionIndexCollection);
       const resultC = await serviceHelper.collectionStats(database, zelnodeTransactionCollection);
-      log.info('UTXO documents', result.size, result.count, result.avgObjSize);
-      log.info('ADDR documents', resultB.size, resultB.count, resultB.avgObjSize);
-      log.info('ZELNODE documents', resultC.size, resultC.count, resultC.avgObjSize);
+      log.info(`UTXO documents: ${result.size}, ${result.count}, ${result.avgObjSize}`);
+      log.info(`ADDR documents: ${resultB.size}, ${resultB.count}, ${resultB.avgObjSize}`);
+      log.info(`ZELNODE documents: ${resultC.size}, ${resultC.count}, ${resultC.avgObjSize}`);
       if (blockDataVerbose.height >= config.zelapps.epochstart) {
         zelappsService.expireGlobalApplications();
       }
