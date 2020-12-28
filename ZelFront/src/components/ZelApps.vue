@@ -221,7 +221,7 @@
                   :key="location.ip"
                 >
                   <p>{{ location.ip }}
-                    <ElButton @click="openSite('http://' + location.ip + ':' + props.row.port)">
+                    <ElButton @click="openZelApp(props.row.name, location.ip, props.row.port)">
                       Visit
                     </ElButton>
                   </p>
@@ -462,7 +462,7 @@
                   :key="location.ip"
                 >
                   <p>{{ location.ip }}
-                    <ElButton @click="openSite('http://' + location.ip + ':' + props.row.port)">
+                    <ElButton @click="openZelApp(props.row.name, location.ip, props.row.port)">
                       Visit
                     </ElButton>
                   </p>
@@ -529,7 +529,7 @@
                   :key="location.ip"
                 >
                   <p>{{ location.ip }}
-                    <ElButton @click="openSite('http://' + location.ip + ':' + props.row.port)">
+                    <ElButton @click="openZelApp(props.row.name, location.ip, props.row.port)">
                       Visit
                     </ElButton>
                   </p>
@@ -958,7 +958,7 @@
                 sortable
               >
                 <template slot-scope="scope">
-                  <ElButton @click="openSite('http://' + scope.row.ip + ':' + callBResponse.data.port)">
+                  <ElButton @click="openZelApp(scope.row.name, scope.row.ip, callBResponse.data.port)">
                     Visit
                   </ElButton>
                 </template>
@@ -2512,15 +2512,19 @@ export default {
     installedZelApp(zelappName) {
       return this.installedZelApps.data.find((zelapp) => zelapp.name === zelappName);
     },
-    openZelApp(name) {
+    openZelApp(name, _ip, _port) {
       let zelappInfo = this.installedZelApp(name);
       if (!zelappInfo) {
         zelappInfo = this.installedZelApp(`zel${name}`);
       }
-      if (zelappInfo) {
+      if (zelappInfo || (_port && _ip)) {
         const backendURL = store.get('backendURL') || `http://${this.userconfig.externalip}:${this.config.apiPort}`;
-        const ip = backendURL.split(':')[1].split('//')[1];
-        const url = `http://${ip}:${zelappInfo.port}`;
+        const ip = _ip || backendURL.split(':')[1].split('//')[1];
+        const port = _port || zelappInfo.port;
+        let url = `http://${ip}:${port}`;
+        if (name === 'KadenaChainWebNode') {
+          url = `https://${ip}:${port}/chainweb/0.0/mainnet01/cut`;
+        }
         this.openSite(url);
       } else {
         vue.$customMes.error('Unable to open ZelApp :(');
