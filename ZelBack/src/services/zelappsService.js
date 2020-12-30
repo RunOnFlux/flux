@@ -1307,7 +1307,7 @@ async function createZelAppVolume(zelAppSpecifications, res) {
       res.write(serviceHelper.ensureString(cronStatus));
     }
     const crontab = await crontabLoad();
-    const jobs = await crontab.jobs();
+    const jobs = crontab.jobs();
     let exists = false;
     jobs.forEach((job) => {
       if (job.comment() === zelappId) {
@@ -1315,13 +1315,13 @@ async function createZelAppVolume(zelAppSpecifications, res) {
       }
     });
     if (!exists) {
-      const job = await crontab.create(execMount, '@reboot', zelappId);
+      const job = crontab.create(execMount, '@reboot', zelappId);
       // check valid
       if (job == null) {
         throw new Error('Failed to create valid cron job');
       }
       // save
-      await crontab.save();
+      crontab.save();
     }
     const cronStatusB = {
       status: 'Crontab adjusted.',
@@ -1580,16 +1580,7 @@ async function removeZelAppLocally(zelapp, res, force = false, endResponse = tru
       }
     });
     if (crontab) {
-      const jobs = await crontab.jobs().catch((e) => {
-        log.error(e);
-        const cronE = {
-          status: 'An error occured while getting crontab jobs. Continuing...',
-        };
-        log.info(cronE);
-        if (res) {
-          res.write(serviceHelper.ensureString(cronE));
-        }
-      });
+      const jobs = crontab.jobs();
       // find correct cronjob
       let jobToRemove;
       jobs.forEach((job) => {
@@ -1604,18 +1595,11 @@ async function removeZelAppLocally(zelapp, res, force = false, endResponse = tru
       });
       // remove the job
       if (jobToRemove) {
-        await crontab.remove(jobToRemove).catch((e) => {
-          log.error(e);
-          const cronE = {
-            status: 'An error occured while removing crontab job. Continuing...',
-          };
-          log.info(cronE);
-          if (res) {
-            res.write(serviceHelper.ensureString(cronE));
-          }
-        });
+        crontab.remove(jobToRemove);
         // save
-        await crontab.save().catch((e) => {
+        try {
+          crontab.save();
+        } catch (e) {
           log.error(e);
           const cronE = {
             status: 'An error occured while saving crontab. Continuing...',
@@ -1624,7 +1608,7 @@ async function removeZelAppLocally(zelapp, res, force = false, endResponse = tru
           if (res) {
             res.write(serviceHelper.ensureString(cronE));
           }
-        });
+        }
         const cronStatusDone = {
           status: 'Crontab Adjusted.',
         };
