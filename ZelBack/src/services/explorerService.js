@@ -138,17 +138,11 @@ async function getSender(txid, vout) {
   };
 
   // find and delete the utxo from global utxo list
-  const txContent = await serviceHelper.findOneAndDeleteInDatabase(database, utxoIndexCollection, query, projection).catch((error) => {
-    log.error(error);
-    throw error;
-  });
+  const txContent = await serviceHelper.findOneAndDeleteInDatabase(database, utxoIndexCollection, query, projection);
   if (!txContent.value) {
     // we are spending it anyway so it wont affect users balance
     log.info(`Transaction ${txid} ${vout} not found in database. Falling back to blockchain data`);
-    const zelcashSender = await getSenderTransactionFromZelCash(txid).catch((error) => {
-      log.error(error);
-      throw error;
-    });
+    const zelcashSender = await getSenderTransactionFromZelCash(txid);
     const senderData = zelcashSender.vout[vout];
     const zelcashTxContent = {
       // txid,
