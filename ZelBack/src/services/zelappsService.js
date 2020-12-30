@@ -24,6 +24,7 @@ const fluxDirPath = path.join(__dirname, '../../../');
 const zelappsFolder = `${fluxDirPath}ZelApps/`;
 
 const cmdAsync = util.promisify(nodecmd.get);
+const crontabLoad = util.promisify(systemcrontab.load);
 
 const docker = new Docker();
 
@@ -1305,32 +1306,23 @@ async function createZelAppVolume(zelAppSpecifications, res) {
     if (res) {
       res.write(serviceHelper.ensureString(cronStatus));
     }
-    systemcrontab.load((err, crontab) => {
-      if (err) {
-        throw err;
+    const crontab = await crontabLoad();
+    const jobs = await crontab.jobs();
+    let exists = false;
+    jobs.forEach((job) => {
+      if (job.comment() === zelappId) {
+        exists = true;
       }
-      const jobs = crontab.jobs();
-      let exists = false;
-      jobs.forEach((job) => {
-        if (job.comment() === zelappId) {
-          exists = true;
-        }
-      });
-      if (exists) {
-        return;
-      }
-      const job = crontab.create(execMount, '@reboot', zelappId);
+    });
+    if (!exists) {
+      const job = await crontab.create(execMount, '@reboot', zelappId);
       // check valid
       if (job == null) {
         throw new Error('Failed to create valid cron job');
       }
       // save
-      crontab.save((errb) => {
-        if (errb) {
-          throw errb;
-        }
-      });
-    });
+      await crontab.save();
+    }
     const cronStatusB = {
       status: 'Crontab adjusted.',
     };
@@ -1576,21 +1568,28 @@ async function removeZelAppLocally(zelapp, res, force = false, endResponse = tru
     if (res) {
       res.write(serviceHelper.ensureString(cronStatus));
     }
-    systemcrontab.load((err, crontab) => {
-      if (err) {
-        log.error(err);
+
+    const crontab = await crontabLoad().catch((e) => {
+      log.error(e);
+      const cronE = {
+        status: 'An error occured while loading crontab. Continuing...',
+      };
+      log.info(cronE);
+      if (res) {
+        res.write(serviceHelper.ensureString(cronE));
+      }
+    });
+    if (crontab) {
+      const jobs = await crontab.jobs().catch((e) => {
+        log.error(e);
         const cronE = {
-          status: 'An error occured while loading crontab. Continuing...',
+          status: 'An error occured while getting crontab jobs. Continuing...',
         };
         log.info(cronE);
         if (res) {
           res.write(serviceHelper.ensureString(cronE));
         }
-      }
-      // show all jobs
-      const jobs = crontab.jobs();
-      console.log(jobs);
-
+      });
       // find correct cronjob
       let jobToRemove;
       jobs.forEach((job) => {
@@ -1605,18 +1604,25 @@ async function removeZelAppLocally(zelapp, res, force = false, endResponse = tru
       });
       // remove the job
       if (jobToRemove) {
-        crontab.remove(jobToRemove);
+        await crontab.remove(jobToRemove).catch((e) => {
+          log.error(e);
+          const cronE = {
+            status: 'An error occured while removing crontab job. Continuing...',
+          };
+          log.info(cronE);
+          if (res) {
+            res.write(serviceHelper.ensureString(cronE));
+          }
+        });
         // save
-        crontab.save((errb) => {
-          if (errb) {
-            log.error(errb);
-            const cronE = {
-              status: 'An error occured while saving crontab. Continuing...',
-            };
-            log.info(cronE);
-            if (res) {
-              res.write(serviceHelper.ensureString(cronE));
-            }
+        await crontab.save().catch((e) => {
+          log.error(e);
+          const cronE = {
+            status: 'An error occured while saving crontab. Continuing...',
+          };
+          log.info(cronE);
+          if (res) {
+            res.write(serviceHelper.ensureString(cronE));
           }
         });
         const cronStatusDone = {
@@ -1635,7 +1641,7 @@ async function removeZelAppLocally(zelapp, res, force = false, endResponse = tru
           res.write(serviceHelper.ensureString(cronStatusNotFound));
         }
       }
-    });
+    }
 
     if (volumepath) {
       const cleaningVolumeStatus = {
