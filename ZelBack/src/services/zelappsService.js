@@ -11,6 +11,7 @@ const fs = require('fs');
 const formidable = require('formidable');
 const LRU = require('lru-cache');
 const archiver = require('archiver');
+const systemcrontab = require('crontab');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
 const zelfluxCommunication = require('./zelfluxCommunication');
@@ -1296,11 +1297,48 @@ async function createZelAppVolume(zelAppSpecifications, res) {
     if (res) {
       res.write(serviceHelper.ensureString(finaliseSpace2));
     }
-    const message = serviceHelper.createSuccessMessage('ZelApp volume creation completed.');
 
-    // TODO set up cron here for automount volume on reboot. Use cron for safety of boot
-    // TODO at removal remove cron if exists
-    // TODO at removal remove FLUXFSVOL
+    const cronStatus = {
+      status: 'Creating crontab...',
+    };
+    log.info(cronStatus);
+    if (res) {
+      res.write(serviceHelper.ensureString(cronStatus));
+    }
+    systemcrontab.load((err, crontab) => {
+      if (err) {
+        throw err;
+      }
+      const jobs = crontab.jobs();
+      let exists = false;
+      jobs.forEach((job) => {
+        if (job.comment() === zelappId) {
+          exists = true;
+        }
+      });
+      if (exists) {
+        return;
+      }
+      const job = crontab.create(execMount, '@reboot', zelappId);
+      // check valid
+      if (job == null) {
+        throw new Error('Failed to create valid cron job');
+      }
+      // save
+      crontab.save((errb) => {
+        if (errb) {
+          throw errb;
+        }
+      });
+    });
+    const cronStatusB = {
+      status: 'Crontab adjusted.',
+    };
+    log.info(cronStatusB);
+    if (res) {
+      res.write(serviceHelper.ensureString(cronStatusB));
+    }
+    const message = serviceHelper.createSuccessMessage('ZelApp volume creation completed.');
     return message;
   } catch (error) {
     // delete allocation, then uninstall as cron may not have been set
@@ -1511,13 +1549,120 @@ async function removeZelAppLocally(zelapp, res, force = false, endResponse = tru
       res.write(serviceHelper.ensureString(cleaningStatus));
     }
     const execDelete = `sudo rm -rf ${zelappsFolder + zelappId}`;
-    await cmdAsync(execDelete);
+    await cmdAsync(execDelete).catch((e) => {
+      log.error(e);
+      const cleaningStatusE = {
+        status: 'An error occured while cleaning data. Continuing...',
+      };
+      log.info(cleaningStatusE);
+      if (res) {
+        res.write(serviceHelper.ensureString(cleaningStatusE));
+      }
+    });
     const cleaningStatus2 = {
       status: 'Data cleaned',
     };
     log.info(cleaningStatus2);
     if (res) {
       res.write(serviceHelper.ensureString(cleaningStatus2));
+    }
+
+    let volumepath;
+    // CRONTAB
+    const cronStatus = {
+      status: 'Adjusting crontab...',
+    };
+    log.info(cronStatus);
+    if (res) {
+      res.write(serviceHelper.ensureString(cronStatus));
+    }
+    systemcrontab.load((err, crontab) => {
+      if (err) {
+        log.error(err);
+        const cronE = {
+          status: 'An error occured while loading crontab. Continuing...',
+        };
+        log.info(cronE);
+        if (res) {
+          res.write(serviceHelper.ensureString(cronE));
+        }
+      }
+      // show all jobs
+      const jobs = crontab.jobs();
+      console.log(jobs);
+
+      // find correct cronjob
+      let jobToRemove;
+      jobs.forEach((job) => {
+        if (job.comment() === zelappId) {
+          jobToRemove = job;
+          // find the command that tells us where the actual fsvol is;
+          const command = job.command();
+          const cmdsplit = command.split(' ');
+          // eslint-disable-next-line prefer-destructuring
+          volumepath = cmdsplit[4]; // sudo mount -o loop /home/abcapp2TEMP /root/zelflux/ZelApps/abcapp2 is an example
+        }
+      });
+      // remove the job
+      if (jobToRemove) {
+        crontab.remove(jobToRemove);
+        // save
+        crontab.save((errb) => {
+          if (errb) {
+            log.error(errb);
+            const cronE = {
+              status: 'An error occured while saving crontab. Continuing...',
+            };
+            log.info(cronE);
+            if (res) {
+              res.write(serviceHelper.ensureString(cronE));
+            }
+          }
+        });
+        const cronStatusDone = {
+          status: 'Crontab Adjusted.',
+        };
+        log.info(cronStatusDone);
+        if (res) {
+          res.write(serviceHelper.ensureString(cronStatusDone));
+        }
+      } else {
+        const cronStatusNotFound = {
+          status: 'Crontab not found.',
+        };
+        log.info(cronStatusNotFound);
+        if (res) {
+          res.write(serviceHelper.ensureString(cronStatusNotFound));
+        }
+      }
+    });
+
+    if (volumepath) {
+      const cleaningVolumeStatus = {
+        status: 'Cleaning up data volume...',
+      };
+      log.info(cleaningVolumeStatus);
+      if (res) {
+        res.write(serviceHelper.ensureString(cleaningVolumeStatus));
+      }
+      const execVolumeDelete = `sudo rm -rf ${volumepath}`;
+      await cmdAsync(execVolumeDelete).catch((e) => {
+        log.error(e);
+        const cleaningVolumeStatusE = {
+          status: 'An error occured while cleaning volume. Continuing...',
+        };
+        log.info(cleaningVolumeStatusE);
+        if (res) {
+          res.write(serviceHelper.ensureString(cleaningVolumeStatusE));
+        }
+      });
+      const cleaningVolumeStatus2 = {
+        status: 'Volume cleaned',
+      };
+      log.info(cleaningVolumeStatus2);
+      if (res) {
+        res.write(serviceHelper.ensureString(cleaningVolumeStatus2));
+      }
     }
 
     const databaseStatus = {
