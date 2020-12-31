@@ -138,17 +138,11 @@ async function getSender(txid, vout) {
   };
 
   // find and delete the utxo from global utxo list
-  const txContent = await serviceHelper.findOneAndDeleteInDatabase(database, utxoIndexCollection, query, projection).catch((error) => {
-    log.error(error);
-    throw error;
-  });
+  const txContent = await serviceHelper.findOneAndDeleteInDatabase(database, utxoIndexCollection, query, projection);
   if (!txContent.value) {
     // we are spending it anyway so it wont affect users balance
     log.info(`Transaction ${txid} ${vout} not found in database. Falling back to blockchain data`);
-    const zelcashSender = await getSenderTransactionFromZelCash(txid).catch((error) => {
-      log.error(error);
-      throw error;
-    });
+    const zelcashSender = await getSenderTransactionFromZelCash(txid);
     const senderData = zelcashSender.vout[vout];
     const zelcashTxContent = {
       // txid,
@@ -357,9 +351,9 @@ async function processBlock(blockHeight) {
       const result = await serviceHelper.collectionStats(database, utxoIndexCollection);
       const resultB = await serviceHelper.collectionStats(database, addressTransactionIndexCollection);
       const resultC = await serviceHelper.collectionStats(database, zelnodeTransactionCollection);
-      log.info('UTXO documents', result.size, result.count, result.avgObjSize);
-      log.info('ADDR documents', resultB.size, resultB.count, resultB.avgObjSize);
-      log.info('ZELNODE documents', resultC.size, resultC.count, resultC.avgObjSize);
+      log.info(`UTXO documents: ${result.size}, ${result.count}, ${result.avgObjSize}`);
+      log.info(`ADDR documents: ${resultB.size}, ${resultB.count}, ${resultB.avgObjSize}`);
+      log.info(`ZELNODE documents: ${resultC.size}, ${resultC.count}, ${resultC.avgObjSize}`);
       if (blockDataVerbose.height >= config.zelapps.epochstart) {
         zelappsService.expireGlobalApplications();
       }

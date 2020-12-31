@@ -11,6 +11,7 @@ const fs = require('fs');
 const formidable = require('formidable');
 const LRU = require('lru-cache');
 const archiver = require('archiver');
+const systemcrontab = require('crontab');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
 const zelfluxCommunication = require('./zelfluxCommunication');
@@ -23,6 +24,7 @@ const fluxDirPath = path.join(__dirname, '../../../');
 const zelappsFolder = `${fluxDirPath}ZelApps/`;
 
 const cmdAsync = util.promisify(nodecmd.get);
+const crontabLoad = util.promisify(systemcrontab.load);
 
 const docker = new Docker();
 
@@ -1122,9 +1124,7 @@ async function createZelAppVolume(zelAppSpecifications, res) {
     precision: 0,
   };
 
-  const dfres = await dfAsync(options).catch((error) => {
-    throw error;
-  });
+  const dfres = await dfAsync(options);
   const okVolumes = [];
   dfres.forEach((volume) => {
     if (volume.filesystem.includes('/dev/') && !volume.filesystem.includes('loop') && !volume.mount.includes('boot')) {
@@ -1186,139 +1186,177 @@ async function createZelAppVolume(zelAppSpecifications, res) {
     res.write(serviceHelper.ensureString(searchSpace2));
   }
 
-  const allocateSpace = {
-    status: 'Allocating space, this may take a while...',
-  };
-  log.info(allocateSpace);
-  if (res) {
-    res.write(serviceHelper.ensureString(allocateSpace));
-  }
-  // space hdd * 10, thats why 0 at the end. As we have 100mb bs.
-  let execDD = `sudo dd if=/dev/zero of=${useThisVolume.mount}/${zelappId}TEMP bs=107374182 count=${zelAppSpecifications.hdd}0`; // eg /mnt/sthMounted/zelappTEMP
-  if (useThisVolume.mount === '/') {
-    execDD = `sudo dd if=/dev/zero of=${useThisVolume.mount}tmp/${zelappId}TEMP bs=107374182 count=${zelAppSpecifications.hdd}0`; // if root mount then temp file is /tmp/zelappTEMP
-  }
-  await cmdAsync(execDD);
-  const allocateSpace2 = {
-    status: 'Space allocated',
-  };
-  log.info(allocateSpace2);
-  if (res) {
-    res.write(serviceHelper.ensureString(allocateSpace2));
-  }
+  try {
+    const allocateSpace = {
+      status: 'Allocating space, this may take a while...',
+    };
+    log.info(allocateSpace);
+    if (res) {
+      res.write(serviceHelper.ensureString(allocateSpace));
+    }
+    // space hdd * 10, thats why 0 at the end. As we have 100mb bs.
+    let execDD = `sudo dd if=/dev/zero of=${useThisVolume.mount}/${zelappId}FLUXFSVOL bs=107374182 count=${zelAppSpecifications.hdd}0`; // eg /mnt/sthMounted/zelappTEMP
+    if (useThisVolume.mount === '/') {
+      execDD = `sudo dd if=/dev/zero of=${fluxDirPath}appvolumes/${zelappId}FLUXFSVOL bs=107374182 count=${zelAppSpecifications.hdd}0`; // if root mount then temp file is /tmp/zelappTEMP
+    }
+    await cmdAsync(execDD);
+    const allocateSpace2 = {
+      status: 'Space allocated',
+    };
+    log.info(allocateSpace2);
+    if (res) {
+      res.write(serviceHelper.ensureString(allocateSpace2));
+    }
 
-  const makeFilesystem = {
-    status: 'Creating filesystem...',
-  };
-  log.info(makeFilesystem);
-  if (res) {
-    res.write(serviceHelper.ensureString(makeFilesystem));
-  }
-  let execFS = `sudo mke2fs -t ext4 ${useThisVolume.mount}/${zelappId}TEMP`;
-  if (useThisVolume.mount === '/') {
-    execFS = `sudo mke2fs -t ext4 ${useThisVolume.mount}tmp/${zelappId}TEMP`;
-  }
-  await cmdAsync(execFS);
-  const makeFilesystem2 = {
-    status: 'Filesystem created',
-  };
-  log.info(makeFilesystem2);
-  if (res) {
-    res.write(serviceHelper.ensureString(makeFilesystem2));
-  }
+    const makeFilesystem = {
+      status: 'Creating filesystem...',
+    };
+    log.info(makeFilesystem);
+    if (res) {
+      res.write(serviceHelper.ensureString(makeFilesystem));
+    }
+    let execFS = `sudo mke2fs -t ext4 ${useThisVolume.mount}/${zelappId}FLUXFSVOL`;
+    if (useThisVolume.mount === '/') {
+      execFS = `sudo mke2fs -t ext4 ${fluxDirPath}appvolumes/${zelappId}FLUXFSVOL`;
+    }
+    await cmdAsync(execFS);
+    const makeFilesystem2 = {
+      status: 'Filesystem created',
+    };
+    log.info(makeFilesystem2);
+    if (res) {
+      res.write(serviceHelper.ensureString(makeFilesystem2));
+    }
 
-  const makeDirectory = {
-    status: 'Making directory...',
-  };
-  log.info(makeDirectory);
-  if (res) {
-    res.write(serviceHelper.ensureString(makeDirectory));
-  }
-  const execDIR = `sudo mkdir -p ${zelappsFolder + zelappId}`;
-  await cmdAsync(execDIR);
-  const makeDirectory2 = {
-    status: 'Directory made',
-  };
-  log.info(makeDirectory2);
-  if (res) {
-    res.write(serviceHelper.ensureString(makeDirectory2));
-  }
+    const makeDirectory = {
+      status: 'Making directory...',
+    };
+    log.info(makeDirectory);
+    if (res) {
+      res.write(serviceHelper.ensureString(makeDirectory));
+    }
+    const execDIR = `sudo mkdir -p ${zelappsFolder + zelappId}`;
+    await cmdAsync(execDIR);
+    const makeDirectory2 = {
+      status: 'Directory made',
+    };
+    log.info(makeDirectory2);
+    if (res) {
+      res.write(serviceHelper.ensureString(makeDirectory2));
+    }
 
-  const mountingStatus = {
-    status: 'Mounting volume...',
-  };
-  log.info(mountingStatus);
-  if (res) {
-    res.write(serviceHelper.ensureString(mountingStatus));
-  }
-  let execMount = `sudo mount -o loop ${useThisVolume.mount}/${zelappId}TEMP ${zelappsFolder + zelappId}`;
-  if (useThisVolume.mount === '/') {
-    execMount = `sudo mount -o loop ${useThisVolume.mount}tmp/${zelappId}TEMP ${zelappsFolder + zelappId}`;
-  }
-  await cmdAsync(execMount);
-  const mountingStatus2 = {
-    status: 'Volume mounted',
-  };
-  log.info(execMount);
-  if (res) {
-    res.write(serviceHelper.ensureString(mountingStatus2));
-  }
+    const mountingStatus = {
+      status: 'Mounting volume...',
+    };
+    log.info(mountingStatus);
+    if (res) {
+      res.write(serviceHelper.ensureString(mountingStatus));
+    }
+    let execMount = `sudo mount -o loop ${useThisVolume.mount}/${zelappId}FLUXFSVOL ${zelappsFolder + zelappId}`;
+    if (useThisVolume.mount === '/') {
+      execMount = `sudo mount -o loop ${fluxDirPath}appvolumes/${zelappId}FLUXFSVOL ${zelappsFolder + zelappId}`;
+    }
+    await cmdAsync(execMount);
+    const mountingStatus2 = {
+      status: 'Volume mounted',
+    };
+    log.info(execMount);
+    if (res) {
+      res.write(serviceHelper.ensureString(mountingStatus2));
+    }
 
-  const aloocationRemoval = {
-    status: 'Removing allocation...',
-  };
-  log.info(aloocationRemoval);
-  if (res) {
-    res.write(serviceHelper.ensureString(aloocationRemoval));
-  }
-  let execRemoveAlloc = `sudo rm -rf ${useThisVolume.mount}/${zelappId}TEMP`;
-  if (useThisVolume.mount === '/') {
-    execRemoveAlloc = `sudo rm -rf ${useThisVolume.mount}tmp/${zelappId}TEMP`;
-  }
-  await cmdAsync(execRemoveAlloc);
-  const aloocationRemoval2 = {
-    status: 'Allocation removed',
-  };
-  log.info(aloocationRemoval2);
-  if (res) {
-    res.write(serviceHelper.ensureString(aloocationRemoval2));
-  }
+    const spaceVerification = {
+      status: 'Beginning space verification. This may take a while...',
+    };
+    log.info(spaceVerification);
+    if (res) {
+      res.write(serviceHelper.ensureString(spaceVerification));
+    }
+    const execVerif = `sudo dd if=/dev/zero of=${zelappsFolder + zelappId}/${zelappId}VERTEMP bs=96636763 count=${zelAppSpecifications.hdd}0`; // 90%
+    await cmdAsync(execVerif);
+    const spaceVerification2 = {
+      status: 'Verification written...',
+    };
+    log.info(spaceVerification2);
+    if (res) {
+      res.write(serviceHelper.ensureString(spaceVerification2));
+    }
 
-  const spaceVerification = {
-    status: 'Beginning space verification. This may take a while...',
-  };
-  log.info(spaceVerification);
-  if (res) {
-    res.write(serviceHelper.ensureString(spaceVerification));
-  }
-  const execVerif = `sudo dd if=/dev/zero of=${zelappsFolder + zelappId}/${zelappId}VERTEMP bs=96636763 count=${zelAppSpecifications.hdd}0`; // 90%
-  await cmdAsync(execVerif);
-  const spaceVerification2 = {
-    status: 'Verification written...',
-  };
-  log.info(spaceVerification2);
-  if (res) {
-    res.write(serviceHelper.ensureString(spaceVerification2));
-  }
+    const finaliseSpace = {
+      status: 'Finalising space assignment',
+    };
+    log.info(finaliseSpace);
+    if (res) {
+      res.write(serviceHelper.ensureString(finaliseSpace));
+    }
+    const execFinal = `sudo rm -rf ${zelappsFolder + zelappId}/${zelappId}VERTEMP`;
+    await cmdAsync(execFinal);
+    const finaliseSpace2 = {
+      status: `Space for ZelApp ${zelAppSpecifications.name} created and assigned.`,
+    };
+    log.info(finaliseSpace2);
+    if (res) {
+      res.write(serviceHelper.ensureString(finaliseSpace2));
+    }
 
-  const finaliseSpace = {
-    status: 'Finalising space assignment',
-  };
-  log.info(finaliseSpace);
-  if (res) {
-    res.write(serviceHelper.ensureString(finaliseSpace));
+    const cronStatus = {
+      status: 'Creating crontab...',
+    };
+    log.info(cronStatus);
+    if (res) {
+      res.write(serviceHelper.ensureString(cronStatus));
+    }
+    const crontab = await crontabLoad();
+    const jobs = crontab.jobs();
+    let exists = false;
+    jobs.forEach((job) => {
+      if (job.comment() === zelappId) {
+        exists = true;
+      }
+    });
+    if (!exists) {
+      const job = crontab.create(execMount, '@reboot', zelappId);
+      // check valid
+      if (job == null) {
+        throw new Error('Failed to create valid cron job');
+      }
+      // save
+      crontab.save();
+    }
+    const cronStatusB = {
+      status: 'Crontab adjusted.',
+    };
+    log.info(cronStatusB);
+    if (res) {
+      res.write(serviceHelper.ensureString(cronStatusB));
+    }
+    const message = serviceHelper.createSuccessMessage('ZelApp volume creation completed.');
+    return message;
+  } catch (error) {
+    // delete allocation, then uninstall as cron may not have been set
+    const cleaningRemoval = {
+      status: 'ERROR OCCURED: Pre-removal cleaning...',
+    };
+    log.info(cleaningRemoval);
+    if (res) {
+      res.write(serviceHelper.ensureString(cleaningRemoval));
+    }
+    let execRemoveAlloc = `sudo rm -rf ${useThisVolume.mount}/${zelappId}FLUXFSVOL`;
+    if (useThisVolume.mount === '/') {
+      execRemoveAlloc = `sudo rm -rf ${fluxDirPath}appvolumes/${zelappId}FLUXFSVOL`;
+    }
+    await cmdAsync(execRemoveAlloc);
+    const execFinal = `sudo rm -rf ${zelappsFolder + zelappId}/${zelappId}VERTEMP`;
+    await cmdAsync(execFinal);
+    const aloocationRemoval2 = {
+      status: 'Pre-removal cleaning completed. Forcing removal.',
+    };
+    log.info(aloocationRemoval2);
+    if (res) {
+      res.write(serviceHelper.ensureString(aloocationRemoval2));
+    }
+    throw error;
   }
-  const execFinal = `sudo rm -rf ${zelappsFolder + zelappId}/${zelappId}VERTEMP`;
-  await cmdAsync(execFinal);
-  const finaliseSpace2 = {
-    status: `Space for ZelApp ${zelAppSpecifications.name} created and assigned.`,
-  };
-  log.info(finaliseSpace2);
-  if (res) {
-    res.write(serviceHelper.ensureString(finaliseSpace2));
-  }
-  const message = serviceHelper.createSuccessMessage('ZelApp volume creation completed.');
-  return message;
 }
 
 // force determines if some a check for app not found is skipped
@@ -1503,13 +1541,118 @@ async function removeZelAppLocally(zelapp, res, force = false, endResponse = tru
       res.write(serviceHelper.ensureString(cleaningStatus));
     }
     const execDelete = `sudo rm -rf ${zelappsFolder + zelappId}`;
-    await cmdAsync(execDelete);
+    await cmdAsync(execDelete).catch((e) => {
+      log.error(e);
+      const cleaningStatusE = {
+        status: 'An error occured while cleaning data. Continuing...',
+      };
+      log.info(cleaningStatusE);
+      if (res) {
+        res.write(serviceHelper.ensureString(cleaningStatusE));
+      }
+    });
     const cleaningStatus2 = {
       status: 'Data cleaned',
     };
     log.info(cleaningStatus2);
     if (res) {
       res.write(serviceHelper.ensureString(cleaningStatus2));
+    }
+
+    let volumepath;
+    // CRONTAB
+    const cronStatus = {
+      status: 'Adjusting crontab...',
+    };
+    log.info(cronStatus);
+    if (res) {
+      res.write(serviceHelper.ensureString(cronStatus));
+    }
+
+    const crontab = await crontabLoad().catch((e) => {
+      log.error(e);
+      const cronE = {
+        status: 'An error occured while loading crontab. Continuing...',
+      };
+      log.info(cronE);
+      if (res) {
+        res.write(serviceHelper.ensureString(cronE));
+      }
+    });
+    if (crontab) {
+      const jobs = crontab.jobs();
+      // find correct cronjob
+      let jobToRemove;
+      jobs.forEach((job) => {
+        if (job.comment() === zelappId) {
+          jobToRemove = job;
+          // find the command that tells us where the actual fsvol is;
+          const command = job.command();
+          const cmdsplit = command.split(' ');
+          // eslint-disable-next-line prefer-destructuring
+          volumepath = cmdsplit[4]; // sudo mount -o loop /home/abcapp2TEMP /root/zelflux/ZelApps/abcapp2 is an example
+        }
+      });
+      // remove the job
+      if (jobToRemove) {
+        crontab.remove(jobToRemove);
+        // save
+        try {
+          crontab.save();
+        } catch (e) {
+          log.error(e);
+          const cronE = {
+            status: 'An error occured while saving crontab. Continuing...',
+          };
+          log.info(cronE);
+          if (res) {
+            res.write(serviceHelper.ensureString(cronE));
+          }
+        }
+        const cronStatusDone = {
+          status: 'Crontab Adjusted.',
+        };
+        log.info(cronStatusDone);
+        if (res) {
+          res.write(serviceHelper.ensureString(cronStatusDone));
+        }
+      } else {
+        const cronStatusNotFound = {
+          status: 'Crontab not found.',
+        };
+        log.info(cronStatusNotFound);
+        if (res) {
+          res.write(serviceHelper.ensureString(cronStatusNotFound));
+        }
+      }
+    }
+
+    if (volumepath) {
+      const cleaningVolumeStatus = {
+        status: 'Cleaning up data volume...',
+      };
+      log.info(cleaningVolumeStatus);
+      if (res) {
+        res.write(serviceHelper.ensureString(cleaningVolumeStatus));
+      }
+      const execVolumeDelete = `sudo rm -rf ${volumepath}`;
+      await cmdAsync(execVolumeDelete).catch((e) => {
+        log.error(e);
+        const cleaningVolumeStatusE = {
+          status: 'An error occured while cleaning volume. Continuing...',
+        };
+        log.info(cleaningVolumeStatusE);
+        if (res) {
+          res.write(serviceHelper.ensureString(cleaningVolumeStatusE));
+        }
+      });
+      const cleaningVolumeStatus2 = {
+        status: 'Volume cleaned',
+      };
+      log.info(cleaningVolumeStatus2);
+      if (res) {
+        res.write(serviceHelper.ensureString(cleaningVolumeStatus2));
+      }
     }
 
     const databaseStatus = {
@@ -1873,7 +2016,7 @@ async function registerZelAppLocally(zelAppSpecifications, res) {
             res.write(serviceHelper.ensureString(errorResponse));
           }
 
-          const removeStatus = serviceHelper.createErrorMessage('Error occured. Initiating ZelApp removal');
+          const removeStatus = serviceHelper.createErrorMessage('Error in volume assigning occured. Initiating ZelApp removal');
           log.info(removeStatus);
           if (res) {
             res.write(serviceHelper.ensureString(removeStatus));
@@ -2378,9 +2521,9 @@ async function availableZelApps(req, res) {
       name: 'KadenaChainWebNode', // corresponds to docker name and this name is stored in zelapps mongo database
       description: 'Kadena is a fast, secure, and scalable blockchain using the Chainweb consensus protocol. '
         + 'Chainweb is a braided, parallelized Proof Of Work consensus mechanism that improves throughput and scalability in executing transactions on the blockchain while maintaining the security and integrity found in Bitcoin. '
-        + 'The healty information tells you if node is running. If you just installed the docker it can say unhealty for almost 1 hour because on first run a bootstrap is downloaded and extracted to make your node sync faster before the node is started. '
-        + 'Do not stop or restart the docker in the first hour after instal. To check if your kadena node is sycned go to https://yourPublicIp:30004/chainweb/0.0/mainnet01/cut and compare it with Kadena explorer. Thank you.',
-      repotag: 'kadena/chainweb-node:latest',
+        + 'The healthy information tells you if node is running. If you just installed the docker it can say unhealthy for almost 1 hour because on first run a bootstrap is downloaded and extracted to make your node sync faster before the node is started. '
+        + 'Do not stop or restart the docker in the first hour after installation. To check if your kadena node is synced, when the app is healthy, go to running apps and press visit button on kadena and compare your node height with Kadena explorer. Thank you.',
+      repotag: 'zelcash/kadena-chainweb-node:2.3',
       owner: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
       port: 30004,
       tiered: false,
@@ -5394,9 +5537,7 @@ async function getSpaceAvailableForZelShare() {
     precision: 0,
   };
 
-  const dfres = await dfAsync(options).catch((error) => {
-    throw error;
-  });
+  const dfres = await dfAsync(options);
   const okVolumes = [];
   dfres.forEach((volume) => {
     if (volume.filesystem.includes('/dev/') && !volume.filesystem.includes('loop') && !volume.mount.includes('boot')) {
