@@ -452,15 +452,18 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
     await serviceHelper.delay(1 * 60 * 1000);
     // await 1 minute just to give zelcash time to start, and start syncing, in case of vps reboot.
     const zelcashBlockChainInfo = await zelcashService.getBlockchainInfo();
-    log.info(zelcashBlockChainInfo);
-    const zelcashBlocks = zelcashBlockChainInfo.blocks;
-    const zelcashHeaders = zelcashBlockChainInfo.headers;
-    if (zelcashBlocks < (zelcashHeaders - 2)) {
-      log.info(`Daemon is not syncd blocks =${zelcashBlocks} headers=${zelcashHeaders}`);
-      this.initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRescanGlobalApps);
-      return;
+    if (zelcashBlockChainInfo.status === 'success') {
+      const zelcashBlocks = zelcashBlockChainInfo.data.blocks;
+      const zelcashHeaders = zelcashBlockChainInfo.data.headers;
+      if (zelcashBlocks < (zelcashHeaders - 2)) {
+        log.info(`Daemon is not syncd blocks =${zelcashBlocks} headers=${zelcashHeaders}`);
+        this.initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRescanGlobalApps);
+        return;
+      }
+      log.info('Zel Daemon is synced');
+    } else {
+      throw new Error(zelcashBlockChainInfo.data.message || zelcashBlockChainInfo.data);
     }
-    log.info('Zel Daemon is synced');
     if (isInInitiationOfBP) {
       return;
     }
