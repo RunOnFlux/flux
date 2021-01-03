@@ -448,21 +448,38 @@ async function restoreDatabaseToBlockheightState(height, rescanGlobalApps = fals
 // use reindexGlobalApps with caution!!!
 async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRescanGlobalApps) {
   try {
-    log.info('Lets check if zel daemon is syncd before starting the block processor');
-    await serviceHelper.delay(1 * 60 * 1000);
     // await 1 minute just to give zelcash time to start, and start syncing, in case of vps reboot.
+    await serviceHelper.delay(1 * 60 * 1000);
+    log.info('Checking if daemon is synced before starting the block processor');
     const zelcashBlockChainInfo = await zelcashService.getBlockchainInfo();
     if (zelcashBlockChainInfo.status === 'success') {
       const zelcashBlocks = zelcashBlockChainInfo.data.blocks;
       const zelcashHeaders = zelcashBlockChainInfo.data.headers;
       if (zelcashBlocks < (zelcashHeaders - 2)) {
         log.info(`Daemon is not syncd blocks =${zelcashBlocks} headers=${zelcashHeaders}`);
-        this.initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRescanGlobalApps);
+        if (zelcashHeaders - zelcashBlocks > 10000) {
+          setTimeout(() => {
+            initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRescanGlobalApps);
+          }, 15 * 60 * 1000);
+        } else if (zelcashHeaders - zelcashBlocks > 2500) {
+          setTimeout(() => {
+            initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRescanGlobalApps);
+          }, 10 * 60 * 1000);
+        } else {
+          setTimeout(() => {
+            initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRescanGlobalApps);
+          }, 5 * 60 * 1000);
+        }
         return;
       }
       log.info('Zel Daemon is synced');
     } else {
-      throw new Error(zelcashBlockChainInfo.data.message || zelcashBlockChainInfo.data);
+      log.error('Block processor encountered an error checking if daemon is synced.');
+      log.error(zelcashBlockChainInfo.data.message || zelcashBlockChainInfo.data);
+      setTimeout(() => {
+        initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRescanGlobalApps);
+      }, 5 * 60 * 1000);
+      return;
     }
     if (isInInitiationOfBP) {
       return;
