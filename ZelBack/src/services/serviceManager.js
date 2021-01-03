@@ -41,12 +41,15 @@ async function startFluxFunctions() {
     log.info('Flux Discovery started');
     zelfluxCommunication.keepConnectionsAlive();
     zelfluxCommunication.keepIncomingConnectionsAlive();
-    zelfluxCommunication.checkDeterministicNodesCollisions();
-    setInterval(() => {
-      zelfluxCommunication.checkDeterministicNodesCollisions();
-    }, 60000);
+    setTimeout(() => {
+      setInterval(() => {
+        zelfluxCommunication.checkDeterministicNodesCollisions();
+      }, 60000);
+    }, 5000);
     log.info('Flux checks operational');
-    explorerService.initiateBlockProcessor(true, true);
+    setTimeout(() => {
+      explorerService.initiateBlockProcessor(true, true);
+    }, 10000);
     setInterval(() => { // every 8 mins (4 blocks)
       zelappsService.continuousZelAppHashesCheck();
     }, 8 * 60 * 1000);

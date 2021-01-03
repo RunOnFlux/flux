@@ -1098,6 +1098,19 @@ async function checkDeterministicNodesCollisions() {
     // get zelnode list with filter on this ip address
     // if it returns more than 1 object, shut down.
     // another precatuion might be comparing zelnode list on multiple zelnodes. evaulate in the future
+    log.info('Checking if daemon is synced before checking for nodes colisions');
+    const zelcashBlockChainInfo = await zelcashService.getBlockchainInfo();
+    if (zelcashBlockChainInfo.status === 'success') {
+      const zelcashBlocks = zelcashBlockChainInfo.data.blocks;
+      const zelcashHeaders = zelcashBlockChainInfo.data.headers;
+      if (zelcashBlocks < (zelcashHeaders - 2)) {
+        log.info(`Daemon is not syncd blocks =${zelcashBlocks} headers=${zelcashHeaders} - nodes colisions will not run`);
+        return;
+      }
+      log.info('Zel Daemon is synced for checking nodes colisions');
+    } else {
+      throw new Error(zelcashBlockChainInfo.data.message || zelcashBlockChainInfo.data);
+    }
     const myIP = await myZelNodeIP();
     myFluxIP = myIP;
     if (myIP !== null) {

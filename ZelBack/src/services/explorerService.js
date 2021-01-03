@@ -456,30 +456,15 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
       const zelcashBlocks = zelcashBlockChainInfo.data.blocks;
       const zelcashHeaders = zelcashBlockChainInfo.data.headers;
       if (zelcashBlocks < (zelcashHeaders - 2)) {
-        log.info(`Daemon is not syncd blocks =${zelcashBlocks} headers=${zelcashHeaders}`);
-        if (zelcashHeaders - zelcashBlocks > 10000) {
-          setTimeout(() => {
-            initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRescanGlobalApps);
-          }, 15 * 60 * 1000);
-        } else if (zelcashHeaders - zelcashBlocks > 2500) {
-          setTimeout(() => {
-            initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRescanGlobalApps);
-          }, 10 * 60 * 1000);
-        } else {
-          setTimeout(() => {
-            initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRescanGlobalApps);
-          }, 5 * 60 * 1000);
-        }
+        log.info(`Daemon is not syncd blocks =${zelcashBlocks} headers=${zelcashHeaders} to start block processor`);
+        setTimeout(() => {
+          initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRescanGlobalApps);
+        }, 5 * 60 * 1000);
         return;
       }
-      log.info('Zel Daemon is synced');
+      log.info('Zel Daemon is synced to start block processor');
     } else {
-      log.error('Block processor encountered an error checking if daemon is synced.');
-      log.error(zelcashBlockChainInfo.data.message || zelcashBlockChainInfo.data);
-      setTimeout(() => {
-        initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRescanGlobalApps);
-      }, 5 * 60 * 1000);
-      return;
+      throw new Error(zelcashBlockChainInfo.data.message || zelcashBlockChainInfo.data);
     }
     if (isInInitiationOfBP) {
       return;
