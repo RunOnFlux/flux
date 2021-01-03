@@ -452,6 +452,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
     await serviceHelper.delay(1 * 60 * 1000);
     // await 1 minute just to give zelcash time to start, and start syncing, in case of vps reboot.
     const zelcashBlockChainInfo = await zelcashService.getBlockchainInfo();
+    log.info(zelcashBlockChainInfo);
     const zelcashBlocks = zelcashBlockChainInfo.blocks;
     const zelcashHeaders = zelcashBlockChainInfo.headers;
     if (zelcashBlocks < (zelcashHeaders - 2)) {
