@@ -446,22 +446,20 @@ async function restoreDatabaseToBlockheightState(height, rescanGlobalApps = fals
 
 // do a deepRestore of 100 blocks if ZelCash daemon if enouncters an error (mostly zel daemon was down) or if its initial start of flux
 // use reindexGlobalApps with caution!!!
-async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRescanGlobalApps, firstRun) {
+async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRescanGlobalApps) {
   try {
-    if (firstRun === true) {
-      log.info('Lets check if zel daemon is syncd before starting the block processor');
-      await serviceHelper.delay(1 * 60 * 1000);
-      // await 1 minute just to give zelcash time to start, and start syncing, in case of vps reboot.
-      const zelcashBlockChainInfo = await zelcashService.getBlockchainInfo();
-      const zelcashBlocks = zelcashBlockChainInfo.blocks;
-      const zelcashHeaders = zelcashBlockChainInfo.headers;
-      if (zelcashBlocks < (zelcashHeaders - 2)) {
-        log.info(`Daemon is not syncd blocks =${zelcashBlocks} headers=${zelcashHeaders}`);
-        this.initiateBlockProcessor(true, true);
-        return;
-      }
-      log.info('Zel Daemon is synced');
+    log.info('Lets check if zel daemon is syncd before starting the block processor');
+    await serviceHelper.delay(1 * 60 * 1000);
+    // await 1 minute just to give zelcash time to start, and start syncing, in case of vps reboot.
+    const zelcashBlockChainInfo = await zelcashService.getBlockchainInfo();
+    const zelcashBlocks = zelcashBlockChainInfo.blocks;
+    const zelcashHeaders = zelcashBlockChainInfo.headers;
+    if (zelcashBlocks < (zelcashHeaders - 2)) {
+      log.info(`Daemon is not syncd blocks =${zelcashBlocks} headers=${zelcashHeaders}`);
+      this.initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRescanGlobalApps);
+      return;
     }
+    log.info('Zel Daemon is synced');
     if (isInInitiationOfBP) {
       return;
     }

@@ -46,7 +46,7 @@ async function startFluxFunctions() {
       zelfluxCommunication.checkDeterministicNodesCollisions();
     }, 60000);
     log.info('Flux checks operational');
-    explorerService.initiateBlockProcessor(true, true, false, true);
+    explorerService.initiateBlockProcessor(true, true);
     setInterval(() => { // every 8 mins (4 blocks)
       zelappsService.continuousZelAppHashesCheck();
     }, 8 * 60 * 1000);
