@@ -37,7 +37,7 @@ async function startFluxFunctions() {
     await databaseTemp.collection(config.database.zelappsglobal.collections.zelappsLocations).createIndex({ broadcastedAt: 1 }, { expireAfterSeconds: 3900 });
     log.info('ZelApps locations prepared');
     zelfluxCommunication.adjustFirewall();
-    zelfluxCommunication.fluxDisovery();
+    zelfluxCommunication.fluxDiscovery();
     log.info('Flux Discovery started');
     zelfluxCommunication.keepConnectionsAlive();
     zelfluxCommunication.keepIncomingConnectionsAlive();

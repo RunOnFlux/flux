@@ -804,7 +804,27 @@ async function initiateAndHandleConnection(ip) {
   };
 }
 
-async function fluxDisovery() {
+async function fluxDiscovery() {
+  log.info('Checking if daemon is synced before starting fluxDiscovery');
+  const zelcashBlockChainInfo = await zelcashService.getBlockchainInfo();
+  if (zelcashBlockChainInfo.status === 'success') {
+    const zelcashBlocks = zelcashBlockChainInfo.data.blocks;
+    const zelcashHeaders = zelcashBlockChainInfo.data.headers;
+    if (zelcashBlocks < (zelcashHeaders - 4)) {
+      log.info(`Daemon is not syncd blocks =${zelcashBlocks} headers=${zelcashHeaders} - fluxDiscovery will not run`);
+      setTimeout(() => {
+        fluxDiscovery();
+      }, 15000);
+      return;
+    }
+    log.info('Zel Daemon is synced for starting fluxDiscovery');
+  } else {
+    log.error(zelcashBlockChainInfo.data.message || zelcashBlockChainInfo.data);
+    setTimeout(() => {
+      fluxDiscovery();
+    }, 15000);
+    return;
+  }
   const minPeers = 10;
   const maxPeers = 20;
   const zl = await deterministicZelNodeList();
@@ -827,7 +847,7 @@ async function fluxDisovery() {
   }
   // fast connect another peer as we do not have even enough connections to satisfy min or wait 1 min.
   setTimeout(() => {
-    fluxDisovery();
+    fluxDiscovery();
   }, outgoingConnections.length < minCon ? 1000 : 60 * 1000);
 }
 
@@ -1332,7 +1352,7 @@ module.exports = {
   verifyOriginalFluxBroadcast,
   verifyFluxBroadcast,
   handleIncomingConnection,
-  fluxDisovery,
+  fluxDiscovery,
   broadcastMessageToOutgoing,
   broadcastMessageToIncoming,
   broadcastMessageToOutgoingFromUser,
