@@ -37,26 +37,28 @@ async function startFluxFunctions() {
     await databaseTemp.collection(config.database.zelappsglobal.collections.zelappsLocations).createIndex({ broadcastedAt: 1 }, { expireAfterSeconds: 3900 });
     log.info('ZelApps locations prepared');
     zelfluxCommunication.adjustFirewall();
-    zelfluxCommunication.fluxDiscovery();
-    log.info('Flux Discovery started');
+    setTimeout(() => {
+      zelfluxCommunication.fluxDiscovery();
+      log.info('Flux Discovery started');
+    }, 3 * 60 * 1000);
     zelfluxCommunication.keepConnectionsAlive();
     zelfluxCommunication.keepIncomingConnectionsAlive();
     setTimeout(() => {
       setInterval(() => {
         zelfluxCommunication.checkDeterministicNodesCollisions();
       }, 60000);
-    }, 5000);
-    log.info('Flux checks operational');
+      log.info('Flux checks operational');
+    }, 3 * 60 * 1000);
     setTimeout(() => {
       explorerService.initiateBlockProcessor(true, true);
-    }, 10000);
+      log.info('Flux Block Processing Service started');
+    }, 5 * 60 * 1000);
     setInterval(() => { // every 8 mins (4 blocks)
       zelappsService.continuousZelAppHashesCheck();
     }, 8 * 60 * 1000);
     setInterval(() => { // every 4 mins (2 blocks)
       zelappsService.checkAndNotifyPeersOfRunningApps();
     }, 4 * 60 * 1000);
-    log.info('Flux Block Processing Service started');
     setTimeout(() => {
       // after 16 minutes of running ok.
       log.info('Starting to spawn applications');
