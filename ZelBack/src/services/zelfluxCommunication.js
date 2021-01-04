@@ -159,17 +159,9 @@ async function verifyFluxBroadcast(data, obtainedZelNodeList, currentTimeStamp) 
       return false;
     }
   }
-  if (!zelnode) {
-    const zl = await deterministicZelNodeList(pubKey); // this itself is sufficient.
-    if (zl.length === 1) {
-      if (zl[0].pubkey === pubKey) {
-        [zelnode] = zl;
-      }
-    }
-  }
-  if (!zelnode) { // if filtering fails, fetch all the list and run find method
+  if (!zelnode) { // use unfiltered list
     // eslint-disable-next-line no-param-reassign
-    obtainedZelNodeList = await deterministicZelNodeList(); // support for daemons that do not have filtering via public key
+    obtainedZelNodeList = await deterministicZelNodeList();
     zelnode = await obtainedZelNodeList.find((key) => key.pubkey === pubKey);
   }
   if (!zelnode) {
