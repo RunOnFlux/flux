@@ -225,8 +225,6 @@ async function processBlockTransactions(txs, height) {
     // eslint-disable-next-line no-await-in-loop
     const txContent = await processTransaction(transaction, height);
     transactions.push(txContent);
-    // eslint-disable-next-line no-await-in-loop
-    await serviceHelper.delay(15);
   }
   return transactions;
 }
