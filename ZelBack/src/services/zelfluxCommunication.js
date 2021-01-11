@@ -797,24 +797,22 @@ async function initiateAndHandleConnection(ip) {
 }
 
 async function fluxDiscovery() {
-  log.info('Checking if daemon is synced before starting fluxDiscovery');
   const zelcashBlockChainInfo = await zelcashService.getBlockchainInfo();
   if (zelcashBlockChainInfo.status === 'success') {
     const zelcashBlocks = zelcashBlockChainInfo.data.blocks;
     const zelcashHeaders = zelcashBlockChainInfo.data.headers;
     if (zelcashBlocks < (zelcashHeaders - 4)) {
-      log.info(`Daemon is not syncd blocks =${zelcashBlocks} headers=${zelcashHeaders} - fluxDiscovery will not run`);
+      log.info(`Zel Daemon Sync status: ${zelcashBlocks}/${zelcashHeaders}`);
       setTimeout(() => {
         fluxDiscovery();
-      }, 15000);
+      }, 90 * 1000);
       return;
     }
-    log.info('Zel Daemon is synced for starting fluxDiscovery');
   } else {
-    log.error(zelcashBlockChainInfo.data.message || zelcashBlockChainInfo.data);
+    log.warn('Connection to node is not established');
     setTimeout(() => {
       fluxDiscovery();
-    }, 15000);
+    }, 90 * 1000);
     return;
   }
   const minPeers = 10;
@@ -1110,22 +1108,21 @@ async function checkDeterministicNodesCollisions() {
     // get zelnode list with filter on this ip address
     // if it returns more than 1 object, shut down.
     // another precatuion might be comparing zelnode list on multiple zelnodes. evaulate in the future
-    log.info('Checking if daemon is synced before checking for nodes colisions');
-    const zelcashBlockChainInfo = await zelcashService.getBlockchainInfo();
-    if (zelcashBlockChainInfo.status === 'success') {
-      const zelcashBlocks = zelcashBlockChainInfo.data.blocks;
-      const zelcashHeaders = zelcashBlockChainInfo.data.headers;
-      if (zelcashBlocks < (zelcashHeaders - 2)) {
-        log.info(`Daemon is not syncd blocks =${zelcashBlocks} headers=${zelcashHeaders} - nodes colisions will not run`);
-        return;
-      }
-      log.info('Zel Daemon is synced for checking nodes colisions');
-    } else {
-      throw new Error(zelcashBlockChainInfo.data.message || zelcashBlockChainInfo.data);
-    }
     const myIP = await myZelNodeIP();
     myFluxIP = myIP;
     if (myIP !== null) {
+      const zelcashBlockChainInfo = await zelcashService.getBlockchainInfo();
+      if (zelcashBlockChainInfo.status === 'success') {
+        const zelcashBlocks = zelcashBlockChainInfo.data.blocks;
+        const zelcashHeaders = zelcashBlockChainInfo.data.headers;
+        if (zelcashBlocks < (zelcashHeaders - 4)) {
+          log.info(`Zel Daemon Sync status: ${zelcashBlocks}/${zelcashHeaders}`);
+          return;
+        }
+      } else {
+        log.warn('Connection to node is not established');
+        throw new Error(zelcashBlockChainInfo.data.message || zelcashBlockChainInfo.data);
+      }
       const zelnodeList = await deterministicZelNodeList();
       const result = zelnodeList.filter((zelnode) => zelnode.ip === myIP);
       const zelnodeStatus = await zelcashService.getZelNodeStatus();

@@ -446,21 +446,17 @@ async function restoreDatabaseToBlockheightState(height, rescanGlobalApps = fals
 // use reindexGlobalApps with caution!!!
 async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRescanGlobalApps) {
   try {
-    // await 1 minute just to give zelcash time to start, and start syncing, in case of vps reboot.
-    await serviceHelper.delay(1 * 60 * 1000);
-    log.info('Checking if daemon is synced before starting the block processor');
     const zelcashBlockChainInfo = await zelcashService.getBlockchainInfo();
     if (zelcashBlockChainInfo.status === 'success') {
       const zelcashBlocks = zelcashBlockChainInfo.data.blocks;
       const zelcashHeaders = zelcashBlockChainInfo.data.headers;
-      if (zelcashBlocks < (zelcashHeaders - 2)) {
-        log.info(`Daemon is not syncd blocks =${zelcashBlocks} headers=${zelcashHeaders} to start block processor`);
+      log.info(`Zel Daemon Sync status: ${zelcashBlocks}/${zelcashHeaders}`);
+      if (zelcashBlocks < (zelcashHeaders - 4)) {
         setTimeout(() => {
           initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRescanGlobalApps);
-        }, 5 * 60 * 1000);
+        }, 2 * 60 * 1000);
         return;
       }
-      log.info('Zel Daemon is synced to start block processor');
     } else {
       throw new Error(zelcashBlockChainInfo.data.message || zelcashBlockChainInfo.data);
     }
