@@ -2534,7 +2534,7 @@ async function availableZelApps(req, res) {
       commands: ['/bin/bash', '-c', '(test -d /data/chainweb-db/0 && ./run-chainweb-node.sh) || (/chainweb/initialize-db.sh && ./run-chainweb-node.sh)'],
       containerPort: 30004,
       containerData: '/data', // cannot be root todo in verification
-      hash: 'localSpecificationsVersion3', // hash of app message
+      hash: 'localSpecificationsVersion4', // hash of app message
       height: 680000, // height of tx on which it was
     },
   ];
