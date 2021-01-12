@@ -225,8 +225,6 @@ async function processBlockTransactions(txs, height) {
     // eslint-disable-next-line no-await-in-loop
     const txContent = await processTransaction(transaction, height);
     transactions.push(txContent);
-    // eslint-disable-next-line no-await-in-loop
-    await serviceHelper.delay(15);
   }
   return transactions;
 }
@@ -448,6 +446,20 @@ async function restoreDatabaseToBlockheightState(height, rescanGlobalApps = fals
 // use reindexGlobalApps with caution!!!
 async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRescanGlobalApps) {
   try {
+    const zelcashBlockChainInfo = await zelcashService.getBlockchainInfo();
+    if (zelcashBlockChainInfo.status === 'success') {
+      const zelcashBlocks = zelcashBlockChainInfo.data.blocks;
+      const zelcashHeaders = zelcashBlockChainInfo.data.headers;
+      log.info(`Zel Daemon Sync status: ${zelcashBlocks}/${zelcashHeaders}`);
+      if (zelcashBlocks < (zelcashHeaders - 4)) {
+        setTimeout(() => {
+          initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRescanGlobalApps);
+        }, 2 * 60 * 1000);
+        return;
+      }
+    } else {
+      throw new Error(zelcashBlockChainInfo.data.message || zelcashBlockChainInfo.data);
+    }
     if (isInInitiationOfBP) {
       return;
     }

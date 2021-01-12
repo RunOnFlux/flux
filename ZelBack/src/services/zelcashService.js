@@ -27,14 +27,14 @@ const LRUoptions = {
 const cache = new LRU(LRUoptions);
 
 const LRUoptionsBlocks = {
-  max: 1500, // store 500 values for up to 20 seconds of other zelcash calls
+  max: 1500, // store 500 values for up to 1 hour of other zelcash calls
   maxAge: 1000 * 60 * 60, // 1 hour
 };
 
 const blockCache = new LRU(LRUoptionsBlocks); // store 1.5k blocks in cache
 
 const LRUoptionsTxs = {
-  max: 30000, // store 500 values for up to 20 seconds of other zelcash calls
+  max: 30000, // store 500 values for up to 1 hour of other zelcash calls
   maxAge: 1000 * 60 * 60, // 1 hour
 };
 

@@ -159,17 +159,9 @@ async function verifyFluxBroadcast(data, obtainedZelNodeList, currentTimeStamp) 
       return false;
     }
   }
-  if (!zelnode) {
-    const zl = await deterministicZelNodeList(pubKey); // this itself is sufficient.
-    if (zl.length === 1) {
-      if (zl[0].pubkey === pubKey) {
-        [zelnode] = zl;
-      }
-    }
-  }
-  if (!zelnode) { // if filtering fails, fetch all the list and run find method
+  if (!zelnode) { // use unfiltered list
     // eslint-disable-next-line no-param-reassign
-    obtainedZelNodeList = await deterministicZelNodeList(); // support for daemons that do not have filtering via public key
+    obtainedZelNodeList = await deterministicZelNodeList();
     zelnode = await obtainedZelNodeList.find((key) => key.pubkey === pubKey);
   }
   if (!zelnode) {
@@ -804,7 +796,25 @@ async function initiateAndHandleConnection(ip) {
   };
 }
 
-async function fluxDisovery() {
+async function fluxDiscovery() {
+  const zelcashBlockChainInfo = await zelcashService.getBlockchainInfo();
+  if (zelcashBlockChainInfo.status === 'success') {
+    const zelcashBlocks = zelcashBlockChainInfo.data.blocks;
+    const zelcashHeaders = zelcashBlockChainInfo.data.headers;
+    if (zelcashBlocks < (zelcashHeaders - 4)) {
+      log.info(`Zel Daemon Sync status: ${zelcashBlocks}/${zelcashHeaders}`);
+      setTimeout(() => {
+        fluxDiscovery();
+      }, 90 * 1000);
+      return;
+    }
+  } else {
+    log.warn('Connection to node is not established');
+    setTimeout(() => {
+      fluxDiscovery();
+    }, 90 * 1000);
+    return;
+  }
   const minPeers = 10;
   const maxPeers = 20;
   const zl = await deterministicZelNodeList();
@@ -827,7 +837,7 @@ async function fluxDisovery() {
   }
   // fast connect another peer as we do not have even enough connections to satisfy min or wait 1 min.
   setTimeout(() => {
-    fluxDisovery();
+    fluxDiscovery();
   }, outgoingConnections.length < minCon ? 1000 : 60 * 1000);
 }
 
@@ -1101,6 +1111,18 @@ async function checkDeterministicNodesCollisions() {
     const myIP = await myZelNodeIP();
     myFluxIP = myIP;
     if (myIP !== null) {
+      const zelcashBlockChainInfo = await zelcashService.getBlockchainInfo();
+      if (zelcashBlockChainInfo.status === 'success') {
+        const zelcashBlocks = zelcashBlockChainInfo.data.blocks;
+        const zelcashHeaders = zelcashBlockChainInfo.data.headers;
+        if (zelcashBlocks < (zelcashHeaders - 4)) {
+          log.info(`Zel Daemon Sync status: ${zelcashBlocks}/${zelcashHeaders}`);
+          return;
+        }
+      } else {
+        log.warn('Connection to node is not established');
+        throw new Error(zelcashBlockChainInfo.data.message || zelcashBlockChainInfo.data);
+      }
       const zelnodeList = await deterministicZelNodeList();
       const result = zelnodeList.filter((zelnode) => zelnode.ip === myIP);
       const zelnodeStatus = await zelcashService.getZelNodeStatus();
@@ -1319,7 +1341,7 @@ module.exports = {
   verifyOriginalFluxBroadcast,
   verifyFluxBroadcast,
   handleIncomingConnection,
-  fluxDisovery,
+  fluxDiscovery,
   broadcastMessageToOutgoing,
   broadcastMessageToIncoming,
   broadcastMessageToOutgoingFromUser,
