@@ -1318,7 +1318,10 @@ async function createZelAppVolume(zelAppSpecifications, res) {
       const job = crontab.create(execMount, '@reboot', zelappId);
       // check valid
       if (job == null) {
-        throw new Error('Failed to create valid cron job');
+        throw new Error('Failed to create a cron job');
+      }
+      if (!job.isValid()) {
+        throw new Error('Failed to create a valid cron job');
       }
       // save
       crontab.save();
