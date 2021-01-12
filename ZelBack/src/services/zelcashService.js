@@ -2,6 +2,7 @@ const zelcashrpc = require('zelcashrpc');
 const fullnode = require('fullnode');
 const LRU = require('lru-cache');
 const serviceHelper = require('./serviceHelper');
+const log = require('../lib/log');
 const userconfig = require('../../../config/userconfig');
 
 const config = new fullnode.Config();
@@ -9,6 +10,9 @@ const isTestnet = userconfig.initial.testnet;
 const rpcuser = config.rpcuser() || 'rpcuser';
 const rpcpassword = config.rpcpassword() || 'rpcpassword';
 const rpcport = config.rpcport() || (isTestnet === true ? 26124 : 16124);
+
+let currentZelCashHeight = 0;
+let currentZelCashHeader = 770000;
 
 const client = new zelcashrpc.Client({
   port: rpcport,
@@ -2734,6 +2738,43 @@ async function stopZelBenchD(req, res) {
   return res ? res.json(response) : response;
 }
 
+function isZelCashSynced(req, res) {
+  const isSynced = {
+    header: currentZelCashHeader,
+    height: currentZelCashHeight,
+    synced: false,
+  };
+  if (currentZelCashHeight > currentZelCashHeader - 5) {
+    isSynced.synced = true;
+  }
+  const successResponse = serviceHelper.createDataMessage(isSynced);
+  return res ? res.json(successResponse) : successResponse;
+}
+
+async function zelcashBlockchainInfo() {
+  try {
+    const zelcashBlockChainInfo = await getBlockchainInfo();
+    if (zelcashBlockChainInfo.status === 'success') {
+      currentZelCashHeight = zelcashBlockChainInfo.data.blocks;
+      if (zelcashBlockChainInfo.data.headers > 770000) {
+        currentZelCashHeader = zelcashBlockChainInfo.data.headers;
+      }
+      log.info(`Zel Sync status: ${currentZelCashHeight}/${currentZelCashHeader}`);
+    } else {
+      log.error(zelcashBlockChainInfo.data.message || zelcashBlockChainInfo.data);
+    }
+  } catch (error) {
+    log.warn(error);
+  }
+}
+
+function zelcashBlockchainInfoService() {
+  zelcashBlockchainInfo();
+  setInterval(() => {
+    zelcashBlockchainInfo();
+  }, 60);
+}
+
 module.exports = {
   getConfigValue,
   // == Control ==
@@ -2914,4 +2955,8 @@ module.exports = {
   getBenchStatus,
   startZelBenchD,
   stopZelBenchD,
+
+  // == NON ZelCash ==
+  isZelCashSynced,
+  zelcashBlockchainInfoService,
 };

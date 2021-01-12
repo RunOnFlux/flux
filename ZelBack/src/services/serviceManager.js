@@ -5,6 +5,7 @@ const serviceHelper = require('./serviceHelper');
 const explorerService = require('./explorerService');
 const zelfluxCommunication = require('./zelfluxCommunication');
 const zelappsService = require('./zelappsService');
+const zelcashService = require('./zelcashService');
 
 async function startFluxFunctions() {
   try {
@@ -37,8 +38,12 @@ async function startFluxFunctions() {
     await databaseTemp.collection(config.database.zelappsglobal.collections.zelappsLocations).createIndex({ broadcastedAt: 1 }, { expireAfterSeconds: 3900 });
     log.info('ZelApps locations prepared');
     zelfluxCommunication.adjustFirewall();
+    log.info('Firewalls checked');
     zelfluxCommunication.keepConnectionsAlive();
     zelfluxCommunication.keepIncomingConnectionsAlive();
+    log.info('Connections polling prepared');
+    zelcashService.zelcashBlockchainInfoService();
+    log.info('Zel Info Service Started');
     zelfluxCommunication.checkDeterministicNodesCollisions();
     setInterval(() => {
       zelfluxCommunication.checkDeterministicNodesCollisions();
