@@ -50,13 +50,13 @@ async function startFluxFunctions() {
     }, 60000);
     log.info('Flux checks operational');
     setTimeout(() => {
+      zelfluxCommunication.fluxDiscovery();
+      log.info('Flux Discovery started');
+    }, 20 * 1000);
+    setTimeout(() => {
       explorerService.initiateBlockProcessor(true, true);
       log.info('Flux Block Processing Service started');
-    }, 10 * 60 * 1000);
-    setTimeout(() => {
-      zelfluxCommunication.fluxDiscovery();
-    }, 20 * 60 * 1000);
-    log.info('Flux Discovery started');
+    }, 40 * 1000);
     setInterval(() => { // every 8 mins (4 blocks)
       zelappsService.continuousZelAppHashesCheck();
     }, 8 * 60 * 1000);
