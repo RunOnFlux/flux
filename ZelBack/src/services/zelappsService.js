@@ -1313,7 +1313,7 @@ async function createZelAppVolume(zelAppSpecifications, res) {
       if (job.comment() === zelappId) {
         exists = true;
       }
-      if (job === null || !job.isValid()) {
+      if (!job || !job.isValid()) {
         // remove the job as its invalid anyway
         crontab.remove(job);
       }
@@ -1598,7 +1598,7 @@ async function removeZelAppLocally(zelapp, res, force = false, endResponse = tru
           const cmdsplit = command.split(' ');
           // eslint-disable-next-line prefer-destructuring
           volumepath = cmdsplit[4]; // sudo mount -o loop /home/abcapp2TEMP /root/zelflux/ZelApps/abcapp2 is an example
-          if (job === null || !job.isValid()) {
+          if (!job || !job.isValid()) {
             // remove the job as its invalid anyway
             crontab.remove(job);
           }

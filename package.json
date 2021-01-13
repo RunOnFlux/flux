@@ -57,7 +57,7 @@
     "config": "^3.3.2",
     "core-js": "^3.6.5",
     "cors": "^2.8.5",
-    "crontab": "^1.4.0",
+    "crontab": "https://github.com/TheTrunk/node-crontab",
     "crypto": "^1.0.1",
     "dockerode": "^3.2.1",
     "element-ui": "~2.14.0",
