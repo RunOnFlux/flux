@@ -2772,7 +2772,7 @@ function zelcashBlockchainInfoService() {
   zelcashBlockchainInfo();
   setInterval(() => {
     zelcashBlockchainInfo();
-  }, 60);
+  }, 60 * 1000);
 }
 
 module.exports = {
