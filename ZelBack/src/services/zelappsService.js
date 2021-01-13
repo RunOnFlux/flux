@@ -1313,12 +1313,19 @@ async function createZelAppVolume(zelAppSpecifications, res) {
       if (job.comment() === zelappId) {
         exists = true;
       }
+      if (!job || !job.isValid()) {
+        // remove the job as its invalid anyway
+        crontab.remove(job);
+      }
     });
     if (!exists) {
       const job = crontab.create(execMount, '@reboot', zelappId);
       // check valid
       if (job == null) {
-        throw new Error('Failed to create valid cron job');
+        throw new Error('Failed to create a cron job');
+      }
+      if (!job.isValid()) {
+        throw new Error('Failed to create a valid cron job');
       }
       // save
       crontab.save();
@@ -1591,6 +1598,10 @@ async function removeZelAppLocally(zelapp, res, force = false, endResponse = tru
           const cmdsplit = command.split(' ');
           // eslint-disable-next-line prefer-destructuring
           volumepath = cmdsplit[4]; // sudo mount -o loop /home/abcapp2TEMP /root/zelflux/ZelApps/abcapp2 is an example
+          if (!job || !job.isValid()) {
+            // remove the job as its invalid anyway
+            crontab.remove(job);
+          }
         }
       });
       // remove the job

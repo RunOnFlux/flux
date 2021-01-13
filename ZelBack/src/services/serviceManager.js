@@ -5,6 +5,7 @@ const serviceHelper = require('./serviceHelper');
 const explorerService = require('./explorerService');
 const zelfluxCommunication = require('./zelfluxCommunication');
 const zelappsService = require('./zelappsService');
+const zelcashService = require('./zelcashService');
 
 async function startFluxFunctions() {
   try {
@@ -37,21 +38,25 @@ async function startFluxFunctions() {
     await databaseTemp.collection(config.database.zelappsglobal.collections.zelappsLocations).createIndex({ broadcastedAt: 1 }, { expireAfterSeconds: 3900 });
     log.info('ZelApps locations prepared');
     zelfluxCommunication.adjustFirewall();
+    log.info('Firewalls checked');
     zelfluxCommunication.keepConnectionsAlive();
     zelfluxCommunication.keepIncomingConnectionsAlive();
+    log.info('Connections polling prepared');
+    zelcashService.zelcashBlockchainInfoService();
+    log.info('Zel Info Service Started');
     zelfluxCommunication.checkDeterministicNodesCollisions();
     setInterval(() => {
       zelfluxCommunication.checkDeterministicNodesCollisions();
     }, 60000);
     log.info('Flux checks operational');
     setTimeout(() => {
+      zelfluxCommunication.fluxDiscovery();
+      log.info('Flux Discovery started');
+    }, 20 * 1000);
+    setTimeout(() => {
       explorerService.initiateBlockProcessor(true, true);
       log.info('Flux Block Processing Service started');
-    }, 10 * 60 * 1000);
-    setTimeout(() => {
-      zelfluxCommunication.fluxDiscovery();
-    }, 20 * 60 * 1000);
-    log.info('Flux Discovery started');
+    }, 40 * 1000);
     setInterval(() => { // every 8 mins (4 blocks)
       zelappsService.continuousZelAppHashesCheck();
     }, 8 * 60 * 1000);
