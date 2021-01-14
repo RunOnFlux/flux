@@ -451,6 +451,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
       setTimeout(() => {
         initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRescanGlobalApps);
       }, 2 * 60 * 1000);
+      return;
     }
     if (isInInitiationOfBP) {
       return;
