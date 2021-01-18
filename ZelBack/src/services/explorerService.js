@@ -261,6 +261,13 @@ function decodeMessage(asm) {
 
 async function processBlock(blockHeight) {
   try {
+    const syncStatus = await zelcashService.isZelCashSynced();
+    if (!syncStatus.data.synced) {
+      setTimeout(() => {
+        processBlock(blockHeight);
+      }, 2 * 60 * 1000);
+      return;
+    }
     someBlockIsProcessing = true;
     const db = serviceHelper.databaseConnection();
     const database = db.db(config.database.zelcash.database);
