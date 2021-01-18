@@ -60,7 +60,7 @@
     "crontab": "~1.4.1",
     "crypto": "^1.0.1",
     "dockerode": "^3.2.1",
-    "element-ui": "~2.14.0",
+    "element-ui": "~2.15.0",
     "express": "^4.17.1",
     "express-ws": "^4.0.0",
     "formidable": "2.0.0-canary.20200504.1",
