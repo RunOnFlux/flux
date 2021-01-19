@@ -87,37 +87,32 @@ async function myZelNodeIP() {
   return myIP;
 }
 
+// get deterministc ZelNode list from cache
+// filter can only be a publicKey!
 async function deterministicZelNodeList(filter) {
   try {
     const request = {
-      params: {
-      },
+      params: {},
       query: {},
     };
-    let zelnodeList = [];
+    let zelnodeList;
     if (filter) {
       zelnodeList = myCache.get(`zelnodeList${serviceHelper.ensureString(filter)}`);
-      if (zelnodeList) {
-        return zelnodeList;
-      }
+    } else {
+      zelnodeList = myCache.get('zelnodeList');
     }
-    zelnodeList = myCache.get('zelnodeList');
     if (!zelnodeList) {
       // not present in cache lets get zelnodelist again and cache it.
       const zelcashZelNodeList = await zelcashService.viewDeterministicZelNodeList(request);
       if (zelcashZelNodeList.status === 'success') {
         zelnodeList = zelcashZelNodeList.data || [];
         zelnodeList.forEach((item) => {
-          myCache.set(`zelnodeList${serviceHelper.ensureString(item.pubkey)}`, item);
+          myCache.set(`zelnodeList${serviceHelper.ensureString(item.pubkey)}`, [item]);
         });
         myCache.set('zelnodeList', zelnodeList);
       }
       if (filter) {
         zelnodeList = myCache.get(`zelnodeList${serviceHelper.ensureString(filter)}`);
-        if (zelnodeList) {
-          return zelnodeList;
-        }
-        return [];
       }
     }
     return zelnodeList || [];
