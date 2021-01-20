@@ -28,7 +28,7 @@ let myFluxIP = null;
 let response = serviceHelper.createErrorMessage();
 // default cache
 const LRUoptions = {
-  max: 250, // store 250 values, we shall not have more values at any period
+  max: 2000, // currently 750 nodes lets put a value expecting increase in the numbers.
   maxAge: 1000 * 150, // 150 seconds slightly over average blocktime. Allowing 1 block expired too.
 };
 
@@ -87,21 +87,32 @@ async function myZelNodeIP() {
   return myIP;
 }
 
+// get deterministc ZelNode list from cache
+// filter can only be a publicKey!
 async function deterministicZelNodeList(filter) {
   try {
     const request = {
-      params: {
-        filter,
-      },
+      params: {},
       query: {},
     };
-    let zelnodeList = [];
-    zelnodeList = myCache.get(`zelnodeList${serviceHelper.ensureString(filter)}`);
+    let zelnodeList;
+    if (filter) {
+      zelnodeList = myCache.get(`zelnodeList${serviceHelper.ensureString(filter)}`);
+    } else {
+      zelnodeList = myCache.get('zelnodeList');
+    }
     if (!zelnodeList) {
+      // not present in cache lets get zelnodelist again and cache it.
       const zelcashZelNodeList = await zelcashService.viewDeterministicZelNodeList(request);
       if (zelcashZelNodeList.status === 'success') {
         zelnodeList = zelcashZelNodeList.data || [];
-        myCache.set(`zelnodeList${serviceHelper.ensureString(filter)}`, zelnodeList); // can be zelnodeListundefined for main list
+        zelnodeList.forEach((item) => {
+          myCache.set(`zelnodeList${serviceHelper.ensureString(item.pubkey)}`, [item]);
+        });
+        myCache.set('zelnodeList', zelnodeList);
+      }
+      if (filter) {
+        zelnodeList = myCache.get(`zelnodeList${serviceHelper.ensureString(filter)}`);
       }
     }
     return zelnodeList || [];
@@ -159,10 +170,13 @@ async function verifyFluxBroadcast(data, obtainedZelNodeList, currentTimeStamp) 
       return false;
     }
   }
-  if (!zelnode) { // use unfiltered list
-    // eslint-disable-next-line no-param-reassign
-    obtainedZelNodeList = await deterministicZelNodeList();
-    zelnode = await obtainedZelNodeList.find((key) => key.pubkey === pubKey);
+  if (!zelnode) {
+    const zl = await deterministicZelNodeList(pubKey); // this itself is sufficient.
+    if (zl.length === 1) {
+      if (zl[0].pubkey === pubKey) {
+        [zelnode] = zl;
+      }
+    }
   }
   if (!zelnode) {
     return false;
