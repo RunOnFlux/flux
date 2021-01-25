@@ -99,7 +99,7 @@
     "mocha": "^6.2.2",
     "sass": "^1.26.11",
     "sass-loader": "^10.0.2",
-    "supertest": "^5.0.0",
+    "supertest": "^6.1.2",
     "vue-template-compiler": "^2.6.12"
   }
 }
