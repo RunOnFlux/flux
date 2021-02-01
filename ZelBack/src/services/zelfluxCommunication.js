@@ -36,6 +36,8 @@ const myCache = new LRU(LRUoptions);
 const myMessageCache = new LRU(250);
 const blockedPubKeysCache = new LRU(LRUoptions);
 
+let addingNodesToCache = false;
+
 // basic check for a version of other flux.
 async function isFluxAvailable(ip) {
   const axiosConfig = {
@@ -92,6 +94,11 @@ async function myZelNodeIP() {
 // filter can only be a publicKey!
 async function deterministicZelNodeList(filter) {
   try {
+    if (addingNodesToCache === true) {
+      // prevent several instances filling the cache at the same time.
+      await serviceHelper.delay(100);
+      return deterministicZelNodeList(filter);
+    }
     const request = {
       params: {},
       query: {},
@@ -104,6 +111,7 @@ async function deterministicZelNodeList(filter) {
     }
     if (!zelnodeList) {
       // not present in cache lets get zelnodelist again and cache it.
+      addingNodesToCache = true;
       const zelcashZelNodeList = await zelcashService.viewDeterministicZelNodeList(request);
       if (zelcashZelNodeList.status === 'success') {
         zelnodeList = zelcashZelNodeList.data || [];
@@ -112,6 +120,7 @@ async function deterministicZelNodeList(filter) {
         });
         myCache.set('zelnodeList', zelnodeList);
       }
+      addingNodesToCache = false;
       if (filter) {
         zelnodeList = myCache.get(`zelnodeList${serviceHelper.ensureString(filter)}`);
       }
