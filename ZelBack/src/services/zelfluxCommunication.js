@@ -34,6 +34,7 @@ const LRUoptions = {
 
 const myCache = new LRU(LRUoptions);
 const myMessageCache = new LRU(250);
+const blockedPubKeysCache = new LRU(LRUoptions);
 
 // basic check for a version of other flux.
 async function isFluxAvailable(ip) {
@@ -458,63 +459,77 @@ function handleIncomingConnection(ws, req, expressWS) {
   incomingPeers.push(peer);
   // verify data integrity, if not signed, close connection
   ws.on('message', async (msg) => {
+    const dataObj = serviceHelper.ensureObject(msg);
+    const { pubKey } = dataObj;
+    if (blockedPubKeysCache.has(pubKey)) {
+      try {
+        ws.close(1008); // close as of policy violation?
+      } catch (e) {
+        console.error(e);
+      }
+      return;
+    }
     const currentTimeStamp = Date.now(); // ms
     const messageOK = await verifyFluxBroadcast(msg, undefined, currentTimeStamp);
-    const timestampOK = await verifyTimestampInFluxBroadcast(msg, currentTimeStamp);
-    if (messageOK === true && timestampOK === true) {
-      try {
-        const msgObj = serviceHelper.ensureObject(msg);
-        if (msgObj.data.type === 'zelappregister' || msgObj.data.type === 'zelappupdate') {
-          handleZelAppMessages(msgObj, peer.ip);
-        } else if (msgObj.data.type === 'zelapprequest') {
-          respondWithAppMessage(msgObj, ws);
-        } else if (msgObj.data.type === 'zelapprunning') {
-          handleZelAppRunningMessage(msgObj, ws);
-        } else if (msgObj.data.type === 'HeartBeat' && msgObj.data.message === 'ping') { // we know that data exists
-          const newMessage = msgObj.data;
-          newMessage.message = 'pong';
-          const pongResponse = await serialiseAndSignZelFluxBroadcast(newMessage);
-          try {
-            ws.send(pongResponse);
-          } catch (error) {
-            console.log(error);
-          }
-        } else if (msgObj.data.type === 'HeartBeat' && msgObj.data.message === 'pong') { // we know that data exists. This is measuring rtt from incoming conn
-          const newerTimeStamp = Date.now(); // ms, get a bit newer time that has passed verification of broadcast
-          const rtt = newerTimeStamp - msgObj.data.timestamp;
-          const ip = ws._socket.remoteAddress;
-          const foundPeer = incomingPeers.find((mypeer) => mypeer.ip === ip);
-          if (foundPeer) {
-            const peerIndex = incomingPeers.indexOf(foundPeer);
-            if (peerIndex > -1) {
-              incomingPeers[peerIndex].rtt = rtt;
+    if (messageOK === true) {
+      const timestampOK = await verifyTimestampInFluxBroadcast(msg, currentTimeStamp);
+      if (timestampOK === true) {
+        try {
+          const msgObj = serviceHelper.ensureObject(msg);
+          if (msgObj.data.type === 'zelappregister' || msgObj.data.type === 'zelappupdate') {
+            handleZelAppMessages(msgObj, peer.ip);
+          } else if (msgObj.data.type === 'zelapprequest') {
+            respondWithAppMessage(msgObj, ws);
+          } else if (msgObj.data.type === 'zelapprunning') {
+            handleZelAppRunningMessage(msgObj, ws);
+          } else if (msgObj.data.type === 'HeartBeat' && msgObj.data.message === 'ping') { // we know that data exists
+            const newMessage = msgObj.data;
+            newMessage.message = 'pong';
+            const pongResponse = await serialiseAndSignZelFluxBroadcast(newMessage);
+            try {
+              ws.send(pongResponse);
+            } catch (error) {
+              console.log(error);
+            }
+          } else if (msgObj.data.type === 'HeartBeat' && msgObj.data.message === 'pong') { // we know that data exists. This is measuring rtt from incoming conn
+            const newerTimeStamp = Date.now(); // ms, get a bit newer time that has passed verification of broadcast
+            const rtt = newerTimeStamp - msgObj.data.timestamp;
+            const ip = ws._socket.remoteAddress;
+            const foundPeer = incomingPeers.find((mypeer) => mypeer.ip === ip);
+            if (foundPeer) {
+              const peerIndex = incomingPeers.indexOf(foundPeer);
+              if (peerIndex > -1) {
+                incomingPeers[peerIndex].rtt = rtt;
+              }
+            }
+          } else {
+            try {
+              ws.send(`Flux ${userconfig.initial.ipaddress} says message received!`);
+            } catch (error) {
+              console.log(error);
             }
           }
-        } else {
-          try {
-            ws.send(`Flux ${userconfig.initial.ipaddress} says message received!`);
-          } catch (error) {
-            console.log(error);
-          }
+        } catch (e) {
+          log.error(e);
         }
-      } catch (e) {
-        log.error(e);
-      }
       // try rebroadcasting to all outgoing peers
       // try {
       //   sendToAllPeers(msg);
       // } catch (e) {
       //   log.error(e);
       // }
-    } else if (messageOK === true) {
-      try {
-        ws.send(`Flux ${userconfig.initial.ipaddress} says message received but your message is outdated!`);
-      } catch (e) {
-        console.error(e);
+      } else {
+        try {
+          ws.send(`Flux ${userconfig.initial.ipaddress} says message received but your message is outdated!`);
+        } catch (e) {
+          console.error(e);
+        }
       }
     } else {
       // we dont like this peer as it sent wrong message. Lets close the connection
+      // and add him to blocklist
       try {
+        blockedPubKeysCache.set(pubKey);
         ws.close(1008); // close as of policy violation?
       } catch (e) {
         console.error(e);
