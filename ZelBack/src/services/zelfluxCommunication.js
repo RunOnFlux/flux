@@ -161,7 +161,7 @@ async function verifyFluxBroadcast(data, obtainedZelNodeList, currentTimeStamp) 
   const { timestamp } = dataObj; // ms
   const { signature } = dataObj;
   const { version } = dataObj;
-  // onle version 1 is active
+  // only version 1 is active
   if (version !== 1) {
     return false;
   }
@@ -199,7 +199,7 @@ async function verifyFluxBroadcast(data, obtainedZelNodeList, currentTimeStamp) 
   return false;
 }
 
-// extends verifyFluxBroadcast by not allowing request older than 5 secs.
+// extends verifyFluxBroadcast by not allowing request older than 5 mins.
 async function verifyOriginalFluxBroadcast(data, obtainedZelNodeList, currentTimeStamp) {
   // eslint-disable-next-line no-param-reassign
   const dataObj = serviceHelper.ensureObject(data);
@@ -219,7 +219,7 @@ async function verifyTimestampInFluxBroadcast(data, currentTimeStamp) {
   const { timestamp } = dataObj; // ms
   // eslint-disable-next-line no-param-reassign
   currentTimeStamp = currentTimeStamp || Date.now(); // ms
-  if (currentTimeStamp < (timestamp + 300000)) { // bigger than 5 secs
+  if (currentTimeStamp < (timestamp + 300000)) { // bigger than 5 mins
     return true;
   }
   return false;
@@ -538,7 +538,7 @@ function handleIncomingConnection(ws, req, expressWS) {
       // we dont like this peer as it sent wrong message. Lets close the connection
       // and add him to blocklist
       try {
-        blockedPubKeysCache.set(pubKey);
+        blockedPubKeysCache.set(pubKey, pubKey);
         ws.close(1008); // close as of policy violation?
       } catch (e) {
         console.error(e);
