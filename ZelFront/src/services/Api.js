@@ -14,7 +14,7 @@ mybackend += protocol;
 mybackend += '//';
 const regex = /[A-Za-z]/g;
 if (hostname.match(regex)) {
-  const names = hostname.split['.'];
+  const names = hostname.split('.');
   names[0] = 'api';
   mybackend += names.join('.');
 } else {
