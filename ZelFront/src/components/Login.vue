@@ -6,7 +6,7 @@
     <div>
       <a
         @click="initiateLoginWS"
-        :href="'zel:?action=sign&message=' + loginPhrase + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Fzelcash%2Fzelflux%2Fmaster%2FZelFront%2Fsrc%2Fassets%2Fimg%2FzelID.svg&callback=http%3A%2F%2F' + userconfig.externalip + ':' + config.apiPort + '%2Fzelid%2Fverifylogin%2F'"
+        :href="'zel:?action=sign&message=' + loginPhrase + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Fzelcash%2Fzelflux%2Fmaster%2FZelFront%2Fsrc%2Fassets%2Fimg%2FzelID.svg&callback=' + callbackValue"
       >
         <img
           class="zelidLogin"
@@ -68,6 +68,7 @@ import Vue from 'vue';
 import zelIDService from '@/services/ZelIDService';
 
 const qs = require('qs');
+const store = require('store');
 
 Vue.use(Vuex);
 const vue = new Vue();
@@ -91,6 +92,25 @@ export default {
       'config',
       'userconfig',
     ]),
+    callbackValue() {
+      const { protocol, hostname } = window.location;
+      let mybackend = '';
+      mybackend += protocol;
+      mybackend += '//';
+      const regex = /[A-Za-z]/g;
+      if (hostname.match(regex)) {
+        const names = hostname.split('.');
+        names[0] = 'api';
+        mybackend += names.join('.');
+      } else {
+        mybackend += this.userconfig.externalip;
+        mybackend += ':';
+        mybackend += this.config.apiPort;
+      }
+      const backendURL = store.get('backendURL') || mybackend;
+      const url = `${backendURL}/zelid/verifylogin`;
+      return qs.stringify(url);
+    },
   },
   mounted() {
     const isChrome = !!window.chrome;
@@ -175,11 +195,7 @@ export default {
       const self = this;
       const { protocol, hostname } = window.location;
       let mybackend = '';
-      if (protocol.includes('https')) {
-        mybackend += 'wss:';
-      } else {
-        mybackend += 'ws:';
-      }
+      mybackend += protocol;
       mybackend += '//';
       const regex = /[A-Za-z]/g;
       if (hostname.match(regex)) {
@@ -191,7 +207,10 @@ export default {
         mybackend += ':';
         mybackend += this.config.apiPort;
       }
-      const wsuri = `${mybackend}/ws/zelid/${this.loginPhrase}`;
+      let backendURL = store.get('backendURL') || mybackend;
+      backendURL = backendURL.replace('https://', 'wss://');
+      backendURL = backendURL.replace('http://', 'ws://');
+      const wsuri = `${backendURL}/ws/zelid/${this.loginPhrase}`;
       const websocket = new WebSocket(wsuri);
       this.websocket = websocket;
 
