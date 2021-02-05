@@ -66,7 +66,8 @@ export default {
     let mybackend = '';
     mybackend += protocol;
     mybackend += '//';
-    if (hostname.matches('.*[a-z].*')) {
+    const regex = /[A-Za-z]/g;
+    if (hostname.match(regex)) {
       mybackend += hostname;
     } else {
       mybackend += this.userconfig.externalip;
