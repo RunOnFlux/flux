@@ -173,7 +173,22 @@ export default {
     },
     initiateLoginWS() {
       const self = this;
-      const wsuri = `ws://${this.userconfig.externalip}:${this.config.apiPort}/ws/zelid/${this.loginPhrase}`;
+      const { protocol, hostname } = window.location;
+      let mybackend = '';
+      if (protocol.includes('https')) {
+        mybackend += 'wss:';
+      } else {
+        mybackend += 'ws:';
+      }
+      mybackend += '//';
+      if (hostname.matches('.*[a-z].*')) {
+        mybackend += hostname;
+      } else {
+        mybackend += this.userconfig.externalip;
+        mybackend += ':';
+        mybackend += this.config.apiPort;
+      }
+      const wsuri = `${mybackend}/ws/zelid/${this.loginPhrase}`;
       const websocket = new WebSocket(wsuri);
       this.websocket = websocket;
 
