@@ -2109,7 +2109,7 @@ export default {
       }
       const backendURL = store.get('backendURL') || mybackend;
       const url = `${backendURL}/zelid/providesign`;
-      return qs.stringify(url);
+      return encodeURI(url);
     },
     applicationManagementAndStatus() {
       console.log(this.getAllZelAppsResponse);

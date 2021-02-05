@@ -109,7 +109,7 @@ export default {
       }
       const backendURL = store.get('backendURL') || mybackend;
       const url = `${backendURL}/zelid/verifylogin`;
-      return qs.stringify(url);
+      return encodeURI(url);
     },
   },
   mounted() {
