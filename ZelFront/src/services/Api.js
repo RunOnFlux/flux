@@ -8,7 +8,7 @@ const userconfig = require('../../../config/userconfig');
 const port = config.server.apiport;
 const externalip = userconfig.initial.ipaddress;
 
-const { protocol, hostname } = window.location;
+const {protocol, hostname} = window.location;
 let mybackend = '';
 mybackend += protocol;
 mybackend += '//';
@@ -27,8 +27,8 @@ const backendURL = store.get('backendURL') || mybackend;
 
 const sourceCancelToken = axios.CancelToken.source();
 
-export { sourceCancelToken };
+export {sourceCancelToken};
 
 export default () => axios.create({
-  baseURL: backendURL,
+  baseURL : backendURL,
 });
