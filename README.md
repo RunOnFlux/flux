@@ -28,10 +28,10 @@ This application communicates locally with the ZelCash Daemon (zelcashd), ZelBen
 
 - Provide communication with zelcashd
 - Providing private API, and public API, ZelNode team API (limited!)
-- sten and handel frontend requests
+- Listen and handle frontend requests
 - Requests signing and authenticity verifying
-- Handel communication with other zelnode daemons (Flux solution)
-- nanage ZelNode applications - smart spawning, distributing workload, termination depending of application subscription.
+- Handle communication with other zelnode daemons (Flux solution)
+- Manage ZelNode applications - smart spawning, distributing workload, termination depending of application subscription.
 - and more!
 
 ### Frontend Solution - zelfront
