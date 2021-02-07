@@ -27,7 +27,7 @@
           <h4>
             Added Height: <ElLink
               type="primary"
-              :href="'https://explorer.zel.cash/block-index/' + getZelNodeStatusResponse.data.added_height"
+              :href="'https://explorer.zel.network/block-index/' + getZelNodeStatusResponse.data.added_height"
               target="_blank"
               rel="noopener noreferrer"
             >{{ getZelNodeStatusResponse.data.added_height }}</ElLink>
@@ -35,7 +35,7 @@
           <h4>
             Confirmed Height: <ElLink
               type="primary"
-              :href="'https://explorer.zel.cash/block-index/' + getZelNodeStatusResponse.data.confirmed_height"
+              :href="'https://explorer.zel.network/block-index/' + getZelNodeStatusResponse.data.confirmed_height"
               target="_blank"
               rel="noopener noreferrer"
             >{{ getZelNodeStatusResponse.data.confirmed_height }}</ElLink>
@@ -43,7 +43,7 @@
           <h4>
             Last Confirmed Height: <ElLink
               type="primary"
-              :href="'https://explorer.zel.cash/block-index/' + getZelNodeStatusResponse.data.last_confirmed_height"
+              :href="'https://explorer.zel.network/block-index/' + getZelNodeStatusResponse.data.last_confirmed_height"
               target="_blank"
               rel="noopener noreferrer"
             >{{ getZelNodeStatusResponse.data.last_confirmed_height }}</ElLink>
@@ -51,7 +51,7 @@
           <h4>
             Last Paid Height: <ElLink
               type="primary"
-              :href="'https://explorer.zel.cash/block-index/' + getZelNodeStatusResponse.data.last_paid_height"
+              :href="'https://explorer.zel.network/block-index/' + getZelNodeStatusResponse.data.last_paid_height"
               target="_blank"
               rel="noopener noreferrer"
             >{{ getZelNodeStatusResponse.data.last_paid_height }}</ElLink>
@@ -59,7 +59,7 @@
           <h4>
             <ElLink
               type="primary"
-              :href="'https://explorer.zel.cash/tx/' + getZelNodeStatusResponse.data.txhash"
+              :href="'https://explorer.zel.network/tx/' + getZelNodeStatusResponse.data.txhash"
               target="_blank"
               rel="noopener noreferrer"
             >Show Locked transaction</ElLink>

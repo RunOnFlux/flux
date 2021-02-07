@@ -20,7 +20,7 @@ sudo apt-get purge zelbench -y >/dev/null 2>&1 && sleep 1
 sudo rm /etc/apt/sources.list.d/zelcash.list >/dev/null 2>&1 && sleep 1
 
 #Install zelbench apt package
-echo 'deb https://apt.zel.cash/ all main' | sudo tee /etc/apt/sources.list.d/zelcash.list
+echo 'deb https://apt.zel.network/ all main' | sudo tee /etc/apt/sources.list.d/zelcash.list
 gpg --keyserver keyserver.ubuntu.com --recv 4B69CA27A986265D
 gpg --export 4B69CA27A986265D | sudo apt-key add -
 sudo apt-get update

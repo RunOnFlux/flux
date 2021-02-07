@@ -14,6 +14,12 @@
           :value="`http://${userconfig.externalip}:${config.apiPort}`"
         >
         </el-option>
+        <el-option
+          key="HTTPS"
+          label="https://api.runonflux.io"
+          value="https://api.runonflux.io"
+        >
+        </el-option>
       </el-select>
     </div>
     <div class="footer-middle">
@@ -56,7 +62,21 @@ export default {
     ]),
   },
   mounted() {
-    this.backendURL = store.get('backendURL') || `http://${this.userconfig.externalip}:${this.config.apiPort}`;
+    const { protocol, hostname } = window.location;
+    let mybackend = '';
+    mybackend += protocol;
+    mybackend += '//';
+    const regex = /[A-Za-z]/g;
+    if (hostname.match(regex)) {
+      const names = hostname.split('.');
+      names[0] = 'api';
+      mybackend += names.join('.');
+    } else {
+      mybackend += this.userconfig.externalip;
+      mybackend += ':';
+      mybackend += this.config.apiPort;
+    }
+    this.backendURL = store.get('backendURL') || mybackend;
     const self = this;
     ZelNodeService.getZelFluxVersion()
       .then((response) => {

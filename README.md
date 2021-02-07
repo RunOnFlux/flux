@@ -4,6 +4,12 @@
 
 [![DeepScan grade](https://deepscan.io/api/teams/6436/projects/8442/branches/100920/badge/grade.svg)](https://deepscan.io/dashboard#view=project&tid=6436&pid=8442&bid=100920) [![CodeFactor](https://www.codefactor.io/repository/github/zelcash/zelflux/badge)](https://www.codefactor.io/repository/github/zelcash/zelflux)[![Language grade: JavaScript](https://img.shields.io/lgtm/grade/javascript/g/zelcash/zelflux.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/zelcash/zelflux/context:javascript)
 
+Flux is available on domains, load balancing the entire Flux network. You can access both UI and API on following main domain
+
+[Flux](https://home.runonflux.io)
+
+[API](https://api.runonflux.io)
+
 ## API Documentation
 
 [API documentation](https://zelcash.github.io/zelfluxdocs/)
@@ -20,28 +26,28 @@ This application communicates locally with the ZelCash Daemon (zelcashd), ZelBen
 
 ### Backend Solution - zelback
 
--   Provide communication with zelcashd
--   Providing private API, and public API, ZelNode team API (limited!)
--   Listen and handel frontend requests
--   Requests signing and authenticity verifying
--   Handel communication with other zelnode daemons (Flux solution)
--   Manage ZelNode applications - smart spawning, distributing workload, termination depending of application subscription.
--   and more!
+- Provide communication with zelcashd
+- Providing private API, and public API, ZelNode team API (limited!)
+- Listen and handle frontend requests
+- Requests signing and authenticity verifying
+- Handle communication with other zelnode daemons (Flux solution)
+- Manage ZelNode applications - smart spawning, distributing workload, termination depending of application subscription.
+- and more!
 
 ### Frontend Solution - zelfront
 
--   Display ZelNode status information
--   Display Zel Network information
--   Display ZelCash status information
--   Display ZelCash network information
--   Display Specific application information
--   Provide API access
--   Login into private API part (frontend part)
--   Login into ZelNode team API part (frontend part)
--   Private: Management of ZelNode
--   Private: Management of ZelCash
--   Private: Update, status information
--   and more!
+- Display ZelNode status information
+- Display Zel Network information
+- Display ZelCash status information
+- Display ZelCash network information
+- Display Specific application information
+- Provide API access
+- Login into private API part (frontend part)
+- Login into ZelNode team API part (frontend part)
+- Private: Management of ZelNode
+- Private: Management of ZelCash
+- Private: Update, status information
+- and more!
 
 This application is open source and distributed under the GNU AGPLv3 licence
 
@@ -50,6 +56,7 @@ This application is open source and distributed under the GNU AGPLv3 licence
 Flux needs Zelcashd to be ruuning, to setup Zelcashd follow [these instructions.](https://github.com/zelcash/ZelNodeInstallv3)
 
 build-essential is a recommended dependency
+
 ```bash
 
 sudo apt-get build-essential
