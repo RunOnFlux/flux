@@ -1907,7 +1907,7 @@ import Vuex, { mapState } from 'vuex';
 import Vue from 'vue';
 
 import ZelCashService from '@/services/ZelCashService';
-import ZelAppsService from '@/services/appsService';
+import ZelAppsService from '@/services/ZelAppsService';
 
 const ZelShare = () => import('@/components/ZelShare.vue');
 
