@@ -76,8 +76,8 @@ async function dockerCreateNetwork(options) {
   return network;
 }
 
-async function dockerRemoveNetwork(options) {
-  const network = await docker.removeNetwork(options);
+async function dockerRemoveNetwork(netw) {
+  const network = await netw.remove();
   return network;
 }
 
@@ -949,7 +949,8 @@ async function zelAppExec(req, res) {
 async function createFluxNetwork() {
   // todo remove after couple of updates
   try {
-    await dockerRemoveNetwork('zelfluxDockerNetwork');
+    const network = docker.getNetwork('zelfluxDockerNetwork');
+    await dockerRemoveNetwork(network);
   } catch (error) {
     log.warn(error);
   }
@@ -964,8 +965,8 @@ async function createFluxNetwork() {
     },
   };
   let fluxNetworkExists = true;
-  const networkID = docker.getNetwork(fluxNetworkOptions.Name);
-  await dockerNetworkInspect(networkID).catch(() => {
+  const network = docker.getNetwork(fluxNetworkOptions.Name);
+  await dockerNetworkInspect(network).catch(() => {
     fluxNetworkExists = false;
   });
   let response;
