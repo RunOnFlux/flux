@@ -76,6 +76,11 @@ async function dockerCreateNetwork(options) {
   return network;
 }
 
+async function dockerRemoveNetwork(options) {
+  const network = await docker.removeNetwork(options);
+  return network;
+}
+
 async function dockerNetworkInspect(netw) {
   const network = await netw.inspect();
   return network;
@@ -412,7 +417,7 @@ async function zelAppDockerCreate(zelAppSpecifications) {
       RestartPolicy: {
         Name: 'unless-stopped',
       },
-      NetworkMode: 'zelfluxDockerNetwork',
+      NetworkMode: 'fluxDockerNetwork',
       LogConfig: {
         Type: 'json-file',
         Config: {
@@ -942,13 +947,19 @@ async function zelAppExec(req, res) {
 }
 
 async function createFluxNetwork() {
-  // check if zelfluxDockerNetwork exists
+  // todo remove after couple of updates
+  try {
+    await dockerRemoveNetwork('zelfluxDockerNetwork');
+  } catch (error) {
+    log.warn(error);
+  }
+  // check if fluxDockerNetwork exists
   const fluxNetworkOptions = {
-    Name: 'zelfluxDockerNetwork',
+    Name: 'fluxDockerNetwork',
     IPAM: {
       Config: [{
-        Subnet: '172.16.0.0/16',
-        Gateway: '172.16.0.1',
+        Subnet: '172.15.0.0/16',
+        Gateway: '172.15.0.1',
       }],
     },
   };
@@ -1947,7 +1958,7 @@ async function registerZelAppLocally(zelAppSpecifications, res) {
       },
     };
 
-    // check if zelfluxDockerNetwork exists, if not create
+    // check if fluxDockerNetwork exists, if not create
     const fluxNetworkStatus = {
       status: 'Checking Flux network...',
     };
@@ -2193,7 +2204,7 @@ async function softRegisterZelAppLocally(zelAppSpecifications, res) {
       },
     };
 
-    // check if zelfluxDockerNetwork exists, if not create
+    // check if fluxDockerNetwork exists, if not create
     const fluxNetworkStatus = {
       status: 'Checking Flux network...',
     };
