@@ -423,7 +423,7 @@ import Vuex, { mapState } from 'vuex';
 import Vue from 'vue';
 import axios from 'axios';
 
-import ZelAppsService from '@/services/appsService';
+import ZelAppsService from '@/services/ZelAppsService';
 
 const store = require('store');
 
