@@ -1214,11 +1214,23 @@ async function createZelAppVolume(zelAppSpecifications, res) {
       res.write(serviceHelper.ensureString(allocateSpace));
     }
     // space hdd * 10, thats why 0 at the end. As we have 100mb bs.
-    let execDD = `sudo dd if=/dev/zero of=${useThisVolume.mount}/${zelappId}FLUXFSVOL bs=107374182 count=${zelAppSpecifications.hdd}0`; // eg /mnt/sthMounted/zelappTEMP
+    let execDD = `sudo dd if=/dev/zero of=${useThisVolume.mount}/${zelappId}FLUXFSVOL bs=107374182 count=${zelAppSpecifications.hdd}0 status=progress`; // eg /mnt/sthMounted/zelappTEMP
     if (useThisVolume.mount === '/') {
-      execDD = `sudo dd if=/dev/zero of=${fluxDirPath}appvolumes/${zelappId}FLUXFSVOL bs=107374182 count=${zelAppSpecifications.hdd}0`; // if root mount then temp file is /tmp/zelappTEMP
+      execDD = `sudo dd if=/dev/zero of=${fluxDirPath}appvolumes/${zelappId}FLUXFSVOL bs=107374182 count=${zelAppSpecifications.hdd}0 status=progress`; // if root mount then temp file is /tmp/zelappTEMP
     }
+    let iterationAlloc = 0;
+    global.allocationInterval = setInterval(() => {
+      iterationAlloc += 1;
+      const allocateSpaceB = {
+        status: `Space alocation is ruuning for ${20 * iterationAlloc}s. This may take quite some time...`,
+      };
+      log.info(allocateSpaceB);
+      if (res) {
+        res.write(serviceHelper.ensureString(allocateSpaceB));
+      }
+    }, 20 * 1000);
     await cmdAsync(execDD);
+    clearInterval(global.allocationInterval);
     const allocateSpace2 = {
       status: 'Space allocated',
     };
@@ -1291,8 +1303,20 @@ async function createZelAppVolume(zelAppSpecifications, res) {
     if (res) {
       res.write(serviceHelper.ensureString(spaceVerification));
     }
-    const execVerif = `sudo dd if=/dev/zero of=${zelappsFolder + zelappId}/${zelappId}VERTEMP bs=96636763 count=${zelAppSpecifications.hdd}0`; // 90%
+    const execVerif = `sudo dd if=/dev/zero of=${zelappsFolder + zelappId}/${zelappId}VERTEMP bs=96636763 count=${zelAppSpecifications.hdd}0 status=progress`; // 90%
+    let interationVerif = 0;
+    global.verificationInterval = setInterval(() => {
+      interationVerif += 1;
+      const spaceVerifB = {
+        status: `Space verification is ruuning for ${20 * interationVerif}s. This may take quite some time...`,
+      };
+      log.info(spaceVerifB);
+      if (res) {
+        res.write(serviceHelper.ensureString(spaceVerifB));
+      }
+    }, 20 * 1000);
     await cmdAsync(execVerif);
+    clearInterval(global.verificationInterval);
     const spaceVerification2 = {
       status: 'Verification written...',
     };
@@ -1359,6 +1383,8 @@ async function createZelAppVolume(zelAppSpecifications, res) {
     const message = serviceHelper.createSuccessMessage('ZelApp volume creation completed.');
     return message;
   } catch (error) {
+    clearInterval(global.allocationInterval);
+    clearInterval(global.verificationInterval);
     // delete allocation, then uninstall as cron may not have been set
     const cleaningRemoval = {
       status: 'ERROR OCCURED: Pre-removal cleaning...',
