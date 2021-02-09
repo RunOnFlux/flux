@@ -413,6 +413,13 @@ async function zelAppDockerCreate(zelAppSpecifications) {
         Name: 'unless-stopped',
       },
       NetworkMode: 'zelfluxDockerNetwork',
+      LogConfig: {
+        Type: 'json-file',
+        Config: {
+          'max-file': '1',
+          'max-size': '20m',
+        },
+      },
     },
   };
 
