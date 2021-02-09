@@ -6,15 +6,15 @@ const fs = require('fs').promises;
 const log = require('../lib/log');
 const packageJson = require('../../../package.json');
 const serviceHelper = require('./serviceHelper');
-const zelcashService = require('./zelcashService');
-const zelbenchService = require('./zelbenchService');
-const zelappsService = require('./zelappsService');
-const zelfluxCommunication = require('./zelfluxCommunication');
+const daemonService = require('./daemonService');
+const benchmarkService = require('./benchmarkService');
+const appsService = require('./appsService');
+const fluxCommunication = require('./fluxCommunication');
 const userconfig = require('../../../config/userconfig');
 
 // eslint-disable-next-line consistent-return
 async function updateZelFlux(req, res) {
-  const authorized = await serviceHelper.verifyAdminAndZelTeamSession(req.headers);
+  const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
   if (authorized === true) {
     const zelnodedpath = path.join(__dirname, '../../../');
     const exec = `cd ${zelnodedpath} && npm run updatezelflux`;
@@ -34,7 +34,7 @@ async function updateZelFlux(req, res) {
 
 // eslint-disable-next-line consistent-return
 async function hardUpdateZelFlux(req, res) {
-  const authorized = await serviceHelper.verifyAdminAndZelTeamSession(req.headers);
+  const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
   if (authorized === true) {
     const zelnodedpath = path.join(__dirname, '../../../');
     const exec = `cd ${zelnodedpath} && npm run hardupdatezelflux`;
@@ -54,7 +54,7 @@ async function hardUpdateZelFlux(req, res) {
 
 // eslint-disable-next-line consistent-return
 async function rebuildZelFront(req, res) {
-  const authorized = await serviceHelper.verifyAdminAndZelTeamSession(req.headers);
+  const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
   if (authorized === true) {
     const zelnodedpath = path.join(__dirname, '../../../');
     const exec = `cd ${zelnodedpath} && npm run zelfrontbuild`;
@@ -74,10 +74,10 @@ async function rebuildZelFront(req, res) {
 
 // eslint-disable-next-line consistent-return
 async function updateZelCash(req, res) {
-  const authorized = await serviceHelper.verifyAdminAndZelTeamSession(req.headers);
+  const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
   if (authorized === true) {
     const zelnodedpath = path.join(__dirname, '../../../helpers');
-    const exec = `cd ${zelnodedpath} && sh updateZelCash.sh`;
+    const exec = `cd ${zelnodedpath} && sh updateDaemon.sh`;
     cmd.get(exec, (err) => {
       if (err) {
         const errMessage = serviceHelper.createErrorMessage(`Error updating ZelCash: ${err.message}`, err.name, err.code);
@@ -94,10 +94,10 @@ async function updateZelCash(req, res) {
 
 // eslint-disable-next-line consistent-return
 async function updateZelBench(req, res) {
-  const authorized = await serviceHelper.verifyAdminAndZelTeamSession(req.headers);
+  const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
   if (authorized === true) {
     const zelnodedpath = path.join(__dirname, '../../../helpers');
-    const exec = `cd ${zelnodedpath} && sh updateZelBench.sh`;
+    const exec = `cd ${zelnodedpath} && sh updateBenchmark.sh`;
     cmd.get(exec, (err) => {
       if (err) {
         const errMessage = serviceHelper.createErrorMessage(`Error updating ZelBench: ${err.message}`, err.name, err.code);
@@ -114,7 +114,7 @@ async function updateZelBench(req, res) {
 
 // eslint-disable-next-line consistent-return
 async function startZelBench(req, res) {
-  const authorized = await serviceHelper.verifyAdminAndZelTeamSession(req.headers);
+  const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
   if (authorized === true) {
     const exec = 'zelbenchd -daemon';
     cmd.get(exec, (err, data) => {
@@ -134,10 +134,10 @@ async function startZelBench(req, res) {
 
 // eslint-disable-next-line consistent-return
 async function restartZelBench(req, res) {
-  const authorized = await serviceHelper.verifyAdminAndZelTeamSession(req.headers);
+  const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
   if (authorized === true) {
     const zelnodedpath = path.join(__dirname, '../../../helpers');
-    const exec = `cd ${zelnodedpath} && sh restartZelBench.sh`;
+    const exec = `cd ${zelnodedpath} && sh restartBenchmark.sh`;
     cmd.get(exec, (err) => {
       if (err) {
         const errMessage = serviceHelper.createErrorMessage(`Error restarting ZelBench: ${err.message}`, err.name, err.code);
@@ -155,7 +155,7 @@ async function restartZelBench(req, res) {
 
 // eslint-disable-next-line consistent-return
 async function startZelCash(req, res) {
-  const authorized = await serviceHelper.verifyAdminAndZelTeamSession(req.headers);
+  const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
   if (authorized === true) {
     const exec = 'zelcashd';
     cmd.get(exec, (err, data) => {
@@ -175,10 +175,10 @@ async function startZelCash(req, res) {
 
 // eslint-disable-next-line consistent-return
 async function restartZelCash(req, res) {
-  const authorized = await serviceHelper.verifyAdminAndZelTeamSession(req.headers);
+  const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
   if (authorized === true) {
     const zelnodedpath = path.join(__dirname, '../../../helpers');
-    const exec = `cd ${zelnodedpath} && sh restartZelCash.sh`;
+    const exec = `cd ${zelnodedpath} && sh restartDaemon.sh`;
     cmd.get(exec, (err) => {
       if (err) {
         const errMessage = serviceHelper.createErrorMessage(`Error restarting ZelCash: ${err.message}`, err.name, err.code);
@@ -199,7 +199,7 @@ async function reindexZelCash(req, res) {
   const authorized = await serviceHelper.verifyAdminSession(req.headers);
   if (authorized === true) {
     const zelnodedpath = path.join(__dirname, '../../../helpers');
-    const exec = `cd ${zelnodedpath} && sh reindexZelCash.sh`;
+    const exec = `cd ${zelnodedpath} && sh reindexDaemon.sh`;
     cmd.get(exec, (err) => {
       if (err) {
         const errMessage = serviceHelper.createErrorMessage(`Error reindexing ZelCash: ${err.message}`, err.name, err.code);
@@ -214,14 +214,14 @@ async function reindexZelCash(req, res) {
   }
 }
 
-function getZelFluxVersion(req, res) {
+function getFluxVersion(req, res) {
   const { version } = packageJson;
   const message = serviceHelper.createDataMessage(version);
   return res ? res.json(message) : message;
 }
 
 async function getZelFluxIP(req, res) {
-  const benchmarkResponse = await zelcashService.getBenchmarks();
+  const benchmarkResponse = await daemonService.getBenchmarks();
   let myIP = null;
   if (benchmarkResponse.status === 'success') {
     const benchmarkResponseData = JSON.parse(benchmarkResponse.data);
@@ -252,21 +252,21 @@ function getZelFluxKadena(req, res) {
 }
 
 async function zelcashDebug(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
+  const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
   if (!authorized) {
     const errMessage = serviceHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
   // check zelcash datadir
   const homeDirPath = path.join(__dirname, '../../../../');
-  const datadir = zelcashService.getConfigValue('datadir') || `${homeDirPath}.zelcash`;
+  const datadir = daemonService.getConfigValue('datadir') || `${homeDirPath}.zelcash`;
   const filepath = `${datadir}/debug.log`;
 
   return res.download(filepath, 'debug.log');
 }
 
 async function zelbenchDebug(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
+  const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
   if (!authorized) {
     const errMessage = serviceHelper.errUnauthorizedMessage();
     return res.json(errMessage);
@@ -279,10 +279,10 @@ async function zelbenchDebug(req, res) {
 }
 
 async function tailZelCashDebug(req, res) {
-  const authorized = await serviceHelper.verifyAdminAndZelTeamSession(req.headers);
+  const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
   if (authorized === true) {
     const homeDirPath = path.join(__dirname, '../../../../');
-    const datadir = zelcashService.getConfigValue('datadir') || `${homeDirPath}.zelcash`;
+    const datadir = daemonService.getConfigValue('datadir') || `${homeDirPath}.zelcash`;
     const filepath = `${datadir}/debug.log`;
     const exec = `tail -n 100 ${filepath}`;
     cmd.get(exec, (err, data) => {
@@ -301,7 +301,7 @@ async function tailZelCashDebug(req, res) {
 }
 
 async function tailZelBenchDebug(req, res) {
-  const authorized = await serviceHelper.verifyAdminAndZelTeamSession(req.headers);
+  const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
   if (authorized === true) {
     const homeDirPath = path.join(__dirname, '../../../../');
     const datadir = `${homeDirPath}.zelbenchmark`;
@@ -332,7 +332,7 @@ async function zelfluxLog(res, filelog) {
 
 async function zelfluxErrorLog(req, res) {
   try {
-    const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
+    const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
     if (!authorized) {
       const errMessage = serviceHelper.errUnauthorizedMessage();
       res.json(errMessage);
@@ -346,7 +346,7 @@ async function zelfluxErrorLog(req, res) {
 
 async function zelfluxWarnLog(req, res) {
   try {
-    const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
+    const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
     if (!authorized) {
       const errMessage = serviceHelper.errUnauthorizedMessage();
       res.json(errMessage);
@@ -360,7 +360,7 @@ async function zelfluxWarnLog(req, res) {
 
 async function zelfluxInfoLog(req, res) {
   try {
-    const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
+    const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
     if (!authorized) {
       const errMessage = serviceHelper.errUnauthorizedMessage();
       res.json(errMessage);
@@ -374,7 +374,7 @@ async function zelfluxInfoLog(req, res) {
 
 async function zelfluxDebugLog(req, res) {
   try {
-    const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
+    const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
     if (!authorized) {
       const errMessage = serviceHelper.errUnauthorizedMessage();
       res.json(errMessage);
@@ -387,7 +387,7 @@ async function zelfluxDebugLog(req, res) {
 }
 
 async function tailFluxLog(req, res, logfile) {
-  const authorized = await serviceHelper.verifyAdminAndZelTeamSession(req.headers);
+  const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
   if (authorized === true) {
     const homeDirPath = path.join(__dirname, '../../../../');
     const datadir = `${homeDirPath}zelflux`;
@@ -410,7 +410,7 @@ async function tailFluxLog(req, res, logfile) {
 
 async function tailFluxErrorLog(req, res) {
   try {
-    const authorized = await serviceHelper.verifyAdminAndZelTeamSession(req.headers);
+    const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
     if (authorized === true) {
       tailFluxLog(req, res, 'error');
     } else {
@@ -424,7 +424,7 @@ async function tailFluxErrorLog(req, res) {
 
 async function tailFluxWarnLog(req, res) {
   try {
-    const authorized = await serviceHelper.verifyAdminAndZelTeamSession(req.headers);
+    const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
     if (authorized === true) {
       tailFluxLog(req, res, 'warn');
     } else {
@@ -438,7 +438,7 @@ async function tailFluxWarnLog(req, res) {
 
 async function tailFluxInfoLog(req, res) {
   try {
-    const authorized = await serviceHelper.verifyAdminAndZelTeamSession(req.headers);
+    const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
     if (authorized === true) {
       tailFluxLog(req, res, 'info');
     } else {
@@ -452,7 +452,7 @@ async function tailFluxInfoLog(req, res) {
 
 async function tailFluxDebugLog(req, res) {
   try {
-    const authorized = await serviceHelper.verifyAdminAndZelTeamSession(req.headers);
+    const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
     if (authorized === true) {
       tailFluxLog(req, res, 'debug');
     } else {
@@ -485,7 +485,7 @@ async function getZelFluxInfo(req, res) {
       zelflux: {},
       zelapps: {},
     };
-    const versionRes = await getZelFluxVersion();
+    const versionRes = await getFluxVersion();
     if (versionRes.status === 'error') {
       throw versionRes.data;
     }
@@ -510,51 +510,51 @@ async function getZelFluxInfo(req, res) {
       throw timeResult.data;
     }
     info.zelflux.timezone = timeResult.data;
-    const dosResult = await zelfluxCommunication.getDOSState();
+    const dosResult = await fluxCommunication.getDOSState();
     if (dosResult.status === 'error') {
       throw dosResult.data;
     }
     info.zelflux.dos = dosResult.data;
 
-    const zelcashInfoRes = await zelcashService.getInfo();
+    const zelcashInfoRes = await daemonService.getInfo();
     if (zelcashInfoRes.status === 'error') {
       throw zelcashInfoRes.data;
     }
     info.zelcash.info = zelcashInfoRes.data;
 
-    const zelcashZelnodeStatusRes = await zelcashService.getZelNodeStatus();
+    const zelcashZelnodeStatusRes = await daemonService.getZelNodeStatus();
     if (zelcashZelnodeStatusRes.status === 'error') {
       throw zelcashZelnodeStatusRes.data;
     }
     info.zelnode.status = zelcashZelnodeStatusRes.data;
 
-    const zelbenchInfoRes = await zelbenchService.getInfo();
+    const zelbenchInfoRes = await benchmarkService.getInfo();
     if (zelbenchInfoRes.status === 'error') {
       throw zelbenchInfoRes.data;
     }
     info.zelbench.info = zelbenchInfoRes.data;
-    const zelbenchStatusRes = await zelbenchService.getStatus();
+    const zelbenchStatusRes = await benchmarkService.getStatus();
     if (zelbenchStatusRes.status === 'error') {
       throw zelbenchStatusRes.data;
     }
     info.zelbench.status = zelbenchStatusRes.data;
-    const zelbenchBenchRes = await zelbenchService.getBenchmarks();
+    const zelbenchBenchRes = await benchmarkService.getBenchmarks();
     if (zelbenchBenchRes.status === 'error') {
       throw zelbenchBenchRes.data;
     }
     info.zelbench.bench = zelbenchBenchRes.data;
 
-    const zelapppsFluxUsage = await zelappsService.zelFluxUsage();
+    const zelapppsFluxUsage = await appsService.zelFluxUsage();
     if (zelapppsFluxUsage.status === 'error') {
       throw zelapppsFluxUsage.data;
     }
     info.zelapps.fluxusage = zelapppsFluxUsage.data;
-    const zelappsRunning = await zelappsService.listRunningZelApps();
+    const zelappsRunning = await appsService.listRunningZelApps();
     if (zelappsRunning.status === 'error') {
       throw zelappsRunning.data;
     }
     info.zelapps.runningapps = zelappsRunning.data;
-    const zelappsResources = await zelappsService.zelappsResources();
+    const zelappsResources = await appsService.zelappsResources();
     if (zelappsResources.status === 'error') {
       throw zelappsResources.data;
     }
@@ -592,7 +592,7 @@ async function adjustCruxID(req, res) {
       const dataToWrite = `module.exports = {
   initial: {
     ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
-    zelid: '${userconfig.initial.zelid || config.zelTeamZelId}',
+    zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
     cruxid: '${cruxid}',
     kadena: '${userconfig.initial.kadena || ''}',
     testnet: ${userconfig.initial.testnet || false},
@@ -637,7 +637,7 @@ async function adjustKadenaAccount(req, res) {
       const dataToWrite = `module.exports = {
   initial: {
     ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
-    zelid: '${userconfig.initial.zelid || config.zelTeamZelId}',
+    zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
     cruxid: '${userconfig.initial.cruxid || ''}',
     kadena: '${kadenaURI}',
     testnet: ${userconfig.initial.testnet || false},
@@ -668,7 +668,7 @@ module.exports = {
   updateZelBench,
   restartZelCash,
   reindexZelCash,
-  getZelFluxVersion,
+  getFluxVersion,
   getZelFluxIP,
   getZelFluxZelID,
   getZelFluxCruxID,

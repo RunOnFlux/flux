@@ -1,4 +1,4 @@
-const zelbenchrpc = require('zelcashrpc');
+const zelbenchrpc = require('daemonrpc');
 const config = require('config');
 const serviceHelper = require('./serviceHelper');
 const userconfig = require('../../../config/userconfig');
@@ -42,7 +42,7 @@ async function getStatus(req, res) {
 }
 
 async function restartNodeBenchmarks(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
+  const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
     const rpccall = 'restartnodebenchmarks';
 

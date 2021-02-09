@@ -30,7 +30,7 @@
       >Flux, Your Gateway to a Decentralized World</ElLink>
     </div>
     <div class="footer-right">
-      Flux {{ 'v' + zelfluxVersion}}
+      Flux {{ 'v' + fluxVersion}}
     </div>
   </div>
 </template>
@@ -40,7 +40,7 @@ import Vuex, { mapState } from 'vuex';
 import Vue from 'vue';
 import axios from 'axios';
 
-import ZelNodeService from '@/services/ZelNodeService';
+import FluxService from '@/services/FluxService';
 
 const store = require('store');
 
@@ -58,7 +58,7 @@ export default {
     ...mapState([
       'userconfig',
       'config',
-      'zelfluxVersion',
+      'fluxVersion',
     ]),
   },
   mounted() {
@@ -78,12 +78,12 @@ export default {
     }
     this.backendURL = store.get('backendURL') || mybackend;
     const self = this;
-    ZelNodeService.getZelFluxVersion()
+    FluxService.getFluxVersion()
       .then((response) => {
         console.log(response);
         const version = response.data.data;
-        this.$store.commit('setZelFluxVersion', version);
-        self.getLatestZelFluxVersion();
+        this.$store.commit('setFluxVersion', version);
+        self.getLatestFluxVersion();
       })
       .catch((e) => {
         console.log(e);
@@ -92,12 +92,12 @@ export default {
       });
   },
   methods: {
-    getLatestZelFluxVersion() {
+    getLatestFluxVersion() {
       const self = this;
       axios.get('https://raw.githubusercontent.com/zelcash/zelflux/master/package.json')
         .then((response) => {
           console.log(response);
-          if (response.data.version !== self.zelfluxVersion) {
+          if (response.data.version !== self.fluxVersion) {
             vue.$customMes.warning('Flux needs to be updated!');
           } else {
             vue.$customMes.success('Flux is up to date');

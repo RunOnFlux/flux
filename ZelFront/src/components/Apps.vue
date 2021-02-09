@@ -2,7 +2,7 @@
   <div>
     <div
       :key="uniqueKey"
-      v-if="zelAppsSection === 'localzelapps'"
+      v-if="appsSection === 'localzelapps'"
     >
       <el-tabs
         v-if="!managedApplication"
@@ -44,7 +44,7 @@
               </template>
             </el-table-column>
             <el-table-column
-              v-if="privilage === 'zelteam' || privilage === 'admin'"
+              v-if="privilage === 'fluxteam' || privilage === 'admin'"
               label="Actions"
               prop="actions"
               sortable
@@ -119,7 +119,7 @@
               </template>
             </el-table-column>
             <el-table-column
-              v-if="privilage === 'zelteam' || privilage === 'admin'"
+              v-if="privilage === 'fluxteam' || privilage === 'admin'"
               label="Actions"
               prop="actions"
               sortable
@@ -154,7 +154,7 @@
               </template>
             </el-table-column>
             <el-table-column
-              v-if="privilage === 'zelteam' || privilage === 'admin'"
+              v-if="privilage === 'fluxteam' || privilage === 'admin'"
               label="Remove"
               prop="remove"
               sortable
@@ -176,7 +176,7 @@
               </template>
             </el-table-column>
             <el-table-column
-              v-if="privilage === 'zelteam' || privilage === 'admin'"
+              v-if="privilage === 'fluxteam' || privilage === 'admin'"
               label="Manage"
               prop="manage"
               sortable
@@ -277,7 +277,7 @@
               </template>
             </el-table-column>
             <el-table-column
-              v-if="privilage === 'zelteam' || privilage === 'admin'"
+              v-if="privilage === 'fluxteam' || privilage === 'admin'"
               label="Install"
               prop="install"
               sortable
@@ -433,7 +433,7 @@
     </div>
     <div
       :key="uniqueKey"
-      v-if="zelAppsSection === 'globalzelapps'"
+      v-if="appsSection === 'globalzelapps'"
     >
       <el-tabs
         v-if=!managedApplication
@@ -1116,7 +1116,7 @@
             </el-popconfirm>
             <el-divider></el-divider>
             <p>
-              Stops, Uninstalls and Removes all ZelApp data from this specific ZelNode.
+              Stops, Uninstalls and Removes all ZelApp data from this specific Flux.
             </p>
             <el-popconfirm
               confirmButtonText='Remove'
@@ -1574,9 +1574,9 @@
         </el-main>
       </el-container>
     </div>
-    <div v-if="zelAppsSection === 'registerzelapp'">
+    <div v-if="appsSection === 'registerzelapp'">
       <div>
-        Note: Only verified developers and images can currently run on Flux. To become a verified developer with whitelisted images, please contact Zel Team via
+        Note: Only verified developers and images can currently run on Flux. To become a verified developer with whitelisted images, please contact Flux Team via
         <el-link
           href="https://discord.io/zel"
           target="_blank"
@@ -1896,8 +1896,8 @@
       >
       </el-input>
     </div>
-    <div v-if="zelAppsSection === 'zelshare'">
-      <ZelShare />
+    <div v-if="appsSection === 'zelshare'">
+      <FluxShare />
     </div>
   </div>
 </template>
@@ -1906,10 +1906,10 @@
 import Vuex, { mapState } from 'vuex';
 import Vue from 'vue';
 
-import ZelCashService from '@/services/ZelCashService';
-import ZelAppsService from '@/services/ZelAppsService';
+import DaemonService from '@/services/DaemonService';
+import AppsService from '@/services/AppsService';
 
-const ZelShare = () => import('@/components/ZelShare.vue');
+const FluxShare = () => import('@/components/FluxShare.vue');
 
 const store = require('store');
 const qs = require('qs');
@@ -1919,9 +1919,9 @@ Vue.use(Vuex);
 const vue = new Vue();
 
 export default {
-  name: 'ZelApps',
+  name: 'Apps',
   components: {
-    ZelShare,
+    FluxShare,
   },
   data() {
     return {
@@ -2089,7 +2089,7 @@ export default {
     ...mapState([
       'config',
       'userconfig',
-      'zelAppsSection',
+      'appsSection',
       'privilage',
     ]),
     callbackValue() {
@@ -2201,7 +2201,7 @@ export default {
     },
   },
   watch: {
-    zelAppsSection(val, oldVal) {
+    appsSection(val, oldVal) {
       console.log(val, oldVal);
       this.switcher(val);
     },
@@ -2301,7 +2301,7 @@ export default {
     this.getZelNodeStatus();
     this.zelappsGetInstalledZelApps();
     this.getRandomPort();
-    this.switcher(this.zelAppsSection);
+    this.switcher(this.appsSection);
   },
   methods: {
     switcher(value) {
@@ -2326,7 +2326,7 @@ export default {
       this.uniqueKey += this.uniqueKey;
     },
     async getZelCashInfo() {
-      const zelcashGetInfo = await ZelCashService.getInfo();
+      const zelcashGetInfo = await DaemonService.getInfo();
       if (zelcashGetInfo.data.status === 'error') {
         vue.$customMes.error(zelcashGetInfo.data.data.message || zelcashGetInfo.data.data);
       } else {
@@ -2334,29 +2334,29 @@ export default {
       }
     },
     async zelappsGetListGlobalZelApps() {
-      const response = await ZelAppsService.globalZelAppSpecifications();
+      const response = await AppsService.globalZelAppSpecifications();
       console.log(response);
       this.globalZelAppSpecs.status = response.data.status;
       this.globalZelAppSpecs.data = response.data.data;
     },
     async zelappsGetAvailableZelApps() {
-      const response = await ZelAppsService.availableZelApps();
+      const response = await AppsService.availableZelApps();
       this.availableZelApps.status = response.data.status;
       this.availableZelApps.data = response.data.data;
     },
     async zelappsGetInstalledZelApps() {
-      const response = await ZelAppsService.installedZelApps();
+      const response = await AppsService.installedZelApps();
       this.installedZelApps.status = response.data.status;
       this.installedZelApps.data = response.data.data;
     },
     async zelappsGetListRunningZelApps() {
-      const response = await ZelAppsService.listRunningZelApps();
+      const response = await AppsService.listRunningZelApps();
       console.log(response);
       this.getRunningZelAppsResponse.status = response.data.status;
       this.getRunningZelAppsResponse.data = response.data.data;
     },
     async zelappsGetListAllZelApps() {
-      const response = await ZelAppsService.listAllZelApps();
+      const response = await AppsService.listAllZelApps();
       console.log(response);
       this.getAllZelAppsResponse.status = response.data.status;
       this.getAllZelAppsResponse.data = response.data.data;
@@ -2365,7 +2365,7 @@ export default {
       this.output = '';
       vue.$customMes.success('Stopping ZelApp');
       const zelidauth = localStorage.getItem('zelidauth');
-      const response = await ZelAppsService.stopZelApp(zelidauth, zelapp);
+      const response = await AppsService.stopZelApp(zelidauth, zelapp);
       if (response.data.status === 'success') {
         vue.$customMes.success(response.data.data.message || response.data.data);
       } else {
@@ -2379,7 +2379,7 @@ export default {
       this.output = '';
       vue.$customMes.success('Starting ZelApp');
       const zelidauth = localStorage.getItem('zelidauth');
-      const response = await ZelAppsService.startZelApp(zelidauth, zelapp);
+      const response = await AppsService.startZelApp(zelidauth, zelapp);
       if (response.data.status === 'success') {
         vue.$customMes.success(response.data.data.message || response.data.data);
       } else {
@@ -2392,7 +2392,7 @@ export default {
       this.output = '';
       vue.$customMes.success('Restarting ZelApp');
       const zelidauth = localStorage.getItem('zelidauth');
-      const response = await ZelAppsService.restartZelApp(zelidauth, zelapp);
+      const response = await AppsService.restartZelApp(zelidauth, zelapp);
       if (response.data.status === 'success') {
         vue.$customMes.success(response.data.data.message || response.data.data);
       } else {
@@ -2405,7 +2405,7 @@ export default {
       this.output = '';
       vue.$customMes.success('Pausing ZelApp');
       const zelidauth = localStorage.getItem('zelidauth');
-      const response = await ZelAppsService.pauseZelApp(zelidauth, zelapp);
+      const response = await AppsService.pauseZelApp(zelidauth, zelapp);
       if (response.data.status === 'success') {
         vue.$customMes.success(response.data.data.message || response.data.data);
       } else {
@@ -2418,7 +2418,7 @@ export default {
       this.output = '';
       vue.$customMes.success('UnPausing ZelApp');
       const zelidauth = localStorage.getItem('zelidauth');
-      const response = await ZelAppsService.unpauseZelApp(zelidauth, zelapp);
+      const response = await AppsService.unpauseZelApp(zelidauth, zelapp);
       if (response.data.status === 'success') {
         vue.$customMes.success(response.data.data.message || response.data.data);
       } else {
@@ -2447,7 +2447,7 @@ export default {
           self.output = JSON.parse(`[${progressEvent.target.response.replace(/}{/g, '},{')}]`);
         },
       };
-      const response = await ZelAppsService.justAPI().get(`/apps/redeploy/${zelapp}/${force}`, axiosConfig);
+      const response = await AppsService.justAPI().get(`/apps/redeploy/${zelapp}/${force}`, axiosConfig);
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
       } else {
@@ -2473,7 +2473,7 @@ export default {
           self.output = JSON.parse(`[${progressEvent.target.response.replace(/}{/g, '},{')}]`);
         },
       };
-      const response = await ZelAppsService.justAPI().get(`/apps/appremove/${zelapp}`, axiosConfig);
+      const response = await AppsService.justAPI().get(`/apps/appremove/${zelapp}`, axiosConfig);
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
       } else {
@@ -2495,7 +2495,7 @@ export default {
       this.output = '';
       vue.$customMes.success('Installing ZelApp');
       const zelidauth = localStorage.getItem('zelidauth');
-      // const response = await ZelAppsService.installTemporaryLocalApp(zelidauth, zelapp);
+      // const response = await AppsService.installTemporaryLocalApp(zelidauth, zelapp);
       const axiosConfig = {
         headers: {
           zelidauth,
@@ -2505,7 +2505,7 @@ export default {
           self.output = JSON.parse(`[${progressEvent.target.response.replace(/}{/g, '},{')}]`);
         },
       };
-      const response = await ZelAppsService.justAPI().get(`/apps/installtemporarylocalapp/${appName}`, axiosConfig);
+      const response = await AppsService.justAPI().get(`/apps/installtemporarylocalapp/${appName}`, axiosConfig);
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
       } else {
@@ -2550,7 +2550,7 @@ export default {
       }
     },
     async getZelNodeStatus() {
-      const response = await ZelCashService.getZelNodeStatus();
+      const response = await DaemonService.getZelNodeStatus();
       if (response.data.status === 'success') {
         this.tier = response.data.data.tier;
       }
@@ -2819,7 +2819,7 @@ export default {
           const data = {
             repotag: zelAppSpecFormatted.repotag,
           };
-          const resDocker = await ZelAppsService.checkDockerExistance(zelidauth, data).catch((error) => {
+          const resDocker = await AppsService.checkDockerExistance(zelidauth, data).catch((error) => {
             vue.$customMes.error(error.message || error);
           });
           console.log(resDocker);
@@ -2997,7 +2997,7 @@ export default {
           const data = {
             repotag: zelAppSpecFormatted.repotag,
           };
-          const resDocker = await ZelAppsService.checkDockerExistance(zelidauth, data).catch((error) => {
+          const resDocker = await AppsService.checkDockerExistance(zelidauth, data).catch((error) => {
             vue.$customMes.error(error.message || error);
           });
           console.log(resDocker);
@@ -3016,7 +3016,7 @@ export default {
       }
     },
     async checkFluxCommunication() {
-      const response = await ZelAppsService.checkCommunication();
+      const response = await AppsService.checkCommunication();
       if (response.data.status === 'success') {
         this.fluxCommunication = true;
       } else {
@@ -3024,7 +3024,7 @@ export default {
       }
     },
     async registrationInformation() {
-      const response = await ZelAppsService.zelappsRegInformation();
+      const response = await AppsService.zelappsRegInformation();
       const { data } = response.data;
       if (response.data.status === 'success') {
         this.zelapps.price.cpu = data.price.cpu;
@@ -3039,7 +3039,7 @@ export default {
       }
     },
     async openGlobalZelApp(zelappName) {
-      const response = await ZelAppsService.getZelAppLocation(zelappName).catch((error) => {
+      const response = await AppsService.getZelAppLocation(zelappName).catch((error) => {
         vue.$customMes.error(error.message || error);
       });
       console.log(response);
@@ -3141,7 +3141,7 @@ export default {
         timestamp: this.timestamp,
         signature: this.signature,
       };
-      const response = await ZelAppsService.registerZelApp(zelidauth, data).catch((error) => {
+      const response = await AppsService.registerZelApp(zelidauth, data).catch((error) => {
         vue.$customMes.error(error.message || error);
       });
       console.log(response);
@@ -3161,7 +3161,7 @@ export default {
         timestamp: this.timestamp,
         signature: this.signature,
       };
-      const response = await ZelAppsService.updateZelApp(zelidauth, data).catch((error) => {
+      const response = await AppsService.updateZelApp(zelidauth, data).catch((error) => {
         vue.$customMes.error(error.message || error);
       });
       console.log(response);
@@ -3257,7 +3257,7 @@ export default {
       return zelappName;
     },
     async getAppOwner() {
-      const response = await ZelAppsService.getZelAppOwner(this.managedApplication);
+      const response = await AppsService.getZelAppOwner(this.managedApplication);
       console.log(response);
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
@@ -3265,7 +3265,7 @@ export default {
       this.selectedAppOwner = response.data.data;
     },
     async getInstalledApplicationSpecifics() {
-      const response = await ZelAppsService.getInstalledZelAppSpecifics(this.managedApplication);
+      const response = await AppsService.getInstalledZelAppSpecifics(this.managedApplication);
       console.log(response);
       if (response.data.status === 'error' || !response.data.data[0]) {
         vue.$customMes.error(response.data.data.message || response.data.data);
@@ -3275,7 +3275,7 @@ export default {
       }
     },
     async getGlobalApplicationSpecifics() {
-      const response = await ZelAppsService.getZelAppSpecifics(this.managedApplication);
+      const response = await AppsService.getZelAppSpecifics(this.managedApplication);
       console.log(response);
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
@@ -3311,7 +3311,7 @@ export default {
       }
     },
     async getApplicationLocations() {
-      const response = await ZelAppsService.getZelAppLocation(this.managedApplication);
+      const response = await AppsService.getZelAppLocation(this.managedApplication);
       console.log(response);
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
@@ -3322,7 +3322,7 @@ export default {
     },
     async getApplicationLogs() {
       const zelidauth = localStorage.getItem('zelidauth');
-      const response = await ZelAppsService.getZelAppLogsTail(zelidauth, this.managedApplication);
+      const response = await AppsService.getZelAppLogsTail(zelidauth, this.managedApplication);
       console.log(response);
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
@@ -3333,7 +3333,7 @@ export default {
     },
     async getApplicationInspect() {
       const zelidauth = localStorage.getItem('zelidauth');
-      const response = await ZelAppsService.getZelAppInspect(zelidauth, this.managedApplication);
+      const response = await AppsService.getZelAppInspect(zelidauth, this.managedApplication);
       console.log(response);
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
@@ -3344,7 +3344,7 @@ export default {
     },
     async getApplicationStats() {
       const zelidauth = localStorage.getItem('zelidauth');
-      const response = await ZelAppsService.getZelAppStats(zelidauth, this.managedApplication);
+      const response = await AppsService.getZelAppStats(zelidauth, this.managedApplication);
       console.log(response);
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
@@ -3362,7 +3362,7 @@ export default {
       const env = this.zelAppExec.env ? this.zelAppExec.env : '[]';
       const { cmd } = this.zelAppExec;
       this.commandExecuting = true;
-      const response = await ZelAppsService.getZelAppExec(zelidauth, this.managedApplication, cmd, env);
+      const response = await AppsService.getZelAppExec(zelidauth, this.managedApplication, cmd, env);
       console.log(response);
       this.commandExecuting = false;
       this.callResponse.status = response.status;
@@ -3373,7 +3373,7 @@ export default {
     },
     async getApplicationChanges() {
       const zelidauth = localStorage.getItem('zelidauth');
-      const response = await ZelAppsService.getZelAppChanges(zelidauth, this.managedApplication);
+      const response = await AppsService.getZelAppChanges(zelidauth, this.managedApplication);
       console.log(response);
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
@@ -3384,7 +3384,7 @@ export default {
     },
     async getApplicationProcesses() {
       const zelidauth = localStorage.getItem('zelidauth');
-      const response = await ZelAppsService.getZelAppTop(zelidauth, this.managedApplication);
+      const response = await AppsService.getZelAppTop(zelidauth, this.managedApplication);
       console.log(response);
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
@@ -3400,7 +3400,7 @@ export default {
     },
     async downloadApplicationLog() {
       const self = this;
-      self.abortToken = ZelCashService.cancelToken();
+      self.abortToken = DaemonService.cancelToken();
       const zelidauth = localStorage.getItem('zelidauth');
       const axiosConfig = {
         headers: {
@@ -3413,7 +3413,7 @@ export default {
         },
         cancelToken: self.abortToken.token,
       };
-      const response = await ZelCashService.justAPI().get(`/apps/applog/${this.managedApplication}`, axiosConfig);
+      const response = await DaemonService.justAPI().get(`/apps/applog/${this.managedApplication}`, axiosConfig);
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
@@ -3443,7 +3443,7 @@ export default {
     },
     async getAppPriceFromAPI() {
       const specifics = this.zelAppUpdateSpecification;
-      const response = await ZelAppsService.getAppPirce(specifics);
+      const response = await AppsService.getAppPirce(specifics);
       console.log(response);
     },
     appPricePerMonthMethod(specifications) {
@@ -3487,7 +3487,7 @@ export default {
       }
       if (expanded && (expanded.length === 2 || this.zelAppLocations.length === 0)) {
         this.zelAppLocations = [];
-        const response = await ZelAppsService.getZelAppLocation(row.name).catch((error) => {
+        const response = await AppsService.getZelAppLocation(row.name).catch((error) => {
           vue.$customMes.error(error.message || error);
         });
         console.log(response);

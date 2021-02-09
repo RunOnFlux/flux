@@ -1,5 +1,5 @@
 process.env.NODE_CONFIG_DIR = `${__dirname}/ZelBack/config/`;
-// ZelBack configuration
+// Flux configuration
 const config = require('config');
 // const fs = require('fs');
 // const https = require('https');
@@ -15,15 +15,15 @@ const serviceManager = require('./ZelBack/src/services/serviceManager');
 // const httpsServer = https.createServer(credentials, app);
 
 // httpsServer.listen(config.server.apiporthttps, () => {
-//   log.info(`ZelBack https listening on port ${config.server.apiporthttps}!`);
+//   log.info(`Flux  https listening on port ${config.server.apiporthttps}!`);
 // });
 
 app.listen(config.server.apiport, () => {
-  log.info(`ZelBack running on port ${config.server.apiport}!`);
+  log.info(`Flux running on port ${config.server.apiport}!`);
   serviceManager.startFluxFunctions();
 });
 
-// ZelFront configuration
+// Flux Home configuration
 const zelfront = path.join(__dirname, './ZelFront/dist');
 
 const ZelFrontApp = express();
@@ -34,5 +34,5 @@ ZelFrontApp.get('*', (req, res) => {
 });
 
 ZelFrontApp.listen(config.server.zelfrontport, () => {
-  log.info(`ZelFront running on port ${config.server.zelfrontport}!`);
+  log.info(`Flux Home running on port ${config.server.zelfrontport}!`);
 });

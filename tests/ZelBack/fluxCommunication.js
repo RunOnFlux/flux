@@ -1,5 +1,5 @@
 process.env.NODE_CONFIG_DIR = `${process.cwd()}/ZelBack/config/`;
-const communication = require('../../ZelBack/src/services/zelfluxCommunication');
+const communication = require('../../ZelBack/src/services/fluxCommunication');
 const fluxList = require('./data/listfluxnodes.json')
 const chai = require('chai');
 const expect = chai.expect;

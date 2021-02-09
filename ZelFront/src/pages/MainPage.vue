@@ -7,20 +7,20 @@
       v-if="loginPhrase && getInfoResponse.status === 'success'"
       class="content"
     >
-      <div v-if="zelCashSection !== null">
-        <ZelCash />
+      <div v-if="daemonSection !== null">
+        <Daemon />
       </div>
-      <div v-if="zelBenchSection !== null">
-        <ZelBench />
+      <div v-if="benchmarkSection !== null">
+        <Benchmark />
       </div>
       <div v-if="zelNodeSection !== null">
-        <ZelNode />
+        <Node />
       </div>
-      <div v-if="zelAdminSection !== null">
-        <ZelAdmin />
+      <div v-if="adminSection !== null">
+        <Admin />
       </div>
-      <div v-if="zelAppsSection !== null">
-        <ZelApps />
+      <div v-if="appsSection !== null">
+        <Apps />
       </div>
       <div v-if="explorerSection !== null">
         <Explorer />
@@ -55,24 +55,24 @@
       <br>
       <h3>
         Error connecting to the ZelCash Daemon
-        <div v-if="privilage ==='admin' || privilage ==='zelteam'">
+        <div v-if="privilage ==='admin' || privilage ==='fluxteam'">
           <p>
-            Please try to restart your ZelCash Daemon in ZelCash section.
+            Please try to restart your ZelCash Daemon in Daemon section.
           </p>
-          <div v-if="zelCashSection !== null">
-            <ZelCash />
+          <div v-if="daemonSection !== null">
+            <Daemon />
           </div>
-          <div v-if="zelBenchSection !== null">
-            <ZelBench />
+          <div v-if="benchmarkSection !== null">
+            <Benchmark />
           </div>
           <div v-if="zelNodeSection !== null">
-            <ZelNode />
+            <Node />
           </div>
-          <div v-if="zelAdminSection !== null">
-            <ZelAdmin />
+          <div v-if="adminSection !== null">
+            <Admin />
           </div>
-          <div v-if="zelAppsSection !== null">
-            <ZelApps />
+          <div v-if="appsSection !== null">
+            <Apps />
           </div>
           <div v-if="explorerSection !== null">
             <Explorer />
@@ -98,17 +98,17 @@
 import Vuex, { mapState } from 'vuex';
 import Vue from 'vue';
 
-import ZelCashService from '@/services/ZelCashService';
-import zelIDService from '@/services/ZelIDService';
+import DaemonService from '@/services/DaemonService';
+import IDService from '@/services/IDService';
 
 const Header = () => import('@/components/shared/Header.vue');
 const Footer = () => import('@/components/shared/Footer.vue');
 const Login = () => import('@/components/Login.vue');
-const ZelCash = () => import('@/components/ZelCash.vue');
-const ZelBench = () => import('@/components/ZelBench.vue');
-const ZelNode = () => import('@/components/ZelNode.vue');
-const ZelAdmin = () => import('@/components/ZelAdmin.vue');
-const ZelApps = () => import('@/components/ZelApps.vue');
+const Daemon = () => import('@/components/Daemon.vue');
+const Benchmark = () => import('@/components/Benchmark.vue');
+const Node = () => import('@/components/Node.vue');
+const Admin = () => import('@/components/Admin.vue');
+const Apps = () => import('@/components/Apps.vue');
 const Explorer = () => import('@/components/Explorer.vue');
 
 const qs = require('qs');
@@ -119,7 +119,7 @@ const vue = new Vue();
 export default {
   name: 'MainPage',
   components: {
-    Header, Footer, Login, ZelCash, ZelBench, ZelNode, ZelAdmin, ZelApps, Explorer,
+    Header, Footer, Login, Daemon, Benchmark, Node, Admin, Apps, Explorer,
   },
   data() {
     return {
@@ -136,11 +136,11 @@ export default {
       'userconfig',
       'config',
       'privilage',
-      'zelCashSection',
-      'zelBenchSection',
+      'daemonSection',
+      'benchmarkSection',
       'zelNodeSection',
-      'zelAdminSection',
-      'zelAppsSection',
+      'adminSection',
+      'appsSection',
       'explorerSection',
     ]),
   },
@@ -156,7 +156,7 @@ export default {
       this.$store.commit('setPrivilage', 'none');
       if (auth && auth.zelid && auth.signature) {
         try {
-          const response = await zelIDService.checkUserLogged(auth.zelid, auth.signature);
+          const response = await IDService.checkUserLogged(auth.zelid, auth.signature);
           console.log(response);
           const privilege = response.data.data.message;
           this.$store.commit('setPrivilage', privilege);
@@ -169,7 +169,7 @@ export default {
       }
     },
     getZelIdLoginPhrase() {
-      zelIDService.loginPhrase()
+      IDService.loginPhrase()
         .then((response) => {
           console.log(response);
           if (response.data.status === 'error') {
@@ -188,11 +188,11 @@ export default {
         .catch((error) => {
           console.log(error);
           vue.$customMes.error(error);
-          this.errorMessage = 'Error connecting to ZelBack';
+          this.errorMessage = 'Error connecting to Flux Backend';
         });
     },
     getEmergencyLoginPhrase() {
-      zelIDService.emergencyLoginPhrase()
+      IDService.emergencyLoginPhrase()
         .then((response) => {
           console.log(response);
           if (response.data.status === 'error') {
@@ -204,11 +204,11 @@ export default {
         .catch((error) => {
           console.log(error);
           vue.$customMes.error(error);
-          this.errorMessage = 'Error connecting to ZelBack';
+          this.errorMessage = 'Error connecting to Flux Backend';
         });
     },
     async zelcashGetInfo() {
-      const response = await ZelCashService.getInfo();
+      const response = await DaemonService.getInfo();
       this.getInfoResponse.status = response.data.status;
       this.getInfoResponse.message = response.data.data;
     },
@@ -216,7 +216,7 @@ export default {
       const zelidauth = localStorage.getItem('zelidauth');
       const auth = qs.parse(zelidauth);
       console.log(auth);
-      zelIDService.activeLoginPhrases(zelidauth)
+      IDService.activeLoginPhrases(zelidauth)
         .then((response) => {
           console.log(response);
           if (response.data.status === 'error') {

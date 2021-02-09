@@ -57,7 +57,7 @@ module.exports = {
   zelcash: {
     chainValidHeight: 685000,
   },
-  zelTeamZelId: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
+  fluxTeamZelId: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
   zelapps: {
     // in zel per month (blocksLasting)
     price: {

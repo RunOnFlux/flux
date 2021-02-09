@@ -423,7 +423,7 @@ import Vuex, { mapState } from 'vuex';
 import Vue from 'vue';
 import axios from 'axios';
 
-import ZelAppsService from '@/services/ZelAppsService';
+import AppsService from '@/services/AppsService';
 
 const store = require('store');
 
@@ -530,7 +530,7 @@ export default {
     },
     async storageStats() {
       try {
-        const response = await ZelAppsService.storageStats(this.zelidHeader.zelidauth);
+        const response = await AppsService.storageStats(this.zelidHeader.zelidauth);
         console.log(response);
         if (response.data.status === 'success') {
           this.storage.total = response.data.data.total;
@@ -562,7 +562,7 @@ export default {
           this.folderView = [];
         }
         this.loadingFolder = true;
-        const response = await ZelAppsService.getFolder(this.zelidHeader.zelidauth, encodeURIComponent(path));
+        const response = await AppsService.getFolder(this.zelidHeader.zelidauth, encodeURIComponent(path));
         this.loadingFolder = false;
         if (response.data.status === 'success') {
           this.folderView = response.data.data;
@@ -581,7 +581,7 @@ export default {
         if (this.currentFolder !== '') {
           folderPath = `${this.currentFolder}/${path}`;
         }
-        const response = await ZelAppsService.createFolder(this.zelidHeader.zelidauth, encodeURIComponent(folderPath));
+        const response = await AppsService.createFolder(this.zelidHeader.zelidauth, encodeURIComponent(folderPath));
         if (response.data.status === 'error') {
           if (response.data.data.code === 'EEXIST') {
             vue.$customMes.error(`Folder ${path} already exists`);
@@ -636,9 +636,9 @@ export default {
         };
         let response;
         if (isFolder) {
-          response = await ZelAppsService.justAPI().get(`/apps/fluxshare/downloadfolder/${encodeURIComponent(fileName)}`, axiosConfig);
+          response = await AppsService.justAPI().get(`/apps/fluxshare/downloadfolder/${encodeURIComponent(fileName)}`, axiosConfig);
         } else {
-          response = await ZelAppsService.justAPI().get(`/apps/fluxshare/getfile/${encodeURIComponent(fileName)}`, axiosConfig);
+          response = await AppsService.justAPI().get(`/apps/fluxshare/getfile/${encodeURIComponent(fileName)}`, axiosConfig);
         }
         console.log(response);
         if (response.data.status === 'error') {
@@ -717,7 +717,7 @@ export default {
       try {
         const folder = this.currentFolder;
         const fileName = folder ? `${folder}/${name}` : name;
-        const response = await ZelAppsService.removeFile(this.zelidHeader.zelidauth, encodeURIComponent(fileName));
+        const response = await AppsService.removeFile(this.zelidHeader.zelidauth, encodeURIComponent(fileName));
         if (response.data.status === 'error') {
           vue.$customMes.error(response.data.data.message || response.data.data);
         } else {
@@ -732,7 +732,7 @@ export default {
       try {
         const folder = this.currentFolder;
         const fileName = folder ? `${folder}/${name}` : name;
-        const response = await ZelAppsService.shareFile(this.zelidHeader.zelidauth, encodeURIComponent(fileName));
+        const response = await AppsService.shareFile(this.zelidHeader.zelidauth, encodeURIComponent(fileName));
         if (response.data.status === 'error') {
           vue.$customMes.error(response.data.data.message || response.data.data);
         } else {
@@ -747,7 +747,7 @@ export default {
       try {
         const folder = this.currentFolder;
         const fileName = folder ? `${folder}/${name}` : name;
-        const response = await ZelAppsService.unshareFile(this.zelidHeader.zelidauth, encodeURIComponent(fileName));
+        const response = await AppsService.unshareFile(this.zelidHeader.zelidauth, encodeURIComponent(fileName));
         if (response.data.status === 'error') {
           vue.$customMes.error(response.data.data.message || response.data.data);
         } else {
@@ -764,7 +764,7 @@ export default {
         if (this.currentFolder !== '') {
           folderPath = `${this.currentFolder}/${foldername}`;
         }
-        const response = await ZelAppsService.removeFolder(this.zelidHeader.zelidauth, encodeURIComponent(folderPath));
+        const response = await AppsService.removeFolder(this.zelidHeader.zelidauth, encodeURIComponent(folderPath));
         console.log(response.data);
         if (response.data.status === 'error') {
           if (response.data.data.code === 'ENOTEMPTY') {
@@ -810,7 +810,7 @@ export default {
       try {
         const oldpath = this.fileRenaming;
         const newname = this.newName;
-        const response = await ZelAppsService.renameFileFolder(this.zelidHeader.zelidauth, encodeURIComponent(oldpath), newname);
+        const response = await AppsService.renameFileFolder(this.zelidHeader.zelidauth, encodeURIComponent(oldpath), newname);
         console.log(response);
         if (response.data.status === 'error') {
           vue.$customMes.error(response.data.data.message || response.data.data);

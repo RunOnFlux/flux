@@ -18,16 +18,16 @@ export default new Vuex.Store({
     },
     config: {
       apiPort: config.server.apiport,
-      zelTeamZelId: config.zelTeamZelId,
+      fluxTeamZelId: config.fluxTeamZelId,
     },
-    privilage: 'none', // user, admin, zelteam
-    zelCashSection: 'welcomeinfo',
-    zelBenchSection: null,
+    privilage: 'none', // user, admin, fluxteam
+    daemonSection: 'welcomeinfo',
+    benchmarkSection: null,
     zelNodeSection: null,
-    zelAdminSection: null,
-    zelAppsSection: null,
+    adminSection: null,
+    appsSection: null,
     explorerSection: null,
-    zelfluxVersion: '',
+    fluxVersion: '',
   },
   getters: {
   },
@@ -35,62 +35,62 @@ export default new Vuex.Store({
     setPrivilage(state, privilage) {
       state.privilage = privilage;
     },
-    setZelCashSection(state, section) {
-      state.zelCashSection = section;
+    setDaemonSection(state, section) {
+      state.daemonSection = section;
       // we always want to reset the other sections to null state
-      state.zelBenchSection = null;
+      state.benchmarkSection = null;
       state.zelNodeSection = null;
-      state.zelAdminSection = null;
-      state.zelAppsSection = null;
+      state.adminSection = null;
+      state.appsSection = null;
       state.explorerSection = null;
     },
-    setZelBenchSection(state, section) {
-      state.zelBenchSection = section;
+    setBenchmarkSection(state, section) {
+      state.benchmarkSection = section;
       // we always want to reset the other sections to null state
-      state.zelCashSection = null;
+      state.daemonSection = null;
       state.zelNodeSection = null;
-      state.zelAdminSection = null;
-      state.zelAppsSection = null;
+      state.adminSection = null;
+      state.appsSection = null;
       state.explorerSection = null;
     },
-    setZelNodeSection(state, section) {
+    setNodeSection(state, section) {
       state.zelNodeSection = section;
       // we always want to reset the other sections to null state
-      state.zelCashSection = null;
-      state.zelBenchSection = null;
-      state.zelAdminSection = null;
-      state.zelAppsSection = null;
+      state.daemonSection = null;
+      state.benchmarkSection = null;
+      state.adminSection = null;
+      state.appsSection = null;
       state.explorerSection = null;
     },
-    setZelAdminSection(state, section) {
-      state.zelAdminSection = section;
+    setAdminSection(state, section) {
+      state.adminSection = section;
       // we always want to reset the other sections to null state
-      state.zelCashSection = null;
-      state.zelBenchSection = null;
+      state.daemonSection = null;
+      state.benchmarkSection = null;
       state.zelNodeSection = null;
-      state.zelAppsSection = null;
+      state.appsSection = null;
       state.explorerSection = null;
     },
-    setZelAppsSection(state, section) {
-      state.zelAppsSection = section;
+    setAppsSection(state, section) {
+      state.appsSection = section;
       // we always want to reset the other sections to null state
-      state.zelCashSection = null;
-      state.zelBenchSection = null;
+      state.daemonSection = null;
+      state.benchmarkSection = null;
       state.zelNodeSection = null;
-      state.zelAdminSection = null;
+      state.adminSection = null;
       state.explorerSection = null;
     },
     setExplorerSection(state, section) {
       state.explorerSection = section;
       // we always want to reset the other sections to null state
-      state.zelCashSection = null;
-      state.zelBenchSection = null;
+      state.daemonSection = null;
+      state.benchmarkSection = null;
       state.zelNodeSection = null;
-      state.zelAdminSection = null;
-      state.zelAppsSection = null;
+      state.adminSection = null;
+      state.appsSection = null;
     },
-    setZelFluxVersion(state, version) {
-      state.zelfluxVersion = version;
+    setFluxVersion(state, version) {
+      state.fluxVersion = version;
     },
   },
   actions: {

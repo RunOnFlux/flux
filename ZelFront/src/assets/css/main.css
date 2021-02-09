@@ -315,17 +315,17 @@ h4 {
 /* */
 .el-main .el-button,
 .zelnodesection .el-button,
-.zelcashsection .el-button,
+.daemonSection .el-button,
 .zelbenchsection .el-button,
-.zeladminsection .el-button {
+.adminsection .el-button {
   margin: 10px;
 }
 
 .el-main .el-button,
 .zelnodesection .el-switch,
-.zelcashsection .el-switch,
+.daemonSection .el-switch,
 .zelbenchsection .el-switch,
-.zeladminsection .el-switch {
+.adminsection .el-switch {
   margin-left: 10px;
 }
 

@@ -77,7 +77,7 @@
     "vue-router": "^3.4.5",
     "vuex": "^3.5.1",
     "ws": "^7.3.1",
-    "zelcashrpc": "file:lib/zelcashrpc",
+    "daemonrpc": "file:lib/daemonrpc",
     "zeltrezjs": "^2.10.0"
   },
   "devDependencies": {

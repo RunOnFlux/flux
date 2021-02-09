@@ -1,5 +1,5 @@
 {
-  "name": "zelcashrpc",
+  "name": "daemonrpc",
   "description": "Zelcash rpc helpers",
   "private": true,
   "version": "0.1.1",

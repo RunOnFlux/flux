@@ -204,7 +204,7 @@ npm run zelfrontdev
 THE SETUP ENDS HERE...
 The following information below provided for brief usage guidelines and/or examples only.
 
-## ZelFront Information
+## Flux Home Information
 
 > Frontend interface to interact with the Zel network
 > Uses port 16126
@@ -222,7 +222,7 @@ npm run zelfrontbuild
 npm run zelfrontbuild --report
 ```
 
-## ZelBack Information
+## Flux Information
 
 > Backend interface to interact with the Zel Network
 > Uses port 16127
@@ -234,4 +234,4 @@ npm run zelfrontbuild --report
 npm run zelbackdev
 ```
 
-Made with ❤️ by the Zel Team
+Made with ❤️ by the Flux Team

@@ -18,11 +18,11 @@
         </div>
       </el-menu-item>
       <el-submenu
-        v-if="privilage === 'user' || privilage === 'admin' || privilage === 'zelteam'"
+        v-if="privilage === 'user' || privilage === 'admin' || privilage === 'fluxteam'"
         index="1"
         :popper-append-to-body=true
       >
-        <template slot="title">ZelCash</template>
+        <template slot="title">Daemon</template>
         <el-submenu
           :popper-append-to-body=true
           index="1-1"
@@ -45,7 +45,7 @@
           </el-menu-item>
           <el-menu-item
             index="1-1-5"
-            v-if="privilage === 'admin' || privilage === 'zelteam'"
+            v-if="privilage === 'admin' || privilage === 'fluxteam'"
           >
             Start
           </el-menu-item>
@@ -57,7 +57,7 @@
           </el-menu-item>
           <el-menu-item
             index="1-1-7"
-            v-if="privilage === 'admin' || privilage === 'zelteam'"
+            v-if="privilage === 'admin' || privilage === 'fluxteam'"
           >
             Restart
           </el-menu-item>
@@ -84,15 +84,15 @@
           <el-menu-item index="1-3-2">Get Bench Status</el-menu-item>
           <el-menu-item
             index="1-3-3"
-            v-if="privilage === 'admin' || privilage === 'zelteam'"
+            v-if="privilage === 'admin' || privilage === 'fluxteam'"
           >
-            Start ZelBench
+            Start Benchmark
           </el-menu-item>
           <el-menu-item
             index="1-3-4"
-            v-if="privilage === 'admin' || privilage === 'zelteam'"
+            v-if="privilage === 'admin' || privilage === 'fluxteam'"
           >
-            Stop ZelBench
+            Stop Benchmark
           </el-menu-item>
         </el-submenu>
         <el-submenu
@@ -138,18 +138,18 @@
           <el-menu-item index="1-9-1">Get Wallet Info</el-menu-item>
         </el-submenu>
         <el-menu-item
-          v-if="privilage === 'zelteam' || privilage === 'admin'"
+          v-if="privilage === 'fluxteam' || privilage === 'admin'"
           index="1-10"
         >
           Debug
         </el-menu-item>
       </el-submenu>
       <el-submenu
-        v-if="privilage === 'user' || privilage === 'admin' || privilage === 'zelteam'"
+        v-if="privilage === 'user' || privilage === 'admin' || privilage === 'fluxteam'"
         index="2"
         :popper-append-to-body=true
       >
-        <template slot="title">ZelBench</template>
+        <template slot="title">Benchmark</template>
         <el-submenu
           :popper-append-to-body=true
           index="2-1"
@@ -158,7 +158,7 @@
           <el-menu-item index="2-1-1">Help</el-menu-item>
           <el-menu-item
             index="2-1-2"
-            v-if="privilage === 'admin' || privilage === 'zelteam'"
+            v-if="privilage === 'admin' || privilage === 'fluxteam'"
           >
             Start
           </el-menu-item>
@@ -170,7 +170,7 @@
           </el-menu-item>
           <el-menu-item
             index="2-1-4"
-            v-if="privilage === 'admin' || privilage === 'zelteam'"
+            v-if="privilage === 'admin' || privilage === 'fluxteam'"
           >
             Restart
           </el-menu-item>
@@ -191,7 +191,7 @@
           <el-menu-item index="2-3-1">Get Status</el-menu-item>
           <el-menu-item
             index="2-3-2"
-            v-if="privilage === 'admin' || privilage === 'zelteam'"
+            v-if="privilage === 'admin' || privilage === 'fluxteam'"
           >
             Restart Node Benchmarks
           </el-menu-item>
@@ -203,14 +203,14 @@
           </el-menu-item>
         </el-submenu>
         <el-menu-item
-          v-if="privilage === 'zelteam' || privilage === 'admin'"
+          v-if="privilage === 'fluxteam' || privilage === 'admin'"
           index="2-4"
         >
           Debug
         </el-menu-item>
       </el-submenu>
       <el-submenu
-        v-if="privilage === 'user' || privilage === 'admin' || privilage === 'zelteam'"
+        v-if="privilage === 'user' || privilage === 'admin' || privilage === 'fluxteam'"
         index="3"
         :popper-append-to-body=true
       >
@@ -220,48 +220,48 @@
         <el-menu-item index="3-3">Debug</el-menu-item>
       </el-submenu>
       <el-submenu
-        v-if="privilage === 'user' || privilage === 'admin' || privilage === 'zelteam'"
+        v-if="privilage === 'user' || privilage === 'admin' || privilage === 'fluxteam'"
         index="4"
         :popper-append-to-body=true
       >
-        <template slot="title">ZelApps</template>
-        <el-menu-item index="4-1">Local ZelApps</el-menu-item>
-        <el-menu-item index="4-2">Global ZelApps</el-menu-item>
-        <el-menu-item index="4-3">Register ZelApp</el-menu-item>
+        <template slot="title">Flux Apps</template>
+        <el-menu-item index="4-1">Local Apps</el-menu-item>
+        <el-menu-item index="4-2">Global Apps</el-menu-item>
+        <el-menu-item index="4-3">Register Flux App</el-menu-item>
         <el-menu-item
           v-if="privilage === 'admin'"
           index="4-4"
         >
-          ZelShare Storage
+          My FluxShare Storage
         </el-menu-item>
       </el-submenu>
       <el-submenu
-        v-if="privilage === 'user' || privilage === 'admin' || privilage === 'zelteam'"
+        v-if="privilage === 'user' || privilage === 'admin' || privilage === 'fluxteam'"
         index="10"
         :popper-append-to-body=true
       >
-        <template slot="title">ZelAdmin</template>
+        <template slot="title">Flux Admin</template>
         <el-menu-item index="10-1">Logged Sessions</el-menu-item>
         <el-menu-item
-          v-if="privilage === 'zelteam' || privilage === 'admin'"
+          v-if="privilage === 'fluxteam' || privilage === 'admin'"
           index="10-2"
         >
           Manage Flux
         </el-menu-item>
         <el-menu-item
-          v-if="privilage === 'zelteam' || privilage === 'admin'"
+          v-if="privilage === 'fluxteam' || privilage === 'admin'"
           index="10-3"
         >
-          Manage ZelCash
+          Manage Daemon
         </el-menu-item>
         <el-menu-item
-          v-if="privilage === 'zelteam' || privilage === 'admin'"
+          v-if="privilage === 'fluxteam' || privilage === 'admin'"
           index="10-4"
         >
-          Manage ZelBench
+          Manage Benchmark
         </el-menu-item>
         <el-menu-item
-          v-if="privilage === 'zelteam' || privilage === 'admin'"
+          v-if="privilage === 'fluxteam' || privilage === 'admin'"
           index="10-5"
         >
           Manage Users
@@ -272,7 +272,7 @@
         Very Basic Explorer
       </el-menu-item>
       <el-menu-item
-        v-if="privilage === 'user' || privilage === 'admin' || privilage === 'zelteam'"
+        v-if="privilage === 'user' || privilage === 'admin' || privilage === 'fluxteam'"
         index="100"
       >
         Log Out
@@ -294,7 +294,7 @@
 <script>
 import Vue from 'vue';
 
-import zelIDService from '@/services/ZelIDService';
+import IDService from '@/services/IDService';
 
 const qs = require('qs');
 
@@ -336,148 +336,148 @@ export default {
       console.log(key);
       switch (key) {
         case '0':
-          this.$store.commit('setZelCashSection', 'welcomeinfo');
+          this.$store.commit('setDaemonSection', 'welcomeinfo');
           break;
         case '1-1-1':
-          this.$store.commit('setZelCashSection', 'getinfo');
+          this.$store.commit('setDaemonSection', 'getinfo');
           break;
         case '1-1-2':
-          this.$store.commit('setZelCashSection', 'help');
+          this.$store.commit('setDaemonSection', 'help');
           break;
         case '1-1-3':
-          this.$store.commit('setZelCashSection', 'rescanblockchain');
+          this.$store.commit('setDaemonSection', 'rescanblockchain');
           break;
         case '1-1-4':
-          this.$store.commit('setZelCashSection', 'reindexblockchain');
+          this.$store.commit('setDaemonSection', 'reindexblockchain');
           break;
         case '1-1-5':
-          this.$store.commit('setZelCashSection', 'start');
+          this.$store.commit('setDaemonSection', 'start');
           break;
         case '1-1-6':
-          this.$store.commit('setZelCashSection', 'stop');
+          this.$store.commit('setDaemonSection', 'stop');
           break;
         case '1-1-7':
-          this.$store.commit('setZelCashSection', 'restart');
+          this.$store.commit('setDaemonSection', 'restart');
           break;
         case '1-2-1':
-          this.$store.commit('setZelCashSection', 'getzelnodestatus');
+          this.$store.commit('setDaemonSection', 'getzelnodestatus');
           break;
         case '1-2-2':
-          this.$store.commit('setZelCashSection', 'listzelnodes');
+          this.$store.commit('setDaemonSection', 'listzelnodes');
           break;
         case '1-2-3':
-          this.$store.commit('setZelCashSection', 'viewdeterministiczelnodelist');
+          this.$store.commit('setDaemonSection', 'viewdeterministiczelnodelist');
           break;
         case '1-2-4':
-          this.$store.commit('setZelCashSection', 'getzelnodecount');
+          this.$store.commit('setDaemonSection', 'getzelnodecount');
           break;
         case '1-2-5':
-          this.$store.commit('setZelCashSection', 'getstartlist');
+          this.$store.commit('setDaemonSection', 'getstartlist');
           break;
         case '1-2-6':
-          this.$store.commit('setZelCashSection', 'getdoslist');
+          this.$store.commit('setDaemonSection', 'getdoslist');
           break;
         case '1-2-7':
-          this.$store.commit('setZelCashSection', 'zelnodecurrentwinner');
+          this.$store.commit('setDaemonSection', 'zelnodecurrentwinner');
           break;
         case '1-3-1':
-          this.$store.commit('setZelCashSection', 'getbenchmarks');
+          this.$store.commit('setDaemonSection', 'getbenchmarks');
           break;
         case '1-3-2':
-          this.$store.commit('setZelCashSection', 'getbenchstatus');
+          this.$store.commit('setDaemonSection', 'getbenchstatus');
           break;
         case '1-3-3':
-          this.$store.commit('setZelCashSection', 'startzelbenchd');
+          this.$store.commit('setDaemonSection', 'startzelbenchd');
           break;
         case '1-3-4':
-          this.$store.commit('setZelCashSection', 'stopzelbenchd');
+          this.$store.commit('setDaemonSection', 'stopzelbenchd');
           break;
         case '1-4-1':
-          this.$store.commit('setZelCashSection', 'getblockchaininfo');
+          this.$store.commit('setDaemonSection', 'getblockchaininfo');
           break;
         case '1-5-1':
-          this.$store.commit('setZelCashSection', 'getmininginfo');
+          this.$store.commit('setDaemonSection', 'getmininginfo');
           break;
         case '1-6-1':
-          this.$store.commit('setZelCashSection', 'getnetworkinfo');
+          this.$store.commit('setDaemonSection', 'getnetworkinfo');
           break;
         case '1-7-1':
-          this.$store.commit('setZelCashSection', 'getrawtransaction');
+          this.$store.commit('setDaemonSection', 'getrawtransaction');
           break;
         case '1-8-1':
-          this.$store.commit('setZelCashSection', 'validateaddress');
+          this.$store.commit('setDaemonSection', 'validateaddress');
           break;
         case '1-9-1':
-          this.$store.commit('setZelCashSection', 'getwalletinfo');
+          this.$store.commit('setDaemonSection', 'getwalletinfo');
           break;
         case '1-10':
-          this.$store.commit('setZelCashSection', 'debug');
+          this.$store.commit('setDaemonSection', 'debug');
           break;
         case '2-1-1':
-          this.$store.commit('setZelBenchSection', 'help');
+          this.$store.commit('setBenchmarkSection', 'help');
           break;
         case '2-1-2':
-          this.$store.commit('setZelBenchSection', 'start');
+          this.$store.commit('setBenchmarkSection', 'start');
           break;
         case '2-1-3':
-          this.$store.commit('setZelBenchSection', 'stop');
+          this.$store.commit('setBenchmarkSection', 'stop');
           break;
         case '2-1-4':
-          this.$store.commit('setZelBenchSection', 'restart');
+          this.$store.commit('setBenchmarkSection', 'restart');
           break;
         case '2-2-1':
-          this.$store.commit('setZelBenchSection', 'getbenchmarks');
+          this.$store.commit('setBenchmarkSection', 'getbenchmarks');
           break;
         case '2-2-2':
-          this.$store.commit('setZelBenchSection', 'getinfo');
+          this.$store.commit('setBenchmarkSection', 'getinfo');
           break;
         case '2-3-1':
-          this.$store.commit('setZelBenchSection', 'getstatus');
+          this.$store.commit('setBenchmarkSection', 'getstatus');
           break;
         case '2-3-2':
-          this.$store.commit('setZelBenchSection', 'restartnodebenchmarks');
+          this.$store.commit('setBenchmarkSection', 'restartnodebenchmarks');
           break;
         case '2-3-3':
-          this.$store.commit('setZelBenchSection', 'signzelnodetransaction');
+          this.$store.commit('setBenchmarkSection', 'signzelnodetransaction');
           break;
         case '2-4':
-          this.$store.commit('setZelBenchSection', 'debug');
+          this.$store.commit('setBenchmarkSection', 'debug');
           break;
         case '3-1':
-          this.$store.commit('setZelNodeSection', 'getinfo');
+          this.$store.commit('setNodeSection', 'getinfo');
           break;
         case '3-2':
-          this.$store.commit('setZelNodeSection', 'network');
+          this.$store.commit('setNodeSection', 'network');
           break;
         case '3-3':
-          this.$store.commit('setZelNodeSection', 'debug');
+          this.$store.commit('setNodeSection', 'debug');
           break;
         case '4-1':
-          this.$store.commit('setZelAppsSection', 'localzelapps');
+          this.$store.commit('setAppsSection', 'localzelapps');
           break;
         case '4-2':
-          this.$store.commit('setZelAppsSection', 'globalzelapps');
+          this.$store.commit('setAppsSection', 'globalzelapps');
           break;
         case '4-3':
-          this.$store.commit('setZelAppsSection', 'registerzelapp');
+          this.$store.commit('setAppsSection', 'registerzelapp');
           break;
         case '4-4':
-          this.$store.commit('setZelAppsSection', 'zelshare');
+          this.$store.commit('setAppsSection', 'zelshare');
           break;
         case '10-1':
-          this.$store.commit('setZelAdminSection', 'loggedsessions');
+          this.$store.commit('setAdminSection', 'loggedsessions');
           break;
         case '10-2':
-          this.$store.commit('setZelAdminSection', 'manageflux');
+          this.$store.commit('setAdminSection', 'manageflux');
           break;
         case '10-3':
-          this.$store.commit('setZelAdminSection', 'managezelcash');
+          this.$store.commit('setAdminSection', 'manageDaemon');
           break;
         case '10-4':
-          this.$store.commit('setZelAdminSection', 'managezelbench');
+          this.$store.commit('setAdminSection', 'managezelbench');
           break;
         case '10-5':
-          this.$store.commit('setZelAdminSection', 'manageusers');
+          this.$store.commit('setAdminSection', 'manageusers');
           break;
         case '50':
           this.$store.commit('setExplorerSection', 'explorer');
@@ -496,9 +496,9 @@ export default {
       const auth = qs.parse(zelidauth);
       localStorage.removeItem('zelidauth');
       this.$store.commit('setPrivilage', 'none');
-      this.$store.commit('setZelCashSection', 'welcomeinfo');
+      this.$store.commit('setDaemonSection', 'welcomeinfo');
       console.log(auth);
-      zelIDService.logoutCurrentSession(zelidauth)
+      IDService.logoutCurrentSession(zelidauth)
         .then((response) => {
           console.log(response);
           if (response.data.status === 'error') {

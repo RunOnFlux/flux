@@ -1,6 +1,6 @@
 <template>
-  <div class="zeladminsection">
-    <div v-if="zelAdminSection === 'loggedsessions'">
+  <div class="adminsection">
+    <div v-if="adminSection === 'loggedsessions'">
       <el-table
         :data="loggedUsersTable.filter(data => !filterLoggedUsers || data.zelid.toLowerCase().includes(filterLoggedUsers.toLowerCase()) || data.loginPhrase.toLowerCase().includes(filterLoggedUsers.toLowerCase()))"
         style="width: 100%"
@@ -71,7 +71,7 @@
         </ElButton>
       </el-popconfirm>
     </div>
-    <div v-if="zelAdminSection === 'manageflux'">
+    <div v-if="adminSection === 'manageflux'">
       <p>
         Running Kadena node makes you eligible for Kadena Rewards. Adjust your Kadena Account and Chain ID to ensure the reward distribution.
       </p>
@@ -329,7 +329,7 @@
         </ElButton>
       </el-popconfirm>
     </div>
-    <div v-if="zelAdminSection === 'managezelcash'">
+    <div v-if="adminSection === 'managezelcash'">
       <p>
         An easy way to update your ZelCash daemon to the latest version. ZelCash will be automatically started once update is done.
       </p>
@@ -432,7 +432,7 @@
         </ElButton>
       </el-popconfirm>
     </div>
-    <div v-if="zelAdminSection === 'managezelbench'">
+    <div v-if="adminSection === 'managezelbench'">
       <p>
         An easy way to update your ZelBench daemon to the latest version. ZelBench will be automatically started once update is done.
       </p>
@@ -510,7 +510,7 @@
         </ElButton>
       </el-popconfirm>
     </div>
-    <div v-if="zelAdminSection === 'manageusers'">
+    <div v-if="adminSection === 'manageusers'">
       <el-table
         :data="loggedUsersTable.filter(data => !filterLoggedUsers || data.zelid.toLowerCase().includes(filterLoggedUsers.toLowerCase()) || data.loginPhrase.toLowerCase().includes(filterLoggedUsers.toLowerCase()))"
         style="width: 100%"
@@ -589,13 +589,12 @@ import Vuex, { mapState } from 'vuex';
 import Vue from 'vue';
 import axios from 'axios';
 
-import ZelFluxService from '@/services/ZelFluxService';
-import zelIDService from '@/services/ZelIDService';
-import ZelNodeService from '@/services/ZelNodeService';
-import ZelCashService from '@/services/ZelCashService';
-import ZelBenchService from '@/services/ZelBenchService';
+import FluxService from '@/services/FluxService';
+import IDService from '@/services/IDService';
+import DaemonService from '@/services/DaemonService';
+import BenchmarkService from '@/services/BenchmarkService';
 import ExplorerService from '@/services/ExplorerService';
-import ZelAppsService from '@/services/ZelAppsService';
+import AppsService from '@/services/AppsService';
 
 const qs = require('qs');
 
@@ -603,7 +602,7 @@ Vue.use(Vuex);
 const vue = new Vue();
 
 export default {
-  name: 'ZelAdmin',
+  name: 'Admin',
   data() {
     return {
       filterLoggedUsers: '',
@@ -622,11 +621,11 @@ export default {
   },
   computed: {
     ...mapState([
-      'zelfluxVersion',
+      'fluxVersion',
       'config',
       'userconfig',
       'privilage',
-      'zelAdminSection',
+      'adminSection',
     ]),
     currentLoginPhrase() {
       const zelidauth = localStorage.getItem('zelidauth');
@@ -636,13 +635,13 @@ export default {
     },
   },
   watch: {
-    zelAdminSection(val, oldVal) {
+    adminSection(val, oldVal) {
       console.log(val, oldVal);
       this.switcher(val);
     },
   },
   mounted() {
-    this.switcher(this.zelAdminSection);
+    this.switcher(this.adminSection);
   },
   methods: {
     switcher(value) {
@@ -653,7 +652,7 @@ export default {
         case 'manageflux':
           this.getCruxID();
           this.getKadenaAccount();
-          this.getLatestZelFluxVersion();
+          this.getLatestFluxVersion();
           break;
         case 'managezelcash':
           this.checkZelCashVersion();
@@ -665,20 +664,20 @@ export default {
           this.loggedUsers();
           break;
         case null:
-          console.log('zelAdmin Section hidden');
+          console.log('admin Section hidden');
           break;
         default:
-          console.log('zelAdmin Section: Unrecognized method'); // should not be seeable if all works correctly
+          console.log('admin Section: Unrecognized method'); // should not be seeable if all works correctly
       }
     },
     async getCruxID() {
-      const response = await ZelFluxService.getCruxID();
+      const response = await FluxService.getCruxID();
       if (response.data.status === 'success' && response.data.data) {
         this.cruxidInput = response.data.data;
       }
     },
     async getKadenaAccount() {
-      const response = await ZelFluxService.getKadenaAccount();
+      const response = await FluxService.getKadenaAccount();
       if (response.data.status === 'success' && response.data.data) {
         const acc = response.data.data.split('?chainid=');
         const chainID = acc.pop();
@@ -695,7 +694,7 @@ export default {
       axios.get('https://raw.githubusercontent.com/zelcash/zelflux/master/package.json')
         .then((response) => {
           console.log(response);
-          if (response.data.version !== self.zelfluxVersion) {
+          if (response.data.version !== self.fluxVersion) {
             vue.$customMes.success('Flux is now updating in the background');
             self.updateDialogVisible = true;
             self.updateProgress = 5;
@@ -719,7 +718,7 @@ export default {
                 self.updateProgress = 0;
               }
             }, 1000);
-            ZelNodeService.updateZelFlux(zelidauth)
+            FluxService.updateZelFlux(zelidauth)
               .then((responseB) => {
                 console.log(responseB);
                 if (responseB.data.status === 'error') {
@@ -751,7 +750,7 @@ export default {
         });
     },
     updateZelCash() {
-      ZelCashService.getInfo()
+      DaemonService.getInfo()
         .then((zelcashResponse) => {
           console.log(zelcashResponse);
           const zelcashVersion = zelcashResponse.data.data.version;
@@ -763,7 +762,7 @@ export default {
                 const auth = qs.parse(zelidauth);
                 console.log(auth);
                 vue.$customMes.success('ZelCash is now updating in the background');
-                ZelNodeService.updateZelCash(zelidauth)
+                FluxService.updateZelCash(zelidauth)
                   .then((responseUpdateZelCash) => {
                     console.log(responseUpdateZelCash);
                     if (responseUpdateZelCash.data.status === 'error') {
@@ -792,7 +791,7 @@ export default {
     startZelCash() {
       vue.$customMes.warning('ZelCash will start');
       const zelidauth = localStorage.getItem('zelidauth');
-      ZelCashService.start(zelidauth)
+      DaemonService.start(zelidauth)
         .then((response) => {
           if (response.data.status === 'error') {
             vue.$customMes.error(response.data.data.message || response.data.data);
@@ -808,7 +807,7 @@ export default {
     stopZelCash() {
       vue.$customMes.warning('ZelCash will be stopped');
       const zelidauth = localStorage.getItem('zelidauth');
-      ZelCashService.stopZelCash(zelidauth)
+      DaemonService.stopZelCash(zelidauth)
         .then((response) => {
           if (response.data.status === 'error') {
             vue.$customMes.error(response.data.data.message || response.data.data);
@@ -824,7 +823,7 @@ export default {
     restartZelCash() {
       vue.$customMes.warning('ZelCash will now restart');
       const zelidauth = localStorage.getItem('zelidauth');
-      ZelCashService.restart(zelidauth)
+      DaemonService.restart(zelidauth)
         .then((response) => {
           if (response.data.status === 'error') {
             vue.$customMes.error(response.data.data.message || response.data.data);
@@ -840,7 +839,7 @@ export default {
     startZelBench() {
       vue.$customMes.warning('ZelBench will start');
       const zelidauth = localStorage.getItem('zelidauth');
-      ZelBenchService.start(zelidauth)
+      BenchmarkService.start(zelidauth)
         .then((response) => {
           if (response.data.status === 'error') {
             vue.$customMes.error(response.data.data.message || response.data.data);
@@ -856,7 +855,7 @@ export default {
     stopZelBench() {
       vue.$customMes.warning('ZelBench will be stopped');
       const zelidauth = localStorage.getItem('zelidauth');
-      ZelBenchService.stop(zelidauth)
+      BenchmarkService.stop(zelidauth)
         .then((response) => {
           if (response.data.status === 'error') {
             vue.$customMes.error(response.data.data.message || response.data.data);
@@ -872,7 +871,7 @@ export default {
     restartZelBench() {
       vue.$customMes.warning('ZelBench will now restart');
       const zelidauth = localStorage.getItem('zelidauth');
-      ZelBenchService.restart(zelidauth)
+      BenchmarkService.restart(zelidauth)
         .then((response) => {
           if (response.data.status === 'error') {
             vue.$customMes.error(response.data.data.message || response.data.data);
@@ -888,7 +887,7 @@ export default {
     restartBenchmarks() {
       vue.$customMes.warning('Initiating new benchmarks...');
       const zelidauth = localStorage.getItem('zelidauth');
-      ZelBenchService.restartNodeBenchmarks(zelidauth)
+      BenchmarkService.restartNodeBenchmarks(zelidauth)
         .then((response) => {
           console.log(response);
           if (response.data.status === 'error') {
@@ -906,7 +905,7 @@ export default {
       vue.$customMes.warning('ZelCash will now rescan. This will take up to an hour.');
       const zelidauth = localStorage.getItem('zelidauth');
       const blockheight = this.rescanZelCashHeight > 0 ? this.rescanZelCashHeight : 0;
-      ZelCashService.rescanZelCash(zelidauth, blockheight)
+      DaemonService.rescanZelCash(zelidauth, blockheight)
         .then((response) => {
           if (response.data.status === 'error') {
             vue.$customMes.error(response.data.data.message || response.data.data);
@@ -922,7 +921,7 @@ export default {
     reindexZelCash() {
       vue.$customMes.warning('ZelCash will now reindex. This will take several hours.');
       const zelidauth = localStorage.getItem('zelidauth');
-      ZelNodeService.reindexZelCash(zelidauth)
+      FluxService.reindexZelCash(zelidauth)
         .then((response) => {
           if (response.data.status === 'error') {
             vue.$customMes.error(response.data.data.message || response.data.data);
@@ -936,7 +935,7 @@ export default {
         });
     },
     updateZelBench() {
-      ZelBenchService.getInfo()
+      BenchmarkService.getInfo()
         .then((zelbenchResponse) => {
           console.log(zelbenchResponse);
           const zelbenchVersion = zelbenchResponse.data.data.version;
@@ -948,7 +947,7 @@ export default {
                 const auth = qs.parse(zelidauth);
                 console.log(auth);
                 vue.$customMes.success('ZelBench is now updating in the background');
-                ZelNodeService.updateZelBench(zelidauth)
+                FluxService.updateZelBench(zelidauth)
                   .then((responseUpdateZelBench) => {
                     console.log(responseUpdateZelBench);
                     if (responseUpdateZelBench.data.status === 'error') {
@@ -978,8 +977,8 @@ export default {
       const zelidauth = localStorage.getItem('zelidauth');
       const auth = qs.parse(zelidauth);
       console.log(auth);
-      vue.$customMes.success('ZelFront is now rebuilding in the background');
-      ZelNodeService.rebuildZelFront(zelidauth)
+      vue.$customMes.success('Flux Home is now rebuilding in the background');
+      FluxService.rebuildZelFront(zelidauth)
         .then((response) => {
           console.log(response);
           if (response.data.status === 'error') {
@@ -1073,7 +1072,7 @@ export default {
       const auth = qs.parse(zelidauth);
       console.log(auth);
       vue.$customMes.success('Global Applications information will reindex soon');
-      ZelAppsService.reindexGlobalApps(zelidauth)
+      AppsService.reindexGlobalApps(zelidauth)
         .then((response) => {
           console.log(response);
           if (response.data.status === 'error') {
@@ -1092,7 +1091,7 @@ export default {
     reindexLocations() {
       const zelidauth = localStorage.getItem('zelidauth');
       vue.$customMes.warning('Global Applications location will reindex soon...');
-      ZelAppsService.reindexLocations(zelidauth)
+      AppsService.reindexLocations(zelidauth)
         .then((response) => {
           console.log(response);
           if (response.data.status === 'error') {
@@ -1112,7 +1111,7 @@ export default {
       console.log(auth);
       vue.$customMes.success('Global Applications information will reindex soon');
       const blockheight = this.rescanExplorerHeight > 0 ? this.rescanExplorerHeight : 0;
-      ZelAppsService.rescanGlobalApps(zelidauth, blockheight, this.removeLastInformation)
+      AppsService.rescanGlobalApps(zelidauth, blockheight, this.removeLastInformation)
         .then((response) => {
           console.log(response);
           if (response.data.status === 'error') {
@@ -1162,12 +1161,12 @@ export default {
           vue.$customMes.error(e.toString());
         });
     },
-    getLatestZelFluxVersion() {
+    getLatestFluxVersion() {
       const self = this;
       axios.get('https://raw.githubusercontent.com/zelcash/zelflux/master/package.json')
         .then((response) => {
           console.log(response);
-          if (response.data.version !== self.zelfluxVersion) {
+          if (response.data.version !== self.fluxVersion) {
             vue.$customMes.warning('Flux requires an update!');
           } else {
             vue.$customMes.success('Flux is up to date');
@@ -1179,7 +1178,7 @@ export default {
         });
     },
     checkZelCashVersion() {
-      ZelCashService.getInfo()
+      DaemonService.getInfo()
         .then((zelcashResponse) => {
           console.log(zelcashResponse);
           const zelcashVersion = zelcashResponse.data.data.version;
@@ -1203,7 +1202,7 @@ export default {
         });
     },
     checkZelBenchVersion() {
-      ZelBenchService.getInfo()
+      BenchmarkService.getInfo()
         .then((zelbenchResponse) => {
           console.log(zelbenchResponse);
           const zelbenchVersion = zelbenchResponse.data.data.version;
@@ -1230,14 +1229,14 @@ export default {
       const zelidauth = localStorage.getItem('zelidauth');
       const auth = qs.parse(zelidauth);
       console.log(auth);
-      zelIDService.logoutAllUsers(zelidauth)
+      IDService.logoutAllUsers(zelidauth)
         .then((response) => {
           console.log(response);
           if (response.data.status === 'error') {
             vue.$customMes.error(response.data.data.message || response.data.data);
           } else {
             localStorage.removeItem('zelidauth');
-            this.$store.commit('setZelCashSection', 'getinfo');
+            this.$store.commit('setDaemonSection', 'getinfo');
             this.$store.commit('setPrivilage', 'none');
             vue.$customMes.success(response.data.data.message || response.data.data);
           }
@@ -1251,14 +1250,14 @@ export default {
       const zelidauth = localStorage.getItem('zelidauth');
       const auth = qs.parse(zelidauth);
       console.log(auth);
-      zelIDService.logoutAllSessions(zelidauth)
+      IDService.logoutAllSessions(zelidauth)
         .then((response) => {
           console.log(response);
           if (response.data.status === 'error') {
             vue.$customMes.error(response.data.data.message || response.data.data);
           } else {
             localStorage.removeItem('zelidauth');
-            this.$store.commit('setZelCashSection', 'getinfo');
+            this.$store.commit('setDaemonSection', 'getinfo');
             this.$store.commit('setPrivilage', 'none');
             vue.$customMes.success(response.data.data.message || response.data.data);
           }
@@ -1272,7 +1271,7 @@ export default {
       const zelidauth = localStorage.getItem('zelidauth');
       const auth = qs.parse(zelidauth);
       console.log(auth);
-      zelIDService.loggedSessions(zelidauth)
+      IDService.loggedSessions(zelidauth)
         .then((response) => {
           console.log(response);
           this.loggedUsersTable = response.data.data;
@@ -1289,7 +1288,7 @@ export default {
       const zelidauth = localStorage.getItem('zelidauth');
       const auth = qs.parse(zelidauth);
       console.log(auth);
-      zelIDService.loggedUsers(zelidauth)
+      IDService.loggedUsers(zelidauth)
         .then((response) => {
           console.log(response);
           this.loggedUsersTable = response.data.data;
@@ -1308,7 +1307,7 @@ export default {
       const zelidauth = localStorage.getItem('zelidauth');
       const auth = qs.parse(zelidauth);
       console.log(auth);
-      zelIDService.logoutSpecificSession(zelidauth, row.loginPhrase)
+      IDService.logoutSpecificSession(zelidauth, row.loginPhrase)
         .then((response) => {
           console.log(response);
           if (response.data.status === 'error') {
@@ -1317,10 +1316,10 @@ export default {
             vue.$customMes.success(response.data.data.message || response.data.data);
             if (row.loginPhrase === auth.loginPhrase) {
               localStorage.removeItem('zelidauth');
-              this.$store.commit('setZelCashSection', 'getinfo');
+              this.$store.commit('setDaemonSection', 'getinfo');
               this.$store.commit('setPrivilage', 'none');
             } else {
-              switch (self.zelAdminSection) {
+              switch (self.adminSection) {
                 case 'loggedsessions':
                   self.loggedSessions();
                   break;
@@ -1328,10 +1327,10 @@ export default {
                   self.loggedUsers();
                   break;
                 case null:
-                  console.log('zelAdmin Section hidden');
+                  console.log('admin Section hidden');
                   break;
                 default:
-                  console.log('zelAdmin Section: Unrecognized method'); // should not be seeable if all works correctly
+                  console.log('admin Section: Unrecognized method'); // should not be seeable if all works correctly
               }
             }
           }
@@ -1345,7 +1344,7 @@ export default {
       const cruxId = this.cruxidInput;
       const zelidauth = localStorage.getItem('zelidauth');
       try {
-        const cruxIDResponse = await ZelFluxService.adjustCruxID(zelidauth, cruxId);
+        const cruxIDResponse = await FluxService.adjustCruxID(zelidauth, cruxId);
         if (cruxIDResponse.data.status === 'error') {
           vue.$customMes.error(cruxIDResponse.data.data.message || cruxIDResponse.data.data);
         } else {
@@ -1360,7 +1359,7 @@ export default {
       const chainid = this.kadenaChainIDInput;
       const zelidauth = localStorage.getItem('zelidauth');
       try {
-        const cruxIDResponse = await ZelFluxService.adjustKadena(zelidauth, account, chainid);
+        const cruxIDResponse = await FluxService.adjustKadena(zelidauth, account, chainid);
         if (cruxIDResponse.data.status === 'error') {
           vue.$customMes.error(cruxIDResponse.data.data.message || cruxIDResponse.data.data);
         } else {

@@ -2,8 +2,8 @@ const config = require('config');
 
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
-const zelcashService = require('./zelcashService');
-const zelappsService = require('./zelappsService');
+const daemonService = require('./daemonService');
+const appsService = require('./appsService');
 
 const utxoIndexCollection = config.database.zelcash.collections.utxoIndex;
 const zelappsHashesCollection = config.database.zelcash.collections.zelappsHashes;
@@ -38,7 +38,7 @@ async function getSenderTransactionFromZelCash(txid) {
     },
   };
 
-  const txContent = await zelcashService.getRawTransaction(req);
+  const txContent = await daemonService.getRawTransaction(req);
   if (txContent.status === 'success') {
     const sender = txContent.data;
     return sender;
@@ -237,7 +237,7 @@ async function getVerboseBlock(heightOrHash) {
       verbosity,
     },
   };
-  const blockInfo = await zelcashService.getBlock(req);
+  const blockInfo = await daemonService.getBlock(req);
   if (blockInfo.status === 'success') {
     return blockInfo.data;
   }
@@ -261,7 +261,7 @@ function decodeMessage(asm) {
 
 async function processBlock(blockHeight) {
   try {
-    const syncStatus = await zelcashService.isZelCashSynced();
+    const syncStatus = await daemonService.isZelCashSynced();
     if (!syncStatus.data.synced) {
       setTimeout(() => {
         processBlock(blockHeight);
@@ -322,7 +322,7 @@ async function processBlock(blockHeight) {
             txid: tx.txid, height: blockDataVerbose.height, hash: message, value: isZelAppMessageValue, message: false, // message is boolean saying if we already have it stored as permanent message
           };
           await serviceHelper.insertOneToDatabase(database, zelappsHashesCollection, zelappTxRecord);
-          zelappsService.checkAndRequestZelApp(message, tx.txid, blockDataVerbose.height, isZelAppMessageValue);
+          appsService.checkAndRequestZelApp(message, tx.txid, blockDataVerbose.height, isZelAppMessageValue);
         }
       }
       // tx version 5 are zelnode transactions. Put them into zelnode
@@ -360,17 +360,17 @@ async function processBlock(blockHeight) {
       log.info(`ADDR documents: ${resultB.size}, ${resultB.count}, ${resultB.avgObjSize}`);
       log.info(`ZELNODE documents: ${resultC.size}, ${resultC.count}, ${resultC.avgObjSize}`);
       if (blockDataVerbose.height >= config.zelapps.epochstart) {
-        zelappsService.expireGlobalApplications();
+        appsService.expireGlobalApplications();
       }
     }
     if (blockHeight % config.zelapps.removeZelAppsPeriod === 0) {
       if (blockDataVerbose.height >= config.zelapps.epochstart) {
-        zelappsService.checkAndRemoveApplicationInstance();
+        appsService.checkAndRemoveApplicationInstance();
       }
     }
     if (blockHeight % config.zelapps.updateZelAppsPeriod === 0) {
       if (blockDataVerbose.height >= config.zelapps.epochstart) {
-        zelappsService.reinstallOldApplications();
+        appsService.reinstallOldApplications();
       }
     }
     const scannedHeight = blockDataVerbose.height;
@@ -386,7 +386,7 @@ async function processBlock(blockHeight) {
       if (blockDataVerbose.confirmations > 1) {
         processBlock(blockDataVerbose.height + 1);
       } else {
-        const zelcashGetInfo = await zelcashService.getInfo();
+        const zelcashGetInfo = await daemonService.getInfo();
         let zelcashHeight = 0;
         if (zelcashGetInfo.status === 'success') {
           zelcashHeight = zelcashGetInfo.data.blocks;
@@ -453,7 +453,7 @@ async function restoreDatabaseToBlockheightState(height, rescanGlobalApps = fals
 // use reindexGlobalApps with caution!!!
 async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRescanGlobalApps) {
   try {
-    const syncStatus = await zelcashService.isZelCashSynced();
+    const syncStatus = await daemonService.isZelCashSynced();
     if (!syncStatus.data.synced) {
       setTimeout(() => {
         initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRescanGlobalApps);
@@ -478,7 +478,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
     if (currentHeight && currentHeight.generalScannedHeight) {
       scannedBlockHeight = currentHeight.generalScannedHeight;
     }
-    const zelcashGetInfo = await zelcashService.getInfo();
+    const zelcashGetInfo = await daemonService.getInfo();
     let zelcashHeight = 0;
     if (zelcashGetInfo.status === 'success') {
       zelcashHeight = zelcashGetInfo.data.blocks;
@@ -592,7 +592,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
           throw e;
         }
       } else if (scannedBlockHeight > config.zelcash.chainValidHeight) {
-        const zelcashGetChainTips = await zelcashService.getChainTips();
+        const zelcashGetChainTips = await daemonService.getChainTips();
         if (zelcashGetChainTips.status !== 'success') {
           throw new Error(zelcashGetChainTips.data.message || zelcashGetInfo.data);
         }
@@ -890,7 +890,7 @@ async function checkBlockProcessingStopped(i, callback) {
 }
 
 async function stopBlockProcessing(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
+  const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
     const i = 0;
     checkBlockProcessingStopped(i, async (response) => {
@@ -904,7 +904,7 @@ async function stopBlockProcessing(req, res) {
 }
 
 async function restartBlockProcessing(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
+  const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
     const i = 0;
     checkBlockProcessingStopped(i, async () => {
@@ -919,7 +919,7 @@ async function restartBlockProcessing(req, res) {
 }
 
 async function reindexExplorer(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
+  const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
     // stop block processing
     const i = 0;
@@ -963,7 +963,7 @@ async function reindexExplorer(req, res) {
 
 async function rescanExplorer(req, res) {
   try {
-    const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
+    const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized === true) {
       // since what blockheight
       let { blockheight } = req.params; // we accept both help/command and help?command=getinfo

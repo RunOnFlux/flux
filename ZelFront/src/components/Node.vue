@@ -3,7 +3,7 @@
     <div v-if="zelNodeSection === 'getinfo'">
       <div class="status">
         <h4>
-          ZelNode owner Zel ID: {{ userconfig.zelid }}
+          Flux owner Zel ID: {{ userconfig.zelid }}
         </h4>
         <h4>
           Status: {{ getZelNodeStatusResponse.zelnodeStatus }}
@@ -275,14 +275,14 @@ import Vuex, { mapState } from 'vuex';
 import Vue from 'vue';
 import axios from 'axios';
 
-import ZelCashService from '@/services/ZelCashService';
-import ZelFluxService from '@/services/ZelFluxService';
+import DaemonService from '@/services/DaemonService';
+import FluxService from '@/services/FluxService';
 
 Vue.use(Vuex);
 const vue = new Vue();
 
 export default {
-  name: 'ZelNode',
+  name: 'Node',
   data() {
     return {
       callResponse: { // general
@@ -345,8 +345,8 @@ export default {
           this.zelcashGetZelNodeStatus();
           break;
         case 'network':
-          this.zelfluxConnectedPeersInfo();
-          this.zelfluxIncomingConnectionsInfo();
+          this.fluxConnectedPeersInfo();
+          this.fluxIncomingConnectionsInfo();
           break;
         case 'messages':
           this.broadcastMessage();
@@ -361,13 +361,13 @@ export default {
       }
     },
     async zelcashGetInfo() {
-      const response = await ZelCashService.getInfo();
+      const response = await DaemonService.getInfo();
       this.getInfoResponse.status = response.data.status;
       this.getInfoResponse.data = response.data.data;
     },
     async zelcashGetZelNodeStatus() {
       // TODO more code statuses?
-      const response = await ZelCashService.getZelNodeStatus();
+      const response = await DaemonService.getZelNodeStatus();
       this.getZelNodeStatusResponse.status = response.data.status;
       this.getZelNodeStatusResponse.data = response.data.data;
       console.log(this.getZelNodeStatusResponse.data);
@@ -383,7 +383,7 @@ export default {
     },
     async broadcastMessage() {
       const zelidauth = localStorage.getItem('zelidauth');
-      ZelFluxService.broadcastMessage(zelidauth, 'abcde')
+      FluxService.broadcastMessage(zelidauth, 'abcde')
         .then((response) => {
           console.log(response);
           if (response.data.status === 'error') {
@@ -397,8 +397,8 @@ export default {
           vue.$customMes.error(e.toString());
         });
     },
-    async zelfluxConnectedPeersInfo() {
-      const response = await ZelFluxService.connectedPeersInfo();
+    async fluxConnectedPeersInfo() {
+      const response = await FluxService.connectedPeersInfo();
       console.log(response);
       if (response.data.status === 'success') {
         this.connectedPeers = response.data.data;
@@ -409,8 +409,8 @@ export default {
         });
       }
     },
-    async zelfluxIncomingConnectionsInfo() {
-      const response = await ZelFluxService.incomingConnectionsInfo();
+    async fluxIncomingConnectionsInfo() {
+      const response = await FluxService.incomingConnectionsInfo();
       if (response.data.status === 'success') {
         this.incomingConnections = response.data.data;
       } else {
@@ -424,14 +424,14 @@ export default {
       const self = this;
       console.log(index, row);
       const zelidauth = localStorage.getItem('zelidauth');
-      ZelFluxService.removePeer(zelidauth, row.ip)
+      FluxService.removePeer(zelidauth, row.ip)
         .then((response) => {
           vue.$customMes({
             type: response.data.status,
             message: response.data.data.message || response.data.data,
           });
           setTimeout(() => {
-            self.zelfluxConnectedPeersInfo();
+            self.fluxConnectedPeersInfo();
           }, 2000);
         })
         .catch((e) => {
@@ -443,14 +443,14 @@ export default {
       const self = this;
       console.log(index, row);
       const zelidauth = localStorage.getItem('zelidauth');
-      ZelFluxService.removeIncomingPeer(zelidauth, row.ip)
+      FluxService.removeIncomingPeer(zelidauth, row.ip)
         .then((response) => {
           vue.$customMes({
             type: response.data.status,
             message: response.data.data.message || response.data.data,
           });
           setTimeout(() => {
-            self.zelfluxIncomingConnectionsInfo();
+            self.fluxIncomingConnectionsInfo();
           }, 2000);
         })
         .catch((e) => {
@@ -461,7 +461,7 @@ export default {
     connectPeer() {
       const self = this;
       const zelidauth = localStorage.getItem('zelidauth');
-      ZelFluxService.addPeer(zelidauth, self.connectPeerIP)
+      FluxService.addPeer(zelidauth, self.connectPeerIP)
         .then((response) => {
           console.log(response);
           vue.$customMes({
@@ -469,7 +469,7 @@ export default {
             message: response.data.data.message || response.data.data,
           });
           setTimeout(() => {
-            self.zelfluxConnectedPeersInfo();
+            self.fluxConnectedPeersInfo();
           }, 2000);
         })
         .catch((e) => {
@@ -503,7 +503,7 @@ export default {
           },
           cancelToken: self.abortToken[name].token,
         };
-        const response = await ZelFluxService.justAPI().get(`/flux/${name}log`, axiosConfig);
+        const response = await FluxService.justAPI().get(`/flux/${name}log`, axiosConfig);
         if (response.data.status === 'error') {
           vue.$customMes.error(response.data.data.message || response.data.data);
         } else {
@@ -527,7 +527,7 @@ export default {
     },
     tailFluxLog(name) {
       const zelidauth = localStorage.getItem('zelidauth');
-      ZelFluxService.tailFluxLog(name, zelidauth)
+      FluxService.tailFluxLog(name, zelidauth)
         .then((response) => {
           if (response.data.status === 'error') {
             vue.$customMes.error(response.data.data.message || response.data.data);

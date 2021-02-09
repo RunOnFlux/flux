@@ -65,7 +65,7 @@
 import Vuex, { mapState } from 'vuex';
 import Vue from 'vue';
 
-import zelIDService from '@/services/ZelIDService';
+import IDService from '@/services/IDService';
 
 const qs = require('qs');
 const store = require('store');
@@ -126,7 +126,7 @@ export default {
   },
   methods: {
     getZelIdLoginPhrase() {
-      zelIDService.loginPhrase()
+      IDService.loginPhrase()
         .then((response) => {
           console.log(response);
           if (response.data.status === 'error') {
@@ -148,7 +148,7 @@ export default {
         });
     },
     getEmergencyLoginPhrase() {
-      zelIDService.emergencyLoginPhrase()
+      IDService.emergencyLoginPhrase()
         .then((response) => {
           console.log(response);
           if (response.data.status === 'error') {
@@ -166,7 +166,7 @@ export default {
     },
     login() {
       console.log(this.loginForm);
-      zelIDService.verifyLogin(this.loginForm)
+      IDService.verifyLogin(this.loginForm)
         .then((response) => {
           console.log(response);
           if (response.data.status === 'success') {

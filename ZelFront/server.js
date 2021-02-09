@@ -1,4 +1,4 @@
-// ZelFront configuration
+// Flux Home configuration
 const path = require('path');
 const express = require('express');
 

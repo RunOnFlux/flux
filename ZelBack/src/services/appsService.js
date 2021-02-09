@@ -14,9 +14,9 @@ const archiver = require('archiver');
 const systemcrontab = require('crontab');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
-const zelfluxCommunication = require('./zelfluxCommunication');
+const fluxCommunication = require('./fluxCommunication');
 const serviceHelper = require('./serviceHelper');
-const zelcashService = require('./zelcashService');
+const daemonService = require('./daemonService');
 const log = require('../lib/log');
 const userconfig = require('../../../config/userconfig');
 
@@ -243,7 +243,7 @@ async function dockerContainerLogs(idOrName, lines) {
 
 async function zelAppPull(req, res) {
   try {
-    const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
+    const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized) {
       let { repotag } = req.params;
       repotag = repotag || req.query.repotag;
@@ -352,7 +352,7 @@ async function listZelAppsImages(req, res) {
 async function zelnodeTier() {
   // get our collateral information to decide if app specifications are basic, super, bamf
   // getzlenodestatus.collateral
-  const zelnodeStatus = await zelcashService.getZelNodeStatus();
+  const zelnodeStatus = await daemonService.getZelNodeStatus();
   if (zelnodeStatus.status === 'error') {
     throw zelnodeStatus.data;
   }
@@ -364,7 +364,7 @@ async function zelnodeTier() {
       verbose: 1,
     },
   };
-  const txInformation = await zelcashService.getRawTransaction(request);
+  const txInformation = await daemonService.getRawTransaction(request);
   if (txInformation.status === 'error') {
     throw txInformation.data;
   }
@@ -615,7 +615,7 @@ async function zelAppRestart(req, res) {
 
 async function zelAppKill(req, res) {
   try {
-    const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
+    const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
     if (!authorized) {
       const errMessage = serviceHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
@@ -981,7 +981,7 @@ async function createFluxNetwork() {
 
 async function createZelFluxNetwork(req, res) {
   try {
-    const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
+    const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
     if (!authorized) {
       const errMessage = serviceHelper.errUnauthorizedMessage();
       return res.json(errMessage);
@@ -1019,7 +1019,7 @@ async function zelFluxUsage(req, res) {
     if (result) {
       explorerHeight = serviceHelper.ensureNumber(result.generalScannedHeight) || 999999999;
     }
-    const zelcashGetInfo = await zelcashService.getInfo();
+    const zelcashGetInfo = await daemonService.getInfo();
     let zelcashHeight = 1;
     if (zelcashGetInfo.status === 'success') {
       zelcashHeight = zelcashGetInfo.data.blocks;
@@ -1549,7 +1549,7 @@ async function removeZelAppLocally(zelapp, res, force = false, endResponse = tru
     if (res) {
       res.write(serviceHelper.ensureString(portStatus));
     }
-    await zelfluxCommunication.denyPort(zelAppSpecifications.port);
+    await fluxCommunication.denyPort(zelAppSpecifications.port);
     const portStatus2 = {
       status: 'Port denied',
     };
@@ -1847,7 +1847,7 @@ async function softRemoveZelAppLocally(zelapp, res) {
   if (res) {
     res.write(serviceHelper.ensureString(portStatus));
   }
-  await zelfluxCommunication.denyPort(zelAppSpecifications.port);
+  await fluxCommunication.denyPort(zelAppSpecifications.port);
   const portStatus2 = {
     status: 'Port denied',
   };
@@ -1881,7 +1881,7 @@ async function softRemoveZelAppLocally(zelapp, res) {
 
 async function removeZelAppLocallyApi(req, res) {
   try {
-    const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
+    const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
     if (!authorized) {
       const errMessage = serviceHelper.errUnauthorizedMessage();
       res.json(errMessage);
@@ -2123,7 +2123,7 @@ async function registerZelAppLocally(zelAppSpecifications, res) {
         if (res) {
           res.write(serviceHelper.ensureString(portStatusInitial));
         }
-        const portResponse = await zelfluxCommunication.allowPort(zelAppSpecifications.port);
+        const portResponse = await fluxCommunication.allowPort(zelAppSpecifications.port);
         if (portResponse.status === true) {
           const portStatus = {
             status: 'Port OK',
@@ -2342,7 +2342,7 @@ async function softRegisterZelAppLocally(zelAppSpecifications, res) {
         if (res) {
           res.write(serviceHelper.ensureString(portStatusInitial));
         }
-        const portResponse = await zelfluxCommunication.allowPort(zelAppSpecifications.port);
+        const portResponse = await fluxCommunication.allowPort(zelAppSpecifications.port);
         if (portResponse.status === true) {
           const portStatus = {
             status: 'Port OK',
@@ -2687,7 +2687,7 @@ async function checkWhitelistedRepository(repotag) {
     const repos = resWhitelistRepo.data;
     const whitelisted = repos.includes(repotag);
     if (!whitelisted) {
-      throw new Error('Repository is not whitelisted. Please contact Zel Team.');
+      throw new Error('Repository is not whitelisted. Please contact Flux Team.');
     }
   } else {
     throw new Error('Repository is not in valid format namespace/repository:tag');
@@ -2708,7 +2708,7 @@ async function checkWhitelistedZelID(zelid) {
   const zelids = resZelIDs.data;
   const whitelisted = zelids.includes(zelid);
   if (!whitelisted) {
-    throw new Error('Owner Zel ID is not whitelisted. Please contact Zel Team.');
+    throw new Error('Owner Zel ID is not whitelisted. Please contact Flux Team.');
   }
   return true;
 }
@@ -2970,7 +2970,7 @@ async function registerZelAppGlobalyApi(req, res) {
         return res.json(errMessage);
       }
       // first  check if this node is available for application registration - has at least 5 outgoing connections and 2 incoming connections (that is sufficient as it means it is confirmed and works correctly)
-      if (zelfluxCommunication.outgoingPeers.length < config.zelapps.minOutgoing || zelfluxCommunication.incomingPeers.length < config.zelapps.minIncoming) {
+      if (fluxCommunication.outgoingPeers.length < config.zelapps.minOutgoing || fluxCommunication.incomingPeers.length < config.zelapps.minIncoming) {
         throw new Error('Sorry, This Flux does not have enough peers for safe application registration');
       }
       const processedBody = serviceHelper.ensureObject(body);
@@ -3051,7 +3051,7 @@ async function registerZelAppGlobalyApi(req, res) {
         throw new Error('Invalid tiered value obtained. Only boolean as true or false allowed.');
       }
 
-      const zelcashGetInfo = await zelcashService.getInfo();
+      const zelcashGetInfo = await daemonService.getInfo();
       let zelcashHeight = 0;
       if (zelcashGetInfo.status === 'success') {
         zelcashHeight = zelcashGetInfo.data.blocks;
@@ -3059,7 +3059,7 @@ async function registerZelAppGlobalyApi(req, res) {
         throw new Error(zelcashGetInfo.data.message || zelcashGetInfo.data);
       }
 
-      if (owner !== config.zelTeamZelId && zelcashHeight < config.zelapps.publicepochstart) {
+      if (owner !== config.fluxTeamZelId && zelcashHeight < config.zelapps.publicepochstart) {
         throw new Error('Global Registration open on the 10th of October 2020');
       }
 
@@ -3143,7 +3143,7 @@ async function registerZelAppGlobalyApi(req, res) {
         signature,
       };
       await storeZelAppTemporaryMessage(temporaryZelAppMessage, false);
-      await zelfluxCommunication.broadcastTemporaryZelAppMessage(temporaryZelAppMessage);
+      await fluxCommunication.broadcastTemporaryZelAppMessage(temporaryZelAppMessage);
       return res.json(responseHash);
     } catch (error) {
       log.warn(error);
@@ -3171,7 +3171,7 @@ async function updateZelAppGlobalyApi(req, res) {
         return res.json(errMessage);
       }
       // first  check if this node is available for application update - has at least 5 outgoing connections and 2 incoming connections (that is sufficient as it means it is confirmed and works correctly)
-      if (zelfluxCommunication.outgoingPeers.length < config.zelapps.minOutgoing || zelfluxCommunication.incomingPeers.length < config.zelapps.minIncoming) {
+      if (fluxCommunication.outgoingPeers.length < config.zelapps.minOutgoing || fluxCommunication.incomingPeers.length < config.zelapps.minIncoming) {
         throw new Error('Sorry, This Flux does not have enough peers for safe application update');
       }
       const processedBody = serviceHelper.ensureObject(body);
@@ -3345,7 +3345,7 @@ async function updateZelAppGlobalyApi(req, res) {
         signature,
       };
       await storeZelAppTemporaryMessage(temporaryZelAppMessage, false);
-      await zelfluxCommunication.broadcastTemporaryZelAppMessage(temporaryZelAppMessage);
+      await fluxCommunication.broadcastTemporaryZelAppMessage(temporaryZelAppMessage);
       return res.json(responseHash);
     } catch (error) {
       log.warn(error);
@@ -3361,7 +3361,7 @@ async function updateZelAppGlobalyApi(req, res) {
 
 async function installTemporaryLocalApplication(req, res, applicationName) {
   try {
-    const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
+    const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized) {
       const allZelApps = await availableZelApps();
       const zelAppSpecifications = allZelApps.find((zelapp) => zelapp.name === applicationName);
@@ -3453,9 +3453,9 @@ async function requestZelAppMessage(hash) {
     version: 1,
     hash,
   };
-  await zelfluxCommunication.broadcastMessageToOutgoing(message);
+  await fluxCommunication.broadcastMessageToOutgoing(message);
   await serviceHelper.delay(2345);
-  await zelfluxCommunication.broadcastMessageToIncoming(message);
+  await fluxCommunication.broadcastMessageToIncoming(message);
 }
 
 async function storeZelAppPermanentMessage(message) {
@@ -3900,7 +3900,7 @@ async function rescanGlobalAppsInformation(height = 0, removeLastInformation = f
 
 async function reindexGlobalAppsLocationAPI(req, res) {
   try {
-    const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
+    const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized === true) {
       await reindexGlobalAppsLocation();
       const message = serviceHelper.createSuccessMessage('Reindex successfull');
@@ -3922,7 +3922,7 @@ async function reindexGlobalAppsLocationAPI(req, res) {
 
 async function reindexGlobalAppsInformationAPI(req, res) {
   try {
-    const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
+    const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized === true) {
       await reindexGlobalAppsInformation();
       const message = serviceHelper.createSuccessMessage('Reindex successfull');
@@ -3944,7 +3944,7 @@ async function reindexGlobalAppsInformationAPI(req, res) {
 
 async function rescanGlobalAppsInformationAPI(req, res) {
   try {
-    const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
+    const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized === true) {
       let { blockheight } = req.params; // we accept both help/command and help?command=getinfo
       blockheight = blockheight || req.query.blockheight;
@@ -4117,7 +4117,7 @@ async function getZelAppsLocation(req, res) {
 async function checkSynced() {
   try {
     // check if flux database is synced with zelcash database (equal or -1 inheight)
-    const zelcashGetInfo = await zelcashService.getInfo();
+    const zelcashGetInfo = await daemonService.getInfo();
     let zelcashHeight;
     if (zelcashGetInfo.status === 'success') {
       zelcashHeight = zelcashGetInfo.data.blocks;
@@ -4349,7 +4349,7 @@ async function trySpawningGlobalApplication() {
       return;
     }
     // get my external IP and check that it is longer than 5 in length.
-    const benchmarkResponse = await zelcashService.getBenchmarks();
+    const benchmarkResponse = await daemonService.getBenchmarks();
     let myIP = null;
     if (benchmarkResponse.status === 'success') {
       const benchmarkResponseData = JSON.parse(benchmarkResponse.data);
@@ -4423,7 +4423,7 @@ async function trySpawningGlobalApplication() {
 async function checkAndNotifyPeersOfRunningApps() {
   try {
     // get my external IP and check that it is longer than 5 in length.
-    const benchmarkResponse = await zelcashService.getBenchmarks();
+    const benchmarkResponse = await daemonService.getBenchmarks();
     let myIP = null;
     if (benchmarkResponse.status === 'success') {
       const benchmarkResponseData = JSON.parse(benchmarkResponse.data);
@@ -4500,11 +4500,11 @@ async function checkAndNotifyPeersOfRunningApps() {
         // eslint-disable-next-line no-await-in-loop
         await serviceHelper.delay(2345);
         // eslint-disable-next-line no-await-in-loop
-        await zelfluxCommunication.broadcastMessageToOutgoing(newZelAppRunningMessage);
+        await fluxCommunication.broadcastMessageToOutgoing(newZelAppRunningMessage);
         // eslint-disable-next-line no-await-in-loop
         await serviceHelper.delay(2345);
         // eslint-disable-next-line no-await-in-loop
-        await zelfluxCommunication.broadcastMessageToIncoming(newZelAppRunningMessage);
+        await fluxCommunication.broadcastMessageToIncoming(newZelAppRunningMessage);
         // broadcast messages about running apps to all peers
       } catch (err) {
         log.error(err);
@@ -4871,7 +4871,7 @@ async function getAppPrice(req, res) {
       if (zelappInfo) {
         const previousSpecsPrice = appPricePerMonth(zelappInfo);
         // what is the height difference
-        const zelcashGetInfo = await zelcashService.getInfo();
+        const zelcashGetInfo = await daemonService.getInfo();
         let zelcashHeight;
         if (zelcashGetInfo.status === 'success') {
           zelcashHeight = zelcashGetInfo.data.blocks;
