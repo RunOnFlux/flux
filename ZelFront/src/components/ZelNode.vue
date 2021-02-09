@@ -503,7 +503,7 @@ export default {
           },
           cancelToken: self.abortToken[name].token,
         };
-        const response = await ZelFluxService.justAPI().get(`/zelnode/zelflux${name}log`, axiosConfig);
+        const response = await ZelFluxService.justAPI().get(`/flux/${name}log`, axiosConfig);
         if (response.data.status === 'error') {
           vue.$customMes.error(response.data.data.message || response.data.data);
         } else {

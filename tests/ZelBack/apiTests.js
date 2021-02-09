@@ -23,9 +23,9 @@ describe('loading express', function () {
     const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
     await serviceHelper.initiateDB();
   });
-  it('/zelflux/version', function testSlash(done) {
+  it('/flux/version', function testSlash(done) {
     request(server)
-      .get('/zelflux/version')
+      .get('/flux/version')
       .expect(200)
       .end((err, res) => {
         if (err) {

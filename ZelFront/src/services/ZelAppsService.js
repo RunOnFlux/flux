@@ -2,16 +2,16 @@ import Api from '@/services/Api';
 
 export default {
   listRunningZelApps() {
-    return Api().get('/zelapps/listrunningzelapps');
+    return Api().get('/apps/listrunningapps');
   },
   listAllZelApps() {
-    return Api().get('/zelapps/listallzelapps');
+    return Api().get('/apps/listallapps');
   },
   installedZelApps() {
-    return Api().get('/zelapps/installedzelapps');
+    return Api().get('/apps/installedapps');
   },
   availableZelApps() {
-    return Api().get('/zelapps/availablezelapps');
+    return Api().get('/apps/availableapps');
   },
   stopZelApp(zelidauthHeader, zelapp) {
     const axiosConfig = {
@@ -19,7 +19,7 @@ export default {
         zelidauth: zelidauthHeader,
       },
     };
-    return Api().get(`/zelapps/zelappstop/${zelapp}`, axiosConfig);
+    return Api().get(`/apps/appstop/${zelapp}`, axiosConfig);
   },
   startZelApp(zelidauthHeader, zelapp) {
     const axiosConfig = {
@@ -27,7 +27,7 @@ export default {
         zelidauth: zelidauthHeader,
       },
     };
-    return Api().get(`/zelapps/zelappstart/${zelapp}`, axiosConfig);
+    return Api().get(`/apps/appstart/${zelapp}`, axiosConfig);
   },
   pauseZelApp(zelidauthHeader, zelapp) {
     const axiosConfig = {
@@ -35,7 +35,7 @@ export default {
         zelidauth: zelidauthHeader,
       },
     };
-    return Api().get(`/zelapps/zelapppause/${zelapp}`, axiosConfig);
+    return Api().get(`/apps/apppause/${zelapp}`, axiosConfig);
   },
   unpauseZelApp(zelidauthHeader, zelapp) {
     const axiosConfig = {
@@ -43,7 +43,7 @@ export default {
         zelidauth: zelidauthHeader,
       },
     };
-    return Api().get(`/zelapps/zelappunpause/${zelapp}`, axiosConfig);
+    return Api().get(`/apps/appunpause/${zelapp}`, axiosConfig);
   },
   restartZelApp(zelidauthHeader, zelapp) {
     const axiosConfig = {
@@ -51,7 +51,7 @@ export default {
         zelidauth: zelidauthHeader,
       },
     };
-    return Api().get(`/zelapps/zelapprestart/${zelapp}`, axiosConfig);
+    return Api().get(`/apps/apprestart/${zelapp}`, axiosConfig);
   },
   removeZelApp(zelidauthHeader, zelapp) {
     const axiosConfig = {
@@ -62,7 +62,7 @@ export default {
         console.log(progressEvent);
       },
     };
-    return Api().get(`/zelapps/zelappremove/${zelapp}`, axiosConfig);
+    return Api().get(`/apps/appremove/${zelapp}`, axiosConfig);
   },
   registerZelApp(zelidauthHeader, data) {
     const axiosConfig = {
@@ -70,7 +70,7 @@ export default {
         zelidauth: zelidauthHeader,
       },
     };
-    return Api().post('/zelapps/zelappregister', JSON.stringify(data), axiosConfig);
+    return Api().post('/apps/appregister', JSON.stringify(data), axiosConfig);
   },
   updateZelApp(zelidauthHeader, data) {
     const axiosConfig = {
@@ -78,10 +78,10 @@ export default {
         zelidauth: zelidauthHeader,
       },
     };
-    return Api().post('/zelapps/zelappupdate', JSON.stringify(data), axiosConfig);
+    return Api().post('/apps/appupdate', JSON.stringify(data), axiosConfig);
   },
   checkCommunication() {
-    return Api().get('/zelflux/checkcommunication');
+    return Api().get('/flux/checkcommunication');
   },
   checkDockerExistance(zelidauthHeader, data) {
     const axiosConfig = {
@@ -89,25 +89,25 @@ export default {
         zelidauth: zelidauthHeader,
       },
     };
-    return Api().post('/zelapps/checkdockerexistance', JSON.stringify(data), axiosConfig);
+    return Api().post('/apps/checkdockerexistance', JSON.stringify(data), axiosConfig);
   },
   zelappsRegInformation() {
-    return Api().get('/zelapps/registrationinformation');
+    return Api().get('/apps/registrationinformation');
   },
   getZelAppLocation(name) {
-    return Api().get(`/zelapps/location/${name}`);
+    return Api().get(`/apps/location/${name}`);
   },
   globalZelAppSpecifications() {
-    return Api().get('/zelapps/globalappsspecifications');
+    return Api().get('/apps/globalappsspecifications');
   },
   getInstalledZelAppSpecifics(name) {
-    return Api().get(`/zelapps/installedzelapps/${name}`);
+    return Api().get(`/apps/installedapps/${name}`);
   },
   getZelAppSpecifics(name) {
-    return Api().get(`/zelapps/appspecifications/${name}`);
+    return Api().get(`/apps/appspecifications/${name}`);
   },
   getZelAppOwner(name) {
-    return Api().get(`/zelapps/appowner/${name}`);
+    return Api().get(`/apps/appowner/${name}`);
   },
   getZelAppLogsTail(zelidauthHeader, zelapp) {
     const axiosConfig = {
@@ -115,7 +115,7 @@ export default {
         zelidauth: zelidauthHeader,
       },
     };
-    return Api().get(`/zelapps/zelapplog/${zelapp}/100`, axiosConfig);
+    return Api().get(`/apps/applog/${zelapp}/100`, axiosConfig);
   },
   getZelAppTop(zelidauthHeader, zelapp) {
     const axiosConfig = {
@@ -123,7 +123,7 @@ export default {
         zelidauth: zelidauthHeader,
       },
     };
-    return Api().get(`/zelapps/zelapptop/${zelapp}`, axiosConfig);
+    return Api().get(`/apps/apptop/${zelapp}`, axiosConfig);
   },
   getZelAppInspect(zelidauthHeader, zelapp) {
     const axiosConfig = {
@@ -131,7 +131,7 @@ export default {
         zelidauth: zelidauthHeader,
       },
     };
-    return Api().get(`/zelapps/zelappinspect/${zelapp}`, axiosConfig);
+    return Api().get(`/apps/appinspect/${zelapp}`, axiosConfig);
   },
   getZelAppStats(zelidauthHeader, zelapp) {
     const axiosConfig = {
@@ -139,7 +139,7 @@ export default {
         zelidauth: zelidauthHeader,
       },
     };
-    return Api().get(`/zelapps/zelappstats/${zelapp}`, axiosConfig);
+    return Api().get(`/apps/appstats/${zelapp}`, axiosConfig);
   },
   getZelAppChanges(zelidauthHeader, zelapp) {
     const axiosConfig = {
@@ -147,7 +147,7 @@ export default {
         zelidauth: zelidauthHeader,
       },
     };
-    return Api().get(`/zelapps/zelappchanges/${zelapp}`, axiosConfig);
+    return Api().get(`/apps/appchanges/${zelapp}`, axiosConfig);
   },
   getZelAppExec(zelidauthHeader, zelapp, cmd, env) {
     const axiosConfig = {
@@ -160,97 +160,97 @@ export default {
       cmd: JSON.parse(cmd),
       env: JSON.parse(env),
     };
-    return Api().post('/zelapps/zelappexec', JSON.stringify(data), axiosConfig);
+    return Api().post('/apps/appexec', JSON.stringify(data), axiosConfig);
   },
   reindexGlobalApps(zelidauthHeader) {
-    return Api().get('/zelapps/reindexglobalappsinformation', {
+    return Api().get('/apps/reindexglobalappsinformation', {
       headers: {
         zelidauth: zelidauthHeader,
       },
     });
   },
   reindexLocations(zelidauthHeader) {
-    return Api().get('/zelapps/reindexglobalappslocation', {
+    return Api().get('/apps/reindexglobalappslocation', {
       headers: {
         zelidauth: zelidauthHeader,
       },
     });
   },
   rescanGlobalApps(zelidauthHeader, height, removelastinformation) {
-    return Api().get(`/zelapps/rescanglobalappsinformation/${height}/${removelastinformation}`, {
+    return Api().get(`/apps/rescanglobalappsinformation/${height}/${removelastinformation}`, {
       headers: {
         zelidauth: zelidauthHeader,
       },
     });
   },
   getAppPirce(specifications) {
-    return Api().post('/zelapps/calculateprice', JSON.stringify(specifications));
+    return Api().post('/apps/calculateprice', JSON.stringify(specifications));
   },
   getFolder(zelidauthHeader, folder) {
-    return Api().get(`/zelapps/zelshare/getfolder/${folder}`, {
+    return Api().get(`/apps/fluxshare/getfolder/${folder}`, {
       headers: {
         zelidauth: zelidauthHeader,
       },
     });
   },
   createFolder(zelidauthHeader, folder) {
-    return Api().get(`/zelapps/zelshare/createfolder/${folder}`, {
+    return Api().get(`/apps/fluxshare/createfolder/${folder}`, {
       headers: {
         zelidauth: zelidauthHeader,
       },
     });
   },
   getFile(zelidauthHeader, file) {
-    return Api().get(`/zelapps/zelshare/getfile/${file}`, {
+    return Api().get(`/apps/fluxshare/getfile/${file}`, {
       headers: {
         zelidauth: zelidauthHeader,
       },
     });
   },
   removeFile(zelidauthHeader, file) {
-    return Api().get(`/zelapps/zelshare/removefile/${file}`, {
+    return Api().get(`/apps/fluxshare/removefile/${file}`, {
       headers: {
         zelidauth: zelidauthHeader,
       },
     });
   },
   shareFile(zelidauthHeader, file) {
-    return Api().get(`/zelapps/zelshare/sharefile/${file}`, {
+    return Api().get(`/apps/fluxshare/sharefile/${file}`, {
       headers: {
         zelidauth: zelidauthHeader,
       },
     });
   },
   unshareFile(zelidauthHeader, file) {
-    return Api().get(`/zelapps/zelshare/unsharefile/${file}`, {
+    return Api().get(`/apps/fluxshare/unsharefile/${file}`, {
       headers: {
         zelidauth: zelidauthHeader,
       },
     });
   },
   removeFolder(zelidauthHeader, folder) {
-    return Api().get(`/zelapps/zelshare/removefolder/${folder}`, {
+    return Api().get(`/apps/fluxshare/removefolder/${folder}`, {
       headers: {
         zelidauth: zelidauthHeader,
       },
     });
   },
   fileExists(zelidauthHeader, file) {
-    return Api().get(`/zelapps/zelshare/fileexists/${file}`, {
+    return Api().get(`/apps/fluxshare/fileexists/${file}`, {
       headers: {
         zelidauth: zelidauthHeader,
       },
     });
   },
   storageStats(zelidauthHeader) {
-    return Api().get('/zelapps/zelshare/stats', {
+    return Api().get('/apps/fluxshare/stats', {
       headers: {
         zelidauth: zelidauthHeader,
       },
     });
   },
   renameFileFolder(zelidauthHeader, oldpath, newname) {
-    return Api().get(`/zelapps/zelshare/rename/${oldpath}/${newname}`, {
+    return Api().get(`/apps/fluxshare/rename/${oldpath}/${newname}`, {
       headers: {
         zelidauth: zelidauthHeader,
       },

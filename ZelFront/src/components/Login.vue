@@ -210,7 +210,7 @@ export default {
       let backendURL = store.get('backendURL') || mybackend;
       backendURL = backendURL.replace('https://', 'wss://');
       backendURL = backendURL.replace('http://', 'ws://');
-      const wsuri = `${backendURL}/ws/zelid/${this.loginPhrase}`;
+      const wsuri = `${backendURL}/ws/id/${this.loginPhrase}`;
       const websocket = new WebSocket(wsuri);
       this.websocket = websocket;
 

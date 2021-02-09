@@ -3,14 +3,14 @@ import Api, { sourceCancelToken } from '@/services/Api';
 export default {
   // actually zelnode service
   start(zelidauthHeader) {
-    return Api().get('/zelbench/start', {
+    return Api().get('/benchmark/start', {
       headers: {
         zelidauth: zelidauthHeader,
       },
     });
   },
   restart(zelidauthHeader) {
-    return Api().get('/zelbench/restart', {
+    return Api().get('/benchmark/restart', {
       headers: {
         zelidauth: zelidauthHeader,
       },
@@ -18,17 +18,17 @@ export default {
   },
   // == Benchmarks ==
   getStatus() {
-    return Api().get('/zelbench/getstatus');
+    return Api().get('/benchmark/getstatus');
   },
   restartNodeBenchmarks(zelidauthHeader) {
-    return Api().get('/zelbench/restartnodebenchmarks', {
+    return Api().get('/benchmark/restartnodebenchmarks', {
       headers: {
         zelidauth: zelidauthHeader,
       },
     });
   },
   signZelNodeTransaction(zelidauthHeader, hexstring) {
-    return Api().get(`/zelbench/signzelnodetransaction/${hexstring}`, {
+    return Api().get(`/benchmark/signzelnodetransaction/${hexstring}`, {
       headers: {
         zelidauth: zelidauthHeader,
       },
@@ -36,13 +36,13 @@ export default {
   },
   // == Control ==
   helpSpecific(command) {
-    return Api().get(`/zelbench/help/${command}`);
+    return Api().get(`/benchmark/help/${command}`);
   },
   help() {
-    return Api().get('/zelbench/help');
+    return Api().get('/benchmark/help');
   },
   stop(zelidauthHeader) {
-    return Api().get('/zelbench/stop', {
+    return Api().get('/benchmark/stop', {
       headers: {
         zelidauth: zelidauthHeader,
       },
@@ -50,14 +50,14 @@ export default {
   },
   // == Zelnode ==
   getBenchmarks() {
-    return Api().get('/zelbench/getbenchmarks');
+    return Api().get('/benchmark/getbenchmarks');
   },
   getInfo() {
-    return Api().get('/zelbench/getinfo');
+    return Api().get('/benchmark/getinfo');
   },
   // DEBUG
   tailZelBenchDebug(zelidauthHeader) {
-    return Api().get('/zelnode/tailzelbenchdebug', {
+    return Api().get('/flux/tailbenchmarkdebug', {
       headers: {
         zelidauth: zelidauthHeader,
       },

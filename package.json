@@ -1,25 +1,22 @@
 {
   "name": "zelflux",
-  "version": "1.10.0",
-  "description": "Flux - Node Daemon. The entrace to the Flux network.",
+  "version": "1.10.1",
+  "description": "Flux, Your Gateway to a Decentralized World",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/zelcash/zelflux.git"
   },
   "keywords": [
-    "zel",
-    "zelcash",
-    "zelcore",
-    "zelnode",
+    "fluxnode",
     "node",
     "daemon",
     "masternode",
-    "zelnodes",
+    "fluxnodes",
     "network",
-    "zelflux",
     "flux",
-    "zelnetwork",
-    "zelnoded"
+    "runonflux",
+    "fluxbench",
+    "zelcore"
   ],
   "author": "Tadeas Kmenta (tadeas@zel.network)",
   "license": "AGPL-3.0-or-later",

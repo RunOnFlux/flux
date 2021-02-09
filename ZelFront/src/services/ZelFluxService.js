@@ -2,7 +2,7 @@ import Api, { sourceCancelToken } from '@/services/Api';
 
 export default {
   getZelFluxVersion() {
-    return Api().get('/zelflux/version');
+    return Api().get('/flux/version');
   },
   broadcastMessage(zelidauthHeader, message) {
     const data = message;
@@ -11,64 +11,64 @@ export default {
         zelidauth: zelidauthHeader,
       },
     };
-    return Api().post('/zelflux/broadcastmessage', JSON.stringify(data), axiosConfig);
+    return Api().post('/flux/broadcastmessage', JSON.stringify(data), axiosConfig);
   },
   connectedPeers() {
-    return Api().get('/zelflux/connectedpeers');
+    return Api().get('/flux/connectedpeers');
   },
   connectedPeersInfo() {
-    return Api().get('/zelflux/connectedpeersinfo');
+    return Api().get('/flux/connectedpeersinfo');
   },
   incomingConnections() {
-    return Api().get('/zelflux/incomingconnections');
+    return Api().get('/flux/incomingconnections');
   },
   incomingConnectionsInfo() {
-    return Api().get('/zelflux/incomingconnectionsinfo');
+    return Api().get('/flux/incomingconnectionsinfo');
   },
   addPeer(zelidauthHeader, ip) {
-    return Api().get(`/zelflux/addpeer/${ip}`, {
+    return Api().get(`/flux/addpeer/${ip}`, {
       headers: {
         zelidauth: zelidauthHeader,
       },
     });
   },
   removePeer(zelidauthHeader, ip) {
-    return Api().get(`/zelflux/removepeer/${ip}`, {
+    return Api().get(`/flux/removepeer/${ip}`, {
       headers: {
         zelidauth: zelidauthHeader,
       },
     });
   },
   removeIncomingPeer(zelidauthHeader, ip) {
-    return Api().get(`/zelflux/removeincomingpeer/${ip}`, {
+    return Api().get(`/flux/removeincomingpeer/${ip}`, {
       headers: {
         zelidauth: zelidauthHeader,
       },
     });
   },
   adjustCruxID(zelidauthHeader, cruxid) {
-    return Api().get(`/zelflux/adjustcruxid/${cruxid}`, {
+    return Api().get(`/flux/adjustcruxid/${cruxid}`, {
       headers: {
         zelidauth: zelidauthHeader,
       },
     });
   },
   adjustKadena(zelidauthHeader, account, chainid) {
-    return Api().get(`/zelflux/adjustkadena/${account}/${chainid}`, {
+    return Api().get(`/flux/adjustkadena/${account}/${chainid}`, {
       headers: {
         zelidauth: zelidauthHeader,
       },
     });
   },
   getCruxID() {
-    return Api().get('/zelflux/cruxid');
+    return Api().get('/flux/cruxid');
   },
   getKadenaAccount() {
-    return Api().get('/zelflux/kadena');
+    return Api().get('/flux/kadena');
   },
   // DEBUG
   tailFluxLog(name, zelidauthHeader) {
-    return Api().get(`/zelnode/tailzelflux${name}log`, {
+    return Api().get(`/flux/tail${name}log`, {
       headers: {
         zelidauth: zelidauthHeader,
       },

@@ -8,7 +8,7 @@ export default {
     return Api().get(`/explorer/transactions/${address}`);
   },
   getZelNodeTransactions(filter) {
-    return Api().get(`/explorer/zelnodetxs/${filter}`);
+    return Api().get(`/explorer/fluxtxs/${filter}`);
   },
   getScannedHeight() {
     return Api().get('/explorer/scannedheight');

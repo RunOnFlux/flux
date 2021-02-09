@@ -44,7 +44,7 @@ async function isFluxAvailable(ip) {
     timeout: 8888,
   };
   try {
-    const fluxResponse = await serviceHelper.axiosGet(`http://${ip}:${config.server.apiport}/zelflux/version`, axiosConfig);
+    const fluxResponse = await serviceHelper.axiosGet(`http://${ip}:${config.server.apiport}/zelflux/version`, axiosConfig); // TODO adjust
     if (fluxResponse.data.status === 'success') {
       return true;
     }
@@ -743,7 +743,7 @@ async function getRandomConnection() {
 
 async function initiateAndHandleConnection(ip) {
   console.log(`#connectionsOut: ${outgoingConnections.length}`);
-  const wsuri = `ws://${ip}:${config.server.apiport}/ws/zelflux/`;
+  const wsuri = `ws://${ip}:${config.server.apiport}/ws/zelflux/`; // TODO adjust after version update
   const websocket = new WebSocket(wsuri);
 
   websocket.on('open', () => {
@@ -1067,7 +1067,7 @@ async function checkMyFluxAvailability(zelnodelist) {
     if (myIP.includes(':')) {
       myIP = `[${myIP}]`;
     }
-    const resMyAvailability = await serviceHelper.axiosGet(`http://${askingIP}:${config.server.apiport}/zelflux/checkfluxavailability/${myIP}`).catch((error) => {
+    const resMyAvailability = await serviceHelper.axiosGet(`http://${askingIP}:${config.server.apiport}/zelflux/checkfluxavailability/${myIP}`).catch((error) => { // TODO adjust
       log.error(`${askingIP} is not reachable`);
       log.error(error);
     });

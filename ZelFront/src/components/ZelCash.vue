@@ -1303,7 +1303,7 @@ export default {
         },
         cancelToken: self.abortToken.token,
       };
-      const response = await ZelCashService.justAPI().get('/zelnode/zelcashdebug', axiosConfig);
+      const response = await ZelCashService.justAPI().get('/flux/daemondebug', axiosConfig);
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;

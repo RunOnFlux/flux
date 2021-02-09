@@ -1,6 +1,6 @@
 process.env.NODE_CONFIG_DIR = `${process.cwd()}/ZelBack/config/`;
 const communication = require('../../ZelBack/src/services/zelfluxCommunication');
-const zelnodeList = require('./data/listzelnodes.json')
+const fluxList = require('./data/listfluxnodes.json')
 const chai = require('chai');
 const expect = chai.expect;
 const qs = require('qs');
@@ -37,7 +37,7 @@ describe('getFluxMessageSignature', () => {
       data,
       signature
     }
-    const validRequest = await communication.verifyOriginalFluxBroadcast(dataToSend, zelnodeList);
+    const validRequest = await communication.verifyOriginalFluxBroadcast(dataToSend, fluxList);
     expect(validRequest).to.equal(true);
     const dataToSend2 = {
       version,
@@ -46,7 +46,7 @@ describe('getFluxMessageSignature', () => {
       data,
       signature
     }
-    const invalidRequest = await communication.verifyOriginalFluxBroadcast(dataToSend2, zelnodeList);
+    const invalidRequest = await communication.verifyOriginalFluxBroadcast(dataToSend2, fluxList);
     expect(invalidRequest).to.equal(false);
     const dataToSend3 = {
       version,
@@ -55,7 +55,7 @@ describe('getFluxMessageSignature', () => {
       data,
       signature
     }
-    const invalidRequest2 = await communication.verifyOriginalFluxBroadcast(dataToSend3, zelnodeList);
+    const invalidRequest2 = await communication.verifyOriginalFluxBroadcast(dataToSend3, fluxList);
     expect(invalidRequest2).to.equal(false);
     const dataToSend4 = {
       version,
@@ -64,7 +64,7 @@ describe('getFluxMessageSignature', () => {
       data,
       signature: 'abc'
     }
-    const invalidRequest3 = await communication.verifyOriginalFluxBroadcast(dataToSend4, zelnodeList);
+    const invalidRequest3 = await communication.verifyOriginalFluxBroadcast(dataToSend4, fluxList);
     expect(invalidRequest3).to.equal(false);
   }).timeout(5000);
 

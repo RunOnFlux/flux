@@ -1907,7 +1907,7 @@ import Vuex, { mapState } from 'vuex';
 import Vue from 'vue';
 
 import ZelCashService from '@/services/ZelCashService';
-import ZelAppsService from '@/services/ZelAppsService';
+import ZelAppsService from '@/services/appsService';
 
 const ZelShare = () => import('@/components/ZelShare.vue');
 
@@ -2447,7 +2447,7 @@ export default {
           self.output = JSON.parse(`[${progressEvent.target.response.replace(/}{/g, '},{')}]`);
         },
       };
-      const response = await ZelAppsService.justAPI().get(`/zelapps/redeploy/${zelapp}/${force}`, axiosConfig);
+      const response = await ZelAppsService.justAPI().get(`/apps/redeploy/${zelapp}/${force}`, axiosConfig);
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
       } else {
@@ -2473,7 +2473,7 @@ export default {
           self.output = JSON.parse(`[${progressEvent.target.response.replace(/}{/g, '},{')}]`);
         },
       };
-      const response = await ZelAppsService.justAPI().get(`/zelapps/zelappremove/${zelapp}`, axiosConfig);
+      const response = await ZelAppsService.justAPI().get(`/apps/appremove/${zelapp}`, axiosConfig);
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
       } else {
@@ -2505,7 +2505,7 @@ export default {
           self.output = JSON.parse(`[${progressEvent.target.response.replace(/}{/g, '},{')}]`);
         },
       };
-      const response = await ZelAppsService.justAPI().get(`/zelapps/installtemporarylocalapp/${appName}`, axiosConfig);
+      const response = await ZelAppsService.justAPI().get(`/apps/installtemporarylocalapp/${appName}`, axiosConfig);
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
       } else {
@@ -3193,7 +3193,7 @@ export default {
       backendURL = backendURL.replace('https://', 'wss://');
       backendURL = backendURL.replace('http://', 'ws://');
       const signatureMessage = this.zelAppRegistrationSpecification.owner + this.timestamp;
-      const wsuri = `${backendURL}/ws/zelsign/${signatureMessage}`;
+      const wsuri = `${backendURL}/ws/sign/${signatureMessage}`;
       const websocket = new WebSocket(wsuri);
       this.websocket = websocket;
 
@@ -3222,7 +3222,7 @@ export default {
       backendURL = backendURL.replace('https://', 'wss://');
       backendURL = backendURL.replace('http://', 'ws://');
       const signatureMessage = this.zelAppUpdateSpecification.owner + this.timestamp;
-      const wsuri = `${backendURL}/ws/zelsign/${signatureMessage}`;
+      const wsuri = `${backendURL}/ws/sign/${signatureMessage}`;
       const websocket = new WebSocket(wsuri);
       this.websocket = websocket;
 
@@ -3413,7 +3413,7 @@ export default {
         },
         cancelToken: self.abortToken.token,
       };
-      const response = await ZelCashService.justAPI().get(`/zelapps/zelapplog/${this.managedApplication}`, axiosConfig);
+      const response = await ZelCashService.justAPI().get(`/apps/applog/${this.managedApplication}`, axiosConfig);
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;

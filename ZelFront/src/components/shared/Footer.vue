@@ -27,7 +27,7 @@
         type="primary"
         href="https://github.com/zelcash/zelflux"
         target="_blank" rel="noopener noreferrer"
-      >The gateway to the Zel Network</ElLink>
+      >Flux, Your Gateway to a Decentralized World</ElLink>
     </div>
     <div class="footer-right">
       Flux {{ 'v' + zelfluxVersion}}
