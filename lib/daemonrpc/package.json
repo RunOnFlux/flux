@@ -1,7 +1,7 @@
 {
   "name": "daemonrpc",
-  "description": "Zelcash rpc helpers",
+  "description": "Daemon rpc helpers",
   "private": true,
-  "version": "0.1.1",
+  "version": "1.0.0",
   "main": "index.js"
 }
