@@ -4480,7 +4480,7 @@ async function checkAndNotifyPeersOfRunningApps() {
         await removeAppLocally(stoppedApp);
       }
     }
-    const installedAndRunning = installedApps.filter((installedApp) => runningAppsNames.includes(installedApp.name));
+    const installedAndRunning = installedA.filter((installedApp) => runningAppsNames.includes(installedApp.name));
     // eslint-disable-next-line no-restricted-syntax
     for (const application of installedAndRunning) {
       log.info(`${application.name} is running properly. Broadcasting status.`);
