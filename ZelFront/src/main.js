@@ -19,6 +19,9 @@ import {
   Notification,
   Popconfirm,
   Loading,
+  Link,
+  Menu,
+  MenuItem,
 } from 'element-ui';
 import 'element-ui/lib/theme-chalk/index.css';
 import lang from 'element-ui/lib/locale/lang/en';
@@ -43,6 +46,9 @@ Vue.use(FormItem);
 Vue.use(Tabs);
 Vue.use(TabPane);
 Vue.use(Popconfirm);
+Vue.use(Link);
+Vue.use(Menu);
+Vue.use(MenuItem);
 Vue.use(Loading.directive);
 
 Vue.prototype.$notify = Notification;
