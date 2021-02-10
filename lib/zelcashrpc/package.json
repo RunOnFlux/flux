@@ -1,0 +1,7 @@
+{
+  "name": "zelcashrpc",
+  "description": "ZelCash rpc helpers",
+  "private": true,
+  "version": "0.1.1",
+  "main": "index.js"
+}
