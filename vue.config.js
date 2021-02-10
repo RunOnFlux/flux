@@ -52,10 +52,5 @@ module.exports = {
   },
   configureWebpack: {
     plugins,
-    optimization: {
-      splitChunks: {
-        chunks: 'all',
-      },
-    },
   },
 };
