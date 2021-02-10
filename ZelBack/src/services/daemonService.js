@@ -1,15 +1,16 @@
 const daemonrpc = require('daemonrpc');
 const fullnode = require('fullnode');
 const LRU = require('lru-cache');
+const config = require('config');
 const serviceHelper = require('./serviceHelper');
 const log = require('../lib/log');
 const userconfig = require('../../../config/userconfig');
 
-const config = new fullnode.Config();
+const fnconfig = new fullnode.Config();
 const isTestnet = userconfig.initial.testnet;
-const rpcuser = config.rpcuser() || 'rpcuser';
-const rpcpassword = config.rpcpassword() || 'rpcpassword';
-const rpcport = config.rpcport() || (isTestnet === true ? config.daemon.testnetrpcport : config.daemon.rpcport);
+const rpcuser = fnconfig.rpcuser() || 'rpcuser';
+const rpcpassword = fnconfig.rpcpassword() || 'rpcpassword';
+const rpcport = fnconfig.rpcport() || (isTestnet === true ? config.daemon.testnetrpcport : config.daemon.rpcport);
 
 let currentDaemonHeight = 0;
 let currentDaemonHeader = 770000;
@@ -103,7 +104,7 @@ async function executeCall(rpc, params) {
 }
 
 function getConfigValue(parameter) {
-  const value = config.get(parameter);
+  const value = fnconfig.get(parameter);
   return value;
 }
 
