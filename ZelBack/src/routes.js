@@ -193,25 +193,25 @@ module.exports = (app, expressWs) => {
   });
 
   app.get('/zelflux/info', cache('30 seconds'), (req, res) => {
-    fluxService.getZelFluxInfo(req, res);
+    fluxService.getFluxInfo(req, res);
   });
   app.get('/zelflux/timezone', (req, res) => {
-    fluxService.getZelFluxTimezone(req, res);
+    fluxService.getFluxTimezone(req, res);
   });
   app.get('/zelflux/version', cache('30 seconds'), (req, res) => {
     fluxService.getFluxVersion(req, res);
   });
   app.get('/zelflux/ip', cache('30 seconds'), (req, res) => {
-    fluxService.getZelFluxIP(req, res);
+    fluxService.getFluxIP(req, res);
   });
   app.get('/zelflux/zelid', cache('30 seconds'), (req, res) => {
-    fluxService.getZelFluxZelID(req, res);
+    fluxService.getFluxZelID(req, res);
   });
   app.get('/zelflux/cruxid', cache('30 seconds'), (req, res) => {
-    fluxService.getZelFluxCruxID(req, res);
+    fluxService.getFluxCruxID(req, res);
   });
   app.get('/zelflux/kadena', cache('30 seconds'), (req, res) => {
-    fluxService.getZelFluxKadena(req, res);
+    fluxService.getFluxKadena(req, res);
   });
   app.get('/zelflux/dosstate', cache('30 seconds'), (req, res) => {
     fluxCommunication.getDOSState(req, res);
@@ -233,37 +233,37 @@ module.exports = (app, expressWs) => {
   });
 
   app.get('/zelapps/listrunningzelapps', cache('30 seconds'), (req, res) => {
-    appsService.listRunningZelApps(req, res);
+    appsService.listRunningApps(req, res);
   });
   app.get('/zelapps/listallzelapps', cache('30 seconds'), (req, res) => {
-    appsService.listAllZelApps(req, res);
+    appsService.listAllApps(req, res);
   });
   app.get('/zelapps/listzelappsimages', cache('30 seconds'), (req, res) => {
-    appsService.listZelAppsImages(req, res);
+    appsService.listAppsImages(req, res);
   });
   app.get('/zelapps/installedzelapps/:appname?', cache('30 seconds'), (req, res) => {
-    appsService.installedZelApps(req, res);
+    appsService.installedApps(req, res);
   });
   app.get('/zelapps/availablezelapps', cache('30 seconds'), (req, res) => {
-    appsService.availableZelApps(req, res);
+    appsService.availableApps(req, res);
   });
   app.get('/zelapps/zelfluxusage', cache('30 seconds'), (req, res) => {
-    appsService.zelFluxUsage(req, res);
+    appsService.fluxUsage(req, res);
   });
   app.get('/zelapps/zelappsresources', cache('30 seconds'), (req, res) => {
-    appsService.zelappsResources(req, res);
+    appsService.appsResources(req, res);
   });
   app.get('/zelapps/registrationinformation', cache('30 seconds'), (req, res) => {
     appsService.registrationInformation(req, res);
   });
   app.get('/zelapps/temporarymessages', cache('30 seconds'), (req, res) => {
-    appsService.getZelAppsTemporaryMessages(req, res);
+    appsService.getAppsTemporaryMessages(req, res);
   });
   app.get('/zelapps/permanentmessages', cache('30 seconds'), (req, res) => {
-    appsService.getZelAppsPermanentMessages(req, res);
+    appsService.getAppsPermanentMessages(req, res);
   });
   app.get('/zelapps/globalappsspecifications', cache('30 seconds'), (req, res) => {
-    appsService.getGlobalZelAppsSpecifications(req, res);
+    appsService.getGlobalAppsSpecifications(req, res);
   });
   app.get('/zelapps/appspecifications/:appname?', cache('30 seconds'), (req, res) => {
     appsService.getApplicationSpecificationAPI(req, res);
@@ -272,13 +272,13 @@ module.exports = (app, expressWs) => {
     appsService.getApplicationOwnerAPI(req, res);
   });
   app.get('/zelapps/hashes', cache('30 seconds'), (req, res) => {
-    appsService.getZelAppHashes(req, res);
+    appsService.getAppHashes(req, res);
   });
   app.get('/zelapps/location/:appname?', cache('30 seconds'), (req, res) => {
-    appsService.getZelAppsLocation(req, res);
+    appsService.getAppsLocation(req, res);
   });
   app.get('/zelapps/locations', cache('30 seconds'), (req, res) => {
-    appsService.getZelAppsLocations(req, res);
+    appsService.getAppsLocations(req, res);
   });
   app.post('/zelapps/calculateprice', (req, res) => { // returns price in zel for both new registration of zelapp and update of zelapp
     appsService.getAppPrice(req, res);
@@ -326,7 +326,7 @@ module.exports = (app, expressWs) => {
     daemonService.stop(req, res);
   });
   app.get('/zelcash/reindex', (req, res) => {
-    fluxService.reindexZelCash(req, res);
+    fluxService.reindexDaemon(req, res);
   });
   app.get('/zelcash/createzelnodekey', (req, res) => {
     daemonService.createZelNodeKey(req, res);
@@ -532,7 +532,7 @@ module.exports = (app, expressWs) => {
     fluxService.adjustKadenaAccount(req, res);
   });
   app.get('/zelnode/reindexzelcash', (req, res) => {
-    fluxService.reindexZelCash(req, res);
+    fluxService.reindexDaemon(req, res);
   });
 
   app.get('/zelbench/signzelnodetransaction/:hexstring?', (req, res) => {
@@ -544,10 +544,10 @@ module.exports = (app, expressWs) => {
 
   // GET PROTECTED API - FluxTeam
   app.get('/zelcash/start', (req, res) => {
-    fluxService.startZelCash(req, res);
+    fluxService.startDaemon(req, res);
   });
   app.get('/zelcash/restart', (req, res) => {
-    fluxService.restartZelCash(req, res);
+    fluxService.restartDaemon(req, res);
   });
   app.get('/zelcash/ping', (req, res) => { // we do not want this to be issued by anyone.
     daemonService.ping(req, res);
@@ -556,62 +556,62 @@ module.exports = (app, expressWs) => {
     daemonService.zcBenchmark(req, res);
   });
   app.get('/zelcash/startzelbenchd', (req, res) => {
-    daemonService.startZelBenchD(req, res);
+    daemonService.startBenchmarkD(req, res);
   });
   app.get('/zelcash/stopzelbenchd', (req, res) => {
-    daemonService.stopZelBenchD(req, res);
+    daemonService.stopBenchmarkD(req, res);
   });
 
   app.get('/zelnode/startzelbench', (req, res) => {
-    fluxService.startZelBench(req, res);
+    fluxService.startBenchmark(req, res);
   });
   app.get('/zelnode/restartzelbench', (req, res) => {
-    fluxService.restartZelBench(req, res);
+    fluxService.restartBenchmark(req, res);
   });
   app.get('/zelnode/startzelcash', (req, res) => {
-    fluxService.startZelCash(req, res);
+    fluxService.startDaemon(req, res);
   });
   app.get('/zelnode/restartzelcash', (req, res) => {
-    fluxService.restartZelCash(req, res);
+    fluxService.restartDaemon(req, res);
   });
   app.get('/zelnode/updatezelflux', (req, res) => { // method shall be called only if zelflux version is obsolete.
-    fluxService.updateZelFlux(req, res);
+    fluxService.updateFlux(req, res);
   });
   app.get('/zelnode/hardupdatezelflux', (req, res) => { // method shall be called only if zelflux version is obsolete and updatezeflux is not working correctly
-    fluxService.hardUpdateZelFlux(req, res);
+    fluxService.hardUpdateFlux(req, res);
   });
   app.get('/zelnode/rebuildzelfront', (req, res) => {
-    fluxService.rebuildZelFront(req, res);
+    fluxService.rebuildHome(req, res);
   });
   app.get('/zelnode/updatezelcash', (req, res) => { // method shall be called only if zelcash version is obsolete
-    fluxService.updateZelCash(req, res);
+    fluxService.updateDaemon(req, res);
   });
   app.get('/zelnode/updatezelbench', (req, res) => { // method shall be called only if zelbench version is obsolete
-    fluxService.updateZelBench(req, res);
+    fluxService.updateBenchmark(req, res);
   });
   app.get('/zelnode/zelcashdebug', (req, res) => {
-    fluxService.zelcashDebug(req, res);
+    fluxService.daemonDebug(req, res);
   });
   app.get('/zelnode/zelbenchdebug', (req, res) => {
-    fluxService.zelbenchDebug(req, res);
+    fluxService.benchmarkDebug(req, res);
   });
   app.get('/zelnode/tailzelcashdebug', (req, res) => {
-    fluxService.tailZelCashDebug(req, res);
+    fluxService.tailDaemonDebug(req, res);
   });
   app.get('/zelnode/tailzelbenchdebug', (req, res) => {
-    fluxService.tailZelBenchDebug(req, res);
+    fluxService.tailBenchmarkDebug(req, res);
   });
   app.get('/zelnode/zelfluxerrorlog', (req, res) => {
     fluxService.zelfluxErrorLog(req, res);
   });
   app.get('/zelnode/zelfluxwarnlog', (req, res) => {
-    fluxService.zelfluxWarnLog(req, res);
+    fluxService.fluxWarnLog(req, res);
   });
   app.get('/zelnode/zelfluxdebuglog', (req, res) => {
-    fluxService.zelfluxDebugLog(req, res);
+    fluxService.fluxDebugLog(req, res);
   });
   app.get('/zelnode/zelfluxinfolog', (req, res) => {
-    fluxService.zelfluxInfoLog(req, res);
+    fluxService.fluxInfoLog(req, res);
   });
   app.get('/zelnode/tailzelfluxerrorlog', (req, res) => {
     fluxService.tailFluxErrorLog(req, res);
@@ -652,50 +652,50 @@ module.exports = (app, expressWs) => {
   });
 
   app.get('/zelbench/start', (req, res) => {
-    fluxService.startZelBench(req, res);
+    fluxService.startBenchmark(req, res);
   });
   app.get('/zelbench/restart', (req, res) => {
-    fluxService.restartZelBench(req, res);
+    fluxService.restartBenchmark(req, res);
   });
   app.get('/zelbench/restartnodebenchmarks', (req, res) => {
     benchmarkService.restartNodeBenchmarks(req, res);
   });
 
   app.get('/zelapps/zelappstart/:appname?', (req, res) => {
-    appsService.zelAppStart(req, res);
+    appsService.appStart(req, res);
   });
   app.get('/zelapps/zelappstop/:appname?', (req, res) => {
-    appsService.zelAppStop(req, res);
+    appsService.appStop(req, res);
   });
   app.get('/zelapps/zelapprestart/:appname?', (req, res) => {
-    appsService.zelAppRestart(req, res);
+    appsService.appRestart(req, res);
   });
   app.get('/zelapps/zelapppause/:appname?', (req, res) => {
-    appsService.zelAppPause(req, res);
+    appsService.appPause(req, res);
   });
   app.get('/zelapps/zelappunpause/:appname?', (req, res) => {
-    appsService.zelAppUnpause(req, res);
+    appsService.appUnpause(req, res);
   });
   app.get('/zelapps/zelapptop/:appname?', (req, res) => {
-    appsService.zelAppTop(req, res);
+    appsService.appTop(req, res);
   });
   app.get('/zelapps/zelapplog/:appname?/:lines?', (req, res) => {
-    appsService.zelAppLog(req, res);
+    appsService.appLog(req, res);
   });
   app.get('/zelapps/zelappinspect/:appname?', (req, res) => {
-    appsService.zelAppInspect(req, res);
+    appsService.appInspect(req, res);
   });
   app.get('/zelapps/zelappstats/:appname?', (req, res) => {
-    appsService.zelAppStats(req, res);
+    appsService.appStats(req, res);
   });
   app.get('/zelapps/zelappchanges/:appname?', (req, res) => {
-    appsService.zelAppChanges(req, res);
+    appsService.appChanges(req, res);
   });
   app.post('/zelapps/zelappexec', (req, res) => {
-    appsService.zelAppExec(req, res);
+    appsService.appExec(req, res);
   });
   app.get('/zelapps/zelappremove/:appname?/:force?', (req, res) => {
-    appsService.removeZelAppLocallyApi(req, res);
+    appsService.removeAppLocallyApi(req, res);
   });
   app.get('/zelapps/installtemporarylocalapp/FoldingAtHomeB', (req, res) => {
     appsService.installTemporaryLocalApplication(req, res, 'FoldingAtHomeB');
@@ -704,7 +704,7 @@ module.exports = (app, expressWs) => {
     appsService.installTemporaryLocalApplication(req, res, 'KadenaChainWebNode');
   });
   app.get('/zelapps/createzelfluxnetwork', (req, res) => {
-    appsService.createZelFluxNetwork(req, res);
+    appsService.createFluxNetworkAPI(req, res);
   });
   app.get('/zelapps/rescanglobalappsinformation/:blockheight?/:removelastinformation?', (req, res) => {
     appsService.rescanGlobalAppsInformationAPI(req, res);
@@ -765,10 +765,10 @@ module.exports = (app, expressWs) => {
     appsService.checkDockerAccessibility(req, res);
   });
   app.post('/zelapps/zelappregister', (req, res) => {
-    appsService.registerZelAppGlobalyApi(req, res);
+    appsService.registerAppGlobalyApi(req, res);
   });
   app.post('/zelapps/zelappupdate', (req, res) => {
-    appsService.updateZelAppGlobalyApi(req, res);
+    appsService.updateAppGlobalyApi(req, res);
   });
 
   // POST PROTECTED API - ZelNode owner level
@@ -830,43 +830,43 @@ module.exports = (app, expressWs) => {
 
   // ZelShare
   app.get('/zelapps/zelshare/getfile/:file?/:token?', (req, res) => {
-    appsService.zelShareDownloadFile(req, res);
+    appsService.fluxShareDownloadFile(req, res);
   });
   app.get('/zelapps/zelshare/getfolder/:folder?', (req, res) => {
-    appsService.zelShareGetFolder(req, res);
+    appsService.fluxShareGetFolder(req, res);
   });
   app.get('/zelapps/zelshare/createfolder/:folder?', (req, res) => {
-    appsService.zelShareCreateFolder(req, res);
+    appsService.fluxShareCreateFolder(req, res);
   });
   app.post('/zelapps/zelshare/uploadfile/:folder?', (req, res) => {
-    appsService.zelShareUpload(req, res);
+    appsService.fluxShareUpload(req, res);
   });
   app.get('/zelapps/zelshare/removefile/:file?', (req, res) => {
-    appsService.zelShareRemoveFile(req, res);
+    appsService.fluxShareRemoveFile(req, res);
   });
   app.get('/zelapps/zelshare/removefolder/:folder?', (req, res) => {
-    appsService.zelShareRemoveFolder(req, res);
+    appsService.fluxShareRemoveFolder(req, res);
   });
   app.get('/zelapps/zelshare/fileexists/:file?', (req, res) => {
-    appsService.zelShareFileExists(req, res);
+    appsService.fluxShareFileExists(req, res);
   });
   app.get('/zelapps/zelshare/stats', (req, res) => {
-    appsService.zelShareStorageStats(req, res);
+    appsService.fluxShareStorageStats(req, res);
   });
   app.get('/zelapps/zelshare/sharefile/:file?', (req, res) => {
-    appsService.zelShareShareFile(req, res);
+    appsService.fluxShareShareFile(req, res);
   });
   app.get('/zelapps/zelshare/unsharefile/:file?', (req, res) => {
-    appsService.zelShareUnshareFile(req, res);
+    appsService.fluxShareUnshareFile(req, res);
   });
   app.get('/zelapps/zelshare/sharedfiles', (req, res) => {
-    appsService.zelShareGetSharedFiles(req, res);
+    appsService.fluxShareGetSharedFiles(req, res);
   });
   app.get('/zelapps/zelshare/rename/:oldpath?/:newname?', (req, res) => {
-    appsService.zelShareRename(req, res);
+    appsService.fluxShareRename(req, res);
   });
   app.get('/zelapps/zelshare/downloadfolder/:folder?', (req, res) => {
-    appsService.zelShareDownloadFolder(req, res);
+    appsService.fluxShareDownloadFolder(req, res);
   });
 
   // GET PUBLIC methods
@@ -1050,25 +1050,25 @@ module.exports = (app, expressWs) => {
   });
 
   app.get('/flux/info', cache('30 seconds'), (req, res) => {
-    fluxService.getZelFluxInfo(req, res);
+    fluxService.getFluxInfo(req, res);
   });
   app.get('/flux/timezone', (req, res) => {
-    fluxService.getZelFluxTimezone(req, res);
+    fluxService.getFluxTimezone(req, res);
   });
   app.get('/flux/version', cache('30 seconds'), (req, res) => {
     fluxService.getFluxVersion(req, res);
   });
   app.get('/flux/ip', cache('30 seconds'), (req, res) => {
-    fluxService.getZelFluxIP(req, res);
+    fluxService.getFluxIP(req, res);
   });
   app.get('/flux/zelid', cache('30 seconds'), (req, res) => {
-    fluxService.getZelFluxZelID(req, res);
+    fluxService.getFluxZelID(req, res);
   });
   app.get('/flux/cruxid', cache('30 seconds'), (req, res) => {
-    fluxService.getZelFluxCruxID(req, res);
+    fluxService.getFluxCruxID(req, res);
   });
   app.get('/flux/kadena', cache('30 seconds'), (req, res) => {
-    fluxService.getZelFluxKadena(req, res);
+    fluxService.getFluxKadena(req, res);
   });
   app.get('/flux/dosstate', cache('30 seconds'), (req, res) => {
     fluxCommunication.getDOSState(req, res);
@@ -1090,37 +1090,37 @@ module.exports = (app, expressWs) => {
   });
 
   app.get('/apps/listrunningapps', cache('30 seconds'), (req, res) => {
-    appsService.listRunningZelApps(req, res);
+    appsService.listRunningApps(req, res);
   });
   app.get('/apps/listallapps', cache('30 seconds'), (req, res) => {
-    appsService.listAllZelApps(req, res);
+    appsService.listAllApps(req, res);
   });
   app.get('/apps/listappsimages', cache('30 seconds'), (req, res) => {
-    appsService.listZelAppsImages(req, res);
+    appsService.listAppsImages(req, res);
   });
   app.get('/apps/installedapps/:appname?', cache('30 seconds'), (req, res) => {
-    appsService.installedZelApps(req, res);
+    appsService.installedApps(req, res);
   });
   app.get('/apps/availableapps', cache('30 seconds'), (req, res) => {
-    appsService.availableZelApps(req, res);
+    appsService.availableApps(req, res);
   });
   app.get('/apps/fluxusage', cache('30 seconds'), (req, res) => {
-    appsService.zelFluxUsage(req, res);
+    appsService.fluxUsage(req, res);
   });
   app.get('/apps/appsresources', cache('30 seconds'), (req, res) => {
-    appsService.zelappsResources(req, res);
+    appsService.appsResources(req, res);
   });
   app.get('/apps/registrationinformation', cache('30 seconds'), (req, res) => {
     appsService.registrationInformation(req, res);
   });
   app.get('/apps/temporarymessages', cache('30 seconds'), (req, res) => {
-    appsService.getZelAppsTemporaryMessages(req, res);
+    appsService.getAppsTemporaryMessages(req, res);
   });
   app.get('/apps/permanentmessages', cache('30 seconds'), (req, res) => {
-    appsService.getZelAppsPermanentMessages(req, res);
+    appsService.getAppsPermanentMessages(req, res);
   });
   app.get('/apps/globalappsspecifications', cache('30 seconds'), (req, res) => {
-    appsService.getGlobalZelAppsSpecifications(req, res);
+    appsService.getGlobalAppsSpecifications(req, res);
   });
   app.get('/apps/appspecifications/:appname?', cache('30 seconds'), (req, res) => {
     appsService.getApplicationSpecificationAPI(req, res);
@@ -1129,13 +1129,13 @@ module.exports = (app, expressWs) => {
     appsService.getApplicationOwnerAPI(req, res);
   });
   app.get('/apps/hashes', cache('30 seconds'), (req, res) => {
-    appsService.getZelAppHashes(req, res);
+    appsService.getAppHashes(req, res);
   });
   app.get('/apps/location/:appname?', cache('30 seconds'), (req, res) => {
-    appsService.getZelAppsLocation(req, res);
+    appsService.getAppsLocation(req, res);
   });
   app.get('/apps/locations', cache('30 seconds'), (req, res) => {
-    appsService.getZelAppsLocations(req, res);
+    appsService.getAppsLocations(req, res);
   });
   app.post('/apps/calculateprice', (req, res) => { // returns price in zel for both new registration of app and update of app
     appsService.getAppPrice(req, res);
@@ -1212,7 +1212,7 @@ module.exports = (app, expressWs) => {
     daemonService.stop(req, res);
   });
   app.get('/daemon/reindex', (req, res) => {
-    fluxService.reindexZelCash(req, res);
+    fluxService.reindexDaemon(req, res);
   });
   app.get('/daemon/createzelnodekey', (req, res) => {
     daemonService.createZelNodeKey(req, res);
@@ -1418,7 +1418,7 @@ module.exports = (app, expressWs) => {
     fluxService.adjustKadenaAccount(req, res);
   });
   app.get('/flux/reindexdaemon', (req, res) => {
-    fluxService.reindexZelCash(req, res);
+    fluxService.reindexDaemon(req, res);
   });
 
   app.get('/benchmark/signzelnodetransaction/:hexstring?', (req, res) => {
@@ -1430,10 +1430,10 @@ module.exports = (app, expressWs) => {
 
   // GET PROTECTED API - FluxTeam
   app.get('/daemon/start', (req, res) => {
-    fluxService.startZelCash(req, res);
+    fluxService.startDaemon(req, res);
   });
   app.get('/daemon/restart', (req, res) => {
-    fluxService.restartZelCash(req, res);
+    fluxService.restartDaemon(req, res);
   });
   app.get('/daemon/ping', (req, res) => { // we do not want this to be issued by anyone.
     daemonService.ping(req, res);
@@ -1442,62 +1442,62 @@ module.exports = (app, expressWs) => {
     daemonService.zcBenchmark(req, res);
   });
   app.get('/daemon/startbenchmark', (req, res) => {
-    daemonService.startZelBenchD(req, res);
+    daemonService.startBenchmarkD(req, res);
   });
   app.get('/daemon/stopbenchmark', (req, res) => {
-    daemonService.stopZelBenchD(req, res);
+    daemonService.stopBenchmarkD(req, res);
   });
 
   app.get('/flux/startbenchmark', (req, res) => {
-    fluxService.startZelBench(req, res);
+    fluxService.startBenchmark(req, res);
   });
   app.get('/flux/restartbenchmark', (req, res) => {
-    fluxService.restartZelBench(req, res);
+    fluxService.restartBenchmark(req, res);
   });
   app.get('/flux/startdaemon', (req, res) => {
-    fluxService.startZelCash(req, res);
+    fluxService.startDaemon(req, res);
   });
   app.get('/flux/restartdaemon', (req, res) => {
-    fluxService.restartZelCash(req, res);
+    fluxService.restartDaemon(req, res);
   });
   app.get('/flux/updateflux', (req, res) => { // method shall be called only if zelflux version is obsolete.
-    fluxService.updateZelFlux(req, res);
+    fluxService.updateFlux(req, res);
   });
   app.get('/flux/hardupdateflux', (req, res) => { // method shall be called only if zelflux version is obsolete and updatezeflux is not working correctly
-    fluxService.hardUpdateZelFlux(req, res);
+    fluxService.hardUpdateFlux(req, res);
   });
   app.get('/flux/rebuildzelfront', (req, res) => {
-    fluxService.rebuildZelFront(req, res);
+    fluxService.rebuildHome(req, res);
   });
   app.get('/flux/updatedaemon', (req, res) => { // method shall be called only if zelcash version is obsolete
-    fluxService.updateZelCash(req, res);
+    fluxService.updateDaemon(req, res);
   });
   app.get('/flux/updatebenchmark', (req, res) => { // method shall be called only if zelbench version is obsolete
-    fluxService.updateZelBench(req, res);
+    fluxService.updateBenchmark(req, res);
   });
   app.get('/flux/daemondebug', (req, res) => {
-    fluxService.zelcashDebug(req, res);
+    fluxService.daemonDebug(req, res);
   });
   app.get('/flux/benchmarkdebug', (req, res) => {
-    fluxService.zelbenchDebug(req, res);
+    fluxService.benchmarkDebug(req, res);
   });
   app.get('/flux/taildaemondebug', (req, res) => {
-    fluxService.tailZelCashDebug(req, res);
+    fluxService.tailDaemonDebug(req, res);
   });
   app.get('/flux/tailbenchmarkdebug', (req, res) => {
-    fluxService.tailZelBenchDebug(req, res);
+    fluxService.tailBenchmarkDebug(req, res);
   });
   app.get('/flux/errorlog', (req, res) => {
     fluxService.zelfluxErrorLog(req, res);
   });
   app.get('/flux/warnlog', (req, res) => {
-    fluxService.zelfluxWarnLog(req, res);
+    fluxService.fluxWarnLog(req, res);
   });
   app.get('/flux/debuglog', (req, res) => {
-    fluxService.zelfluxDebugLog(req, res);
+    fluxService.fluxDebugLog(req, res);
   });
   app.get('/flux/infolog', (req, res) => {
-    fluxService.zelfluxInfoLog(req, res);
+    fluxService.fluxInfoLog(req, res);
   });
   app.get('/flux/tailerrorlog', (req, res) => {
     fluxService.tailFluxErrorLog(req, res);
@@ -1538,10 +1538,10 @@ module.exports = (app, expressWs) => {
   });
 
   app.get('/benchmark/start', (req, res) => {
-    fluxService.startZelBench(req, res);
+    fluxService.startBenchmark(req, res);
   });
   app.get('/benchmark/restart', (req, res) => {
-    fluxService.restartZelBench(req, res);
+    fluxService.restartBenchmark(req, res);
   });
   app.get('/benchmark/restartnodebenchmarks', (req, res) => {
     benchmarkService.restartNodeBenchmarks(req, res);
@@ -1561,40 +1561,40 @@ module.exports = (app, expressWs) => {
   });
 
   app.get('/apps/appstart/:appname?', (req, res) => {
-    appsService.zelAppStart(req, res);
+    appsService.appStart(req, res);
   });
   app.get('/apps/appstop/:appname?', (req, res) => {
-    appsService.zelAppStop(req, res);
+    appsService.appStop(req, res);
   });
   app.get('/apps/apprestart/:appname?', (req, res) => {
-    appsService.zelAppRestart(req, res);
+    appsService.appRestart(req, res);
   });
   app.get('/apps/apppause/:appname?', (req, res) => {
-    appsService.zelAppPause(req, res);
+    appsService.appPause(req, res);
   });
   app.get('/apps/appunpause/:appname?', (req, res) => {
-    appsService.zelAppUnpause(req, res);
+    appsService.appUnpause(req, res);
   });
   app.get('/apps/apptop/:appname?', (req, res) => {
-    appsService.zelAppTop(req, res);
+    appsService.appTop(req, res);
   });
   app.get('/apps/applog/:appname?/:lines?', (req, res) => {
-    appsService.zelAppLog(req, res);
+    appsService.appLog(req, res);
   });
   app.get('/apps/appinspect/:appname?', (req, res) => {
-    appsService.zelAppInspect(req, res);
+    appsService.appInspect(req, res);
   });
   app.get('/apps/appstats/:appname?', (req, res) => {
-    appsService.zelAppStats(req, res);
+    appsService.appStats(req, res);
   });
   app.get('/apps/appchanges/:appname?', (req, res) => {
-    appsService.zelAppChanges(req, res);
+    appsService.appChanges(req, res);
   });
   app.post('/apps/appexec', (req, res) => {
-    appsService.zelAppExec(req, res);
+    appsService.appExec(req, res);
   });
   app.get('/apps/appremove/:appname?/:force?', (req, res) => {
-    appsService.removeZelAppLocallyApi(req, res);
+    appsService.removeAppLocallyApi(req, res);
   });
   app.get('/apps/installtemporarylocalapp/FoldingAtHomeB', (req, res) => {
     appsService.installTemporaryLocalApplication(req, res, 'FoldingAtHomeB');
@@ -1603,7 +1603,7 @@ module.exports = (app, expressWs) => {
     appsService.installTemporaryLocalApplication(req, res, 'KadenaChainWebNode');
   });
   app.get('/apps/createzelfluxnetwork', (req, res) => {
-    appsService.createZelFluxNetwork(req, res);
+    appsService.createFluxNetworkAPI(req, res);
   });
   app.get('/apps/rescanglobalappsinformation/:blockheight?/:removelastinformation?', (req, res) => {
     appsService.rescanGlobalAppsInformationAPI(req, res);
@@ -1664,10 +1664,10 @@ module.exports = (app, expressWs) => {
     appsService.checkDockerAccessibility(req, res);
   });
   app.post('/apps/appregister', (req, res) => {
-    appsService.registerZelAppGlobalyApi(req, res);
+    appsService.registerAppGlobalyApi(req, res);
   });
   app.post('/apps/appupdate', (req, res) => {
-    appsService.updateZelAppGlobalyApi(req, res);
+    appsService.updateAppGlobalyApi(req, res);
   });
 
   // POST PROTECTED API - ZelNode owner level
@@ -1729,42 +1729,42 @@ module.exports = (app, expressWs) => {
 
   // FluxShare
   app.get('/apps/fluxshare/getfile/:file?/:token?', (req, res) => {
-    appsService.zelShareDownloadFile(req, res);
+    appsService.fluxShareDownloadFile(req, res);
   });
   app.get('/apps/fluxshare/getfolder/:folder?', (req, res) => {
-    appsService.zelShareGetFolder(req, res);
+    appsService.fluxShareGetFolder(req, res);
   });
   app.get('/apps/fluxshare/createfolder/:folder?', (req, res) => {
-    appsService.zelShareCreateFolder(req, res);
+    appsService.fluxShareCreateFolder(req, res);
   });
   app.post('/apps/fluxshare/uploadfile/:folder?', (req, res) => {
-    appsService.zelShareUpload(req, res);
+    appsService.fluxShareUpload(req, res);
   });
   app.get('/apps/fluxshare/removefile/:file?', (req, res) => {
-    appsService.zelShareRemoveFile(req, res);
+    appsService.fluxShareRemoveFile(req, res);
   });
   app.get('/apps/fluxshare/removefolder/:folder?', (req, res) => {
-    appsService.zelShareRemoveFolder(req, res);
+    appsService.fluxShareRemoveFolder(req, res);
   });
   app.get('/apps/fluxshare/fileexists/:file?', (req, res) => {
-    appsService.zelShareFileExists(req, res);
+    appsService.fluxShareFileExists(req, res);
   });
   app.get('/apps/fluxshare/stats', (req, res) => {
-    appsService.zelShareStorageStats(req, res);
+    appsService.fluxShareStorageStats(req, res);
   });
   app.get('/apps/fluxshare/sharefile/:file?', (req, res) => {
-    appsService.zelShareShareFile(req, res);
+    appsService.fluxShareShareFile(req, res);
   });
   app.get('/apps/fluxshare/unsharefile/:file?', (req, res) => {
-    appsService.zelShareUnshareFile(req, res);
+    appsService.fluxShareUnshareFile(req, res);
   });
   app.get('/apps/fluxshare/sharedfiles', (req, res) => {
-    appsService.zelShareGetSharedFiles(req, res);
+    appsService.fluxShareGetSharedFiles(req, res);
   });
   app.get('/apps/fluxshare/rename/:oldpath?/:newname?', (req, res) => {
-    appsService.zelShareRename(req, res);
+    appsService.fluxShareRename(req, res);
   });
   app.get('/apps/fluxshare/downloadfolder/:folder?', (req, res) => {
-    appsService.zelShareDownloadFolder(req, res);
+    appsService.fluxShareDownloadFolder(req, res);
   });
 };

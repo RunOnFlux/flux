@@ -42,7 +42,7 @@
           Wallet version: {{ callResponse.data.walletversion }}
         </p>
         <p v-if="callResponse.data.balance">
-          Balance: {{ callResponse.data.balance }} ZEL
+          Balance: {{ callResponse.data.balance }} FLUX
         </p>
         <p>
           Blocks: {{ callResponse.data.blocks }}
@@ -132,7 +132,7 @@
       <el-input-number
         controls-position="right"
         placeholder="insert blockheight"
-        v-model="rescanZelCashHeight"
+        v-model="rescanDaemonHeight"
         :min="0"
         :max="1000000"
       ></el-input-number>
@@ -142,8 +142,8 @@
         icon="el-icon-info"
         iconColor="red"
         title="Reindexes ZelCash daemon"
-        @onConfirm="rescanZelCash()"
-        @confirm="rescanZelCash()"
+        @onConfirm="rescanDaemon()"
+        @confirm="rescanDaemon()"
       >
         <ElButton slot="reference">
           Rescan ZelCash
@@ -160,8 +160,8 @@
         icon="el-icon-info"
         iconColor="red"
         title="Reindex ZelCash Blockchain"
-        @onConfirm="reindexZelCash()"
-        @confirm="reindexZelCash()"
+        @onConfirm="reindexDaemon()"
+        @confirm="reindexDaemon()"
       >
         <ElButton slot="reference">
           Reindex ZelCash
@@ -178,8 +178,8 @@
         icon="el-icon-info"
         iconColor="green"
         title="Starts ZelCash daemon"
-        @onConfirm="startZelCash()"
-        @confirm="startZelCash()"
+        @onConfirm="startDaemon()"
+        @confirm="startDaemon()"
       >
         <ElButton slot="reference">
           Start ZelCash
@@ -196,8 +196,8 @@
         icon="el-icon-info"
         iconColor="orange"
         title="Restarts ZelCash daemon"
-        @onConfirm="restartZelCash()"
-        @confirm="restartZelCash()"
+        @onConfirm="restartDaemon()"
+        @confirm="restartDaemon()"
       >
         <ElButton slot="reference">
           Restart ZelCash
@@ -214,8 +214,8 @@
         icon="el-icon-info"
         iconColor="red"
         title="Stops ZelCash daemon"
-        @onConfirm="stopZelCash()"
-        @confirm="stopZelCash()"
+        @onConfirm="stopDaemon()"
+        @confirm="stopDaemon()"
       >
         <ElButton slot="reference">
           Stop ZelCash
@@ -781,8 +781,8 @@
           icon="el-icon-info"
           iconColor="red"
           title="Show ZelCash Debug file?"
-          @onConfirm="tailZelCashDebug()"
-          @confirm="tailZelCashDebug()"
+          @onConfirm="tailDaemonDebug()"
+          @confirm="tailDaemonDebug()"
         >
           <ElButton slot="reference">
             Show Debug File
@@ -793,7 +793,7 @@
           v-if="callResponse.data.message"
           type="textarea"
           autosize
-          v-model="zelcashDebugTail"
+          v-model="daemonDebugTail"
         >
         </el-input>
       </div>
@@ -842,7 +842,7 @@ export default {
       abortToken: {},
       activeHelpNames: '',
       currentHelpResponse: '',
-      rescanZelCashHeight: 0,
+      rescanDaemonHeight: 0,
       filterZelNodes: '',
     };
   },
@@ -852,7 +852,7 @@ export default {
       'userconfig',
       'daemonSection',
     ]),
-    zelcashDebugTail() {
+    daemonDebugTail() {
       if (this.callResponse.data.message) {
         return this.callResponse.data.message.split('\n').reverse().filter((el) => el !== '').join('\n');
       }
@@ -899,11 +899,11 @@ export default {
     switcher(value) {
       switch (value) {
         case 'welcomeinfo':
-          this.zelcashGetInfo();
+          this.daemonGetInfo();
           this.zelcashWelcomeGetZelNodeStatus();
           break;
         case 'getinfo':
-          this.zelcashGetInfo();
+          this.daemonGetInfo();
           break;
         case 'help':
           this.zelcashHelp();
@@ -970,7 +970,7 @@ export default {
           console.log('ZelCash Section: Unrecognized method');
       }
     },
-    async zelcashGetInfo() {
+    async daemonGetInfo() {
       const response = await DaemonService.getInfo();
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
@@ -1023,7 +1023,7 @@ export default {
         this.currentHelpResponse = modifiedHelp.join('\n');
       }
     },
-    startZelCash() {
+    startDaemon() {
       vue.$customMes.warning('ZelCash will start');
       const zelidauth = localStorage.getItem('zelidauth');
       DaemonService.start(zelidauth)
@@ -1037,10 +1037,10 @@ export default {
           vue.$customMes.error('Error while trying to start ZelCash');
         });
     },
-    stopZelCash() {
+    stopDaemon() {
       vue.$customMes.warning('ZelCash will be stopped');
       const zelidauth = localStorage.getItem('zelidauth');
-      DaemonService.stopZelCash(zelidauth)
+      DaemonService.stopDaemon(zelidauth)
         .then((response) => {
           vue.$customMes({
             type: response.data.status,
@@ -1051,7 +1051,7 @@ export default {
           vue.$customMes.error('Error while trying to stop ZelCash');
         });
     },
-    restartZelCash() {
+    restartDaemon() {
       vue.$customMes.warning('ZelCash will now restart');
       const zelidauth = localStorage.getItem('zelidauth');
       DaemonService.restart(zelidauth)
@@ -1065,11 +1065,11 @@ export default {
           vue.$customMes.error('Error while trying to restart ZelCash');
         });
     },
-    rescanZelCash() {
+    rescanDaemon() {
       vue.$customMes.warning('ZelCash will now rescan. This will take up to an hour.');
       const zelidauth = localStorage.getItem('zelidauth');
-      const blockheight = this.rescanZelCashHeight > 0 ? this.rescanZelCashHeight : 0;
-      DaemonService.rescanZelCash(zelidauth, blockheight)
+      const blockheight = this.rescanDaemonHeight > 0 ? this.rescanDaemonHeight : 0;
+      DaemonService.rescanDaemon(zelidauth, blockheight)
         .then((response) => {
           vue.$customMes({
             type: response.data.status,
@@ -1080,10 +1080,10 @@ export default {
           vue.$customMes.error('Error while trying to rescan ZelCash');
         });
     },
-    reindexZelCash() {
+    reindexDaemon() {
       vue.$customMes.warning('ZelCash will now reindex. This will take several hours.');
       const zelidauth = localStorage.getItem('zelidauth');
-      FluxService.reindexZelCash(zelidauth)
+      FluxService.reindexDaemon(zelidauth)
         .then((response) => {
           vue.$customMes({
             type: response.data.status,
@@ -1101,11 +1101,11 @@ export default {
       console.log(this.getZelNodeStatusResponse.data);
       if (this.getZelNodeStatusResponse.data) {
         if (this.getZelNodeStatusResponse.data.status === 'CONFIRMED' || this.getZelNodeStatusResponse.data.location === 'CONFIRMED') {
-          this.getZelNodeStatusResponse.zelnodeStatus = 'ZelNode is working correctly';
+          this.getZelNodeStatusResponse.zelnodeStatus = 'Flux is working correctly';
         } else if (this.getZelNodeStatusResponse.data.status === 'STARTED' || this.getZelNodeStatusResponse.data.location === 'STARTED') {
-          this.getZelNodeStatusResponse.zelnodeStatus = 'ZelNode has just been started. Flux is running with limited capabilities.';
+          this.getZelNodeStatusResponse.zelnodeStatus = 'Flux has just been started. Flux is running with limited capabilities.';
         } else {
-          this.getZelNodeStatusResponse.zelnodeStatus = 'ZelNode is not confirmed. Flux is running with limited capabilities.';
+          this.getZelNodeStatusResponse.zelnodeStatus = 'Flux is not confirmed. Flux is running with limited capabilities.';
         }
       }
     },
@@ -1195,7 +1195,7 @@ export default {
     zelcashStartZelBenchd() {
       vue.$customMes.warning('ZelBench will now try to start');
       const zelidauth = localStorage.getItem('zelidauth');
-      DaemonService.startZelBench(zelidauth)
+      DaemonService.startBenchmark(zelidauth)
         .then((response) => {
           vue.$customMes({
             type: response.data.status,
@@ -1209,7 +1209,7 @@ export default {
     zelcashStopZelBenchd() {
       vue.$customMes.warning('ZelBench will now try to stop');
       const zelidauth = localStorage.getItem('zelidauth');
-      DaemonService.stopZelBench(zelidauth)
+      DaemonService.stopBenchmark(zelidauth)
         .then((response) => {
           vue.$customMes({
             type: response.data.status,
@@ -1311,9 +1311,9 @@ export default {
       document.body.appendChild(link);
       link.click();
     },
-    tailZelCashDebug() {
+    tailDaemonDebug() {
       const zelidauth = localStorage.getItem('zelidauth');
-      DaemonService.tailZelCashDebug(zelidauth)
+      DaemonService.tailDaemonDebug(zelidauth)
         .then((response) => {
           if (response.data.status === 'error') {
             vue.$customMes.error(response.data.data.message || response.data.data);

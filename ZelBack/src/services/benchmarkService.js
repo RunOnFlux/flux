@@ -1,14 +1,14 @@
-const zelbenchrpc = require('daemonrpc');
+const benchmarkrpc = require('daemonrpc');
 const config = require('config');
 const serviceHelper = require('./serviceHelper');
 const userconfig = require('../../../config/userconfig');
 
 const isTestnet = userconfig.initial.testnet;
-const rpcuser = 'zelbenchuser';
-const rpcpassword = 'zelbenchpassword';
-const rpcport = isTestnet === true ? config.zelbench.rpcporttestnet : config.zelbench.rpcport;
+const rpcuser = 'benchmarkuser';
+const rpcpassword = 'benchmarkpassword';
+const rpcport = isTestnet === true ? config.benchmark.rpcporttestnet : config.benchmark.rpcport;
 
-const client = new zelbenchrpc.Client({
+const client = new benchmarkrpc.Client({
   port: rpcport,
   user: rpcuser,
   pass: rpcpassword,

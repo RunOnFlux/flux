@@ -147,7 +147,7 @@ export default {
   mounted() {
     this.loadSession();
     this.getZelIdLoginPhrase();
-    this.zelcashGetInfo();
+    this.daemonGetInfo();
   },
   methods: {
     async loadSession() {
@@ -207,7 +207,7 @@ export default {
           this.errorMessage = 'Error connecting to Flux Backend';
         });
     },
-    async zelcashGetInfo() {
+    async daemonGetInfo() {
       const response = await DaemonService.getInfo();
       this.getInfoResponse.status = response.data.status;
       this.getInfoResponse.message = response.data.data;

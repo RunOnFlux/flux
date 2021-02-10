@@ -14,7 +14,7 @@
         >
           <el-table
             :data="getRunningZelAppsResponse.data"
-            empty-text="No ZelApp running"
+            empty-text="No Flux App running"
             style="width: 100%"
           >
             <el-table-column
@@ -38,7 +38,7 @@
               sortable
             >
               <template slot-scope="scope">
-                <ElButton @click="openZelApp(scope.row.Names[0].substr(4, scope.row.Names[0].length))">
+                <ElButton @click="openApp(scope.row.Names[0].substr(4, scope.row.Names[0].length))">
                   Visit
                 </ElButton>
               </template>
@@ -72,7 +72,7 @@
           name="installed"
         >
           <el-table
-            :data="installedZelApps.data"
+            :data="installedApps.data"
             empty-text="No ZelApp installed"
             style="width: 100%"
           >
@@ -205,7 +205,7 @@
         >
           <el-table
             ref="appInfoTable"
-            :data="availableZelApps.data"
+            :data="availableApps.data"
             empty-text="No ZelApp available"
             style="width: 100%"
             @expand-change="loadLocations"
@@ -221,7 +221,7 @@
                   :key="location.ip"
                 >
                   <p>{{ location.ip }}
-                    <ElButton @click="openZelApp(props.row.name, location.ip, props.row.port)">
+                    <ElButton @click="openApp(props.row.name, location.ip, props.row.port)">
                       Visit
                     </ElButton>
                   </p>
@@ -462,7 +462,7 @@
                   :key="location.ip"
                 >
                   <p>{{ location.ip }}
-                    <ElButton @click="openZelApp(props.row.name, location.ip, props.row.port)">
+                    <ElButton @click="openApp(props.row.name, location.ip, props.row.port)">
                       Visit
                     </ElButton>
                   </p>
@@ -529,7 +529,7 @@
                   :key="location.ip"
                 >
                   <p>{{ location.ip }}
-                    <ElButton @click="openZelApp(props.row.name, location.ip, props.row.port)">
+                    <ElButton @click="openApp(props.row.name, location.ip, props.row.port)">
                       Visit
                     </ElButton>
                   </p>
@@ -958,7 +958,7 @@
                 sortable
               >
                 <template slot-scope="scope">
-                  <ElButton @click="openZelApp(scope.row.name, scope.row.ip, callBResponse.data.port)">
+                  <ElButton @click="openApp(scope.row.name, scope.row.ip, callBResponse.data.port)">
                     Visit
                   </ElButton>
                 </template>
@@ -1144,7 +1144,7 @@
                 <el-input
                   placeholder="Array of strings of Commands"
                   textarea
-                  v-model="zelAppExec.cmd"
+                  v-model="appExec.cmd"
                 >
                 </el-input>
               </el-form-item>
@@ -1152,12 +1152,12 @@
                 <el-input
                   placeholder="Array of strings of Enviromental Parameters"
                   textarea
-                  v-model="zelAppExec.env"
+                  v-model="appExec.env"
                 >
                 </el-input>
               </el-form-item>
             </el-form>
-            <ElButton @click="zelAppExecute">
+            <ElButton @click="appExecute">
               Execute
             </ElButton>
             <div v-if="commandExecuting">
@@ -1542,10 +1542,10 @@
                 </a>
               </div>
               <br><br>
-              Price per Month: {{ appPricePerMonthForUpdate }} ZEL
+              Price per Month: {{ appPricePerMonthForUpdate }} FLUX
               <br><br>
               <ElButton @click="update">
-                Update ZelApp
+                Update Flux App
               </ElButton>
               <br><br>
               <div v-if="updateHash">
@@ -1854,10 +1854,10 @@
             </a>
           </div>
           <br><br>
-          Price per Month: {{ appPricePerMonth }} ZEL
+          Price per Month: {{ appPricePerMonth }} FLUX
           <br><br>
           <ElButton @click="register">
-            Register ZelApp
+            Register Flux App
           </ElButton>
           <br><br>
           <div v-if="registrationHash">
@@ -1942,11 +1942,11 @@ export default {
         status: '',
         data: [],
       },
-      installedZelApps: {
+      installedApps: {
         status: '',
         data: [],
       },
-      availableZelApps: {
+      availableApps: {
         status: '',
         data: [],
       },
@@ -2010,7 +2010,7 @@ export default {
       registrationtype: 'zelappregister',
       updatetype: 'zelappupdate',
       version: 1,
-      dataForZelAppRegistration: {},
+      dataForAppRegistration: {},
       dataForZelAppUpdate: {},
       dataToSign: '',
       timestamp: '',
@@ -2071,7 +2071,7 @@ export default {
       total: '',
       downloaded: '',
       abortToken: {},
-      zelAppExec: {
+      appExec: {
         cmd: '',
         env: '',
       },
@@ -2113,7 +2113,7 @@ export default {
     },
     applicationManagementAndStatus() {
       console.log(this.getAllZelAppsResponse);
-      const zelappInfo = this.getAllZelAppsResponse.data.find((zelapp) => zelapp.Names[0] === this.getZelAppDockerNameIdentifier()) || {};
+      const zelappInfo = this.getAllZelAppsResponse.data.find((zelapp) => zelapp.Names[0] === this.getAppDockerNameIdentifier()) || {};
       const appInfo = {
         name: this.managedApplication,
         state: zelappInfo.State || 'Unknown state',
@@ -2141,8 +2141,8 @@ export default {
     myLocalApps() {
       const zelidauth = localStorage.getItem('zelidauth');
       const auth = qs.parse(zelidauth);
-      if (this.installedZelApps.data) {
-        return this.installedZelApps.data.filter((app) => app.owner === auth.zelid);
+      if (this.installedApps.data) {
+        return this.installedApps.data.filter((app) => app.owner === auth.zelid);
       }
       return [];
     },
@@ -2157,7 +2157,7 @@ export default {
       return string;
     },
     appPricePerMonth() {
-      const price = this.appPricePerMonthMethod(this.dataForZelAppRegistration);
+      const price = this.appPricePerMonthMethod(this.dataForAppRegistration);
       return price;
     },
     appPricePerMonthForUpdate() {
@@ -2190,8 +2190,8 @@ export default {
       return expTime;
     },
     isApplicationInstalledLocally() {
-      if (this.installedZelApps.data) {
-        const installed = this.installedZelApps.data.find((app) => app.name === this.managedApplication);
+      if (this.installedApps.data) {
+        const installed = this.installedApps.data.find((app) => app.name === this.managedApplication);
         if (installed) {
           return true;
         }
@@ -2210,8 +2210,8 @@ export default {
       this.callResponse.status = '';
       this.callBResponse.data = '';
       this.callBResponse.status = '';
-      this.zelAppExec.cmd = '';
-      this.zelAppExec.env = '';
+      this.appExec.cmd = '';
+      this.appExec.env = '';
       console.log(val, oldVal);
       this.output = '';
       switch (val) {
@@ -2245,8 +2245,8 @@ export default {
       this.callResponse.status = '';
       this.callBResponse.data = '';
       this.callBResponse.status = '';
-      this.zelAppExec.cmd = '';
-      this.zelAppExec.env = '';
+      this.appExec.cmd = '';
+      this.appExec.env = '';
       console.log(val, oldVal);
       this.output = '';
       switch (val) {
@@ -2268,7 +2268,7 @@ export default {
         this.dataToSign = '';
         this.signature = '';
         this.timestamp = null;
-        this.dataForZelAppRegistration = {};
+        this.dataForAppRegistration = {};
         this.registrationHash = '';
         if (this.websocket !== null) {
           this.websocket.close();
@@ -2326,11 +2326,11 @@ export default {
       this.uniqueKey += this.uniqueKey;
     },
     async getZelCashInfo() {
-      const zelcashGetInfo = await DaemonService.getInfo();
-      if (zelcashGetInfo.data.status === 'error') {
-        vue.$customMes.error(zelcashGetInfo.data.data.message || zelcashGetInfo.data.data);
+      const daemonGetInfo = await DaemonService.getInfo();
+      if (daemonGetInfo.data.status === 'error') {
+        vue.$customMes.error(daemonGetInfo.data.data.message || daemonGetInfo.data.data);
       } else {
-        this.currentHeight = zelcashGetInfo.data.data.blocks;
+        this.currentHeight = daemonGetInfo.data.data.blocks;
       }
     },
     async zelappsGetListGlobalZelApps() {
@@ -2340,23 +2340,23 @@ export default {
       this.globalZelAppSpecs.data = response.data.data;
     },
     async zelappsGetAvailableZelApps() {
-      const response = await AppsService.availableZelApps();
-      this.availableZelApps.status = response.data.status;
-      this.availableZelApps.data = response.data.data;
+      const response = await AppsService.availableApps();
+      this.availableApps.status = response.data.status;
+      this.availableApps.data = response.data.data;
     },
     async zelappsGetInstalledZelApps() {
-      const response = await AppsService.installedZelApps();
-      this.installedZelApps.status = response.data.status;
-      this.installedZelApps.data = response.data.data;
+      const response = await AppsService.installedApps();
+      this.installedApps.status = response.data.status;
+      this.installedApps.data = response.data.data;
     },
     async zelappsGetListRunningZelApps() {
-      const response = await AppsService.listRunningZelApps();
+      const response = await AppsService.listRunningApps();
       console.log(response);
       this.getRunningZelAppsResponse.status = response.data.status;
       this.getRunningZelAppsResponse.data = response.data.data;
     },
     async zelappsGetListAllZelApps() {
-      const response = await AppsService.listAllZelApps();
+      const response = await AppsService.listAllApps();
       console.log(response);
       this.getAllZelAppsResponse.status = response.data.status;
       this.getAllZelAppsResponse.data = response.data.data;
@@ -2528,10 +2528,10 @@ export default {
         }
       }
     },
-    installedZelApp(zelappName) {
-      return this.installedZelApps.data.find((zelapp) => zelapp.name === zelappName);
+    installedZelApp(appName) {
+      return this.installedApps.data.find((zelapp) => zelapp.name === appName);
     },
-    openZelApp(name, _ip, _port) {
+    openApp(name, _ip, _port) {
       let zelappInfo = this.installedZelApp(name);
       if (!zelappInfo) {
         zelappInfo = this.installedZelApp(`zel${name}`);
@@ -2788,6 +2788,9 @@ export default {
         if (name.startsWith('zel')) {
           throw new Error('ZelApp name can not start with zel');
         }
+        if (name.startsWith('flux')) {
+          throw new Error('ZelApp name can not start with flux');
+        }
         if (description.length > 256) {
           throw new Error('Description is too long. Maximum of 256 characters is allowed');
         }
@@ -2830,7 +2833,7 @@ export default {
           throw new Error('Repository is not in valid format namespace/repository:tag');
         }
         this.timestamp = new Date().getTime();
-        this.dataForZelAppRegistration = zelAppSpecFormatted;
+        this.dataForAppRegistration = zelAppSpecFormatted;
         this.dataToSign = this.registrationtype + this.version + JSON.stringify(zelAppSpecFormatted) + this.timestamp;
       } catch (error) {
         console.log(error.message);
@@ -2960,6 +2963,9 @@ export default {
         if (name.startsWith('zel')) {
           throw new Error('ZelApp name can not start with zel');
         }
+        if (name.startsWith('flux')) {
+          throw new Error('ZelApp name can not start with flux');
+        }
         if (name !== this.callBResponse.data.name) {
           throw new Error('ZelApp name can not be changed');
         }
@@ -3038,8 +3044,8 @@ export default {
         vue.$customMes.error(response.data.data.message || response.data.data);
       }
     },
-    async openGlobalZelApp(zelappName) {
-      const response = await AppsService.getZelAppLocation(zelappName).catch((error) => {
+    async openGlobalZelApp(appName) {
+      const response = await AppsService.getZelAppLocation(appName).catch((error) => {
         vue.$customMes.error(error.message || error);
       });
       console.log(response);
@@ -3050,7 +3056,7 @@ export default {
           vue.$customMes.error('Application is awaiting launching...');
         } else {
           const { ip } = location;
-          const appSpecs = this.globalZelAppSpecs.data.find((app) => app.name === zelappName);
+          const appSpecs = this.globalZelAppSpecs.data.find((app) => app.name === appName);
           const { port } = appSpecs;
           const url = `http://${ip}:${port}`;
           this.openSite(url);
@@ -3059,15 +3065,15 @@ export default {
         vue.$customMes.error(response.data.data.message || response.data.data);
       }
     },
-    openAppManagement(zelappName, global) {
-      console.log(zelappName);
+    openAppManagement(appName, global) {
+      console.log(appName);
       this.callResponse.data = '';
       this.callResponse.status = '';
       this.callBResponse.data = '';
       this.callBResponse.status = '';
-      this.zelAppExec.cmd = '';
-      this.zelAppExec.env = '';
-      this.managedApplication = zelappName;
+      this.appExec.cmd = '';
+      this.appExec.env = '';
+      this.managedApplication = appName;
       this.checkFluxCommunication();
       this.getAppOwner();
       this.getZelCashInfo();
@@ -3088,8 +3094,8 @@ export default {
       this.callResponse.data = '';
       this.callResponse.status = '';
       // do not reset global application specifics obtained
-      this.zelAppExec.cmd = '';
-      this.zelAppExec.env = '';
+      this.appExec.cmd = '';
+      this.appExec.env = '';
       console.log(key, keyPath);
       console.log(key);
       switch (key) {
@@ -3137,7 +3143,7 @@ export default {
       const data = {
         type: this.registrationtype,
         version: this.version,
-        zelAppSpecification: this.dataForZelAppRegistration,
+        zelAppSpecification: this.dataForAppRegistration,
         timestamp: this.timestamp,
         signature: this.signature,
       };
@@ -3249,12 +3255,12 @@ export default {
     onOpen(evt) {
       console.log(evt);
     },
-    getZelAppName(zelappName) {
+    getZelAppName(appName) {
       // this id is used for volumes, docker names so we know it reall belongs to zelflux
-      if (zelappName && zelappName.startsWith('zel')) {
-        return zelappName.substr(3, zelappName.length);
+      if (appName && appName.startsWith('zel')) {
+        return appName.substr(3, appName.length);
       }
-      return zelappName;
+      return appName;
     },
     async getAppOwner() {
       const response = await AppsService.getZelAppOwner(this.managedApplication);
@@ -3353,14 +3359,14 @@ export default {
         this.callResponse.data = response.data.data;
       }
     },
-    async zelAppExecute() {
+    async appExecute() {
       const zelidauth = localStorage.getItem('zelidauth');
-      if (!this.zelAppExec.cmd) {
+      if (!this.appExec.cmd) {
         vue.$customMes.error('No commands specified');
         return;
       }
-      const env = this.zelAppExec.env ? this.zelAppExec.env : '[]';
-      const { cmd } = this.zelAppExec;
+      const env = this.appExec.env ? this.appExec.env : '[]';
+      const { cmd } = this.appExec;
       this.commandExecuting = true;
       const response = await AppsService.getZelAppExec(zelidauth, this.managedApplication, cmd, env);
       console.log(response);
@@ -3421,16 +3427,16 @@ export default {
       document.body.appendChild(link);
       link.click();
     },
-    getZelAppIdentifier() {
+    getAppIdentifier() {
       // this id is used for volumes, docker names so we know it reall belongs to zelflux
       if (this.managedApplication && this.managedApplication.startsWith('zel')) {
         return this.managedApplication;
       }
       return `zel${this.managedApplication}`;
     },
-    getZelAppDockerNameIdentifier() {
+    getAppDockerNameIdentifier() {
       // this id is used for volumes, docker names so we know it reall belongs to zelflux
-      const name = this.getZelAppIdentifier();
+      const name = this.getAppIdentifier();
       if (name && name.startsWith('/')) {
         return name;
       }

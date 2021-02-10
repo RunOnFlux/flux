@@ -131,7 +131,7 @@ export default {
           console.log(response);
           if (response.data.status === 'error') {
             if (JSON.stringify(response.data.data).includes('CONN')) {
-              // we can fix zelcash, zelbench problems. But cannot fix mongo, docker issues (docker may be possible to fix in the future, mongo not)...
+              // we can fix daemon, benchmark problems. But cannot fix mongo, docker issues (docker may be possible to fix in the future, mongo not)...
               this.getEmergencyLoginPhrase();
             } else {
               this.errorMessage = response.data.data.message;
@@ -144,7 +144,7 @@ export default {
         .catch((error) => {
           console.log(error);
           vue.$customMes.error(error);
-          this.errorMessage = 'Error connecting to ZelBack';
+          this.errorMessage = 'Error connecting to Flux';
         });
     },
     getEmergencyLoginPhrase() {
@@ -161,7 +161,7 @@ export default {
         .catch((error) => {
           console.log(error);
           vue.$customMes.error(error);
-          this.errorMessage = 'Error connecting to ZelBack';
+          this.errorMessage = 'Error connecting to Flux';
         });
     },
     login() {

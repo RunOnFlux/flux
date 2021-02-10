@@ -1,6 +1,6 @@
 module.exports = {
   server: {
-    zelfrontport: 16126,
+    homeport: 16126,
     apiport: 16127,
     apiporthttps: 16128,
   },
@@ -15,51 +15,55 @@ module.exports = {
         activeSignatures: 'activesignatures',
       },
     },
-    zelcash: {
+    daemon: {
       database: 'zelcashdata',
       collections: {
         // addreesIndex contains a) balance, b) list of all transacitons, c) list of utxos
         scannedHeight: 'scannedheight',
         utxoIndex: 'utxoindex',
         addressTransactionIndex: 'addresstransactionindex',
-        zelnodeTransactions: 'zelnodetransactions',
-        zelappsHashes: 'zelappshashes',
+        fluxTransactions: 'zelnodetransactions',
+        appsHashes: 'zelappshashes',
       },
     },
-    zelappslocal: {
+    appslocal: {
       database: 'localzelapps',
       collections: {
-        zelappsInformation: 'zelappsinformation',
+        appsInformation: 'zelappsinformation',
       },
     },
-    zelappsglobal: {
+    appsglobal: {
       database: 'globalzelapps',
       collections: {
-        zelappsMessages: 'zelappsmessages', // storage for all zelapps messages done on zelcash network
-        zelappsInformation: 'zelappsinformation', // stores actual state of zelapp configuration info - initial state and its overwrites with update messages
-        zelappsTemporaryMessages: 'zelappstemporarymessages', // storages for all zelapps messages that are not yet confirmed on the zelcash network
-        zelappsLocations: 'zelappslocation', // stores location of zelapps as documents containing name, hash, ip, obtainedAt
+        appsMessages: 'zelappsmessages', // storage for all flux apps messages done on flux network
+        appsInformation: 'zelappsinformation', // stores actual state of flux app configuration info - initial state and its overwrites with update messages
+        appsTemporaryMessages: 'zelappstemporarymessages', // storages for all flux apps messages that are not yet confirmed on the flux network
+        appsLocations: 'zelappslocation', // stores location of flux apps as documents containing name, hash, ip, obtainedAt
       },
     },
-    zelshare: {
+    fluxshare: {
       database: 'zelshare',
       collections: {
         shared: 'shared',
       },
     },
   },
-  zelbench: {
+  benchmark: {
     port: 16225,
     rpcport: 16224,
     porttestnet: 26225,
     rpcporttestnet: 26224,
   },
-  zelcash: {
-    chainValidHeight: 685000,
+  daemon: {
+    chainValidHeight: 770000,
+    port: 16125,
+    rpcport: 16124,
+    porttestnet: 26125,
+    rpcporttestnet: 26124,
   },
   fluxTeamZelId: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
-  zelapps: {
-    // in zel per month (blocksLasting)
+  fluxapps: {
+    // in flux main chain per month (blocksLasting)
     price: {
       cpu: 3, // per 0.1 cpu core,
       ram: 1, // per 100mb,
@@ -88,9 +92,9 @@ module.exports = {
       delay: 30,
     },
     blocksLasting: 22000, // registered app will live for 22000 of blocks 44000 minutes ~= 1 month
-    expireZelAppsPeriod: 100, // every 100 blocks we run a check that deletes apps specifications and stops/removes the application from existence if it has been lastly updated more than 22k blocks ago
-    updateZelAppsPeriod: 9, // every 9 blocks we check for reinstalling of old application versions
-    removeZelAppsPeriod: 11, // every 11 blocks we check for more than maximum number of instances of an application
+    expireFluxAppsPeriod: 100, // every 100 blocks we run a check that deletes apps specifications and stops/removes the application from existence if it has been lastly updated more than 22k blocks ago
+    updateFluxAppsPeriod: 9, // every 9 blocks we check for reinstalling of old application versions
+    removeFluxAppsPeriod: 11, // every 11 blocks we check for more than maximum number of instances of an application
   },
   lockedSystemResources: {
     cpu: 10, // 1 cpu core

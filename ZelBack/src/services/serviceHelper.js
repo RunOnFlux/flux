@@ -187,10 +187,10 @@ async function collectionStats(database, collection) {
   return result;
 }
 
-// helper owner zelapp function
+// helper owner flux app function
 async function getApplicationOwner(appName) {
   const db = databaseConnection();
-  const database = db.db(config.database.zelappsglobal.database);
+  const database = db.db(config.database.appsglobal.database);
 
   const query = { name: new RegExp(`^${appName}$`, 'i') };
   const projection = {
@@ -199,17 +199,17 @@ async function getApplicationOwner(appName) {
       owner: 1,
     },
   };
-  const globalZelAppsInformation = config.database.zelappsglobal.collections.zelappsInformation;
-  const appSpecs = await findOneInDatabase(database, globalZelAppsInformation, query, projection);
+  const globalAppsInformation = config.database.appsglobal.collections.appsInformation;
+  const appSpecs = await findOneInDatabase(database, globalAppsInformation, query, projection);
   if (appSpecs) {
     return appSpecs.owner;
   }
   // eslint-disable-next-line global-require
-  const { availableZelApps } = require('./appsService');
-  const allZelApps = await availableZelApps();
-  const zelappInfo = allZelApps.find((zelapp) => zelapp.name.toLowerCase() === appName.toLowerCase());
-  if (zelappInfo) {
-    return zelappInfo.owner;
+  const { availableApps } = require('./appsService');
+  const allApps = await availableApps();
+  const appInfo = allApps.find((app) => app.name.toLowerCase() === appName.toLowerCase());
+  if (appInfo) {
+    return appInfo.owner;
   }
   return null;
 }

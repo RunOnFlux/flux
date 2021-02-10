@@ -40,14 +40,14 @@ export default {
   getBenchStatus() {
     return Api().get('/daemon/getbenchstatus');
   },
-  startZelBench(zelidauthHeader) {
+  startBenchmark(zelidauthHeader) {
     return Api().get('/daemon/startbenchmark', {
       headers: {
         zelidauth: zelidauthHeader,
       },
     });
   },
-  stopZelBench(zelidauthHeader) {
+  stopBenchmark(zelidauthHeader) {
     return Api().get('/daemon/stopbenchmark', {
       headers: {
         zelidauth: zelidauthHeader,
@@ -98,14 +98,14 @@ export default {
       },
     });
   },
-  stopZelCash(zelidauthHeader) {
+  stopDaemon(zelidauthHeader) {
     return Api().get('/daemon/stop', {
       headers: {
         zelidauth: zelidauthHeader,
       },
     });
   },
-  rescanZelCash(zelidauthHeader, height) {
+  rescanDaemon(zelidauthHeader, height) {
     return Api().get(`/daemon/rescan/${height}`, {
       headers: {
         zelidauth: zelidauthHeader,
@@ -116,7 +116,7 @@ export default {
     return Api().get(`/daemon/getblock/${height}/${verbosity}`);
   },
   // DEBUG
-  tailZelCashDebug(zelidauthHeader) {
+  tailDaemonDebug(zelidauthHeader) {
     return Api().get('/flux/taildaemondebug', {
       headers: {
         zelidauth: zelidauthHeader,

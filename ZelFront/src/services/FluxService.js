@@ -1,35 +1,35 @@
 import Api, { sourceCancelToken } from '@/services/Api';
 
 export default {
-  updateZelFlux(zelidauthHeader) {
+  updateFlux(zelidauthHeader) {
     return Api().get('/flux/updateflux', {
       headers: {
         zelidauth: zelidauthHeader,
       },
     });
   },
-  rebuildZelFront(zelidauthHeader) {
+  rebuildHome(zelidauthHeader) {
     return Api().get('/flux/rebuildzelfront', {
       headers: {
         zelidauth: zelidauthHeader,
       },
     });
   },
-  updateZelCash(zelidauthHeader) {
+  updateDaemon(zelidauthHeader) {
     return Api().get('/flux/updatedaemon', {
       headers: {
         zelidauth: zelidauthHeader,
       },
     });
   },
-  reindexZelCash(zelidauthHeader) {
+  reindexDaemon(zelidauthHeader) {
     return Api().get('/flux/reindexdaemon', {
       headers: {
         zelidauth: zelidauthHeader,
       },
     });
   },
-  updateZelBench(zelidauthHeader) {
+  updateBenchmark(zelidauthHeader) {
     return Api().get('/flux/updatebenchmark', {
       headers: {
         zelidauth: zelidauthHeader,

@@ -341,7 +341,7 @@ export default {
     switcher(value) {
       switch (value) {
         case 'getinfo':
-          this.zelcashGetInfo();
+          this.daemonGetInfo();
           this.zelcashGetZelNodeStatus();
           break;
         case 'network':
@@ -360,7 +360,7 @@ export default {
           console.log('ZelNode Section: Unrecognized method');
       }
     },
-    async zelcashGetInfo() {
+    async daemonGetInfo() {
       const response = await DaemonService.getInfo();
       this.getInfoResponse.status = response.data.status;
       this.getInfoResponse.data = response.data.data;
@@ -373,11 +373,11 @@ export default {
       console.log(this.getZelNodeStatusResponse.data);
       if (this.getZelNodeStatusResponse.data) {
         if (this.getZelNodeStatusResponse.data.status === 'CONFIRMED' || this.getZelNodeStatusResponse.data.location === 'CONFIRMED') {
-          this.getZelNodeStatusResponse.zelnodeStatus = 'ZelNode is working correctly';
+          this.getZelNodeStatusResponse.zelnodeStatus = 'Flux is working correctly';
         } else if (this.getZelNodeStatusResponse.data.status === 'STARTED' || this.getZelNodeStatusResponse.data.location === 'STARTED') {
-          this.getZelNodeStatusResponse.zelnodeStatus = 'ZelNode has just been started. Flux is running with limited capabilities.';
+          this.getZelNodeStatusResponse.zelnodeStatus = 'Flux has just been started. Flux is running with limited capabilities.';
         } else {
-          this.getZelNodeStatusResponse.zelnodeStatus = 'ZelNode is not confirmed. Flux is running with limited capabilities.';
+          this.getZelNodeStatusResponse.zelnodeStatus = 'Flux is not confirmed. Flux is running with limited capabilities.';
         }
       }
     },

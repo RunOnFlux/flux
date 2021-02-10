@@ -55,8 +55,8 @@
         icon="el-icon-info"
         iconColor="green"
         title="Starts ZelBench daemon"
-        @onConfirm="startZelBench()"
-        @confirm="startZelBench()"
+        @onConfirm="startBenchmark()"
+        @confirm="startBenchmark()"
       >
         <ElButton slot="reference">
           Start ZelBench
@@ -73,8 +73,8 @@
         icon="el-icon-info"
         iconColor="orange"
         title="Restarts ZelBench daemon"
-        @onConfirm="restartZelBench()"
-        @confirm="restartZelBench()"
+        @onConfirm="restartBenchmark()"
+        @confirm="restartBenchmark()"
       >
         <ElButton slot="reference">
           Restart ZelBench
@@ -91,8 +91,8 @@
         icon="el-icon-info"
         iconColor="red"
         title="Stops ZelBench daemon"
-        @onConfirm="stopZelBench()"
-        @confirm="stopZelBench()"
+        @onConfirm="stopBenchmark()"
+        @confirm="stopBenchmark()"
       >
         <ElButton slot="reference">
           Stop ZelBench
@@ -267,8 +267,8 @@
           icon="el-icon-info"
           iconColor="red"
           title="Show ZelBench Debug file?"
-          @onConfirm="tailZelBenchDebug()"
-          @confirm="tailZelBenchDebug()"
+          @onConfirm="tailBenchmarkDebug()"
+          @confirm="tailBenchmarkDebug()"
         >
           <ElButton slot="reference">
             Show Debug File
@@ -279,7 +279,7 @@
           v-if="callResponse.data.message"
           type="textarea"
           autosize
-          v-model="zelbenchDebugTail"
+          v-model="benchmarkDebugTail"
         >
         </el-input>
       </div>
@@ -330,7 +330,7 @@ export default {
       'userconfig',
       'benchmarkSection',
     ]),
-    zelbenchDebugTail() {
+    benchmarkDebugTail() {
       if (this.callResponse.data.message) {
         return this.callResponse.data.message.split('\n').reverse().filter((el) => el !== '').join('\n');
       }
@@ -446,7 +446,7 @@ export default {
       }
       this.currentHelpResponse = modifiedHelp.join('\n');
     },
-    startZelBench() {
+    startBenchmark() {
       vue.$customMes.warning('ZelBench will start');
       const zelidauth = localStorage.getItem('zelidauth');
       BenchmarkService.start(zelidauth)
@@ -462,7 +462,7 @@ export default {
           vue.$customMes.error('Error while trying to start ZelBench');
         });
     },
-    stopZelBench() {
+    stopBenchmark() {
       vue.$customMes.warning('ZelBench will be stopped');
       const zelidauth = localStorage.getItem('zelidauth');
       BenchmarkService.stop(zelidauth)
@@ -478,7 +478,7 @@ export default {
           vue.$customMes.error('Error while trying to stop ZelBench');
         });
     },
-    restartZelBench() {
+    restartBenchmark() {
       vue.$customMes.warning('ZelBench will now restart');
       const zelidauth = localStorage.getItem('zelidauth');
       BenchmarkService.restart(zelidauth)
@@ -523,9 +523,9 @@ export default {
       document.body.appendChild(link);
       link.click();
     },
-    tailZelBenchDebug() {
+    tailBenchmarkDebug() {
       const zelidauth = localStorage.getItem('zelidauth');
-      BenchmarkService.tailZelBenchDebug(zelidauth)
+      BenchmarkService.tailBenchmarkDebug(zelidauth)
         .then((response) => {
           if (response.data.status === 'error') {
             vue.$customMes.error(response.data.data.message || response.data.data);

@@ -56,7 +56,7 @@ export default {
     return Api().get('/benchmark/getinfo');
   },
   // DEBUG
-  tailZelBenchDebug(zelidauthHeader) {
+  tailBenchmarkDebug(zelidauthHeader) {
     return Api().get('/flux/tailbenchmarkdebug', {
       headers: {
         zelidauth: zelidauthHeader,

@@ -7,7 +7,7 @@ export default {
   getAddressTransactions(address) {
     return Api().get(`/explorer/transactions/${address}`);
   },
-  getZelNodeTransactions(filter) {
+  getFluxTransactions(filter) {
     return Api().get(`/explorer/fluxtxs/${filter}`);
   },
   getScannedHeight() {

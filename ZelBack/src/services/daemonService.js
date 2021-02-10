@@ -9,10 +9,10 @@ const config = new fullnode.Config();
 const isTestnet = userconfig.initial.testnet;
 const rpcuser = config.rpcuser() || 'rpcuser';
 const rpcpassword = config.rpcpassword() || 'rpcpassword';
-const rpcport = config.rpcport() || (isTestnet === true ? 26124 : 16124);
+const rpcport = config.rpcport() || (isTestnet === true ? config.daemon.testnetrpcport : config.daemon.rpcport);
 
-let currentZelCashHeight = 0;
-let currentZelCashHeader = 770000;
+let currentDaemonHeight = 0;
+let currentDaemonHeader = 770000;
 
 const client = new daemonrpc.Client({
   port: rpcport,
@@ -24,21 +24,21 @@ let zelcashCallRunning = false;
 
 // default cache
 const LRUoptions = {
-  max: 500, // store 500 values for up to 20 seconds of other zelcash calls
+  max: 500, // store 500 values for up to 20 seconds of other daemon calls
   maxAge: 1000 * 20, // 20 seconds
 };
 
 const cache = new LRU(LRUoptions);
 
 const LRUoptionsBlocks = {
-  max: 1500, // store 500 values for up to 1 hour of other zelcash calls
+  max: 1500, // store 500 values for up to 1 hour of other daemon calls
   maxAge: 1000 * 60 * 60, // 1 hour
 };
 
 const blockCache = new LRU(LRUoptionsBlocks); // store 1.5k blocks in cache
 
 const LRUoptionsTxs = {
-  max: 30000, // store 500 values for up to 1 hour of other zelcash calls
+  max: 30000, // store 500 values for up to 1 hour of other daemon calls
   maxAge: 1000 * 60 * 60, // 1 hour
 };
 
@@ -2714,7 +2714,7 @@ async function getBenchStatus(req, res) {
   return res ? res.json(response) : response;
 }
 
-async function startZelBenchD(req, res) {
+async function startBenchmarkD(req, res) {
   const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
     const rpccall = 'startzelbenchd';
@@ -2726,7 +2726,7 @@ async function startZelBenchD(req, res) {
   return res ? res.json(response) : response;
 }
 
-async function stopZelBenchD(req, res) {
+async function stopBenchmarkD(req, res) {
   const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
     const rpccall = 'stopzelbenchd';
@@ -2738,13 +2738,13 @@ async function stopZelBenchD(req, res) {
   return res ? res.json(response) : response;
 }
 
-function isZelCashSynced(req, res) {
+function isDaemonSynced(req, res) {
   const isSynced = {
-    header: currentZelCashHeader,
-    height: currentZelCashHeight,
+    header: currentDaemonHeader,
+    height: currentDaemonHeight,
     synced: false,
   };
-  if (currentZelCashHeight > currentZelCashHeader - 5) {
+  if (currentDaemonHeight > currentDaemonHeader - 5) {
     isSynced.synced = true;
   }
   const successResponse = serviceHelper.createDataMessage(isSynced);
@@ -2755,11 +2755,11 @@ async function zelcashBlockchainInfo() {
   try {
     const zelcashBlockChainInfo = await getBlockchainInfo();
     if (zelcashBlockChainInfo.status === 'success') {
-      currentZelCashHeight = zelcashBlockChainInfo.data.blocks;
+      currentDaemonHeight = zelcashBlockChainInfo.data.blocks;
       if (zelcashBlockChainInfo.data.headers > 770000) {
-        currentZelCashHeader = zelcashBlockChainInfo.data.headers;
+        currentDaemonHeader = zelcashBlockChainInfo.data.headers;
       }
-      log.info(`Zel Sync status: ${currentZelCashHeight}/${currentZelCashHeader}`);
+      log.info(`Daemon Sync status: ${currentDaemonHeight}/${currentDaemonHeader}`);
     } else {
       log.error(zelcashBlockChainInfo.data.message || zelcashBlockChainInfo.data);
     }
@@ -2768,7 +2768,7 @@ async function zelcashBlockchainInfo() {
   }
 }
 
-function zelcashBlockchainInfoService() {
+function daemonBlockchainInfoService() {
   zelcashBlockchainInfo();
   setInterval(() => {
     zelcashBlockchainInfo();
@@ -2953,10 +2953,10 @@ module.exports = {
   // == Benchmarks ==
   getBenchmarks,
   getBenchStatus,
-  startZelBenchD,
-  stopZelBenchD,
+  startBenchmarkD,
+  stopBenchmarkD,
 
   // == NON ZelCash ==
-  isZelCashSynced,
-  zelcashBlockchainInfoService,
+  isDaemonSynced,
+  daemonBlockchainInfoService,
 };

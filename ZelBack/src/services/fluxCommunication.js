@@ -22,7 +22,7 @@ const incomingPeers = []; // array of objects containing ip and rtt latency
 let dosState = 0; // we can start at bigger number later
 let dosMessage = null;
 
-// my external Flux IP from zelbench
+// my external Flux IP from benchmark
 let myFluxIP = null;
 
 let response = serviceHelper.createErrorMessage();
@@ -75,7 +75,7 @@ async function checkFluxAvailability(req, res) {
   return res.json(response);
 }
 
-async function myZelNodeIP() {
+async function getMyFluxIP() {
   const benchmarkResponse = await daemonService.getBenchmarks();
   let myIP = null;
   if (benchmarkResponse.status === 'success') {
@@ -313,7 +313,7 @@ async function sendToAllIncomingConnections(data, wsList) {
   }
 }
 
-async function serialiseAndSignZelFluxBroadcast(dataToBroadcast, privatekey) {
+async function serialiseAndSignFluxBroadcast(dataToBroadcast, privatekey) {
   const version = 1;
   const timestamp = Date.now();
   const pubKey = await getZelNodePublicKey(privatekey);
@@ -342,7 +342,7 @@ async function handleZelAppMessages(message, fromIP) {
     // do furtherVerification of message
     // eslint-disable-next-line global-require
     const appsService = require('./appsService');
-    const rebroadcastToPeers = await appsService.storeZelAppTemporaryMessage(message.data, true);
+    const rebroadcastToPeers = await appsService.storeAppTemporaryMessage(message.data, true);
     if (rebroadcastToPeers === true) {
       const messageString = serviceHelper.ensureString(message);
       const wsListOut = outgoingConnections.filter((client) => client._socket.remoteAddress !== fromIP);
@@ -363,7 +363,7 @@ async function handleZelAppRunningMessage(message, fromIP) {
     // do furtherVerification of message
     // eslint-disable-next-line global-require
     const appsService = require('./appsService');
-    const rebroadcastToPeers = await appsService.storeZelAppRunningMessage(message.data);
+    const rebroadcastToPeers = await appsService.storeAppRunningMessage(message.data);
     if (rebroadcastToPeers === true) {
       const messageString = serviceHelper.ensureString(message);
       const wsListOut = outgoingConnections.filter((client) => client._socket.remoteAddress !== fromIP);
@@ -379,7 +379,7 @@ async function handleZelAppRunningMessage(message, fromIP) {
 
 async function sendMessageToWS(message, ws) {
   try {
-    const pongResponse = await serialiseAndSignZelFluxBroadcast(message);
+    const pongResponse = await serialiseAndSignFluxBroadcast(message);
     try {
       ws.send(pongResponse);
     } catch (e) {
@@ -401,7 +401,7 @@ async function respondWithAppMessage(message, ws) {
       return;
     }
     console.log(serviceHelper.ensureString(message));
-    const permanentMessage = await appsService.checkZelAppMessageExistence(message.data.hash);
+    const permanentMessage = await appsService.checkAppMessageExistence(message.data.hash);
     if (permanentMessage) {
       // message exists in permanent storage. Create a message and broadcast it to the fromIP peer
       // const permanentZelAppMessage = {
@@ -415,7 +415,7 @@ async function respondWithAppMessage(message, ws) {
       //   height,
       //   valueSat,
       // };
-      const temporaryZelAppMessage = { // specification of temp message
+      const temporaryAppMessage = { // specification of temp message
         type: permanentMessage.type,
         version: permanentMessage.version,
         zelAppSpecifications: permanentMessage.zelAppSpecifications,
@@ -423,10 +423,10 @@ async function respondWithAppMessage(message, ws) {
         timestamp: permanentMessage.timestamp,
         signature: permanentMessage.signature,
       };
-      myMessageCache.set(serviceHelper.ensureString(message), temporaryZelAppMessage);
-      sendMessageToWS(temporaryZelAppMessage, ws);
+      myMessageCache.set(serviceHelper.ensureString(message), temporaryAppMessage);
+      sendMessageToWS(temporaryAppMessage, ws);
     } else {
-      const existingTemporaryMessage = await appsService.checkZelAppTemporaryMessageExistence(message.data.hash);
+      const existingTemporaryMessage = await appsService.checkAppTemporaryMessageExistence(message.data.hash);
       if (existingTemporaryMessage) {
         // a temporary zelappmessage looks like this:
         // const newMessage = {
@@ -439,7 +439,7 @@ async function respondWithAppMessage(message, ws) {
         //   createdAt: new Date(message.timestamp),
         //   expireAt: new Date(validTill),
         // };
-        const temporaryZelAppMessage = { // specification of temp message
+        const temporaryAppMessage = { // specification of temp message
           type: existingTemporaryMessage.type,
           version: existingTemporaryMessage.version,
           zelAppSpecifications: existingTemporaryMessage.zelAppSpecifications,
@@ -447,8 +447,8 @@ async function respondWithAppMessage(message, ws) {
           timestamp: existingTemporaryMessage.timestamp,
           signature: existingTemporaryMessage.signature,
         };
-        myMessageCache.set(serviceHelper.ensureString(message), temporaryZelAppMessage);
-        sendMessageToWS(temporaryZelAppMessage, ws);
+        myMessageCache.set(serviceHelper.ensureString(message), temporaryAppMessage);
+        sendMessageToWS(temporaryAppMessage, ws);
       }
       // else do nothing. We do not have this message. And this Flux would be requesting it from other peers soon too.
     }
@@ -494,7 +494,7 @@ function handleIncomingConnection(ws, req, expressWS) {
           } else if (msgObj.data.type === 'HeartBeat' && msgObj.data.message === 'ping') { // we know that data exists
             const newMessage = msgObj.data;
             newMessage.message = 'pong';
-            const pongResponse = await serialiseAndSignZelFluxBroadcast(newMessage);
+            const pongResponse = await serialiseAndSignFluxBroadcast(newMessage);
             try {
               ws.send(pongResponse);
             } catch (error) {
@@ -579,12 +579,12 @@ function handleIncomingConnection(ws, req, expressWS) {
 }
 
 async function broadcastMessageToOutgoing(dataToBroadcast) {
-  const serialisedData = await serialiseAndSignZelFluxBroadcast(dataToBroadcast);
+  const serialisedData = await serialiseAndSignFluxBroadcast(dataToBroadcast);
   sendToAllPeers(serialisedData);
 }
 
 async function broadcastMessageToIncoming(dataToBroadcast) {
-  const serialisedData = await serialiseAndSignZelFluxBroadcast(dataToBroadcast);
+  const serialisedData = await serialiseAndSignFluxBroadcast(dataToBroadcast);
   sendToAllIncomingConnections(serialisedData);
 }
 
@@ -803,7 +803,7 @@ async function initiateAndHandleConnection(ip) {
       } else if (msgObj.data.type === 'HeartBeat' && msgObj.data.message === 'ping') {
         const newMessage = msgObj.data;
         newMessage.message = 'pong';
-        const pongResponse = await serialiseAndSignZelFluxBroadcast(newMessage);
+        const pongResponse = await serialiseAndSignFluxBroadcast(newMessage);
         try {
           websocket.send(pongResponse);
         } catch (error) {
@@ -835,7 +835,7 @@ async function initiateAndHandleConnection(ip) {
 }
 
 async function fluxDiscovery() {
-  const syncStatus = await daemonService.isZelCashSynced();
+  const syncStatus = await daemonService.isDaemonSynced();
   if (!syncStatus.data.synced) {
     log.warn('Daemon not yet synced. Flux discovery is paused.');
     setTimeout(() => {
@@ -1136,10 +1136,10 @@ async function checkDeterministicNodesCollisions() {
     // get zelnode list with filter on this ip address
     // if it returns more than 1 object, shut down.
     // another precatuion might be comparing zelnode list on multiple zelnodes. evaulate in the future
-    const myIP = await myZelNodeIP();
+    const myIP = await getMyFluxIP();
     myFluxIP = myIP;
     if (myIP !== null) {
-      const syncStatus = await daemonService.isZelCashSynced();
+      const syncStatus = await daemonService.isDaemonSynced();
       if (!syncStatus.data.synced) {
         return;
       }
@@ -1150,7 +1150,7 @@ async function checkDeterministicNodesCollisions() {
         const myCollateral = zelnodeStatus.data.collateral;
         const myZelNode = result.find((zelnode) => zelnode.collateral === myCollateral);
         if (result.length > 1) {
-          log.warn('Multiple ZelNode instances detected');
+          log.warn('Multiple Flux Node instances detected');
           if (myZelNode) {
             const myBlockHeight = myZelNode.readded_confirmed_height || myZelNode.confirmed_height; // todo we may want to introduce new readded heights and readded confirmations
             const filterEarlierSame = result.filter((zelnode) => (zelnode.readded_confirmed_height || zelnode.confirmed_height) <= myBlockHeight);
@@ -1262,8 +1262,8 @@ async function adjustFirewall() {
     const execA = 'sudo ufw status | grep Status';
     const execB = `sudo ufw allow ${config.server.apiport}`;
     const execC = `sudo ufw allow out ${config.server.apiport}`;
-    const execD = `sudo ufw allow ${config.server.zelfrontport}`;
-    const execE = `sudo ufw allow out ${config.server.zelfrontport}`;
+    const execD = `sudo ufw allow ${config.server.homeport}`;
+    const execE = `sudo ufw allow out ${config.server.homeport}`;
     const cmdAsync = util.promisify(cmd.get);
 
     const cmdresA = await cmdAsync(execA);
@@ -1302,9 +1302,9 @@ async function adjustFirewall() {
 
 function isCommunicationEstablished(req, res) {
   let message;
-  if (outgoingPeers.length < config.zelapps.minOutgoing) {
+  if (outgoingPeers.length < config.fluxapps.minOutgoing) {
     message = serviceHelper.createErrorMessage('Not enough outgoing connections');
-  } else if (incomingPeers.length < config.zelapps.minIncoming) {
+  } else if (incomingPeers.length < config.fluxapps.minIncoming) {
     message = serviceHelper.createErrorMessage('Not enough incoming connections');
   } else {
     message = serviceHelper.createSuccessMessage('Communication to Flux network is properly established');
@@ -1312,7 +1312,7 @@ function isCommunicationEstablished(req, res) {
   res.json(message);
 }
 
-async function broadcastTemporaryZelAppMessage(message) {
+async function broadcastTemporaryAppMessage(message) {
   /* message object
   * @param type string
   * @param version number
@@ -1324,7 +1324,7 @@ async function broadcastTemporaryZelAppMessage(message) {
   log.info(message);
   // no verification of message before broadcasting. Broadcasting happens always after data have been verified and are stored in our db. It is up to receiving node to verify it and store and rebroadcast.
   if (typeof message !== 'object' && typeof message.type !== 'string' && typeof message.version !== 'number' && typeof message.zelAppSpecifications !== 'object' && typeof message.signature !== 'string' && typeof message.timestamp !== 'number' && typeof message.hash !== 'string') {
-    return new Error('Invalid ZelApp message for storing');
+    return new Error('Invalid Flux App message for storing');
   }
   // to all outoing
   await broadcastMessageToOutgoing(message);
@@ -1346,7 +1346,7 @@ async function broadcastZelAppRunningMessage(message) {
   log.info(message);
   // no verification of message before broadcasting. Broadcasting happens always after data have been verified and are stored in our db. It is up to receiving node to verify it and store and rebroadcast.
   if (typeof message !== 'object' && typeof message.type !== 'string' && typeof message.version !== 'number' && typeof message.broadcastedAt !== 'number' && typeof message.name !== 'string' && typeof message.hash !== 'string' && typeof message.ip !== 'string') {
-    return new Error('Invalid ZelApp Running message for storing');
+    return new Error('Invalid Flux App Running message for storing');
   }
   // to all outoing
   await broadcastMessageToOutgoing(message);
@@ -1370,7 +1370,7 @@ module.exports = {
   broadcastMessageToIncomingFromUserPost,
   broadcastMessageFromUser,
   broadcastMessageFromUserPost,
-  serialiseAndSignZelFluxBroadcast,
+  serialiseAndSignFluxBroadcast,
   initiateAndHandleConnection,
   connectedPeers,
   addPeer,
@@ -1387,7 +1387,7 @@ module.exports = {
   outgoingPeers,
   incomingPeers,
   isCommunicationEstablished,
-  broadcastTemporaryZelAppMessage,
+  broadcastTemporaryAppMessage,
   broadcastZelAppRunningMessage,
   keepIncomingConnectionsAlive,
   keepConnectionsAlive,

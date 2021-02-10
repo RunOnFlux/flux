@@ -33,6 +33,6 @@ ZelFrontApp.get('*', (req, res) => {
   res.sendFile(path.join(zelfront, 'index.html'));
 });
 
-ZelFrontApp.listen(config.server.zelfrontport, () => {
-  log.info(`Flux Home running on port ${config.server.zelfrontport}!`);
+ZelFrontApp.listen(config.server.homeport, () => {
+  log.info(`Flux Home running on port ${config.server.homeport}!`);
 });

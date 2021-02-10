@@ -13,11 +13,11 @@ const fluxCommunication = require('./fluxCommunication');
 const userconfig = require('../../../config/userconfig');
 
 // eslint-disable-next-line consistent-return
-async function updateZelFlux(req, res) {
+async function updateFlux(req, res) {
   const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
   if (authorized === true) {
-    const zelnodedpath = path.join(__dirname, '../../../');
-    const exec = `cd ${zelnodedpath} && npm run updatezelflux`;
+    const nodedpath = path.join(__dirname, '../../../');
+    const exec = `cd ${nodedpath} && npm run updatezelflux`;
     cmd.get(exec, (err) => {
       if (err) {
         const errMessage = serviceHelper.createErrorMessage(`Error updating Flux: ${err.message}`, err.name, err.code);
@@ -33,11 +33,11 @@ async function updateZelFlux(req, res) {
 }
 
 // eslint-disable-next-line consistent-return
-async function hardUpdateZelFlux(req, res) {
+async function hardUpdateFlux(req, res) {
   const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
   if (authorized === true) {
-    const zelnodedpath = path.join(__dirname, '../../../');
-    const exec = `cd ${zelnodedpath} && npm run hardupdatezelflux`;
+    const nodedpath = path.join(__dirname, '../../../');
+    const exec = `cd ${nodedpath} && npm run hardupdatezelflux`;
     cmd.get(exec, (err) => {
       if (err) {
         const errMessage = serviceHelper.createErrorMessage(`Error hardupdating Flux: ${err.message}`, err.name, err.code);
@@ -53,11 +53,11 @@ async function hardUpdateZelFlux(req, res) {
 }
 
 // eslint-disable-next-line consistent-return
-async function rebuildZelFront(req, res) {
+async function rebuildHome(req, res) {
   const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
   if (authorized === true) {
-    const zelnodedpath = path.join(__dirname, '../../../');
-    const exec = `cd ${zelnodedpath} && npm run zelfrontbuild`;
+    const nodedpath = path.join(__dirname, '../../../');
+    const exec = `cd ${nodedpath} && npm run zelfrontbuild`;
     cmd.get(exec, (err) => {
       if (err) {
         const errMessage = serviceHelper.createErrorMessage(`Error rebuilding Flux: ${err.message}`, err.name, err.code);
@@ -73,17 +73,17 @@ async function rebuildZelFront(req, res) {
 }
 
 // eslint-disable-next-line consistent-return
-async function updateZelCash(req, res) {
+async function updateDaemon(req, res) {
   const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
   if (authorized === true) {
-    const zelnodedpath = path.join(__dirname, '../../../helpers');
-    const exec = `cd ${zelnodedpath} && sh updateDaemon.sh`;
+    const nodedpath = path.join(__dirname, '../../../helpers');
+    const exec = `cd ${nodedpath} && sh updateDaemon.sh`;
     cmd.get(exec, (err) => {
       if (err) {
-        const errMessage = serviceHelper.createErrorMessage(`Error updating ZelCash: ${err.message}`, err.name, err.code);
+        const errMessage = serviceHelper.createErrorMessage(`Error updating Daemon: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
       }
-      const message = serviceHelper.createSuccessMessage('ZelCash successfully updated');
+      const message = serviceHelper.createSuccessMessage('Daemon successfully updated');
       return res.json(message);
     });
   } else {
@@ -93,17 +93,17 @@ async function updateZelCash(req, res) {
 }
 
 // eslint-disable-next-line consistent-return
-async function updateZelBench(req, res) {
+async function updateBenchmark(req, res) {
   const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
   if (authorized === true) {
-    const zelnodedpath = path.join(__dirname, '../../../helpers');
-    const exec = `cd ${zelnodedpath} && sh updateBenchmark.sh`;
+    const nodedpath = path.join(__dirname, '../../../helpers');
+    const exec = `cd ${nodedpath} && sh updateBenchmark.sh`;
     cmd.get(exec, (err) => {
       if (err) {
-        const errMessage = serviceHelper.createErrorMessage(`Error updating ZelBench: ${err.message}`, err.name, err.code);
+        const errMessage = serviceHelper.createErrorMessage(`Error updating Benchmark: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
       }
-      const message = serviceHelper.createSuccessMessage('ZelBench successfully updated');
+      const message = serviceHelper.createSuccessMessage('Benchmark successfully updated');
       return res.json(message);
     });
   } else {
@@ -113,17 +113,17 @@ async function updateZelBench(req, res) {
 }
 
 // eslint-disable-next-line consistent-return
-async function startZelBench(req, res) {
+async function startBenchmark(req, res) {
   const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
   if (authorized === true) {
     const exec = 'zelbenchd -daemon';
     cmd.get(exec, (err, data) => {
       if (err) {
-        const errMessage = serviceHelper.createErrorMessage(`Error starting ZelBench: ${err.message}`, err.name, err.code);
+        const errMessage = serviceHelper.createErrorMessage(`Error starting Benchmark: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
       }
       console.log(data);
-      const message = serviceHelper.createSuccessMessage('ZelBench successfully started');
+      const message = serviceHelper.createSuccessMessage('Benchamrk successfully started');
       return res.json(message);
     });
   } else {
@@ -133,17 +133,17 @@ async function startZelBench(req, res) {
 }
 
 // eslint-disable-next-line consistent-return
-async function restartZelBench(req, res) {
+async function restartBenchmark(req, res) {
   const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
   if (authorized === true) {
-    const zelnodedpath = path.join(__dirname, '../../../helpers');
-    const exec = `cd ${zelnodedpath} && sh restartBenchmark.sh`;
+    const nodedpath = path.join(__dirname, '../../../helpers');
+    const exec = `cd ${nodedpath} && sh restartBenchmark.sh`;
     cmd.get(exec, (err) => {
       if (err) {
-        const errMessage = serviceHelper.createErrorMessage(`Error restarting ZelBench: ${err.message}`, err.name, err.code);
+        const errMessage = serviceHelper.createErrorMessage(`Error restarting Benchmark: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
       }
-      const message = serviceHelper.createSuccessMessage('ZelBench successfully restarted');
+      const message = serviceHelper.createSuccessMessage('Benchmakr successfully restarted');
       return res.json(message);
     });
   } else {
@@ -154,17 +154,17 @@ async function restartZelBench(req, res) {
 }
 
 // eslint-disable-next-line consistent-return
-async function startZelCash(req, res) {
+async function startDaemon(req, res) {
   const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
   if (authorized === true) {
     const exec = 'zelcashd';
     cmd.get(exec, (err, data) => {
       if (err) {
-        const errMessage = serviceHelper.createErrorMessage(`Error starting ZelCash: ${err.message}`, err.name, err.code);
+        const errMessage = serviceHelper.createErrorMessage(`Error starting Daemon: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
       }
       console.log(data);
-      const message = serviceHelper.createSuccessMessage('ZelCash successfully started');
+      const message = serviceHelper.createSuccessMessage('Daemon successfully started');
       return res.json(message);
     });
   } else {
@@ -174,17 +174,17 @@ async function startZelCash(req, res) {
 }
 
 // eslint-disable-next-line consistent-return
-async function restartZelCash(req, res) {
+async function restartDaemon(req, res) {
   const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
   if (authorized === true) {
-    const zelnodedpath = path.join(__dirname, '../../../helpers');
-    const exec = `cd ${zelnodedpath} && sh restartDaemon.sh`;
+    const nodedpath = path.join(__dirname, '../../../helpers');
+    const exec = `cd ${nodedpath} && sh restartDaemon.sh`;
     cmd.get(exec, (err) => {
       if (err) {
-        const errMessage = serviceHelper.createErrorMessage(`Error restarting ZelCash: ${err.message}`, err.name, err.code);
+        const errMessage = serviceHelper.createErrorMessage(`Error restarting Daemon: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
       }
-      const message = serviceHelper.createSuccessMessage('ZelCash successfully restarted');
+      const message = serviceHelper.createSuccessMessage('Daemon successfully restarted');
       return res.json(message);
     });
   } else {
@@ -195,17 +195,17 @@ async function restartZelCash(req, res) {
 }
 
 // eslint-disable-next-line consistent-return
-async function reindexZelCash(req, res) {
+async function reindexDaemon(req, res) {
   const authorized = await serviceHelper.verifyAdminSession(req.headers);
   if (authorized === true) {
-    const zelnodedpath = path.join(__dirname, '../../../helpers');
-    const exec = `cd ${zelnodedpath} && sh reindexDaemon.sh`;
+    const nodedpath = path.join(__dirname, '../../../helpers');
+    const exec = `cd ${nodedpath} && sh reindexDaemon.sh`;
     cmd.get(exec, (err) => {
       if (err) {
-        const errMessage = serviceHelper.createErrorMessage(`Error reindexing ZelCash: ${err.message}`, err.name, err.code);
+        const errMessage = serviceHelper.createErrorMessage(`Error reindexing Daemon: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
       }
-      const message = serviceHelper.createSuccessMessage('ZelCash successfully reindexing');
+      const message = serviceHelper.createSuccessMessage('Daemon successfully reindexing');
       return res.json(message);
     });
   } else {
@@ -220,7 +220,7 @@ function getFluxVersion(req, res) {
   return res ? res.json(message) : message;
 }
 
-async function getZelFluxIP(req, res) {
+async function getFluxIP(req, res) {
   const benchmarkResponse = await daemonService.getBenchmarks();
   let myIP = null;
   if (benchmarkResponse.status === 'success') {
@@ -233,31 +233,31 @@ async function getZelFluxIP(req, res) {
   return res ? res.json(message) : message;
 }
 
-function getZelFluxZelID(req, res) {
+function getFluxZelID(req, res) {
   const zelID = userconfig.initial.zelid;
   const message = serviceHelper.createDataMessage(zelID);
   return res ? res.json(message) : message;
 }
 
-function getZelFluxCruxID(req, res) {
+function getFluxCruxID(req, res) {
   const cruxID = userconfig.initial.cruxid || null;
   const message = serviceHelper.createDataMessage(cruxID);
   return res ? res.json(message) : message;
 }
 
-function getZelFluxKadena(req, res) {
+function getFluxKadena(req, res) {
   const kadena = userconfig.initial.kadena || null;
   const message = serviceHelper.createDataMessage(kadena);
   return res ? res.json(message) : message;
 }
 
-async function zelcashDebug(req, res) {
+async function daemonDebug(req, res) {
   const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
   if (!authorized) {
     const errMessage = serviceHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
-  // check zelcash datadir
+  // check daemon datadir
   const homeDirPath = path.join(__dirname, '../../../../');
   const datadir = daemonService.getConfigValue('datadir') || `${homeDirPath}.zelcash`;
   const filepath = `${datadir}/debug.log`;
@@ -265,7 +265,7 @@ async function zelcashDebug(req, res) {
   return res.download(filepath, 'debug.log');
 }
 
-async function zelbenchDebug(req, res) {
+async function benchmarkDebug(req, res) {
   const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
   if (!authorized) {
     const errMessage = serviceHelper.errUnauthorizedMessage();
@@ -278,7 +278,7 @@ async function zelbenchDebug(req, res) {
   return res.download(filepath, 'debug.log');
 }
 
-async function tailZelCashDebug(req, res) {
+async function tailDaemonDebug(req, res) {
   const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
   if (authorized === true) {
     const homeDirPath = path.join(__dirname, '../../../../');
@@ -287,7 +287,7 @@ async function tailZelCashDebug(req, res) {
     const exec = `tail -n 100 ${filepath}`;
     cmd.get(exec, (err, data) => {
       if (err) {
-        const errMessage = serviceHelper.createErrorMessage(`Error obtaining ZelBench debug file: ${err.message}`, err.name, err.code);
+        const errMessage = serviceHelper.createErrorMessage(`Error obtaining Daemon debug file: ${err.message}`, err.name, err.code);
         res.json(errMessage);
         return;
       }
@@ -300,7 +300,7 @@ async function tailZelCashDebug(req, res) {
   }
 }
 
-async function tailZelBenchDebug(req, res) {
+async function tailBenchmarkDebug(req, res) {
   const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
   if (authorized === true) {
     const homeDirPath = path.join(__dirname, '../../../../');
@@ -309,7 +309,7 @@ async function tailZelBenchDebug(req, res) {
     const exec = `tail -n 100 ${filepath}`;
     cmd.get(exec, (err, data) => {
       if (err) {
-        const errMessage = serviceHelper.createErrorMessage(`Error obtaining ZelBench debug file: ${err.message}`, err.name, err.code);
+        const errMessage = serviceHelper.createErrorMessage(`Error obtaining Benchmark debug file: ${err.message}`, err.name, err.code);
         res.json(errMessage);
         return;
       }
@@ -322,7 +322,7 @@ async function tailZelBenchDebug(req, res) {
   }
 }
 
-async function zelfluxLog(res, filelog) {
+async function fluxLog(res, filelog) {
   const homeDirPath = path.join(__dirname, '../../../../');
   const datadir = `${homeDirPath}zelflux`;
   const filepath = `${datadir}/${filelog}.log`;
@@ -338,13 +338,13 @@ async function zelfluxErrorLog(req, res) {
       res.json(errMessage);
       return;
     }
-    zelfluxLog(res, 'error');
+    fluxLog(res, 'error');
   } catch (error) {
     log.error(error);
   }
 }
 
-async function zelfluxWarnLog(req, res) {
+async function fluxWarnLog(req, res) {
   try {
     const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
     if (!authorized) {
@@ -352,13 +352,13 @@ async function zelfluxWarnLog(req, res) {
       res.json(errMessage);
       return;
     }
-    zelfluxLog(res, 'warn');
+    fluxLog(res, 'warn');
   } catch (error) {
     log.error(error);
   }
 }
 
-async function zelfluxInfoLog(req, res) {
+async function fluxInfoLog(req, res) {
   try {
     const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
     if (!authorized) {
@@ -366,13 +366,13 @@ async function zelfluxInfoLog(req, res) {
       res.json(errMessage);
       return;
     }
-    zelfluxLog(res, 'info');
+    fluxLog(res, 'info');
   } catch (error) {
     log.error(error);
   }
 }
 
-async function zelfluxDebugLog(req, res) {
+async function fluxDebugLog(req, res) {
   try {
     const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
     if (!authorized) {
@@ -380,7 +380,7 @@ async function zelfluxDebugLog(req, res) {
       res.json(errMessage);
       return;
     }
-    zelfluxLog(res, 'debug');
+    fluxLog(res, 'debug');
   } catch (error) {
     log.error(error);
   }
@@ -464,7 +464,7 @@ async function tailFluxDebugLog(req, res) {
   }
 }
 
-function getZelFluxTimezone(req, res) {
+function getFluxTimezone(req, res) {
   try {
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const message = serviceHelper.createDataMessage(timezone);
@@ -476,7 +476,7 @@ function getZelFluxTimezone(req, res) {
   }
 }
 
-async function getZelFluxInfo(req, res) {
+async function getFluxInfo(req, res) {
   try {
     const info = {
       zelcash: {},
@@ -490,22 +490,22 @@ async function getZelFluxInfo(req, res) {
       throw versionRes.data;
     }
     info.zelflux.version = versionRes.data;
-    const ipRes = await getZelFluxIP();
+    const ipRes = await getFluxIP();
     if (ipRes.status === 'error') {
       throw ipRes.data;
     }
     info.zelflux.ip = ipRes.data;
-    const zelidRes = await getZelFluxZelID();
+    const zelidRes = await getFluxZelID();
     if (zelidRes.status === 'error') {
       throw zelidRes.data;
     }
     info.zelflux.zelid = zelidRes.data;
-    const cruxidRes = await getZelFluxCruxID();
+    const cruxidRes = await getFluxCruxID();
     if (cruxidRes.status === 'error') {
       throw cruxidRes.data;
     }
     info.zelflux.cruxid = cruxidRes.data;
-    const timeResult = await getZelFluxTimezone();
+    const timeResult = await getFluxTimezone();
     if (timeResult.status === 'error') {
       throw timeResult.data;
     }
@@ -544,21 +544,21 @@ async function getZelFluxInfo(req, res) {
     }
     info.zelbench.bench = zelbenchBenchRes.data;
 
-    const zelapppsFluxUsage = await appsService.zelFluxUsage();
+    const zelapppsFluxUsage = await appsService.fluxUsage();
     if (zelapppsFluxUsage.status === 'error') {
       throw zelapppsFluxUsage.data;
     }
     info.zelapps.fluxusage = zelapppsFluxUsage.data;
-    const zelappsRunning = await appsService.listRunningZelApps();
+    const zelappsRunning = await appsService.listRunningApps();
     if (zelappsRunning.status === 'error') {
       throw zelappsRunning.data;
     }
     info.zelapps.runningapps = zelappsRunning.data;
-    const zelappsResources = await appsService.zelappsResources();
-    if (zelappsResources.status === 'error') {
-      throw zelappsResources.data;
+    const appsResources = await appsService.appsResources();
+    if (appsResources.status === 'error') {
+      throw appsResources.data;
     }
-    info.zelapps.resources = zelappsResources.data;
+    info.zelapps.resources = appsResources.data;
 
     const response = serviceHelper.createDataMessage(info);
     return res ? res.json(response) : response;
@@ -660,35 +660,35 @@ async function adjustKadenaAccount(req, res) {
 }
 
 module.exports = {
-  startZelCash,
-  updateZelFlux,
-  hardUpdateZelFlux,
-  rebuildZelFront,
-  updateZelCash,
-  updateZelBench,
-  restartZelCash,
-  reindexZelCash,
+  startDaemon,
+  updateFlux,
+  hardUpdateFlux,
+  rebuildHome,
+  updateDaemon,
+  updateBenchmark,
+  restartDaemon,
+  reindexDaemon,
   getFluxVersion,
-  getZelFluxIP,
-  getZelFluxZelID,
-  getZelFluxCruxID,
-  getZelFluxKadena,
-  zelcashDebug,
-  zelbenchDebug,
-  getZelFluxTimezone,
-  getZelFluxInfo,
-  startZelBench,
-  restartZelBench,
-  tailZelCashDebug,
-  tailZelBenchDebug,
+  getFluxIP,
+  getFluxZelID,
+  getFluxCruxID,
+  getFluxKadena,
+  daemonDebug,
+  benchmarkDebug,
+  getFluxTimezone,
+  getFluxInfo,
+  startBenchmark,
+  restartBenchmark,
+  tailDaemonDebug,
+  tailBenchmarkDebug,
   tailFluxErrorLog,
   tailFluxWarnLog,
   tailFluxDebugLog,
   tailFluxInfoLog,
   zelfluxErrorLog,
-  zelfluxWarnLog,
-  zelfluxInfoLog,
-  zelfluxDebugLog,
+  fluxWarnLog,
+  fluxInfoLog,
+  fluxDebugLog,
   adjustCruxID,
   adjustKadenaAccount,
 };

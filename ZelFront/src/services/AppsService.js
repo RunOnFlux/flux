@@ -1,16 +1,16 @@
 import Api from '@/services/Api';
 
 export default {
-  listRunningZelApps() {
+  listRunningApps() {
     return Api().get('/apps/listrunningapps');
   },
-  listAllZelApps() {
+  listAllApps() {
     return Api().get('/apps/listallapps');
   },
-  installedZelApps() {
+  installedApps() {
     return Api().get('/apps/installedapps');
   },
-  availableZelApps() {
+  availableApps() {
     return Api().get('/apps/availableapps');
   },
   stopZelApp(zelidauthHeader, zelapp) {
