@@ -6,7 +6,7 @@
           Flux owner ZelID: {{ userconfig.zelid }}
         </h4>
         <h4>
-          Status: {{ getZelNodeStatusResponse.zelnodeStatus }}
+          Status: {{ getNodeStatusResponse.nodeStatus }}
         </h4>
       </div>
 
@@ -832,10 +832,10 @@ export default {
         status: '',
         data: '',
       },
-      getZelNodeStatusResponse: {
+      getNodeStatusResponse: {
         status: '',
         data: '',
-        zelnodeStatus: 'Checking status...',
+        nodeStatus: 'Checking status...',
       },
       total: '',
       downloaded: '',
@@ -917,7 +917,7 @@ export default {
         case 'debug':
           break;
         case 'getzelnodestatus':
-          this.zelcashGetZelNodeStatus();
+          this.daemonGetNodeStatus();
           break;
         case 'listzelnodes':
           this.zelcashListZelNodes();
@@ -1096,21 +1096,21 @@ export default {
     },
     async zelcashWelcomeGetZelNodeStatus() {
       const response = await DaemonService.getZelNodeStatus();
-      this.getZelNodeStatusResponse.status = response.data.status;
-      this.getZelNodeStatusResponse.data = response.data.data;
-      console.log(this.getZelNodeStatusResponse.data);
-      if (this.getZelNodeStatusResponse.data) {
-        if (this.getZelNodeStatusResponse.data.status === 'CONFIRMED' || this.getZelNodeStatusResponse.data.location === 'CONFIRMED') {
-          this.getZelNodeStatusResponse.zelnodeStatus = 'Flux is working correctly';
-        } else if (this.getZelNodeStatusResponse.data.status === 'STARTED' || this.getZelNodeStatusResponse.data.location === 'STARTED') {
-          this.getZelNodeStatusResponse.zelnodeStatus = 'Flux has just been started. Flux is running with limited capabilities.';
+      this.getNodeStatusResponse.status = response.data.status;
+      this.getNodeStatusResponse.data = response.data.data;
+      console.log(this.getNodeStatusResponse.data);
+      if (this.getNodeStatusResponse.data) {
+        if (this.getNodeStatusResponse.data.status === 'CONFIRMED' || this.getNodeStatusResponse.data.location === 'CONFIRMED') {
+          this.getNodeStatusResponse.nodeStatus = 'Flux is working correctly';
+        } else if (this.getNodeStatusResponse.data.status === 'STARTED' || this.getNodeStatusResponse.data.location === 'STARTED') {
+          this.getNodeStatusResponse.nodeStatus = 'Flux has just been started. Flux is running with limited capabilities.';
         } else {
-          this.getZelNodeStatusResponse.zelnodeStatus = 'Flux is not confirmed. Flux is running with limited capabilities.';
+          this.getNodeStatusResponse.nodeStatus = 'Flux is not confirmed. Flux is running with limited capabilities.';
         }
       }
     },
     // ZELNODE
-    async zelcashGetZelNodeStatus() {
+    async daemonGetNodeStatus() {
       const response = await DaemonService.getZelNodeStatus();
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);

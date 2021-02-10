@@ -1,65 +1,65 @@
 <template>
-  <div class="zelnodesection">
+  <div class="nodesction">
     <div v-if="nodeSection === 'getinfo'">
       <div class="status">
         <h4>
           Flux owner ZelID: {{ userconfig.zelid }}
         </h4>
         <h4>
-          Status: {{ getZelNodeStatusResponse.zelnodeStatus }}
+          Status: {{ getNodeStatusResponse.nodeStatus }}
         </h4>
         <h4>
-          Flux Payment Address: {{ getZelNodeStatusResponse.data.payment_address }}
+          Flux Payment Address: {{ getNodeStatusResponse.data.payment_address }}
         </h4>
         <h4>
-          Tier: {{ getZelNodeStatusResponse.data.tier }}
+          Tier: {{ getNodeStatusResponse.data.tier }}
         </h4>
         <h4>
-          Flux IP Address: {{ getZelNodeStatusResponse.data.ip }}
+          Flux IP Address: {{ getNodeStatusResponse.data.ip }}
         </h4>
         <h4>
-          Flux IP Network: {{ getZelNodeStatusResponse.data.network }}
+          Flux IP Network: {{ getNodeStatusResponse.data.network }}
         </h4>
         <h4>
-          Flux Public Key: {{ getZelNodeStatusResponse.data.pubkey }}
+          Flux Public Key: {{ getNodeStatusResponse.data.pubkey }}
         </h4>
-        <div v-if="getZelNodeStatusResponse.data.collateral">
+        <div v-if="getNodeStatusResponse.data.collateral">
           <h4>
             Added Height: <ElLink
               type="primary"
-              :href="'https://explorer.zel.network/block-index/' + getZelNodeStatusResponse.data.added_height"
+              :href="'https://explorer.zel.network/block-index/' + getNodeStatusResponse.data.added_height"
               target="_blank"
               rel="noopener noreferrer"
-            >{{ getZelNodeStatusResponse.data.added_height }}</ElLink>
+            >{{ getNodeStatusResponse.data.added_height }}</ElLink>
           </h4>
           <h4>
             Confirmed Height: <ElLink
               type="primary"
-              :href="'https://explorer.zel.network/block-index/' + getZelNodeStatusResponse.data.confirmed_height"
+              :href="'https://explorer.zel.network/block-index/' + getNodeStatusResponse.data.confirmed_height"
               target="_blank"
               rel="noopener noreferrer"
-            >{{ getZelNodeStatusResponse.data.confirmed_height }}</ElLink>
+            >{{ getNodeStatusResponse.data.confirmed_height }}</ElLink>
           </h4>
           <h4>
             Last Confirmed Height: <ElLink
               type="primary"
-              :href="'https://explorer.zel.network/block-index/' + getZelNodeStatusResponse.data.last_confirmed_height"
+              :href="'https://explorer.zel.network/block-index/' + getNodeStatusResponse.data.last_confirmed_height"
               target="_blank"
               rel="noopener noreferrer"
-            >{{ getZelNodeStatusResponse.data.last_confirmed_height }}</ElLink>
+            >{{ getNodeStatusResponse.data.last_confirmed_height }}</ElLink>
           </h4>
           <h4>
             Last Paid Height: <ElLink
               type="primary"
-              :href="'https://explorer.zel.network/block-index/' + getZelNodeStatusResponse.data.last_paid_height"
+              :href="'https://explorer.zel.network/block-index/' + getNodeStatusResponse.data.last_paid_height"
               target="_blank"
               rel="noopener noreferrer"
-            >{{ getZelNodeStatusResponse.data.last_paid_height }}</ElLink>
+            >{{ getNodeStatusResponse.data.last_paid_height }}</ElLink>
           </h4>
           <h4>
             <ElLink
               type="primary"
-              :href="'https://explorer.zel.network/tx/' + getZelNodeStatusResponse.data.txhash"
+              :href="'https://explorer.zel.network/tx/' + getNodeStatusResponse.data.txhash"
               target="_blank"
               rel="noopener noreferrer"
             >Show Locked transaction</ElLink>
@@ -293,10 +293,10 @@ export default {
         status: '',
         data: '',
       },
-      getZelNodeStatusResponse: {
+      getNodeStatusResponse: {
         status: '',
         data: '',
-        zelnodeStatus: 'Checking status...',
+        nodeStatus: 'Checking status...',
       },
       activeName: 'outgoing',
       connectedPeers: [],
@@ -342,7 +342,7 @@ export default {
       switch (value) {
         case 'getinfo':
           this.daemonGetInfo();
-          this.zelcashGetZelNodeStatus();
+          this.daemonGetNodeStatus();
           break;
         case 'network':
           this.fluxConnectedPeersInfo();
@@ -365,19 +365,19 @@ export default {
       this.getInfoResponse.status = response.data.status;
       this.getInfoResponse.data = response.data.data;
     },
-    async zelcashGetZelNodeStatus() {
+    async daemonGetNodeStatus() {
       // TODO more code statuses?
       const response = await DaemonService.getZelNodeStatus();
-      this.getZelNodeStatusResponse.status = response.data.status;
-      this.getZelNodeStatusResponse.data = response.data.data;
-      console.log(this.getZelNodeStatusResponse.data);
-      if (this.getZelNodeStatusResponse.data) {
-        if (this.getZelNodeStatusResponse.data.status === 'CONFIRMED' || this.getZelNodeStatusResponse.data.location === 'CONFIRMED') {
-          this.getZelNodeStatusResponse.zelnodeStatus = 'Flux is working correctly';
-        } else if (this.getZelNodeStatusResponse.data.status === 'STARTED' || this.getZelNodeStatusResponse.data.location === 'STARTED') {
-          this.getZelNodeStatusResponse.zelnodeStatus = 'Flux has just been started. Flux is running with limited capabilities.';
+      this.getNodeStatusResponse.status = response.data.status;
+      this.getNodeStatusResponse.data = response.data.data;
+      console.log(this.getNodeStatusResponse.data);
+      if (this.getNodeStatusResponse.data) {
+        if (this.getNodeStatusResponse.data.status === 'CONFIRMED' || this.getNodeStatusResponse.data.location === 'CONFIRMED') {
+          this.getNodeStatusResponse.nodeStatus = 'Flux is working correctly';
+        } else if (this.getNodeStatusResponse.data.status === 'STARTED' || this.getNodeStatusResponse.data.location === 'STARTED') {
+          this.getNodeStatusResponse.nodeStatus = 'Flux has just been started. Flux is running with limited capabilities.';
         } else {
-          this.getZelNodeStatusResponse.zelnodeStatus = 'Flux is not confirmed. Flux is running with limited capabilities.';
+          this.getNodeStatusResponse.nodeStatus = 'Flux is not confirmed. Flux is running with limited capabilities.';
         }
       }
     },

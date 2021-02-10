@@ -27,7 +27,7 @@ export default {
       },
     });
   },
-  signZelNodeTransaction(zelidauthHeader, hexstring) {
+  signFluxTransaction(zelidauthHeader, hexstring) {
     return Api().get(`/benchmark/signzelnodetransaction/${hexstring}`, {
       headers: {
         zelidauth: zelidauthHeader,

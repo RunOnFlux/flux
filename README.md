@@ -14,38 +14,38 @@ Flux is available on domains, load balancing the entire Flux network. You can ac
 
 [API documentation](https://zelcash.github.io/zelfluxdocs/)
 
-## The gateway to the Zel Network
+## The gateway to the Flu Network
 
-Flux is the frontend UI to the entire Zel Network, it enables ZelNode operators to manage their ZelNode easily via a simple web interface. Flux enables a ZelNode operator to perform all tasks such as updating and maintenance from a simple web interface, instead of having to remotely login to their ZelNode to manage it.
+Flux is the frontend UI to the entire Flux Network, it enables Flux operators to manage their Flux Node easily via a simple web interface. Flux enables an operator to perform all tasks such as updating and maintenance from a simple web interface, instead of having to remotely login to their Flux to manage it.
 
 Flux Requires a reasonably new version of Node.js (npm), MongoDB and Docker. It is a MongoDB, Express.js, Vue.js, Node.js (MEVN) application
 
-This application communicates locally with the ZelCash Daemon (zelcashd), ZelBench Daemon (benchmarkd) and with other ZelNode Daemons (Flux).
+This application communicates locally with the Flux Daemon (zelcashd), Benchmark Daemon (zelbenchd) and other Flux instances.
 
 ## Application Overview
 
-### Backend Solution - zelback
+### Backend Solution - Flux
 
-- Provide communication with zelcashd
-- Providing private API, and public API, ZelNode team API (limited!)
+- Provide communication with daemon, benchmark
+- Providing private API, and public API, Flux team API (limited!)
 - Listen and handle frontend requests
 - Requests signing and authenticity verifying
-- Handle communication with other zelnode daemons (Flux solution)
-- Manage ZelNode applications - smart spawning, distributing workload, termination depending of application subscription.
+- Handle communication with other Fluxes
+- Manage Flux applications - smart spawning, distributing workload, termination depending of application subscription.
+- Provide Explorer solution
 - and more!
 
-### Frontend Solution - zelfront
+### Frontend Solution - Home
 
-- Display ZelNode status information
-- Display Zel Network information
-- Display ZelCash status information
-- Display ZelCash network information
+- Display Flux status information
+- Display Flux Network information
+- Display Flux network information
 - Display Specific application information
 - Provide API access
 - Login into private API part (frontend part)
-- Login into ZelNode team API part (frontend part)
-- Private: Management of ZelNode
-- Private: Management of ZelCash
+- Login into Flux team API part (frontend part)
+- Private: Management of Flux
+- Private: Management of Flux Damone and Benchmark
 - Private: Update, status information
 - and more!
 
@@ -53,7 +53,7 @@ This application is open source and distributed under the GNU AGPLv3 licence
 
 ## Start Flux
 
-Flux needs Zelcashd to be ruuning, to setup Zelcashd follow [these instructions.](https://github.com/zelcash/ZelNodeInstallv3)
+Flux needs Daemon to be ruuning, to setup Daemon follow [these instructions.](https://github.com/zelcash/ZelNodeInstallv3)
 
 build-essential is a recommended dependency
 
@@ -224,7 +224,7 @@ npm run zelfrontbuild --report
 
 ## Flux Information
 
-> Backend interface to interact with the Zel Network
+> Backend interface to interact with the Flux Network
 > Uses port 16127
 
 ## Continued Build Setup

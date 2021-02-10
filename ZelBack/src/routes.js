@@ -536,7 +536,7 @@ module.exports = (app, expressWs) => {
   });
 
   app.get('/zelbench/signzelnodetransaction/:hexstring?', (req, res) => {
-    benchmarkService.signZelNodeTransaction(req, res);
+    benchmarkService.signFluxTransaction(req, res);
   });
   app.get('/zelbench/stop', (req, res) => {
     benchmarkService.stop(req, res);
@@ -801,7 +801,7 @@ module.exports = (app, expressWs) => {
   });
 
   app.post('/zelbench/signzelnodetransaction', (req, res) => {
-    benchmarkService.signZelNodeTransactionPost(req, res);
+    benchmarkService.signFluxTransactionPost(req, res);
   });
 
   // POST PROTECTED API - FluxTeam
@@ -1422,7 +1422,7 @@ module.exports = (app, expressWs) => {
   });
 
   app.get('/benchmark/signzelnodetransaction/:hexstring?', (req, res) => {
-    benchmarkService.signZelNodeTransaction(req, res);
+    benchmarkService.signFluxTransaction(req, res);
   });
   app.get('/benchmark/stop', (req, res) => {
     benchmarkService.stop(req, res);
@@ -1700,7 +1700,7 @@ module.exports = (app, expressWs) => {
   });
 
   app.post('/benchmark/signzelnodetransaction', (req, res) => {
-    benchmarkService.signZelNodeTransactionPost(req, res);
+    benchmarkService.signFluxTransactionPost(req, res);
   });
 
   // POST PROTECTED API - FluxTeam

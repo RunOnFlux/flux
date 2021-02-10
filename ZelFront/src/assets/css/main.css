@@ -314,7 +314,7 @@ h4 {
 
 /* */
 .el-main .el-button,
-.zelnodesection .el-button,
+.nodesction .el-button,
 .daemonSection .el-button,
 .benchmarksection .el-button,
 .adminsection .el-button {
@@ -322,7 +322,7 @@ h4 {
 }
 
 .el-main .el-button,
-.zelnodesection .el-switch,
+.nodesction .el-switch,
 .daemonSection .el-switch,
 .benchmarksection .el-switch,
 .adminsection .el-switch {

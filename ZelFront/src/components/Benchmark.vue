@@ -203,8 +203,8 @@
           icon="el-icon-info"
           iconColor="orange"
           title="Signs valid hex of Flux transaction"
-          @onConfirm="signZelNodeTransaction()"
-          @confirm="signZelNodeTransaction()"
+          @onConfirm="signFluxTransaction()"
+          @confirm="signFluxTransaction()"
         >
           <ElButton slot="reference">
             Sign Transaction
@@ -565,13 +565,13 @@ export default {
           vue.$customMes.error('Error while trying to run new benchmarks');
         });
     },
-    signZelNodeTransaction() {
+    signFluxTransaction() {
       const zelidauth = localStorage.getItem('zelidauth');
       if (!this.hexFluxTransaction) {
         vue.$customMes.error('No Flux transaction hex provided');
         return;
       }
-      BenchmarkService.signZelNodeTransaction(zelidauth, this.hexFluxTransaction)
+      BenchmarkService.signFluxTransaction(zelidauth, this.hexFluxTransaction)
         .then((response) => {
           console.log(response);
           if (response.data.status === 'error') {

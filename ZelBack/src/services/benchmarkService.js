@@ -54,7 +54,7 @@ async function restartNodeBenchmarks(req, res) {
   return res ? res.json(response) : response;
 }
 
-async function signZelNodeTransaction(req, res) {
+async function signFluxTransaction(req, res) {
   const authorized = await serviceHelper.verifyPrivilege('admin', req);
   let { hexstring } = req.params;
   hexstring = hexstring || req.query.hexstring;
@@ -73,7 +73,7 @@ async function signZelNodeTransaction(req, res) {
   return res ? res.json(response) : response;
 }
 
-async function signZelNodeTransactionPost(req, res) {
+async function signFluxTransactionPost(req, res) {
   let body = '';
   req.on('data', (data) => {
     body += data;
@@ -143,8 +143,8 @@ module.exports = {
   // == Benchmarks ==
   getStatus,
   restartNodeBenchmarks,
-  signZelNodeTransaction,
-  signZelNodeTransactionPost,
+  signFluxTransaction,
+  signFluxTransactionPost,
 
   // == Control ==
   help,

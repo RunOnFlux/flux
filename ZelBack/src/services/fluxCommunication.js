@@ -90,62 +90,62 @@ async function getMyFluxIP() {
   return myIP;
 }
 
-// get deterministc ZelNode list from cache
+// get deterministc Flux list from cache
 // filter can only be a publicKey!
-async function deterministicZelNodeList(filter) {
+async function deterministicFluxList(filter) {
   try {
     if (addingNodesToCache === true) {
       // prevent several instances filling the cache at the same time.
       await serviceHelper.delay(100);
-      return deterministicZelNodeList(filter);
+      return deterministicFluxList(filter);
     }
     const request = {
       params: {},
       query: {},
     };
-    let zelnodeList;
+    let fluxList;
     if (filter) {
-      zelnodeList = myCache.get(`zelnodeList${serviceHelper.ensureString(filter)}`);
+      fluxList = myCache.get(`fluxList${serviceHelper.ensureString(filter)}`);
     } else {
-      zelnodeList = myCache.get('zelnodeList');
+      fluxList = myCache.get('fluxList');
     }
-    if (!zelnodeList) {
-      // not present in cache lets get zelnodelist again and cache it.
+    if (!fluxList) {
+      // not present in cache lets get fluxList again and cache it.
       addingNodesToCache = true;
-      const zelcashZelNodeList = await daemonService.viewDeterministicZelNodeList(request);
-      if (zelcashZelNodeList.status === 'success') {
-        zelnodeList = zelcashZelNodeList.data || [];
-        zelnodeList.forEach((item) => {
-          myCache.set(`zelnodeList${serviceHelper.ensureString(item.pubkey)}`, [item]);
+      const daemonFluxNodesList = await daemonService.viewDeterministicZelNodeList(request);
+      if (daemonFluxNodesList.status === 'success') {
+        fluxList = daemonFluxNodesList.data || [];
+        fluxList.forEach((item) => {
+          myCache.set(`fluxList${serviceHelper.ensureString(item.pubkey)}`, [item]);
         });
-        myCache.set('zelnodeList', zelnodeList);
+        myCache.set('fluxList', fluxList);
       }
       addingNodesToCache = false;
       if (filter) {
-        zelnodeList = myCache.get(`zelnodeList${serviceHelper.ensureString(filter)}`);
+        fluxList = myCache.get(`fluxList${serviceHelper.ensureString(filter)}`);
       }
     }
-    return zelnodeList || [];
+    return fluxList || [];
   } catch (error) {
     log.error(error);
     return [];
   }
 }
 
-async function getZelNodePrivateKey(privatekey) {
+async function getFluxNodePrivateKey(privatekey) {
   const privKey = privatekey || daemonService.getConfigValue('zelnodeprivkey');
   return privKey;
 }
 
 async function getFluxMessageSignature(message, privatekey) {
-  const privKey = await getZelNodePrivateKey(privatekey);
+  const privKey = await getFluxNodePrivateKey(privatekey);
   const signature = await serviceHelper.signMessage(message, privKey);
   return signature;
 }
 
-async function getZelNodePublicKey(privatekey) {
+async function getFluxNodePublicKey(privatekey) {
   try {
-    const privKey = await getZelNodePrivateKey(privatekey);
+    const privKey = await getFluxNodePrivateKey(privatekey);
     const keyPair = bitcoinjs.ECPair.fromWIF(privKey);
     const pubKey = keyPair.publicKey.toString('hex');
     return pubKey;
@@ -155,7 +155,7 @@ async function getZelNodePublicKey(privatekey) {
 }
 
 // return boolean
-async function verifyFluxBroadcast(data, obtainedZelNodeList, currentTimeStamp) {
+async function verifyFluxBroadcast(data, obtainedFluxNodesList, currentTimeStamp) {
   const dataObj = serviceHelper.ensureObject(data);
   const { pubKey } = dataObj;
   const { timestamp } = dataObj; // ms
@@ -173,22 +173,22 @@ async function verifyFluxBroadcast(data, obtainedZelNodeList, currentTimeStamp) 
     return false;
   }
 
-  let zelnode = null;
-  if (obtainedZelNodeList) { // for test purposes.
-    zelnode = await obtainedZelNodeList.find((key) => key.pubkey === pubKey);
-    if (!zelnode) {
+  let node = null;
+  if (obtainedFluxNodesList) { // for test purposes.
+    node = await obtainedFluxNodesList.find((key) => key.pubkey === pubKey);
+    if (!node) {
       return false;
     }
   }
-  if (!zelnode) {
-    const zl = await deterministicZelNodeList(pubKey); // this itself is sufficient.
+  if (!node) {
+    const zl = await deterministicFluxList(pubKey); // this itself is sufficient.
     if (zl.length === 1) {
       if (zl[0].pubkey === pubKey) {
-        [zelnode] = zl;
+        [node] = zl;
       }
     }
   }
-  if (!zelnode) {
+  if (!node) {
     return false;
   }
   const messageToVerify = version + message + timestamp;
@@ -200,7 +200,7 @@ async function verifyFluxBroadcast(data, obtainedZelNodeList, currentTimeStamp) 
 }
 
 // extends verifyFluxBroadcast by not allowing request older than 5 mins.
-async function verifyOriginalFluxBroadcast(data, obtainedZelNodeList, currentTimeStamp) {
+async function verifyOriginalFluxBroadcast(data, obtainedFluxNodeList, currentTimeStamp) {
   // eslint-disable-next-line no-param-reassign
   const dataObj = serviceHelper.ensureObject(data);
   const { timestamp } = dataObj; // ms
@@ -209,7 +209,7 @@ async function verifyOriginalFluxBroadcast(data, obtainedZelNodeList, currentTim
   if (currentTimeStamp > (timestamp + 300000)) { // bigger than 5 mins
     return false;
   }
-  const verified = await verifyFluxBroadcast(data, obtainedZelNodeList, currentTimeStamp);
+  const verified = await verifyFluxBroadcast(data, obtainedFluxNodeList, currentTimeStamp);
   return verified;
 }
 
@@ -316,7 +316,7 @@ async function sendToAllIncomingConnections(data, wsList) {
 async function serialiseAndSignFluxBroadcast(dataToBroadcast, privatekey) {
   const version = 1;
   const timestamp = Date.now();
-  const pubKey = await getZelNodePublicKey(privatekey);
+  const pubKey = await getFluxNodePublicKey(privatekey);
   const message = serviceHelper.ensureString(dataToBroadcast);
   const messageToSign = version + message + timestamp;
   const signature = await getFluxMessageSignature(messageToSign, privatekey);
@@ -335,7 +335,7 @@ async function serialiseAndSignFluxBroadcast(dataToBroadcast, privatekey) {
   return dataString;
 }
 
-async function handleZelAppMessages(message, fromIP) {
+async function handleAppMessages(message, fromIP) {
   try {
     // check if we have it in database and if not add
     // if not in database, rebroadcast to all connections
@@ -356,7 +356,7 @@ async function handleZelAppMessages(message, fromIP) {
   }
 }
 
-async function handleZelAppRunningMessage(message, fromIP) {
+async function handleAppRunningMessage(message, fromIP) {
   try {
     // check if we have it exactly like that in database and if not, update
     // if not in database, rebroadcast to all connections
@@ -392,7 +392,7 @@ async function sendMessageToWS(message, ws) {
 
 async function respondWithAppMessage(message, ws) {
   try {
-    // check if we have it database of permanent zelappMessages
+    // check if we have it database of permanent appMessages
     // eslint-disable-next-line global-require
     const appsService = require('./appsService');
     const tempMesResponse = myMessageCache.get(serviceHelper.ensureString(message));
@@ -428,7 +428,7 @@ async function respondWithAppMessage(message, ws) {
     } else {
       const existingTemporaryMessage = await appsService.checkAppTemporaryMessageExistence(message.data.hash);
       if (existingTemporaryMessage) {
-        // a temporary zelappmessage looks like this:
+        // a temporary appmessage looks like this:
         // const newMessage = {
         //   zelAppSpecifications: message.zelAppSpecifications,
         //   type: message.type,
@@ -486,11 +486,11 @@ function handleIncomingConnection(ws, req, expressWS) {
         try {
           const msgObj = serviceHelper.ensureObject(msg);
           if (msgObj.data.type === 'zelappregister' || msgObj.data.type === 'zelappupdate') {
-            handleZelAppMessages(msgObj, peer.ip);
+            handleAppMessages(msgObj, peer.ip);
           } else if (msgObj.data.type === 'zelapprequest') {
             respondWithAppMessage(msgObj, ws);
           } else if (msgObj.data.type === 'zelapprunning') {
-            handleZelAppRunningMessage(msgObj, ws);
+            handleAppRunningMessage(msgObj, ws);
           } else if (msgObj.data.type === 'HeartBeat' && msgObj.data.message === 'ping') { // we know that data exists
             const newMessage = msgObj.data;
             newMessage.message = 'pong';
@@ -720,18 +720,18 @@ async function broadcastMessageFromUserPost(req, res) {
 }
 
 async function getRandomConnection() {
-  const zelnodeList = await deterministicZelNodeList();
-  const zlLength = zelnodeList.length;
+  const nodeList = await deterministicFluxList();
+  const zlLength = nodeList.length;
   if (zlLength === 0) {
     return null;
   }
   const randomNode = Math.floor((Math.random() * zlLength)); // we do not really need a 'random'
-  const ip = zelnodeList[randomNode].ip || zelnodeList[randomNode].ipaddress;
+  const ip = nodeList[randomNode].ip || nodeList[randomNode].ipaddress;
 
-  // const zelnodeList = ['157.230.249.150', '94.177.240.7', '89.40.115.8', '94.177.241.10', '54.37.234.130', '194.182.83.182'];
-  // const zlLength = zelnodeList.length;
+  // const nodeList = ['157.230.249.150', '94.177.240.7', '89.40.115.8', '94.177.241.10', '54.37.234.130', '194.182.83.182'];
+  // const zlLength = nodeList.length;
   // const randomNode = Math.floor((Math.random() * zlLength)); // we do not really need a 'random'
-  // const ip = zelnodeList[randomNode];
+  // const ip = nodeList[randomNode];
 
   // TODO checks for ipv4, ipv6, tor
   if (ip === userconfig.initial.ipaddress || ip === myFluxIP) {
@@ -785,11 +785,11 @@ async function initiateAndHandleConnection(ip) {
       conIP = conIP.split(`:${config.server.apiport}`).join('');
       const msgObj = serviceHelper.ensureObject(evt.data);
       if (msgObj.data.type === 'zelappregister' || msgObj.data.type === 'zelappupdate') {
-        handleZelAppMessages(msgObj, conIP);
+        handleAppMessages(msgObj, conIP);
       } else if (msgObj.data.type === 'zelapprequest') {
         respondWithAppMessage(msgObj, websocket);
       } else if (msgObj.data.type === 'zelapprunning') {
-        handleZelAppRunningMessage(msgObj, websocket);
+        handleAppRunningMessage(msgObj, websocket);
       } else if (msgObj.data.type === 'HeartBeat' && msgObj.data.message === 'pong') {
         const newerTimeStamp = Date.now(); // ms, get a bit newer time that has passed verification of broadcast
         const rtt = newerTimeStamp - msgObj.data.timestamp;
@@ -845,10 +845,10 @@ async function fluxDiscovery() {
   }
   const minPeers = 10;
   const maxPeers = 20;
-  const zl = await deterministicZelNodeList();
-  const numberOfZelNodes = zl.length;
-  const requiredNumberOfConnections = numberOfZelNodes / 100; // 1%
-  const maxNumberOfConnections = numberOfZelNodes / 50; // 2%
+  const zl = await deterministicFluxList();
+  const numberOfFluxNodes = zl.length;
+  const requiredNumberOfConnections = numberOfFluxNodes / 100; // 1%
+  const maxNumberOfConnections = numberOfFluxNodes / 50; // 2%
   const minCon = Math.max(minPeers, requiredNumberOfConnections); // awlays maintain at least 10 or 1% of nodes whatever is higher
   const maxCon = Math.max(maxPeers, maxNumberOfConnections); // have a maximum of 20 or 2% of nodes whatever is higher
   // coonect a peer as maximum connections not yet established
@@ -1052,9 +1052,9 @@ async function removeIncomingPeer(req, res, expressWS) {
   return res.json(response);
 }
 
-async function checkMyFluxAvailability(zelnodelist) {
+async function checkMyFluxAvailability(nodelist) {
   // run if at least 10 available nodes
-  if (zelnodelist.length > 10) {
+  if (nodelist.length > 10) {
     let askingIP = await getRandomConnection();
     if (typeof askingIP !== 'string' || typeof myFluxIP !== 'string') {
       return;
@@ -1077,7 +1077,7 @@ async function checkMyFluxAvailability(zelnodelist) {
         dosMessage = dosMessage || 'Flux communication is limited';
         log.error(dosMessage);
       }
-      checkMyFluxAvailability(zelnodelist);
+      checkMyFluxAvailability(nodelist);
       return;
     }
     if (resMyAvailability.data.status === 'error' || resMyAvailability.data.data.message.includes('not')) {
@@ -1088,7 +1088,7 @@ async function checkMyFluxAvailability(zelnodelist) {
         dosMessage = dosMessage || 'Flux is not available for outside communication';
         log.error(dosMessage);
       } else {
-        checkMyFluxAvailability(zelnodelist);
+        checkMyFluxAvailability(nodelist);
       }
     } else {
       dosState = 0;
@@ -1133,9 +1133,9 @@ async function adjustExternalIP(ip) {
 async function checkDeterministicNodesCollisions() {
   try {
     // get my external ip address
-    // get zelnode list with filter on this ip address
+    // get node list with filter on this ip address
     // if it returns more than 1 object, shut down.
-    // another precatuion might be comparing zelnode list on multiple zelnodes. evaulate in the future
+    // another precatuion might be comparing node list on multiple nodes. evaulate in the future
     const myIP = await getMyFluxIP();
     myFluxIP = myIP;
     if (myIP !== null) {
@@ -1143,17 +1143,17 @@ async function checkDeterministicNodesCollisions() {
       if (!syncStatus.data.synced) {
         return;
       }
-      const zelnodeList = await deterministicZelNodeList();
-      const result = zelnodeList.filter((zelnode) => zelnode.ip === myIP);
-      const zelnodeStatus = await daemonService.getZelNodeStatus();
-      if (zelnodeStatus.status === 'success') { // different scenario is caught elsewhere
-        const myCollateral = zelnodeStatus.data.collateral;
-        const myZelNode = result.find((zelnode) => zelnode.collateral === myCollateral);
+      const nodeList = await deterministicFluxList();
+      const result = nodeList.filter((node) => node.ip === myIP);
+      const nodeStatus = await daemonService.getZelNodeStatus();
+      if (nodeStatus.status === 'success') { // different scenario is caught elsewhere
+        const myCollateral = nodeStatus.data.collateral;
+        const myNode = result.find((node) => node.collateral === myCollateral);
         if (result.length > 1) {
           log.warn('Multiple Flux Node instances detected');
-          if (myZelNode) {
-            const myBlockHeight = myZelNode.readded_confirmed_height || myZelNode.confirmed_height; // todo we may want to introduce new readded heights and readded confirmations
-            const filterEarlierSame = result.filter((zelnode) => (zelnode.readded_confirmed_height || zelnode.confirmed_height) <= myBlockHeight);
+          if (myNode) {
+            const myBlockHeight = myNode.readded_confirmed_height || myNode.confirmed_height; // todo we may want to introduce new readded heights and readded confirmations
+            const filterEarlierSame = result.filter((node) => (node.readded_confirmed_height || node.confirmed_height) <= myBlockHeight);
             // keep running only older collaterals
             if (filterEarlierSame.length >= 1) {
               log.error('Flux earlier collision detection');
@@ -1164,7 +1164,7 @@ async function checkDeterministicNodesCollisions() {
           }
           // prevent new activation
         } else if (result.length === 1) {
-          if (!myZelNode) {
+          if (!myNode) {
             log.error('Flux collision detection');
             dosState = 100;
             dosMessage = 'Flux collision detection';
@@ -1172,7 +1172,7 @@ async function checkDeterministicNodesCollisions() {
           }
         }
       }
-      checkMyFluxAvailability(zelnodeList);
+      checkMyFluxAvailability(nodeList);
       adjustExternalIP(myIP);
     } else {
       dosState += 1;
@@ -1334,7 +1334,7 @@ async function broadcastTemporaryAppMessage(message) {
   return 0;
 }
 
-async function broadcastZelAppRunningMessage(message) {
+async function broadcastAppRunningMessage(message) {
   /* message object
   * @param type string
   * @param version number
@@ -1388,7 +1388,7 @@ module.exports = {
   incomingPeers,
   isCommunicationEstablished,
   broadcastTemporaryAppMessage,
-  broadcastZelAppRunningMessage,
+  broadcastAppRunningMessage,
   keepIncomingConnectionsAlive,
   keepConnectionsAlive,
   adjustFirewall,
