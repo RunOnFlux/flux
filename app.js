@@ -24,15 +24,15 @@ app.listen(config.server.apiport, () => {
 });
 
 // Flux Home configuration
-const zelfront = path.join(__dirname, './ZelFront/dist');
+const home = path.join(__dirname, './ZelFront/dist');
 
-const ZelFrontApp = express();
-ZelFrontApp.use(express.static(zelfront));
+const homeApp = express();
+homeApp.use(express.static(home));
 
-ZelFrontApp.get('*', (req, res) => {
-  res.sendFile(path.join(zelfront, 'index.html'));
+homeApp.get('*', (req, res) => {
+  res.sendFile(path.join(home, 'index.html'));
 });
 
-ZelFrontApp.listen(config.server.homeport, () => {
+homeApp.listen(config.server.homeport, () => {
   log.info(`Flux Home running on port ${config.server.homeport}!`);
 });

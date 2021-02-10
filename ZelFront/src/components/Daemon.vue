@@ -3,7 +3,7 @@
     <div v-if="daemonSection === 'welcomeinfo'">
       <div class="status">
         <h4>
-          Flux owner Zel ID: {{ userconfig.zelid }}
+          Flux owner ZelID: {{ userconfig.zelid }}
         </h4>
         <h4>
           Status: {{ getZelNodeStatusResponse.zelnodeStatus }}
@@ -12,7 +12,7 @@
 
       <div>
         <p>
-          ZelCash version: {{ callResponse.data.version }}
+          Daemon version: {{ callResponse.data.version }}
         </p>
         <p>
           Protocol version: {{ callResponse.data.protocolversion }}
@@ -33,7 +33,7 @@
       </div>
       <div>
         <p>
-          ZelCash version: {{ callResponse.data.version }}
+          Daemon version: {{ callResponse.data.version }}
         </p>
         <p>
           Protocol version: {{ callResponse.data.protocolversion }}
@@ -93,7 +93,7 @@
         <el-collapse
           accordion
           v-model="activeHelpNames"
-          @change="zelcashHelpSpecific"
+          @change="daemonHelpSpecific"
         >
           <div
             v-for="help of helpResponse"
@@ -126,7 +126,7 @@
     </div>
     <div v-if="daemonSection === 'rescanblockchain'">
       <div>
-        <p>Click on Rescan ZelCash button to Rescan ZelCash Blockchain</p>
+        <p>Click on Rescan Daemon button to Rescan Flux Blockchain</p>
       </div>
       BlockHeight:
       <el-input-number
@@ -137,88 +137,88 @@
         :max="1000000"
       ></el-input-number>
       <el-popconfirm
-        confirmButtonText='Rescan ZelCash blockhain data'
+        confirmButtonText='Rescan Flux blockhain data'
         cancelButtonText='No, Thanks'
         icon="el-icon-info"
         iconColor="red"
-        title="Reindexes ZelCash daemon"
+        title="Reindexes Flux daemon"
         @onConfirm="rescanDaemon()"
         @confirm="rescanDaemon()"
       >
         <ElButton slot="reference">
-          Rescan ZelCash
+          Rescan Daemon
         </ElButton>
       </el-popconfirm>
     </div>
     <div v-if="daemonSection === 'reindexblockchain'">
       <div>
-        <p>Click on Reindex ZelCash button to Reindex ZelCash Blockchain</p>
+        <p>Click on Reindex Daemon button to Reindex Flux Blockchain</p>
       </div>
       <el-popconfirm
         confirmButtonText='Reindex'
         cancelButtonText='No, Thanks'
         icon="el-icon-info"
         iconColor="red"
-        title="Reindex ZelCash Blockchain"
+        title="Reindex Flux Blockchain"
         @onConfirm="reindexDaemon()"
         @confirm="reindexDaemon()"
       >
         <ElButton slot="reference">
-          Reindex ZelCash
+          Reindex Daemon
         </ElButton>
       </el-popconfirm>
     </div>
     <div v-if="daemonSection === 'start'">
       <div>
-        <p>Click on Start ZelCash button to Start ZelCash daemon</p>
+        <p>Click on Start Daemon button to Start Flux daemon</p>
       </div>
       <el-popconfirm
-        confirmButtonText='Start ZelCash daemon'
+        confirmButtonText='Start Flux daemon'
         cancelButtonText='No, Thanks'
         icon="el-icon-info"
         iconColor="green"
-        title="Starts ZelCash daemon"
+        title="Starts Flux daemon"
         @onConfirm="startDaemon()"
         @confirm="startDaemon()"
       >
         <ElButton slot="reference">
-          Start ZelCash
+          Start Daemon
         </ElButton>
       </el-popconfirm>
     </div>
     <div v-if="daemonSection === 'restart'">
       <div>
-        <p>Click on Restart ZelCash button to restart ZelCash daemon</p>
+        <p>Click on Restart Daemon button to restart Flux daemon</p>
       </div>
       <el-popconfirm
-        confirmButtonText='Restart ZelCash daemon'
+        confirmButtonText='Restart Flux daemon'
         cancelButtonText='No, Thanks'
         icon="el-icon-info"
         iconColor="orange"
-        title="Restarts ZelCash daemon"
+        title="Restarts Flux daemon"
         @onConfirm="restartDaemon()"
         @confirm="restartDaemon()"
       >
         <ElButton slot="reference">
-          Restart ZelCash
+          Restart Daemon
         </ElButton>
       </el-popconfirm>
     </div>
     <div v-if="daemonSection === 'stop'">
       <div>
-        <p>Click on Stop ZelCash button to stop ZelCash daemon</p>
+        <p>Click on Stop Daemon button to stop Flux daemon</p>
       </div>
       <el-popconfirm
-        confirmButtonText='Stop ZelCash daemon'
+        confirmButtonText='Stop Flux daemon'
         cancelButtonText='No, Thanks'
         icon="el-icon-info"
         iconColor="red"
-        title="Stops ZelCash daemon"
+        title="Stops Flux daemon"
         @onConfirm="stopDaemon()"
         @confirm="stopDaemon()"
       >
         <ElButton slot="reference">
-          Stop ZelCash
+          Stop Daemon
         </ElButton>
       </el-popconfirm>
     </div>
@@ -580,43 +580,43 @@
           Benchmarking: {{ callResponse.data.benchmarking }}
         </p>
         <p>
-          ZelBack: {{ callResponse.data.zelback }}
+          Flux: {{ callResponse.data.zelback }}
         </p>
       </div>
     </div>
     <div v-if="daemonSection === 'startzelbenchd'">
       <div>
-        <p>Click on Start ZelBench button to Start ZelBench Daemon</p>
+        <p>Click on Start Benchmark button to Start Benchmark Daemon</p>
       </div>
       <el-popconfirm
         confirmButtonText='Start'
         cancelButtonText='No, Thanks'
         icon="el-icon-info"
         iconColor="green"
-        title="Start ZelBench Daemon"
-        @onConfirm="zelcashStartZelBenchd()"
-        @confirm="zelcashStartZelBenchd()"
+        title="Start Benchmark Daemon"
+        @onConfirm="daemonStartBenchmark()"
+        @confirm="daemonStartBenchmark()"
       >
         <ElButton slot="reference">
-          Start ZelBench
+          Start Benchmark
         </ElButton>
       </el-popconfirm>
     </div>
     <div v-if="daemonSection === 'stopzelbenchd'">
       <div>
-        <p>Click on Stop ZelBench button to Stop ZelBench Daemon</p>
+        <p>Click on Stop Benchmark button to Stop Benchmark Daemon</p>
       </div>
       <el-popconfirm
         confirmButtonText='Stop'
         cancelButtonText='No, Thanks'
         icon="el-icon-info"
         iconColor="red"
-        title="Stop ZelBench Daemon"
-        @onConfirm="zelcashStopZelBenchd()"
-        @confirm="zelcashStopZelBenchd()"
+        title="Stop Benchmark Daemon"
+        @onConfirm="daemonStopBenchmark()"
+        @confirm="daemonStopBenchmark()"
       >
         <ElButton slot="reference">
-          Stop ZelBench
+          Stop Benchmark
         </ElButton>
       </el-popconfirm>
     </div>
@@ -739,16 +739,16 @@
     <!-- DEBUG -->
     <div v-if="daemonSection === 'debug'">
       <div>
-        <p>Following action will download ZelCash debug file. This may take a few minutes depending on file size</p>
+        <p>Following action will download Daemon debug file. This may take a few minutes depending on file size</p>
       </div>
       <el-popconfirm
         confirmButtonText='Download Debug'
         cancelButtonText='No, Thanks'
         icon="el-icon-info"
         iconColor="red"
-        title="Download ZelCash Debug file?"
-        @onConfirm="downloadZelCashDebugFile()"
-        @confirm="downloadZelCashDebugFile()"
+        title="Download Daemon Debug file?"
+        @onConfirm="downloadDaemonDebugFile()"
+        @confirm="downloadDaemonDebugFile()"
       >
         <ElButton slot="reference">
           Download Debug File
@@ -773,14 +773,14 @@
       <br><br>
       <div>
         <div>
-          <p>Following action will show last 100 lines of ZelCash debug file</p>
+          <p>Following action will show last 100 lines of Daemon debug file</p>
         </div>
         <el-popconfirm
           confirmButtonText='Show Debug'
           cancelButtonText='No, Thanks'
           icon="el-icon-info"
           iconColor="red"
-          title="Show ZelCash Debug file?"
+          title="Show Daemon Debug file?"
           @onConfirm="tailDaemonDebug()"
           @confirm="tailDaemonDebug()"
         >
@@ -817,7 +817,7 @@ Vue.use(Vuex);
 const vue = new Vue();
 
 export default {
-  name: 'ZelCash',
+  name: 'Daemon',
   data() {
     return {
       timeoptions: {
@@ -906,7 +906,7 @@ export default {
           this.daemonGetInfo();
           break;
         case 'help':
-          this.zelcashHelp();
+          this.daemonHelp();
           break;
         case 'stop':
           break;
@@ -964,10 +964,10 @@ export default {
           this.zelcashGetWalletInfo();
           break;
         case null:
-          console.log('ZelCash Section hidden');
+          console.log('Daemon Section hidden');
           break;
         default:
-          console.log('ZelCash Section: Unrecognized method');
+          console.log('Daemon Section: Unrecognized method');
       }
     },
     async daemonGetInfo() {
@@ -979,7 +979,7 @@ export default {
         this.callResponse.data = response.data.data;
       }
     },
-    async zelcashHelp() {
+    async daemonHelp() {
       const response = await DaemonService.help();
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
@@ -988,7 +988,7 @@ export default {
         this.callResponse.data = response.data.data;
       }
     },
-    async zelcashHelpSpecific() {
+    async daemonHelpSpecific() {
       this.currentHelpResponse = '';
       const response = await DaemonService.helpSpecific(this.activeHelpNames);
       if (response.data.status === 'error') {
@@ -1024,7 +1024,7 @@ export default {
       }
     },
     startDaemon() {
-      vue.$customMes.warning('ZelCash will start');
+      vue.$customMes.warning('Daemon will start');
       const zelidauth = localStorage.getItem('zelidauth');
       DaemonService.start(zelidauth)
         .then((response) => {
@@ -1034,11 +1034,11 @@ export default {
           });
         })
         .catch(() => {
-          vue.$customMes.error('Error while trying to start ZelCash');
+          vue.$customMes.error('Error while trying to start Daemon');
         });
     },
     stopDaemon() {
-      vue.$customMes.warning('ZelCash will be stopped');
+      vue.$customMes.warning('Daemon will be stopped');
       const zelidauth = localStorage.getItem('zelidauth');
       DaemonService.stopDaemon(zelidauth)
         .then((response) => {
@@ -1048,11 +1048,11 @@ export default {
           });
         })
         .catch(() => {
-          vue.$customMes.error('Error while trying to stop ZelCash');
+          vue.$customMes.error('Error while trying to stop Daemon');
         });
     },
     restartDaemon() {
-      vue.$customMes.warning('ZelCash will now restart');
+      vue.$customMes.warning('Daemon will now restart');
       const zelidauth = localStorage.getItem('zelidauth');
       DaemonService.restart(zelidauth)
         .then((response) => {
@@ -1062,11 +1062,11 @@ export default {
           });
         })
         .catch(() => {
-          vue.$customMes.error('Error while trying to restart ZelCash');
+          vue.$customMes.error('Error while trying to restart Daemon');
         });
     },
     rescanDaemon() {
-      vue.$customMes.warning('ZelCash will now rescan. This will take up to an hour.');
+      vue.$customMes.warning('Daemon will now rescan. This will take up to an hour.');
       const zelidauth = localStorage.getItem('zelidauth');
       const blockheight = this.rescanDaemonHeight > 0 ? this.rescanDaemonHeight : 0;
       DaemonService.rescanDaemon(zelidauth, blockheight)
@@ -1077,11 +1077,11 @@ export default {
           });
         })
         .catch(() => {
-          vue.$customMes.error('Error while trying to rescan ZelCash');
+          vue.$customMes.error('Error while trying to rescan Daemon');
         });
     },
     reindexDaemon() {
-      vue.$customMes.warning('ZelCash will now reindex. This will take several hours.');
+      vue.$customMes.warning('Daemon will now reindex. This will take several hours.');
       const zelidauth = localStorage.getItem('zelidauth');
       FluxService.reindexDaemon(zelidauth)
         .then((response) => {
@@ -1091,7 +1091,7 @@ export default {
           });
         })
         .catch(() => {
-          vue.$customMes.error('Error while trying to reindex ZelCash');
+          vue.$customMes.error('Error while trying to reindex Daemon');
         });
     },
     async zelcashWelcomeGetZelNodeStatus() {
@@ -1192,8 +1192,8 @@ export default {
         this.callResponse.data = JSON.parse(response.data.data);
       }
     },
-    zelcashStartZelBenchd() {
-      vue.$customMes.warning('ZelBench will now try to start');
+    daemonStartBenchmark() {
+      vue.$customMes.warning('Benchmark will now try to start');
       const zelidauth = localStorage.getItem('zelidauth');
       DaemonService.startBenchmark(zelidauth)
         .then((response) => {
@@ -1203,11 +1203,11 @@ export default {
           });
         })
         .catch(() => {
-          vue.$customMes.error('Error while trying to start ZelBench');
+          vue.$customMes.error('Error while trying to start Benchmark');
         });
     },
-    zelcashStopZelBenchd() {
-      vue.$customMes.warning('ZelBench will now try to stop');
+    daemonStopBenchmark() {
+      vue.$customMes.warning('Benchmark will now try to stop');
       const zelidauth = localStorage.getItem('zelidauth');
       DaemonService.stopBenchmark(zelidauth)
         .then((response) => {
@@ -1217,7 +1217,7 @@ export default {
           });
         })
         .catch(() => {
-          vue.$customMes.error('Error while trying to stop ZelBench');
+          vue.$customMes.error('Error while trying to stop Benchmark');
         });
     },
     // BLOCKCHAIN
@@ -1288,7 +1288,7 @@ export default {
       this.downloaded = '';
       this.total = '';
     },
-    async downloadZelCashDebugFile() {
+    async downloadDaemonDebugFile() {
       const self = this;
       self.abortToken = DaemonService.cancelToken();
       const zelidauth = localStorage.getItem('zelidauth');
@@ -1324,7 +1324,7 @@ export default {
         })
         .catch((error) => {
           console.log(error);
-          vue.$customMes.error('Error while trying to get latest debug of ZelCash');
+          vue.$customMes.error('Error while trying to get latest debug of Daemon');
         });
     },
   },

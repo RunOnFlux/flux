@@ -1,5 +1,5 @@
 <template>
-  <div class="zelbenchsection">
+  <div class="benchmarksection">
     <div
       v-if="benchmarkSection === 'help'"
       class="helpSection"
@@ -14,7 +14,7 @@
         <el-collapse
           accordion
           v-model="activeHelpNames"
-          @change="zelbenchHelpSpecific"
+          @change="benchmarkHelpSpecific"
         >
           <div
             v-for="help of helpResponse"
@@ -47,55 +47,55 @@
     </div>
     <div v-if="benchmarkSection === 'start'">
       <div>
-        <p>Click on Start ZelBench button to Start ZelBench daemon</p>
+        <p>Click on Start Benchmark button to Start Benchmark daemon</p>
       </div>
       <el-popconfirm
-        confirmButtonText='Start ZelBench daemon'
+        confirmButtonText='Start Benchmark daemon'
         cancelButtonText='No, Thanks'
         icon="el-icon-info"
         iconColor="green"
-        title="Starts ZelBench daemon"
+        title="Starts Benchmark daemon"
         @onConfirm="startBenchmark()"
         @confirm="startBenchmark()"
       >
         <ElButton slot="reference">
-          Start ZelBench
+          Start Benchmark
         </ElButton>
       </el-popconfirm>
     </div>
     <div v-if="benchmarkSection === 'restart'">
       <div>
-        <p>Click on Restart ZelBench button to restart ZelBench daemon</p>
+        <p>Click on Restart Benchmark button to restart Benchmark daemon</p>
       </div>
       <el-popconfirm
-        confirmButtonText='Restart ZelBench daemon'
+        confirmButtonText='Restart Benchmark daemon'
         cancelButtonText='No, Thanks'
         icon="el-icon-info"
         iconColor="orange"
-        title="Restarts ZelBench daemon"
+        title="Restarts Benchmark daemon"
         @onConfirm="restartBenchmark()"
         @confirm="restartBenchmark()"
       >
         <ElButton slot="reference">
-          Restart ZelBench
+          Restart Benchmark
         </ElButton>
       </el-popconfirm>
     </div>
     <div v-if="benchmarkSection === 'stop'">
       <div>
-        <p>Click on Stop ZelBench button to stop ZelBench daemon</p>
+        <p>Click on Stop Benchmark button to stop Benchmark daemon</p>
       </div>
       <el-popconfirm
-        confirmButtonText='Stop ZelBench daemon'
+        confirmButtonText='Stop Benchmark daemon'
         cancelButtonText='No, Thanks'
         icon="el-icon-info"
         iconColor="red"
-        title="Stops ZelBench daemon"
+        title="Stops Benchmark daemon"
         @onConfirm="stopBenchmark()"
         @confirm="stopBenchmark()"
       >
         <ElButton slot="reference">
-          Stop ZelBench
+          Stop Benchmark
         </ElButton>
       </el-popconfirm>
     </div>
@@ -140,7 +140,7 @@
       </div>
       <div>
         <p>
-          ZelBench version: {{ callResponse.data.version }}
+          Benchmark version: {{ callResponse.data.version }}
         </p>
         <p>
           RPC port: {{ callResponse.data.rpcport }}
@@ -159,7 +159,7 @@
           Benchmarking: {{ callResponse.data.benchmarking }}
         </p>
         <p>
-          ZelBack: {{ callResponse.data.zelback }}
+          Flux: {{ callResponse.data.zelback }}
         </p>
       </div>
     </div>
@@ -185,14 +185,14 @@
     </div>
     <div v-if="benchmarkSection === 'signzelnodetransaction'">
       <div>
-        <p>Following action signs hex of a valid zelnode transaction</p>
+        <p>Following action signs hex of a valid Flux transaction</p>
       </div>
       <div>
         <el-input
           type="textarea"
           placeholder="Please insert hex of ZelNode transaction to sign"
           autosize
-          v-model="hexZelNodeTransaction"
+          v-model="hexFluxTransaction"
         >
         </el-input>
       </div>
@@ -202,7 +202,7 @@
           cancelButtonText='No, Thanks'
           icon="el-icon-info"
           iconColor="orange"
-          title="Signs valid hex of ZelNode transaction"
+          title="Signs valid hex of Flux transaction"
           @onConfirm="signZelNodeTransaction()"
           @confirm="signZelNodeTransaction()"
         >
@@ -225,16 +225,16 @@
     </div>
     <div v-if="benchmarkSection === 'debug'">
       <div>
-        <p>Following action will download ZelBench debug file. This may take a few minutes depending on file size</p>
+        <p>Following action will download Benchmark debug file. This may take a few minutes depending on file size</p>
       </div>
       <el-popconfirm
         confirmButtonText='Download Debug'
         cancelButtonText='No, Thanks'
         icon="el-icon-info"
         iconColor="red"
-        title="Download ZelBench Debug file?"
-        @onConfirm="downloadZelBenchDebugFile()"
-        @confirm="downloadZelBenchDebugFile()"
+        title="Download Benchmark Debug file?"
+        @onConfirm="downloadBenchmarkDebugFile()"
+        @confirm="downloadBenchmarkDebugFile()"
       >
         <ElButton slot="reference">
           Download Debug File
@@ -259,14 +259,14 @@
       <br><br>
       <div>
         <div>
-          <p>Following action will show last 100 lines of ZelBench debug file</p>
+          <p>Following action will show last 100 lines of Benchmark debug file</p>
         </div>
         <el-popconfirm
           confirmButtonText='Show Debug'
           cancelButtonText='No, Thanks'
           icon="el-icon-info"
           iconColor="red"
-          title="Show ZelBench Debug file?"
+          title="Show Benchmark Debug file?"
           @onConfirm="tailBenchmarkDebug()"
           @confirm="tailBenchmarkDebug()"
         >
@@ -302,7 +302,7 @@ Vue.use(Vuex);
 const vue = new Vue();
 
 export default {
-  name: 'ZelBench',
+  name: 'Benchmark',
   data() {
     return {
       timeoptions: {
@@ -316,7 +316,7 @@ export default {
         status: '',
         data: '',
       },
-      hexZelNodeTransaction: '',
+      hexFluxTransaction: '',
       total: '',
       downloaded: '',
       abortToken: {},
@@ -358,16 +358,16 @@ export default {
     switcher(value) {
       switch (value) {
         case 'getbenchmarks':
-          this.zelbenchGetBenchmarks();
+          this.benchmarkGetBenchmarks();
           break;
         case 'getinfo':
-          this.zelbenchGetInfo();
+          this.benchmarkGetInfo();
           break;
         case 'help':
-          this.zelbenchHelp();
+          this.benchmarkHelp();
           break;
         case 'getstatus':
-          this.zelbenchGetStatus();
+          this.benchmarkGetStatus();
           break;
         case 'restartnodebenchmarks':
           break;
@@ -382,13 +382,13 @@ export default {
         case 'debug':
           break;
         case null:
-          console.log('ZelBench Section hidden');
+          console.log('Benchmark Section hidden');
           break;
         default:
-          console.log('ZelBench Section: Unrecognized method');
+          console.log('Benchmark Section: Unrecognized method');
       }
     },
-    async zelbenchGetBenchmarks() {
+    async benchmarkGetBenchmarks() {
       const response = await BenchmarkService.getBenchmarks();
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
@@ -397,7 +397,7 @@ export default {
         this.callResponse.data = response.data.data;
       }
     },
-    async zelbenchGetInfo() {
+    async benchmarkGetInfo() {
       const response = await BenchmarkService.getInfo();
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
@@ -406,7 +406,7 @@ export default {
         this.callResponse.data = response.data.data;
       }
     },
-    async zelbenchHelp() {
+    async benchmarkHelp() {
       const response = await BenchmarkService.help();
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
@@ -415,7 +415,7 @@ export default {
         this.callResponse.data = response.data.data;
       }
     },
-    async zelbenchHelpSpecific() {
+    async benchmarkHelpSpecific() {
       this.currentHelpResponse = '';
       const response = await BenchmarkService.helpSpecific(this.activeHelpNames);
       const modifiedHelp = response.data.data.split('\n');
@@ -447,7 +447,7 @@ export default {
       this.currentHelpResponse = modifiedHelp.join('\n');
     },
     startBenchmark() {
-      vue.$customMes.warning('ZelBench will start');
+      vue.$customMes.warning('Benchmark will start');
       const zelidauth = localStorage.getItem('zelidauth');
       BenchmarkService.start(zelidauth)
         .then((response) => {
@@ -459,11 +459,11 @@ export default {
         })
         .catch((error) => {
           console.log(error);
-          vue.$customMes.error('Error while trying to start ZelBench');
+          vue.$customMes.error('Error while trying to start Benchmark');
         });
     },
     stopBenchmark() {
-      vue.$customMes.warning('ZelBench will be stopped');
+      vue.$customMes.warning('Benchmark will be stopped');
       const zelidauth = localStorage.getItem('zelidauth');
       BenchmarkService.stop(zelidauth)
         .then((response) => {
@@ -475,11 +475,11 @@ export default {
         })
         .catch((error) => {
           console.log(error);
-          vue.$customMes.error('Error while trying to stop ZelBench');
+          vue.$customMes.error('Error while trying to stop Benchmark');
         });
     },
     restartBenchmark() {
-      vue.$customMes.warning('ZelBench will now restart');
+      vue.$customMes.warning('Benchmark will now restart');
       const zelidauth = localStorage.getItem('zelidauth');
       BenchmarkService.restart(zelidauth)
         .then((response) => {
@@ -491,7 +491,7 @@ export default {
         })
         .catch((error) => {
           console.log(error);
-          vue.$customMes.error('Error while trying to restart ZelBench');
+          vue.$customMes.error('Error while trying to restart Benchmark');
         });
     },
     cancelDownload() {
@@ -499,11 +499,11 @@ export default {
       this.downloaded = '';
       this.total = '';
     },
-    async downloadZelBenchDebugFile() {
+    async downloadBenchmarkDebugFile() {
       const self = this;
       self.abortToken = BenchmarkService.cancelToken();
       const zelidauth = localStorage.getItem('zelidauth');
-      // const response = await AppsService.installTemporaryLocalApp(zelidauth, zelapp);
+      // const response = await AppsService.installTemporaryLocalApp(zelidauth, app);
       const axiosConfig = {
         headers: {
           zelidauth,
@@ -536,10 +536,10 @@ export default {
         })
         .catch((error) => {
           console.log(error);
-          vue.$customMes.error('Error while trying to get latest debug of ZelBench');
+          vue.$customMes.error('Error while trying to get latest debug of Benchmark');
         });
     },
-    async zelbenchGetStatus() {
+    async benchmarkGetStatus() {
       const response = await BenchmarkService.getStatus();
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
@@ -567,11 +567,11 @@ export default {
     },
     signZelNodeTransaction() {
       const zelidauth = localStorage.getItem('zelidauth');
-      if (!this.hexZelNodeTransaction) {
-        vue.$customMes.error('No ZelNode transaction hex provided');
+      if (!this.hexFluxTransaction) {
+        vue.$customMes.error('No Flux transaction hex provided');
         return;
       }
-      BenchmarkService.signZelNodeTransaction(zelidauth, this.hexZelNodeTransaction)
+      BenchmarkService.signZelNodeTransaction(zelidauth, this.hexFluxTransaction)
         .then((response) => {
           console.log(response);
           if (response.data.status === 'error') {
@@ -583,7 +583,7 @@ export default {
         })
         .catch((error) => {
           console.log(error);
-          vue.$customMes.error('Error while trying to sign ZelNode transaction');
+          vue.$customMes.error('Error while trying to sign Flux transaction');
         });
     },
   },

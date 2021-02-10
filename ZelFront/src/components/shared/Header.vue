@@ -453,16 +453,16 @@ export default {
           this.$store.commit('setNodeSection', 'debug');
           break;
         case '4-1':
-          this.$store.commit('setAppsSection', 'localzelapps');
+          this.$store.commit('setAppsSection', 'localapps');
           break;
         case '4-2':
-          this.$store.commit('setAppsSection', 'globalzelapps');
+          this.$store.commit('setAppsSection', 'globalapps');
           break;
         case '4-3':
-          this.$store.commit('setAppsSection', 'registerzelapp');
+          this.$store.commit('setAppsSection', 'registerapp');
           break;
         case '4-4':
-          this.$store.commit('setAppsSection', 'zelshare');
+          this.$store.commit('setAppsSection', 'fluxshare');
           break;
         case '10-1':
           this.$store.commit('setAdminSection', 'loggedsessions');
@@ -474,7 +474,7 @@ export default {
           this.$store.commit('setAdminSection', 'manageDaemon');
           break;
         case '10-4':
-          this.$store.commit('setAdminSection', 'managezelbench');
+          this.$store.commit('setAdminSection', 'managebenchmark');
           break;
         case '10-5':
           this.$store.commit('setAdminSection', 'manageusers');

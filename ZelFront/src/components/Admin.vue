@@ -6,7 +6,7 @@
         style="width: 100%"
       >
         <el-table-column
-          label="Zel ID"
+          label="ZelID"
           prop="zelid"
         >
         </el-table-column>
@@ -329,7 +329,7 @@
         </ElButton>
       </el-popconfirm>
     </div>
-    <div v-if="adminSection === 'managezelcash'">
+    <div v-if="adminSection === 'managedaemon'">
       <p>
         An easy way to update your Flux daemon to the latest version. Flux will be automatically started once update is done.
       </p>
@@ -432,7 +432,7 @@
         </ElButton>
       </el-popconfirm>
     </div>
-    <div v-if="adminSection === 'managezelbench'">
+    <div v-if="adminSection === 'managebenchmark'">
       <p>
         An easy way to update your Benchmark daemon to the latest version. Benchmark will be automatically started once update is done.
       </p>
@@ -516,7 +516,7 @@
         style="width: 100%"
       >
         <el-table-column
-          label="Zel ID"
+          label="ZelID"
           prop="zelid"
         >
         </el-table-column>
@@ -654,10 +654,10 @@ export default {
           this.getKadenaAccount();
           this.getLatestFluxVersion();
           break;
-        case 'managezelcash':
+        case 'managedaemon':
           this.checkDaemonVersion();
           break;
-        case 'managezelbench':
+        case 'managebenchmark':
           this.checkBenchmarkVersion();
           break;
         case 'manageusers':

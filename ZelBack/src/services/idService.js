@@ -14,7 +14,7 @@ async function loginPhrase(req, res) {
   try {
     // check docker availablility
     await appsService.dockerListContainers(false);
-    // check DOS state (contains zelcash checks)
+    // check DOS state (contains daemon checks)
     const dosState = await fluxCommunication.getDOSState();
     if (dosState.status === 'error') {
       const errorMessage = 'Unable to check DOS state';
@@ -609,10 +609,10 @@ async function checkLoggedUser(req, res) {
       const { zelid } = processedBody;
       const { signature } = processedBody;
       if (!zelid) {
-        throw new Error('No user zelid specificed');
+        throw new Error('No user ZelID specificed');
       }
       if (!signature) {
-        throw new Error('No user zelid signature specificed');
+        throw new Error('No user ZelID signature specificed');
       }
       const headers = {
         zelidauth: {

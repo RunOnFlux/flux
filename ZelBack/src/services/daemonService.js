@@ -21,7 +21,7 @@ const client = new daemonrpc.Client({
   pass: rpcpassword,
   timeout: 60000,
 });
-let zelcashCallRunning = false;
+let daemonCallRunning = false;
 
 // default cache
 const LRUoptions = {
@@ -52,31 +52,31 @@ async function executeCall(rpc, params) {
   const rpcparameters = params || [];
   try {
     let data;
-    if (zelcashCallRunning) {
+    if (daemonCallRunning) {
       const randomDelay = Math.floor((Math.random() * 250)) + 60;
       await serviceHelper.delay(randomDelay);
     }
-    if (zelcashCallRunning) {
+    if (daemonCallRunning) {
       const randomDelay = Math.floor((Math.random() * 200)) + 50;
       await serviceHelper.delay(randomDelay);
     }
-    if (zelcashCallRunning) {
+    if (daemonCallRunning) {
       const randomDelay = Math.floor((Math.random() * 150)) + 40;
       await serviceHelper.delay(randomDelay);
     }
-    if (zelcashCallRunning) {
+    if (daemonCallRunning) {
       const randomDelay = Math.floor((Math.random() * 100)) + 30;
       await serviceHelper.delay(randomDelay);
     }
-    if (zelcashCallRunning) {
+    if (daemonCallRunning) {
       const randomDelay = Math.floor((Math.random() * 75)) + 25;
       await serviceHelper.delay(randomDelay);
     }
-    if (zelcashCallRunning) {
+    if (daemonCallRunning) {
       const randomDelay = Math.floor((Math.random() * 50)) + 20;
       await serviceHelper.delay(randomDelay);
     }
-    if (zelcashCallRunning) {
+    if (daemonCallRunning) {
       const randomDelay = Math.floor((Math.random() * 25)) + 10;
       await serviceHelper.delay(randomDelay);
     }
@@ -88,10 +88,10 @@ async function executeCall(rpc, params) {
       data = cache.get(rpc + serviceHelper.ensureString(rpcparameters));
     }
     if (!data) {
-      zelcashCallRunning = true;
+      daemonCallRunning = true;
       data = await client[rpc](...rpcparameters);
       blockCache.set(rpc + serviceHelper.ensureString(rpcparameters), data);
-      zelcashCallRunning = false;
+      daemonCallRunning = false;
     }
     const successResponse = serviceHelper.createDataMessage(data);
     callResponse = successResponse;
@@ -454,7 +454,7 @@ async function getBlock(req, res) {
   hashheight = hashheight || req.query.hashheight;
   hashheight = serviceHelper.ensureString(hashheight);
   let { verbosity } = req.params;
-  verbosity = verbosity || req.query.verbosity || 2; // defaults to json object. CORRECT ZELCASH verbosity is number, error says its not boolean
+  verbosity = verbosity || req.query.verbosity || 2; // defaults to json object. CORRECT DAEMON verbosity is number, error says its not boolean
   verbosity = serviceHelper.ensureNumber(verbosity);
 
   const rpccall = 'getBlock';
@@ -2752,17 +2752,17 @@ function isDaemonSynced(req, res) {
   return res ? res.json(successResponse) : successResponse;
 }
 
-async function zelcashBlockchainInfo() {
+async function fluxDaemonBlockchainInfo() {
   try {
-    const zelcashBlockChainInfo = await getBlockchainInfo();
-    if (zelcashBlockChainInfo.status === 'success') {
-      currentDaemonHeight = zelcashBlockChainInfo.data.blocks;
-      if (zelcashBlockChainInfo.data.headers > 770000) {
-        currentDaemonHeader = zelcashBlockChainInfo.data.headers;
+    const daemonBlockChainInfo = await getBlockchainInfo();
+    if (daemonBlockChainInfo.status === 'success') {
+      currentDaemonHeight = daemonBlockChainInfo.data.blocks;
+      if (daemonBlockChainInfo.data.headers > 770000) {
+        currentDaemonHeader = daemonBlockChainInfo.data.headers;
       }
       log.info(`Daemon Sync status: ${currentDaemonHeight}/${currentDaemonHeader}`);
     } else {
-      log.error(zelcashBlockChainInfo.data.message || zelcashBlockChainInfo.data);
+      log.error(daemonBlockChainInfo.data.message || daemonBlockChainInfo.data);
     }
   } catch (error) {
     log.warn(error);
@@ -2770,9 +2770,9 @@ async function zelcashBlockchainInfo() {
 }
 
 function daemonBlockchainInfoService() {
-  zelcashBlockchainInfo();
+  fluxDaemonBlockchainInfo();
   setInterval(() => {
-    zelcashBlockchainInfo();
+    fluxDaemonBlockchainInfo();
   }, 60 * 1000);
 }
 
@@ -2957,7 +2957,7 @@ module.exports = {
   startBenchmarkD,
   stopBenchmarkD,
 
-  // == NON ZelCash ==
+  // == NON Daemon ==
   isDaemonSynced,
   daemonBlockchainInfoService,
 };

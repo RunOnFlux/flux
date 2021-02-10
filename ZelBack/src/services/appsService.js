@@ -352,11 +352,11 @@ async function listAppsImages(req, res) {
 async function nodeTier() {
   // get our collateral information to decide if app specifications are basic, super, bamf
   // getzlenodestatus.collateral
-  const zelnodeStatus = await daemonService.getZelNodeStatus();
-  if (zelnodeStatus.status === 'error') {
-    throw zelnodeStatus.data;
+  const nodeStatus = await daemonService.getZelNodeStatus();
+  if (nodeStatus.status === 'error') {
+    throw nodeStatus.data;
   }
-  const collateralInformation = getCollateralInfo(zelnodeStatus.data.collateral);
+  const collateralInformation = getCollateralInfo(nodeStatus.data.collateral);
   // get transaction information about collateralInformation.txhash
   const request = {
     params: {
@@ -379,7 +379,7 @@ async function nodeTier() {
   if (value === 100000) {
     return 'bamf';
   }
-  throw new Error('Unrecognised ZelNode tier');
+  throw new Error('Unrecognised Flux Node tier');
 }
 
 async function appDockerCreate(appSpecifications) {
@@ -2708,7 +2708,7 @@ async function checkWhitelistedZelID(zelid) {
   const zelids = resZelIDs.data;
   const whitelisted = zelids.includes(zelid);
   if (!whitelisted) {
-    throw new Error('Owner Zel ID is not whitelisted. Please contact Flux Team.');
+    throw new Error('Owner ZelID is not whitelisted. Please contact Flux Team.');
   }
   return true;
 }
@@ -2763,7 +2763,7 @@ async function verifyAppSpecifications(appSpecifications) {
   // check repository whitelisted
   await checkWhitelistedRepository(appSpecifications.repotag);
 
-  // check Zel ID whitelisted
+  // check ZelID whitelisted
   await checkWhitelistedZelID(appSpecifications.owner);
 }
 
@@ -3755,7 +3755,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
         // additional requesting of missing app messages is done on rescans
       }
     } else {
-      // update zelapphashes that we already have it stored
+      // update apphashes that we already have it stored
       await appHashHasMessage(hash);
     }
   } catch (error) {
@@ -5325,7 +5325,7 @@ async function fluxShareDownloadFile(req, res) {
   }
 }
 
-// oldpath is relative path to default zelshare directory; newname is just a new name of folder/file
+// oldpath is relative path to default fluxshare directory; newname is just a new name of folder/file
 async function fluxShareRename(req, res) {
   try {
     const authorized = await serviceHelper.verifyPrivilege('admin', req);

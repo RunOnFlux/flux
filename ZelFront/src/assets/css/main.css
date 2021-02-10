@@ -259,7 +259,7 @@ h4 {
   background-color: #ffd04b;
 }
 
-.zelapps-register .el-form {
+.apps-register .el-form {
   text-align: left;
 }
 
@@ -316,7 +316,7 @@ h4 {
 .el-main .el-button,
 .zelnodesection .el-button,
 .daemonSection .el-button,
-.zelbenchsection .el-button,
+.benchmarksection .el-button,
 .adminsection .el-button {
   margin: 10px;
 }
@@ -324,12 +324,12 @@ h4 {
 .el-main .el-button,
 .zelnodesection .el-switch,
 .daemonSection .el-switch,
-.zelbenchsection .el-switch,
+.benchmarksection .el-switch,
 .adminsection .el-switch {
   margin-left: 10px;
 }
 
-.zelsharesection .el-popover__reference {
+.fluxsharesection .el-popover__reference {
   margin-left: 10px;
 }
 

@@ -1,7 +1,7 @@
 <template>
   <div class="loginSection">
     <p>
-      Please log in using Zel ID
+      Please log in using ZelID
     </p>
     <div>
       <a
@@ -36,7 +36,7 @@
         <ElInput
           type="text"
           name="address"
-          placeholder="insert Zel ID or Bitcoin address"
+          placeholder="insert ZelID or Bitcoin address"
           v-model="loginForm.zelid"
         >
           <template slot="prepend">Address: </template>
@@ -116,7 +116,7 @@ export default {
     const isChrome = !!window.chrome;
     if (!isChrome) {
       vue.$customMes({
-        message: 'Your browser does not support Flux websockets. Logging in with Zel ID is not possible. For an optimal experience, please use Chrome or Edge',
+        message: 'Your browser does not support Flux websockets. Logging in with ZelID is not possible. For an optimal experience, please use Chrome or Edge',
         type: 'warning',
         duration: 0,
         showClose: true,

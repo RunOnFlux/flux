@@ -2,13 +2,13 @@
 const path = require('path');
 const express = require('express');
 
-const zelfront = path.join(__dirname, '../ZelFront/dist');
+const home = path.join(__dirname, '../ZelFront/dist');
 
-const ZelFrontApp = express();
-ZelFrontApp.use(express.static(zelfront));
+const homeApp = express();
+homeApp.use(express.static(home));
 
-ZelFrontApp.get('*', (req, res) => {
-  res.sendFile(path.join(zelfront, 'index.html'));
+homeApp.get('*', (req, res) => {
+  res.sendFile(path.join(home, 'index.html'));
 });
 
-ZelFrontApp.listen(16126);
+homeApp.listen(16126);

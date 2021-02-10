@@ -23,7 +23,7 @@ export default new Vuex.Store({
     privilage: 'none', // user, admin, fluxteam
     daemonSection: 'welcomeinfo',
     benchmarkSection: null,
-    zelNodeSection: null,
+    nodeSection: null,
     adminSection: null,
     appsSection: null,
     explorerSection: null,
@@ -39,7 +39,7 @@ export default new Vuex.Store({
       state.daemonSection = section;
       // we always want to reset the other sections to null state
       state.benchmarkSection = null;
-      state.zelNodeSection = null;
+      state.nodeSection = null;
       state.adminSection = null;
       state.appsSection = null;
       state.explorerSection = null;
@@ -48,13 +48,13 @@ export default new Vuex.Store({
       state.benchmarkSection = section;
       // we always want to reset the other sections to null state
       state.daemonSection = null;
-      state.zelNodeSection = null;
+      state.nodeSection = null;
       state.adminSection = null;
       state.appsSection = null;
       state.explorerSection = null;
     },
     setNodeSection(state, section) {
-      state.zelNodeSection = section;
+      state.nodeSection = section;
       // we always want to reset the other sections to null state
       state.daemonSection = null;
       state.benchmarkSection = null;
@@ -67,7 +67,7 @@ export default new Vuex.Store({
       // we always want to reset the other sections to null state
       state.daemonSection = null;
       state.benchmarkSection = null;
-      state.zelNodeSection = null;
+      state.nodeSection = null;
       state.appsSection = null;
       state.explorerSection = null;
     },
@@ -76,7 +76,7 @@ export default new Vuex.Store({
       // we always want to reset the other sections to null state
       state.daemonSection = null;
       state.benchmarkSection = null;
-      state.zelNodeSection = null;
+      state.nodeSection = null;
       state.adminSection = null;
       state.explorerSection = null;
     },
@@ -85,7 +85,7 @@ export default new Vuex.Store({
       // we always want to reset the other sections to null state
       state.daemonSection = null;
       state.benchmarkSection = null;
-      state.zelNodeSection = null;
+      state.nodeSection = null;
       state.adminSection = null;
       state.appsSection = null;
     },
@@ -93,7 +93,5 @@ export default new Vuex.Store({
       state.fluxVersion = version;
     },
   },
-  actions: {
-
-  },
+  actions: {},
 });

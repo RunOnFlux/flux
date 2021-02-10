@@ -1157,11 +1157,11 @@ module.exports = (app, expressWs) => {
   //   explorerService.getAllAddresses(req, res);
   // });
   // app.get('/explorer/fluxtransactions', (req, res) => {
-  //   explorerService.getAllZelNodeTransactions(req, res);
+  //   explorerService.getAllFluxTransactions(req, res);
   // });
   // filter can be IP, address, collateralHash.
   app.get('/explorer/fluxtxs/:filter?', cache('30 seconds'), (req, res) => {
-    explorerService.getFilteredZelNodeTxs(req, res);
+    explorerService.getFilteredFluxTxs(req, res);
   });
   app.get('/explorer/utxo/:address?', cache('30 seconds'), (req, res) => {
     explorerService.getAddressUtxos(req, res);
@@ -1466,7 +1466,7 @@ module.exports = (app, expressWs) => {
   app.get('/flux/hardupdateflux', (req, res) => { // method shall be called only if zelflux version is obsolete and updatezeflux is not working correctly
     fluxService.hardUpdateFlux(req, res);
   });
-  app.get('/flux/rebuildzelfront', (req, res) => {
+  app.get('/flux/rebuildhome', (req, res) => {
     fluxService.rebuildHome(req, res);
   });
   app.get('/flux/updatedaemon', (req, res) => { // method shall be called only if zelcash version is obsolete

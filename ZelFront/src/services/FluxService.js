@@ -9,7 +9,7 @@ export default {
     });
   },
   rebuildHome(zelidauthHeader) {
-    return Api().get('/flux/rebuildzelfront', {
+    return Api().get('/flux/rebuildhome', {
       headers: {
         zelidauth: zelidauthHeader,
       },

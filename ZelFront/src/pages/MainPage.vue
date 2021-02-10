@@ -13,7 +13,7 @@
       <div v-if="benchmarkSection !== null">
         <Benchmark />
       </div>
-      <div v-if="zelNodeSection !== null">
+      <div v-if="nodeSection !== null">
         <Node />
       </div>
       <div v-if="adminSection !== null">
@@ -54,10 +54,10 @@
       </div>
       <br>
       <h3>
-        Error connecting to the ZelCash Daemon
+        Error connecting to the Flux Daemon
         <div v-if="privilage ==='admin' || privilage ==='fluxteam'">
           <p>
-            Please try to restart your ZelCash Daemon in Daemon section.
+            Please try to restart your Flux Daemon in Daemon section.
           </p>
           <div v-if="daemonSection !== null">
             <Daemon />
@@ -65,7 +65,7 @@
           <div v-if="benchmarkSection !== null">
             <Benchmark />
           </div>
-          <div v-if="zelNodeSection !== null">
+          <div v-if="nodeSection !== null">
             <Node />
           </div>
           <div v-if="adminSection !== null">
@@ -138,7 +138,7 @@ export default {
       'privilage',
       'daemonSection',
       'benchmarkSection',
-      'zelNodeSection',
+      'nodeSection',
       'adminSection',
       'appsSection',
       'explorerSection',

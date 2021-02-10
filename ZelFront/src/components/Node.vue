@@ -1,27 +1,27 @@
 <template>
   <div class="zelnodesection">
-    <div v-if="zelNodeSection === 'getinfo'">
+    <div v-if="nodeSection === 'getinfo'">
       <div class="status">
         <h4>
-          Flux owner Zel ID: {{ userconfig.zelid }}
+          Flux owner ZelID: {{ userconfig.zelid }}
         </h4>
         <h4>
           Status: {{ getZelNodeStatusResponse.zelnodeStatus }}
         </h4>
         <h4>
-          ZelNode Payment Address: {{ getZelNodeStatusResponse.data.payment_address }}
+          Flux Payment Address: {{ getZelNodeStatusResponse.data.payment_address }}
         </h4>
         <h4>
           Tier: {{ getZelNodeStatusResponse.data.tier }}
         </h4>
         <h4>
-          ZelNode IP Address: {{ getZelNodeStatusResponse.data.ip }}
+          Flux IP Address: {{ getZelNodeStatusResponse.data.ip }}
         </h4>
         <h4>
-          ZelNode IP Network: {{ getZelNodeStatusResponse.data.network }}
+          Flux IP Network: {{ getZelNodeStatusResponse.data.network }}
         </h4>
         <h4>
-          ZelNode Public Key: {{ getZelNodeStatusResponse.data.pubkey }}
+          Flux Public Key: {{ getZelNodeStatusResponse.data.pubkey }}
         </h4>
         <div v-if="getZelNodeStatusResponse.data.collateral">
           <h4>
@@ -69,7 +69,7 @@
 
       <div class="getInfoResponse">
         <p>
-          ZelCash version: {{ getInfoResponse.data.version }}
+          Flux Daemon version: {{ getInfoResponse.data.version }}
         </p>
         <p>
           Protocol version: {{ getInfoResponse.data.protocolversion }}
@@ -84,7 +84,7 @@
         </div>
       </div>
     </div>
-    <div v-if="zelNodeSection === 'network'">
+    <div v-if="nodeSection === 'network'">
       <el-tabs v-model="activeName">
         <el-tab-pane
           label="Outgoing"
@@ -191,7 +191,7 @@
         </el-tab-pane>
       </el-tabs>
     </div>
-    <div v-if="zelNodeSection === 'debug'">
+    <div v-if="nodeSection === 'debug'">
       <div>
         <p>Following section can download or show Flux log files. This may take up to a few minutes depending on file size</p>
       </div>
@@ -313,7 +313,7 @@ export default {
     ...mapState([
       'config',
       'userconfig',
-      'zelNodeSection',
+      'nodeSection',
     ]),
     fluxLogTail() {
       if (this.callResponse.data.message) {
@@ -329,13 +329,13 @@ export default {
     },
   },
   watch: {
-    zelNodeSection(val, oldVal) {
+    nodeSection(val, oldVal) {
       console.log(val, oldVal);
       this.switcher(val);
     },
   },
   mounted() {
-    this.switcher(this.zelNodeSection);
+    this.switcher(this.nodeSection);
   },
   methods: {
     switcher(value) {
@@ -354,10 +354,10 @@ export default {
         case 'debug':
           break;
         case null:
-          console.log('ZelNode Section hidden');
+          console.log('Node Section hidden');
           break;
         default:
-          console.log('ZelNode Section: Unrecognized method');
+          console.log('Node Section: Unrecognized method');
       }
     },
     async daemonGetInfo() {

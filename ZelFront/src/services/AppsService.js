@@ -13,47 +13,47 @@ export default {
   availableApps() {
     return Api().get('/apps/availableapps');
   },
-  stopZelApp(zelidauthHeader, zelapp) {
+  stopAll(zelidauthHeader, app) {
     const axiosConfig = {
       headers: {
         zelidauth: zelidauthHeader,
       },
     };
-    return Api().get(`/apps/appstop/${zelapp}`, axiosConfig);
+    return Api().get(`/apps/appstop/${app}`, axiosConfig);
   },
-  startZelApp(zelidauthHeader, zelapp) {
+  startApp(zelidauthHeader, app) {
     const axiosConfig = {
       headers: {
         zelidauth: zelidauthHeader,
       },
     };
-    return Api().get(`/apps/appstart/${zelapp}`, axiosConfig);
+    return Api().get(`/apps/appstart/${app}`, axiosConfig);
   },
-  pauseZelApp(zelidauthHeader, zelapp) {
+  pauseApp(zelidauthHeader, app) {
     const axiosConfig = {
       headers: {
         zelidauth: zelidauthHeader,
       },
     };
-    return Api().get(`/apps/apppause/${zelapp}`, axiosConfig);
+    return Api().get(`/apps/apppause/${app}`, axiosConfig);
   },
-  unpauseZelApp(zelidauthHeader, zelapp) {
+  unpauseApp(zelidauthHeader, app) {
     const axiosConfig = {
       headers: {
         zelidauth: zelidauthHeader,
       },
     };
-    return Api().get(`/apps/appunpause/${zelapp}`, axiosConfig);
+    return Api().get(`/apps/appunpause/${app}`, axiosConfig);
   },
-  restartZelApp(zelidauthHeader, zelapp) {
+  restartApp(zelidauthHeader, app) {
     const axiosConfig = {
       headers: {
         zelidauth: zelidauthHeader,
       },
     };
-    return Api().get(`/apps/apprestart/${zelapp}`, axiosConfig);
+    return Api().get(`/apps/apprestart/${app}`, axiosConfig);
   },
-  removeZelApp(zelidauthHeader, zelapp) {
+  removeApp(zelidauthHeader, app) {
     const axiosConfig = {
       headers: {
         zelidauth: zelidauthHeader,
@@ -62,9 +62,9 @@ export default {
         console.log(progressEvent);
       },
     };
-    return Api().get(`/apps/appremove/${zelapp}`, axiosConfig);
+    return Api().get(`/apps/appremove/${app}`, axiosConfig);
   },
-  registerZelApp(zelidauthHeader, data) {
+  registerApp(zelidauthHeader, data) {
     const axiosConfig = {
       headers: {
         zelidauth: zelidauthHeader,
@@ -72,7 +72,7 @@ export default {
     };
     return Api().post('/apps/appregister', JSON.stringify(data), axiosConfig);
   },
-  updateZelApp(zelidauthHeader, data) {
+  updateApp(zelidauthHeader, data) {
     const axiosConfig = {
       headers: {
         zelidauth: zelidauthHeader,
@@ -91,72 +91,72 @@ export default {
     };
     return Api().post('/apps/checkdockerexistance', JSON.stringify(data), axiosConfig);
   },
-  zelappsRegInformation() {
+  appsRegInformation() {
     return Api().get('/apps/registrationinformation');
   },
-  getZelAppLocation(name) {
+  getAppLocation(name) {
     return Api().get(`/apps/location/${name}`);
   },
-  globalZelAppSpecifications() {
+  globalAppSpecifications() {
     return Api().get('/apps/globalappsspecifications');
   },
-  getInstalledZelAppSpecifics(name) {
+  getInstalledAppSpecifics(name) {
     return Api().get(`/apps/installedapps/${name}`);
   },
-  getZelAppSpecifics(name) {
+  getAppSpecifics(name) {
     return Api().get(`/apps/appspecifications/${name}`);
   },
-  getZelAppOwner(name) {
+  getAppOwner(name) {
     return Api().get(`/apps/appowner/${name}`);
   },
-  getZelAppLogsTail(zelidauthHeader, zelapp) {
+  getAppLogsTail(zelidauthHeader, app) {
     const axiosConfig = {
       headers: {
         zelidauth: zelidauthHeader,
       },
     };
-    return Api().get(`/apps/applog/${zelapp}/100`, axiosConfig);
+    return Api().get(`/apps/applog/${app}/100`, axiosConfig);
   },
-  getZelAppTop(zelidauthHeader, zelapp) {
+  getAppTop(zelidauthHeader, app) {
     const axiosConfig = {
       headers: {
         zelidauth: zelidauthHeader,
       },
     };
-    return Api().get(`/apps/apptop/${zelapp}`, axiosConfig);
+    return Api().get(`/apps/apptop/${app}`, axiosConfig);
   },
-  getZelAppInspect(zelidauthHeader, zelapp) {
+  getAppInspect(zelidauthHeader, app) {
     const axiosConfig = {
       headers: {
         zelidauth: zelidauthHeader,
       },
     };
-    return Api().get(`/apps/appinspect/${zelapp}`, axiosConfig);
+    return Api().get(`/apps/appinspect/${app}`, axiosConfig);
   },
-  getZelAppStats(zelidauthHeader, zelapp) {
+  getAppStats(zelidauthHeader, app) {
     const axiosConfig = {
       headers: {
         zelidauth: zelidauthHeader,
       },
     };
-    return Api().get(`/apps/appstats/${zelapp}`, axiosConfig);
+    return Api().get(`/apps/appstats/${app}`, axiosConfig);
   },
-  getZelAppChanges(zelidauthHeader, zelapp) {
+  getAppChanges(zelidauthHeader, app) {
     const axiosConfig = {
       headers: {
         zelidauth: zelidauthHeader,
       },
     };
-    return Api().get(`/apps/appchanges/${zelapp}`, axiosConfig);
+    return Api().get(`/apps/appchanges/${app}`, axiosConfig);
   },
-  getZelAppExec(zelidauthHeader, zelapp, cmd, env) {
+  getAppExec(zelidauthHeader, app, cmd, env) {
     const axiosConfig = {
       headers: {
         zelidauth: zelidauthHeader,
       },
     };
     const data = {
-      appname: zelapp,
+      appname: app,
       cmd: JSON.parse(cmd),
       env: JSON.parse(env),
     };

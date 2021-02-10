@@ -17,19 +17,7 @@ let operationBlocked = false;
 let initBPfromNoBlockTimeout;
 let initBPfromErrorTimeout;
 
-// function getCollateralHash(hexOfZelNodeTx) {
-//   const hex = hexOfZelNodeTx.slice(10, 74);
-//   const buf = Buffer.from(hex, 'hex').reverse();
-//   return buf.toString('hex');
-// }
-
-// function getCollateralIndex(hexOfZelNodeTx) {
-//   const hex = hexOfZelNodeTx.slice(74, 82);
-//   const buf = Buffer.from(hex, 'hex').reverse();
-//   return parseInt(buf.toString('hex'), 16);
-// }
-
-async function getSenderTransactionFromZelCash(txid) {
+async function getSenderTransactionFromDaemon(txid) {
   const verbose = 1;
   const req = {
     params: {
@@ -46,7 +34,7 @@ async function getSenderTransactionFromZelCash(txid) {
   throw txContent.data;
 }
 
-async function getSenderForZelNodeTx(txid, vout) {
+async function getSenderForFluxTx(txid, vout) {
   const db = serviceHelper.databaseConnection();
   const database = db.db(config.database.daemon.database);
   const query = {
@@ -78,8 +66,8 @@ async function getSenderForZelNodeTx(txid, vout) {
   // find the utxo from global utxo list
   let txContent = await serviceHelper.findOneInDatabase(database, utxoIndexCollection, query, projection);
   if (!txContent) {
-    log.info(`Transaction ${txid} ${vout} not found in database. Falling back to previous ZelNode transaction`);
-    const queryZelNode = {
+    log.info(`Transaction ${txid} ${vout} not found in database. Falling back to previous Flux transaction`);
+    const queryFluxTx = {
       $and: [
         { collateralHash: new RegExp(`^${txid}`) },
         { collateralIndex: vout },
@@ -92,7 +80,7 @@ async function getSenderForZelNodeTx(txid, vout) {
         }],
     };
     // we do not need other data as we are just asking what the sender address is.
-    const projectionZelNode = {
+    const projectionFluxTx = {
       projection: {
         _id: 0,
         collateralHash: 1,
@@ -101,19 +89,16 @@ async function getSenderForZelNodeTx(txid, vout) {
       },
     };
     // find previous flux transaction that
-    txContent = await serviceHelper.findOneInDatabase(database, fluxTransactionCollection, queryZelNode, projectionZelNode);
+    txContent = await serviceHelper.findOneInDatabase(database, fluxTransactionCollection, queryFluxTx, projectionFluxTx);
   }
   if (!txContent) {
     log.warn(`Transaction ${txid} ${vout} was not found anywhere. Uncomplete tx!`);
-    const zelcashTxContent = {
+    const adjustedTxContent = {
       txid: undefined,
-      // vout,
-      // height: zelcashSender.height,
       address: undefined,
       satoshis: undefined,
-      // scriptPubKey: senderData.scriptPubKey.hex,
     };
-    return zelcashTxContent;
+    return adjustedTxContent;
   }
   const sender = txContent;
   return sender;
@@ -142,17 +127,17 @@ async function getSender(txid, vout) {
   if (!txContent.value) {
     // we are spending it anyway so it wont affect users balance
     log.info(`Transaction ${txid} ${vout} not found in database. Falling back to blockchain data`);
-    const zelcashSender = await getSenderTransactionFromZelCash(txid);
-    const senderData = zelcashSender.vout[vout];
-    const zelcashTxContent = {
+    const sender = await getSenderTransactionFromDaemon(txid);
+    const senderData = sender.vout[vout];
+    const simpletxContent = {
       // txid,
       // vout,
-      // height: zelcashSender.height,
+      // height: sender.height,
       address: senderData.scriptPubKey.addresses[0], // always exists as it is utxo.
       // satoshis: senderData.valueSat,
       // scriptPubKey: senderData.scriptPubKey.hex,
     };
-    return zelcashTxContent;
+    return simpletxContent;
   }
   const sender = txContent.value;
   return sender;
@@ -317,11 +302,11 @@ async function processBlock(blockHeight) {
           await serviceHelper.updateOneInDatabase(database, addressTransactionIndexCollection, query, update, options);
         }));
         // MAY contain App transaction. Store it.
-        if (isFluxAppMessageValue >= 1e8 && message.length === 64 && blockDataVerbose.height >= config.fluxapps.epochstart) { // min of 10 zel had to be paid for us bothering checking
-          const zelappTxRecord = {
+        if (isFluxAppMessageValue >= 1e8 && message.length === 64 && blockDataVerbose.height >= config.fluxapps.epochstart) { // min of 10 flux had to be paid for us bothering checking
+          const appTxRecord = {
             txid: tx.txid, height: blockDataVerbose.height, hash: message, value: isFluxAppMessageValue, message: false, // message is boolean saying if we already have it stored as permanent message
           };
-          await serviceHelper.insertOneToDatabase(database, appsHashesCollection, zelappTxRecord);
+          await serviceHelper.insertOneToDatabase(database, appsHashesCollection, appTxRecord);
           appsService.checkAndRequestApp(message, tx.txid, blockDataVerbose.height, isFluxAppMessageValue);
         }
       }
@@ -331,8 +316,8 @@ async function processBlock(blockHeight) {
         const collateral = tx.collateral_output;
         const partialCollateralHash = collateral.split('COutPoint(')[1].split(', ')[0];
         const collateralIndex = Number(collateral.split(', ')[1].split(')')[0]);
-        const senderInfo = await getSenderForZelNodeTx(partialCollateralHash, collateralIndex);
-        const zelnodeTxData = {
+        const senderInfo = await getSenderForFluxTx(partialCollateralHash, collateralIndex);
+        const fluxTxData = {
           txid: tx.txid,
           version: tx.version,
           type: tx.type,
@@ -345,7 +330,7 @@ async function processBlock(blockHeight) {
           lockedAmount: senderInfo.satoshis || senderInfo.lockedAmount,
           height: blockDataVerbose.height,
         };
-        await serviceHelper.insertOneToDatabase(database, fluxTransactionCollection, zelnodeTxData);
+        await serviceHelper.insertOneToDatabase(database, fluxTransactionCollection, fluxTxData);
       }
     }));
     // addressTransactionIndex shall contains object of address: address, transactions: [txids]
@@ -671,7 +656,7 @@ async function getAllUtxos(req, res) {
   }
 }
 
-async function getAllZelNodeTransactions(req, res) {
+async function getAllFluxTransactions(req, res) {
   try {
     const dbopen = serviceHelper.databaseConnection();
     const database = dbopen.db(config.database.daemon.database);
@@ -773,7 +758,7 @@ async function getAddressUtxos(req, res) {
   }
 }
 
-async function getFilteredZelNodeTxs(req, res) {
+async function getFilteredFluxTxs(req, res) {
   try {
     let { filter } = req.params; // we accept both help/command and help?command=getinfo
     filter = filter || req.query.filter;
@@ -1075,10 +1060,10 @@ module.exports = {
   getAllUtxos,
   getAllAddressesWithTransactions,
   getAllAddresses,
-  getAllZelNodeTransactions,
+  getAllFluxTransactions,
   getAddressUtxos,
   getAddressTransactions,
   getAddressBalance,
-  getFilteredZelNodeTxs,
+  getFilteredFluxTxs,
   getScannedHeight,
 };
