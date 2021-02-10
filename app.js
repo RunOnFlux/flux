@@ -1,6 +1,7 @@
 process.env.NODE_CONFIG_DIR = `${__dirname}/ZelBack/config/`;
 // Flux configuration
 const config = require('config');
+const compression = require('compression');
 // const fs = require('fs');
 // const https = require('https');
 const path = require('path');
@@ -27,6 +28,7 @@ app.listen(config.server.apiport, () => {
 const home = path.join(__dirname, './ZelFront/dist');
 
 const homeApp = express();
+homeApp.use(compression());
 homeApp.use(express.static(home));
 
 homeApp.get('*', (req, res) => {
