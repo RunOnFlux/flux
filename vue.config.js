@@ -52,5 +52,11 @@ module.exports = {
   },
   configureWebpack: {
     plugins,
+    externals(context, request, callback) {
+      if (/xlsx|canvg|pdfmake/.test(request)) {
+        return callback(null, `commonjs ${request}`);
+      }
+      return callback();
+    },
   },
 };
