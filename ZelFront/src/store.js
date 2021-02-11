@@ -27,6 +27,7 @@ export default new Vuex.Store({
     adminSection: null,
     appsSection: null,
     explorerSection: null,
+    dashboardSection: null,
     fluxVersion: '',
   },
   getters: {
@@ -43,6 +44,7 @@ export default new Vuex.Store({
       state.adminSection = null;
       state.appsSection = null;
       state.explorerSection = null;
+      state.dashboardSection = null;
     },
     setBenchmarkSection(state, section) {
       state.benchmarkSection = section;
@@ -52,6 +54,7 @@ export default new Vuex.Store({
       state.adminSection = null;
       state.appsSection = null;
       state.explorerSection = null;
+      state.dashboardSection = null;
     },
     setNodeSection(state, section) {
       state.nodeSection = section;
@@ -61,6 +64,7 @@ export default new Vuex.Store({
       state.adminSection = null;
       state.appsSection = null;
       state.explorerSection = null;
+      state.dashboardSection = null;
     },
     setAdminSection(state, section) {
       state.adminSection = section;
@@ -70,6 +74,7 @@ export default new Vuex.Store({
       state.nodeSection = null;
       state.appsSection = null;
       state.explorerSection = null;
+      state.dashboardSection = null;
     },
     setAppsSection(state, section) {
       state.appsSection = section;
@@ -79,6 +84,7 @@ export default new Vuex.Store({
       state.nodeSection = null;
       state.adminSection = null;
       state.explorerSection = null;
+      state.dashboardSection = null;
     },
     setExplorerSection(state, section) {
       state.explorerSection = section;
@@ -88,6 +94,17 @@ export default new Vuex.Store({
       state.nodeSection = null;
       state.adminSection = null;
       state.appsSection = null;
+      state.dashboardSection = null;
+    },
+    setDashboardSection(state, section) {
+      state.dashboardSection = section;
+      // we always want to reset the other sections to null state
+      state.daemonSection = null;
+      state.benchmarkSection = null;
+      state.nodeSection = null;
+      state.adminSection = null;
+      state.appsSection = null;
+      state.explorerSection = null;
     },
     setFluxVersion(state, version) {
       state.fluxVersion = version;

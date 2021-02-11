@@ -18,7 +18,6 @@
         </div>
       </el-menu-item>
       <el-submenu
-        v-if="privilage === 'user' || privilage === 'admin' || privilage === 'fluxteam'"
         index="1"
         :popper-append-to-body=true
       >
@@ -145,7 +144,6 @@
         </el-menu-item>
       </el-submenu>
       <el-submenu
-        v-if="privilage === 'user' || privilage === 'admin' || privilage === 'fluxteam'"
         index="2"
         :popper-append-to-body=true
       >
@@ -210,7 +208,6 @@
         </el-menu-item>
       </el-submenu>
       <el-submenu
-        v-if="privilage === 'user' || privilage === 'admin' || privilage === 'fluxteam'"
         index="3"
         :popper-append-to-body=true
       >
@@ -220,7 +217,6 @@
         <el-menu-item index="3-3">Debug</el-menu-item>
       </el-submenu>
       <el-submenu
-        v-if="privilage === 'user' || privilage === 'admin' || privilage === 'fluxteam'"
         index="4"
         :popper-append-to-body=true
       >
@@ -266,10 +262,12 @@
         >
           Manage Users
         </el-menu-item>
-        <!--<el-menu-item index="10-4">Active Login Phrases</el-menu-item>-->
       </el-submenu>
       <el-menu-item index="50">
-        Very Basic Explorer
+        Basic Explorer
+      </el-menu-item>
+      <el-menu-item index="60">
+        Basic Dashboard
       </el-menu-item>
       <el-menu-item
         v-if="privilage === 'user' || privilage === 'admin' || privilage === 'fluxteam'"
@@ -481,6 +479,9 @@ export default {
           break;
         case '50':
           this.$store.commit('setExplorerSection', 'explorer');
+          break;
+        case '60':
+          this.$store.commit('setDashboardSection', 'dashboard');
           break;
         case '100':
           this.logoutCurrentSession();

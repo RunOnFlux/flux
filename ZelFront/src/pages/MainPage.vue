@@ -7,27 +7,31 @@
       v-if="loginPhrase && getInfoResponse.status === 'success'"
       class="content"
     >
-      <div v-if="daemonSection !== null">
+      <div v-if="privilage === 'none' && daemonSection === 'welcomeinfo'">
+        <Daemon />
+        <br><br>
+        <Login />
+      </div>
+      <div v-else-if="daemonSection !== null">
         <Daemon />
       </div>
-      <div v-if="benchmarkSection !== null">
+      <div v-else-if="benchmarkSection !== null">
         <Benchmark />
       </div>
-      <div v-if="nodeSection !== null">
+      <div v-else-if="nodeSection !== null">
         <Node />
       </div>
-      <div v-if="adminSection !== null">
+      <div v-else-if="adminSection !== null">
         <Admin />
       </div>
-      <div v-if="appsSection !== null">
+      <div v-else-if="appsSection !== null">
         <Apps />
       </div>
-      <div v-if="explorerSection !== null">
+      <div v-else-if="explorerSection !== null">
         <Explorer />
       </div>
-      <br>
-      <div v-if="privilage === 'none' && explorerSection === null">
-        <Login />
+      <div v-else-if="dashboardSection !== null">
+        <Dashboard />
       </div>
     </div>
     <div
@@ -49,36 +53,40 @@
       v-else-if="getInfoResponse.status === 'error'"
       class="content"
     >
+      <h3>
+        Error connecting to the Flux Daemon
+      </h3>
+      <br>
       <div v-if="privilage === 'none'">
         <Login />
       </div>
-      <br>
-      <h3>
-        Error connecting to the Flux Daemon
-        <div v-if="privilage ==='admin' || privilage ==='fluxteam'">
-          <p>
-            Please try to restart your Flux Daemon in Daemon section.
-          </p>
-          <div v-if="daemonSection !== null">
-            <Daemon />
-          </div>
-          <div v-if="benchmarkSection !== null">
-            <Benchmark />
-          </div>
-          <div v-if="nodeSection !== null">
-            <Node />
-          </div>
-          <div v-if="adminSection !== null">
-            <Admin />
-          </div>
-          <div v-if="appsSection !== null">
-            <Apps />
-          </div>
-          <div v-if="explorerSection !== null">
-            <Explorer />
-          </div>
+      <div v-if="privilage ==='admin' || privilage ==='fluxteam'">
+        <p>
+          Please try to restart your Flux Daemon in Daemon section.
+        </p>
+        <div v-if="daemonSection !== null">
+          <Daemon />
         </div>
-      </h3>
+        <div v-else-if="benchmarkSection !== null">
+          <Benchmark />
+        </div>
+        <div v-else-if="nodeSection !== null">
+          <Node />
+        </div>
+        <div v-else-if="adminSection !== null">
+          <Admin />
+        </div>
+        <div v-else-if="appsSection !== null">
+          <Apps />
+        </div>
+        <div v-else-if="explorerSection !== null">
+          <Explorer />
+        </div>
+        <div v-else-if="dashboardSection !== null">
+          <Dashboard />
+        </div>
+      </div>
+      <Dashboard />
     </div>
     <div
       v-else
@@ -110,6 +118,7 @@ const Node = () => import('@/components/Node.vue');
 const Admin = () => import('@/components/Admin.vue');
 const Apps = () => import('@/components/Apps.vue');
 const Explorer = () => import('@/components/Explorer.vue');
+const Dashboard = () => import('@/components/Dashboard.vue');
 
 const qs = require('qs');
 
@@ -119,7 +128,7 @@ const vue = new Vue();
 export default {
   name: 'MainPage',
   components: {
-    Header, Footer, Login, Daemon, Benchmark, Node, Admin, Apps, Explorer,
+    Header, Footer, Login, Daemon, Benchmark, Node, Admin, Apps, Explorer, Dashboard,
   },
   data() {
     return {
@@ -142,6 +151,7 @@ export default {
       'adminSection',
       'appsSection',
       'explorerSection',
+      'dashboardSection',
     ]),
   },
   mounted() {

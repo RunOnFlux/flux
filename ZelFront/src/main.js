@@ -22,6 +22,7 @@ import {
   Link,
   Menu,
   MenuItem,
+  Submenu,
 } from 'element-ui';
 import 'element-ui/lib/theme-chalk/index.css';
 import lang from 'element-ui/lib/locale/lang/en';
@@ -49,6 +50,7 @@ Vue.use(Popconfirm);
 Vue.use(Link);
 Vue.use(Menu);
 Vue.use(MenuItem);
+Vue.use(Submenu);
 Vue.use(Loading.directive);
 
 Vue.prototype.$notify = Notification;
