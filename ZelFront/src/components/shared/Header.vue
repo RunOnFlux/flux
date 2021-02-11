@@ -14,7 +14,7 @@
       <el-menu-item index="0">
         <div class='header-logo'>
           <span class="helper"></span>
-          <img src="@/assets/img/flux_white_logo.svg">
+          <img src="@/assets/img/flux_white_logo.svg" alt="Logo">
         </div>
       </el-menu-item>
       <el-submenu
@@ -517,3 +517,10 @@ export default {
   },
 };
 </script>
+
+<style scoped>
+img {
+  height: auto;
+  width: 100%;
+}
+</style>

@@ -4,6 +4,7 @@
       <el-select
         v-model="backendURL"
         placeholder="Select Backend"
+        :label="backendURL"
         filterable
         allow-create
         @change=changeBackendURL
