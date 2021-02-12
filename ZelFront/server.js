@@ -9,6 +9,11 @@ const homeApp = express();
 homeApp.use(compression);
 homeApp.use(express.static(home));
 
+homeApp.get('/robots.txt', (req, res) => {
+  res.type('text/plain');
+  res.send('User-agent: *\nDisallow: /');
+});
+
 homeApp.get('*', (req, res) => {
   res.sendFile(path.join(home, 'index.html'));
 });
