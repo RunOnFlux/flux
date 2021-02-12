@@ -42,7 +42,6 @@ module.exports = {
       // eslint-disable-next-line no-param-reassign
       options[0].include = {
         type: 'allChunks',
-        chunks: ['app', 'chunk-vendors', 'landing', 'landing-styles'],
       };
       return options;
     });
