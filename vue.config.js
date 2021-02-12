@@ -38,6 +38,14 @@ module.exports = {
     config.resolve.alias
       .set('@', path.join(__dirname, './ZelFront/src'));
     config.plugin('CompressionPlugin').use(CompressionPlugin);
+    config.plugin('preload-index').tap((options) => {
+      // eslint-disable-next-line no-param-reassign
+      options[0].include = {
+        type: 'allChunks',
+        chunks: ['app', 'chunk-vendors', 'landing', 'landing-styles'],
+      };
+      return options;
+    });
   },
   outputDir: path.join(__dirname, './ZelFront/dist'),
   pages: {

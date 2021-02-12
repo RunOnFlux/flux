@@ -1539,6 +1539,8 @@
                     class="zelidLogin"
                     src="@/assets/img/zelID.svg"
                     alt="Zel ID"
+                    height="100%"
+                    width="100%"
                   />
                 </a>
               </div>
@@ -1568,6 +1570,8 @@
                     class="zelidLogin"
                     src="@/assets/img/zelID.svg"
                     alt="Zel ID"
+                    height="100%"
+                    width="100%"
                   />
                 </a>
               </div>
@@ -1853,6 +1857,8 @@
                 class="zelidLogin"
                 src="@/assets/img/zelID.svg"
                 alt="Zel ID"
+                height="100%"
+                width="100%"
               />
             </a>
           </div>
@@ -1881,6 +1887,8 @@
               <img
                 class="zelidLogin"
                 src="@/assets/img/zelID.svg"
+                height="100%"
+                width="100%"
               />
             </a>
           </div>
