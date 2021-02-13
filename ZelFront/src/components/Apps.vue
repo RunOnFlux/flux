@@ -2128,7 +2128,7 @@ export default {
       const appInfo = {
         name: this.managedApplication,
         state: foundAppInfo.State || 'Unknown state',
-        status: foundAppInfo.Status || 'Unkown status',
+        status: foundAppInfo.Status || 'Unknown status',
       };
       appInfo.state = appInfo.state.charAt(0).toUpperCase() + appInfo.state.slice(1);
       appInfo.status = appInfo.status.charAt(0).toUpperCase() + appInfo.status.slice(1);

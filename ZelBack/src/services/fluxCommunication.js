@@ -1249,7 +1249,7 @@ async function allowPortApi(req, res) {
     } else if (portResponseOK.status === false) {
       response = serviceHelper.createErrorMessage(portResponseOK.message, port, port);
     } else {
-      response = serviceHelper.createErrorMessage(`Unkown error while opening port ${port}`);
+      response = serviceHelper.createErrorMessage(`Unknown error while opening port ${port}`);
     }
   } else {
     response = serviceHelper.errUnauthorizedMessage();

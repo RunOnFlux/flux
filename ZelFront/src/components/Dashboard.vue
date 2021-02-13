@@ -55,7 +55,7 @@
               sortable
             >
               <template slot-scope="scope">
-                {{ scope.row.location ? scope.row.location.country : 'unkown' }}
+                {{ scope.row.location ? scope.row.location.country : 'Unknown' }}
               </template>
             </el-table-column>
             <el-table-column
@@ -64,7 +64,7 @@
               sortable
             >
               <template slot-scope="scope">
-                {{ scope.row.location ? scope.row.location.org : 'unkown' }}
+                {{ scope.row.location ? scope.row.location.org : 'Unknown' }}
               </template>
             </el-table-column>
             <el-table-column

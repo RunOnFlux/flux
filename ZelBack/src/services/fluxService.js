@@ -471,7 +471,7 @@ function getFluxTimezone(req, res) {
     return res ? res.json(message) : message;
   } catch (error) {
     log.error(error);
-    const message = 'unkown';
+    const message = 'Unknown';
     return res ? res.json(message) : message;
   }
 }
