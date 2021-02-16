@@ -773,7 +773,7 @@ async function getFilteredFluxTxs(req, res) {
       // collateralHash case
       query = { collateralHash: filter };
     } else if (filter.length >= 30 && filter.length < 38) {
-      // zelAddress case
+      // flux address case
       query = { zelAddress: filter };
     } else {
       throw new Error('It is possible to only filter via IP address, Zel address and Collateral hash.');

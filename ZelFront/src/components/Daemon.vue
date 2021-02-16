@@ -900,7 +900,7 @@ export default {
       switch (value) {
         case 'welcomeinfo':
           this.daemonGetInfo();
-          this.zelcashWelcomeGetZelNodeStatus();
+          this.daemonWelcomeGetZelNodeStatus();
           break;
         case 'getinfo':
           this.daemonGetInfo();
@@ -920,48 +920,48 @@ export default {
           this.daemonGetNodeStatus();
           break;
         case 'listzelnodes':
-          this.zelcashListZelNodes();
+          this.daemonListZelNodes();
           break;
         case 'viewdeterministiczelnodelist':
-          this.zelcashViewDeterministicZelNodeList();
+          this.daemonViewDeterministicZelNodeList();
           break;
         case 'getzelnodecount':
-          this.zelcashGetZelNodeCount();
+          this.daemonGetZelNodeCount();
           break;
         case 'getstartlist':
-          this.zelcashGetStartList();
+          this.daemonGetStartList();
           break;
         case 'getdoslist':
-          this.zelcashGetDOSList();
+          this.daemonGetDOSList();
           break;
         case 'zelnodecurrentwinner':
-          this.zelcashZelNodeCurrentWinner();
+          this.daemonZelNodeCurrentWinner();
           break;
         case 'getbenchmarks':
-          this.zelcashGetBenchmarks();
+          this.daemonGetBenchmarks();
           break;
         case 'getbenchstatus':
-          this.zelcashGetBenchStatus();
+          this.daemonGetBenchStatus();
           break;
         case 'startzelbenchd':
           break;
         case 'stopzelbenchd':
           break;
         case 'getblockchaininfo':
-          this.zelcashGetBlockchainInfo();
+          this.daemonGetBlockchainInfo();
           break;
         case 'getmininginfo':
-          this.zelcashGetMiningInfo();
+          this.daemonGetMiningInfo();
           break;
         case 'getnetworkinfo':
-          this.zelcashGetNetworkInfo();
+          this.daemonGetNetworkInfo();
           break;
         case 'getrawtransaction':
           break;
         case 'validateaddress':
           break;
         case 'getwalletinfo':
-          this.zelcashGetWalletInfo();
+          this.daemonGetWalletInfo();
           break;
         case null:
           console.log('Daemon Section hidden');
@@ -1094,7 +1094,7 @@ export default {
           vue.$customMes.error('Error while trying to reindex Daemon');
         });
     },
-    async zelcashWelcomeGetZelNodeStatus() {
+    async daemonWelcomeGetZelNodeStatus() {
       const response = await DaemonService.getZelNodeStatus();
       this.getNodeStatusResponse.status = response.data.status;
       this.getNodeStatusResponse.data = response.data.data;
@@ -1119,7 +1119,7 @@ export default {
         this.callResponse.data = response.data.data;
       }
     },
-    async zelcashListZelNodes() {
+    async daemonListZelNodes() {
       const response = await DaemonService.listZelNodes();
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
@@ -1128,7 +1128,7 @@ export default {
         this.callResponse.data = response.data.data;
       }
     },
-    async zelcashViewDeterministicZelNodeList() {
+    async daemonViewDeterministicZelNodeList() {
       const response = await DaemonService.viewDeterministicZelNodeList();
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
@@ -1137,7 +1137,7 @@ export default {
         this.callResponse.data = response.data.data;
       }
     },
-    async zelcashGetZelNodeCount() {
+    async daemonGetZelNodeCount() {
       const response = await DaemonService.getZelNodeCount();
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
@@ -1146,7 +1146,7 @@ export default {
         this.callResponse.data = response.data.data;
       }
     },
-    async zelcashGetStartList() {
+    async daemonGetStartList() {
       const response = await DaemonService.getStartList();
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
@@ -1155,7 +1155,7 @@ export default {
         this.callResponse.data = response.data.data;
       }
     },
-    async zelcashGetDOSList() {
+    async daemonGetDOSList() {
       const response = await DaemonService.getDOSList();
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
@@ -1164,7 +1164,7 @@ export default {
         this.callResponse.data = response.data.data;
       }
     },
-    async zelcashZelNodeCurrentWinner() {
+    async daemonZelNodeCurrentWinner() {
       const response = await DaemonService.zelnodeCurrentWinner();
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
@@ -1174,7 +1174,7 @@ export default {
       }
     },
     // BENCHMARKS
-    async zelcashGetBenchmarks() {
+    async daemonGetBenchmarks() {
       const response = await DaemonService.getBenchmarks();
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
@@ -1183,7 +1183,7 @@ export default {
         this.callResponse.data = JSON.parse(response.data.data);
       }
     },
-    async zelcashGetBenchStatus() {
+    async daemonGetBenchStatus() {
       const response = await DaemonService.getBenchStatus();
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
@@ -1221,7 +1221,7 @@ export default {
         });
     },
     // BLOCKCHAIN
-    async zelcashGetBlockchainInfo() {
+    async daemonGetBlockchainInfo() {
       const response = await DaemonService.getBlockchainInfo();
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
@@ -1231,7 +1231,7 @@ export default {
       }
     },
     // MINING
-    async zelcashGetMiningInfo() {
+    async daemonGetMiningInfo() {
       const response = await DaemonService.getMiningInfo();
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
@@ -1241,7 +1241,7 @@ export default {
       }
     },
     // NETWORK
-    async zelcashGetNetworkInfo() {
+    async daemonGetNetworkInfo() {
       const response = await DaemonService.getNetworkInfo();
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
@@ -1272,7 +1272,7 @@ export default {
       }
     },
     // WALLET
-    async zelcashGetWalletInfo() {
+    async daemonGetWalletInfo() {
       const zelidauth = localStorage.getItem('zelidauth');
       const response = await DaemonService.getWalletInfo(zelidauth);
       if (response.data.status === 'error') {

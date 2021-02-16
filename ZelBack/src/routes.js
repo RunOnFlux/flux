@@ -602,7 +602,7 @@ module.exports = (app, expressWs) => {
     fluxService.tailBenchmarkDebug(req, res);
   });
   app.get('/zelnode/zelfluxerrorlog', (req, res) => {
-    fluxService.zelfluxErrorLog(req, res);
+    fluxService.fluxErrorLog(req, res);
   });
   app.get('/zelnode/zelfluxwarnlog', (req, res) => {
     fluxService.fluxWarnLog(req, res);
@@ -1488,7 +1488,7 @@ module.exports = (app, expressWs) => {
     fluxService.tailBenchmarkDebug(req, res);
   });
   app.get('/flux/errorlog', (req, res) => {
-    fluxService.zelfluxErrorLog(req, res);
+    fluxService.fluxErrorLog(req, res);
   });
   app.get('/flux/warnlog', (req, res) => {
     fluxService.fluxWarnLog(req, res);

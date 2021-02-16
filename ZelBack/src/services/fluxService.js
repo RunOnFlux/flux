@@ -330,7 +330,7 @@ async function fluxLog(res, filelog) {
   return res.download(filepath, `${filelog}.log`);
 }
 
-async function zelfluxErrorLog(req, res) {
+async function fluxErrorLog(req, res) {
   try {
     const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
     if (!authorized) {
@@ -516,44 +516,44 @@ async function getFluxInfo(req, res) {
     }
     info.zelflux.dos = dosResult.data;
 
-    const zelcashInfoRes = await daemonService.getInfo();
-    if (zelcashInfoRes.status === 'error') {
-      throw zelcashInfoRes.data;
+    const daemonInfoRes = await daemonService.getInfo();
+    if (daemonInfoRes.status === 'error') {
+      throw daemonInfoRes.data;
     }
-    info.zelcash.info = zelcashInfoRes.data;
+    info.zelcash.info = daemonInfoRes.data;
 
-    const zelcashZelnodeStatusRes = await daemonService.getZelNodeStatus();
-    if (zelcashZelnodeStatusRes.status === 'error') {
-      throw zelcashZelnodeStatusRes.data;
+    const daemonNodeStatusRes = await daemonService.getZelNodeStatus();
+    if (daemonNodeStatusRes.status === 'error') {
+      throw daemonNodeStatusRes.data;
     }
-    info.zelnode.status = zelcashZelnodeStatusRes.data;
+    info.zelnode.status = daemonNodeStatusRes.data;
 
-    const zelbenchInfoRes = await benchmarkService.getInfo();
-    if (zelbenchInfoRes.status === 'error') {
-      throw zelbenchInfoRes.data;
+    const benchmarkInfoRes = await benchmarkService.getInfo();
+    if (benchmarkInfoRes.status === 'error') {
+      throw benchmarkInfoRes.data;
     }
-    info.zelbench.info = zelbenchInfoRes.data;
-    const zelbenchStatusRes = await benchmarkService.getStatus();
-    if (zelbenchStatusRes.status === 'error') {
-      throw zelbenchStatusRes.data;
+    info.zelbench.info = benchmarkInfoRes.data;
+    const benchmarkStatusRes = await benchmarkService.getStatus();
+    if (benchmarkStatusRes.status === 'error') {
+      throw benchmarkStatusRes.data;
     }
-    info.zelbench.status = zelbenchStatusRes.data;
-    const zelbenchBenchRes = await benchmarkService.getBenchmarks();
-    if (zelbenchBenchRes.status === 'error') {
-      throw zelbenchBenchRes.data;
+    info.zelbench.status = benchmarkStatusRes.data;
+    const benchmarkhBenchRes = await benchmarkService.getBenchmarks();
+    if (benchmarkhBenchRes.status === 'error') {
+      throw benchmarkhBenchRes.data;
     }
-    info.zelbench.bench = zelbenchBenchRes.data;
+    info.zelbench.bench = benchmarkhBenchRes.data;
 
-    const zelapppsFluxUsage = await appsService.fluxUsage();
-    if (zelapppsFluxUsage.status === 'error') {
-      throw zelapppsFluxUsage.data;
+    const apppsFluxUsage = await appsService.fluxUsage();
+    if (apppsFluxUsage.status === 'error') {
+      throw apppsFluxUsage.data;
     }
-    info.zelapps.fluxusage = zelapppsFluxUsage.data;
-    const zelappsRunning = await appsService.listRunningApps();
-    if (zelappsRunning.status === 'error') {
-      throw zelappsRunning.data;
+    info.zelapps.fluxusage = apppsFluxUsage.data;
+    const appsRunning = await appsService.listRunningApps();
+    if (appsRunning.status === 'error') {
+      throw appsRunning.data;
     }
-    info.zelapps.runningapps = zelappsRunning.data;
+    info.zelapps.runningapps = appsRunning.data;
     const appsResources = await appsService.appsResources();
     if (appsResources.status === 'error') {
       throw appsResources.data;
@@ -685,7 +685,7 @@ module.exports = {
   tailFluxWarnLog,
   tailFluxDebugLog,
   tailFluxInfoLog,
-  zelfluxErrorLog,
+  fluxErrorLog,
   fluxWarnLog,
   fluxInfoLog,
   fluxDebugLog,
