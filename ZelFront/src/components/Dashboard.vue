@@ -6,14 +6,70 @@
           label="Overview"
           name="overview"
         >
-          <div v-if="historyStatsLoading === true">
-            loading...
-          </div>
           <div class="gridTwo">
-            <div id="currentNodesChart" />
-            <div id="fluxhistory" />
+            <div
+              v-show="!currentNodesChartLoading"
+              id="currentNodesChart"
+            />
+            <div v-show="currentNodesChartLoading">
+              loading...
+            </div>
+            <div
+              v-show="!fluxHistoryLoading"
+              id="fluxhistory"
+            />
+            <div v-show="fluxHistoryLoading">
+              loading...
+            </div>
           </div>
+          <br><br>
           <div class="gridThree">
+            <div
+              v-show="!supplyLoading"
+              id="lockedSupplyPercChart"
+            />
+            <div v-show="supplyLoading">
+              loading...
+            </div>
+            <div
+              v-show="!supplyLoading"
+              class="supplyProgress"
+            >
+              <br><br><br>
+              <h3>Current Supply Released</h3>
+              <el-progress
+                :text-inside="true"
+                :stroke-width="26"
+                :percentage="circulatingSupplyPerc"
+              ></el-progress>
+              <br><br><br>
+              <h3>Flux Locked Supply</h3>
+              <el-progress
+                :text-inside="true"
+                :stroke-width="26"
+                :percentage="lockedSupplyPerc"
+              ></el-progress>
+              <br><br><br>
+            </div>
+            <div v-show="supplyLoading">
+              loading...
+            </div>
+            <div
+              v-show="!supplyLoading"
+              class="supplyStats"
+            >
+              <h3>Total Supply</h3>
+              <h4>{{ beautifyValue(210000000) }} FLUX</h4>
+              <br>
+              <h3>Circulating Supply</h3>
+              <h4>{{ beautifyValue(this.circulatingSupply) }} FLUX</h4>
+              <br>
+              <h3>Flux Locked Supply</h3>
+              <h4>{{ beautifyValue(this.lockedSupply) }} FLUX</h4>
+            </div>
+            <div v-show="supplyLoading">
+              loading...
+            </div>
           </div>
         </el-tab-pane>
         <el-tab-pane
@@ -29,7 +85,6 @@
             lazy
           >
             <el-table-column
-              fixed
               label="IP Address"
               prop="ip"
               sortable
@@ -87,7 +142,6 @@
               </template>
             </el-table-column>
             <el-table-column
-              fixed="right"
               label="Visit"
               width="120"
             >
@@ -103,27 +157,58 @@
           label="Resources"
           name="resources"
         >
-          <div v-if="historyStatsLoading === true">
-            loading...
-          </div>
           <div class="gridThree">
-            <div id="cpucurrent" />
-            <div id="ramcurrent" />
-            <div id="ssdcurrent" />
+            <div
+              v-show="!cpuLoading"
+              id="cpucurrent"
+            />
+            <div v-show="cpuLoading">
+              loading...
+            </div>
+            <div
+              v-show="!ramLoading"
+              id="ramcurrent"
+            />
+            <div v-show="ramLoading">
+              loading...
+            </div>
+            <div
+              v-show="!ssdLoading"
+              id="ssdcurrent"
+            />
+            <div v-show="ssdLoading">
+              loading...
+            </div>
           </div>
+          <br><br>
           <div class="gridThree">
-            <div id="cpuhistory" />
-            <div id="ramhistory" />
-            <div id="ssdhistory" />
+            <div
+              v-show="!cpuHistoryLoading"
+              id="cpuhistory"
+            />
+            <div v-show="cpuHistoryLoading">
+              loading...
+            </div>
+            <div
+              v-show="!ramHistoryLoading"
+              id="ramhistory"
+            />
+            <div v-show="ramHistoryLoading">
+              loading...
+            </div>
+            <div
+              v-show="!ssdHistoryLoading"
+              id="ssdhistory"
+            />
+            <div v-show="ssdHistoryLoading">
+              loading...
+            </div>
           </div>
         </el-tab-pane>
         <el-tab-pane
           label="Map"
           name="map"
         >
-          <div v-if="fluxListLoading === true">
-            loading...
-          </div>
           <div id="mapchart">
           </div>
         </el-tab-pane>
@@ -143,6 +228,8 @@ import * as am4core from '@amcharts/amcharts4/core';
 import * as am4maps from '@amcharts/amcharts4/maps';
 // eslint-disable-next-line camelcase
 import am4geodata_worldLow from '@amcharts/amcharts4-geodata/worldLow';
+// eslint-disable-next-line camelcase
+import am4themes_dark from '@amcharts/amcharts4/themes/dark';
 
 const axios = require('axios');
 
@@ -164,7 +251,7 @@ export default {
       circSupplyLoading: true,
       historyStatsLoading: true,
       fluxListLoading: true,
-      activeName: 'resources',
+      activeName: 'overview',
       timeoptions: {
         year: 'numeric',
         month: 'short',
@@ -172,6 +259,18 @@ export default {
         hour: '2-digit',
         minute: '2-digit',
       },
+      circulatingSupplyPerc: 0,
+      lockedSupply: 0,
+      lockedSupplyPerc: 0,
+      currentNodesChartLoading: true,
+      fluxHistoryLoading: true,
+      supplyLoading: true,
+      ssdLoading: true,
+      ramLoading: true,
+      cpuLoading: true,
+      ssdHistoryLoading: true,
+      ramHistoryLoading: true,
+      cpuHistoryLoading: true,
     };
   },
   computed: {
@@ -217,6 +316,8 @@ export default {
       const result = await axios.get('https://explorer.zel.network/api/supply');
       this.circulatingSupply = result.data;
       this.circSupplyLoading = false;
+      this.circulatingSupplyPerc = Number(((this.circulatingSupply / 210000000) * 100).toFixed(2));
+      this.getZelNodeCount();
     },
     async getRates() {
       this.ratesLoading = true;
@@ -235,6 +336,22 @@ export default {
         this.generateSSDHistory();
         this.generateFluxPieChart();
         this.generateFluxHistory();
+        this.generatelockedSupplyPercList();
+      } catch (error) {
+        console.log(error);
+      }
+    },
+    async getZelNodeCount() {
+      try {
+        const resCount = await DashboardService.zelnodeCount();
+        const counts = resCount.data.data;
+        const bamfs = counts['bamf-enabled'];
+        const supers = counts['super-enabled'];
+        const basics = counts['basic-enabled'];
+        console.log(resCount);
+        const supply = bamfs * 100000 + supers * 25000 + basics * 10000;
+        this.lockedSupply = supply;
+        this.lockedSupplyPerc = Number(((supply / this.circulatingSupply) * 100).toFixed(2));
       } catch (error) {
         console.log(error);
       }
@@ -304,7 +421,7 @@ export default {
       circle.radius = 4;
       circle.fill = am4core.color('#B27799');
       circle.nonScaling = false;
-      circle.stroke = am4core.color('#FFFFFF');
+      circle.stroke = am4core.color('#000FFF');
       circle.strokeWidth = 1;
       circle.nonScaling = true;
       circle.tooltipText = '{title}';
@@ -342,6 +459,7 @@ export default {
       this.generateSSD();
     },
     generateCPU() {
+      am4core.useTheme(am4themes_dark);
       // Create chart instance
       const chart = am4core.create('cpucurrent', am4charts.XYChart);
 
@@ -352,6 +470,8 @@ export default {
       const basicValue = basics.length * 2;
       const superValue = supers.length * 4;
       const bamfValue = bamfs.length * 8;
+
+      const total = bamfValue + superValue + basicValue;
 
       // Add data
       chart.data = [
@@ -386,8 +506,16 @@ export default {
       series.tooltipText = '{category}: [bold]{value}[/]';
       // Add cursor
       chart.cursor = new am4charts.XYCursor();
+      const title = chart.titles.create();
+      title.text = `Total Cores: ${this.beautifyValue(total)}`;
+      title.fontSize = 20;
+      const self = this;
+      setTimeout(() => {
+        self.cpuLoading = false;
+      }, 1000);
     },
     generateRAM() {
+      am4core.useTheme(am4themes_dark);
       // Create chart instance
       const chart = am4core.create('ramcurrent', am4charts.XYChart);
 
@@ -398,6 +526,8 @@ export default {
       const basicValue = basics.length * 4;
       const superValue = supers.length * 8;
       const bamfValue = bamfs.length * 30;
+
+      const total = bamfValue + superValue + basicValue;
 
       // Add data
       chart.data = [
@@ -432,8 +562,16 @@ export default {
       series.tooltipText = '{category}: [bold]{value}[/]';
       // Add cursor
       chart.cursor = new am4charts.XYCursor();
+      const title = chart.titles.create();
+      title.text = `Total RAM: ${this.beautifyValue(total / 1000)} TB`;
+      title.fontSize = 20;
+      const self = this;
+      setTimeout(() => {
+        self.ramLoading = false;
+      }, 1000);
     },
     generateSSD() {
+      am4core.useTheme(am4themes_dark);
       // Create chart instance
       const chart = am4core.create('ssdcurrent', am4charts.XYChart);
 
@@ -444,6 +582,8 @@ export default {
       const basicValue = basics.length * 40;
       const superValue = supers.length * 150;
       const bamfValue = bamfs.length * 600;
+
+      const total = bamfValue + superValue + basicValue;
 
       // Add data
       chart.data = [
@@ -478,9 +618,16 @@ export default {
       series.tooltipText = '{category}: [bold]{value}[/]';
       // Add cursor
       chart.cursor = new am4charts.XYCursor();
+      const title = chart.titles.create();
+      title.text = `Total SSD: ${this.beautifyValue(total / 1000)} TB`;
+      title.fontSize = 20;
+      const self = this;
+      setTimeout(() => {
+        self.ssdLoading = false;
+      }, 1000);
     },
     generateCPUHistory() {
-      console.log('HERE');
+      am4core.useTheme(am4themes_dark);
       const chart = am4core.create('cpuhistory', am4charts.XYChart);
 
       const cpuData = [];
@@ -508,7 +655,7 @@ export default {
       series.dataFields.dateX = 'time';
       series.dataFields.valueY = 'bamf';
       series.tooltipText = 'Bamf [bold]{valueY.value}[/]';
-      series.tooltip.background.fill = am4core.color('#FFF');
+      series.tooltip.background.fill = am4core.color('#000');
       series.tooltip.getStrokeFromObject = true;
       series.tooltip.background.strokeWidth = 3;
       series.tooltip.getFillFromObject = false;
@@ -521,7 +668,7 @@ export default {
       series2.dataFields.dateX = 'time';
       series2.dataFields.valueY = 'super';
       series2.tooltipText = 'Super [bold]{valueY.value}[/]';
-      series2.tooltip.background.fill = am4core.color('#FFF');
+      series2.tooltip.background.fill = am4core.color('#000');
       series2.tooltip.getFillFromObject = false;
       series2.tooltip.getStrokeFromObject = true;
       series2.tooltip.background.strokeWidth = 3;
@@ -535,7 +682,7 @@ export default {
       series3.dataFields.dateX = 'time';
       series3.dataFields.valueY = 'basic';
       series3.tooltipText = 'Basic [bold]{valueY.value}[/]';
-      series3.tooltip.background.fill = am4core.color('#FFF');
+      series3.tooltip.background.fill = am4core.color('#000');
       series3.tooltip.getFillFromObject = false;
       series3.tooltip.getStrokeFromObject = true;
       series3.tooltip.background.strokeWidth = 3;
@@ -551,8 +698,16 @@ export default {
       // Add a legend
       chart.legend = new am4charts.Legend();
       chart.legend.position = 'top';
+      const title = chart.titles.create();
+      title.text = 'CPU History';
+      title.fontSize = 20;
+      const self = this;
+      setTimeout(() => {
+        self.cpuHistoryLoading = false;
+      }, 1000);
     },
     generateRAMHistory() {
+      am4core.useTheme(am4themes_dark);
       const chart = am4core.create('ramhistory', am4charts.XYChart);
 
       const ramData = [];
@@ -579,7 +734,7 @@ export default {
       series.dataFields.dateX = 'time';
       series.dataFields.valueY = 'bamf';
       series.tooltipText = 'Bamf [bold]{valueY.value}[/]';
-      series.tooltip.background.fill = am4core.color('#FFF');
+      series.tooltip.background.fill = am4core.color('#000');
       series.tooltip.getStrokeFromObject = true;
       series.tooltip.background.strokeWidth = 3;
       series.tooltip.getFillFromObject = false;
@@ -592,7 +747,7 @@ export default {
       series2.dataFields.dateX = 'time';
       series2.dataFields.valueY = 'super';
       series2.tooltipText = 'Super [bold]{valueY.value}[/]';
-      series2.tooltip.background.fill = am4core.color('#FFF');
+      series2.tooltip.background.fill = am4core.color('#000');
       series2.tooltip.getFillFromObject = false;
       series2.tooltip.getStrokeFromObject = true;
       series2.tooltip.background.strokeWidth = 3;
@@ -606,7 +761,7 @@ export default {
       series3.dataFields.dateX = 'time';
       series3.dataFields.valueY = 'basic';
       series3.tooltipText = 'Basic [bold]{valueY.value}[/]';
-      series3.tooltip.background.fill = am4core.color('#FFF');
+      series3.tooltip.background.fill = am4core.color('#000');
       series3.tooltip.getFillFromObject = false;
       series3.tooltip.getStrokeFromObject = true;
       series3.tooltip.background.strokeWidth = 3;
@@ -622,8 +777,16 @@ export default {
       // Add a legend
       chart.legend = new am4charts.Legend();
       chart.legend.position = 'top';
+      const title = chart.titles.create();
+      title.text = 'RAM History';
+      title.fontSize = 20;
+      const self = this;
+      setTimeout(() => {
+        self.ramHistoryLoading = false;
+      }, 1000);
     },
     generateSSDHistory() {
+      am4core.useTheme(am4themes_dark);
       const chart = am4core.create('ssdhistory', am4charts.XYChart);
 
       const ssdData = [];
@@ -650,7 +813,7 @@ export default {
       series.dataFields.dateX = 'time';
       series.dataFields.valueY = 'bamf';
       series.tooltipText = 'Bamf [bold]{valueY.value}[/]';
-      series.tooltip.background.fill = am4core.color('#FFF');
+      series.tooltip.background.fill = am4core.color('#000');
       series.tooltip.getStrokeFromObject = true;
       series.tooltip.background.strokeWidth = 3;
       series.tooltip.getFillFromObject = false;
@@ -663,7 +826,7 @@ export default {
       series2.dataFields.dateX = 'time';
       series2.dataFields.valueY = 'super';
       series2.tooltipText = 'Super [bold]{valueY.value}[/]';
-      series2.tooltip.background.fill = am4core.color('#FFF');
+      series2.tooltip.background.fill = am4core.color('#000');
       series2.tooltip.getFillFromObject = false;
       series2.tooltip.getStrokeFromObject = true;
       series2.tooltip.background.strokeWidth = 3;
@@ -677,7 +840,7 @@ export default {
       series3.dataFields.dateX = 'time';
       series3.dataFields.valueY = 'basic';
       series3.tooltipText = 'Basic [bold]{valueY.value}[/]';
-      series3.tooltip.background.fill = am4core.color('#FFF');
+      series3.tooltip.background.fill = am4core.color('#000');
       series3.tooltip.getFillFromObject = false;
       series3.tooltip.getStrokeFromObject = true;
       series3.tooltip.background.strokeWidth = 3;
@@ -693,8 +856,16 @@ export default {
       // Add a legend
       chart.legend = new am4charts.Legend();
       chart.legend.position = 'top';
+      const title = chart.titles.create();
+      title.text = 'SSD History';
+      title.fontSize = 20;
+      const self = this;
+      setTimeout(() => {
+        self.ssdHistoryLoading = false;
+      }, 1000);
     },
     generateFluxHistory() {
+      am4core.useTheme(am4themes_dark);
       const chart = am4core.create('fluxhistory', am4charts.XYChart);
 
       const fluxData = [];
@@ -721,7 +892,7 @@ export default {
       series.dataFields.dateX = 'time';
       series.dataFields.valueY = 'bamf';
       series.tooltipText = 'Bamf [bold]{valueY.value}[/]';
-      series.tooltip.background.fill = am4core.color('#FFF');
+      series.tooltip.background.fill = am4core.color('#000');
       series.tooltip.getStrokeFromObject = true;
       series.tooltip.background.strokeWidth = 3;
       series.tooltip.getFillFromObject = false;
@@ -734,7 +905,7 @@ export default {
       series2.dataFields.dateX = 'time';
       series2.dataFields.valueY = 'super';
       series2.tooltipText = 'Super [bold]{valueY.value}[/]';
-      series2.tooltip.background.fill = am4core.color('#FFF');
+      series2.tooltip.background.fill = am4core.color('#000');
       series2.tooltip.getFillFromObject = false;
       series2.tooltip.getStrokeFromObject = true;
       series2.tooltip.background.strokeWidth = 3;
@@ -748,7 +919,7 @@ export default {
       series3.dataFields.dateX = 'time';
       series3.dataFields.valueY = 'basic';
       series3.tooltipText = 'Basic [bold]{valueY.value}[/]';
-      series3.tooltip.background.fill = am4core.color('#FFF');
+      series3.tooltip.background.fill = am4core.color('#000');
       series3.tooltip.getFillFromObject = false;
       series3.tooltip.getStrokeFromObject = true;
       series3.tooltip.background.strokeWidth = 3;
@@ -764,13 +935,20 @@ export default {
       // Add a legend
       chart.legend = new am4charts.Legend();
       chart.legend.position = 'top';
+      const self = this;
+      setTimeout(() => {
+        self.fluxHistoryLoading = false;
+      }, 1000);
     },
     generateFluxPieChart() {
+      am4core.useTheme(am4themes_dark);
       // Create chart instance
       const chart = am4core.create('currentNodesChart', am4charts.PieChart);
 
       const timePoints = Object.keys(this.fluxHistoryStats);
       const max = Math.max(...timePoints);
+
+      const total = this.fluxHistoryStats[max].bamf + this.fluxHistoryStats[max].super + this.fluxHistoryStats[max].basic;
 
       // Add data
       chart.data = [
@@ -790,16 +968,129 @@ export default {
 
       // Add and configure Series
       const pieSeries = chart.series.push(new am4charts.PieSeries());
-      pieSeries.dataFields.value = 'value';
-      pieSeries.dataFields.category = 'type';
+      // Let's cut a hole in our Pie chart the size of 30% the radius
+      chart.innerRadius = am4core.percent(30);
+
+      // Put a thick white border around each Slice
       pieSeries.slices.template.stroke = am4core.color('#fff');
       pieSeries.slices.template.strokeWidth = 2;
       pieSeries.slices.template.strokeOpacity = 1;
+
+      pieSeries.alignLabels = false;
+      pieSeries.labels.template.bent = false;
+      pieSeries.labels.template.radius = 3;
+      pieSeries.labels.template.padding(0, 0, 0, 0);
+
+      pieSeries.ticks.template.disabled = true;
+
+      // Create a base filter effect (as if it's not there) for the hover to return to
+      const shadow = pieSeries.slices.template.filters.push(new am4core.DropShadowFilter());
+      shadow.opacity = 0;
+
+      // Create hover state
+      const hoverState = pieSeries.slices.template.states.getKey('hover'); // normally we have to create the hover state, in this case it already exists
+
+      // Slightly shift the shadow and make it more prominent on hover
+      const hoverShadow = hoverState.filters.push(new am4core.DropShadowFilter());
+      hoverShadow.opacity = 0.7;
+      hoverShadow.blur = 5;
+
+      // Add a legend
+      chart.legend = new am4charts.Legend();
+
+      pieSeries.dataFields.value = 'value';
+      pieSeries.dataFields.category = 'type';
 
       // This creates initial animation
       pieSeries.hiddenState.properties.opacity = 1;
       pieSeries.hiddenState.properties.endAngle = -90;
       pieSeries.hiddenState.properties.startAngle = -90;
+      const title = chart.titles.create();
+      title.text = `Flux Nodes: ${total}`;
+      title.fontSize = 20;
+      const self = this;
+      setTimeout(() => {
+        self.currentNodesChartLoading = false;
+      }, 1000);
+    },
+    generatelockedSupplyPercList() {
+      am4core.useTheme(am4themes_dark);
+      // Create chart instance
+      const chart = am4core.create('lockedSupplyPercChart', am4charts.PieChart);
+
+      const timePoints = Object.keys(this.fluxHistoryStats);
+      const max = Math.max(...timePoints);
+      const basicS = this.fluxHistoryStats[max].basic * 10000;
+      const superS = this.fluxHistoryStats[max].super * 25000;
+      const bamfS = this.fluxHistoryStats[max].bamf * 100000;
+
+      const total = basicS + superS + bamfS;
+
+      // Add data
+      chart.data = [
+        {
+          type: 'Bamf ',
+          value: bamfS,
+        },
+        {
+          type: 'Super',
+          value: superS,
+        },
+        {
+          type: 'Basic',
+          value: basicS,
+        },
+      ];
+
+      // Add and configure Series
+      const pieSeries = chart.series.push(new am4charts.PieSeries());
+      // Let's cut a hole in our Pie chart the size of 30% the radius
+      chart.innerRadius = am4core.percent(30);
+
+      // Put a thick white border around each Slice
+      pieSeries.slices.template.stroke = am4core.color('#fff');
+      pieSeries.slices.template.strokeWidth = 2;
+      pieSeries.slices.template.strokeOpacity = 1;
+
+      pieSeries.alignLabels = false;
+      pieSeries.labels.template.bent = false;
+      pieSeries.labels.template.radius = 3;
+      pieSeries.labels.template.padding(0, 0, 0, 0);
+
+      pieSeries.ticks.template.disabled = true;
+
+      // Create a base filter effect (as if it's not there) for the hover to return to
+      const shadow = pieSeries.slices.template.filters.push(new am4core.DropShadowFilter());
+      shadow.opacity = 0;
+
+      // Create hover state
+      const hoverState = pieSeries.slices.template.states.getKey('hover'); // normally we have to create the hover state, in this case it already exists
+
+      // Slightly shift the shadow and make it more prominent on hover
+      const hoverShadow = hoverState.filters.push(new am4core.DropShadowFilter());
+      hoverShadow.opacity = 0.7;
+      hoverShadow.blur = 5;
+
+      // Add a legend
+      chart.legend = new am4charts.Legend();
+
+      pieSeries.dataFields.value = 'value';
+      pieSeries.dataFields.category = 'type';
+
+      // This creates initial animation
+      pieSeries.hiddenState.properties.opacity = 1;
+      pieSeries.hiddenState.properties.endAngle = -90;
+      pieSeries.hiddenState.properties.startAngle = -90;
+      const title = chart.titles.create();
+      title.text = `Locked Supply: ${this.beautifyValue(total)}`;
+      title.fontSize = 20;
+      const self = this;
+      setTimeout(() => {
+        self.supplyLoading = false;
+      }, 1000);
+    },
+    beautifyValue(value) {
+      return value.toString().replace(/(\d)(?=(\d{3})+(?!\d))/g, '$1,');
     },
   },
 };
@@ -856,7 +1147,8 @@ export default {
 #ramhistory,
 #ssdhistory,
 #fluxhistory,
-#currentNodesChart {
+#currentNodesChart,
+#lockedSupplyPercChart {
   width: 100%;
   height: 300px;
 }
