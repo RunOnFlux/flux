@@ -138,11 +138,6 @@ describe('checkHWParameters', () => {
       "repotag": "yurinnick/folding-at-home:latest",
       "repotagB": "yurinnick/folding-at-home:latestaaa",
     };
-    const type = 'zelappregister';
-    const version = 1;
-    const timestamp = 1592988806887
-    const dataToSign = 'zelappregister1{"version":1,"name":"FoldingAtHome","description":"Folding @ Home is cool :)","repotag":"yurinnick/folding-at-home:latest","owner":"1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC","port":30001,"enviromentParameters":["USER=foldingUser","TEAM=262156","ENABLE_GPU=false","ENABLE_SMP=true"],"commands":["--allow","0/0","--web-allow","0/0"],"containerPort":7396,"containerData":"/config","cpu":0.5,"ram":500,"hdd":5,"tiered":true,"cpubasic":0.5,"cpusuper":1,"cpubamf":2,"rambasic":500,"ramsuper":1000,"rambamf":2000,"hddbasic":5,"hddsuper":5,"hddbamf":5}1592988806887';
-    const signature = 'HxgaYStMPP/Als06OmDJltVyp/7bcV8mEjwXictlgZKnTQJoxf0eIA/np2q6OSrkQx6IB1ksiS+71uYEOIHrFvw=';
     const repA = await appService.verifyRepository(fluxAppSpecs.repotag);
     expect(repA).to.be.equal(true);
     const repB = await appService.verifyRepository(fluxAppSpecs.repotagB).catch((error) => {
@@ -188,11 +183,11 @@ describe('checkHWParameters', () => {
       "hddsuper": 5,
       "hddbamf": 5
     };
-    const type = 'zelappregister';
+    const type = 'fluxappregister';
     const version = 1;
     const timestamp = 1592988806887
-    const signature = 'HxgaYStMPP/Als06OmDJltVyp/7bcV8mEjwXictlgZKnTQJoxf0eIA/np2q6OSrkQx6IB1ksiS+71uYEOIHrFvw=';
-    const messageHash = 'd77a4ac4580391fb1122e43cc32d5899eeb1ca655f6bf11d0ef2639a4cf2cd94'
+    const signature = 'HzHMIFf6oiHJYb8NFTZmF/Za7w14FYidyd5CjM8N11UuI4lG7lbkldgSBpYK9QY6vYct5pZjJSupsD5P0puvF00=';
+    const messageHash = 'cd11811818b92645e52c1e9bef690aaad65f5b796cf00e8cfb29b12956c38949'
     const message = type + version + JSON.stringify(fluxAppSpecs) + timestamp + signature;
     expect(await appService.messageHash(message)).to.be.equal(messageHash);
   });
@@ -233,11 +228,11 @@ describe('checkHWParameters', () => {
       "hddsuper": 5,
       "hddbamf": 5
     };
-    const type = 'zelappregister';
+    const type = 'fluxappregister';
     const version = 1;
     const timestamp = 1592988806887
-    const signature = 'HxgaYStMPP/Als06OmDJltVyp/7bcV8mEjwXictlgZKnTQJoxf0eIA/np2q6OSrkQx6IB1ksiS+71uYEOIHrFvw=';
-    const messageHash = 'd77a4ac4580391fb1122e43cc32d5899eeb1ca655f6bf11d0ef2639a4cf2cd94';
+    const signature = 'HzHMIFf6oiHJYb8NFTZmF/Za7w14FYidyd5CjM8N11UuI4lG7lbkldgSBpYK9QY6vYct5pZjJSupsD5P0puvF00=';
+    const messageHash = 'cd11811818b92645e52c1e9bef690aaad65f5b796cf00e8cfb29b12956c38949';
     const message =  {
       type, 
       version,
@@ -285,10 +280,12 @@ describe('checkHWParameters', () => {
       "hddsuper": 5,
       "hddbamf": 5
     };
-    const type = 'zelappregister';
+    const type = 'fluxappregister';
     const version = 1;
     const timestamp = 1592988806887
-    const signature = 'HxgaYStMPP/Als06OmDJltVyp/7bcV8mEjwXictlgZKnTQJoxf0eIA/np2q6OSrkQx6IB1ksiS+71uYEOIHrFvw=';
+    const messageToVerify = type + version + JSON.stringify(fluxAppSpecs) + timestamp;
+    // console.log(messageToVerify);
+    const signature = 'HzHMIFf6oiHJYb8NFTZmF/Za7w14FYidyd5CjM8N11UuI4lG7lbkldgSBpYK9QY6vYct5pZjJSupsD5P0puvF00=';
     expect(await appService.verifyAppMessageSignature(type, version, fluxAppSpecs, timestamp, signature)).to.be.equal(true);
   });
 });

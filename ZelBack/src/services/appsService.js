@@ -2836,14 +2836,14 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
   myCache.set(serviceHelper.ensureString(message), message);
   // data shall already be verified by the broadcasting node. But verify all again.
   if (furtherVerification) {
-    if (message.type === 'zelappregister') {
+    if (message.type === 'zelappregister' || message.type === 'fluxappregister') {
       // missing check for port?
       await verifyAppSpecifications(message.zelAppSpecifications);
       await verifyAppHash(message);
       await ensureCorrectApplicationPort(message.zelAppSpecifications);
       await checkApplicationNameConflicts(message.zelAppSpecifications);
       await verifyAppMessageSignature(message.type, message.version, message.zelAppSpecifications, message.timestamp, message.signature);
-    } else if (message.type === 'zelappupdate') {
+    } else if (message.type === 'zelappupdate' || message.type === 'fluxappupdate') {
       // stadard verifications
       await verifyAppSpecifications(message.zelAppSpecifications);
       await verifyAppHash(message);
@@ -2880,7 +2880,7 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
   const database = db.db(config.database.appsglobal.database);
   const newMessage = {
     zelAppSpecifications: message.zelAppSpecifications,
-    type: message.type, // shall be zelappregister, zelappupdate
+    type: message.type, // shall be fluxappregister, fluxappupdate
     version: message.version,
     hash: message.hash,
     timestamp: message.timestamp,
@@ -2988,7 +2988,7 @@ async function registerAppGlobalyApi(req, res) {
       if (!zelAppSpecification || !timestamp || !signature || !messageType || !typeVersion) {
         throw new Error('Incomplete message received. Check if specifications, type, version, timestamp and siganture are provided.');
       }
-      if (messageType !== 'zelappregister') {
+      if (messageType !== 'zelappregister' && messageType !== 'fluxappregister') {
         throw new Error('Invalid type of message');
       }
       if (typeVersion !== 1) {
@@ -3189,7 +3189,7 @@ async function updateAppGlobalyApi(req, res) {
       if (!zelAppSpecification || !timestamp || !signature || !messageType || !typeVersion) {
         throw new Error('Incomplete message received. Check if specifications, timestamp, type, version and siganture are provided.');
       }
-      if (messageType !== 'zelappupdate') {
+      if (messageType !== 'zelappupdate' && messageType !== 'fluxappupdate') {
         throw new Error('Invalid type of message');
       }
       if (typeVersion !== 1) {
@@ -3452,7 +3452,7 @@ async function requestAppMessage(hash) {
   // peer responds with data from permanent database or temporary database. If does not have it requests further
   console.log(hash);
   const message = {
-    type: 'zelapprequest',
+    type: 'fluxapprequest',
     version: 1,
     hash,
   };
@@ -3665,7 +3665,7 @@ async function appHashHasMessage(hash) {
 }
 
 // hash of app information, txid it was in, height of blockchain containing the txid
-// handles zelappregister type and zelappupdate type.
+// handles fluxappregister type and fluxappupdate type.
 async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
   try {
     const randomDelay = Math.floor((Math.random() * 1280)) + 420;
@@ -3693,7 +3693,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
         // await update zelapphashes that we already have it stored
         await appHashHasMessage(hash);
         // disregard other types
-        if (tempMessage.type === 'zelappregister') {
+        if (tempMessage.type === 'zelappregister' || tempMessage.type === 'fluxappregister') {
           // check if value is optimal or higher
           let appPrice = appPricePerMonth(tempMessage.zelAppSpecifications);
           if (appPrice < 1) {
@@ -3707,7 +3707,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
             // do not await this
             updateAppSpecifications(updateForSpecifications);
           } // else do nothing notify its underpaid?
-        } else if (tempMessage.type === 'zelappupdate') {
+        } else if (tempMessage.type === 'zelappupdate' || tempMessage.type === 'fluxappupdate') {
           // zelappSpecifications.name as identifier
           const db = serviceHelper.databaseConnection();
           const database = db.db(config.database.appsglobal.database);
@@ -4489,7 +4489,7 @@ async function checkAndNotifyPeersOfRunningApps() {
         // we can distinguish pure local apps from global with hash and height
         const broadcastedAt = new Date().getTime();
         const newAppRunningMessage = {
-          type: 'zelapprunning',
+          type: 'zelapprunning', // todo rename to fluxapprunning
           version: 1,
           name: application.name,
           hash: application.hash, // hash of application specifics that are running

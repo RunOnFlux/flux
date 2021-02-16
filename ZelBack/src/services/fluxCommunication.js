@@ -485,11 +485,11 @@ function handleIncomingConnection(ws, req, expressWS) {
       if (timestampOK === true) {
         try {
           const msgObj = serviceHelper.ensureObject(msg);
-          if (msgObj.data.type === 'zelappregister' || msgObj.data.type === 'zelappupdate') {
+          if (msgObj.data.type === 'zelappregister' || msgObj.data.type === 'zelappupdate' || msgObj.data.type === 'fluxappregister' || msgObj.data.type === 'fluxappupdate') {
             handleAppMessages(msgObj, peer.ip);
-          } else if (msgObj.data.type === 'zelapprequest') {
+          } else if (msgObj.data.type === 'zelapprequest' || msgObj.data.type === 'fluxapprequest') {
             respondWithAppMessage(msgObj, ws);
-          } else if (msgObj.data.type === 'zelapprunning') {
+          } else if (msgObj.data.type === 'zelapprunning' || msgObj.data.type === 'fluxapprunning') {
             handleAppRunningMessage(msgObj, ws);
           } else if (msgObj.data.type === 'HeartBeat' && msgObj.data.message === 'ping') { // we know that data exists
             const newMessage = msgObj.data;
@@ -784,11 +784,11 @@ async function initiateAndHandleConnection(ip) {
       let conIP = url.split('/')[2];
       conIP = conIP.split(`:${config.server.apiport}`).join('');
       const msgObj = serviceHelper.ensureObject(evt.data);
-      if (msgObj.data.type === 'zelappregister' || msgObj.data.type === 'zelappupdate') {
+      if (msgObj.data.type === 'zelappregister' || msgObj.data.type === 'zelappupdate' || msgObj.data.type === 'fluxappregister' || msgObj.data.type === 'fluxappupdate') {
         handleAppMessages(msgObj, conIP);
-      } else if (msgObj.data.type === 'zelapprequest') {
+      } else if (msgObj.data.type === 'zelapprequest' || msgObj.data.type === 'fluxapprequest') {
         respondWithAppMessage(msgObj, websocket);
-      } else if (msgObj.data.type === 'zelapprunning') {
+      } else if (msgObj.data.type === 'zelapprunning' || msgObj.data.type === 'fluxapprunning') {
         handleAppRunningMessage(msgObj, websocket);
       } else if (msgObj.data.type === 'HeartBeat' && msgObj.data.message === 'pong') {
         const newerTimeStamp = Date.now(); // ms, get a bit newer time that has passed verification of broadcast
