@@ -2980,13 +2980,13 @@ async function registerAppGlobalyApi(req, res) {
       // Note. Actually signature, timestamp is not needed. But we require it only to verify that user indeed has access to the private key of the owner zelid.
       // name and port HAVE to be unique for application. Check if they dont exist in global database
       // first lets check if all fields are present and have propper format excpet tiered and teired specifications and those can be ommited
-      let { zelAppSpecification } = processedBody;
+      let { appSpecification } = processedBody;
       let { timestamp } = processedBody;
       let { signature } = processedBody;
       let messageType = processedBody.type; // determines how data is treated in the future
       let typeVersion = processedBody.version; // further determines how data is treated in the future
-      if (!zelAppSpecification || !timestamp || !signature || !messageType || !typeVersion) {
-        throw new Error('Incomplete message received. Check if specifications, type, version, timestamp and siganture are provided.');
+      if (!appSpecification || !timestamp || !signature || !messageType || !typeVersion) {
+        throw new Error('Incomplete message received. Check if appSpecification, type, version, timestamp and siganture are provided.');
       }
       if (messageType !== 'zelappregister' && messageType !== 'fluxappregister') {
         throw new Error('Invalid type of message');
@@ -2994,26 +2994,26 @@ async function registerAppGlobalyApi(req, res) {
       if (typeVersion !== 1) {
         throw new Error('Invalid version of message');
       }
-      zelAppSpecification = serviceHelper.ensureObject(zelAppSpecification);
+      appSpecification = serviceHelper.ensureObject(appSpecification);
       timestamp = serviceHelper.ensureNumber(timestamp);
       signature = serviceHelper.ensureString(signature);
       messageType = serviceHelper.ensureString(messageType);
       typeVersion = serviceHelper.ensureNumber(typeVersion);
 
-      let { version } = zelAppSpecification; // shall be 1
-      let { name } = zelAppSpecification;
-      let { description } = zelAppSpecification;
-      let { repotag } = zelAppSpecification;
-      let { owner } = zelAppSpecification;
-      let { port } = zelAppSpecification;
-      let { enviromentParameters } = zelAppSpecification;
-      let { commands } = zelAppSpecification;
-      let { containerPort } = zelAppSpecification;
-      let { containerData } = zelAppSpecification;
-      let { cpu } = zelAppSpecification;
-      let { ram } = zelAppSpecification;
-      let { hdd } = zelAppSpecification;
-      const { tiered } = zelAppSpecification;
+      let { version } = appSpecification; // shall be 1
+      let { name } = appSpecification;
+      let { description } = appSpecification;
+      let { repotag } = appSpecification;
+      let { owner } = appSpecification;
+      let { port } = appSpecification;
+      let { enviromentParameters } = appSpecification;
+      let { commands } = appSpecification;
+      let { containerPort } = appSpecification;
+      let { containerData } = appSpecification;
+      let { cpu } = appSpecification;
+      let { ram } = appSpecification;
+      let { hdd } = appSpecification;
+      const { tiered } = appSpecification;
 
       // check if signature of received data is correct
       if (!version || !name || !description || !repotag || !owner || !port || !enviromentParameters || !commands || !containerPort || !containerData || !cpu || !ram || !hdd) {
@@ -3085,15 +3085,15 @@ async function registerAppGlobalyApi(req, res) {
       };
 
       if (tiered) {
-        let { cpubasic } = zelAppSpecification;
-        let { cpusuper } = zelAppSpecification;
-        let { cpubamf } = zelAppSpecification;
-        let { rambasic } = zelAppSpecification;
-        let { ramsuper } = zelAppSpecification;
-        let { rambamf } = zelAppSpecification;
-        let { hddbasic } = zelAppSpecification;
-        let { hddsuper } = zelAppSpecification;
-        let { hddbamf } = zelAppSpecification;
+        let { cpubasic } = appSpecification;
+        let { cpusuper } = appSpecification;
+        let { cpubamf } = appSpecification;
+        let { rambasic } = appSpecification;
+        let { ramsuper } = appSpecification;
+        let { rambamf } = appSpecification;
+        let { hddbasic } = appSpecification;
+        let { hddsuper } = appSpecification;
+        let { hddbamf } = appSpecification;
         if (!cpubasic || !cpusuper || !cpubamf || !rambasic || !ramsuper || !rambamf || !hddbasic || !hddsuper || !hddbamf) {
           throw new Error('Flux App was requested as tiered setup but specifications are missing');
         }
@@ -3181,13 +3181,13 @@ async function updateAppGlobalyApi(req, res) {
       // Note. Actually signature, timestamp is not needed. But we require it only to verify that user indeed has access to the private key of the owner zelid.
       // name and port HAVE to be unique for application. Check if they dont exist in global database
       // first lets check if all fields are present and have propper format excpet tiered and teired specifications and those can be ommited
-      let { zelAppSpecification } = processedBody;
+      let { appSpecification } = processedBody;
       let { timestamp } = processedBody;
       let { signature } = processedBody;
       let messageType = processedBody.type; // determines how data is treated in the future
       let typeVersion = processedBody.version; // further determines how data is treated in the future
-      if (!zelAppSpecification || !timestamp || !signature || !messageType || !typeVersion) {
-        throw new Error('Incomplete message received. Check if specifications, timestamp, type, version and siganture are provided.');
+      if (!appSpecification || !timestamp || !signature || !messageType || !typeVersion) {
+        throw new Error('Incomplete message received. Check if appSpecification, timestamp, type, version and siganture are provided.');
       }
       if (messageType !== 'zelappupdate' && messageType !== 'fluxappupdate') {
         throw new Error('Invalid type of message');
@@ -3195,26 +3195,26 @@ async function updateAppGlobalyApi(req, res) {
       if (typeVersion !== 1) {
         throw new Error('Invalid version of message');
       }
-      zelAppSpecification = serviceHelper.ensureObject(zelAppSpecification);
+      appSpecification = serviceHelper.ensureObject(appSpecification);
       timestamp = serviceHelper.ensureNumber(timestamp);
       signature = serviceHelper.ensureString(signature);
       messageType = serviceHelper.ensureString(messageType);
       typeVersion = serviceHelper.ensureNumber(typeVersion);
 
-      let { version } = zelAppSpecification; // shall be 1
-      let { name } = zelAppSpecification;
-      let { description } = zelAppSpecification;
-      let { repotag } = zelAppSpecification;
-      let { owner } = zelAppSpecification;
-      let { port } = zelAppSpecification;
-      let { enviromentParameters } = zelAppSpecification;
-      let { commands } = zelAppSpecification;
-      let { containerPort } = zelAppSpecification;
-      let { containerData } = zelAppSpecification;
-      let { cpu } = zelAppSpecification;
-      let { ram } = zelAppSpecification;
-      let { hdd } = zelAppSpecification;
-      const { tiered } = zelAppSpecification;
+      let { version } = appSpecification; // shall be 1
+      let { name } = appSpecification;
+      let { description } = appSpecification;
+      let { repotag } = appSpecification;
+      let { owner } = appSpecification;
+      let { port } = appSpecification;
+      let { enviromentParameters } = appSpecification;
+      let { commands } = appSpecification;
+      let { containerPort } = appSpecification;
+      let { containerData } = appSpecification;
+      let { cpu } = appSpecification;
+      let { ram } = appSpecification;
+      let { hdd } = appSpecification;
+      const { tiered } = appSpecification;
 
       // check if signature of received data is correct
       if (!version || !name || !description || !repotag || !owner || !port || !enviromentParameters || !commands || !containerPort || !containerData || !cpu || !ram || !hdd) {
@@ -3274,15 +3274,15 @@ async function updateAppGlobalyApi(req, res) {
       };
 
       if (tiered) {
-        let { cpubasic } = zelAppSpecification;
-        let { cpusuper } = zelAppSpecification;
-        let { cpubamf } = zelAppSpecification;
-        let { rambasic } = zelAppSpecification;
-        let { ramsuper } = zelAppSpecification;
-        let { rambamf } = zelAppSpecification;
-        let { hddbasic } = zelAppSpecification;
-        let { hddsuper } = zelAppSpecification;
-        let { hddbamf } = zelAppSpecification;
+        let { cpubasic } = appSpecification;
+        let { cpusuper } = appSpecification;
+        let { cpubamf } = appSpecification;
+        let { rambasic } = appSpecification;
+        let { ramsuper } = appSpecification;
+        let { rambamf } = appSpecification;
+        let { hddbasic } = appSpecification;
+        let { hddsuper } = appSpecification;
+        let { hddbamf } = appSpecification;
         if (!cpubasic || !cpusuper || !cpubamf || !rambasic || !ramsuper || !rambamf || !hddbasic || !hddsuper || !hddbamf) {
           throw new Error('Flux App was requested as tiered setup but specifications are missing');
         }

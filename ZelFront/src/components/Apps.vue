@@ -3154,7 +3154,7 @@ export default {
       const data = {
         type: this.registrationtype,
         version: this.version,
-        zelAppSpecification: this.dataForAppRegistration,
+        appSpecification: this.dataForAppRegistration,
         timestamp: this.timestamp,
         signature: this.signature,
       };
@@ -3174,7 +3174,7 @@ export default {
       const data = {
         type: this.updatetype,
         version: this.version,
-        zelAppSpecification: this.dataForAppUpdate,
+        appSpecification: this.dataForAppUpdate,
         timestamp: this.timestamp,
         signature: this.signature,
       };
