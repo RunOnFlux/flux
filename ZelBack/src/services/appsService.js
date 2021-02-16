@@ -1098,18 +1098,18 @@ async function appsResources(req, res) {
       },
     };
     const appsResult = await serviceHelper.findInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
-    let zelAppsCpusLocked = 0;
-    let zelAppsRamLocked = 0;
-    let zelAppsHddLocked = 0;
+    let appsCpusLocked = 0;
+    let appsRamLocked = 0;
+    let appsHddLocked = 0;
     appsResult.forEach((app) => {
-      zelAppsCpusLocked += serviceHelper.ensureNumber(app.cpu) || 0;
-      zelAppsRamLocked += serviceHelper.ensureNumber(app.ram) || 0;
-      zelAppsHddLocked += serviceHelper.ensureNumber(app.hdd) || 0;
+      appsCpusLocked += serviceHelper.ensureNumber(app.cpu) || 0;
+      appsRamLocked += serviceHelper.ensureNumber(app.ram) || 0;
+      appsHddLocked += serviceHelper.ensureNumber(app.hdd) || 0;
     });
     const appsUsage = {
-      zelAppsCpusLocked,
-      zelAppsRamLocked,
-      zelAppsHddLocked,
+      zelAppsCpusLocked: appsCpusLocked,
+      zelAppsRamLocked: appsRamLocked,
+      zelAppsHddLocked: appsHddLocked,
     };
     const response = serviceHelper.createDataMessage(appsUsage);
     return res ? res.json(response) : response;
@@ -3738,7 +3738,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
             const updateForSpecifications = permanentAppMessage.zelAppSpecifications;
             updateForSpecifications.hash = permanentAppMessage.hash;
             updateForSpecifications.height = permanentAppMessage.height;
-            // object of zelAppSpecifications extended for hash and height
+            // object of appSpecifications extended for hash and height
             // do not await this
             updateAppSpecifications(updateForSpecifications);
           } // else do nothing notify its underpaid?
@@ -4207,7 +4207,7 @@ async function getApplicationLocalSpecifications(appName) {
 }
 
 async function getApplicationSpecifications(appName) {
-  // zelAppSpecs: {
+  // appSpecs: {
   //   version: 1,
   //   name: 'FoldingAtHomeB',
   //   description: 'Folding @ Home is cool :)',

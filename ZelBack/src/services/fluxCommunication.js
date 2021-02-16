@@ -404,10 +404,10 @@ async function respondWithAppMessage(message, ws) {
     const permanentMessage = await appsService.checkAppMessageExistence(message.data.hash);
     if (permanentMessage) {
       // message exists in permanent storage. Create a message and broadcast it to the fromIP peer
-      // const permanentZelAppMessage = {
+      // const permanentAppMessage = {
       //   type: messageType,
       //   version: typeVersion,
-      //   zelAppSpecifications: zelAppSpecFormatted,
+      //   zelAppSpecifications: appSpecFormatted,
       //   hash: messageHASH,
       //   timestamp,
       //   signature,

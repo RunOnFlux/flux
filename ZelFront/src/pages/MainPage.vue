@@ -186,7 +186,7 @@ export default {
             if (response.data.data.name === 'MongoNetworkError') {
               this.errorMessage = 'Failed to connect to MongoDB.';
             } else if (JSON.stringify(response.data.data).includes('CONN')) {
-              // we can fix zelcash, zelbench problems. But cannot fix mongo, docker issues (docker may be possible to fix in the future, mongo not)...
+              // we can fix daemon, benchmark problems. But cannot fix mongo, docker issues (docker may be possible to fix in the future, mongo not)...
               this.getEmergencyLoginPhrase();
             } else {
               this.errorMessage = response.data.data.message;
