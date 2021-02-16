@@ -135,6 +135,84 @@
           <div id="providerPie" />
         </el-tab-pane>
         <el-tab-pane
+          label="Economics"
+          name="economics"
+        >
+          <div id="priceChart" />
+          <br><br>
+          <div class="gridThree">
+            <div>
+              <h2>Basic Rewards</h2>
+              <br><br>
+              <h3>per day</h3>
+              <h4>{{ beautifyValue(basicWeek / 7 ) }} FLUX</h4>
+              <h4>{{ beautifyValue(basicUSDRewardWeek / 7) }} USD</h4>
+              <h4 style="visibility: hidden">No KDA available</h4>
+              <br><br>
+              <h3>per week</h3>
+              <h4>{{ beautifyValue(basicWeek) }} FLUX</h4>
+              <h4>{{ beautifyValue(basicUSDRewardWeek) }} USD</h4>
+              <h4 style="visibility: hidden">No KDA available</h4>
+              <br><br>
+              <h3>per month</h3>
+              <h4>{{ beautifyValue(basicWeek * 4.34812141) }} FLUX</h4>
+              <h4>{{ beautifyValue(basicUSDRewardWeek * 4.34812141) }} USD</h4>
+              <h4 style="visibility: hidden">No KDA available</h4>
+              <br><br>
+              <h3>Profitability per month</h3>
+              <h4>Node only: {{ beautifyValue(superUSDRewardWeek * 4.34812141 - 3) }} USD</h4>
+              <h4 style="visibility: hidden">No KDA available</h4>
+              <br>
+            </div>
+            <div>
+              <h2>Super Rewards</h2>
+              <br><br>
+              <h3>per day</h3>
+              <h4>{{ beautifyValue(superWeek / 7) }} FLUX ~ {{ beautifyValue(superUSDRewardWeek / 7) }} USD</h4>
+              <h4>{{ beautifyValue(kdaSuperWeek / 7) }} KDA ~ {{ beautifyValue(superUSDKDARewardWeek / 7) }} USD</h4>
+              <h4>{{ beautifyValue((superUSDRewardWeek / 7) + (superUSDKDARewardWeek / 7)) }} USD</h4>
+              <br><br>
+              <h3>per week</h3>
+              <h4>{{ beautifyValue(superWeek) }} FLUX ~ {{ beautifyValue(superUSDRewardWeek) }} USD</h4>
+              <h4>{{ beautifyValue(kdaSuperWeek) }} KDA ~ {{ beautifyValue(superUSDKDARewardWeek) }} USD</h4>
+              <h4>{{ beautifyValue((superUSDRewardWeek) + (superUSDKDARewardWeek)) }} USD</h4>
+              <br><br>
+              <h3>per month</h3>
+              <h4>{{ beautifyValue(superWeek * 4.34812141) }} FLUX ~ {{ beautifyValue(superUSDRewardWeek * 4.34812141) }} USD</h4>
+              <h4>{{ beautifyValue(kdaSuperWeek * 4.34812141) }} KDA ~ {{ beautifyValue(superUSDKDARewardWeek * 4.34812141) }} USD</h4>
+              <h4>{{ beautifyValue((superUSDRewardWeek * 4.34812141) + (superUSDKDARewardWeek * 4.34812141)) }} USD</h4>
+              <br><br>
+              <h3>Profitability per month</h3>
+              <h4>Node only: {{ beautifyValue(superUSDRewardWeek * 4.34812141 - 6) }} USD</h4>
+              <h4>With KDA: {{ beautifyValue((superUSDRewardWeek * 4.34812141) + (superUSDKDARewardWeek * 4.34812141) - 6) }} USD</h4>
+              <br>
+            </div>
+            <div>
+              <h2>Bamf Rewards</h2>
+              <br><br>
+              <h3>per day</h3>
+              <h4>{{ beautifyValue(bamfWeek / 7 ) }} FLUX ~ {{ beautifyValue(bamfUSDRewardWeek / 7) }} USD</h4>
+              <h4>{{ beautifyValue(kdaBamfWeek / 7 ) }} KDA ~ {{ beautifyValue(bamfUSDKDARewardWeek / 7) }} USD</h4>
+              <h4>{{ beautifyValue((bamfUSDRewardWeek / 7) + (bamfUSDKDARewardWeek / 7)) }} USD</h4>
+              <br><br>
+              <h3>per week</h3>
+              <h4>{{ beautifyValue(bamfWeek) }} FLUX ~ {{ beautifyValue(bamfUSDRewardWeek) }} USD</h4>
+              <h4>{{ beautifyValue(kdaBamfWeek ) }} KDA ~ {{ beautifyValue(bamfUSDKDARewardWeek) }} USD</h4>
+              <h4>{{ beautifyValue((bamfUSDRewardWeek) + (bamfUSDKDARewardWeek)) }} USD</h4>
+              <br><br>
+              <h3>per month</h3>
+              <h4>{{ beautifyValue(bamfWeek * 4.34812141) }} FLUX ~ {{ beautifyValue(bamfUSDRewardWeek * 4.34812141) }} USD</h4>
+              <h4>{{ beautifyValue(kdaBamfWeek * 4.34812141) }} KDA ~ {{ beautifyValue(bamfUSDKDARewardWeek * 4.34812141) }} USD</h4>
+              <h4>{{ beautifyValue((bamfUSDRewardWeek * 4.34812141) + (bamfUSDKDARewardWeek * 4.34812141)) }} USD</h4>
+              <br><br>
+              <h3>Profitability per month</h3>
+              <h4>Node only: {{ beautifyValue(bamfUSDRewardWeek * 4.34812141 - 18.1) }} USD</h4>
+              <h4>With KDA: {{ beautifyValue((bamfUSDRewardWeek * 4.34812141) + (bamfUSDKDARewardWeek * 4.34812141) - 18.1) }} USD</h4>
+              <br>
+            </div>
+          </div>
+        </el-tab-pane>
+        <el-tab-pane
           label="List"
           name="nodes"
         >
@@ -298,6 +376,17 @@ export default {
       ssdHistoryLoading: true,
       ramHistoryLoading: true,
       cpuHistoryLoading: true,
+      historicalPrices: [],
+      basicWeek: 0,
+      superWeek: 0,
+      bamfWeek: 0,
+      basicUSDRewardWeek: 0,
+      superUSDRewardWeek: 0,
+      bamfUSDRewardWeek: 0,
+      superUSDKDARewardWeek: 0,
+      bamfUSDKDARewardWeek: 0,
+      kdaSuperWeek: 0,
+      kdaBamfWeek: 0,
     };
   },
   computed: {
@@ -334,7 +423,6 @@ export default {
     },
     async obtainData() {
       this.getHistoryStats();
-      this.getRates();
       this.getFluxList();
       this.getCircSupply();
     },
@@ -344,13 +432,11 @@ export default {
       this.circulatingSupply = result.data;
       this.circSupplyLoading = false;
       this.circulatingSupplyPerc = Number(((this.circulatingSupply / 210000000) * 100).toFixed(2));
-      this.getZelNodeCount();
-    },
-    async getRates() {
       this.ratesLoading = true;
-      const result = await axios.get('https://vipdrates.zelcore.io/rates');
-      this.rates = result.data;
+      const resultB = await axios.get('https://vipdrates.zelcore.io/rates');
+      this.rates = resultB.data;
       this.ratesLoading = false;
+      this.getZelNodeCount();
     },
     async getHistoryStats() {
       try {
@@ -379,6 +465,64 @@ export default {
         const supply = bamfs * 100000 + supers * 25000 + basics * 10000;
         this.lockedSupply = supply;
         this.lockedSupplyPerc = Number(((supply / this.circulatingSupply) * 100).toFixed(2));
+        this.generateEconomics(counts);
+      } catch (error) {
+        console.log(error);
+      }
+    },
+    async generateEconomics(zelnodecounts) {
+      try {
+        console.log(this.rates);
+        const bamfs = zelnodecounts['bamf-enabled'];
+        const supers = zelnodecounts['super-enabled'];
+        const basics = zelnodecounts['basic-enabled'];
+        const resKDAEligible = await axios.get('https://api.flux.zel.network/kadena/eligible/7');
+        const kdaData = resKDAEligible.data.data;
+        const kdaCoins = 5749.77;
+        const supersS = kdaData.filter((result) => result.tier === 'SUPER');
+        const bamfsS = kdaData.filter((result) => result.tier === 'BAMF');
+        const totalSupers = supersS.length;
+        const totalBamfs = bamfsS.length;
+        const overallTotal = totalSupers + (4 * totalBamfs);
+        const perSuperWeek = Number((kdaCoins / overallTotal).toFixed(4)); // KDA
+        const perBamfWeek = Number(((kdaCoins / overallTotal) * 4).toFixed(4)); // KDA
+        const perBasicNode = 2.8125;
+        const perSuperNode = 4.6875;
+        const perBamfNode = 11.25;
+        // eslint-disable-next-line no-mixed-operators
+        const basicWeek = perBasicNode * 720 * 7 / basics;
+        // eslint-disable-next-line no-mixed-operators
+        const superWeek = perSuperNode * 720 * 7 / supers;
+        // eslint-disable-next-line no-mixed-operators
+        const bamfWeek = perBamfNode * 720 * 7 / bamfs;
+        const basicUSDReward = this.getFiatRate('ZEL') * perBasicNode; // per one go
+        const superUSDReward = this.getFiatRate('ZEL') * perSuperNode; // per one go
+        const bamfUSDReward = this.getFiatRate('ZEL') * perBamfNode; // per one go
+        const superUSDKDARewardWeek = this.getFiatRate('KDA') * perSuperWeek; // per week
+        const bamfUSDKDARewardWeek = this.getFiatRate('KDA') * perBamfWeek; // per week
+        // 720 blocks per day.
+        // eslint-disable-next-line no-mixed-operators
+        const basicUSDRewardWeek = 7 * 720 * basicUSDReward / basics;
+        // eslint-disable-next-line no-mixed-operators
+        const superUSDRewardWeek = 7 * 720 * superUSDReward / supers;
+        // eslint-disable-next-line no-mixed-operators
+        const bamfUSDRewardWeek = 7 * 720 * bamfUSDReward / bamfs;
+        this.basicWeek = basicWeek;
+        this.superWeek = superWeek;
+        this.bamfWeek = bamfWeek;
+        this.basicUSDRewardWeek = basicUSDRewardWeek;
+        this.superUSDRewardWeek = superUSDRewardWeek;
+        this.bamfUSDRewardWeek = bamfUSDRewardWeek;
+        this.superUSDKDARewardWeek = superUSDKDARewardWeek;
+        this.bamfUSDKDARewardWeek = bamfUSDKDARewardWeek;
+        this.kdaSuperWeek = perSuperWeek;
+        this.kdaBamfWeek = perBamfWeek;
+
+        const self = this;
+        axios.get('https://api.coingecko.com/api/v3/coins/zelcash/market_chart?vs_currency=USD&days=30').then((res2) => {
+          self.historicalPrices = res2.data.prices.filter((a) => a[0] > 1483232400000); // min date from  January 1, 2017 1:00:00 AM
+          self.fillChartData();
+        });
       } catch (error) {
         console.log(error);
       }
@@ -1303,8 +1447,106 @@ export default {
         self.currentNodesChartLoading = false;
       }, 1000);
     },
+    processData() {
+      const data = [];
+      for (let i = 0; i < this.historicalPrices.length; i += 1) {
+        const element = this.historicalPrices[i];
+        data.push({
+          date: element[0],
+          priceFiat: element[1],
+        });
+      }
+      return data;
+    },
+    fillChartData() {
+      const fiatCode = 'USD';
+
+      am4core.useTheme(am4themes_dark);
+      const colorFiat = '#183c87';
+      // Themes end
+
+      // Create chart instance
+      const chart = am4core.create('priceChart', am4charts.XYChart);
+
+      // Create axes
+      const dateAxis = chart.xAxes.push(new am4charts.DateAxis());
+      this.dateAxis = dateAxis;
+      dateAxis.dataFields.category = 'category';
+      dateAxis.renderer.grid.template.location = 0;
+      dateAxis.dateFormatter.dateFormat = 'MM-dd-yyyy';
+      dateAxis.tooltipDateFormat = 'dd MMM yyyy,  HH:mm';
+
+      // Data
+      const data = this.processData();
+      chart.data = data;
+
+      // y Axes
+      const valueAxisFiat = chart.yAxes.push(new am4charts.ValueAxis());
+
+      //  PRICE IN FIAT
+      const series1 = chart.series.push(new am4charts.LineSeries());
+      series1.dataFields.valueY = 'priceFiat';
+      series1.dataFields.categoryX = 'date';
+      series1.name = `Price (${fiatCode})`;
+      series1.strokeWidth = 4;
+      series1.tensionX = 0.9;
+      series1.tensionY = 0.9;
+      series1.stroke = am4core.color('#ffffff');
+      series1.yAxis = valueAxisFiat;
+      series1.dataFields.dateX = 'date';
+      series1.sequencedInterpolation = false;
+      series1.defaultState.transitionDuration = 1000;
+      series1.hiddenState.transitionDuration = 1000;
+
+      const series2 = chart.series.push(new am4charts.LineSeries());
+      series2.dataFields.valueY = 'priceFiat';
+      series2.dataFields.categoryX = 'date';
+      series2.name = `Price (${fiatCode})`;
+      series2.strokeWidth = 2;
+      series2.tensionX = 0.9;
+      series2.tensionY = 0.9;
+      series2.stroke = am4core.color(colorFiat);
+      series2.tooltipText = `Price: [bold]{valueY}[/] ${fiatCode}`;
+      series2.tooltip.autoTextColor = false;
+      series2.tooltip.label.fill = am4core.color('#FFFFFF');
+      series2.tooltip.getFillFromObject = false;
+      series2.tooltip.background.fill = am4core.color(colorFiat);
+      series2.tooltip.background.fillOpacity = 0.75;
+      series2.tooltip.animationDuration = 500;
+      series2.yAxis = valueAxisFiat;
+      series2.dataFields.dateX = 'date';
+      series2.sequencedInterpolation = true;
+      series2.defaultState.transitionDuration = 500;
+      series2.hiddenState.transitionDuration = 500;
+
+      // Price at side of Chart
+      valueAxisFiat.title.text = `Price  (${fiatCode})`;
+      valueAxisFiat.renderer.line.strokeOpacity = 0.8;
+      valueAxisFiat.renderer.line.strokeWidth = 1;
+      valueAxisFiat.renderer.grid.template.disabled = true;
+      valueAxisFiat.renderer.opposite = true;
+      valueAxisFiat.min = valueAxisFiat.minZoomed;
+      valueAxisFiat.max = valueAxisFiat.maxZoomed;
+
+      chart.cursor = new am4charts.XYCursor();
+      chart.cursor.behavior = 'zoomX';
+    },
+    getFiatRate(coin) {
+      const coinRateToUse = 'USD';
+      let rateObj = this.rates[0].find((rate) => rate.code === coinRateToUse);
+      if (rateObj === undefined) {
+        rateObj = { rate: 0 };
+      }
+      let btcRateforCoin = this.rates[1][coin];
+      if (btcRateforCoin === undefined) {
+        btcRateforCoin = 0;
+      }
+      const fiatRate = rateObj.rate * btcRateforCoin;
+      return fiatRate;
+    },
     beautifyValue(value) {
-      return value.toString().replace(/(\d)(?=(\d{3})+(?!\d))/g, '$1,');
+      const fixedValue = value.toFixed(2);
+      return fixedValue.replace(/(\d)(?=(\d{3})+(?!\d))/g, '$1,');
     },
   },
 };
@@ -1351,6 +1593,11 @@ export default {
 
 #mapchart {
   width: 90%;
+  height: 60vh;
+}
+
+#priceChart {
+  width: 100%;
   height: 60vh;
 }
 
