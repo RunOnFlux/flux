@@ -128,15 +128,19 @@
           label="Map"
           name="map"
         >
-          <div id="mapchart">
-          </div>
+          <div id="mapchart" />
+          <br><br>
+          <div id="geolocationPie" />
+          <br><br>
+          <div id="providerPie" />
         </el-tab-pane>
         <el-tab-pane
           label="List"
           name="nodes"
         >
           <el-table
-            :data="fluxList"
+            :data="fluxList.filter(data => !fluxFilter || data.ip.toLowerCase().includes(fluxFilter.toLowerCase()) || data.payment_address.toLowerCase().includes(fluxFilter.toLowerCase()) || data.tier.toLowerCase().includes(fluxFilter.toLowerCase())
+             || (data.location ? data.location.country.toLowerCase().includes(fluxFilter.toLowerCase()) : false) || (data.location ? data.location.org.toLowerCase().includes(fluxFilter.toLowerCase()) : false))"
             empty-text="Flux Nodes are loading..."
             style="width: 100%"
             height="680"
@@ -201,9 +205,21 @@
               </template>
             </el-table-column>
             <el-table-column
+              align="right"
               label="Visit"
               width="120"
             >
+              <template
+                slot="header"
+                slot-scope="scope"
+              >
+                <el-input
+                  v-if="scope"
+                  v-model="fluxFilter"
+                  size="mini"
+                  placeholder="Search"
+                />
+              </template>
               <template slot-scope="scope">
                 <el-button @click="openFlux(scope.row.ip)">
                   Visit
@@ -253,6 +269,7 @@ export default {
   },
   data() {
     return {
+      fluxFilter: '',
       circulatingSupply: 0, // number
       rates: [],
       fluxList: [],
@@ -385,6 +402,8 @@ export default {
         console.log(this.fluxList);
         this.generateMap();
         this.generateResources();
+        this.generateGeographicPie();
+        this.generateProviderPie();
       } catch (error) {
         console.log(error);
       }
@@ -1000,10 +1019,12 @@ export default {
       pieSeries.slices.template.strokeWidth = 2;
       pieSeries.slices.template.strokeOpacity = 1;
 
-      pieSeries.alignLabels = false;
-      pieSeries.labels.template.bent = false;
-      pieSeries.labels.template.radius = 3;
-      pieSeries.labels.template.padding(0, 0, 0, 0);
+      // pieSeries.alignLabels = false;
+      // pieSeries.labels.template.bent = false;
+      // pieSeries.labels.template.radius = 3;
+      // pieSeries.labels.template.padding(0, 0, 0, 0);
+      pieSeries.ticks.template.disabled = true;
+      pieSeries.labels.template.disabled = true;
 
       pieSeries.ticks.template.disabled = true;
 
@@ -1078,10 +1099,12 @@ export default {
       pieSeries.slices.template.strokeWidth = 2;
       pieSeries.slices.template.strokeOpacity = 1;
 
-      pieSeries.alignLabels = false;
-      pieSeries.labels.template.bent = false;
-      pieSeries.labels.template.radius = 3;
-      pieSeries.labels.template.padding(0, 0, 0, 0);
+      // pieSeries.alignLabels = false;
+      // pieSeries.labels.template.bent = false;
+      // pieSeries.labels.template.radius = 3;
+      // pieSeries.labels.template.padding(0, 0, 0, 0);
+      pieSeries.ticks.template.disabled = true;
+      pieSeries.labels.template.disabled = true;
 
       pieSeries.ticks.template.disabled = true;
 
@@ -1114,6 +1137,170 @@ export default {
       const self = this;
       setTimeout(() => {
         self.supplyLoading = false;
+      }, 1000);
+    },
+    generateGeographicPie() {
+      am4core.useTheme(am4themes_dark);
+      // Create chart instance
+      const chart = am4core.create('geolocationPie', am4charts.PieChart);
+
+      const nodeData = [];
+
+      this.fluxList.forEach((flux) => {
+        if (flux.location) {
+          const existingPoint = nodeData.find((node) => (node.country === flux.location.country));
+          if (existingPoint) {
+            existingPoint.amount += 1;
+          } else {
+            const point = {
+              country: flux.location.country || 'Unknown',
+              amount: 1,
+            };
+            nodeData.push(point);
+          }
+        } else {
+          const existingPoint = nodeData.find((node) => (node.country === 'Unknown'));
+          if (existingPoint) {
+            existingPoint.amount += 1;
+          } else {
+            const point = {
+              country: 'Unknown',
+              amount: 1,
+            };
+            nodeData.push(point);
+          }
+        }
+      });
+      // Add data
+      chart.data = nodeData;
+
+      // Add and configure Series
+      const pieSeries = chart.series.push(new am4charts.PieSeries());
+      // Let's cut a hole in our Pie chart the size of 30% the radius
+      chart.innerRadius = am4core.percent(30);
+
+      // Put a thick white border around each Slice
+      pieSeries.slices.template.stroke = am4core.color('#fff');
+      pieSeries.slices.template.strokeWidth = 2;
+      pieSeries.slices.template.strokeOpacity = 1;
+
+      pieSeries.ticks.template.disabled = true;
+      pieSeries.labels.template.disabled = true;
+
+      pieSeries.ticks.template.disabled = true;
+
+      // Create a base filter effect (as if it's not there) for the hover to return to
+      const shadow = pieSeries.slices.template.filters.push(new am4core.DropShadowFilter());
+      shadow.opacity = 0;
+
+      // Create hover state
+      const hoverState = pieSeries.slices.template.states.getKey('hover'); // normally we have to create the hover state, in this case it already exists
+
+      // Slightly shift the shadow and make it more prominent on hover
+      const hoverShadow = hoverState.filters.push(new am4core.DropShadowFilter());
+      hoverShadow.opacity = 0.7;
+      hoverShadow.blur = 5;
+
+      // Add a legend
+      chart.legend = new am4charts.Legend();
+      chart.legend.scrollable = true;
+      chart.legend.maxHeight = 200;
+
+      pieSeries.dataFields.value = 'amount';
+      pieSeries.dataFields.category = 'country';
+
+      // This creates initial animation
+      pieSeries.hiddenState.properties.opacity = 1;
+      pieSeries.hiddenState.properties.endAngle = -90;
+      pieSeries.hiddenState.properties.startAngle = -90;
+      const title = chart.titles.create();
+      title.text = 'Geographic Locations';
+      title.fontSize = 20;
+      const self = this;
+      setTimeout(() => {
+        self.currentNodesChartLoading = false;
+      }, 1000);
+    },
+    generateProviderPie() {
+      am4core.useTheme(am4themes_dark);
+      // Create chart instance
+      const chart = am4core.create('providerPie', am4charts.PieChart);
+
+      const nodeData = [];
+
+      this.fluxList.forEach((flux) => {
+        if (flux.location) {
+          const existingPoint = nodeData.find((node) => (node.org === flux.location.org));
+          if (existingPoint) {
+            existingPoint.amount += 1;
+          } else {
+            const point = {
+              org: flux.location.org || 'Unknown',
+              amount: 1,
+            };
+            nodeData.push(point);
+          }
+        } else {
+          const existingPoint = nodeData.find((node) => (node.org === 'Unknown'));
+          if (existingPoint) {
+            existingPoint.amount += 1;
+          } else {
+            const point = {
+              org: 'Unknown',
+              amount: 1,
+            };
+            nodeData.push(point);
+          }
+        }
+      });
+      // Add data
+      chart.data = nodeData;
+
+      // Add and configure Series
+      const pieSeries = chart.series.push(new am4charts.PieSeries());
+      // Let's cut a hole in our Pie chart the size of 30% the radius
+      chart.innerRadius = am4core.percent(30);
+
+      // Put a thick white border around each Slice
+      pieSeries.slices.template.stroke = am4core.color('#fff');
+      pieSeries.slices.template.strokeWidth = 2;
+      pieSeries.slices.template.strokeOpacity = 1;
+
+      pieSeries.ticks.template.disabled = true;
+      pieSeries.labels.template.disabled = true;
+
+      pieSeries.ticks.template.disabled = true;
+
+      // Create a base filter effect (as if it's not there) for the hover to return to
+      const shadow = pieSeries.slices.template.filters.push(new am4core.DropShadowFilter());
+      shadow.opacity = 0;
+
+      // Create hover state
+      const hoverState = pieSeries.slices.template.states.getKey('hover'); // normally we have to create the hover state, in this case it already exists
+
+      // Slightly shift the shadow and make it more prominent on hover
+      const hoverShadow = hoverState.filters.push(new am4core.DropShadowFilter());
+      hoverShadow.opacity = 0.7;
+      hoverShadow.blur = 5;
+
+      // Add a legend
+      chart.legend = new am4charts.Legend();
+      chart.legend.scrollable = true;
+      chart.legend.maxHeight = 200;
+
+      pieSeries.dataFields.value = 'amount';
+      pieSeries.dataFields.category = 'org';
+
+      // This creates initial animation
+      pieSeries.hiddenState.properties.opacity = 1;
+      pieSeries.hiddenState.properties.endAngle = -90;
+      pieSeries.hiddenState.properties.startAngle = -90;
+      const title = chart.titles.create();
+      title.text = 'Providers';
+      title.fontSize = 20;
+      const self = this;
+      setTimeout(() => {
+        self.currentNodesChartLoading = false;
       }, 1000);
     },
     beautifyValue(value) {
@@ -1163,8 +1350,8 @@ export default {
 }
 
 #mapchart {
-  width: 100%;
-  height: 70vh;
+  width: 90%;
+  height: 60vh;
 }
 
 #cpucurrent,
@@ -1178,5 +1365,11 @@ export default {
 #lockedSupplyPercChart {
   width: 100%;
   height: 300px;
+}
+
+#geolocationPie,
+#providerPie {
+  width: 100%;
+  height: 800px;
 }
 </style>
