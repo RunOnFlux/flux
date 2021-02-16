@@ -3,7 +3,7 @@
     <el-menu
       :default-active="activeIndex"
       :collapse="isMobile"
-      :mode="windowWidth < 805 ? 'vertical' : 'horizontal'"
+      :mode="windowWidth < 846 ? 'vertical' : 'horizontal'"
       @select="handleSelect"
       :unique-opened=true
       :class="{ mobilemenu: isMobile, hidden: !showMenu }"
@@ -220,7 +220,7 @@
         index="4"
         :popper-append-to-body=true
       >
-        <template slot="title">Flux Apps</template>
+        <template slot="title">Apps</template>
         <el-menu-item index="4-1">Local Apps</el-menu-item>
         <el-menu-item index="4-2">Global Apps</el-menu-item>
         <el-menu-item index="4-3">Register Flux App</el-menu-item>
@@ -264,10 +264,10 @@
         </el-menu-item>
       </el-submenu>
       <el-menu-item index="50">
-        Basic Explorer
+        Explorer
       </el-menu-item>
       <el-menu-item index="60">
-        Basic Dashboard
+        Dashboard
       </el-menu-item>
       <el-menu-item
         v-if="privilage === 'user' || privilage === 'admin' || privilage === 'fluxteam'"
@@ -277,7 +277,7 @@
       </el-menu-item>
     </el-menu>
     <div
-      v-if="windowWidth < 805"
+      v-if="windowWidth < 846"
       class="container"
       :class="{ change: showMenu }"
       @click="showMenu = !showMenu"
@@ -312,7 +312,7 @@ export default {
   },
   computed: {
     isMobile() {
-      if (this.windowWidth < 805) {
+      if (this.windowWidth < 846) {
         return true;
       }
       return false;

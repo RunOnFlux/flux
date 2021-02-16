@@ -73,6 +73,65 @@
           </div>
         </el-tab-pane>
         <el-tab-pane
+          label="Resources"
+          name="resources"
+        >
+          <div class="gridThree">
+            <div
+              v-show="!cpuLoading"
+              id="cpucurrent"
+            />
+            <div v-show="cpuLoading">
+              loading...
+            </div>
+            <div
+              v-show="!ramLoading"
+              id="ramcurrent"
+            />
+            <div v-show="ramLoading">
+              loading...
+            </div>
+            <div
+              v-show="!ssdLoading"
+              id="ssdcurrent"
+            />
+            <div v-show="ssdLoading">
+              loading...
+            </div>
+          </div>
+          <br><br>
+          <div class="gridThree">
+            <div
+              v-show="!cpuHistoryLoading"
+              id="cpuhistory"
+            />
+            <div v-show="cpuHistoryLoading">
+              loading...
+            </div>
+            <div
+              v-show="!ramHistoryLoading"
+              id="ramhistory"
+            />
+            <div v-show="ramHistoryLoading">
+              loading...
+            </div>
+            <div
+              v-show="!ssdHistoryLoading"
+              id="ssdhistory"
+            />
+            <div v-show="ssdHistoryLoading">
+              loading...
+            </div>
+          </div>
+        </el-tab-pane>
+        <el-tab-pane
+          label="Map"
+          name="map"
+        >
+          <div id="mapchart">
+          </div>
+        </el-tab-pane>
+        <el-tab-pane
           label="List"
           name="nodes"
         >
@@ -153,65 +212,6 @@
             </el-table-column>
           </el-table>
         </el-tab-pane>
-        <el-tab-pane
-          label="Resources"
-          name="resources"
-        >
-          <div class="gridThree">
-            <div
-              v-show="!cpuLoading"
-              id="cpucurrent"
-            />
-            <div v-show="cpuLoading">
-              loading...
-            </div>
-            <div
-              v-show="!ramLoading"
-              id="ramcurrent"
-            />
-            <div v-show="ramLoading">
-              loading...
-            </div>
-            <div
-              v-show="!ssdLoading"
-              id="ssdcurrent"
-            />
-            <div v-show="ssdLoading">
-              loading...
-            </div>
-          </div>
-          <br><br>
-          <div class="gridThree">
-            <div
-              v-show="!cpuHistoryLoading"
-              id="cpuhistory"
-            />
-            <div v-show="cpuHistoryLoading">
-              loading...
-            </div>
-            <div
-              v-show="!ramHistoryLoading"
-              id="ramhistory"
-            />
-            <div v-show="ramHistoryLoading">
-              loading...
-            </div>
-            <div
-              v-show="!ssdHistoryLoading"
-              id="ssdhistory"
-            />
-            <div v-show="ssdHistoryLoading">
-              loading...
-            </div>
-          </div>
-        </el-tab-pane>
-        <el-tab-pane
-          label="Map"
-          name="map"
-        >
-          <div id="mapchart">
-          </div>
-        </el-tab-pane>
       </el-tabs>
     </div>
   </div>
@@ -235,7 +235,17 @@ const axios = require('axios');
 
 Vue.use(Vuex);
 
-// const vue = new Vue();
+// eslint-disable-next-line camelcase
+function am4themes_myTheme(target) {
+  if (target instanceof am4core.ColorSet) {
+    // eslint-disable-next-line no-param-reassign
+    target.list = [
+      am4core.color('#63ace5'),
+      am4core.color('#adcbe3'),
+      am4core.color('#e7eff6'),
+    ];
+  }
+}
 
 export default {
   name: 'Dashboard',
@@ -460,6 +470,7 @@ export default {
     },
     generateCPU() {
       am4core.useTheme(am4themes_dark);
+      am4core.useTheme(am4themes_myTheme);
       // Create chart instance
       const chart = am4core.create('cpucurrent', am4charts.XYChart);
 
@@ -509,6 +520,7 @@ export default {
       const title = chart.titles.create();
       title.text = `Total Cores: ${this.beautifyValue(total)}`;
       title.fontSize = 20;
+      title.marginBottom = 15;
       const self = this;
       setTimeout(() => {
         self.cpuLoading = false;
@@ -516,6 +528,7 @@ export default {
     },
     generateRAM() {
       am4core.useTheme(am4themes_dark);
+      am4core.useTheme(am4themes_myTheme);
       // Create chart instance
       const chart = am4core.create('ramcurrent', am4charts.XYChart);
 
@@ -565,6 +578,7 @@ export default {
       const title = chart.titles.create();
       title.text = `Total RAM: ${this.beautifyValue(total / 1000)} TB`;
       title.fontSize = 20;
+      title.marginBottom = 15;
       const self = this;
       setTimeout(() => {
         self.ramLoading = false;
@@ -572,6 +586,7 @@ export default {
     },
     generateSSD() {
       am4core.useTheme(am4themes_dark);
+      am4core.useTheme(am4themes_myTheme);
       // Create chart instance
       const chart = am4core.create('ssdcurrent', am4charts.XYChart);
 
@@ -621,6 +636,7 @@ export default {
       const title = chart.titles.create();
       title.text = `Total SSD: ${this.beautifyValue(total / 1000)} TB`;
       title.fontSize = 20;
+      title.marginBottom = 15;
       const self = this;
       setTimeout(() => {
         self.ssdLoading = false;
@@ -628,6 +644,7 @@ export default {
     },
     generateCPUHistory() {
       am4core.useTheme(am4themes_dark);
+      am4core.useTheme(am4themes_myTheme);
       const chart = am4core.create('cpuhistory', am4charts.XYChart);
 
       const cpuData = [];
@@ -701,6 +718,7 @@ export default {
       const title = chart.titles.create();
       title.text = 'CPU History';
       title.fontSize = 20;
+      title.marginBottom = 15;
       const self = this;
       setTimeout(() => {
         self.cpuHistoryLoading = false;
@@ -708,6 +726,7 @@ export default {
     },
     generateRAMHistory() {
       am4core.useTheme(am4themes_dark);
+      am4core.useTheme(am4themes_myTheme);
       const chart = am4core.create('ramhistory', am4charts.XYChart);
 
       const ramData = [];
@@ -780,6 +799,7 @@ export default {
       const title = chart.titles.create();
       title.text = 'RAM History';
       title.fontSize = 20;
+      title.marginBottom = 15;
       const self = this;
       setTimeout(() => {
         self.ramHistoryLoading = false;
@@ -787,6 +807,7 @@ export default {
     },
     generateSSDHistory() {
       am4core.useTheme(am4themes_dark);
+      am4core.useTheme(am4themes_myTheme);
       const chart = am4core.create('ssdhistory', am4charts.XYChart);
 
       const ssdData = [];
@@ -859,6 +880,7 @@ export default {
       const title = chart.titles.create();
       title.text = 'SSD History';
       title.fontSize = 20;
+      title.marginBottom = 15;
       const self = this;
       setTimeout(() => {
         self.ssdHistoryLoading = false;
@@ -866,6 +888,7 @@ export default {
     },
     generateFluxHistory() {
       am4core.useTheme(am4themes_dark);
+      am4core.useTheme(am4themes_myTheme);
       const chart = am4core.create('fluxhistory', am4charts.XYChart);
 
       const fluxData = [];
@@ -942,6 +965,7 @@ export default {
     },
     generateFluxPieChart() {
       am4core.useTheme(am4themes_dark);
+      am4core.useTheme(am4themes_myTheme);
       // Create chart instance
       const chart = am4core.create('currentNodesChart', am4charts.PieChart);
 
@@ -1008,6 +1032,7 @@ export default {
       const title = chart.titles.create();
       title.text = `Flux Nodes: ${total}`;
       title.fontSize = 20;
+      title.marginBottom = 15;
       const self = this;
       setTimeout(() => {
         self.currentNodesChartLoading = false;
@@ -1015,6 +1040,7 @@ export default {
     },
     generatelockedSupplyPercList() {
       am4core.useTheme(am4themes_dark);
+      am4core.useTheme(am4themes_myTheme);
       // Create chart instance
       const chart = am4core.create('lockedSupplyPercChart', am4charts.PieChart);
 
@@ -1084,6 +1110,7 @@ export default {
       const title = chart.titles.create();
       title.text = `Locked Supply: ${this.beautifyValue(total)}`;
       title.fontSize = 20;
+      title.marginBottom = 15;
       const self = this;
       setTimeout(() => {
         self.supplyLoading = false;
