@@ -65,5 +65,8 @@ module.exports = {
       }
       return callback();
     },
+    watchOptions: {
+      ignored: /node_modules/,
+    },
   },
 };
