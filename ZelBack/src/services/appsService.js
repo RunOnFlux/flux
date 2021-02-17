@@ -1419,7 +1419,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
     // we want to remove the image as well (repotag) what if other container uses the same image -> then it shall result in an error so ok anyway
     removalInProgress = true;
     if (!app) {
-      throw new Error('No Flux Appspecified');
+      throw new Error('No  specified');
     }
 
     const appId = getAppIdentifier(app);
@@ -1543,7 +1543,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
     }
 
     const portStatus = {
-      status: 'Denying Flux Appport...',
+      status: 'Denying Flux App port...',
     };
     log.info(portStatus);
     if (res) {
@@ -1759,7 +1759,7 @@ async function softRemoveAppLocally(app, res) {
   // find in database, stop app, remove container, close port, remove from database
   // we want to remove the image as well (repotag) what if other container uses the same image -> then it shall result in an error so ok anyway
   if (!app) {
-    throw new Error('No Flux Appspecified');
+    throw new Error('No Flux App specified');
   }
 
   const appId = getAppIdentifier(app);
@@ -1797,7 +1797,7 @@ async function softRemoveAppLocally(app, res) {
   }
 
   const removeStatus = {
-    status: 'Removing Flux Appcontainer...',
+    status: 'Removing Flux App container...',
   };
   log.info(removeStatus);
   if (res) {
@@ -1815,7 +1815,7 @@ async function softRemoveAppLocally(app, res) {
   }
 
   const imageStatus = {
-    status: 'Removing Flux Appimage...',
+    status: 'Removing Flux App image...',
   };
   log.info(imageStatus);
   if (res) {
@@ -1841,7 +1841,7 @@ async function softRemoveAppLocally(app, res) {
   }
 
   const portStatus = {
-    status: 'Denying Flux Appport...',
+    status: 'Denying Flux App port...',
   };
   log.info(portStatus);
   if (res) {
@@ -1897,7 +1897,7 @@ async function removeAppLocallyApi(req, res) {
       force = serviceHelper.ensureBoolean(force);
 
       if (!appname) {
-        throw new Error('No Flux Appspecified');
+        throw new Error('No Flux App specified');
       }
 
       res.setHeader('Content-Type', 'application/json');
@@ -2047,7 +2047,7 @@ async function registerAppLocally(appSpecifications, res) {
         if (res) {
           res.write(serviceHelper.ensureString(errorResponse));
         }
-        const removeStatus = serviceHelper.createErrorMessage('Error occured. Initiating Flux Appremoval');
+        const removeStatus = serviceHelper.createErrorMessage('Error occured. Initiating Flux App removal');
         log.info(removeStatus);
         if (res) {
           res.write(serviceHelper.ensureString(removeStatus));
@@ -2072,7 +2072,7 @@ async function registerAppLocally(appSpecifications, res) {
             res.write(serviceHelper.ensureString(errorResponse));
           }
 
-          const removeStatus = serviceHelper.createErrorMessage('Error in volume assigning occured. Initiating Flux Appremoval');
+          const removeStatus = serviceHelper.createErrorMessage('Error in volume assigning occured. Initiating Flux App removal');
           log.info(removeStatus);
           if (res) {
             res.write(serviceHelper.ensureString(removeStatus));
@@ -2165,7 +2165,7 @@ async function registerAppLocally(appSpecifications, res) {
           if (res) {
             res.write(serviceHelper.ensureString(errorResponse));
           }
-          const removeStatus = serviceHelper.createErrorMessage('Error occured. Initiating Flux Appremoval');
+          const removeStatus = serviceHelper.createErrorMessage('Error occured. Initiating Flux App removal');
           log.info(removeStatus);
           if (res) {
             res.write(serviceHelper.ensureString(removeStatus));
@@ -2260,7 +2260,7 @@ async function softRegisterAppLocally(appSpecifications, res) {
     }
 
     const checkParameters = {
-      status: 'Checking Flux Apprequirements...',
+      status: 'Checking Flux App requirements...',
     };
     log.info(checkParameters);
     if (res) {
@@ -2301,7 +2301,7 @@ async function softRegisterAppLocally(appSpecifications, res) {
         removeAppLocally(appName, res, true);
       } else {
         const pullStatus = {
-          status: 'Pulling global Flux Appwas successful',
+          status: 'Pulling global Flux App was successful',
         };
         if (res) {
           res.write(serviceHelper.ensureString(pullStatus));
@@ -2611,14 +2611,14 @@ async function verifyAppHash(message) {
   const messToHash = message.type + message.version + JSON.stringify(message.zelAppSpecifications) + message.timestamp + message.signature;
   const messageHASH = await messageHash(messToHash);
   if (messageHASH !== message.hash) {
-    throw new Error('Invalid Flux Apphash received!');
+    throw new Error('Invalid Flux App ash received!');
   }
   return true;
 }
 
 async function verifyAppMessageSignature(type, version, appSpec, timestamp, signature) {
   if (typeof appSpec !== 'object' && typeof timestamp !== 'number' && typeof signature !== 'string' && typeof version !== 'number' && typeof type !== 'string') {
-    throw new Error('Invalid Flux Appmessage specifications');
+    throw new Error('Invalid Flux App message specifications');
   }
   const messageToVerify = type + version + JSON.stringify(appSpec) + timestamp;
   const isValidSignature = serviceHelper.verifyMessage(messageToVerify, appSpec.owner, signature);
@@ -2631,7 +2631,7 @@ async function verifyAppMessageSignature(type, version, appSpec, timestamp, sign
 
 async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp, signature, appOwner) {
   if (typeof appSpec !== 'object' && typeof timestamp !== 'number' && typeof signature !== 'string' && typeof version !== 'number' && typeof type !== 'string') {
-    throw new Error('Invalid Flux Appmessage specifications');
+    throw new Error('Invalid Flux App message specifications');
   }
   const messageToVerify = type + version + JSON.stringify(appSpec) + timestamp;
   const isValidSignature = serviceHelper.verifyMessage(messageToVerify, appOwner, signature);
@@ -2826,7 +2826,7 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
   * @param signature string
   */
   if (typeof message !== 'object' && typeof message.type !== 'string' && typeof message.version !== 'number' && typeof message.zelAppSpecifications !== 'object' && typeof message.signature !== 'string' && typeof message.timestamp !== 'number' && typeof message.hash !== 'string') {
-    return new Error('Invalid Flux Appmessage for storing');
+    return new Error('Invalid Flux App message for storing');
   }
   // check if we have the message in cache. If yes, return false. If not, store it and continue
   if (myCache.has(serviceHelper.ensureString(message))) {
@@ -2869,7 +2869,7 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
       // here signature is checked against PREVIOUS app owner
       await verifyAppMessageUpdateSignature(message.type, message.version, message.zelAppSpecifications, message.timestamp, message.signature, owner);
     } else {
-      throw new Error('Invalid Flux Appmessage received');
+      throw new Error('Invalid Flux App message received');
     }
   }
 
@@ -2911,7 +2911,7 @@ async function storeAppRunningMessage(message) {
   * @param ip string
   */
   if (typeof message !== 'object' && typeof message.type !== 'string' && typeof message.version !== 'number' && typeof message.broadcastedAt !== 'number' && typeof message.hash !== 'string' && typeof message.name !== 'string' && typeof message.ip !== 'string') {
-    return new Error('Invalid Flux AppRunning message for storing');
+    return new Error('Invalid Flux App Running message for storing');
   }
 
   // check if we have the message in cache. If yes, return false. If not, store it and continue
@@ -3017,7 +3017,7 @@ async function registerAppGlobalyApi(req, res) {
 
       // check if signature of received data is correct
       if (!version || !name || !description || !repotag || !owner || !port || !enviromentParameters || !commands || !containerPort || !containerData || !cpu || !ram || !hdd) {
-        throw new Error('Missing Flux Appspecification parameter');
+        throw new Error('Missing Flux App specification parameter');
       }
       version = serviceHelper.ensureNumber(version);
       name = serviceHelper.ensureString(name);
@@ -3033,7 +3033,7 @@ async function registerAppGlobalyApi(req, res) {
           envParamsCorrected.push(param);
         });
       } else {
-        throw new Error('Enviromental parameters for Flux Appare invalid');
+        throw new Error('Enviromental parameters for Flux App are invalid');
       }
       commands = serviceHelper.ensureObject(commands);
       const commandsCorrected = [];
@@ -3218,7 +3218,7 @@ async function updateAppGlobalyApi(req, res) {
 
       // check if signature of received data is correct
       if (!version || !name || !description || !repotag || !owner || !port || !enviromentParameters || !commands || !containerPort || !containerData || !cpu || !ram || !hdd) {
-        throw new Error('Missing Flux Appspecification parameter');
+        throw new Error('Missing Flux App specification parameter');
       }
       version = serviceHelper.ensureNumber(version);
       name = serviceHelper.ensureString(name);
@@ -3234,7 +3234,7 @@ async function updateAppGlobalyApi(req, res) {
           envParamsCorrected.push(param);
         });
       } else {
-        throw new Error('Enviromental parameters for Flux Appare invalid');
+        throw new Error('Enviromental parameters for Flux App are invalid');
       }
       commands = serviceHelper.ensureObject(commands);
       const commandsCorrected = [];
@@ -3475,7 +3475,7 @@ async function storeAppPermanentMessage(message) {
   */
   if (typeof message !== 'object' && typeof message.type !== 'string' && typeof message.version !== 'number' && typeof message.zelAppSpecifications !== 'object' && typeof message.signature !== 'string'
     && typeof message.timestamp !== 'number' && typeof message.hash !== 'string' && typeof message.txid !== 'string' && typeof message.height !== 'number' && typeof message.valueSat !== 'number') {
-    return new Error('Invalid Flux Appmessage for storing');
+    return new Error('Invalid Flux App message for storing');
   }
 
   const db = serviceHelper.databaseConnection();
@@ -4800,7 +4800,7 @@ async function getAppPrice(req, res) {
 
       // check if signature of received data is correct
       if (!name || !cpu || !ram || !hdd) {
-        throw new Error('Missing Flux AppHW specification parameter');
+        throw new Error('Missing Flux App HW specification parameter');
       }
 
       name = serviceHelper.ensureString(name);

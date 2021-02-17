@@ -33,7 +33,7 @@ async function startFluxFunctions() {
     const databaseTemp = db.db(config.database.appsglobal.database);
     await databaseTemp.collection(config.database.appsglobal.collections.appsTemporaryMessages).createIndex({ receivedAt: 1 }, { expireAfterSeconds: 3600 }); // todo longer time? dropIndexes()
     log.info('Temporary database prepared');
-    log.info('Preparing Flux Appps locations');
+    log.info('Preparing Flux Apps locations');
     // more than 1 hour. Meaning we have not received status message for a long time. So that node is no longer on a network or app is down.
     await databaseTemp.collection(config.database.appsglobal.collections.appsLocations).createIndex({ broadcastedAt: 1 }, { expireAfterSeconds: 3900 });
     log.info('Flux Apps locations prepared');
