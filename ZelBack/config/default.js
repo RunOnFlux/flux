@@ -27,13 +27,13 @@ module.exports = {
       },
     },
     appslocal: {
-      database: 'localapps',
+      database: 'localzelapps',
       collections: {
         appsInformation: 'zelappsinformation',
       },
     },
     appsglobal: {
-      database: 'globalapps',
+      database: 'globalzelapps',
       collections: {
         appsMessages: 'zelappsmessages', // storage for all flux apps messages done on flux network
         appsInformation: 'zelappsinformation', // stores actual state of flux app configuration info - initial state and its overwrites with update messages
