@@ -4447,9 +4447,9 @@ async function checkAndNotifyPeersOfRunningApps() {
     if (runningAppsRes.status !== 'success') {
       throw new Error('Unable to check running Apps');
     }
-    const installedA = installedAppsRes.data;
+    const appsInstalled = installedAppsRes.data;
     const runningApps = runningAppsRes.data;
-    const installedAppsNames = installedA.map((app) => app.name);
+    const installedAppsNames = appsInstalled.map((app) => app.name);
     const runningAppsNames = runningApps.map((app) => app.Names[0].substr(4, app.Names[0].length));
     // installed always is bigger array than running
     const runningSet = new Set(runningAppsNames);
@@ -4480,7 +4480,7 @@ async function checkAndNotifyPeersOfRunningApps() {
         await removeAppLocally(stoppedApp);
       }
     }
-    const installedAndRunning = installedA.filter((installedApp) => runningAppsNames.includes(installedApp.name));
+    const installedAndRunning = appsInstalled.filter((installedApp) => runningAppsNames.includes(installedApp.name));
     // eslint-disable-next-line no-restricted-syntax
     for (const application of installedAndRunning) {
       log.info(`${application.name} is running properly. Broadcasting status.`);
@@ -4565,8 +4565,8 @@ async function expireGlobalApplications() {
     if (installedAppsRes.status !== 'success') {
       throw new Error('Failed to get installed Apps');
     }
-    const installedA = installedAppsRes.data;
-    const appsToRemove = installedA.filter((app) => appNamesToExpire.includes(app.name));
+    const appsInstalled = installedAppsRes.data;
+    const appsToRemove = appsInstalled.filter((app) => appNamesToExpire.includes(app.name));
     const appsToRemoveNames = appsToRemove.map((app) => app.name);
     // remove appsToRemoveNames apps from locally running
     // eslint-disable-next-line no-restricted-syntax
@@ -4597,9 +4597,9 @@ async function checkAndRemoveApplicationInstance() {
     if (installedAppsRes.status !== 'success') {
       throw new Error('Failed to get installed Apps');
     }
-    const installedA = installedAppsRes.data;
+    const appsInstalled = installedAppsRes.data;
     // eslint-disable-next-line no-restricted-syntax
-    for (const installedApp of installedA) {
+    for (const installedApp of appsInstalled) {
       // eslint-disable-next-line no-await-in-loop
       const runningAppList = await getRunningAppList(installedApp.name);
       if (runningAppList.length > config.fluxapps.maximumInstances) {
@@ -4702,9 +4702,9 @@ async function reinstallOldApplications() {
     if (installedAppsRes.status !== 'success') {
       throw new Error('Failed to get installed Apps');
     }
-    const installedA = installedAppsRes.data;
+    const appsInstalled = installedAppsRes.data;
     // eslint-disable-next-line no-restricted-syntax
-    for (const installedApp of installedA) {
+    for (const installedApp of appsInstalled) {
       // get current app specifications for the app name
       // if match found. Check if hash found.
       // if same, do nothing. if different remove and install.
