@@ -24,6 +24,14 @@ import {
   MenuItem,
   Submenu,
   Progress,
+  Collapse,
+  CollapseItem,
+  Tooltip,
+  Icon,
+  Upload,
+  Row,
+  Col,
+  Divider,
 } from 'element-ui';
 import 'element-ui/lib/theme-chalk/index.css';
 import lang from 'element-ui/lib/locale/lang/en';
@@ -53,6 +61,14 @@ Vue.use(Menu);
 Vue.use(MenuItem);
 Vue.use(Submenu);
 Vue.use(Progress);
+Vue.use(Collapse);
+Vue.use(CollapseItem);
+Vue.use(Tooltip);
+Vue.use(Icon);
+Vue.use(Upload);
+Vue.use(Row);
+Vue.use(Col);
+Vue.use(Divider);
 Vue.use(Loading.directive);
 
 Vue.prototype.$notify = Notification;
