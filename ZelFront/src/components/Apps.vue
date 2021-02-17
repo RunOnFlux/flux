@@ -2543,10 +2543,7 @@ export default {
       return this.installedApps.data.find((app) => app.name === appName);
     },
     openApp(name, _ip, _port) {
-      let appInfo = this.installedApp(name);
-      if (!appInfo) {
-        appInfo = this.installedApp(`zel${name}`);
-      }
+      const appInfo = this.installedApp(name);
       if (appInfo || (_port && _ip)) {
         const backendURL = store.get('backendURL') || `http://${this.userconfig.externalip}:${this.config.apiPort}`;
         const ip = _ip || backendURL.split(':')[1].split('//')[1];
@@ -3271,6 +3268,9 @@ export default {
       if (appName && appName.startsWith('zel')) {
         return appName.substr(3, appName.length);
       }
+      if (appName && appName.startsWith('flux')) {
+        return appName.substr(4, appName.length);
+      }
       return appName;
     },
     async getAppOwner() {
@@ -3443,7 +3443,13 @@ export default {
       if (this.managedApplication && this.managedApplication.startsWith('zel')) {
         return this.managedApplication;
       }
-      return `zel${this.managedApplication}`;
+      if (this.managedApplication && this.managedApplication.startsWith('flux')) {
+        return this.managedApplication;
+      }
+      if (this.managedApplication === 'KadenaChainWebNode' || this.managedApplication === 'FoldingAtHomeB') {
+        return `zel${this.managedApplication}`;
+      }
+      return `flux${this.managedApplication}`;
     },
     getAppDockerNameIdentifier() {
       // this id is used for volumes, docker names so we know it reall belongs to flux

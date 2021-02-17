@@ -51,7 +51,13 @@ function getAppIdentifier(appName) {
   if (appName.startsWith('zel')) {
     return appName;
   }
-  return `zel${appName}`;
+  if (appName.startsWith('flux')) {
+    return appName;
+  }
+  if (appName === 'KadenaChainWebNode' || appName === 'FoldingAtHomeB') {
+    return `zel${appName}`;
+  }
+  return `flux${appName}`;
 }
 
 function getAppDockerNameIdentifier(appName) {
@@ -278,7 +284,7 @@ async function listRunningApps(req, res) {
   try {
     let apps = await dockerListContainers(false);
     if (apps.length > 0) {
-      apps = apps.filter((app) => app.Names[0].substr(1, 3) === 'zel');
+      apps = apps.filter((app) => (app.Names[0].substr(1, 3) === 'zel' || app.Names[0].substr(1, 4) === 'flux'));
     }
     const modifiedApps = [];
     apps.forEach((app) => {
@@ -308,7 +314,7 @@ async function listAllApps(req, res) {
   try {
     let apps = await dockerListContainers(true);
     if (apps.length > 0) {
-      apps = apps.filter((app) => app.Names[0].substr(1, 3) === 'zel');
+      apps = apps.filter((app) => (app.Names[0].substr(1, 3) === 'zel' || app.Names[0].substr(1, 4) === 'flux'));
     }
     const modifiedApps = [];
     apps.forEach((app) => {
