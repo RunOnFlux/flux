@@ -469,7 +469,7 @@ export default {
           this.$store.commit('setAdminSection', 'manageflux');
           break;
         case '10-3':
-          this.$store.commit('setAdminSection', 'manageDaemon');
+          this.$store.commit('setAdminSection', 'managedaemon');
           break;
         case '10-4':
           this.$store.commit('setAdminSection', 'managebenchmark');
