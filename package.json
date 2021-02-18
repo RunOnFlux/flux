@@ -32,7 +32,7 @@
     "zelfrontdev": "vue-cli-service serve --port 16126",
     "zelfrontprod": "nodemon ZelFront/server.js",
     "zelfrontstart": "npm run zelfrontprod",
-    "zelfrontbuild": "vue-cli-service build",
+    "zelfrontbuild": "npm install && vue-cli-service build",
     "zelfrontbuildwatch": "vue-cli-service build --watch --mode production",
     "zelbackstart": "nodemon ZelBack/server.js",
     "zelbackdev": "nodemon ZelBack/server.js",
