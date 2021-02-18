@@ -32,6 +32,12 @@ import {
   Row,
   Col,
   Divider,
+  Container,
+  PageHeader,
+  Switch,
+  InputNumber,
+  Main,
+  Aside,
 } from 'element-ui';
 import 'element-ui/lib/theme-chalk/index.css';
 import lang from 'element-ui/lib/locale/lang/en';
@@ -69,6 +75,12 @@ Vue.use(Upload);
 Vue.use(Row);
 Vue.use(Col);
 Vue.use(Divider);
+Vue.use(Container);
+Vue.use(PageHeader);
+Vue.use(Switch);
+Vue.use(InputNumber);
+Vue.use(Main);
+Vue.use(Aside);
 Vue.use(Loading.directive);
 
 Vue.prototype.$notify = Notification;
