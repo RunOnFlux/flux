@@ -2,7 +2,7 @@
   <div>
     <div
       :key="uniqueKey"
-      v-if="zelAppsSection === 'localzelapps'"
+      v-if="appsSection === 'localapps'"
     >
       <el-tabs
         v-if="!managedApplication"
@@ -13,8 +13,8 @@
           name="running"
         >
           <el-table
-            :data="getRunningZelAppsResponse.data"
-            empty-text="No ZelApp running"
+            :data="getRunningAppsResponse.data"
+            empty-text="No Flux App running"
             style="width: 100%"
           >
             <el-table-column
@@ -38,13 +38,13 @@
               sortable
             >
               <template slot-scope="scope">
-                <ElButton @click="openZelApp(scope.row.Names[0].substr(4, scope.row.Names[0].length))">
+                <ElButton @click="openApp(scope.row.Names[0].substr(4, scope.row.Names[0].length))">
                   Visit
                 </ElButton>
               </template>
             </el-table-column>
             <el-table-column
-              v-if="privilage === 'zelteam' || privilage === 'admin'"
+              v-if="privilage === 'fluxteam' || privilage === 'admin'"
               label="Actions"
               prop="actions"
               sortable
@@ -56,8 +56,8 @@
                   icon="el-icon-info"
                   iconColor="red"
                   title="Stops Application"
-                  @onConfirm="stopZelApp(scope.row.Names[0].substr(1, scope.row.Names[0].length))"
-                  @confirm="stopZelApp(scope.row.Names[0].substr(1, scope.row.Names[0].length))"
+                  @onConfirm="stopAll(scope.row.Names[0].substr(1, scope.row.Names[0].length))"
+                  @confirm="stopAll(scope.row.Names[0].substr(1, scope.row.Names[0].length))"
                 >
                   <ElButton slot="reference">
                     Stop
@@ -72,8 +72,8 @@
           name="installed"
         >
           <el-table
-            :data="installedZelApps.data"
-            empty-text="No ZelApp installed"
+            :data="installedApps.data"
+            empty-text="No Flux App installed"
             style="width: 100%"
           >
             <el-table-column
@@ -82,7 +82,7 @@
               sortable
             >
               <template slot-scope="scope">
-                {{ getZelAppName(scope.row.name) }}
+                {{ getAppName(scope.row.name) }}
               </template>
             </el-table-column>
             <el-table-column
@@ -119,7 +119,7 @@
               </template>
             </el-table-column>
             <el-table-column
-              v-if="privilage === 'zelteam' || privilage === 'admin'"
+              v-if="privilage === 'fluxteam' || privilage === 'admin'"
               label="Actions"
               prop="actions"
               sortable
@@ -131,8 +131,8 @@
                   icon="el-icon-info"
                   iconColor="green"
                   title="Starts Application"
-                  @onConfirm="startZelApp(scope.row.name)"
-                  @confirm="startZelApp(scope.row.name)"
+                  @onConfirm="startApp(scope.row.name)"
+                  @confirm="startApp(scope.row.name)"
                 >
                   <ElButton slot="reference">
                     Start
@@ -144,8 +144,8 @@
                   icon="el-icon-info"
                   iconColor="orange"
                   title="Retarts Application"
-                  @onConfirm="restartZelApp(scope.row.name)"
-                  @confirm="restartZelApp(scope.row.name)"
+                  @onConfirm="restartApp(scope.row.name)"
+                  @confirm="restartApp(scope.row.name)"
                 >
                   <ElButton slot="reference">
                     Restart
@@ -154,7 +154,7 @@
               </template>
             </el-table-column>
             <el-table-column
-              v-if="privilage === 'zelteam' || privilage === 'admin'"
+              v-if="privilage === 'fluxteam' || privilage === 'admin'"
               label="Remove"
               prop="remove"
               sortable
@@ -166,8 +166,8 @@
                   icon="el-icon-info"
                   iconColor="red"
                   title="Removes Application"
-                  @onConfirm="removeZelApp(scope.row.name)"
-                  @confirm="removeZelApp(scope.row.name)"
+                  @onConfirm="removeApp(scope.row.name)"
+                  @confirm="removeApp(scope.row.name)"
                 >
                   <ElButton slot="reference">
                     Remove
@@ -176,7 +176,7 @@
               </template>
             </el-table-column>
             <el-table-column
-              v-if="privilage === 'zelteam' || privilage === 'admin'"
+              v-if="privilage === 'fluxteam' || privilage === 'admin'"
               label="Manage"
               prop="manage"
               sortable
@@ -205,8 +205,8 @@
         >
           <el-table
             ref="appInfoTable"
-            :data="availableZelApps.data"
-            empty-text="No ZelApp available"
+            :data="availableApps.data"
+            empty-text="No Flux App available"
             style="width: 100%"
             @expand-change="loadLocations"
           >
@@ -217,11 +217,11 @@
                 <p>Hash: {{ props.row.hash }}</p>
                 <p>Locations:</p>
                 <div
-                  v-for="location in zelAppLocations"
+                  v-for="location in appLocations"
                   :key="location.ip"
                 >
                   <p>{{ location.ip }}
-                    <ElButton @click="openZelApp(props.row.name, location.ip, props.row.port)">
+                    <ElButton @click="openApp(props.row.name, location.ip, props.row.port)">
                       Visit
                     </ElButton>
                   </p>
@@ -234,7 +234,7 @@
               sortable
             >
               <template slot-scope="scope">
-                {{ getZelAppName(scope.row.name) }}
+                {{ getAppName(scope.row.name) }}
               </template>
             </el-table-column>
             <el-table-column
@@ -277,7 +277,7 @@
               </template>
             </el-table-column>
             <el-table-column
-              v-if="privilage === 'zelteam' || privilage === 'admin'"
+              v-if="privilage === 'fluxteam' || privilage === 'admin'"
               label="Install"
               prop="install"
               sortable
@@ -301,12 +301,12 @@
           </el-table>
         </el-tab-pane>
         <el-tab-pane
-          label="My Local ZelApps"
-          name="myLocalZelApps"
+          label="My Local Apps"
+          name="myLocalApps"
         >
           <el-table
             :data="myLocalApps"
-            empty-text="No Local ZelApp owned"
+            empty-text="No Local App owned"
             style="width: 100%"
           >
             <el-table-column
@@ -315,7 +315,7 @@
               sortable
             >
               <template slot-scope="scope">
-                {{ getZelAppName(scope.row.name) }}
+                {{ getAppName(scope.row.name) }}
               </template>
             </el-table-column>
             <el-table-column
@@ -363,8 +363,8 @@
                   icon="el-icon-info"
                   iconColor="green"
                   title="Starts Application"
-                  @onConfirm="startZelApp(scope.row.name)"
-                  @confirm="startZelApp(scope.row.name)"
+                  @onConfirm="startApp(scope.row.name)"
+                  @confirm="startApp(scope.row.name)"
                 >
                   <ElButton slot="reference">
                     Start
@@ -376,8 +376,8 @@
                   icon="el-icon-info"
                   iconColor="orange"
                   title="Retarts Application"
-                  @onConfirm="restartZelApp(scope.row.name)"
-                  @confirm="restartZelApp(scope.row.name)"
+                  @onConfirm="restartApp(scope.row.name)"
+                  @confirm="restartApp(scope.row.name)"
                 >
                   <ElButton slot="reference">
                     Restart
@@ -397,8 +397,8 @@
                   icon="el-icon-info"
                   iconColor="red"
                   title="Removes Application"
-                  @onConfirm="removeZelApp(scope.row.name)"
-                  @confirm="removeZelApp(scope.row.name)"
+                  @onConfirm="removeApp(scope.row.name)"
+                  @confirm="removeApp(scope.row.name)"
                 >
                   <ElButton slot="reference">
                     Remove
@@ -433,7 +433,7 @@
     </div>
     <div
       :key="uniqueKey"
-      v-if="zelAppsSection === 'globalzelapps'"
+      v-if="appsSection === 'globalapps'"
     >
       <el-tabs
         v-if=!managedApplication
@@ -445,8 +445,8 @@
         >
           <el-table
             ref="appInfoTable"
-            :data="globalZelAppSpecs.data"
-            empty-text="No global ZelApp"
+            :data="globalAppSpecs.data"
+            empty-text="No global App"
             style="width: 100%"
             @expand-change="loadLocations"
           >
@@ -458,11 +458,11 @@
                 <p>Repository: {{ props.row.repotag }}</p>
                 <p>Locations:</p>
                 <div
-                  v-for="location in zelAppLocations"
+                  v-for="location in appLocations"
                   :key="location.ip"
                 >
                   <p>{{ location.ip }}
-                    <ElButton @click="openZelApp(props.row.name, location.ip, props.row.port)">
+                    <ElButton @click="openApp(props.row.name, location.ip, props.row.port)">
                       Visit
                     </ElButton>
                   </p>
@@ -475,7 +475,7 @@
               sortable
             >
               <template slot-scope="scope">
-                {{ getZelAppName(scope.row.name) }}
+                {{ getAppName(scope.row.name) }}
               </template>
             </el-table-column>
             <el-table-column
@@ -499,7 +499,7 @@
               sortable
             >
               <template slot-scope="scope">
-                <ElButton @click="openGlobalZelApp(scope.row.name)">
+                <ElButton @click="openGlobalApp(scope.row.name)">
                   Visit
                 </ElButton>
               </template>
@@ -513,7 +513,7 @@
           <el-table
             ref="appInfoTable"
             :data="myGlobalApps"
-            empty-text="No global ZelApp owned"
+            empty-text="No global App owned"
             style="width: 100%"
             @expand-change="loadLocations"
           >
@@ -525,11 +525,11 @@
                 <p>Repository: {{ props.row.repotag }}</p>
                 <p>Locations:</p>
                 <div
-                  v-for="location in zelAppLocations"
+                  v-for="location in appLocations"
                   :key="location.ip"
                 >
                   <p>{{ location.ip }}
-                    <ElButton @click="openZelApp(props.row.name, location.ip, props.row.port)">
+                    <ElButton @click="openApp(props.row.name, location.ip, props.row.port)">
                       Visit
                     </ElButton>
                   </p>
@@ -542,7 +542,7 @@
               sortable
             >
               <template slot-scope="scope">
-                {{ getZelAppName(scope.row.name) }}
+                {{ getAppName(scope.row.name) }}
               </template>
             </el-table-column>
             <el-table-column
@@ -566,7 +566,7 @@
               sortable
             >
               <template slot-scope="scope">
-                <ElButton @click="openGlobalZelApp(scope.row.name)">
+                <ElButton @click="openGlobalApp(scope.row.name)">
                   Visit
                 </ElButton>
               </template>
@@ -589,7 +589,7 @@
     <div v-if="managedApplication">
       <el-page-header
         class="pageheader"
-        @back="goBackToZelApps"
+        @back="goBackToApps"
         :content="applicationManagementAndStatus"
       >
       </el-page-header>
@@ -958,7 +958,7 @@
                 sortable
               >
                 <template slot-scope="scope">
-                  <ElButton @click="openZelApp(scope.row.name, scope.row.ip, callBResponse.data.port)">
+                  <ElButton @click="openApp(scope.row.name, scope.row.ip, callBResponse.data.port)">
                     Visit
                   </ElButton>
                 </template>
@@ -1013,19 +1013,19 @@
           </div>
           <div v-else-if="managementMenuItem == 'appcontrol'">
             <p>
-              General options to control running status of ZelApp.
+              General options to control running status of App.
             </p>
             <el-popconfirm
               confirmButtonText='Start'
               cancelButtonText='No, Thanks'
               icon="el-icon-info"
               iconColor="green"
-              title="Starts ZelApp"
-              @onConfirm="startZelApp(managedApplication)"
-              @confirm="startZelApp(managedApplication)"
+              title="Starts App"
+              @onConfirm="startApp(managedApplication)"
+              @confirm="startApp(managedApplication)"
             >
               <ElButton slot="reference">
-                Start ZelApp
+                Start App
               </ElButton>
             </el-popconfirm>
             <el-popconfirm
@@ -1033,12 +1033,12 @@
               cancelButtonText='No, Thanks'
               icon="el-icon-info"
               iconColor="red"
-              title="Stops ZelApp"
-              @onConfirm="stopZelApp(managedApplication)"
-              @confirm="stopZelApp(managedApplication)"
+              title="Stops App"
+              @onConfirm="stopAll(managedApplication)"
+              @confirm="stopAll(managedApplication)"
             >
               <ElButton slot="reference">
-                Stop ZelApp
+                Stop App
               </ElButton>
             </el-popconfirm>
             <el-popconfirm
@@ -1046,29 +1046,29 @@
               cancelButtonText='No, Thanks'
               icon="el-icon-info"
               iconColor="orange"
-              title="Restarts ZelApp"
-              @onConfirm="restartZelApp(managedApplication)"
-              @confirm="restartZelApp(managedApplication)"
+              title="Restarts App"
+              @onConfirm="restartApp(managedApplication)"
+              @confirm="restartApp(managedApplication)"
             >
               <ElButton slot="reference">
-                Restart ZelApp
+                Restart App
               </ElButton>
             </el-popconfirm>
             <el-divider></el-divider>
             <p>
-              The Pause command suspends all processes in the specified ZelApp.
+              The Pause command suspends all processes in the specified App.
             </p>
             <el-popconfirm
               confirmButtonText='Pause'
               cancelButtonText='No, Thanks'
               icon="el-icon-info"
               iconColor="orange"
-              title="Pauses ZelApp"
-              @onConfirm="pauseZelApp(managedApplication)"
-              @confirm="pauseZelApp(managedApplication)"
+              title="Pauses App"
+              @onConfirm="pauseApp(managedApplication)"
+              @confirm="pauseApp(managedApplication)"
             >
               <ElButton slot="reference">
-                Pause ZelApp
+                Pause App
               </ElButton>
             </el-popconfirm>
             <el-popconfirm
@@ -1076,29 +1076,29 @@
               cancelButtonText='No, Thanks'
               icon="el-icon-info"
               iconColor="orange"
-              title="Unpauses ZelApp"
-              @onConfirm="unpauseZelApp(managedApplication)"
-              @confirm="unpauseZelApp(managedApplication)"
+              title="Unpauses App"
+              @onConfirm="unpauseApp(managedApplication)"
+              @confirm="unpauseApp(managedApplication)"
             >
               <ElButton slot="reference">
-                Unpause ZelApp
+                Unpause App
               </ElButton>
             </el-popconfirm>
             <el-divider></el-divider>
             <p>
-              ZelApp can be redeployed with or without data reinitiation. Hard redeployement removes the ZelApp including its attached data storage volume. Soft redeployemment will reuse already existing data application.
+              App can be redeployed with or without data reinitiation. Hard redeployement removes the App including its attached data storage volume. Soft redeployemment will reuse already existing data application.
             </p>
             <el-popconfirm
               confirmButtonText='Redeploy'
               cancelButtonText='No, Thanks'
               icon="el-icon-info"
               iconColor="orange"
-              title="Redeploys ZelApp without data removal"
-              @onConfirm="redeployZelAppSoft(managedApplication)"
-              @confirm="redeployZelAppSoft(managedApplication)"
+              title="Redeploys App without data removal"
+              @onConfirm="redeployAppSoft(managedApplication)"
+              @confirm="redeployAppSoft(managedApplication)"
             >
               <ElButton slot="reference">
-                Soft Redeploy ZelApp
+                Soft Redeploy App
               </ElButton>
             </el-popconfirm>
             <el-popconfirm
@@ -1106,29 +1106,29 @@
               cancelButtonText='No, Thanks'
               icon="el-icon-info"
               iconColor="red"
-              title="Redeploys ZelApp with data removal"
-              @onConfirm="redeployZelAppHard(managedApplication)"
-              @confirm="redeployZelAppHard(managedApplication)"
+              title="Redeploys App with data removal"
+              @onConfirm="redeployAppHard(managedApplication)"
+              @confirm="redeployAppHard(managedApplication)"
             >
               <ElButton slot="reference">
-                Hard Redeploy ZelApp
+                Hard Redeploy App
               </ElButton>
             </el-popconfirm>
             <el-divider></el-divider>
             <p>
-              Stops, Uninstalls and Removes all ZelApp data from this specific ZelNode.
+              Stops, Uninstalls and Removes all App data from this specific Flux.
             </p>
             <el-popconfirm
               confirmButtonText='Remove'
               cancelButtonText='No, Thanks'
               icon="el-icon-info"
               iconColor="red"
-              title="Removes ZelApp"
-              @onConfirm="removeZelApp(managedApplication)"
-              @confirm="removeZelApp(managedApplication)"
+              title="Removes App"
+              @onConfirm="removeApp(managedApplication)"
+              @confirm="removeApp(managedApplication)"
             >
               <ElButton slot="reference">
-                Remove ZelApp
+                Remove App
               </ElButton>
             </el-popconfirm>
           </div>
@@ -1137,14 +1137,14 @@
               Here you can execute some commands with a set of enviroment variables on this local application instance. Both are array of strings. Useful especially for testing and tweaking purposes.
             </p>
             <el-form
-              :model="zelAppRegistrationSpecification"
+              :model="appRegistrationSpecification"
               label-width="100px"
             >
               <el-form-item label="Commands">
                 <el-input
                   placeholder="Array of strings of Commands"
                   textarea
-                  v-model="zelAppExec.cmd"
+                  v-model="appExec.cmd"
                 >
                 </el-input>
               </el-form-item>
@@ -1152,12 +1152,12 @@
                 <el-input
                   placeholder="Array of strings of Enviromental Parameters"
                   textarea
-                  v-model="zelAppExec.env"
+                  v-model="appExec.env"
                 >
                 </el-input>
               </el-form-item>
             </el-form>
-            <ElButton @click="zelAppExecute">
+            <ElButton @click="appExecute">
               Execute
             </ElButton>
             <div v-if="commandExecuting">
@@ -1272,24 +1272,24 @@
               Warning: Connected Flux is not communicating properly with Flux network
             </div>
             <h2>Here you can update your application specifications.</h2>
-            <div class="zelapps-register">
+            <div class="apps-register">
               <el-form
-                :model="zelAppUpdateSpecification"
+                :model="appUpdateSpecification"
                 label-width="100px"
               >
                 <el-form-item label="Version">
                   <el-input
-                    placeholder="ZelApp Version"
+                    placeholder="App Version"
                     disabled
-                    v-model="zelAppUpdateSpecification.version"
+                    v-model="appUpdateSpecification.version"
                   >
                   </el-input>
                 </el-form-item>
                 <el-form-item label="Name">
                   <el-input
-                    placeholder="ZelApp name"
+                    placeholder="App name"
                     disabled
-                    v-model="zelAppUpdateSpecification.name"
+                    v-model="appUpdateSpecification.name"
                   >
                   </el-input>
                 </el-form-item>
@@ -1298,7 +1298,7 @@
                     placeholder="Description"
                     type="textarea"
                     autosize
-                    v-model="zelAppUpdateSpecification.description"
+                    v-model="appUpdateSpecification.description"
                   >
                   </el-input>
                 </el-form-item>
@@ -1306,14 +1306,14 @@
                   <el-input
                     placeholder="Docker Hub namespace/repository:tag"
                     disabled
-                    v-model="zelAppUpdateSpecification.repotag"
+                    v-model="appUpdateSpecification.repotag"
                   >
                   </el-input>
                 </el-form-item>
                 <el-form-item label="Owner">
                   <el-input
                     placeholder="ZelID of application owner"
-                    v-model="zelAppUpdateSpecification.owner"
+                    v-model="appUpdateSpecification.owner"
                   >
                   </el-input>
                 </el-form-item>
@@ -1323,7 +1323,7 @@
                     type="number"
                     min="31000"
                     max="39999"
-                    v-model="zelAppUpdateSpecification.port"
+                    v-model="appUpdateSpecification.port"
                   >
                   </el-input>
                 </el-form-item>
@@ -1331,7 +1331,7 @@
                   <el-input
                     placeholder="Array of strings of Enviromental Parameters"
                     textarea
-                    v-model="zelAppUpdateSpecification.enviromentParameters"
+                    v-model="appUpdateSpecification.enviromentParameters"
                   >
                   </el-input>
                 </el-form-item>
@@ -1339,7 +1339,7 @@
                   <el-input
                     placeholder="Array of strings of Commands"
                     textarea
-                    v-model="zelAppUpdateSpecification.commands"
+                    v-model="appUpdateSpecification.commands"
                   >
                   </el-input>
                 </el-form-item>
@@ -1349,15 +1349,15 @@
                     nubmer
                     min="0"
                     max="65535"
-                    v-model="zelAppUpdateSpecification.containerPort"
+                    v-model="appUpdateSpecification.containerPort"
                   >
                   </el-input>
                 </el-form-item>
                 <el-form-item label="Cont. Data">
                   <el-input
-                    placeholder="Data folder that is shared by application to ZelApp volume"
+                    placeholder="Data folder that is shared by application to App volume"
                     textarea
-                    v-model="zelAppUpdateSpecification.containerData"
+                    v-model="appUpdateSpecification.containerData"
                   >
                   </el-input>
                 </el-form-item>
@@ -1368,7 +1368,7 @@
                     min="0"
                     max="7"
                     step="0.1"
-                    v-model="zelAppUpdateSpecification.cpu"
+                    v-model="appUpdateSpecification.cpu"
                   >
                   </el-input>
                 </el-form-item>
@@ -1379,7 +1379,7 @@
                     min="0"
                     max="28000"
                     step="100"
-                    v-model="zelAppUpdateSpecification.ram"
+                    v-model="appUpdateSpecification.ram"
                   >
                   </el-input>
                 </el-form-item>
@@ -1390,14 +1390,14 @@
                     min="0"
                     max="570"
                     step="1"
-                    v-model="zelAppUpdateSpecification.hdd"
+                    v-model="appUpdateSpecification.hdd"
                   >
                   </el-input>
                 </el-form-item>
                 <el-form-item label="Tiered">
-                  <el-switch v-model="zelAppUpdateSpecification.tiered"></el-switch>
+                  <el-switch v-model="appUpdateSpecification.tiered"></el-switch>
                 </el-form-item>
-                <div v-if="zelAppUpdateSpecification.tiered">
+                <div v-if="appUpdateSpecification.tiered">
                   <el-form-item label="BASIC CPU">
                     <el-input
                       placeholder="CPU cores to use by BASIC"
@@ -1405,7 +1405,7 @@
                       min="0"
                       max="1"
                       step="0.1"
-                      v-model="zelAppUpdateSpecification.cpubasic"
+                      v-model="appUpdateSpecification.cpubasic"
                     >
                     </el-input>
                   </el-form-item>
@@ -1416,7 +1416,7 @@
                       min="0"
                       max="1000"
                       step="100"
-                      v-model="zelAppUpdateSpecification.rambasic"
+                      v-model="appUpdateSpecification.rambasic"
                     >
                     </el-input>
                   </el-form-item>
@@ -1427,7 +1427,7 @@
                       min="0"
                       max="20"
                       step="1"
-                      v-model="zelAppUpdateSpecification.hddbasic"
+                      v-model="appUpdateSpecification.hddbasic"
                     >
                     </el-input>
                   </el-form-item>
@@ -1438,7 +1438,7 @@
                       min="0"
                       max="3"
                       step="0.1"
-                      v-model="zelAppUpdateSpecification.cpusuper"
+                      v-model="appUpdateSpecification.cpusuper"
                     >
                     </el-input>
                   </el-form-item>
@@ -1449,7 +1449,7 @@
                       min="0"
                       max="5000"
                       step="100"
-                      v-model="zelAppUpdateSpecification.ramsuper"
+                      v-model="appUpdateSpecification.ramsuper"
                     >
                     </el-input>
                   </el-form-item>
@@ -1460,7 +1460,7 @@
                       min="0"
                       max="120"
                       step="1"
-                      v-model="zelAppUpdateSpecification.hddsuper"
+                      v-model="appUpdateSpecification.hddsuper"
                     >
                     </el-input>
                   </el-form-item>
@@ -1471,7 +1471,7 @@
                       min="0"
                       max="7"
                       step="0.1"
-                      v-model="zelAppUpdateSpecification.cpubamf"
+                      v-model="appUpdateSpecification.cpubamf"
                     >
                     </el-input>
                   </el-form-item>
@@ -1482,7 +1482,7 @@
                       min="0"
                       max="28000"
                       step="100"
-                      v-model="zelAppUpdateSpecification.rambamf"
+                      v-model="appUpdateSpecification.rambamf"
                     >
                     </el-input>
                   </el-form-item>
@@ -1493,7 +1493,7 @@
                       min="0"
                       max="570"
                       step="1"
-                      v-model="zelAppUpdateSpecification.hddbamf"
+                      v-model="appUpdateSpecification.hddbamf"
                     >
                     </el-input>
                   </el-form-item>
@@ -1538,19 +1538,22 @@
                   <img
                     class="zelidLogin"
                     src="@/assets/img/zelID.svg"
+                    alt="Zel ID"
+                    height="100%"
+                    width="100%"
                   />
                 </a>
               </div>
               <br><br>
-              Price per Month: {{ appPricePerMonthForUpdate }} ZEL
+              Price per Month: {{ appPricePerMonthForUpdate }} FLUX
               <br><br>
               <ElButton @click="update">
-                Update ZelApp
+                Update Flux App
               </ElButton>
               <br><br>
               <div v-if="updateHash">
                 To finish application update, please do a transaction of {{ appPricePerMonthForUpdate }} to address
-                {{ zelapps.address }}
+                {{ apps.address }}
                 with following message:
                 {{ updateHash }}
                 <br><br>
@@ -1562,10 +1565,13 @@
               <div v-if="updateHash">
                 Pay with ZelCore
                 <br>
-                <a :href="'zel:?action=pay&coin=zelcash&address=' + zelapps.address + '&amount=' + appPricePerMonthForUpdate + '&message=' + updateHash + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Fzelcash%2Fzelflux%2Fmaster%2FZelFront%2Fsrc%2Fassets%2Fimg%2Fflux_banner.png'">
+                <a :href="'zel:?action=pay&coin=zelcash&address=' + apps.address + '&amount=' + appPricePerMonthForUpdate + '&message=' + updateHash + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Fzelcash%2Fzelflux%2Fmaster%2FZelFront%2Fsrc%2Fassets%2Fimg%2Fflux_banner.png'">
                   <img
                     class="zelidLogin"
                     src="@/assets/img/zelID.svg"
+                    alt="Zel ID"
+                    height="100%"
+                    width="100%"
                   />
                 </a>
               </div>
@@ -1574,9 +1580,9 @@
         </el-main>
       </el-container>
     </div>
-    <div v-if="zelAppsSection === 'registerzelapp'">
+    <div v-if="appsSection === 'registerapp'">
       <div>
-        Note: Only verified developers and images can currently run on Flux. To become a verified developer with whitelisted images, please contact Zel Team via
+        Note: Only verified developers and images can currently run on Flux. To become a verified developer with whitelisted images, please contact Flux Team via
         <el-link
           href="https://discord.io/zel"
           target="_blank"
@@ -1590,23 +1596,23 @@
         Warning: Connected Flux is not communicating properly with Flux network
         <br><br>
       </div>
-      <div class="zelapps-register">
+      <div class="apps-register">
         <el-form
-          :model="zelAppRegistrationSpecification"
+          :model="appRegistrationSpecification"
           label-width="100px"
         >
           <el-form-item label="Version">
             <el-input
-              placeholder="ZelApp Version"
+              placeholder="App Version"
               disabled
-              v-model="zelAppRegistrationSpecification.version"
+              v-model="appRegistrationSpecification.version"
             >
             </el-input>
           </el-form-item>
           <el-form-item label="Name">
             <el-input
-              placeholder="ZelApp name"
-              v-model="zelAppRegistrationSpecification.name"
+              placeholder="App name"
+              v-model="appRegistrationSpecification.name"
             >
             </el-input>
           </el-form-item>
@@ -1615,21 +1621,21 @@
               placeholder="Description"
               type="textarea"
               autosize
-              v-model="zelAppRegistrationSpecification.description"
+              v-model="appRegistrationSpecification.description"
             >
             </el-input>
           </el-form-item>
           <el-form-item label="Repo">
             <el-input
               placeholder="Docker Hub namespace/repository:tag"
-              v-model="zelAppRegistrationSpecification.repotag"
+              v-model="appRegistrationSpecification.repotag"
             >
             </el-input>
           </el-form-item>
           <el-form-item label="Owner">
             <el-input
               placeholder="ZelID of application owner"
-              v-model="zelAppRegistrationSpecification.owner"
+              v-model="appRegistrationSpecification.owner"
             >
             </el-input>
           </el-form-item>
@@ -1639,7 +1645,7 @@
               type="number"
               min="31000"
               max="39999"
-              v-model="zelAppRegistrationSpecification.port"
+              v-model="appRegistrationSpecification.port"
             >
             </el-input>
           </el-form-item>
@@ -1647,7 +1653,7 @@
             <el-input
               placeholder="Array of strings of Enviromental Parameters"
               textarea
-              v-model="zelAppRegistrationSpecification.enviromentParameters"
+              v-model="appRegistrationSpecification.enviromentParameters"
             >
             </el-input>
           </el-form-item>
@@ -1655,7 +1661,7 @@
             <el-input
               placeholder="Array of strings of Commands"
               textarea
-              v-model="zelAppRegistrationSpecification.commands"
+              v-model="appRegistrationSpecification.commands"
             >
             </el-input>
           </el-form-item>
@@ -1665,15 +1671,15 @@
               nubmer
               min="0"
               max="65535"
-              v-model="zelAppRegistrationSpecification.containerPort"
+              v-model="appRegistrationSpecification.containerPort"
             >
             </el-input>
           </el-form-item>
           <el-form-item label="Cont. Data">
             <el-input
-              placeholder="Data folder that is shared by application to ZelApp volume"
+              placeholder="Data folder that is shared by application to App volume"
               textarea
-              v-model="zelAppRegistrationSpecification.containerData"
+              v-model="appRegistrationSpecification.containerData"
             >
             </el-input>
           </el-form-item>
@@ -1684,7 +1690,7 @@
               min="0"
               max="7"
               step="0.1"
-              v-model="zelAppRegistrationSpecification.cpu"
+              v-model="appRegistrationSpecification.cpu"
             >
             </el-input>
           </el-form-item>
@@ -1695,7 +1701,7 @@
               min="0"
               max="28000"
               step="100"
-              v-model="zelAppRegistrationSpecification.ram"
+              v-model="appRegistrationSpecification.ram"
             >
             </el-input>
           </el-form-item>
@@ -1706,14 +1712,14 @@
               min="0"
               max="570"
               step="1"
-              v-model="zelAppRegistrationSpecification.hdd"
+              v-model="appRegistrationSpecification.hdd"
             >
             </el-input>
           </el-form-item>
           <el-form-item label="Tiered">
-            <el-switch v-model="zelAppRegistrationSpecification.tiered"></el-switch>
+            <el-switch v-model="appRegistrationSpecification.tiered"></el-switch>
           </el-form-item>
-          <div v-if="zelAppRegistrationSpecification.tiered">
+          <div v-if="appRegistrationSpecification.tiered">
             <el-form-item label="BASIC CPU">
               <el-input
                 placeholder="CPU cores to use by BASIC"
@@ -1721,7 +1727,7 @@
                 min="0"
                 max="1"
                 step="0.1"
-                v-model="zelAppRegistrationSpecification.cpubasic"
+                v-model="appRegistrationSpecification.cpubasic"
               >
               </el-input>
             </el-form-item>
@@ -1732,7 +1738,7 @@
                 min="0"
                 max="1000"
                 step="100"
-                v-model="zelAppRegistrationSpecification.rambasic"
+                v-model="appRegistrationSpecification.rambasic"
               >
               </el-input>
             </el-form-item>
@@ -1743,7 +1749,7 @@
                 min="0"
                 max="20"
                 step="1"
-                v-model="zelAppRegistrationSpecification.hddbasic"
+                v-model="appRegistrationSpecification.hddbasic"
               >
               </el-input>
             </el-form-item>
@@ -1754,7 +1760,7 @@
                 min="0"
                 max="3"
                 step="0.1"
-                v-model="zelAppRegistrationSpecification.cpusuper"
+                v-model="appRegistrationSpecification.cpusuper"
               >
               </el-input>
             </el-form-item>
@@ -1765,7 +1771,7 @@
                 min="0"
                 max="5000"
                 step="100"
-                v-model="zelAppRegistrationSpecification.ramsuper"
+                v-model="appRegistrationSpecification.ramsuper"
               >
               </el-input>
             </el-form-item>
@@ -1776,7 +1782,7 @@
                 min="0"
                 max="120"
                 step="1"
-                v-model="zelAppRegistrationSpecification.hddsuper"
+                v-model="appRegistrationSpecification.hddsuper"
               >
               </el-input>
             </el-form-item>
@@ -1787,7 +1793,7 @@
                 min="0"
                 max="7"
                 step="0.1"
-                v-model="zelAppRegistrationSpecification.cpubamf"
+                v-model="appRegistrationSpecification.cpubamf"
               >
               </el-input>
             </el-form-item>
@@ -1798,7 +1804,7 @@
                 min="0"
                 max="28000"
                 step="100"
-                v-model="zelAppRegistrationSpecification.rambamf"
+                v-model="appRegistrationSpecification.rambamf"
               >
               </el-input>
             </el-form-item>
@@ -1809,7 +1815,7 @@
                 min="0"
                 max="570"
                 step="1"
-                v-model="zelAppRegistrationSpecification.hddbamf"
+                v-model="appRegistrationSpecification.hddbamf"
               >
               </el-input>
             </el-form-item>
@@ -1850,19 +1856,22 @@
               <img
                 class="zelidLogin"
                 src="@/assets/img/zelID.svg"
+                alt="Zel ID"
+                height="100%"
+                width="100%"
               />
             </a>
           </div>
           <br><br>
-          Price per Month: {{ appPricePerMonth }} ZEL
+          Price per Month: {{ appPricePerMonth }} FLUX
           <br><br>
           <ElButton @click="register">
-            Register ZelApp
+            Register Flux App
           </ElButton>
           <br><br>
           <div v-if="registrationHash">
             To finish registration, please do a transaction of {{ appPricePerMonth }} to address
-            {{ zelapps.address }}
+            {{ apps.address }}
             with following message:
             {{ registrationHash }}
             <br><br>
@@ -1874,10 +1883,12 @@
           <div v-if="registrationHash">
             Pay with ZelCore
             <br>
-            <a :href="'zel:?action=pay&coin=zelcash&address=' + zelapps.address + '&amount=' + appPricePerMonth + '&message=' + registrationHash + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Fzelcash%2Fzelflux%2Fmaster%2FZelFront%2Fsrc%2Fassets%2Fimg%2Fflux_banner.png'">
+            <a :href="'zel:?action=pay&coin=zelcash&address=' + apps.address + '&amount=' + appPricePerMonth + '&message=' + registrationHash + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Fzelcash%2Fzelflux%2Fmaster%2FZelFront%2Fsrc%2Fassets%2Fimg%2Fflux_banner.png'">
               <img
                 class="zelidLogin"
                 src="@/assets/img/zelID.svg"
+                height="100%"
+                width="100%"
               />
             </a>
           </div>
@@ -1896,8 +1907,8 @@
       >
       </el-input>
     </div>
-    <div v-if="zelAppsSection === 'zelshare'">
-      <ZelShare />
+    <div v-if="appsSection === 'fluxshare'">
+      <FluxShare />
     </div>
   </div>
 </template>
@@ -1906,10 +1917,10 @@
 import Vuex, { mapState } from 'vuex';
 import Vue from 'vue';
 
-import ZelCashService from '@/services/ZelCashService';
-import ZelAppsService from '@/services/ZelAppsService';
+import DaemonService from '@/services/DaemonService';
+import AppsService from '@/services/AppsService';
 
-const ZelShare = () => import('@/components/ZelShare.vue');
+const FluxShare = () => import('@/components/FluxShare.vue');
 
 const store = require('store');
 const qs = require('qs');
@@ -1919,9 +1930,9 @@ Vue.use(Vuex);
 const vue = new Vue();
 
 export default {
-  name: 'ZelApps',
+  name: 'Apps',
   components: {
-    ZelShare,
+    FluxShare,
   },
   data() {
     return {
@@ -1934,30 +1945,30 @@ export default {
       },
       activeName: 'running',
       activeNameGlobal: 'activeapps',
-      getRunningZelAppsResponse: {
+      getRunningAppsResponse: {
         status: '',
         data: [],
       },
-      getAllZelAppsResponse: {
+      getAllAppsResponse: {
         status: '',
         data: [],
       },
-      installedZelApps: {
+      installedApps: {
         status: '',
         data: [],
       },
-      availableZelApps: {
+      availableApps: {
         status: '',
         data: [],
       },
-      globalZelAppSpecs: {
+      globalAppSpecs: {
         status: '',
         data: [],
       },
       tier: '',
       output: '',
       fluxCommunication: false,
-      zelAppRegistrationSpecification: {
+      appRegistrationSpecification: {
         version: 1,
         name: '',
         description: '',
@@ -1982,7 +1993,7 @@ export default {
         rambamf: null,
         hddbamf: null,
       },
-      zelAppUpdateSpecification: {
+      appUpdateSpecification: {
         version: 1,
         name: '',
         description: '',
@@ -2007,11 +2018,11 @@ export default {
         rambamf: null,
         hddbamf: null,
       },
-      registrationtype: 'zelappregister',
-      updatetype: 'zelappupdate',
+      registrationtype: 'fluxappregister',
+      updatetype: 'fluxappupdate',
       version: 1,
-      dataForZelAppRegistration: {},
-      dataForZelAppUpdate: {},
+      dataForAppRegistration: {},
+      dataForAppUpdate: {},
       dataToSign: '',
       timestamp: '',
       signature: '',
@@ -2044,15 +2055,15 @@ export default {
         ram: 2000, // 2000mb
         hdd: 30, // 30gb // this value is likely to rise
       },
-      zelapps: {
-        // in zel per month
+      apps: {
+        // in flux per month
         price: {
           cpu: 3, // per 0.1 cpu core,
           ram: 1, // per 100mb,
           hdd: 0.5, // per 1gb,
         },
         address: 't1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6', // apps registration address
-        epochstart: 694000, // zelapps epoch blockheight start
+        epochstart: 694000, // apps epoch blockheight start
         portMin: 31000, // originally should have been from 30000 but we got temporary folding there
         portMax: 39999,
       },
@@ -2071,7 +2082,7 @@ export default {
       total: '',
       downloaded: '',
       abortToken: {},
-      zelAppExec: {
+      appExec: {
         cmd: '',
         env: '',
       },
@@ -2081,7 +2092,7 @@ export default {
         label: 'label',
       },
       currentHeight: 0,
-      zelAppLocations: [],
+      appLocations: [],
       uniqueKey: 1,
     };
   },
@@ -2089,7 +2100,7 @@ export default {
     ...mapState([
       'config',
       'userconfig',
-      'zelAppsSection',
+      'appsSection',
       'privilage',
     ]),
     callbackValue() {
@@ -2112,12 +2123,12 @@ export default {
       return encodeURI(url);
     },
     applicationManagementAndStatus() {
-      console.log(this.getAllZelAppsResponse);
-      const zelappInfo = this.getAllZelAppsResponse.data.find((zelapp) => zelapp.Names[0] === this.getZelAppDockerNameIdentifier()) || {};
+      console.log(this.getAllAppsResponse);
+      const foundAppInfo = this.getAllAppsResponse.data.find((app) => app.Names[0] === this.getAppDockerNameIdentifier()) || {};
       const appInfo = {
         name: this.managedApplication,
-        state: zelappInfo.State || 'Unknown state',
-        status: zelappInfo.Status || 'Unkown status',
+        state: foundAppInfo.State || 'Unknown state',
+        status: foundAppInfo.Status || 'Unknown status',
       };
       appInfo.state = appInfo.state.charAt(0).toUpperCase() + appInfo.state.slice(1);
       appInfo.status = appInfo.status.charAt(0).toUpperCase() + appInfo.status.slice(1);
@@ -2133,16 +2144,16 @@ export default {
     myGlobalApps() {
       const zelidauth = localStorage.getItem('zelidauth');
       const auth = qs.parse(zelidauth);
-      if (this.globalZelAppSpecs.data) {
-        return this.globalZelAppSpecs.data.filter((app) => app.owner === auth.zelid);
+      if (this.globalAppSpecs.data) {
+        return this.globalAppSpecs.data.filter((app) => app.owner === auth.zelid);
       }
       return [];
     },
     myLocalApps() {
       const zelidauth = localStorage.getItem('zelidauth');
       const auth = qs.parse(zelidauth);
-      if (this.installedZelApps.data) {
-        return this.installedZelApps.data.filter((app) => app.owner === auth.zelid);
+      if (this.installedApps.data) {
+        return this.installedApps.data.filter((app) => app.owner === auth.zelid);
       }
       return [];
     },
@@ -2157,19 +2168,19 @@ export default {
       return string;
     },
     appPricePerMonth() {
-      const price = this.appPricePerMonthMethod(this.dataForZelAppRegistration);
+      const price = this.appPricePerMonthMethod(this.dataForAppRegistration);
       return price;
     },
     appPricePerMonthForUpdate() {
-      const zelappInfo = this.callBResponse.data;
-      let actualPriceToPay = this.appPricePerMonthMethod(this.dataForZelAppUpdate);
+      const appInfo = this.callBResponse.data;
+      let actualPriceToPay = this.appPricePerMonthMethod(this.dataForAppUpdate);
       console.log(actualPriceToPay);
-      if (zelappInfo) {
-        const previousSpecsPrice = this.appPricePerMonthMethod(zelappInfo);
+      if (appInfo) {
+        const previousSpecsPrice = this.appPricePerMonthMethod(appInfo);
         console.log(previousSpecsPrice);
         // what is the height difference
-        const zelcashHeight = this.currentHeight;
-        const heightDifference = zelcashHeight - zelappInfo.height; // has to be lower than 22000
+        const daemonHeight = this.currentHeight;
+        const heightDifference = daemonHeight - appInfo.height; // has to be lower than 22000
         const perc = (22000 - heightDifference) / 22000;
         if (perc > 0) {
           actualPriceToPay -= (perc * previousSpecsPrice);
@@ -2190,8 +2201,8 @@ export default {
       return expTime;
     },
     isApplicationInstalledLocally() {
-      if (this.installedZelApps.data) {
-        const installed = this.installedZelApps.data.find((app) => app.name === this.managedApplication);
+      if (this.installedApps.data) {
+        const installed = this.installedApps.data.find((app) => app.name === this.managedApplication);
         if (installed) {
           return true;
         }
@@ -2201,7 +2212,7 @@ export default {
     },
   },
   watch: {
-    zelAppsSection(val, oldVal) {
+    appsSection(val, oldVal) {
       console.log(val, oldVal);
       this.switcher(val);
     },
@@ -2210,65 +2221,65 @@ export default {
       this.callResponse.status = '';
       this.callBResponse.data = '';
       this.callBResponse.status = '';
-      this.zelAppExec.cmd = '';
-      this.zelAppExec.env = '';
+      this.appExec.cmd = '';
+      this.appExec.env = '';
       console.log(val, oldVal);
       this.output = '';
       switch (val) {
         case 'running':
-          this.zelappsGetListRunningZelApps();
+          this.appsGetListRunningApps();
           break;
         case 'all':
-          this.zelappsGetListAllZelApps();
+          this.appsGetListAllApps();
           break;
         case 'installed':
-          this.zelappsGetInstalledZelApps();
-          this.zelappsGetListAllZelApps();
+          this.appsGetInstalledApps();
+          this.appsGetListAllApps();
           break;
         case 'available':
-          this.zelappsGetAvailableZelApps();
+          this.appsGetAvailableApps();
           break;
-        case 'myLocalZelApps':
-          this.zelappsGetInstalledZelApps();
-          this.zelappsGetListAllZelApps();
+        case 'myLocalApps':
+          this.appsGetInstalledApps();
+          this.appsGetListAllApps();
           break;
         case 'stopped':
           // getting all and checking state?
           break;
         default:
-          console.log('ZelApps Section: Unrecognized method'); // should not be visible if everything works correctly
+          console.log('Apps Section: Unrecognized method'); // should not be visible if everything works correctly
       }
     },
     activeNameGlobal(val, oldVal) {
-      this.zelAppLocations = [];
+      this.appLocations = [];
       this.callResponse.data = '';
       this.callResponse.status = '';
       this.callBResponse.data = '';
       this.callBResponse.status = '';
-      this.zelAppExec.cmd = '';
-      this.zelAppExec.env = '';
+      this.appExec.cmd = '';
+      this.appExec.env = '';
       console.log(val, oldVal);
       this.output = '';
       switch (val) {
         case 'activeapps':
-          this.zelappsGetListGlobalZelApps();
+          this.appsGetListGlobalApps();
           break;
         case 'myapps':
-          this.zelappsGetListAllZelApps();
-          this.zelappsGetListGlobalZelApps();
-          this.getZelCashInfo();
+          this.appsGetListAllApps();
+          this.appsGetListGlobalApps();
+          this.getDaemonInfo();
           break;
         default:
-          console.log('ZelApps Section: Unrecognized method'); // should not be visible if everything works correctly
+          console.log('Apps Section: Unrecognized method'); // should not be visible if everything works correctly
       }
     },
-    zelAppRegistrationSpecification: {
+    appRegistrationSpecification: {
       handler(val, oldVal) {
         console.log(val, oldVal);
         this.dataToSign = '';
         this.signature = '';
         this.timestamp = null;
-        this.dataForZelAppRegistration = {};
+        this.dataForAppRegistration = {};
         this.registrationHash = '';
         if (this.websocket !== null) {
           this.websocket.close();
@@ -2277,13 +2288,13 @@ export default {
       },
       deep: true,
     },
-    zelAppUpdateSpecification: {
+    appUpdateSpecification: {
       handler(val, oldVal) {
         console.log(val, oldVal);
         this.dataToSign = '';
         this.signature = '';
         this.timestamp = null;
-        this.dataForZelAppUpdate = {};
+        this.dataForAppUpdate = {};
         this.updateHash = '';
         if (this.websocket !== null) {
           this.websocket.close();
@@ -2296,147 +2307,147 @@ export default {
   mounted() {
     const zelidauth = localStorage.getItem('zelidauth');
     const auth = qs.parse(zelidauth);
-    this.zelAppRegistrationSpecification.owner = auth.zelid;
+    this.appRegistrationSpecification.owner = auth.zelid;
     console.log(auth);
     this.getZelNodeStatus();
-    this.zelappsGetInstalledZelApps();
+    this.appsGetInstalledApps();
     this.getRandomPort();
-    this.switcher(this.zelAppsSection);
+    this.switcher(this.appsSection);
   },
   methods: {
     switcher(value) {
       this.managedApplication = '';
       switch (value) {
-        case 'localzelapps':
-          this.zelAppLocations = [];
-          this.zelappsGetListRunningZelApps();
+        case 'localapps':
+          this.appLocations = [];
+          this.appsGetListRunningApps();
           break;
-        case 'globalzelapps':
-          this.zelAppLocations = [];
-          this.zelappsGetListGlobalZelApps();
+        case 'globalapps':
+          this.appLocations = [];
+          this.appsGetListGlobalApps();
           break;
-        case 'registerzelapp':
+        case 'registerapp':
           this.getRandomPort();
           this.registrationInformation();
           this.checkFluxCommunication();
           break;
         default:
-          console.log('ZelApps Section: Unrecognized method');
+          console.log('Apps Section: Unrecognized method');
       }
       this.uniqueKey += this.uniqueKey;
     },
-    async getZelCashInfo() {
-      const zelcashGetInfo = await ZelCashService.getInfo();
-      if (zelcashGetInfo.data.status === 'error') {
-        vue.$customMes.error(zelcashGetInfo.data.data.message || zelcashGetInfo.data.data);
+    async getDaemonInfo() {
+      const daemonGetInfo = await DaemonService.getInfo();
+      if (daemonGetInfo.data.status === 'error') {
+        vue.$customMes.error(daemonGetInfo.data.data.message || daemonGetInfo.data.data);
       } else {
-        this.currentHeight = zelcashGetInfo.data.data.blocks;
+        this.currentHeight = daemonGetInfo.data.data.blocks;
       }
     },
-    async zelappsGetListGlobalZelApps() {
-      const response = await ZelAppsService.globalZelAppSpecifications();
+    async appsGetListGlobalApps() {
+      const response = await AppsService.globalAppSpecifications();
       console.log(response);
-      this.globalZelAppSpecs.status = response.data.status;
-      this.globalZelAppSpecs.data = response.data.data;
+      this.globalAppSpecs.status = response.data.status;
+      this.globalAppSpecs.data = response.data.data;
     },
-    async zelappsGetAvailableZelApps() {
-      const response = await ZelAppsService.availableZelApps();
-      this.availableZelApps.status = response.data.status;
-      this.availableZelApps.data = response.data.data;
+    async appsGetAvailableApps() {
+      const response = await AppsService.availableApps();
+      this.availableApps.status = response.data.status;
+      this.availableApps.data = response.data.data;
     },
-    async zelappsGetInstalledZelApps() {
-      const response = await ZelAppsService.installedZelApps();
-      this.installedZelApps.status = response.data.status;
-      this.installedZelApps.data = response.data.data;
+    async appsGetInstalledApps() {
+      const response = await AppsService.installedApps();
+      this.installedApps.status = response.data.status;
+      this.installedApps.data = response.data.data;
     },
-    async zelappsGetListRunningZelApps() {
-      const response = await ZelAppsService.listRunningZelApps();
+    async appsGetListRunningApps() {
+      const response = await AppsService.listRunningApps();
       console.log(response);
-      this.getRunningZelAppsResponse.status = response.data.status;
-      this.getRunningZelAppsResponse.data = response.data.data;
+      this.getRunningAppsResponse.status = response.data.status;
+      this.getRunningAppsResponse.data = response.data.data;
     },
-    async zelappsGetListAllZelApps() {
-      const response = await ZelAppsService.listAllZelApps();
+    async appsGetListAllApps() {
+      const response = await AppsService.listAllApps();
       console.log(response);
-      this.getAllZelAppsResponse.status = response.data.status;
-      this.getAllZelAppsResponse.data = response.data.data;
+      this.getAllAppsResponse.status = response.data.status;
+      this.getAllAppsResponse.data = response.data.data;
     },
-    async stopZelApp(zelapp) {
+    async stopAll(app) {
       this.output = '';
-      vue.$customMes.success('Stopping ZelApp');
+      vue.$customMes.success('Stopping App');
       const zelidauth = localStorage.getItem('zelidauth');
-      const response = await ZelAppsService.stopZelApp(zelidauth, zelapp);
+      const response = await AppsService.stopAll(zelidauth, app);
       if (response.data.status === 'success') {
         vue.$customMes.success(response.data.data.message || response.data.data);
       } else {
         vue.$customMes.error(response.data.data.message || response.data.data);
       }
-      this.zelappsGetListAllZelApps();
-      this.zelappsGetListRunningZelApps();
+      this.appsGetListAllApps();
+      this.appsGetListRunningApps();
       console.log(response);
     },
-    async startZelApp(zelapp) {
+    async startApp(app) {
       this.output = '';
-      vue.$customMes.success('Starting ZelApp');
+      vue.$customMes.success('Starting App');
       const zelidauth = localStorage.getItem('zelidauth');
-      const response = await ZelAppsService.startZelApp(zelidauth, zelapp);
+      const response = await AppsService.startApp(zelidauth, app);
       if (response.data.status === 'success') {
         vue.$customMes.success(response.data.data.message || response.data.data);
       } else {
         vue.$customMes.error(response.data.data.message || response.data.data);
       }
-      this.zelappsGetListAllZelApps();
+      this.appsGetListAllApps();
       console.log(response);
     },
-    async restartZelApp(zelapp) {
+    async restartApp(app) {
       this.output = '';
-      vue.$customMes.success('Restarting ZelApp');
+      vue.$customMes.success('Restarting App');
       const zelidauth = localStorage.getItem('zelidauth');
-      const response = await ZelAppsService.restartZelApp(zelidauth, zelapp);
+      const response = await AppsService.restartApp(zelidauth, app);
       if (response.data.status === 'success') {
         vue.$customMes.success(response.data.data.message || response.data.data);
       } else {
         vue.$customMes.error(response.data.data.message || response.data.data);
       }
-      this.zelappsGetListAllZelApps();
+      this.appsGetListAllApps();
       console.log(response);
     },
-    async pauseZelApp(zelapp) {
+    async pauseApp(app) {
       this.output = '';
-      vue.$customMes.success('Pausing ZelApp');
+      vue.$customMes.success('Pausing App');
       const zelidauth = localStorage.getItem('zelidauth');
-      const response = await ZelAppsService.pauseZelApp(zelidauth, zelapp);
+      const response = await AppsService.pauseApp(zelidauth, app);
       if (response.data.status === 'success') {
         vue.$customMes.success(response.data.data.message || response.data.data);
       } else {
         vue.$customMes.error(response.data.data.message || response.data.data);
       }
-      this.zelappsGetListAllZelApps();
+      this.appsGetListAllApps();
       console.log(response);
     },
-    async unpauseZelApp(zelapp) {
+    async unpauseApp(app) {
       this.output = '';
-      vue.$customMes.success('UnPausing ZelApp');
+      vue.$customMes.success('UnPausing App');
       const zelidauth = localStorage.getItem('zelidauth');
-      const response = await ZelAppsService.unpauseZelApp(zelidauth, zelapp);
+      const response = await AppsService.unpauseApp(zelidauth, app);
       if (response.data.status === 'success') {
         vue.$customMes.success(response.data.data.message || response.data.data);
       } else {
         vue.$customMes.error(response.data.data.message || response.data.data);
       }
-      this.zelappsGetListAllZelApps();
+      this.appsGetListAllApps();
       console.log(response);
     },
-    redeployZelAppSoft(zelapp) {
-      this.redeployZelApp(zelapp, false);
+    redeployAppSoft(app) {
+      this.redeployApp(app, false);
     },
-    redeployZelAppHard(zelapp) {
-      this.redeployZelApp(zelapp, true);
+    redeployAppHard(app) {
+      this.redeployApp(app, true);
     },
-    async redeployZelApp(zelapp, force) {
+    async redeployApp(app, force) {
       const self = this;
       this.output = '';
-      vue.$customMes.success('Redeploying ZelApp');
+      vue.$customMes.success('Redeploying App');
       const zelidauth = localStorage.getItem('zelidauth');
       const axiosConfig = {
         headers: {
@@ -2447,7 +2458,7 @@ export default {
           self.output = JSON.parse(`[${progressEvent.target.response.replace(/}{/g, '},{')}]`);
         },
       };
-      const response = await ZelAppsService.justAPI().get(`/zelapps/redeploy/${zelapp}/${force}`, axiosConfig);
+      const response = await AppsService.justAPI().get(`/apps/redeploy/${app}/${force}`, axiosConfig);
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
       } else {
@@ -2459,10 +2470,10 @@ export default {
         }
       }
     },
-    async removeZelApp(zelapp) {
+    async removeApp(app) {
       const self = this;
       this.output = '';
-      vue.$customMes.success('Removing ZelApp');
+      vue.$customMes.success('Removing App');
       const zelidauth = localStorage.getItem('zelidauth');
       const axiosConfig = {
         headers: {
@@ -2473,11 +2484,11 @@ export default {
           self.output = JSON.parse(`[${progressEvent.target.response.replace(/}{/g, '},{')}]`);
         },
       };
-      const response = await ZelAppsService.justAPI().get(`/zelapps/zelappremove/${zelapp}`, axiosConfig);
+      const response = await AppsService.justAPI().get(`/apps/appremove/${app}`, axiosConfig);
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
       } else {
-        this.zelappsGetInstalledZelApps();
+        this.appsGetInstalledApps();
         this.output = JSON.parse(`[${response.data.replace(/}{/g, '},{')}]`);
         if (this.output[this.output.length - 1].status === 'error') {
           vue.$customMes.error(this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
@@ -2489,13 +2500,13 @@ export default {
         }, 5000);
       }
     },
-    async installTemporaryLocalApp(zelapp) { // todo rewrite to installZelApp later
-      const appName = zelapp;
+    async installTemporaryLocalApp(app) { // todo rewrite to installApp later
+      const appName = app;
       const self = this;
       this.output = '';
-      vue.$customMes.success('Installing ZelApp');
+      vue.$customMes.success('Installing App');
       const zelidauth = localStorage.getItem('zelidauth');
-      // const response = await ZelAppsService.installTemporaryLocalApp(zelidauth, zelapp);
+      // const response = await AppsService.installTemporaryLocalApp(zelidauth, app);
       const axiosConfig = {
         headers: {
           zelidauth,
@@ -2505,7 +2516,7 @@ export default {
           self.output = JSON.parse(`[${progressEvent.target.response.replace(/}{/g, '},{')}]`);
         },
       };
-      const response = await ZelAppsService.justAPI().get(`/zelapps/installtemporarylocalapp/${appName}`, axiosConfig);
+      const response = await AppsService.justAPI().get(`/apps/installtemporarylocalapp/${appName}`, axiosConfig);
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
       } else {
@@ -2528,110 +2539,107 @@ export default {
         }
       }
     },
-    installedZelApp(zelappName) {
-      return this.installedZelApps.data.find((zelapp) => zelapp.name === zelappName);
+    installedApp(appName) {
+      return this.installedApps.data.find((app) => app.name === appName);
     },
-    openZelApp(name, _ip, _port) {
-      let zelappInfo = this.installedZelApp(name);
-      if (!zelappInfo) {
-        zelappInfo = this.installedZelApp(`zel${name}`);
-      }
-      if (zelappInfo || (_port && _ip)) {
+    openApp(name, _ip, _port) {
+      const appInfo = this.installedApp(name);
+      if (appInfo || (_port && _ip)) {
         const backendURL = store.get('backendURL') || `http://${this.userconfig.externalip}:${this.config.apiPort}`;
         const ip = _ip || backendURL.split(':')[1].split('//')[1];
-        const port = _port || zelappInfo.port;
+        const port = _port || appInfo.port;
         let url = `http://${ip}:${port}`;
         if (name === 'KadenaChainWebNode') {
           url = `https://${ip}:${port}/chainweb/0.0/mainnet01/cut`;
         }
         this.openSite(url);
       } else {
-        vue.$customMes.error('Unable to open ZelApp :(');
+        vue.$customMes.error('Unable to open App :(');
       }
     },
     async getZelNodeStatus() {
-      const response = await ZelCashService.getZelNodeStatus();
+      const response = await DaemonService.getZelNodeStatus();
       if (response.data.status === 'success') {
         this.tier = response.data.data.tier;
       }
     },
-    resolveCpu(zelapp) {
+    resolveCpu(app) {
       if (this.tier === 'BASIC') {
-        return (`${zelapp.cpubasic || zelapp.cpu} cores`);
+        return (`${app.cpubasic || app.cpu} cores`);
       }
       if (this.tier === 'SUPER') {
-        return (`${zelapp.cpusuper || zelapp.cpu} cores`);
+        return (`${app.cpusuper || app.cpu} cores`);
       }
       if (this.tier === 'BAMF') {
-        return (`${zelapp.cpubamf || zelapp.cpu} cores`);
+        return (`${app.cpubamf || app.cpu} cores`);
       }
-      return (`${zelapp.cpu} cores`);
+      return (`${app.cpu} cores`);
     },
-    resolveRam(zelapp) {
+    resolveRam(app) {
       if (this.tier === 'BASIC') {
-        return (`${zelapp.rambasic || zelapp.ram} MB`);
+        return (`${app.rambasic || app.ram} MB`);
       }
       if (this.tier === 'SUPER') {
-        return (`${zelapp.ramsuper || zelapp.ram} MB`);
+        return (`${app.ramsuper || app.ram} MB`);
       }
       if (this.tier === 'BAMF') {
-        return (`${zelapp.rambamf || zelapp.ram} MB`);
+        return (`${app.rambamf || app.ram} MB`);
       }
-      return (`${zelapp.ram} MB`);
+      return (`${app.ram} MB`);
     },
-    resolveHdd(zelapp) {
+    resolveHdd(app) {
       if (this.tier === 'BASIC') {
-        return (`${zelapp.hddbasic || zelapp.hdd} GB`);
+        return (`${app.hddbasic || app.hdd} GB`);
       }
       if (this.tier === 'SUPER') {
-        return (`${zelapp.hddsuper || zelapp.hdd} GB`);
+        return (`${app.hddsuper || app.hdd} GB`);
       }
       if (this.tier === 'BAMF') {
-        return (`${zelapp.hddbamf || zelapp.hdd} GB`);
+        return (`${app.hddbamf || app.hdd} GB`);
       }
-      return (`${zelapp.hdd} GB`);
+      return (`${app.hdd} GB`);
     },
     openSite(url) {
       const win = window.open(url, '_blank');
       win.focus();
     },
-    checkHWParameters(zelAppSpecs) {
+    checkHWParameters(appSpecs) {
       // check specs parameters. JS precision
-      if ((zelAppSpecs.cpu * 10) % 1 !== 0 || (zelAppSpecs.cpu * 10) > (this.fluxSpecifics.cpu.bamf - this.lockedSystemResources.cpu) || zelAppSpecs.cpu < 0.1) {
+      if ((appSpecs.cpu * 10) % 1 !== 0 || (appSpecs.cpu * 10) > (this.fluxSpecifics.cpu.bamf - this.lockedSystemResources.cpu) || appSpecs.cpu < 0.1) {
         return new Error('CPU badly assigned');
       }
-      if (zelAppSpecs.ram % 100 !== 0 || zelAppSpecs.ram > (this.fluxSpecifics.ram.bamf - this.lockedSystemResources.ram) || zelAppSpecs.ram < 100) {
+      if (appSpecs.ram % 100 !== 0 || appSpecs.ram > (this.fluxSpecifics.ram.bamf - this.lockedSystemResources.ram) || appSpecs.ram < 100) {
         return new Error('RAM badly assigned');
       }
-      if (zelAppSpecs.hdd % 1 !== 0 || zelAppSpecs.hdd > (this.fluxSpecifics.hdd.bamf - this.lockedSystemResources.hdd) || zelAppSpecs.hdd < 1) {
+      if (appSpecs.hdd % 1 !== 0 || appSpecs.hdd > (this.fluxSpecifics.hdd.bamf - this.lockedSystemResources.hdd) || appSpecs.hdd < 1) {
         return new Error('SSD badly assigned');
       }
-      if (zelAppSpecs.tiered) {
-        if ((zelAppSpecs.cpubasic * 10) % 1 !== 0 || (zelAppSpecs.cpubasic * 10) > (this.fluxSpecifics.cpu.basic - this.lockedSystemResources.cpu) || zelAppSpecs.cpubasic < 0.1) {
+      if (appSpecs.tiered) {
+        if ((appSpecs.cpubasic * 10) % 1 !== 0 || (appSpecs.cpubasic * 10) > (this.fluxSpecifics.cpu.basic - this.lockedSystemResources.cpu) || appSpecs.cpubasic < 0.1) {
           return new Error('CPU for BASIC badly assigned');
         }
-        if (zelAppSpecs.rambasic % 100 !== 0 || zelAppSpecs.rambasic > (this.fluxSpecifics.ram.basic - this.lockedSystemResources.ram) || zelAppSpecs.rambasic < 100) {
+        if (appSpecs.rambasic % 100 !== 0 || appSpecs.rambasic > (this.fluxSpecifics.ram.basic - this.lockedSystemResources.ram) || appSpecs.rambasic < 100) {
           return new Error('RAM for BASIC badly assigned');
         }
-        if (zelAppSpecs.hddbasic % 1 !== 0 || zelAppSpecs.hddbasic > (this.fluxSpecifics.hdd.basic - this.lockedSystemResources.hdd) || zelAppSpecs.hddbasic < 1) {
+        if (appSpecs.hddbasic % 1 !== 0 || appSpecs.hddbasic > (this.fluxSpecifics.hdd.basic - this.lockedSystemResources.hdd) || appSpecs.hddbasic < 1) {
           return new Error('SSD for BASIC badly assigned');
         }
-        if ((zelAppSpecs.cpusuper * 10) % 1 !== 0 || (zelAppSpecs.cpusuper * 10) > (this.fluxSpecifics.cpu.super - this.lockedSystemResources.cpu) || zelAppSpecs.cpusuper < 0.1) {
+        if ((appSpecs.cpusuper * 10) % 1 !== 0 || (appSpecs.cpusuper * 10) > (this.fluxSpecifics.cpu.super - this.lockedSystemResources.cpu) || appSpecs.cpusuper < 0.1) {
           return new Error('CPU for SUPER badly assigned');
         }
-        if (zelAppSpecs.ramsuper % 100 !== 0 || zelAppSpecs.ramsuper > (this.fluxSpecifics.ram.super - this.lockedSystemResources.ram) || zelAppSpecs.ramsuper < 100) {
+        if (appSpecs.ramsuper % 100 !== 0 || appSpecs.ramsuper > (this.fluxSpecifics.ram.super - this.lockedSystemResources.ram) || appSpecs.ramsuper < 100) {
           return new Error('RAM for SUPER badly assigned');
         }
-        if (zelAppSpecs.hddsuper % 1 !== 0 || zelAppSpecs.hddsuper > (this.fluxSpecifics.hdd.super - this.lockedSystemResources.hdd) || zelAppSpecs.hddsuper < 1) {
+        if (appSpecs.hddsuper % 1 !== 0 || appSpecs.hddsuper > (this.fluxSpecifics.hdd.super - this.lockedSystemResources.hdd) || appSpecs.hddsuper < 1) {
           return new Error('SSD for SUPER badly assigned');
         }
-        if ((zelAppSpecs.cpubamf * 10) % 1 !== 0 || (zelAppSpecs.cpubamf * 10) > (this.fluxSpecifics.cpu.bamf - this.lockedSystemResources.cpu) || zelAppSpecs.cpubamf < 0.1) {
+        if ((appSpecs.cpubamf * 10) % 1 !== 0 || (appSpecs.cpubamf * 10) > (this.fluxSpecifics.cpu.bamf - this.lockedSystemResources.cpu) || appSpecs.cpubamf < 0.1) {
           return new Error('CPU for BAMF badly assigned');
         }
-        if (zelAppSpecs.rambamf % 100 !== 0 || zelAppSpecs.rambamf > (this.fluxSpecifics.ram.bamf - this.lockedSystemResources.ram) || zelAppSpecs.rambamf < 100) {
+        if (appSpecs.rambamf % 100 !== 0 || appSpecs.rambamf > (this.fluxSpecifics.ram.bamf - this.lockedSystemResources.ram) || appSpecs.rambamf < 100) {
           return new Error('RAM for BAMF badly assigned');
         }
-        if (zelAppSpecs.hddbamf % 1 !== 0 || zelAppSpecs.hddbamf > (this.fluxSpecifics.hdd.bamf - this.lockedSystemResources.hdd) || zelAppSpecs.hddbamf < 1) {
+        if (appSpecs.hddbamf % 1 !== 0 || appSpecs.hddbamf > (this.fluxSpecifics.hdd.bamf - this.lockedSystemResources.hdd) || appSpecs.hddbamf < 1) {
           return new Error('SSD for BAMF badly assigned');
         }
       }
@@ -2667,26 +2675,26 @@ export default {
     },
     async checkFluxSpecificationsAndFormatMessage() {
       try {
-        let zelAppSpecification = this.zelAppRegistrationSpecification;
-        console.log(zelAppSpecification);
-        zelAppSpecification = this.ensureObject(zelAppSpecification);
-        let { version } = zelAppSpecification; // shall be 1
-        let { name } = zelAppSpecification;
-        let { description } = zelAppSpecification;
-        let { repotag } = zelAppSpecification;
-        let { owner } = zelAppSpecification;
-        let { port } = zelAppSpecification;
-        let { enviromentParameters } = zelAppSpecification;
-        let { commands } = zelAppSpecification;
-        let { containerPort } = zelAppSpecification;
-        let { containerData } = zelAppSpecification;
-        let { cpu } = zelAppSpecification;
-        let { ram } = zelAppSpecification;
-        let { hdd } = zelAppSpecification;
-        const { tiered } = zelAppSpecification;
+        let appSpecification = this.appRegistrationSpecification;
+        console.log(appSpecification);
+        appSpecification = this.ensureObject(appSpecification);
+        let { version } = appSpecification; // shall be 1
+        let { name } = appSpecification;
+        let { description } = appSpecification;
+        let { repotag } = appSpecification;
+        let { owner } = appSpecification;
+        let { port } = appSpecification;
+        let { enviromentParameters } = appSpecification;
+        let { commands } = appSpecification;
+        let { containerPort } = appSpecification;
+        let { containerData } = appSpecification;
+        let { cpu } = appSpecification;
+        let { ram } = appSpecification;
+        let { hdd } = appSpecification;
+        const { tiered } = appSpecification;
         // check if signature of received data is correct
         if (!version || !name || !description || !repotag || !owner || !port || !enviromentParameters || !commands || !containerPort || !containerData || !cpu || !ram || !hdd) {
-          throw new Error('Missing ZelApp specification parameter');
+          throw new Error('Missing App specification parameter');
         }
         version = this.ensureNumber(version);
         name = this.ensureString(name);
@@ -2702,7 +2710,7 @@ export default {
             envParamsCorrected.push(param);
           });
         } else {
-          throw new Error('Enviromental parameters for ZelApp are invalid');
+          throw new Error('Enviromental parameters for App are invalid');
         }
         commands = this.ensureObject(commands);
         const commandsCorrected = [];
@@ -2712,7 +2720,7 @@ export default {
             commandsCorrected.push(cmm);
           });
         } else {
-          throw new Error('ZelApp commands are invalid');
+          throw new Error('App commands are invalid');
         }
         containerPort = this.ensureNumber(containerPort);
         containerData = this.ensureString(containerData);
@@ -2724,7 +2732,7 @@ export default {
         }
 
         // finalised parameters that will get stored in global database
-        const zelAppSpecFormatted = {
+        const appSpecFormatted = {
           version, // integer
           name, // string
           description, // string
@@ -2742,17 +2750,17 @@ export default {
         };
 
         if (tiered) {
-          let { cpubasic } = zelAppSpecification;
-          let { cpusuper } = zelAppSpecification;
-          let { cpubamf } = zelAppSpecification;
-          let { rambasic } = zelAppSpecification;
-          let { ramsuper } = zelAppSpecification;
-          let { rambamf } = zelAppSpecification;
-          let { hddbasic } = zelAppSpecification;
-          let { hddsuper } = zelAppSpecification;
-          let { hddbamf } = zelAppSpecification;
+          let { cpubasic } = appSpecification;
+          let { cpusuper } = appSpecification;
+          let { cpubamf } = appSpecification;
+          let { rambasic } = appSpecification;
+          let { ramsuper } = appSpecification;
+          let { rambamf } = appSpecification;
+          let { hddbasic } = appSpecification;
+          let { hddsuper } = appSpecification;
+          let { hddbamf } = appSpecification;
           if (!cpubasic || !cpusuper || !cpubamf || !rambasic || !ramsuper || !rambamf || !hddbasic || !hddsuper || !hddbamf) {
-            throw new Error('ZelApp was requested as tiered setup but specifications are missing');
+            throw new Error('App was requested as tiered setup but specifications are missing');
           }
           cpubasic = this.ensureNumber(cpubasic);
           cpusuper = this.ensureNumber(cpusuper);
@@ -2764,62 +2772,65 @@ export default {
           hddsuper = this.ensureNumber(hddsuper);
           hddbamf = this.ensureNumber(hddbamf);
 
-          zelAppSpecFormatted.cpubasic = cpubasic;
-          zelAppSpecFormatted.cpusuper = cpusuper;
-          zelAppSpecFormatted.cpubamf = cpubamf;
-          zelAppSpecFormatted.rambasic = rambasic;
-          zelAppSpecFormatted.ramsuper = ramsuper;
-          zelAppSpecFormatted.rambamf = rambamf;
-          zelAppSpecFormatted.hddbasic = hddbasic;
-          zelAppSpecFormatted.hddsuper = hddsuper;
-          zelAppSpecFormatted.hddbamf = hddbamf;
+          appSpecFormatted.cpubasic = cpubasic;
+          appSpecFormatted.cpusuper = cpusuper;
+          appSpecFormatted.cpubamf = cpubamf;
+          appSpecFormatted.rambasic = rambasic;
+          appSpecFormatted.ramsuper = ramsuper;
+          appSpecFormatted.rambamf = rambamf;
+          appSpecFormatted.hddbasic = hddbasic;
+          appSpecFormatted.hddsuper = hddsuper;
+          appSpecFormatted.hddbamf = hddbamf;
         }
         // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper port, repotag exists, string lengths, specs are ok
         if (version !== 1) {
-          throw new Error('ZelApp message version specification is invalid');
+          throw new Error('App message version specification is invalid');
         }
         if (name.length > 32) {
-          throw new Error('ZelApp name is too long');
+          throw new Error('App name is too long');
         }
         // furthermore name cannot contain any special character
         if (!name.match(/^[a-zA-Z0-9]+$/)) {
-          throw new Error('ZelApp name contains special characters. Only a-z, A-Z and 0-9 are allowed');
+          throw new Error('App name contains special characters. Only a-z, A-Z and 0-9 are allowed');
         }
         if (name.startsWith('zel')) {
-          throw new Error('ZelApp name can not start with zel');
+          throw new Error('App name can not start with zel');
+        }
+        if (name.startsWith('flux')) {
+          throw new Error('App name can not start with flux');
         }
         if (description.length > 256) {
           throw new Error('Description is too long. Maximum of 256 characters is allowed');
         }
-        const parameters = this.checkHWParameters(zelAppSpecFormatted);
+        const parameters = this.checkHWParameters(appSpecFormatted);
         if (parameters !== true) {
           const errorMessage = parameters;
           throw new Error(errorMessage);
         }
 
         // check port is within range
-        if (zelAppSpecFormatted.port < this.zelapps.portMin || zelAppSpecFormatted.port > this.zelapps.portMax) {
-          throw new Error(`Assigned port is not within ZelApps range ${this.zelapps.portMin}-${this.zelapps.portMax}`);
+        if (appSpecFormatted.port < this.apps.portMin || appSpecFormatted.port > this.apps.portMax) {
+          throw new Error(`Assigned port is not within Apps range ${this.apps.portMin}-${this.apps.portMax}`);
         }
 
         // check if containerPort makes sense
-        if (zelAppSpecFormatted.containerPort < 0 || zelAppSpecFormatted.containerPort > 65535) {
+        if (appSpecFormatted.containerPort < 0 || appSpecFormatted.containerPort > 65535) {
           throw new Error('Container Port is not within system limits 0-65535');
         }
 
         // check wheter shared Folder is not root
         if (containerData.length < 2) {
-          throw new Error('ZelApp container data folder not specified. If no data folder is whished, use /tmp');
+          throw new Error('App container data folder not specified. If no data folder is whished, use /tmp');
         }
 
         // check repotag if available for download
-        const splittedRepo = zelAppSpecFormatted.repotag.split(':');
+        const splittedRepo = appSpecFormatted.repotag.split(':');
         if (splittedRepo[0] && splittedRepo[1] && !splittedRepo[2]) {
           const zelidauth = localStorage.getItem('zelidauth');
           const data = {
-            repotag: zelAppSpecFormatted.repotag,
+            repotag: appSpecFormatted.repotag,
           };
-          const resDocker = await ZelAppsService.checkDockerExistance(zelidauth, data).catch((error) => {
+          const resDocker = await AppsService.checkDockerExistance(zelidauth, data).catch((error) => {
             vue.$customMes.error(error.message || error);
           });
           console.log(resDocker);
@@ -2830,8 +2841,8 @@ export default {
           throw new Error('Repository is not in valid format namespace/repository:tag');
         }
         this.timestamp = new Date().getTime();
-        this.dataForZelAppRegistration = zelAppSpecFormatted;
-        this.dataToSign = this.registrationtype + this.version + JSON.stringify(zelAppSpecFormatted) + this.timestamp;
+        this.dataForAppRegistration = appSpecFormatted;
+        this.dataToSign = this.registrationtype + this.version + JSON.stringify(appSpecFormatted) + this.timestamp;
       } catch (error) {
         console.log(error.message);
         vue.$customMes.error(error.message || error);
@@ -2839,26 +2850,26 @@ export default {
     },
     async checkFluxUpdateSpecificationsAndFormatMessage() {
       try {
-        let zelAppSpecification = this.zelAppUpdateSpecification;
-        console.log(zelAppSpecification);
-        zelAppSpecification = this.ensureObject(zelAppSpecification);
-        let { version } = zelAppSpecification; // shall be 1
-        let { name } = zelAppSpecification;
-        let { description } = zelAppSpecification;
-        let { repotag } = zelAppSpecification;
-        let { owner } = zelAppSpecification;
-        let { port } = zelAppSpecification;
-        let { enviromentParameters } = zelAppSpecification;
-        let { commands } = zelAppSpecification;
-        let { containerPort } = zelAppSpecification;
-        let { containerData } = zelAppSpecification;
-        let { cpu } = zelAppSpecification;
-        let { ram } = zelAppSpecification;
-        let { hdd } = zelAppSpecification;
-        const { tiered } = zelAppSpecification;
+        let appSpecification = this.appUpdateSpecification;
+        console.log(appSpecification);
+        appSpecification = this.ensureObject(appSpecification);
+        let { version } = appSpecification; // shall be 1
+        let { name } = appSpecification;
+        let { description } = appSpecification;
+        let { repotag } = appSpecification;
+        let { owner } = appSpecification;
+        let { port } = appSpecification;
+        let { enviromentParameters } = appSpecification;
+        let { commands } = appSpecification;
+        let { containerPort } = appSpecification;
+        let { containerData } = appSpecification;
+        let { cpu } = appSpecification;
+        let { ram } = appSpecification;
+        let { hdd } = appSpecification;
+        const { tiered } = appSpecification;
         // check if signature of received data is correct
         if (!version || !name || !description || !repotag || !owner || !port || !enviromentParameters || !commands || !containerPort || !containerData || !cpu || !ram || !hdd) {
-          throw new Error('Missing ZelApp specification parameter');
+          throw new Error('Missing App specification parameter');
         }
         version = this.ensureNumber(version);
         name = this.ensureString(name);
@@ -2874,7 +2885,7 @@ export default {
             envParamsCorrected.push(param);
           });
         } else {
-          throw new Error('Enviromental parameters for ZelApp are invalid');
+          throw new Error('Enviromental parameters for App are invalid');
         }
         commands = this.ensureObject(commands);
         const commandsCorrected = [];
@@ -2884,7 +2895,7 @@ export default {
             commandsCorrected.push(cmm);
           });
         } else {
-          throw new Error('ZelApp commands are invalid');
+          throw new Error('App commands are invalid');
         }
         containerPort = this.ensureNumber(containerPort);
         containerData = this.ensureString(containerData);
@@ -2896,7 +2907,7 @@ export default {
         }
 
         // finalised parameters that will get stored in global database
-        const zelAppSpecFormatted = {
+        const appSpecFormatted = {
           version, // integer
           name, // string
           description, // string
@@ -2914,17 +2925,17 @@ export default {
         };
 
         if (tiered) {
-          let { cpubasic } = zelAppSpecification;
-          let { cpusuper } = zelAppSpecification;
-          let { cpubamf } = zelAppSpecification;
-          let { rambasic } = zelAppSpecification;
-          let { ramsuper } = zelAppSpecification;
-          let { rambamf } = zelAppSpecification;
-          let { hddbasic } = zelAppSpecification;
-          let { hddsuper } = zelAppSpecification;
-          let { hddbamf } = zelAppSpecification;
+          let { cpubasic } = appSpecFormatted;
+          let { cpusuper } = appSpecFormatted;
+          let { cpubamf } = appSpecFormatted;
+          let { rambasic } = appSpecFormatted;
+          let { ramsuper } = appSpecFormatted;
+          let { rambamf } = appSpecFormatted;
+          let { hddbasic } = appSpecFormatted;
+          let { hddsuper } = appSpecFormatted;
+          let { hddbamf } = appSpecFormatted;
           if (!cpubasic || !cpusuper || !cpubamf || !rambasic || !ramsuper || !rambamf || !hddbasic || !hddsuper || !hddbamf) {
-            throw new Error('ZelApp was requested as tiered setup but specifications are missing');
+            throw new Error('App was requested as tiered setup but specifications are missing');
           }
           cpubasic = this.ensureNumber(cpubasic);
           cpusuper = this.ensureNumber(cpusuper);
@@ -2936,32 +2947,35 @@ export default {
           hddsuper = this.ensureNumber(hddsuper);
           hddbamf = this.ensureNumber(hddbamf);
 
-          zelAppSpecFormatted.cpubasic = cpubasic;
-          zelAppSpecFormatted.cpusuper = cpusuper;
-          zelAppSpecFormatted.cpubamf = cpubamf;
-          zelAppSpecFormatted.rambasic = rambasic;
-          zelAppSpecFormatted.ramsuper = ramsuper;
-          zelAppSpecFormatted.rambamf = rambamf;
-          zelAppSpecFormatted.hddbasic = hddbasic;
-          zelAppSpecFormatted.hddsuper = hddsuper;
-          zelAppSpecFormatted.hddbamf = hddbamf;
+          appSpecFormatted.cpubasic = cpubasic;
+          appSpecFormatted.cpusuper = cpusuper;
+          appSpecFormatted.cpubamf = cpubamf;
+          appSpecFormatted.rambasic = rambasic;
+          appSpecFormatted.ramsuper = ramsuper;
+          appSpecFormatted.rambamf = rambamf;
+          appSpecFormatted.hddbasic = hddbasic;
+          appSpecFormatted.hddsuper = hddsuper;
+          appSpecFormatted.hddbamf = hddbamf;
         }
         // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper port, repotag exists, string lengths, specs are ok
         if (version !== 1) {
-          throw new Error('ZelApp message version specification is invalid');
+          throw new Error('App message version specification is invalid');
         }
         if (name.length > 32) {
-          throw new Error('ZelApp name is too long');
+          throw new Error('App name is too long');
         }
         // furthermore name cannot contain any special character
         if (!name.match(/^[a-zA-Z0-9]+$/)) {
-          throw new Error('ZelApp name contains special characters. Only a-z, A-Z and 0-9 are allowed');
+          throw new Error('App name contains special characters. Only a-z, A-Z and 0-9 are allowed');
         }
         if (name.startsWith('zel')) {
-          throw new Error('ZelApp name can not start with zel');
+          throw new Error('App name can not start with zel');
+        }
+        if (name.startsWith('flux')) {
+          throw new Error('App name can not start with flux');
         }
         if (name !== this.callBResponse.data.name) {
-          throw new Error('ZelApp name can not be changed');
+          throw new Error('App name can not be changed');
         }
         if (repotag !== this.callBResponse.data.repotag) {
           throw new Error('Repository can not be changed');
@@ -2969,35 +2983,35 @@ export default {
         if (description.length > 256) {
           throw new Error('Description is too long. Maximum of 256 characters is allowed');
         }
-        const parameters = this.checkHWParameters(zelAppSpecFormatted);
+        const parameters = this.checkHWParameters(appSpecFormatted);
         if (parameters !== true) {
           const errorMessage = parameters;
           throw new Error(errorMessage);
         }
 
         // check port is within range
-        if (zelAppSpecFormatted.port < this.zelapps.portMin || zelAppSpecFormatted.port > this.zelapps.portMax) {
-          throw new Error(`Assigned port is not within ZelApps range ${this.zelapps.portMin}-${this.zelapps.portMax}`);
+        if (appSpecFormatted.port < this.apps.portMin || appSpecFormatted.port > this.apps.portMax) {
+          throw new Error(`Assigned port is not within Apps range ${this.apps.portMin}-${this.apps.portMax}`);
         }
 
         // check if containerPort makes sense
-        if (zelAppSpecFormatted.containerPort < 0 || zelAppSpecFormatted.containerPort > 65535) {
+        if (appSpecFormatted.containerPort < 0 || appSpecFormatted.containerPort > 65535) {
           throw new Error('Container Port is not within system limits 0-65535');
         }
 
         // check wheter shared Folder is not root
         if (containerData.length < 2) {
-          throw new Error('ZelApp container data folder not specified. If no data folder is whished, use /tmp');
+          throw new Error('App container data folder not specified. If no data folder is whished, use /tmp');
         }
 
         // check repotag if available for download
-        const splittedRepo = zelAppSpecFormatted.repotag.split(':');
+        const splittedRepo = appSpecFormatted.repotag.split(':');
         if (splittedRepo[0] && splittedRepo[1] && !splittedRepo[2]) {
           const zelidauth = localStorage.getItem('zelidauth');
           const data = {
-            repotag: zelAppSpecFormatted.repotag,
+            repotag: appSpecFormatted.repotag,
           };
-          const resDocker = await ZelAppsService.checkDockerExistance(zelidauth, data).catch((error) => {
+          const resDocker = await AppsService.checkDockerExistance(zelidauth, data).catch((error) => {
             vue.$customMes.error(error.message || error);
           });
           console.log(resDocker);
@@ -3008,15 +3022,15 @@ export default {
           throw new Error('Repository is not in valid format namespace/repository:tag');
         }
         this.timestamp = new Date().getTime();
-        this.dataForZelAppUpdate = zelAppSpecFormatted;
-        this.dataToSign = this.updatetype + this.version + JSON.stringify(zelAppSpecFormatted) + this.timestamp;
+        this.dataForAppUpdate = appSpecFormatted;
+        this.dataToSign = this.updatetype + this.version + JSON.stringify(appSpecFormatted) + this.timestamp;
       } catch (error) {
         console.log(error.message);
         vue.$customMes.error(error.message || error);
       }
     },
     async checkFluxCommunication() {
-      const response = await ZelAppsService.checkCommunication();
+      const response = await AppsService.checkCommunication();
       if (response.data.status === 'success') {
         this.fluxCommunication = true;
       } else {
@@ -3024,33 +3038,33 @@ export default {
       }
     },
     async registrationInformation() {
-      const response = await ZelAppsService.zelappsRegInformation();
+      const response = await AppsService.appsRegInformation();
       const { data } = response.data;
       if (response.data.status === 'success') {
-        this.zelapps.price.cpu = data.price.cpu;
-        this.zelapps.price.hdd = data.price.hdd;
-        this.zelapps.price.ram = data.price.ram;
-        this.zelapps.address = data.address;
-        this.zelapps.epochstart = data.epochstart;
-        this.zelapps.portMin = data.portMin;
-        this.zelapps.portMax = data.portMax;
+        this.apps.price.cpu = data.price.cpu;
+        this.apps.price.hdd = data.price.hdd;
+        this.apps.price.ram = data.price.ram;
+        this.apps.address = data.address;
+        this.apps.epochstart = data.epochstart;
+        this.apps.portMin = data.portMin;
+        this.apps.portMax = data.portMax;
       } else {
         vue.$customMes.error(response.data.data.message || response.data.data);
       }
     },
-    async openGlobalZelApp(zelappName) {
-      const response = await ZelAppsService.getZelAppLocation(zelappName).catch((error) => {
+    async openGlobalApp(appName) {
+      const response = await AppsService.getAppLocation(appName).catch((error) => {
         vue.$customMes.error(error.message || error);
       });
       console.log(response);
       if (response.data.status === 'success') {
-        const zelappLocations = response.data.data;
-        const location = zelappLocations[0];
+        const appLocations = response.data.data;
+        const location = appLocations[0];
         if (!location) {
           vue.$customMes.error('Application is awaiting launching...');
         } else {
           const { ip } = location;
-          const appSpecs = this.globalZelAppSpecs.data.find((app) => app.name === zelappName);
+          const appSpecs = this.globalAppSpecs.data.find((app) => app.name === appName);
           const { port } = appSpecs;
           const url = `http://${ip}:${port}`;
           this.openSite(url);
@@ -3059,18 +3073,18 @@ export default {
         vue.$customMes.error(response.data.data.message || response.data.data);
       }
     },
-    openAppManagement(zelappName, global) {
-      console.log(zelappName);
+    openAppManagement(appName, global) {
+      console.log(appName);
       this.callResponse.data = '';
       this.callResponse.status = '';
       this.callBResponse.data = '';
       this.callBResponse.status = '';
-      this.zelAppExec.cmd = '';
-      this.zelAppExec.env = '';
-      this.managedApplication = zelappName;
+      this.appExec.cmd = '';
+      this.appExec.env = '';
+      this.managedApplication = appName;
       this.checkFluxCommunication();
       this.getAppOwner();
-      this.getZelCashInfo();
+      this.getDaemonInfo();
       this.getGlobalApplicationSpecifics();
       if (global) {
         this.managementMenuItem = 'globalappspecifics';
@@ -3079,7 +3093,7 @@ export default {
         this.managementMenuItem = 'appspecifics';
       }
     },
-    goBackToZelApps() {
+    goBackToApps() {
       this.managedApplication = '';
     },
     handleSelect(key, keyPath) {
@@ -3088,8 +3102,8 @@ export default {
       this.callResponse.data = '';
       this.callResponse.status = '';
       // do not reset global application specifics obtained
-      this.zelAppExec.cmd = '';
-      this.zelAppExec.env = '';
+      this.appExec.cmd = '';
+      this.appExec.env = '';
       console.log(key, keyPath);
       console.log(key);
       switch (key) {
@@ -3116,7 +3130,7 @@ export default {
           this.getApplicationLocations();
           break;
         case 'appcontrol':
-          this.zelappsGetListAllZelApps();
+          this.appsGetListAllApps();
           break;
         case 'appexec':
           break;
@@ -3125,7 +3139,7 @@ export default {
           break;
         case 'updateappglobalspecifications':
           this.getGlobalApplicationSpecifics();
-          this.getZelCashInfo();
+          this.getDaemonInfo();
           break;
         default:
           vue.$customMes.info('Feature coming soon!');
@@ -3137,11 +3151,11 @@ export default {
       const data = {
         type: this.registrationtype,
         version: this.version,
-        zelAppSpecification: this.dataForZelAppRegistration,
+        appSpecification: this.dataForAppRegistration,
         timestamp: this.timestamp,
         signature: this.signature,
       };
-      const response = await ZelAppsService.registerZelApp(zelidauth, data).catch((error) => {
+      const response = await AppsService.registerApp(zelidauth, data).catch((error) => {
         vue.$customMes.error(error.message || error);
       });
       console.log(response);
@@ -3157,11 +3171,11 @@ export default {
       const data = {
         type: this.updatetype,
         version: this.version,
-        zelAppSpecification: this.dataForZelAppUpdate,
+        appSpecification: this.dataForAppUpdate,
         timestamp: this.timestamp,
         signature: this.signature,
       };
-      const response = await ZelAppsService.updateZelApp(zelidauth, data).catch((error) => {
+      const response = await AppsService.updateApp(zelidauth, data).catch((error) => {
         vue.$customMes.error(error.message || error);
       });
       console.log(response);
@@ -3192,8 +3206,8 @@ export default {
       let backendURL = store.get('backendURL') || mybackend;
       backendURL = backendURL.replace('https://', 'wss://');
       backendURL = backendURL.replace('http://', 'ws://');
-      const signatureMessage = this.zelAppRegistrationSpecification.owner + this.timestamp;
-      const wsuri = `${backendURL}/ws/zelsign/${signatureMessage}`;
+      const signatureMessage = this.appRegistrationSpecification.owner + this.timestamp;
+      const wsuri = `${backendURL}/ws/sign/${signatureMessage}`;
       const websocket = new WebSocket(wsuri);
       this.websocket = websocket;
 
@@ -3221,8 +3235,8 @@ export default {
       let backendURL = store.get('backendURL') || mybackend;
       backendURL = backendURL.replace('https://', 'wss://');
       backendURL = backendURL.replace('http://', 'ws://');
-      const signatureMessage = this.zelAppUpdateSpecification.owner + this.timestamp;
-      const wsuri = `${backendURL}/ws/zelsign/${signatureMessage}`;
+      const signatureMessage = this.appUpdateSpecification.owner + this.timestamp;
+      const wsuri = `${backendURL}/ws/sign/${signatureMessage}`;
       const websocket = new WebSocket(wsuri);
       this.websocket = websocket;
 
@@ -3249,15 +3263,18 @@ export default {
     onOpen(evt) {
       console.log(evt);
     },
-    getZelAppName(zelappName) {
-      // this id is used for volumes, docker names so we know it reall belongs to zelflux
-      if (zelappName && zelappName.startsWith('zel')) {
-        return zelappName.substr(3, zelappName.length);
+    getAppName(appName) {
+      // this id is used for volumes, docker names so we know it reall belongs to flux
+      if (appName && appName.startsWith('zel')) {
+        return appName.substr(3, appName.length);
       }
-      return zelappName;
+      if (appName && appName.startsWith('flux')) {
+        return appName.substr(4, appName.length);
+      }
+      return appName;
     },
     async getAppOwner() {
-      const response = await ZelAppsService.getZelAppOwner(this.managedApplication);
+      const response = await AppsService.getAppOwner(this.managedApplication);
       console.log(response);
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
@@ -3265,7 +3282,7 @@ export default {
       this.selectedAppOwner = response.data.data;
     },
     async getInstalledApplicationSpecifics() {
-      const response = await ZelAppsService.getInstalledZelAppSpecifics(this.managedApplication);
+      const response = await AppsService.getInstalledAppSpecifics(this.managedApplication);
       console.log(response);
       if (response.data.status === 'error' || !response.data.data[0]) {
         vue.$customMes.error(response.data.data.message || response.data.data);
@@ -3275,7 +3292,7 @@ export default {
       }
     },
     async getGlobalApplicationSpecifics() {
-      const response = await ZelAppsService.getZelAppSpecifics(this.managedApplication);
+      const response = await AppsService.getAppSpecifics(this.managedApplication);
       console.log(response);
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
@@ -3285,33 +3302,33 @@ export default {
         this.callBResponse.data = response.data.data;
         const specs = response.data.data;
         console.log(specs);
-        this.zelAppUpdateSpecification.version = specs.version;
-        this.zelAppUpdateSpecification.name = specs.name;
-        this.zelAppUpdateSpecification.description = specs.description;
-        this.zelAppUpdateSpecification.repotag = specs.repotag;
-        this.zelAppUpdateSpecification.owner = specs.owner;
-        this.zelAppUpdateSpecification.port = specs.port;
-        this.zelAppUpdateSpecification.enviromentParameters = this.ensureString(specs.enviromentParameters);
-        this.zelAppUpdateSpecification.commands = this.ensureString(specs.commands);
-        this.zelAppUpdateSpecification.containerPort = specs.containerPort;
-        this.zelAppUpdateSpecification.containerData = specs.containerData;
-        this.zelAppUpdateSpecification.cpu = specs.cpu;
-        this.zelAppUpdateSpecification.ram = specs.ram;
-        this.zelAppUpdateSpecification.hdd = specs.hdd;
-        this.zelAppUpdateSpecification.tiered = specs.tiered;
-        this.zelAppUpdateSpecification.cpubasic = specs.cpubasic;
-        this.zelAppUpdateSpecification.rambasic = specs.rambasic;
-        this.zelAppUpdateSpecification.hddbasic = specs.hddbasic;
-        this.zelAppUpdateSpecification.cpusuper = specs.cpusuper;
-        this.zelAppUpdateSpecification.ramsuper = specs.ramsuper;
-        this.zelAppUpdateSpecification.hddsuper = specs.hddsuper;
-        this.zelAppUpdateSpecification.cpubamf = specs.cpubamf;
-        this.zelAppUpdateSpecification.rambamf = specs.rambamf;
-        this.zelAppUpdateSpecification.hddbamf = specs.hddbamf;
+        this.appUpdateSpecification.version = specs.version;
+        this.appUpdateSpecification.name = specs.name;
+        this.appUpdateSpecification.description = specs.description;
+        this.appUpdateSpecification.repotag = specs.repotag;
+        this.appUpdateSpecification.owner = specs.owner;
+        this.appUpdateSpecification.port = specs.port;
+        this.appUpdateSpecification.enviromentParameters = this.ensureString(specs.enviromentParameters);
+        this.appUpdateSpecification.commands = this.ensureString(specs.commands);
+        this.appUpdateSpecification.containerPort = specs.containerPort;
+        this.appUpdateSpecification.containerData = specs.containerData;
+        this.appUpdateSpecification.cpu = specs.cpu;
+        this.appUpdateSpecification.ram = specs.ram;
+        this.appUpdateSpecification.hdd = specs.hdd;
+        this.appUpdateSpecification.tiered = specs.tiered;
+        this.appUpdateSpecification.cpubasic = specs.cpubasic;
+        this.appUpdateSpecification.rambasic = specs.rambasic;
+        this.appUpdateSpecification.hddbasic = specs.hddbasic;
+        this.appUpdateSpecification.cpusuper = specs.cpusuper;
+        this.appUpdateSpecification.ramsuper = specs.ramsuper;
+        this.appUpdateSpecification.hddsuper = specs.hddsuper;
+        this.appUpdateSpecification.cpubamf = specs.cpubamf;
+        this.appUpdateSpecification.rambamf = specs.rambamf;
+        this.appUpdateSpecification.hddbamf = specs.hddbamf;
       }
     },
     async getApplicationLocations() {
-      const response = await ZelAppsService.getZelAppLocation(this.managedApplication);
+      const response = await AppsService.getAppLocation(this.managedApplication);
       console.log(response);
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
@@ -3322,7 +3339,7 @@ export default {
     },
     async getApplicationLogs() {
       const zelidauth = localStorage.getItem('zelidauth');
-      const response = await ZelAppsService.getZelAppLogsTail(zelidauth, this.managedApplication);
+      const response = await AppsService.getAppLogsTail(zelidauth, this.managedApplication);
       console.log(response);
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
@@ -3333,7 +3350,7 @@ export default {
     },
     async getApplicationInspect() {
       const zelidauth = localStorage.getItem('zelidauth');
-      const response = await ZelAppsService.getZelAppInspect(zelidauth, this.managedApplication);
+      const response = await AppsService.getAppInspect(zelidauth, this.managedApplication);
       console.log(response);
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
@@ -3344,7 +3361,7 @@ export default {
     },
     async getApplicationStats() {
       const zelidauth = localStorage.getItem('zelidauth');
-      const response = await ZelAppsService.getZelAppStats(zelidauth, this.managedApplication);
+      const response = await AppsService.getAppStats(zelidauth, this.managedApplication);
       console.log(response);
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
@@ -3353,16 +3370,16 @@ export default {
         this.callResponse.data = response.data.data;
       }
     },
-    async zelAppExecute() {
+    async appExecute() {
       const zelidauth = localStorage.getItem('zelidauth');
-      if (!this.zelAppExec.cmd) {
+      if (!this.appExec.cmd) {
         vue.$customMes.error('No commands specified');
         return;
       }
-      const env = this.zelAppExec.env ? this.zelAppExec.env : '[]';
-      const { cmd } = this.zelAppExec;
+      const env = this.appExec.env ? this.appExec.env : '[]';
+      const { cmd } = this.appExec;
       this.commandExecuting = true;
-      const response = await ZelAppsService.getZelAppExec(zelidauth, this.managedApplication, cmd, env);
+      const response = await AppsService.getAppExec(zelidauth, this.managedApplication, cmd, env);
       console.log(response);
       this.commandExecuting = false;
       this.callResponse.status = response.status;
@@ -3373,7 +3390,7 @@ export default {
     },
     async getApplicationChanges() {
       const zelidauth = localStorage.getItem('zelidauth');
-      const response = await ZelAppsService.getZelAppChanges(zelidauth, this.managedApplication);
+      const response = await AppsService.getAppChanges(zelidauth, this.managedApplication);
       console.log(response);
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
@@ -3384,7 +3401,7 @@ export default {
     },
     async getApplicationProcesses() {
       const zelidauth = localStorage.getItem('zelidauth');
-      const response = await ZelAppsService.getZelAppTop(zelidauth, this.managedApplication);
+      const response = await AppsService.getAppTop(zelidauth, this.managedApplication);
       console.log(response);
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
@@ -3400,7 +3417,7 @@ export default {
     },
     async downloadApplicationLog() {
       const self = this;
-      self.abortToken = ZelCashService.cancelToken();
+      self.abortToken = DaemonService.cancelToken();
       const zelidauth = localStorage.getItem('zelidauth');
       const axiosConfig = {
         headers: {
@@ -3413,7 +3430,7 @@ export default {
         },
         cancelToken: self.abortToken.token,
       };
-      const response = await ZelCashService.justAPI().get(`/zelapps/zelapplog/${this.managedApplication}`, axiosConfig);
+      const response = await DaemonService.justAPI().get(`/apps/applog/${this.managedApplication}`, axiosConfig);
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
@@ -3421,16 +3438,22 @@ export default {
       document.body.appendChild(link);
       link.click();
     },
-    getZelAppIdentifier() {
-      // this id is used for volumes, docker names so we know it reall belongs to zelflux
+    getAppIdentifier() {
+      // this id is used for volumes, docker names so we know it reall belongs to flux
       if (this.managedApplication && this.managedApplication.startsWith('zel')) {
         return this.managedApplication;
       }
-      return `zel${this.managedApplication}`;
+      if (this.managedApplication && this.managedApplication.startsWith('flux')) {
+        return this.managedApplication;
+      }
+      if (this.managedApplication === 'KadenaChainWebNode' || this.managedApplication === 'FoldingAtHomeB') {
+        return `zel${this.managedApplication}`;
+      }
+      return `flux${this.managedApplication}`;
     },
-    getZelAppDockerNameIdentifier() {
-      // this id is used for volumes, docker names so we know it reall belongs to zelflux
-      const name = this.getZelAppIdentifier();
+    getAppDockerNameIdentifier() {
+      // this id is used for volumes, docker names so we know it reall belongs to flux
+      const name = this.getAppIdentifier();
       if (name && name.startsWith('/')) {
         return name;
       }
@@ -3442,21 +3465,21 @@ export default {
       }
     },
     async getAppPriceFromAPI() {
-      const specifics = this.zelAppUpdateSpecification;
-      const response = await ZelAppsService.getAppPirce(specifics);
+      const specifics = this.appUpdateSpecification;
+      const response = await AppsService.getAppPirce(specifics);
       console.log(response);
     },
     appPricePerMonthMethod(specifications) {
       let price;
       if (specifications.tiered) {
         const cpuTotalCount = specifications.cpubasic + specifications.cpusuper + specifications.cpubamf;
-        const cpuPrice = cpuTotalCount * this.zelapps.price.cpu * 10; // 0.1 core cost cpu price
+        const cpuPrice = cpuTotalCount * this.apps.price.cpu * 10; // 0.1 core cost cpu price
         const cpuTotal = cpuPrice / 3;
         const ramTotalCount = specifications.rambasic + specifications.ramsuper + specifications.rambamf;
-        const ramPrice = (ramTotalCount * this.zelapps.price.ram) / 100;
+        const ramPrice = (ramTotalCount * this.apps.price.ram) / 100;
         const ramTotal = ramPrice / 3;
         const hddTotalCount = specifications.hddbasic + specifications.hddsuper + specifications.hddbamf;
-        const hddPrice = hddTotalCount * this.zelapps.price.hdd;
+        const hddPrice = hddTotalCount * this.apps.price.hdd;
         const hddTotal = hddPrice / 3;
         const totalPrice = cpuTotal + ramTotal + hddTotal;
         price = Number(Math.ceil(totalPrice * 100) / 100);
@@ -3465,9 +3488,9 @@ export default {
         }
         return price;
       }
-      const cpuTotal = specifications.cpu * this.zelapps.price.cpu * 10;
-      const ramTotal = (specifications.ram * this.zelapps.price.ram) / 100;
-      const hddTotal = specifications.hdd * this.zelapps.price.hdd;
+      const cpuTotal = specifications.cpu * this.apps.price.cpu * 10;
+      const ramTotal = (specifications.ram * this.apps.price.ram) / 100;
+      const hddTotal = specifications.hdd * this.apps.price.hdd;
       const totalPrice = cpuTotal + ramTotal + hddTotal;
       price = Number(Math.ceil(totalPrice * 100) / 100);
       if (price < 1) {
@@ -3485,22 +3508,22 @@ export default {
           this.$refs.appInfoTable.toggleRowExpansion(hideRow);
         }
       }
-      if (expanded && (expanded.length === 2 || this.zelAppLocations.length === 0)) {
-        this.zelAppLocations = [];
-        const response = await ZelAppsService.getZelAppLocation(row.name).catch((error) => {
+      if (expanded && (expanded.length === 2 || this.appLocations.length === 0)) {
+        this.appLocations = [];
+        const response = await AppsService.getAppLocation(row.name).catch((error) => {
           vue.$customMes.error(error.message || error);
         });
         console.log(response);
         if (response.data.status === 'success') {
-          const zelappLocations = response.data.data;
-          this.zelAppLocations = zelappLocations;
+          const appLocations = response.data.data;
+          this.appLocations = appLocations;
         }
       }
     },
     getRandomPort() {
       const min = 31001;
       const max = 39998;
-      this.zelAppRegistrationSpecification.port = Math.floor(Math.random() * (max - min) + min);
+      this.appRegistrationSpecification.port = Math.floor(Math.random() * (max - min) + min);
     },
   },
 };

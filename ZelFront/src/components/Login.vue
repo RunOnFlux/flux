@@ -1,7 +1,7 @@
 <template>
   <div class="loginSection">
     <p>
-      Please log in using Zel ID
+      Please log in using ZelID
     </p>
     <div>
       <a
@@ -11,6 +11,9 @@
         <img
           class="zelidLogin"
           src="@/assets/img/zelID.svg"
+          alt="Zel ID"
+          height="100%"
+          width="100%"
         />
       </a>
     </div>
@@ -36,7 +39,7 @@
         <ElInput
           type="text"
           name="address"
-          placeholder="insert Zel ID or Bitcoin address"
+          placeholder="insert ZelID or Bitcoin address"
           v-model="loginForm.zelid"
         >
           <template slot="prepend">Address: </template>
@@ -65,7 +68,7 @@
 import Vuex, { mapState } from 'vuex';
 import Vue from 'vue';
 
-import zelIDService from '@/services/ZelIDService';
+import IDService from '@/services/IDService';
 
 const qs = require('qs');
 const store = require('store');
@@ -116,7 +119,7 @@ export default {
     const isChrome = !!window.chrome;
     if (!isChrome) {
       vue.$customMes({
-        message: 'Your browser does not support Flux websockets. Logging in with Zel ID is not possible. For an optimal experience, please use Chrome or Edge',
+        message: 'Your browser does not support Flux websockets. Logging in with ZelID is not possible. For an optimal experience, please use Chrome or Edge',
         type: 'warning',
         duration: 0,
         showClose: true,
@@ -126,12 +129,12 @@ export default {
   },
   methods: {
     getZelIdLoginPhrase() {
-      zelIDService.loginPhrase()
+      IDService.loginPhrase()
         .then((response) => {
           console.log(response);
           if (response.data.status === 'error') {
             if (JSON.stringify(response.data.data).includes('CONN')) {
-              // we can fix zelcash, zelbench problems. But cannot fix mongo, docker issues (docker may be possible to fix in the future, mongo not)...
+              // we can fix daemon, benchmark problems. But cannot fix mongo, docker issues (docker may be possible to fix in the future, mongo not)...
               this.getEmergencyLoginPhrase();
             } else {
               this.errorMessage = response.data.data.message;
@@ -144,11 +147,11 @@ export default {
         .catch((error) => {
           console.log(error);
           vue.$customMes.error(error);
-          this.errorMessage = 'Error connecting to ZelBack';
+          this.errorMessage = 'Error connecting to Flux';
         });
     },
     getEmergencyLoginPhrase() {
-      zelIDService.emergencyLoginPhrase()
+      IDService.emergencyLoginPhrase()
         .then((response) => {
           console.log(response);
           if (response.data.status === 'error') {
@@ -161,12 +164,12 @@ export default {
         .catch((error) => {
           console.log(error);
           vue.$customMes.error(error);
-          this.errorMessage = 'Error connecting to ZelBack';
+          this.errorMessage = 'Error connecting to Flux';
         });
     },
     login() {
       console.log(this.loginForm);
-      zelIDService.verifyLogin(this.loginForm)
+      IDService.verifyLogin(this.loginForm)
         .then((response) => {
           console.log(response);
           if (response.data.status === 'success') {
@@ -210,7 +213,7 @@ export default {
       let backendURL = store.get('backendURL') || mybackend;
       backendURL = backendURL.replace('https://', 'wss://');
       backendURL = backendURL.replace('http://', 'ws://');
-      const wsuri = `${backendURL}/ws/zelid/${this.loginPhrase}`;
+      const wsuri = `${backendURL}/ws/id/${this.loginPhrase}`;
       const websocket = new WebSocket(wsuri);
       this.websocket = websocket;
 

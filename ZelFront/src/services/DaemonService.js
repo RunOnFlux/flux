@@ -2,122 +2,122 @@ import Api, { sourceCancelToken } from '@/services/Api';
 
 export default {
   help() {
-    return Api().get('/zelcash/help');
+    return Api().get('/daemon/help');
   },
   helpSpecific(command) {
-    return Api().get(`/zelcash/help/${command}`);
+    return Api().get(`/daemon/help/${command}`);
   },
   getInfo() {
-    return Api().get('/zelcash/getinfo');
+    return Api().get('/daemon/getinfo');
   },
   getZelNodeStatus() {
-    return Api().get('/zelcash/getzelnodestatus');
+    return Api().get('/daemon/getzelnodestatus');
   },
   getRawTransaction(txid, verbose) {
-    return Api().get(`/zelcash/getrawtransaction/${txid}/${verbose}`);
+    return Api().get(`/daemon/getrawtransaction/${txid}/${verbose}`);
   },
   listZelNodes() {
-    return Api().get('/zelcash/listzelnodes');
+    return Api().get('/daemon/listzelnodes');
   },
   viewDeterministicZelNodeList() {
-    return Api().get('/zelcash/viewdeterministiczelnodelist');
+    return Api().get('/daemon/viewdeterministiczelnodelist');
   },
   getZelNodeCount() {
-    return Api().get('/zelcash/getzelnodecount');
+    return Api().get('/daemon/getzelnodecount');
   },
   getStartList() {
-    return Api().get('/zelcash/getstartlist');
+    return Api().get('/daemon/getstartlist');
   },
   getDOSList() {
-    return Api().get('/zelcash/getdoslist');
+    return Api().get('/daemon/getdoslist');
   },
   zelnodeCurrentWinner() {
-    return Api().get('/zelcash/zelnodecurrentwinner');
+    return Api().get('/daemon/zelnodecurrentwinner');
   },
   getBenchmarks() {
-    return Api().get('/zelcash/getbenchmarks');
+    return Api().get('/daemon/getbenchmarks');
   },
   getBenchStatus() {
-    return Api().get('/zelcash/getbenchstatus');
+    return Api().get('/daemon/getbenchstatus');
   },
-  startZelBench(zelidauthHeader) {
-    return Api().get('/zelcash/startzelbenchd', {
+  startBenchmark(zelidauthHeader) {
+    return Api().get('/daemon/startbenchmark', {
       headers: {
         zelidauth: zelidauthHeader,
       },
     });
   },
-  stopZelBench(zelidauthHeader) {
-    return Api().get('/zelcash/stopzelbenchd', {
+  stopBenchmark(zelidauthHeader) {
+    return Api().get('/daemon/stopbenchmark', {
       headers: {
         zelidauth: zelidauthHeader,
       },
     });
   },
   getBlockchainInfo() {
-    return Api().get('/zelcash/getblockchaininfo');
+    return Api().get('/daemon/getblockchaininfo');
   },
   getMiningInfo() {
-    return Api().get('/zelcash/getmininginfo');
+    return Api().get('/daemon/getmininginfo');
   },
   getNetworkInfo() {
-    return Api().get('/zelcash/getnetworkinfo');
+    return Api().get('/daemon/getnetworkinfo');
   },
   validateAddress(zelidauthHeader, address) {
-    return Api().get(`/zelcash/validateaddress/${address}`, {
+    return Api().get(`/daemon/validateaddress/${address}`, {
       headers: {
         zelidauth: zelidauthHeader,
       },
     });
   },
   getWalletInfo(zelidauthHeader) {
-    return Api().get('/zelcash/getwalletinfo', {
+    return Api().get('/daemon/getwalletinfo', {
       headers: {
         zelidauth: zelidauthHeader,
       },
     });
   },
   listZelNodeConf(zelidauthHeader) {
-    return Api().get('/zelcash/listzelnodeconf', {
+    return Api().get('/daemon/listzelnodeconf', {
       headers: {
         zelidauth: zelidauthHeader,
       },
     });
   },
   start(zelidauthHeader) {
-    return Api().get('/zelcash/start', {
+    return Api().get('/daemon/start', {
       headers: {
         zelidauth: zelidauthHeader,
       },
     });
   },
   restart(zelidauthHeader) {
-    return Api().get('/zelcash/restart', {
+    return Api().get('/daemon/restart', {
       headers: {
         zelidauth: zelidauthHeader,
       },
     });
   },
-  stopZelCash(zelidauthHeader) {
-    return Api().get('/zelcash/stop', {
+  stopDaemon(zelidauthHeader) {
+    return Api().get('/daemon/stop', {
       headers: {
         zelidauth: zelidauthHeader,
       },
     });
   },
-  rescanZelCash(zelidauthHeader, height) {
-    return Api().get(`/zelcash/rescan/${height}`, {
+  rescanDaemon(zelidauthHeader, height) {
+    return Api().get(`/daemon/rescan/${height}`, {
       headers: {
         zelidauth: zelidauthHeader,
       },
     });
   },
   getBlock(height, verbosity) {
-    return Api().get(`/zelcash/getblock/${height}/${verbosity}`);
+    return Api().get(`/daemon/getblock/${height}/${verbosity}`);
   },
   // DEBUG
-  tailZelCashDebug(zelidauthHeader) {
-    return Api().get('/zelnode/tailzelcashdebug', {
+  tailDaemonDebug(zelidauthHeader) {
+    return Api().get('/flux/taildaemondebug', {
       headers: {
         zelidauth: zelidauthHeader,
       },

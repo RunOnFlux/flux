@@ -48,7 +48,7 @@
         </el-col>
         <el-col :span="18">
           <div class="grid-content bg-purple-light">
-            {{ transactionDetail.version }} {{ transactionDetail.version === 5 ? ' - ZelNode transaction' : JSON.stringify(transactionDetail.vin).includes('coinbase')
+            {{ transactionDetail.version }} {{ transactionDetail.version === 5 ? ' - Flux transaction' : JSON.stringify(transactionDetail.vin).includes('coinbase')
               ? ' - Coinbase transaction' : ' - Standard transaction' }}
           </div>
         </el-col>
@@ -73,7 +73,7 @@
         </el-col>
         <el-col :span="18">
           <div class="grid-content bg-purple-light">
-            {{ calculateTxFee() }} ZEL
+            {{ calculateTxFee() }} FLUX
           </div>
         </el-col>
       </el-row>
@@ -228,7 +228,7 @@
                   :key="transactionDetail.senders[i - 1].value || transactionDetail.senders[i - 1]"
                   v-else-if="typeof transactionDetail.senders[i - 1] === 'object'"
                 >
-                  {{ transactionDetail.senders[i - 1].value }} ZEL
+                  {{ transactionDetail.senders[i - 1].value }} FLUX
                   {{ transactionDetail.senders[i - 1].scriptPubKey.addresses[0] }}
                 </div>
                 <div v-else>
@@ -250,7 +250,7 @@
               :key="i"
             >
               <div v-if="transactionDetail.vout[i - 1].scriptPubKey.addresses">
-                {{ transactionDetail.vout[i - 1].scriptPubKey.addresses[0] }} {{ transactionDetail.vout[i - 1].value }} ZEL
+                {{ transactionDetail.vout[i - 1].scriptPubKey.addresses[0] }} {{ transactionDetail.vout[i - 1].value }} FLUX
               </div>
               <div v-else>
                 {{ decodeMessage(transactionDetail.vout[i - 1].asm) }}
@@ -337,7 +337,7 @@
       <el-row v-if="transactionDetail.type === 'Starting a zelnode'">
         <el-col :span="6">
           <div class="grid-content bg-purple">
-            ZelNode Public Key
+            Flux Public Key
           </div>
         </el-col>
         <el-col :span="18">
@@ -349,7 +349,7 @@
       <el-row v-if="transactionDetail.type === 'Confirming a zelnode'">
         <el-col :span="6">
           <div class="grid-content bg-purple">
-            ZelNode Network
+            Flux Network
           </div>
         </el-col>
         <el-col :span="18">

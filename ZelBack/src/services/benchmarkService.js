@@ -1,4 +1,4 @@
-const zelbenchrpc = require('zelcashrpc');
+const benchmarkrpc = require('daemonrpc');
 const config = require('config');
 const serviceHelper = require('./serviceHelper');
 const userconfig = require('../../../config/userconfig');
@@ -6,9 +6,9 @@ const userconfig = require('../../../config/userconfig');
 const isTestnet = userconfig.initial.testnet;
 const rpcuser = 'zelbenchuser';
 const rpcpassword = 'zelbenchpassword';
-const rpcport = isTestnet === true ? config.zelbench.rpcporttestnet : config.zelbench.rpcport;
+const rpcport = isTestnet === true ? config.benchmark.rpcporttestnet : config.benchmark.rpcport;
 
-const client = new zelbenchrpc.Client({
+const client = new benchmarkrpc.Client({
   port: rpcport,
   user: rpcuser,
   pass: rpcpassword,
@@ -42,7 +42,7 @@ async function getStatus(req, res) {
 }
 
 async function restartNodeBenchmarks(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('adminandzelteam', req);
+  const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
     const rpccall = 'restartnodebenchmarks';
 
@@ -54,7 +54,7 @@ async function restartNodeBenchmarks(req, res) {
   return res ? res.json(response) : response;
 }
 
-async function signZelNodeTransaction(req, res) {
+async function signFluxTransaction(req, res) {
   const authorized = await serviceHelper.verifyPrivilege('admin', req);
   let { hexstring } = req.params;
   hexstring = hexstring || req.query.hexstring;
@@ -73,7 +73,7 @@ async function signZelNodeTransaction(req, res) {
   return res ? res.json(response) : response;
 }
 
-async function signZelNodeTransactionPost(req, res) {
+async function signFluxTransactionPost(req, res) {
   let body = '';
   req.on('data', (data) => {
     body += data;
@@ -143,8 +143,8 @@ module.exports = {
   // == Benchmarks ==
   getStatus,
   restartNodeBenchmarks,
-  signZelNodeTransaction,
-  signZelNodeTransactionPost,
+  signFluxTransaction,
+  signFluxTransactionPost,
 
   // == Control ==
   help,

@@ -1,65 +1,65 @@
 <template>
-  <div class="zelnodesection">
-    <div v-if="zelNodeSection === 'getinfo'">
+  <div class="nodesction">
+    <div v-if="nodeSection === 'getinfo'">
       <div class="status">
         <h4>
-          ZelNode owner Zel ID: {{ userconfig.zelid }}
+          Flux owner ZelID: {{ userconfig.zelid }}
         </h4>
         <h4>
-          Status: {{ getZelNodeStatusResponse.zelnodeStatus }}
+          Status: {{ getNodeStatusResponse.nodeStatus }}
         </h4>
         <h4>
-          ZelNode Payment Address: {{ getZelNodeStatusResponse.data.payment_address }}
+          Flux Payment Address: {{ getNodeStatusResponse.data.payment_address }}
         </h4>
         <h4>
-          Tier: {{ getZelNodeStatusResponse.data.tier }}
+          Tier: {{ getNodeStatusResponse.data.tier }}
         </h4>
         <h4>
-          ZelNode IP Address: {{ getZelNodeStatusResponse.data.ip }}
+          Flux IP Address: {{ getNodeStatusResponse.data.ip }}
         </h4>
         <h4>
-          ZelNode IP Network: {{ getZelNodeStatusResponse.data.network }}
+          Flux IP Network: {{ getNodeStatusResponse.data.network }}
         </h4>
         <h4>
-          ZelNode Public Key: {{ getZelNodeStatusResponse.data.pubkey }}
+          Flux Public Key: {{ getNodeStatusResponse.data.pubkey }}
         </h4>
-        <div v-if="getZelNodeStatusResponse.data.collateral">
+        <div v-if="getNodeStatusResponse.data.collateral">
           <h4>
             Added Height: <ElLink
               type="primary"
-              :href="'https://explorer.zel.network/block-index/' + getZelNodeStatusResponse.data.added_height"
+              :href="'https://explorer.zel.network/block-index/' + getNodeStatusResponse.data.added_height"
               target="_blank"
               rel="noopener noreferrer"
-            >{{ getZelNodeStatusResponse.data.added_height }}</ElLink>
+            >{{ getNodeStatusResponse.data.added_height }}</ElLink>
           </h4>
           <h4>
             Confirmed Height: <ElLink
               type="primary"
-              :href="'https://explorer.zel.network/block-index/' + getZelNodeStatusResponse.data.confirmed_height"
+              :href="'https://explorer.zel.network/block-index/' + getNodeStatusResponse.data.confirmed_height"
               target="_blank"
               rel="noopener noreferrer"
-            >{{ getZelNodeStatusResponse.data.confirmed_height }}</ElLink>
+            >{{ getNodeStatusResponse.data.confirmed_height }}</ElLink>
           </h4>
           <h4>
             Last Confirmed Height: <ElLink
               type="primary"
-              :href="'https://explorer.zel.network/block-index/' + getZelNodeStatusResponse.data.last_confirmed_height"
+              :href="'https://explorer.zel.network/block-index/' + getNodeStatusResponse.data.last_confirmed_height"
               target="_blank"
               rel="noopener noreferrer"
-            >{{ getZelNodeStatusResponse.data.last_confirmed_height }}</ElLink>
+            >{{ getNodeStatusResponse.data.last_confirmed_height }}</ElLink>
           </h4>
           <h4>
             Last Paid Height: <ElLink
               type="primary"
-              :href="'https://explorer.zel.network/block-index/' + getZelNodeStatusResponse.data.last_paid_height"
+              :href="'https://explorer.zel.network/block-index/' + getNodeStatusResponse.data.last_paid_height"
               target="_blank"
               rel="noopener noreferrer"
-            >{{ getZelNodeStatusResponse.data.last_paid_height }}</ElLink>
+            >{{ getNodeStatusResponse.data.last_paid_height }}</ElLink>
           </h4>
           <h4>
             <ElLink
               type="primary"
-              :href="'https://explorer.zel.network/tx/' + getZelNodeStatusResponse.data.txhash"
+              :href="'https://explorer.zel.network/tx/' + getNodeStatusResponse.data.txhash"
               target="_blank"
               rel="noopener noreferrer"
             >Show Locked transaction</ElLink>
@@ -69,7 +69,7 @@
 
       <div class="getInfoResponse">
         <p>
-          ZelCash version: {{ getInfoResponse.data.version }}
+          Flux Daemon version: {{ getInfoResponse.data.version }}
         </p>
         <p>
           Protocol version: {{ getInfoResponse.data.protocolversion }}
@@ -84,7 +84,7 @@
         </div>
       </div>
     </div>
-    <div v-if="zelNodeSection === 'network'">
+    <div v-if="nodeSection === 'network'">
       <el-tabs v-model="activeName">
         <el-tab-pane
           label="Outgoing"
@@ -191,7 +191,7 @@
         </el-tab-pane>
       </el-tabs>
     </div>
-    <div v-if="zelNodeSection === 'debug'">
+    <div v-if="nodeSection === 'debug'">
       <div>
         <p>Following section can download or show Flux log files. This may take up to a few minutes depending on file size</p>
       </div>
@@ -275,14 +275,14 @@ import Vuex, { mapState } from 'vuex';
 import Vue from 'vue';
 import axios from 'axios';
 
-import ZelCashService from '@/services/ZelCashService';
-import ZelFluxService from '@/services/ZelFluxService';
+import DaemonService from '@/services/DaemonService';
+import FluxService from '@/services/FluxService';
 
 Vue.use(Vuex);
 const vue = new Vue();
 
 export default {
-  name: 'ZelNode',
+  name: 'Node',
   data() {
     return {
       callResponse: { // general
@@ -293,10 +293,10 @@ export default {
         status: '',
         data: '',
       },
-      getZelNodeStatusResponse: {
+      getNodeStatusResponse: {
         status: '',
         data: '',
-        zelnodeStatus: 'Checking status...',
+        nodeStatus: 'Checking status...',
       },
       activeName: 'outgoing',
       connectedPeers: [],
@@ -313,7 +313,7 @@ export default {
     ...mapState([
       'config',
       'userconfig',
-      'zelNodeSection',
+      'nodeSection',
     ]),
     fluxLogTail() {
       if (this.callResponse.data.message) {
@@ -329,24 +329,24 @@ export default {
     },
   },
   watch: {
-    zelNodeSection(val, oldVal) {
+    nodeSection(val, oldVal) {
       console.log(val, oldVal);
       this.switcher(val);
     },
   },
   mounted() {
-    this.switcher(this.zelNodeSection);
+    this.switcher(this.nodeSection);
   },
   methods: {
     switcher(value) {
       switch (value) {
         case 'getinfo':
-          this.zelcashGetInfo();
-          this.zelcashGetZelNodeStatus();
+          this.daemonGetInfo();
+          this.daemonGetNodeStatus();
           break;
         case 'network':
-          this.zelfluxConnectedPeersInfo();
-          this.zelfluxIncomingConnectionsInfo();
+          this.fluxConnectedPeersInfo();
+          this.fluxIncomingConnectionsInfo();
           break;
         case 'messages':
           this.broadcastMessage();
@@ -354,36 +354,36 @@ export default {
         case 'debug':
           break;
         case null:
-          console.log('ZelNode Section hidden');
+          console.log('Node Section hidden');
           break;
         default:
-          console.log('ZelNode Section: Unrecognized method');
+          console.log('Node Section: Unrecognized method');
       }
     },
-    async zelcashGetInfo() {
-      const response = await ZelCashService.getInfo();
+    async daemonGetInfo() {
+      const response = await DaemonService.getInfo();
       this.getInfoResponse.status = response.data.status;
       this.getInfoResponse.data = response.data.data;
     },
-    async zelcashGetZelNodeStatus() {
+    async daemonGetNodeStatus() {
       // TODO more code statuses?
-      const response = await ZelCashService.getZelNodeStatus();
-      this.getZelNodeStatusResponse.status = response.data.status;
-      this.getZelNodeStatusResponse.data = response.data.data;
-      console.log(this.getZelNodeStatusResponse.data);
-      if (this.getZelNodeStatusResponse.data) {
-        if (this.getZelNodeStatusResponse.data.status === 'CONFIRMED' || this.getZelNodeStatusResponse.data.location === 'CONFIRMED') {
-          this.getZelNodeStatusResponse.zelnodeStatus = 'ZelNode is working correctly';
-        } else if (this.getZelNodeStatusResponse.data.status === 'STARTED' || this.getZelNodeStatusResponse.data.location === 'STARTED') {
-          this.getZelNodeStatusResponse.zelnodeStatus = 'ZelNode has just been started. Flux is running with limited capabilities.';
+      const response = await DaemonService.getZelNodeStatus();
+      this.getNodeStatusResponse.status = response.data.status;
+      this.getNodeStatusResponse.data = response.data.data;
+      console.log(this.getNodeStatusResponse.data);
+      if (this.getNodeStatusResponse.data) {
+        if (this.getNodeStatusResponse.data.status === 'CONFIRMED' || this.getNodeStatusResponse.data.location === 'CONFIRMED') {
+          this.getNodeStatusResponse.nodeStatus = 'Flux is working correctly';
+        } else if (this.getNodeStatusResponse.data.status === 'STARTED' || this.getNodeStatusResponse.data.location === 'STARTED') {
+          this.getNodeStatusResponse.nodeStatus = 'Flux has just been started. Flux is running with limited capabilities.';
         } else {
-          this.getZelNodeStatusResponse.zelnodeStatus = 'ZelNode is not confirmed. Flux is running with limited capabilities.';
+          this.getNodeStatusResponse.nodeStatus = 'Flux is not confirmed. Flux is running with limited capabilities.';
         }
       }
     },
     async broadcastMessage() {
       const zelidauth = localStorage.getItem('zelidauth');
-      ZelFluxService.broadcastMessage(zelidauth, 'abcde')
+      FluxService.broadcastMessage(zelidauth, 'abcde')
         .then((response) => {
           console.log(response);
           if (response.data.status === 'error') {
@@ -397,8 +397,8 @@ export default {
           vue.$customMes.error(e.toString());
         });
     },
-    async zelfluxConnectedPeersInfo() {
-      const response = await ZelFluxService.connectedPeersInfo();
+    async fluxConnectedPeersInfo() {
+      const response = await FluxService.connectedPeersInfo();
       console.log(response);
       if (response.data.status === 'success') {
         this.connectedPeers = response.data.data;
@@ -409,8 +409,8 @@ export default {
         });
       }
     },
-    async zelfluxIncomingConnectionsInfo() {
-      const response = await ZelFluxService.incomingConnectionsInfo();
+    async fluxIncomingConnectionsInfo() {
+      const response = await FluxService.incomingConnectionsInfo();
       if (response.data.status === 'success') {
         this.incomingConnections = response.data.data;
       } else {
@@ -424,14 +424,14 @@ export default {
       const self = this;
       console.log(index, row);
       const zelidauth = localStorage.getItem('zelidauth');
-      ZelFluxService.removePeer(zelidauth, row.ip)
+      FluxService.removePeer(zelidauth, row.ip)
         .then((response) => {
           vue.$customMes({
             type: response.data.status,
             message: response.data.data.message || response.data.data,
           });
           setTimeout(() => {
-            self.zelfluxConnectedPeersInfo();
+            self.fluxConnectedPeersInfo();
           }, 2000);
         })
         .catch((e) => {
@@ -443,14 +443,14 @@ export default {
       const self = this;
       console.log(index, row);
       const zelidauth = localStorage.getItem('zelidauth');
-      ZelFluxService.removeIncomingPeer(zelidauth, row.ip)
+      FluxService.removeIncomingPeer(zelidauth, row.ip)
         .then((response) => {
           vue.$customMes({
             type: response.data.status,
             message: response.data.data.message || response.data.data,
           });
           setTimeout(() => {
-            self.zelfluxIncomingConnectionsInfo();
+            self.fluxIncomingConnectionsInfo();
           }, 2000);
         })
         .catch((e) => {
@@ -461,7 +461,7 @@ export default {
     connectPeer() {
       const self = this;
       const zelidauth = localStorage.getItem('zelidauth');
-      ZelFluxService.addPeer(zelidauth, self.connectPeerIP)
+      FluxService.addPeer(zelidauth, self.connectPeerIP)
         .then((response) => {
           console.log(response);
           vue.$customMes({
@@ -469,7 +469,7 @@ export default {
             message: response.data.data.message || response.data.data,
           });
           setTimeout(() => {
-            self.zelfluxConnectedPeersInfo();
+            self.fluxConnectedPeersInfo();
           }, 2000);
         })
         .catch((e) => {
@@ -503,7 +503,7 @@ export default {
           },
           cancelToken: self.abortToken[name].token,
         };
-        const response = await ZelFluxService.justAPI().get(`/zelnode/zelflux${name}log`, axiosConfig);
+        const response = await FluxService.justAPI().get(`/flux/${name}log`, axiosConfig);
         if (response.data.status === 'error') {
           vue.$customMes.error(response.data.data.message || response.data.data);
         } else {
@@ -527,7 +527,7 @@ export default {
     },
     tailFluxLog(name) {
       const zelidauth = localStorage.getItem('zelidauth');
-      ZelFluxService.tailFluxLog(name, zelidauth)
+      FluxService.tailFluxLog(name, zelidauth)
         .then((response) => {
           if (response.data.status === 'error') {
             vue.$customMes.error(response.data.data.message || response.data.data);

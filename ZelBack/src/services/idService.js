@@ -5,17 +5,17 @@ const qs = require('qs');
 const userconfig = require('../../../config/userconfig');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
-const zelappsService = require('./zelappsService');
-const zelfluxCommunication = require('./zelfluxCommunication');
+const appsService = require('./appsService');
+const fluxCommunication = require('./fluxCommunication');
 
 const goodchars = /^[1-9a-km-zA-HJ-NP-Z]+$/;
 
 async function loginPhrase(req, res) {
   try {
     // check docker availablility
-    await zelappsService.dockerListContainers(false);
-    // check DOS state (contains zelcash checks)
-    const dosState = await zelfluxCommunication.getDOSState();
+    await appsService.dockerListContainers(false);
+    // check DOS state (contains daemon checks)
+    const dosState = await fluxCommunication.getDOSState();
     if (dosState.status === 'error') {
       const errorMessage = 'Unable to check DOS state';
       const errMessage = serviceHelper.createErrorMessage(errorMessage);
@@ -170,8 +170,8 @@ async function verifyLogin(req, res) {
               signature,
             };
             let privilage = 'user';
-            if (address === config.zelTeamZelId) {
-              privilage = 'zelteam';
+            if (address === config.fluxTeamZelId) {
+              privilage = 'fluxteam';
             } else if (address === userconfig.initial.zelid) {
               privilage = 'admin';
             }
@@ -487,8 +487,8 @@ async function wsRespondLoginPhrase(ws, req) {
       if (result) {
         // user is logged, all ok
         let privilage = 'user';
-        if (result.zelid === config.zelTeamZelId) {
-          privilage = 'zelteam';
+        if (result.zelid === config.fluxTeamZelId) {
+          privilage = 'fluxteam';
         } else if (result.zelid === userconfig.initial.zelid) {
           privilage = 'admin';
         }
@@ -609,10 +609,10 @@ async function checkLoggedUser(req, res) {
       const { zelid } = processedBody;
       const { signature } = processedBody;
       if (!zelid) {
-        throw new Error('No user zelid specificed');
+        throw new Error('No user ZelID specificed');
       }
       if (!signature) {
-        throw new Error('No user zelid signature specificed');
+        throw new Error('No user ZelID signature specificed');
       }
       const headers = {
         zelidauth: {
@@ -626,9 +626,9 @@ async function checkLoggedUser(req, res) {
         res.json(message);
         return;
       }
-      const isZelTeam = await serviceHelper.verifyZelTeamSession(headers);
-      if (isZelTeam) {
-        const message = serviceHelper.createSuccessMessage('zelteam');
+      const isFluxTeam = await serviceHelper.verifyFluxTeamSession(headers);
+      if (isFluxTeam) {
+        const message = serviceHelper.createSuccessMessage('fluxteam');
         res.json(message);
         return;
       }

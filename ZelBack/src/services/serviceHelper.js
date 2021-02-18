@@ -187,10 +187,10 @@ async function collectionStats(database, collection) {
   return result;
 }
 
-// helper owner zelapp function
+// helper owner flux app function
 async function getApplicationOwner(appName) {
   const db = databaseConnection();
-  const database = db.db(config.database.zelappsglobal.database);
+  const database = db.db(config.database.appsglobal.database);
 
   const query = { name: new RegExp(`^${appName}$`, 'i') };
   const projection = {
@@ -199,17 +199,17 @@ async function getApplicationOwner(appName) {
       owner: 1,
     },
   };
-  const globalZelAppsInformation = config.database.zelappsglobal.collections.zelappsInformation;
-  const appSpecs = await findOneInDatabase(database, globalZelAppsInformation, query, projection);
+  const globalAppsInformation = config.database.appsglobal.collections.appsInformation;
+  const appSpecs = await findOneInDatabase(database, globalAppsInformation, query, projection);
   if (appSpecs) {
     return appSpecs.owner;
   }
   // eslint-disable-next-line global-require
-  const { availableZelApps } = require('./zelappsService');
-  const allZelApps = await availableZelApps();
-  const zelappInfo = allZelApps.find((zelapp) => zelapp.name.toLowerCase() === appName.toLowerCase());
-  if (zelappInfo) {
-    return zelappInfo.owner;
+  const { availableApps } = require('./appsService');
+  const allApps = await availableApps();
+  const appInfo = allApps.find((app) => app.name.toLowerCase() === appName.toLowerCase());
+  if (appInfo) {
+    return appInfo.owner;
   }
   return null;
 }
@@ -294,11 +294,11 @@ async function verifyUserSession(headers) {
   return false;
 }
 
-async function verifyZelTeamSession(headers) {
+async function verifyFluxTeamSession(headers) {
   if (headers && headers.zelidauth) {
     const auth = ensureObject(headers.zelidauth);
     if (auth.zelid && auth.signature) {
-      if (auth.zelid === config.zelTeamZelId) {
+      if (auth.zelid === config.fluxTeamZelId) {
         const db = databaseConnection();
         const database = db.db(config.database.local.database);
         const collection = config.database.local.collections.loggedUsers;
@@ -315,7 +315,7 @@ async function verifyZelTeamSession(headers) {
             return false;
           }
           if (valid) {
-            // now we know this is indeed a logged zelteam
+            // now we know this is indeed a logged fluxteam
             return true;
           }
         } else {
@@ -331,11 +331,11 @@ async function verifyZelTeamSession(headers) {
   return false;
 }
 
-async function verifyAdminAndZelTeamSession(headers) {
+async function verifyAdminAndFluxTeamSession(headers) {
   if (headers && headers.zelidauth) {
     const auth = ensureObject(headers.zelidauth);
     if (auth.zelid && auth.signature) {
-      if (auth.zelid === config.zelTeamZelId || auth.zelid === userconfig.initial.zelid) { // admin is considered as zelTeam
+      if (auth.zelid === config.fluxTeamZelId || auth.zelid === userconfig.initial.zelid) { // admin is considered as fluxTeam
         const db = databaseConnection();
         const database = db.db(config.database.local.database);
         const collection = config.database.local.collections.loggedUsers;
@@ -352,7 +352,7 @@ async function verifyAdminAndZelTeamSession(headers) {
             return false;
           }
           if (valid) {
-            // now we know this is indeed a logged admin or zelteam
+            // now we know this is indeed a logged admin or fluxteam
             return true;
           }
         } else {
@@ -411,7 +411,7 @@ async function verifyAppOwnerOrHigherSession(headers, appName) {
     const auth = ensureObject(headers.zelidauth);
     if (auth.zelid && auth.signature) {
       const ownerZelID = await getApplicationOwner(appName);
-      if (auth.zelid === ownerZelID || auth.zelid === config.zelTeamZelId || auth.zelid === userconfig.initial.zelid) {
+      if (auth.zelid === ownerZelID || auth.zelid === config.fluxTeamZelId || auth.zelid === userconfig.initial.zelid) {
         const db = databaseConnection();
         const database = db.db(config.database.local.database);
         const collection = config.database.local.collections.loggedUsers;
@@ -450,11 +450,11 @@ async function verifyPrivilege(privilege, req, appName) {
     case 'admin':
       authorized = await verifyAdminSession(req.headers);
       break;
-    case 'zelteam':
-      authorized = await verifyZelTeamSession(req.headers);
+    case 'fluxteam':
+      authorized = await verifyFluxTeamSession(req.headers);
       break;
-    case 'adminandzelteam':
-      authorized = await verifyAdminAndZelTeamSession(req.headers);
+    case 'adminandfluxteam':
+      authorized = await verifyAdminAndFluxTeamSession(req.headers);
       break;
     case 'appownerabove':
       authorized = await verifyAppOwnerOrHigherSession(req.headers, appName);
@@ -569,8 +569,8 @@ module.exports = {
   collectionStats,
   verifyAdminSession,
   verifyUserSession,
-  verifyZelTeamSession,
-  verifyAdminAndZelTeamSession,
+  verifyFluxTeamSession,
+  verifyAdminAndFluxTeamSession,
   verifyAppOwnerOrHigherSession,
   verifyAppOwnerSession,
   verifyPrivilege,

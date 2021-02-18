@@ -3,9 +3,9 @@ const log = require('../lib/log');
 
 const serviceHelper = require('./serviceHelper');
 const explorerService = require('./explorerService');
-const zelfluxCommunication = require('./zelfluxCommunication');
-const zelappsService = require('./zelappsService');
-const zelcashService = require('./zelcashService');
+const fluxCommunication = require('./fluxCommunication');
+const appsService = require('./appsService');
+const daemonService = require('./daemonService');
 
 async function startFluxFunctions() {
   try {
@@ -30,27 +30,27 @@ async function startFluxFunctions() {
     log.info('Local database prepared');
     log.info('Preparing temporary database...');
     // no need to drop temporary messages
-    const databaseTemp = db.db(config.database.zelappsglobal.database);
-    await databaseTemp.collection(config.database.zelappsglobal.collections.zelappsTemporaryMessages).createIndex({ receivedAt: 1 }, { expireAfterSeconds: 3600 }); // todo longer time? dropIndexes()
+    const databaseTemp = db.db(config.database.appsglobal.database);
+    await databaseTemp.collection(config.database.appsglobal.collections.appsTemporaryMessages).createIndex({ receivedAt: 1 }, { expireAfterSeconds: 3600 }); // todo longer time? dropIndexes()
     log.info('Temporary database prepared');
-    log.info('Preparing zelapps locations');
+    log.info('Preparing Flux Apps locations');
     // more than 1 hour. Meaning we have not received status message for a long time. So that node is no longer on a network or app is down.
-    await databaseTemp.collection(config.database.zelappsglobal.collections.zelappsLocations).createIndex({ broadcastedAt: 1 }, { expireAfterSeconds: 3900 });
-    log.info('ZelApps locations prepared');
-    zelfluxCommunication.adjustFirewall();
+    await databaseTemp.collection(config.database.appsglobal.collections.appsLocations).createIndex({ broadcastedAt: 1 }, { expireAfterSeconds: 3900 });
+    log.info('Flux Apps locations prepared');
+    fluxCommunication.adjustFirewall();
     log.info('Firewalls checked');
-    zelfluxCommunication.keepConnectionsAlive();
-    zelfluxCommunication.keepIncomingConnectionsAlive();
+    fluxCommunication.keepConnectionsAlive();
+    fluxCommunication.keepIncomingConnectionsAlive();
     log.info('Connections polling prepared');
-    zelcashService.zelcashBlockchainInfoService();
-    log.info('Zel Info Service Started');
-    zelfluxCommunication.checkDeterministicNodesCollisions();
+    daemonService.daemonBlockchainInfoService();
+    log.info('Flux Daemon Info Service Started');
+    fluxCommunication.checkDeterministicNodesCollisions();
     setInterval(() => {
-      zelfluxCommunication.checkDeterministicNodesCollisions();
+      fluxCommunication.checkDeterministicNodesCollisions();
     }, 60000);
     log.info('Flux checks operational');
     setTimeout(() => {
-      zelfluxCommunication.fluxDiscovery();
+      fluxCommunication.fluxDiscovery();
       log.info('Flux Discovery started');
     }, 20 * 1000);
     setTimeout(() => {
@@ -58,15 +58,15 @@ async function startFluxFunctions() {
       log.info('Flux Block Processing Service started');
     }, 40 * 1000);
     setInterval(() => { // every 8 mins (4 blocks)
-      zelappsService.continuousZelAppHashesCheck();
+      appsService.continuousFluxAppHashesCheck();
     }, 8 * 60 * 1000);
     setInterval(() => { // every 4 mins (2 blocks)
-      zelappsService.checkAndNotifyPeersOfRunningApps();
+      appsService.checkAndNotifyPeersOfRunningApps();
     }, 4 * 60 * 1000);
     setTimeout(() => {
       // after 16 minutes of running ok.
       log.info('Starting to spawn applications');
-      zelappsService.trySpawningGlobalApplication();
+      appsService.trySpawningGlobalApplication();
     }, 16 * 60 * 1000);
   } catch (e) {
     log.error(e);

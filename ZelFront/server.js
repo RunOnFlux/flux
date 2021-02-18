@@ -1,14 +1,21 @@
-// ZelFront configuration
+// Flux Home configuration
 const path = require('path');
 const express = require('express');
+const compression = require('compression');
 
-const zelfront = path.join(__dirname, '../ZelFront/dist');
+const home = path.join(__dirname, '../ZelFront/dist');
 
-const ZelFrontApp = express();
-ZelFrontApp.use(express.static(zelfront));
+const homeApp = express();
+homeApp.use(compression);
+homeApp.use(express.static(home));
 
-ZelFrontApp.get('*', (req, res) => {
-  res.sendFile(path.join(zelfront, 'index.html'));
+homeApp.get('/robots.txt', (req, res) => {
+  res.type('text/plain');
+  res.send('User-agent: *\nDisallow: /');
 });
 
-ZelFrontApp.listen(16126);
+homeApp.get('*', (req, res) => {
+  res.sendFile(path.join(home, 'index.html'));
+});
+
+homeApp.listen(16126);

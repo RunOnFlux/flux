@@ -1,10 +1,13 @@
 const path = require('path');
+const CompressionPlugin = require('compression-webpack-plugin');
 // ideally https://github.com/webpack-contrib/compression-webpack-plugin#using-brotli from nodejs 11.7.0
 // const BrotliPlugin = require('brotli-webpack-plugin');
-// const CompressionPlugin = require('compression-webpack-plugin');
 // const zopfli = require('@gfx/zopfli');
 
+// const productionGzipExtensions = ['js', 'css'];
+
 const plugins = [];
+
 // if (process.env.NODE_ENV === 'production') {
 //   const compressionTest = /\.(js|css|json|txt|html|ico|svg)(\?.*)?$/i;
 //   plugins = [
@@ -34,6 +37,14 @@ module.exports = {
       .end();
     config.resolve.alias
       .set('@', path.join(__dirname, './ZelFront/src'));
+    config.plugin('CompressionPlugin').use(CompressionPlugin);
+    config.plugin('preload-index').tap((options) => {
+      // eslint-disable-next-line no-param-reassign
+      options[0].include = {
+        type: 'allChunks',
+      };
+      return options;
+    });
   },
   outputDir: path.join(__dirname, './ZelFront/dist'),
   pages: {
@@ -48,5 +59,14 @@ module.exports = {
   },
   configureWebpack: {
     plugins,
+    externals(context, request, callback) {
+      if (/xlsx|canvg|pdfmake/.test(request)) {
+        return callback(null, `commonjs ${request}`);
+      }
+      return callback();
+    },
+    watchOptions: {
+      ignored: /node_modules/,
+    },
   },
 };

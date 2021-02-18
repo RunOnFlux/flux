@@ -27,8 +27,8 @@ If applicable, add screenshots to help explain your problem.
  - OS: [e.g. Ubuntu 18.04 LTS]
  - Browser [e.g. chrome, safari]
  - Version [e.g. v0.65.0]
- - ZelCash [e.g. v4.1.0]
- - ZelBench [ e.g. v1.4.1]
+ - Daemon [e.g. v4.1.0]
+ - Benchmark [ e.g. v1.4.1]
 
 
 **Additional context**

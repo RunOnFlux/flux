@@ -3,7 +3,7 @@ const helper = require("../../ZelBack/src/services/serviceHelper");
 const chai = require('chai');
 const expect = chai.expect;
 
-describe('ZelFlux signer', () => {
+describe('Flux signer', () => {
   it('signs and verifies messages correctly', () => {
     const message = 'abc';
     const privKey = '5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh';

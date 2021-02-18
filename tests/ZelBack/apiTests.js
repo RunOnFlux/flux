@@ -9,7 +9,7 @@ const packageJson = require('../../package.json');
 const { version } = packageJson;
 
 const server = app.listen(config.server.apiport, () => {
-  log.info(`ZelBack listening on port ${config.server.apiport}!`);
+  log.info(`Flux listening on port ${config.server.apiport}!`);
 });
 
 describe('loading express', function () {
@@ -23,9 +23,9 @@ describe('loading express', function () {
     const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
     await serviceHelper.initiateDB();
   });
-  it('/zelflux/version', function testSlash(done) {
+  it('/flux/version', function testSlash(done) {
     request(server)
-      .get('/zelflux/version')
+      .get('/flux/version')
       .expect(200)
       .end((err, res) => {
         if (err) {
@@ -40,9 +40,9 @@ describe('loading express', function () {
       .get('/foo/bar')
       .expect(404, done);
   });
-  it('/zelid/loginphrase', function testSlash(done) {
+  it('/id/loginphrase', function testSlash(done) {
     request(server)
-      .get('/zelid/loginphrase')
+      .get('/id/loginphrase')
       .expect(200)
       .end((err, res) => {
         if (err) {

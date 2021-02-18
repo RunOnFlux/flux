@@ -298,12 +298,12 @@
         <el-row>
           <el-col :span="6">
             <div class="grid-content bg-purple">
-              No. ZelNode Transactions
+              No. Flux Transactions
             </div>
           </el-col>
           <el-col :span="18">
             <div class="grid-content bg-purple-light">
-              {{ addressWithTransactions[address].zelnodeTxs.length }}
+              {{ addressWithTransactions[address].fluxTxs.length }}
             </div>
           </el-col>
         </el-row>
@@ -322,15 +322,15 @@
             Loading More Transactions...
           </p>
         </div>
-        <div v-if="addressWithTransactions[address].zelnodeTxs.length > 0">
+        <div v-if="addressWithTransactions[address].fluxTxs.length > 0">
           <br>
-          ZelNode Transactions:
+          Flux Transactions:
           <br>
           <div
-            v-for="transaction in addressWithTransactions[address].zelnodeTxs"
+            v-for="transaction in addressWithTransactions[address].fluxTxs"
             :key="transaction.txid"
           >
-            <ZelNodeTx :transaction="transaction" />
+            <FluxTx :transaction="transaction" />
             <br>
           </div>
         </div>
@@ -363,11 +363,11 @@
 import Vuex, { mapState } from 'vuex';
 import Vue from 'vue';
 
-import ZelCashService from '@/services/ZelCashService';
+import DaemonService from '@/services/DaemonService';
 import ExplorerService from '@/services/ExplorerService';
 
 const Transaction = () => import('@/components/Transaction.vue');
-const ZelNodeTx = () => import('@/components/ZelNodeTx.vue');
+const FluxTx = () => import('@/components/FluxTx.vue');
 
 Vue.use(Vuex);
 
@@ -377,7 +377,7 @@ export default {
   name: 'Explorer',
   components: {
     Transaction,
-    ZelNodeTx,
+    FluxTx,
   },
   data() {
     return {
@@ -442,11 +442,11 @@ export default {
     switcher(value) {
       switch (value) {
         case 'explorer':
-          this.zelcashGetInfo();
+          this.daemonGetInfo();
           this.getSyncedHeight();
           break;
         case 'block':
-          this.zelcashGetInfo();
+          this.daemonGetInfo();
           // nothing to do
           break;
         case 'address':
@@ -467,8 +467,8 @@ export default {
       }
       return false;
     },
-    async zelcashGetInfo() {
-      const response = await ZelCashService.getInfo();
+    async daemonGetInfo() {
+      const response = await DaemonService.getInfo();
       this.getInfoResponse.status = response.data.status;
       if (typeof response.data.data.blocks === 'number') {
         if ((response.data.data.blocks > this.getInfoResponse.data.blocks) || !this.getInfoResponse.data.blocks) {
@@ -476,7 +476,7 @@ export default {
           this.getBlocks();
         }
       } else {
-        this.errorMessage = 'Unable to communicate with ZelCash node';
+        this.errorMessage = 'Unable to communicate with Flux Daemon';
         vue.$customMes.error(this.errorMessage);
       }
     },
@@ -503,7 +503,7 @@ export default {
       });
       // parallel may result in error 500
       await Promise.all(blocksToFetch.map(async (blockIndex) => {
-        const blockContent = await ZelCashService.getBlock(blockIndex, verbosity);
+        const blockContent = await DaemonService.getBlock(blockIndex, verbosity);
         if (blockContent.data.status === 'success') {
           if (!this.existInArray(blockHashes, blockContent.data.data.hash)) {
             this.blocks.push(blockContent.data.data);
@@ -517,9 +517,9 @@ export default {
       this.uniqueKeyBlock += 1;
       const verbose = 1;
       let i = 0;
-      // parallel is not possible as zelcash will result in error 500
+      // parallel is not possible as daemon will result in error 500
       // await Promise.all(transactionArray.map(async (transaction) => {
-      //   const txContent = await ZelCashService.getRawTransaction(transaction, verbose);
+      //   const txContent = await DaemonService.getRawTransaction(transaction, verbose);
       //   if (txContent.data.status === 'success') {
       //     this.blocksWithTransaction[height].transactions.push(txContent.data.data);
       //   }
@@ -527,7 +527,7 @@ export default {
       // eslint-disable-next-line no-restricted-syntax
       for (const transaction of transactionArray) {
         // eslint-disable-next-line no-await-in-loop
-        const txContent = await ZelCashService.getRawTransaction(transaction, verbose);
+        const txContent = await DaemonService.getRawTransaction(transaction, verbose);
         if (txContent.data.status === 'success') {
           const transactionDetail = txContent.data.data;
           transactionDetail.senders = [];
@@ -561,7 +561,7 @@ export default {
       this.height = -1;
       this.$store.commit('setExplorerSection', 'block');
       if (!this.blocksWithTransaction[heightOrHash]) {
-        const response = await ZelCashService.getBlock(heightOrHash, verbosity);
+        const response = await DaemonService.getBlock(heightOrHash, verbosity);
         if (response.data.status === 'success') {
           this.height = response.data.data.height;
           this.blocksWithTransaction[response.data.data.height] = response.data.data;
@@ -578,9 +578,9 @@ export default {
       this.uniqueKeyAddress += 1;
       const verbose = 1;
       let i = 0;
-      // parallel is not possible as zelcash will result in error 500
+      // parallel is not possible as daemon will result in error 500
       // await Promise.all(transactionArray.map(async (transaction) => {
-      //   const txContent = await ZelCashService.getRawTransaction(transaction, verbose);
+      //   const txContent = await DaemonService.getRawTransaction(transaction, verbose);
       //   if (txContent.data.status === 'success') {
       //     this.blocksWithTransaction[height].transactions.push(txContent.data.data);
       //   }
@@ -588,7 +588,7 @@ export default {
       // eslint-disable-next-line no-restricted-syntax
       for (const transaction of transactionArray) {
         // eslint-disable-next-line no-await-in-loop
-        const txContent = await ZelCashService.getRawTransaction(transaction.txid, verbose);
+        const txContent = await DaemonService.getRawTransaction(transaction.txid, verbose);
         if (txContent.data.status === 'success') {
           const transactionDetail = txContent.data.data;
           transactionDetail.senders = [];
@@ -630,11 +630,11 @@ export default {
           this.addressWithTransactions[address].transactions = responseAddr.data.data;
           this.addressWithTransactions[address].address = address;
           this.addressWithTransactions[address].balance = responseBalance.data.data;
-          this.addressWithTransactions[address].zelnodeTxs = [];
+          this.addressWithTransactions[address].fluxTxs = [];
           this.getAddressTransactions(responseAddr.data.data, address);
-          const responseZelNodeTxs = await ExplorerService.getZelNodeTransactions(address);
-          if (responseZelNodeTxs.data.status === 'success') {
-            this.addressWithTransactions[address].zelnodeTxs = responseZelNodeTxs.data.data;
+          const responseFluxTxs = await ExplorerService.getFluxTransactions(address);
+          if (responseFluxTxs.data.status === 'success') {
+            this.addressWithTransactions[address].fluxTxs = responseFluxTxs.data.data;
             this.uniqueKeyAddress += 1;
           }
         } else {
@@ -649,7 +649,7 @@ export default {
       this.transactionDetail = {};
       const verbose = 1;
       this.$store.commit('setExplorerSection', 'transaction');
-      const txContent = await ZelCashService.getRawTransaction(hash, verbose);
+      const txContent = await DaemonService.getRawTransaction(hash, verbose);
       console.log(txContent);
       if (txContent.data.status === 'success') {
         if (txContent.data.data.version < 5 && txContent.data.data.version > 0) {
@@ -713,7 +713,7 @@ export default {
     },
     async getSender(txid, vout) {
       const verbose = 1;
-      const txContent = await ZelCashService.getRawTransaction(txid, verbose);
+      const txContent = await DaemonService.getRawTransaction(txid, verbose);
       console.log(txContent);
       if (txContent.data.status === 'success') {
         const sender = txContent.data.data.vout[vout];
@@ -725,7 +725,7 @@ export default {
     },
     async getSenderForBlockOrAddress(txid, vout) {
       const verbose = 1;
-      const txContent = await ZelCashService.getRawTransaction(txid, verbose);
+      const txContent = await DaemonService.getRawTransaction(txid, verbose);
       console.log(txContent);
       if (txContent.data.status === 'success') {
         const sender = txContent.data.data.vout[vout];

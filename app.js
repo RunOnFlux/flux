@@ -1,6 +1,7 @@
 process.env.NODE_CONFIG_DIR = `${__dirname}/ZelBack/config/`;
-// ZelBack configuration
+// Flux configuration
 const config = require('config');
+const compression = require('compression');
 // const fs = require('fs');
 // const https = require('https');
 const path = require('path');
@@ -15,24 +16,30 @@ const serviceManager = require('./ZelBack/src/services/serviceManager');
 // const httpsServer = https.createServer(credentials, app);
 
 // httpsServer.listen(config.server.apiporthttps, () => {
-//   log.info(`ZelBack https listening on port ${config.server.apiporthttps}!`);
+//   log.info(`Flux  https listening on port ${config.server.apiporthttps}!`);
 // });
 
 app.listen(config.server.apiport, () => {
-  log.info(`ZelBack running on port ${config.server.apiport}!`);
+  log.info(`Flux running on port ${config.server.apiport}!`);
   serviceManager.startFluxFunctions();
 });
 
-// ZelFront configuration
-const zelfront = path.join(__dirname, './ZelFront/dist');
+// Flux Home configuration
+const home = path.join(__dirname, './ZelFront/dist');
 
-const ZelFrontApp = express();
-ZelFrontApp.use(express.static(zelfront));
+const homeApp = express();
+homeApp.use(compression());
+homeApp.use(express.static(home));
 
-ZelFrontApp.get('*', (req, res) => {
-  res.sendFile(path.join(zelfront, 'index.html'));
+homeApp.get('/robots.txt', (req, res) => {
+  res.type('text/plain');
+  res.send('User-agent: *\nDisallow: /');
 });
 
-ZelFrontApp.listen(config.server.zelfrontport, () => {
-  log.info(`ZelFront running on port ${config.server.zelfrontport}!`);
+homeApp.get('*', (req, res) => {
+  res.sendFile(path.join(home, 'index.html'));
+});
+
+homeApp.listen(config.server.homeport, () => {
+  log.info(`Flux Home running on port ${config.server.homeport}!`);
 });

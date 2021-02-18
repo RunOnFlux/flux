@@ -1,18 +1,18 @@
 <template>
-  <div class="zelcashsection">
-    <div v-if="zelCashSection === 'welcomeinfo'">
+  <div class="daemonSection">
+    <div v-if="daemonSection === 'welcomeinfo'">
       <div class="status">
         <h4>
-          ZelNode owner Zel ID: {{ userconfig.zelid }}
+          Flux owner ZelID: {{ userconfig.zelid }}
         </h4>
         <h4>
-          Status: {{ getZelNodeStatusResponse.zelnodeStatus }}
+          Status: {{ getNodeStatusResponse.nodeStatus }}
         </h4>
       </div>
 
       <div>
         <p>
-          ZelCash version: {{ callResponse.data.version }}
+          Daemon version: {{ callResponse.data.version }}
         </p>
         <p>
           Protocol version: {{ callResponse.data.protocolversion }}
@@ -27,13 +27,13 @@
         </div>
       </div>
     </div>
-    <div v-if="zelCashSection === 'getinfo'">
+    <div v-if="daemonSection === 'getinfo'">
       <div>
         <p>Output from Get Info command</p>
       </div>
       <div>
         <p>
-          ZelCash version: {{ callResponse.data.version }}
+          Daemon version: {{ callResponse.data.version }}
         </p>
         <p>
           Protocol version: {{ callResponse.data.protocolversion }}
@@ -42,7 +42,7 @@
           Wallet version: {{ callResponse.data.walletversion }}
         </p>
         <p v-if="callResponse.data.balance">
-          Balance: {{ callResponse.data.balance }} ZEL
+          Balance: {{ callResponse.data.balance }} FLUX
         </p>
         <p>
           Blocks: {{ callResponse.data.blocks }}
@@ -80,7 +80,7 @@
       </div>
     </div>
     <div
-      v-if="zelCashSection === 'help'"
+      v-if="daemonSection === 'help'"
       class="helpSection"
     >
       <div>
@@ -93,7 +93,7 @@
         <el-collapse
           accordion
           v-model="activeHelpNames"
-          @change="zelcashHelpSpecific"
+          @change="daemonHelpSpecific"
         >
           <div
             v-for="help of helpResponse"
@@ -124,106 +124,106 @@
         Obtaining help section...
       </div>
     </div>
-    <div v-if="zelCashSection === 'rescanblockchain'">
+    <div v-if="daemonSection === 'rescanblockchain'">
       <div>
-        <p>Click on Rescan ZelCash button to Rescan ZelCash Blockchain</p>
+        <p>Click on Rescan Daemon button to Rescan Flux Blockchain</p>
       </div>
       BlockHeight:
       <el-input-number
         controls-position="right"
         placeholder="insert blockheight"
-        v-model="rescanZelCashHeight"
+        v-model="rescanDaemonHeight"
         :min="0"
         :max="1000000"
       ></el-input-number>
       <el-popconfirm
-        confirmButtonText='Rescan ZelCash blockhain data'
+        confirmButtonText='Rescan Flux blockhain data'
         cancelButtonText='No, Thanks'
         icon="el-icon-info"
         iconColor="red"
-        title="Reindexes ZelCash daemon"
-        @onConfirm="rescanZelCash()"
-        @confirm="rescanZelCash()"
+        title="Reindexes Flux daemon"
+        @onConfirm="rescanDaemon()"
+        @confirm="rescanDaemon()"
       >
         <ElButton slot="reference">
-          Rescan ZelCash
+          Rescan Daemon
         </ElButton>
       </el-popconfirm>
     </div>
-    <div v-if="zelCashSection === 'reindexblockchain'">
+    <div v-if="daemonSection === 'reindexblockchain'">
       <div>
-        <p>Click on Reindex ZelCash button to Reindex ZelCash Blockchain</p>
+        <p>Click on Reindex Daemon button to Reindex Flux Blockchain</p>
       </div>
       <el-popconfirm
         confirmButtonText='Reindex'
         cancelButtonText='No, Thanks'
         icon="el-icon-info"
         iconColor="red"
-        title="Reindex ZelCash Blockchain"
-        @onConfirm="reindexZelCash()"
-        @confirm="reindexZelCash()"
+        title="Reindex Flux Blockchain"
+        @onConfirm="reindexDaemon()"
+        @confirm="reindexDaemon()"
       >
         <ElButton slot="reference">
-          Reindex ZelCash
+          Reindex Daemon
         </ElButton>
       </el-popconfirm>
     </div>
-    <div v-if="zelCashSection === 'start'">
+    <div v-if="daemonSection === 'start'">
       <div>
-        <p>Click on Start ZelCash button to Start ZelCash daemon</p>
+        <p>Click on Start Daemon button to Start Flux daemon</p>
       </div>
       <el-popconfirm
-        confirmButtonText='Start ZelCash daemon'
+        confirmButtonText='Start Flux daemon'
         cancelButtonText='No, Thanks'
         icon="el-icon-info"
         iconColor="green"
-        title="Starts ZelCash daemon"
-        @onConfirm="startZelCash()"
-        @confirm="startZelCash()"
+        title="Starts Flux daemon"
+        @onConfirm="startDaemon()"
+        @confirm="startDaemon()"
       >
         <ElButton slot="reference">
-          Start ZelCash
+          Start Daemon
         </ElButton>
       </el-popconfirm>
     </div>
-    <div v-if="zelCashSection === 'restart'">
+    <div v-if="daemonSection === 'restart'">
       <div>
-        <p>Click on Restart ZelCash button to restart ZelCash daemon</p>
+        <p>Click on Restart Daemon button to restart Flux daemon</p>
       </div>
       <el-popconfirm
-        confirmButtonText='Restart ZelCash daemon'
+        confirmButtonText='Restart Flux daemon'
         cancelButtonText='No, Thanks'
         icon="el-icon-info"
         iconColor="orange"
-        title="Restarts ZelCash daemon"
-        @onConfirm="restartZelCash()"
-        @confirm="restartZelCash()"
+        title="Restarts Flux daemon"
+        @onConfirm="restartDaemon()"
+        @confirm="restartDaemon()"
       >
         <ElButton slot="reference">
-          Restart ZelCash
+          Restart Daemon
         </ElButton>
       </el-popconfirm>
     </div>
-    <div v-if="zelCashSection === 'stop'">
+    <div v-if="daemonSection === 'stop'">
       <div>
-        <p>Click on Stop ZelCash button to stop ZelCash daemon</p>
+        <p>Click on Stop Daemon button to stop Flux daemon</p>
       </div>
       <el-popconfirm
-        confirmButtonText='Stop ZelCash daemon'
+        confirmButtonText='Stop Flux daemon'
         cancelButtonText='No, Thanks'
         icon="el-icon-info"
         iconColor="red"
-        title="Stops ZelCash daemon"
-        @onConfirm="stopZelCash()"
-        @confirm="stopZelCash()"
+        title="Stops Flux daemon"
+        @onConfirm="stopDaemon()"
+        @confirm="stopDaemon()"
       >
         <ElButton slot="reference">
-          Stop ZelCash
+          Stop Daemon
         </ElButton>
       </el-popconfirm>
     </div>
     <!-- ZELNODE SECTION -->
-    <div v-if="zelCashSection === 'getzelnodestatus'">
+    <div v-if="daemonSection === 'getzelnodestatus'">
       <div>
         <p>Output from Get ZelNode Status command</p>
       </div>
@@ -275,7 +275,7 @@
         </p>
       </div>
     </div>
-    <div v-if="zelCashSection === 'listzelnodes'">
+    <div v-if="daemonSection === 'listzelnodes'">
       <el-table
         :data="zelnodeList"
         style="width: 100%"
@@ -326,7 +326,7 @@
         </el-table-column>
       </el-table>
     </div>
-    <div v-if="zelCashSection === 'viewdeterministiczelnodelist'">
+    <div v-if="daemonSection === 'viewdeterministiczelnodelist'">
       <el-table
         :data="zelnodeList"
         style="width: 100%"
@@ -381,7 +381,7 @@
         </el-table-column>
       </el-table>
     </div>
-    <div v-if="zelCashSection === 'getzelnodecount'">
+    <div v-if="daemonSection === 'getzelnodecount'">
       <div>
         <p>Output from Get ZelNode Count command</p>
       </div>
@@ -412,7 +412,7 @@
         </p>
       </div>
     </div>
-    <div v-if="zelCashSection === 'getstartlist'">
+    <div v-if="daemonSection === 'getstartlist'">
       <el-table
         empty-text="No ZelNode in Start state"
         :data="zelnodeList"
@@ -453,7 +453,7 @@
         </el-table-column>
       </el-table>
     </div>
-    <div v-if="zelCashSection === 'getdoslist'">
+    <div v-if="daemonSection === 'getdoslist'">
       <el-table
         empty-text="No ZelNode in DOS state"
         :data="zelnodeList"
@@ -494,7 +494,7 @@
         </el-table-column>
       </el-table>
     </div>
-    <div v-if="zelCashSection === 'zelnodecurrentwinner'">
+    <div v-if="daemonSection === 'zelnodecurrentwinner'">
       <p>
         Current ZelNode winners that will be paid in next ZelCash block
       </p>
@@ -534,7 +534,7 @@
       </el-table>
     </div>
     <!-- BENCHMARKS -->
-    <div v-if="zelCashSection === 'getbenchmarks'">
+    <div v-if="daemonSection === 'getbenchmarks'">
       <div>
         <p>Output from Get Benchmarks command</p>
       </div>
@@ -568,7 +568,7 @@
         </p>
       </div>
     </div>
-    <div v-if="zelCashSection === 'getbenchstatus'">
+    <div v-if="daemonSection === 'getbenchstatus'">
       <div>
         <p>Output from Get Bench Status command</p>
       </div>
@@ -580,48 +580,48 @@
           Benchmarking: {{ callResponse.data.benchmarking }}
         </p>
         <p>
-          ZelBack: {{ callResponse.data.zelback }}
+          Flux: {{ callResponse.data.zelback }}
         </p>
       </div>
     </div>
-    <div v-if="zelCashSection === 'startzelbenchd'">
+    <div v-if="daemonSection === 'startzelbenchd'">
       <div>
-        <p>Click on Start ZelBench button to Start ZelBench Daemon</p>
+        <p>Click on Start Benchmark button to Start Benchmark Daemon</p>
       </div>
       <el-popconfirm
         confirmButtonText='Start'
         cancelButtonText='No, Thanks'
         icon="el-icon-info"
         iconColor="green"
-        title="Start ZelBench Daemon"
-        @onConfirm="zelcashStartZelBenchd()"
-        @confirm="zelcashStartZelBenchd()"
+        title="Start Benchmark Daemon"
+        @onConfirm="daemonStartBenchmark()"
+        @confirm="daemonStartBenchmark()"
       >
         <ElButton slot="reference">
-          Start ZelBench
+          Start Benchmark
         </ElButton>
       </el-popconfirm>
     </div>
-    <div v-if="zelCashSection === 'stopzelbenchd'">
+    <div v-if="daemonSection === 'stopzelbenchd'">
       <div>
-        <p>Click on Stop ZelBench button to Stop ZelBench Daemon</p>
+        <p>Click on Stop Benchmark button to Stop Benchmark Daemon</p>
       </div>
       <el-popconfirm
         confirmButtonText='Stop'
         cancelButtonText='No, Thanks'
         icon="el-icon-info"
         iconColor="red"
-        title="Stop ZelBench Daemon"
-        @onConfirm="zelcashStopZelBenchd()"
-        @confirm="zelcashStopZelBenchd()"
+        title="Stop Benchmark Daemon"
+        @onConfirm="daemonStopBenchmark()"
+        @confirm="daemonStopBenchmark()"
       >
         <ElButton slot="reference">
-          Stop ZelBench
+          Stop Benchmark
         </ElButton>
       </el-popconfirm>
     </div>
     <!-- BLOCKCHAIN -->
-    <div v-if="zelCashSection === 'getblockchaininfo'">
+    <div v-if="daemonSection === 'getblockchaininfo'">
       <div>
         <p>Output from Get Blockchain Info command</p>
       </div>
@@ -636,7 +636,7 @@
       </div>
     </div>
     <!-- MINING -->
-    <div v-if="zelCashSection === 'getmininginfo'">
+    <div v-if="daemonSection === 'getmininginfo'">
       <div>
         <p>Output from Get Mining Info command</p>
       </div>
@@ -651,7 +651,7 @@
       </div>
     </div>
     <!-- NETWORK -->
-    <div v-if="zelCashSection === 'getnetworkinfo'">
+    <div v-if="daemonSection === 'getnetworkinfo'">
       <div>
         <p>Output from Get Network Info command</p>
       </div>
@@ -666,7 +666,7 @@
       </div>
     </div>
     <!-- RAW TRANSACTION -->
-    <div v-if="zelCashSection === 'getrawtransaction'">
+    <div v-if="daemonSection === 'getrawtransaction'">
       <div>
         <p>Please paste a transaction ID into input field below to get it's raw transaction</p>
       </div>
@@ -694,7 +694,7 @@
       </div>
     </div>
     <!-- UTIL -->
-    <div v-if="zelCashSection === 'validateaddress'">
+    <div v-if="daemonSection === 'validateaddress'">
       <div>
         <p>Please paste a transparent ZelCash address to display information about it</p>
       </div>
@@ -722,7 +722,7 @@
       </div>
     </div>
     <!-- WALLET -->
-    <div v-if="zelCashSection === 'getwalletinfo'">
+    <div v-if="daemonSection === 'getwalletinfo'">
       <div>
         <p>Output from Get Wallet Info command</p>
       </div>
@@ -737,18 +737,18 @@
       </div>
     </div>
     <!-- DEBUG -->
-    <div v-if="zelCashSection === 'debug'">
+    <div v-if="daemonSection === 'debug'">
       <div>
-        <p>Following action will download ZelCash debug file. This may take a few minutes depending on file size</p>
+        <p>Following action will download Daemon debug file. This may take a few minutes depending on file size</p>
       </div>
       <el-popconfirm
         confirmButtonText='Download Debug'
         cancelButtonText='No, Thanks'
         icon="el-icon-info"
         iconColor="red"
-        title="Download ZelCash Debug file?"
-        @onConfirm="downloadZelCashDebugFile()"
-        @confirm="downloadZelCashDebugFile()"
+        title="Download Daemon Debug file?"
+        @onConfirm="downloadDaemonDebugFile()"
+        @confirm="downloadDaemonDebugFile()"
       >
         <ElButton slot="reference">
           Download Debug File
@@ -773,16 +773,16 @@
       <br><br>
       <div>
         <div>
-          <p>Following action will show last 100 lines of ZelCash debug file</p>
+          <p>Following action will show last 100 lines of Daemon debug file</p>
         </div>
         <el-popconfirm
           confirmButtonText='Show Debug'
           cancelButtonText='No, Thanks'
           icon="el-icon-info"
           iconColor="red"
-          title="Show ZelCash Debug file?"
-          @onConfirm="tailZelCashDebug()"
-          @confirm="tailZelCashDebug()"
+          title="Show Daemon Debug file?"
+          @onConfirm="tailDaemonDebug()"
+          @confirm="tailDaemonDebug()"
         >
           <ElButton slot="reference">
             Show Debug File
@@ -793,7 +793,7 @@
           v-if="callResponse.data.message"
           type="textarea"
           autosize
-          v-model="zelcashDebugTail"
+          v-model="daemonDebugTail"
         >
         </el-input>
       </div>
@@ -810,14 +810,14 @@
 import Vuex, { mapState } from 'vuex';
 import Vue from 'vue';
 
-import ZelCashService from '@/services/ZelCashService';
-import ZelNodeService from '@/services/ZelNodeService';
+import DaemonService from '@/services/DaemonService';
+import FluxService from '@/services/FluxService';
 
 Vue.use(Vuex);
 const vue = new Vue();
 
 export default {
-  name: 'ZelCash',
+  name: 'Daemon',
   data() {
     return {
       timeoptions: {
@@ -832,17 +832,17 @@ export default {
         status: '',
         data: '',
       },
-      getZelNodeStatusResponse: {
+      getNodeStatusResponse: {
         status: '',
         data: '',
-        zelnodeStatus: 'Checking status...',
+        nodeStatus: 'Checking status...',
       },
       total: '',
       downloaded: '',
       abortToken: {},
       activeHelpNames: '',
       currentHelpResponse: '',
-      rescanZelCashHeight: 0,
+      rescanDaemonHeight: 0,
       filterZelNodes: '',
     };
   },
@@ -850,9 +850,9 @@ export default {
     ...mapState([
       'config',
       'userconfig',
-      'zelCashSection',
+      'daemonSection',
     ]),
-    zelcashDebugTail() {
+    daemonDebugTail() {
       if (this.callResponse.data.message) {
         return this.callResponse.data.message.split('\n').reverse().filter((el) => el !== '').join('\n');
       }
@@ -884,7 +884,7 @@ export default {
     },
   },
   watch: {
-    zelCashSection(val, oldVal) {
+    daemonSection(val, oldVal) {
       console.log(val, oldVal);
       this.callResponse.status = '';
       this.callResponse.data = '';
@@ -893,20 +893,20 @@ export default {
     },
   },
   mounted() {
-    this.switcher(this.zelCashSection);
+    this.switcher(this.daemonSection);
   },
   methods: {
     switcher(value) {
       switch (value) {
         case 'welcomeinfo':
-          this.zelcashGetInfo();
-          this.zelcashWelcomeGetZelNodeStatus();
+          this.daemonGetInfo();
+          this.daemonWelcomeGetZelNodeStatus();
           break;
         case 'getinfo':
-          this.zelcashGetInfo();
+          this.daemonGetInfo();
           break;
         case 'help':
-          this.zelcashHelp();
+          this.daemonHelp();
           break;
         case 'stop':
           break;
@@ -917,61 +917,61 @@ export default {
         case 'debug':
           break;
         case 'getzelnodestatus':
-          this.zelcashGetZelNodeStatus();
+          this.daemonGetNodeStatus();
           break;
         case 'listzelnodes':
-          this.zelcashListZelNodes();
+          this.daemonListZelNodes();
           break;
         case 'viewdeterministiczelnodelist':
-          this.zelcashViewDeterministicZelNodeList();
+          this.daemonViewDeterministicZelNodeList();
           break;
         case 'getzelnodecount':
-          this.zelcashGetZelNodeCount();
+          this.daemonGetZelNodeCount();
           break;
         case 'getstartlist':
-          this.zelcashGetStartList();
+          this.daemonGetStartList();
           break;
         case 'getdoslist':
-          this.zelcashGetDOSList();
+          this.daemonGetDOSList();
           break;
         case 'zelnodecurrentwinner':
-          this.zelcashZelNodeCurrentWinner();
+          this.daemonZelNodeCurrentWinner();
           break;
         case 'getbenchmarks':
-          this.zelcashGetBenchmarks();
+          this.daemonGetBenchmarks();
           break;
         case 'getbenchstatus':
-          this.zelcashGetBenchStatus();
+          this.daemonGetBenchStatus();
           break;
         case 'startzelbenchd':
           break;
         case 'stopzelbenchd':
           break;
         case 'getblockchaininfo':
-          this.zelcashGetBlockchainInfo();
+          this.daemonGetBlockchainInfo();
           break;
         case 'getmininginfo':
-          this.zelcashGetMiningInfo();
+          this.daemonGetMiningInfo();
           break;
         case 'getnetworkinfo':
-          this.zelcashGetNetworkInfo();
+          this.daemonGetNetworkInfo();
           break;
         case 'getrawtransaction':
           break;
         case 'validateaddress':
           break;
         case 'getwalletinfo':
-          this.zelcashGetWalletInfo();
+          this.daemonGetWalletInfo();
           break;
         case null:
-          console.log('ZelCash Section hidden');
+          console.log('Daemon Section hidden');
           break;
         default:
-          console.log('ZelCash Section: Unrecognized method');
+          console.log('Daemon Section: Unrecognized method');
       }
     },
-    async zelcashGetInfo() {
-      const response = await ZelCashService.getInfo();
+    async daemonGetInfo() {
+      const response = await DaemonService.getInfo();
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
       } else {
@@ -979,8 +979,8 @@ export default {
         this.callResponse.data = response.data.data;
       }
     },
-    async zelcashHelp() {
-      const response = await ZelCashService.help();
+    async daemonHelp() {
+      const response = await DaemonService.help();
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
       } else {
@@ -988,9 +988,9 @@ export default {
         this.callResponse.data = response.data.data;
       }
     },
-    async zelcashHelpSpecific() {
+    async daemonHelpSpecific() {
       this.currentHelpResponse = '';
-      const response = await ZelCashService.helpSpecific(this.activeHelpNames);
+      const response = await DaemonService.helpSpecific(this.activeHelpNames);
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
       } else {
@@ -1023,10 +1023,10 @@ export default {
         this.currentHelpResponse = modifiedHelp.join('\n');
       }
     },
-    startZelCash() {
-      vue.$customMes.warning('ZelCash will start');
+    startDaemon() {
+      vue.$customMes.warning('Daemon will start');
       const zelidauth = localStorage.getItem('zelidauth');
-      ZelCashService.start(zelidauth)
+      DaemonService.start(zelidauth)
         .then((response) => {
           vue.$customMes({
             type: response.data.status,
@@ -1034,13 +1034,13 @@ export default {
           });
         })
         .catch(() => {
-          vue.$customMes.error('Error while trying to start ZelCash');
+          vue.$customMes.error('Error while trying to start Daemon');
         });
     },
-    stopZelCash() {
-      vue.$customMes.warning('ZelCash will be stopped');
+    stopDaemon() {
+      vue.$customMes.warning('Daemon will be stopped');
       const zelidauth = localStorage.getItem('zelidauth');
-      ZelCashService.stopZelCash(zelidauth)
+      DaemonService.stopDaemon(zelidauth)
         .then((response) => {
           vue.$customMes({
             type: response.data.status,
@@ -1048,13 +1048,13 @@ export default {
           });
         })
         .catch(() => {
-          vue.$customMes.error('Error while trying to stop ZelCash');
+          vue.$customMes.error('Error while trying to stop Daemon');
         });
     },
-    restartZelCash() {
-      vue.$customMes.warning('ZelCash will now restart');
+    restartDaemon() {
+      vue.$customMes.warning('Daemon will now restart');
       const zelidauth = localStorage.getItem('zelidauth');
-      ZelCashService.restart(zelidauth)
+      DaemonService.restart(zelidauth)
         .then((response) => {
           vue.$customMes({
             type: response.data.status,
@@ -1062,14 +1062,14 @@ export default {
           });
         })
         .catch(() => {
-          vue.$customMes.error('Error while trying to restart ZelCash');
+          vue.$customMes.error('Error while trying to restart Daemon');
         });
     },
-    rescanZelCash() {
-      vue.$customMes.warning('ZelCash will now rescan. This will take up to an hour.');
+    rescanDaemon() {
+      vue.$customMes.warning('Daemon will now rescan. This will take up to an hour.');
       const zelidauth = localStorage.getItem('zelidauth');
-      const blockheight = this.rescanZelCashHeight > 0 ? this.rescanZelCashHeight : 0;
-      ZelCashService.rescanZelCash(zelidauth, blockheight)
+      const blockheight = this.rescanDaemonHeight > 0 ? this.rescanDaemonHeight : 0;
+      DaemonService.rescanDaemon(zelidauth, blockheight)
         .then((response) => {
           vue.$customMes({
             type: response.data.status,
@@ -1077,13 +1077,13 @@ export default {
           });
         })
         .catch(() => {
-          vue.$customMes.error('Error while trying to rescan ZelCash');
+          vue.$customMes.error('Error while trying to rescan Daemon');
         });
     },
-    reindexZelCash() {
-      vue.$customMes.warning('ZelCash will now reindex. This will take several hours.');
+    reindexDaemon() {
+      vue.$customMes.warning('Daemon will now reindex. This will take several hours.');
       const zelidauth = localStorage.getItem('zelidauth');
-      ZelNodeService.reindexZelCash(zelidauth)
+      FluxService.reindexDaemon(zelidauth)
         .then((response) => {
           vue.$customMes({
             type: response.data.status,
@@ -1091,27 +1091,27 @@ export default {
           });
         })
         .catch(() => {
-          vue.$customMes.error('Error while trying to reindex ZelCash');
+          vue.$customMes.error('Error while trying to reindex Daemon');
         });
     },
-    async zelcashWelcomeGetZelNodeStatus() {
-      const response = await ZelCashService.getZelNodeStatus();
-      this.getZelNodeStatusResponse.status = response.data.status;
-      this.getZelNodeStatusResponse.data = response.data.data;
-      console.log(this.getZelNodeStatusResponse.data);
-      if (this.getZelNodeStatusResponse.data) {
-        if (this.getZelNodeStatusResponse.data.status === 'CONFIRMED' || this.getZelNodeStatusResponse.data.location === 'CONFIRMED') {
-          this.getZelNodeStatusResponse.zelnodeStatus = 'ZelNode is working correctly';
-        } else if (this.getZelNodeStatusResponse.data.status === 'STARTED' || this.getZelNodeStatusResponse.data.location === 'STARTED') {
-          this.getZelNodeStatusResponse.zelnodeStatus = 'ZelNode has just been started. Flux is running with limited capabilities.';
+    async daemonWelcomeGetZelNodeStatus() {
+      const response = await DaemonService.getZelNodeStatus();
+      this.getNodeStatusResponse.status = response.data.status;
+      this.getNodeStatusResponse.data = response.data.data;
+      console.log(this.getNodeStatusResponse.data);
+      if (this.getNodeStatusResponse.data) {
+        if (this.getNodeStatusResponse.data.status === 'CONFIRMED' || this.getNodeStatusResponse.data.location === 'CONFIRMED') {
+          this.getNodeStatusResponse.nodeStatus = 'Flux is working correctly';
+        } else if (this.getNodeStatusResponse.data.status === 'STARTED' || this.getNodeStatusResponse.data.location === 'STARTED') {
+          this.getNodeStatusResponse.nodeStatus = 'Flux has just been started. Flux is running with limited capabilities.';
         } else {
-          this.getZelNodeStatusResponse.zelnodeStatus = 'ZelNode is not confirmed. Flux is running with limited capabilities.';
+          this.getNodeStatusResponse.nodeStatus = 'Flux is not confirmed. Flux is running with limited capabilities.';
         }
       }
     },
     // ZELNODE
-    async zelcashGetZelNodeStatus() {
-      const response = await ZelCashService.getZelNodeStatus();
+    async daemonGetNodeStatus() {
+      const response = await DaemonService.getZelNodeStatus();
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
       } else {
@@ -1119,8 +1119,8 @@ export default {
         this.callResponse.data = response.data.data;
       }
     },
-    async zelcashListZelNodes() {
-      const response = await ZelCashService.listZelNodes();
+    async daemonListZelNodes() {
+      const response = await DaemonService.listZelNodes();
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
       } else {
@@ -1128,8 +1128,8 @@ export default {
         this.callResponse.data = response.data.data;
       }
     },
-    async zelcashViewDeterministicZelNodeList() {
-      const response = await ZelCashService.viewDeterministicZelNodeList();
+    async daemonViewDeterministicZelNodeList() {
+      const response = await DaemonService.viewDeterministicZelNodeList();
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
       } else {
@@ -1137,8 +1137,8 @@ export default {
         this.callResponse.data = response.data.data;
       }
     },
-    async zelcashGetZelNodeCount() {
-      const response = await ZelCashService.getZelNodeCount();
+    async daemonGetZelNodeCount() {
+      const response = await DaemonService.getZelNodeCount();
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
       } else {
@@ -1146,8 +1146,8 @@ export default {
         this.callResponse.data = response.data.data;
       }
     },
-    async zelcashGetStartList() {
-      const response = await ZelCashService.getStartList();
+    async daemonGetStartList() {
+      const response = await DaemonService.getStartList();
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
       } else {
@@ -1155,8 +1155,8 @@ export default {
         this.callResponse.data = response.data.data;
       }
     },
-    async zelcashGetDOSList() {
-      const response = await ZelCashService.getDOSList();
+    async daemonGetDOSList() {
+      const response = await DaemonService.getDOSList();
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
       } else {
@@ -1164,8 +1164,8 @@ export default {
         this.callResponse.data = response.data.data;
       }
     },
-    async zelcashZelNodeCurrentWinner() {
-      const response = await ZelCashService.zelnodeCurrentWinner();
+    async daemonZelNodeCurrentWinner() {
+      const response = await DaemonService.zelnodeCurrentWinner();
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
       } else {
@@ -1174,8 +1174,8 @@ export default {
       }
     },
     // BENCHMARKS
-    async zelcashGetBenchmarks() {
-      const response = await ZelCashService.getBenchmarks();
+    async daemonGetBenchmarks() {
+      const response = await DaemonService.getBenchmarks();
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
       } else {
@@ -1183,8 +1183,8 @@ export default {
         this.callResponse.data = JSON.parse(response.data.data);
       }
     },
-    async zelcashGetBenchStatus() {
-      const response = await ZelCashService.getBenchStatus();
+    async daemonGetBenchStatus() {
+      const response = await DaemonService.getBenchStatus();
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
       } else {
@@ -1192,10 +1192,10 @@ export default {
         this.callResponse.data = JSON.parse(response.data.data);
       }
     },
-    zelcashStartZelBenchd() {
-      vue.$customMes.warning('ZelBench will now try to start');
+    daemonStartBenchmark() {
+      vue.$customMes.warning('Benchmark will now try to start');
       const zelidauth = localStorage.getItem('zelidauth');
-      ZelCashService.startZelBench(zelidauth)
+      DaemonService.startBenchmark(zelidauth)
         .then((response) => {
           vue.$customMes({
             type: response.data.status,
@@ -1203,13 +1203,13 @@ export default {
           });
         })
         .catch(() => {
-          vue.$customMes.error('Error while trying to start ZelBench');
+          vue.$customMes.error('Error while trying to start Benchmark');
         });
     },
-    zelcashStopZelBenchd() {
-      vue.$customMes.warning('ZelBench will now try to stop');
+    daemonStopBenchmark() {
+      vue.$customMes.warning('Benchmark will now try to stop');
       const zelidauth = localStorage.getItem('zelidauth');
-      ZelCashService.stopZelBench(zelidauth)
+      DaemonService.stopBenchmark(zelidauth)
         .then((response) => {
           vue.$customMes({
             type: response.data.status,
@@ -1217,12 +1217,12 @@ export default {
           });
         })
         .catch(() => {
-          vue.$customMes.error('Error while trying to stop ZelBench');
+          vue.$customMes.error('Error while trying to stop Benchmark');
         });
     },
     // BLOCKCHAIN
-    async zelcashGetBlockchainInfo() {
-      const response = await ZelCashService.getBlockchainInfo();
+    async daemonGetBlockchainInfo() {
+      const response = await DaemonService.getBlockchainInfo();
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
       } else {
@@ -1231,8 +1231,8 @@ export default {
       }
     },
     // MINING
-    async zelcashGetMiningInfo() {
-      const response = await ZelCashService.getMiningInfo();
+    async daemonGetMiningInfo() {
+      const response = await DaemonService.getMiningInfo();
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
       } else {
@@ -1241,8 +1241,8 @@ export default {
       }
     },
     // NETWORK
-    async zelcashGetNetworkInfo() {
-      const response = await ZelCashService.getNetworkInfo();
+    async daemonGetNetworkInfo() {
+      const response = await DaemonService.getNetworkInfo();
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
       } else {
@@ -1252,7 +1252,7 @@ export default {
     },
     // RAW TRANSACTION
     async zelcashGetRawTransaction() {
-      const response = await ZelCashService.getRawTransaction(this.generalInput, 1);
+      const response = await DaemonService.getRawTransaction(this.generalInput, 1);
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
       } else {
@@ -1263,7 +1263,7 @@ export default {
     // UTIL
     async zelcashValidateAddress() {
       const zelidauth = localStorage.getItem('zelidauth');
-      const response = await ZelCashService.validateAddress(zelidauth, this.generalInput);
+      const response = await DaemonService.validateAddress(zelidauth, this.generalInput);
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
       } else {
@@ -1272,9 +1272,9 @@ export default {
       }
     },
     // WALLET
-    async zelcashGetWalletInfo() {
+    async daemonGetWalletInfo() {
       const zelidauth = localStorage.getItem('zelidauth');
-      const response = await ZelCashService.getWalletInfo(zelidauth);
+      const response = await DaemonService.getWalletInfo(zelidauth);
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
       } else {
@@ -1288,9 +1288,9 @@ export default {
       this.downloaded = '';
       this.total = '';
     },
-    async downloadZelCashDebugFile() {
+    async downloadDaemonDebugFile() {
       const self = this;
-      self.abortToken = ZelCashService.cancelToken();
+      self.abortToken = DaemonService.cancelToken();
       const zelidauth = localStorage.getItem('zelidauth');
       const axiosConfig = {
         headers: {
@@ -1303,7 +1303,7 @@ export default {
         },
         cancelToken: self.abortToken.token,
       };
-      const response = await ZelCashService.justAPI().get('/zelnode/zelcashdebug', axiosConfig);
+      const response = await DaemonService.justAPI().get('/flux/daemondebug', axiosConfig);
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
@@ -1311,9 +1311,9 @@ export default {
       document.body.appendChild(link);
       link.click();
     },
-    tailZelCashDebug() {
+    tailDaemonDebug() {
       const zelidauth = localStorage.getItem('zelidauth');
-      ZelCashService.tailZelCashDebug(zelidauth)
+      DaemonService.tailDaemonDebug(zelidauth)
         .then((response) => {
           if (response.data.status === 'error') {
             vue.$customMes.error(response.data.data.message || response.data.data);
@@ -1324,7 +1324,7 @@ export default {
         })
         .catch((error) => {
           console.log(error);
-          vue.$customMes.error('Error while trying to get latest debug of ZelCash');
+          vue.$customMes.error('Error while trying to get latest debug of Daemon');
         });
     },
   },

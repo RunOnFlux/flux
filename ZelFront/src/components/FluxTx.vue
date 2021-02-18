@@ -24,7 +24,7 @@
         </el-col>
         <el-col :span="18">
           <div class="grid-content bg-purple-light">
-            {{ transactionDetail.version }} {{ transactionDetail.version === 5 ? ' - ZelNode transaction' : JSON.stringify(transactionDetail.vin).includes('coinbase')
+            {{ transactionDetail.version }} {{ transactionDetail.version === 5 ? ' - Flux transaction' : JSON.stringify(transactionDetail.vin).includes('coinbase')
               ? ' - Coinbase transaction' : ' - Standard transaction' }}
           </div>
         </el-col>
@@ -83,7 +83,7 @@
       <el-row v-if="transactionDetail.type === 'Confirming a zelnode'">
         <el-col :span="6">
           <div class="grid-content bg-purple">
-            ZelNode Network
+            Flux Network
           </div>
         </el-col>
         <el-col :span="18">
