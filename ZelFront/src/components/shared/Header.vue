@@ -273,7 +273,7 @@
         v-if="privilage === 'user' || privilage === 'admin' || privilage === 'fluxteam'"
         index="100"
       >
-        Log Out TEST
+        Log Out
       </el-menu-item>
     </el-menu>
     <div
