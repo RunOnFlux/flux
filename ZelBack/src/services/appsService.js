@@ -2698,8 +2698,8 @@ async function availableApps(req, res) {
         + 'Do not stop or restart the docker in the first hour after installation. To check if your kadena node is synced, when the app is healthy, go to running apps and press visit button on kadena and compare your node height with Kadena explorer. Thank you.',
       repotag: 'zelcash/kadena-chainweb-node:development',
       owner: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
-      port: [30004, 30005],
-      containerPort: [30004, 30005],
+      ports: [30004, 30005],
+      containerPorts: [30004, 30005],
       domains: ['', ''],
       tiered: false,
       cpu: 2, // true resource registered for app. If not tiered only this is available

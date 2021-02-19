@@ -23,7 +23,7 @@
               sortable
             >
               <template slot-scope="scope">
-                {{ scope.row.Names[0].substr(1, scope.row.Names[0].length) }}
+                {{ scope.row.Names[0].startsWith('/flux') ? scope.row.Names[0].substr(5, scope.row.Names[0].length) : scope.row.Names[0].substr(4, scope.row.Names[0].length) }}
               </template>
             </el-table-column>
             <el-table-column
@@ -38,7 +38,7 @@
               sortable
             >
               <template slot-scope="scope">
-                <ElButton @click="openApp(scope.row.Names[0].substr(1, scope.row.Names[0].length))">
+                <ElButton @click="openApp(scope.row.Names[0].startsWith('/flux') ? scope.row.Names[0].substr(5, scope.row.Names[0].length) : scope.row.Names[0].substr(4, scope.row.Names[0].length))">
                   Visit
                 </ElButton>
               </template>
@@ -2579,6 +2579,7 @@ export default {
       return this.installedApps.data.find((app) => app.name === appName);
     },
     openApp(name, _ip, _port) {
+      console.log(name, _ip, _port);
       const appInfo = this.installedApp(name);
       if (appInfo || (_port && _ip)) {
         const backendURL = store.get('backendURL') || `http://${this.userconfig.externalip}:${this.config.apiPort}`;
