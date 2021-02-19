@@ -389,20 +389,34 @@ async function nodeTier() {
 }
 
 async function appDockerCreate(appSpecifications) {
-  const exposedPorts = {};
-  appSpecifications.ports.forEach((port) => {
-    exposedPorts[[`${port.toString()}/tcp`]] = {};
-  });
-  appSpecifications.containerPorts.forEach((port) => {
-    exposedPorts[[`${port.toString()}/tcp`]] = {};
-  });
-  const portBindings = {};
-  for (let i = 0; i < appSpecifications.containerPorts; i += 1) {
-    portBindings[[`${appSpecifications.containerPorts[i].toString()}/tcp`]] = [
-      {
-        HostPort: appSpecifications.ports[i].toString(),
-      },
-    ];
+  let exposedPorts = {};
+  let portBindings = {};
+  if (appSpecifications.version === 1) {
+    portBindings = {
+      [`${appSpecifications.containerPort.toString()}/tcp`]: [
+        {
+          HostPort: appSpecifications.port.toString(),
+        },
+      ],
+    };
+    exposedPorts = {
+      [`${appSpecifications.port.toString()}/tcp`]: {},
+      [`${appSpecifications.containerPort.toString()}/tcp`]: {},
+    };
+  } else if (appSpecifications.version === 2) {
+    appSpecifications.ports.forEach((port) => {
+      exposedPorts[[`${port.toString()}/tcp`]] = {};
+    });
+    appSpecifications.containerPorts.forEach((port) => {
+      exposedPorts[[`${port.toString()}/tcp`]] = {};
+    });
+    for (let i = 0; i < appSpecifications.containerPorts; i += 1) {
+      portBindings[[`${appSpecifications.containerPorts[i].toString()}/tcp`]] = [
+        {
+          HostPort: appSpecifications.ports[i].toString(),
+        },
+      ];
+    }
   }
   const options = {
     Image: appSpecifications.repotag,
@@ -2153,13 +2167,42 @@ async function registerAppLocally(appSpecifications, res) {
         if (res) {
           res.write(serviceHelper.ensureString(portStatusInitial));
         }
-        // eslint-disable-next-line no-restricted-syntax
-        for (const port of appSpecifications.ports) {
-          // eslint-disable-next-line no-await-in-loop
-          const portResponse = await fluxCommunication.allowPort(port);
+        if (appSpecifications.ports) {
+          // eslint-disable-next-line no-restricted-syntax
+          for (const port of appSpecifications.ports) {
+            // eslint-disable-next-line no-await-in-loop
+            const portResponse = await fluxCommunication.allowPort(port);
+            if (portResponse.status === true) {
+              const portStatus = {
+                status: `'Port ${port} OK'`,
+              };
+              log.info(portStatus);
+              if (res) {
+                res.write(serviceHelper.ensureString(portStatus));
+              }
+            } else {
+              const portStatus = {
+                status: `Error: Port ${port} FAILed to open.`,
+              };
+              log.info(portStatus);
+              if (res) {
+                res.write(serviceHelper.ensureString(portStatus));
+              }
+              const removeStatus = serviceHelper.createErrorMessage('Error occured. Initiating Flux App removal');
+              log.info(removeStatus);
+              if (res) {
+                res.write(serviceHelper.ensureString(removeStatus));
+              }
+              removeAppLocally(appName, res);
+              return;
+            }
+          }
+        } else if (appSpecifications.port) {
+          // v1 compatibility
+          const portResponse = await fluxCommunication.allowPort(appSpecifications.port);
           if (portResponse.status === true) {
             const portStatus = {
-              status: `'Port ${port} OK'`,
+              status: 'Port OK',
             };
             log.info(portStatus);
             if (res) {
@@ -2167,7 +2210,7 @@ async function registerAppLocally(appSpecifications, res) {
             }
           } else {
             const portStatus = {
-              status: `Error: Port ${port} FAILed to open.`,
+              status: 'Error: Port FAILed to open.',
             };
             log.info(portStatus);
             if (res) {
@@ -2182,6 +2225,7 @@ async function registerAppLocally(appSpecifications, res) {
             return;
           }
         }
+
         const startStatus = {
           status: 'Starting Flux App...',
         };
@@ -2376,13 +2420,42 @@ async function softRegisterAppLocally(appSpecifications, res) {
         if (res) {
           res.write(serviceHelper.ensureString(portStatusInitial));
         }
-        // eslint-disable-next-line no-restricted-syntax
-        for (const port of appSpecifications.ports) {
-          // eslint-disable-next-line no-await-in-loop
-          const portResponse = await fluxCommunication.allowPort(port);
+        if (appSpecifications.ports) {
+          // eslint-disable-next-line no-restricted-syntax
+          for (const port of appSpecifications.ports) {
+            // eslint-disable-next-line no-await-in-loop
+            const portResponse = await fluxCommunication.allowPort(port);
+            if (portResponse.status === true) {
+              const portStatus = {
+                status: `'Port ${port} OK'`,
+              };
+              log.info(portStatus);
+              if (res) {
+                res.write(serviceHelper.ensureString(portStatus));
+              }
+            } else {
+              const portStatus = {
+                status: `Error: Port ${port} FAILed to open.`,
+              };
+              log.info(portStatus);
+              if (res) {
+                res.write(serviceHelper.ensureString(portStatus));
+              }
+              const removeStatus = serviceHelper.createErrorMessage('Error occured. Initiating Flux App removal');
+              log.info(removeStatus);
+              if (res) {
+                res.write(serviceHelper.ensureString(removeStatus));
+              }
+              removeAppLocally(appName, res, true);
+              return;
+            }
+          }
+        } else if (appSpecifications.port) {
+          // v1 compatibility
+          const portResponse = await fluxCommunication.allowPort(appSpecifications.port);
           if (portResponse.status === true) {
             const portStatus = {
-              status: `'Port ${port} OK'`,
+              status: 'Port OK',
             };
             log.info(portStatus);
             if (res) {
@@ -2390,7 +2463,7 @@ async function softRegisterAppLocally(appSpecifications, res) {
             }
           } else {
             const portStatus = {
-              status: `Error: Port ${port} FAILed to open.`,
+              status: 'Error: Port FAILed to open.',
             };
             log.info(portStatus);
             if (res) {
@@ -2759,7 +2832,7 @@ async function verifyAppSpecifications(appSpecifications) {
   if (typeof appSpecifications !== 'object') {
     throw new Error('Invalid Flux App Specifications');
   }
-  if (appSpecifications.version !== 2) {
+  if (appSpecifications.version !== 1 && appSpecifications.version !== 2) {
     throw new Error('Flux App message version specification is invalid');
   }
   if (appSpecifications.name.length > 32) {
@@ -2784,26 +2857,38 @@ async function verifyAppSpecifications(appSpecifications) {
     throw new Error(errorMessage);
   }
 
-  // check port is within range
-  appSpecifications.ports.forEach((port) => {
-    if (port < config.fluxapps.portMin || port > config.fluxapps.portMax) {
-      throw new Error(`Assigned port ${port} is not within Flux Apps range ${config.fluxapps.portMin}-${config.fluxapps.portMax}`);
+  if (appSpecifications.version === 1) {
+    // check port is within range
+    if (appSpecifications.port < config.fluxapps.portMin || appSpecifications.port > config.fluxapps.portMax) {
+      throw new Error(`Assigned port ${appSpecifications.port} is not within Flux Apps range ${config.fluxapps.portMin}-${config.fluxapps.portMax}`);
     }
-  });
 
-  // check if containerPort makes sense
-  appSpecifications.containerPorts.forEach((port) => {
-    if (port < 0 || port > 65535) {
-      throw new Error(`Container Port ${port} is not within system limits 0-65535`);
+    // check if containerPort makes sense{
+    if (appSpecifications.containerPort < 0 || appSpecifications.containerPort > 65535) {
+      throw new Error(`Container Port ${appSpecifications.containerPort} is not within system limits 0-65535`);
     }
-  });
+  } else if (appSpecifications.version === 2) {
+    // check port is within range
+    appSpecifications.ports.forEach((port) => {
+      if (port < config.fluxapps.portMin || port > config.fluxapps.portMax) {
+        throw new Error(`Assigned port ${port} is not within Flux Apps range ${config.fluxapps.portMin}-${config.fluxapps.portMax}`);
+      }
+    });
 
-  if (appSpecifications.containerPorts.length !== appSpecifications.ports.length) {
-    throw new Error('Ports specifications do not match');
-  }
+    // check if containerPort makes sense
+    appSpecifications.containerPorts.forEach((port) => {
+      if (port < 0 || port > 65535) {
+        throw new Error(`Container Port ${port} is not within system limits 0-65535`);
+      }
+    });
 
-  if (appSpecifications.domains.length !== appSpecifications.ports.length) {
-    throw new Error('Domains specifications do not match available ports');
+    if (appSpecifications.containerPorts.length !== appSpecifications.ports.length) {
+      throw new Error('Ports specifications do not match');
+    }
+
+    if (appSpecifications.domains.length !== appSpecifications.ports.length) {
+      throw new Error('Domains specifications do not match available ports');
+    }
   }
 
   // check wheter shared Folder is not root
@@ -2824,9 +2909,8 @@ async function verifyAppSpecifications(appSpecifications) {
 async function ensureCorrectApplicationPort(appSpecFormatted) {
   const dbopen = serviceHelper.databaseConnection();
   const appsDatabase = dbopen.db(config.database.appsglobal.database);
-  // eslint-disable-next-line no-restricted-syntax
-  for (const port of appSpecFormatted.ports) {
-    const portQuery = { ports: port };
+  if (appSpecFormatted.version === 1) {
+    const portQuery = { ports: appSpecFormatted.port };
     const portProjection = {
       projection: {
         _id: 0,
@@ -2838,9 +2922,28 @@ async function ensureCorrectApplicationPort(appSpecFormatted) {
 
     portsResult.forEach((result) => {
       if (result.name !== appSpecFormatted.name) {
-        throw new Error(`Flux App ${appSpecFormatted.name} port ${port} already registered with different application. Your Flux App has to use different port.`);
+        throw new Error(`Flux App ${appSpecFormatted.name} port ${appSpecFormatted.port} already registered with different application. Your Flux App has to use different port.`);
       }
     });
+  } else if (appSpecFormatted.version === 2) {
+    // eslint-disable-next-line no-restricted-syntax
+    for (const port of appSpecFormatted.ports) {
+      const portQuery = { ports: port };
+      const portProjection = {
+        projection: {
+          _id: 0,
+          name: 1,
+        },
+      };
+      // eslint-disable-next-line no-await-in-loop
+      const portsResult = await serviceHelper.findInDatabase(appsDatabase, globalAppsInformation, portQuery, portProjection);
+
+      portsResult.forEach((result) => {
+        if (result.name !== appSpecFormatted.name) {
+          throw new Error(`Flux App ${appSpecFormatted.name} port ${port} already registered with different application. Your Flux App has to use different port.`);
+        }
+      });
+    }
   }
   return true;
 }
