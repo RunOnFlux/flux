@@ -23,7 +23,7 @@
               sortable
             >
               <template slot-scope="scope">
-                {{ scope.row.Names[0].substr(4, scope.row.Names[0].length) }}
+                {{ scope.row.Names[0].substr(1, scope.row.Names[0].length) }}
               </template>
             </el-table-column>
             <el-table-column
@@ -38,7 +38,7 @@
               sortable
             >
               <template slot-scope="scope">
-                <ElButton @click="openApp(scope.row.Names[0].substr(4, scope.row.Names[0].length))">
+                <ElButton @click="openApp(scope.row.Names[0].substr(1, scope.row.Names[0].length))">
                   Visit
                 </ElButton>
               </template>
@@ -224,7 +224,7 @@
                   :key="location.ip"
                 >
                   <p>{{ location.ip }}
-                    <ElButton @click="openApp(props.row.name, location.ip, props.row.port || props.row.port[0])">
+                    <ElButton @click="openApp(props.row.name, location.ip, props.row.port || props.row.ports[0])">
                       Visit
                     </ElButton>
                   </p>
