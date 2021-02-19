@@ -407,7 +407,7 @@ async function respondWithAppMessage(message, ws) {
       // const permanentAppMessage = {
       //   type: messageType,
       //   version: typeVersion,
-      //   zelAppSpecifications: appSpecFormatted,
+      //   appSpecifications: appSpecFormatted,
       //   hash: messageHASH,
       //   timestamp,
       //   signature,
@@ -418,7 +418,7 @@ async function respondWithAppMessage(message, ws) {
       const temporaryAppMessage = { // specification of temp message
         type: permanentMessage.type,
         version: permanentMessage.version,
-        zelAppSpecifications: permanentMessage.zelAppSpecifications,
+        appSpecifications: permanentMessage.appSpecifications || permanentMessage.zelAppSpecifications,
         hash: permanentMessage.hash,
         timestamp: permanentMessage.timestamp,
         signature: permanentMessage.signature,
@@ -430,7 +430,7 @@ async function respondWithAppMessage(message, ws) {
       if (existingTemporaryMessage) {
         // a temporary appmessage looks like this:
         // const newMessage = {
-        //   zelAppSpecifications: message.zelAppSpecifications,
+        //   appSpecifications: message.appSpecifications || message.zelAppSpecifications,
         //   type: message.type,
         //   version: message.version,
         //   hash: message.hash,
@@ -442,7 +442,7 @@ async function respondWithAppMessage(message, ws) {
         const temporaryAppMessage = { // specification of temp message
           type: existingTemporaryMessage.type,
           version: existingTemporaryMessage.version,
-          zelAppSpecifications: existingTemporaryMessage.zelAppSpecifications,
+          appSpecifications: existingTemporaryMessage.appSpecifications || existingTemporaryMessage.zelAppSpecifications,
           hash: existingTemporaryMessage.hash,
           timestamp: existingTemporaryMessage.timestamp,
           signature: existingTemporaryMessage.signature,
@@ -1316,14 +1316,14 @@ async function broadcastTemporaryAppMessage(message) {
   /* message object
   * @param type string
   * @param version number
-  * @param zelAppSpecifications object
-  * @param hash string - messageHash(type + version + JSON.stringify(zelAppSpecifications) + timestamp + signature))
+  * @param appSpecifications object
+  * @param hash string - messageHash(type + version + JSON.stringify(appSpecifications) + timestamp + signature))
   * @param timestamp number
   * @param signature string
   */
   log.info(message);
   // no verification of message before broadcasting. Broadcasting happens always after data have been verified and are stored in our db. It is up to receiving node to verify it and store and rebroadcast.
-  if (typeof message !== 'object' && typeof message.type !== 'string' && typeof message.version !== 'number' && typeof message.zelAppSpecifications !== 'object' && typeof message.signature !== 'string' && typeof message.timestamp !== 'number' && typeof message.hash !== 'string') {
+  if (typeof message !== 'object' && typeof message.type !== 'string' && typeof message.version !== 'number' && typeof message.appSpecifications !== 'object' && typeof message.signature !== 'string' && typeof message.timestamp !== 'number' && typeof message.hash !== 'string') {
     return new Error('Invalid Flux App message for storing');
   }
   // to all outoing

@@ -242,7 +242,7 @@ describe('checkHWParameters', () => {
       type, 
       version,
       hash: messageHash,
-      zelAppSpecifications: fluxAppSpecs,
+      appSpecifications: fluxAppSpecs,
       timestamp,
       signature,
     }

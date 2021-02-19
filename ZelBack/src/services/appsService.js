@@ -1476,7 +1476,10 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
           const query = {};
           const projection = { projection: { _id: 0 } };
           const messages = await serviceHelper.findInDatabase(database, globalAppsMessages, query, projection);
-          const appMessages = messages.filter((message) => message.zelAppSpecifications.name === app);
+          const appMessages = messages.filter((message) => {
+            const specifications = message.appSpecifications || message.zelAppSpecifications;
+            return specifications.name === app;
+          });
           let currentSpecifications;
           appMessages.forEach((message) => {
             if (!currentSpecifications || message.height > currentSpecifications.height) {
@@ -1484,7 +1487,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
             }
           });
           if (currentSpecifications && currentSpecifications.height) {
-            appSpecifications = currentSpecifications.zelAppSpecifications;
+            appSpecifications = currentSpecifications.appSpecifications || currentSpecifications.zelAppSpecifications;
           }
         }
       }
@@ -2718,12 +2721,12 @@ async function verifyAppHash(message) {
   /* message object
   * @param type string
   * @param version number
-  * @param zelAppSpecifications object
+  * @param appSpecifications object
   * @param hash string
   * @param timestamp number
   * @param signature string
   */
-  const messToHash = message.type + message.version + JSON.stringify(message.zelAppSpecifications) + message.timestamp + message.signature;
+  const messToHash = message.type + message.version + JSON.stringify(message.appSpecifications || message.zelAppSpecifications) + message.timestamp + message.signature;
   const messageHASH = await messageHash(messToHash);
   if (messageHASH !== message.hash) {
     throw new Error('Invalid Flux App hash received!');
@@ -2980,12 +2983,16 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
   /* message object
   * @param type string
   * @param version number
-  * @param zelAppSpecifications object
+  * @param appSpecifications object
   * @param hash string
   * @param timestamp number
   * @param signature string
   */
-  if (typeof message !== 'object' && typeof message.type !== 'string' && typeof message.version !== 'number' && typeof message.zelAppSpecifications !== 'object' && typeof message.signature !== 'string' && typeof message.timestamp !== 'number' && typeof message.hash !== 'string') {
+  if (typeof message !== 'object' && typeof message.type !== 'string' && typeof message.version !== 'number' && typeof message.signature !== 'string' && typeof message.timestamp !== 'number' && typeof message.hash !== 'string') {
+    return new Error('Invalid Flux App message for storing');
+  }
+  // expect one to be present
+  if (typeof message.appSpecifications !== 'object' && typeof message.zelAppSpecifications !== 'object') {
     return new Error('Invalid Flux App message for storing');
   }
   // check if we have the message in cache. If yes, return false. If not, store it and continue
@@ -2994,25 +3001,26 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
   }
   console.log(serviceHelper.ensureString(message));
   myCache.set(serviceHelper.ensureString(message), message);
+  const specifications = message.appSpecifications || message.zelAppSpecifications;
   // data shall already be verified by the broadcasting node. But verify all again.
   if (furtherVerification) {
     if (message.type === 'zelappregister' || message.type === 'fluxappregister') {
       // missing check for port?
-      await verifyAppSpecifications(message.zelAppSpecifications);
+      await verifyAppSpecifications(specifications);
       await verifyAppHash(message);
-      await ensureCorrectApplicationPort(message.zelAppSpecifications);
-      await checkApplicationNameConflicts(message.zelAppSpecifications);
-      await verifyAppMessageSignature(message.type, message.version, message.zelAppSpecifications, message.timestamp, message.signature);
+      await ensureCorrectApplicationPort(specifications);
+      await checkApplicationNameConflicts(specifications);
+      await verifyAppMessageSignature(message.type, message.version, specifications, message.timestamp, message.signature);
     } else if (message.type === 'zelappupdate' || message.type === 'fluxappupdate') {
       // stadard verifications
-      await verifyAppSpecifications(message.zelAppSpecifications);
+      await verifyAppSpecifications(specifications);
       await verifyAppHash(message);
-      await ensureCorrectApplicationPort(message.zelAppSpecifications);
+      await ensureCorrectApplicationPort(specifications);
       // verify that app exists, does not change repotag and is signed by app owner.
       const db = serviceHelper.databaseConnection();
       const database = db.db(config.database.appsglobal.database);
       // may throw
-      const query = { name: message.zelAppSpecifications.name };
+      const query = { name: specifications.name };
       const projection = {
         projection: {
           _id: 0,
@@ -3022,12 +3030,12 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
       if (!appInfo) {
         throw new Error('Flux App update message received but application does not exists!');
       }
-      if (appInfo.repotag !== message.zelAppSpecifications.repotag) {
+      if (appInfo.repotag !== specifications.repotag) {
         throw new Error('Flux App update of repotag is not allowed');
       }
       const { owner } = appInfo;
       // here signature is checked against PREVIOUS app owner
-      await verifyAppMessageUpdateSignature(message.type, message.version, message.zelAppSpecifications, message.timestamp, message.signature, owner);
+      await verifyAppMessageUpdateSignature(message.type, message.version, specifications, message.timestamp, message.signature, owner);
     } else {
       throw new Error('Invalid Flux App message received');
     }
@@ -3039,7 +3047,7 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
   const db = serviceHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
   const newMessage = {
-    zelAppSpecifications: message.zelAppSpecifications,
+    appSpecifications: specifications,
     type: message.type, // shall be fluxappregister, fluxappupdate
     version: message.version,
     hash: message.hash,
@@ -3330,7 +3338,7 @@ async function registerAppGlobalyApi(req, res) {
       const temporaryAppMessage = { // specification of temp message
         type: messageType,
         version: typeVersion,
-        zelAppSpecifications: appSpecFormatted,
+        appSpecifications: appSpecFormatted,
         hash: messageHASH,
         timestamp,
         signature,
@@ -3562,7 +3570,7 @@ async function updateAppGlobalyApi(req, res) {
       const temporaryAppMessage = { // specification of temp message
         type: messageType,
         version: typeVersion,
-        zelAppSpecifications: appSpecFormatted,
+        appSpecifications: appSpecFormatted,
         hash: messageHASH,
         timestamp,
         signature,
@@ -3685,7 +3693,7 @@ async function storeAppPermanentMessage(message) {
   /* message object
   * @param type string
   * @param version number
-  * @param zelAppSpecifications object
+  * @param appSpecifications object
   * @param hash string
   * @param timestamp number
   * @param signature string
@@ -3693,7 +3701,7 @@ async function storeAppPermanentMessage(message) {
   * @param height number
   * @param valueSat number
   */
-  if (typeof message !== 'object' && typeof message.type !== 'string' && typeof message.version !== 'number' && typeof message.zelAppSpecifications !== 'object' && typeof message.signature !== 'string'
+  if (typeof message !== 'object' && typeof message.type !== 'string' && typeof message.version !== 'number' && typeof message.appSpecifications !== 'object' && typeof message.signature !== 'string'
     && typeof message.timestamp !== 'number' && typeof message.hash !== 'string' && typeof message.txid !== 'string' && typeof message.height !== 'number' && typeof message.valueSat !== 'number') {
     return new Error('Invalid Flux App message for storing');
   }
@@ -3830,6 +3838,7 @@ async function checkAppMessageExistence(hash) {
     //   type: messageType,
     //   version: typeVersion,
     //   zelAppSpecifications: appSpecFormatted,
+    //   appSpecifications: appSpecFormatted,
     //   hash: messageHASH,
     //   timestamp,
     //   signature,
@@ -3856,7 +3865,7 @@ async function checkAppTemporaryMessageExistence(hash) {
     const appsProjection = {};
     // a temporary zelappmessage looks like this:
     // const newMessage = {
-    //   zelAppSpecifications: message.zelAppSpecifications,
+    //   appSpecifications: message.appSpecifications,
     //   type: message.type,
     //   version: message.version,
     //   hash: message.hash,
@@ -3899,11 +3908,12 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
       // if we have it in temporary storage, get the temporary message
       const tempMessage = await checkAppTemporaryMessageExistence(hash);
       if (tempMessage) {
+        const specifications = tempMessage.appSpecifications || tempMessage.zelAppSpecifications;
         // temp message means its all ok. store it as permanent app message
         const permanentAppMessage = {
           type: tempMessage.type,
           version: tempMessage.version,
-          zelAppSpecifications: tempMessage.zelAppSpecifications,
+          appSpecifications: specifications,
           hash: tempMessage.hash,
           timestamp: tempMessage.timestamp,
           signature: tempMessage.signature,
@@ -3917,24 +3927,24 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
         // disregard other types
         if (tempMessage.type === 'zelappregister' || tempMessage.type === 'fluxappregister') {
           // check if value is optimal or higher
-          let appPrice = appPricePerMonth(tempMessage.zelAppSpecifications);
+          let appPrice = appPricePerMonth(specifications);
           if (appPrice < 1) {
             appPrice = 1;
           }
           if (valueSat >= appPrice * 1e8) {
-            const updateForSpecifications = permanentAppMessage.zelAppSpecifications;
+            const updateForSpecifications = permanentAppMessage.appSpecifications;
             updateForSpecifications.hash = permanentAppMessage.hash;
             updateForSpecifications.height = permanentAppMessage.height;
-            // object of zelAppSpecifications extended for hash and height
+            // object of appSpecifications extended for hash and height
             // do not await this
             updateAppSpecifications(updateForSpecifications);
           } // else do nothing notify its underpaid?
         } else if (tempMessage.type === 'zelappupdate' || tempMessage.type === 'fluxappupdate') {
-          // zelappSpecifications.name as identifier
+          // appSpecifications.name as identifier
           const db = serviceHelper.databaseConnection();
           const database = db.db(config.database.appsglobal.database);
           // may throw
-          const query = { name: tempMessage.zelAppSpecifications.name };
+          const query = { name: specifications.name };
           const projection = {
             projection: {
               _id: 0,
@@ -3943,7 +3953,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
           const appInfo = await serviceHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
           // here comparison of height differences and specifications
           // price shall be price for standard registration plus minus already paid price according to old specifics. height remains height valid for 22000 blocks
-          const appPrice = appPricePerMonth(tempMessage.zelAppSpecifications);
+          const appPrice = appPricePerMonth(specifications);
           const previousSpecsPrice = appPricePerMonth(appInfo);
           // what is the height difference
           const heightDifference = permanentAppMessage.height - appInfo.height; // has to be lower than 22000
@@ -3957,7 +3967,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
             actualPriceToPay = 1;
           }
           if (valueSat >= actualPriceToPay * 1e8) {
-            const updateForSpecifications = permanentAppMessage.zelAppSpecifications;
+            const updateForSpecifications = permanentAppMessage.appSpecifications;
             updateForSpecifications.hash = permanentAppMessage.hash;
             updateForSpecifications.height = permanentAppMessage.height;
             // object of appSpecifications extended for hash and height
@@ -4055,7 +4065,7 @@ async function reindexGlobalAppsInformation() {
     const results = await serviceHelper.findInDatabase(database, globalAppsMessages, query, projection);
     // eslint-disable-next-line no-restricted-syntax
     for (const message of results) {
-      const updateForSpecifications = message.zelAppSpecifications;
+      const updateForSpecifications = message.appSpecifications || message.zelAppSpecifications;
       updateForSpecifications.hash = message.hash;
       updateForSpecifications.height = message.height;
       // eslint-disable-next-line no-await-in-loop
@@ -4110,7 +4120,7 @@ async function rescanGlobalAppsInformation(height = 0, removeLastInformation = f
 
     // eslint-disable-next-line no-restricted-syntax
     for (const message of results) {
-      const updateForSpecifications = message.zelAppSpecifications;
+      const updateForSpecifications = message.appSpecifications || message.zelAppSpecifications;
       updateForSpecifications.hash = message.hash;
       updateForSpecifications.height = message.height;
       // eslint-disable-next-line no-await-in-loop
