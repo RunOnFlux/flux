@@ -2892,6 +2892,10 @@ async function verifyAppSpecifications(appSpecifications) {
     if (appSpecifications.domains.length !== appSpecifications.ports.length) {
       throw new Error('Domains specifications do not match available ports');
     }
+
+    if (appSpecifications.ports.length > 5) {
+      throw new Error('Too many ports defined. Maximum of 5 allowed.');
+    }
   }
 
   // check wheter shared Folder is not root

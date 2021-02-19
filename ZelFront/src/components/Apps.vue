@@ -2896,6 +2896,10 @@ export default {
           throw new Error('Domains specifications do not match available ports');
         }
 
+        if (appSpecFormatted.ports.length > 5) {
+          throw new Error('Too many ports defined. Maximum of 5 allowed.');
+        }
+
         // check wheter shared Folder is not root
         if (containerData.length < 2) {
           throw new Error('App container data folder not specified. If no data folder is whished, use /tmp');
@@ -3114,6 +3118,14 @@ export default {
 
         if (appSpecFormatted.containerPorts.length !== appSpecFormatted.ports) {
           throw new Error('Ports specifications do not match');
+        }
+
+        if (appSpecFormatted.domains.length !== appSpecFormatted.ports.length) {
+          throw new Error('Domains specifications do not match available ports');
+        }
+
+        if (appSpecFormatted.ports.length > 5) {
+          throw new Error('Too many ports defined. Maximum of 5 allowed.');
         }
 
         // check wheter shared Folder is not root
