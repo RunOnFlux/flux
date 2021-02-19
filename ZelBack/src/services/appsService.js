@@ -410,7 +410,7 @@ async function appDockerCreate(appSpecifications) {
     appSpecifications.containerPorts.forEach((port) => {
       exposedPorts[[`${port.toString()}/tcp`]] = {};
     });
-    for (let i = 0; i < appSpecifications.containerPorts; i += 1) {
+    for (let i = 0; i < appSpecifications.containerPorts.length; i += 1) {
       portBindings[[`${appSpecifications.containerPorts[i].toString()}/tcp`]] = [
         {
           HostPort: appSpecifications.ports[i].toString(),
