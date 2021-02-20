@@ -2584,7 +2584,7 @@ export default {
       if (appInfo || (_port && _ip)) {
         const backendURL = store.get('backendURL') || `http://${this.userconfig.externalip}:${this.config.apiPort}`;
         const ip = _ip || backendURL.split(':')[1].split('//')[1];
-        const port = _port || appInfo.port;
+        const port = _port || appInfo.port || appInfo.ports[0];
         let url = `http://${ip}:${port}`;
         if (name === 'KadenaChainWebNode') {
           url = `https://${ip}:${port}/chainweb/0.0/mainnet01/cut`;
