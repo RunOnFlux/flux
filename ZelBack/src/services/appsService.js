@@ -1248,7 +1248,7 @@ async function createAppVolume(appSpecifications, res) {
     global.allocationInterval = setInterval(() => {
       iterationAlloc += 1;
       const allocateSpaceB = {
-        status: `Space alocation is ruuning for ${20 * iterationAlloc}s. This may take quite some time...`,
+        status: `Space alocation is running for ${20 * iterationAlloc}s. This may take quite some time...`,
       };
       log.info(allocateSpaceB);
       if (res) {
