@@ -17,12 +17,14 @@ const expect = chai.expect;
 describe('checkHWParameters', () => {
   it('Verifies HW specs are correct', () => {
     const fluxAppSpecs = {
-      "version": 1,
+      "version": 2,
       "name": "FoldingAtHome",
       "description": "Folding @ Home is cool :)",
       "repotag": "yurinnick/folding-at-home:latest",
       "owner": "1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC",
-      "port": 30001,
+      "ports": [30001],
+      "containerPorts": [7396],
+      "domains": [''],
       "enviromentParameters": [
         "USER=foldingUser",
         "TEAM=262156",
@@ -35,7 +37,6 @@ describe('checkHWParameters', () => {
         "--web-allow",
         "0/0"
       ],
-      "containerPort": 7396,
       "containerData": "/config",
       "cpu": 0.5,
       "ram": 500,
@@ -56,12 +57,14 @@ describe('checkHWParameters', () => {
 
   it('Verifies HW specs are badly asssigned', () => {
     const fluxAppSpecs = {
-      "version": 1,
+      "version": 2,
       "name": "FoldingAtHome",
       "description": "Folding @ Home is cool :)",
       "repotag": "yurinnick/folding-at-home:latest",
       "owner": "1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC",
-      "port": 30001,
+      "ports": [30001],
+      "containerPorts": [7396],
+      "domains": [''],
       "enviromentParameters": [
         "USER=foldingUser",
         "TEAM=262156",
@@ -74,7 +77,6 @@ describe('checkHWParameters', () => {
         "--web-allow",
         "0/0"
       ],
-      "containerPort": 7396,
       "containerData": "/config",
       "cpu": 0.5,
       "ram": 'badly assigned',
@@ -95,12 +97,14 @@ describe('checkHWParameters', () => {
 
   it('Verifies HW specs are missing', () => {
     const fluxAppSpecs = {
-      "version": 1,
+      "version": 2,
       "name": "FoldingAtHome",
       "description": "Folding @ Home is cool :)",
       "repotag": "yurinnick/folding-at-home:latest",
       "owner": "1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC",
-      "port": 30001,
+      "ports": [30001],
+      "containerPorts": [7396],
+      "domains": [''],
       "enviromentParameters": [
         "USER=foldingUser",
         "TEAM=262156",
@@ -113,7 +117,6 @@ describe('checkHWParameters', () => {
         "--web-allow",
         "0/0"
       ],
-      "containerPort": 7396,
       "containerData": "/config",
       "cpu": null,
       "ram": 4000,
@@ -149,12 +152,14 @@ describe('checkHWParameters', () => {
 
   it('Message Hash is correctly calculated', async () => {
     const fluxAppSpecs = {
-      "version": 1,
+      "version": 2,
       "name": "FoldingAtHome",
       "description": "Folding @ Home is cool :)",
       "repotag": "yurinnick/folding-at-home:latest",
       "owner": "1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC",
-      "port": 30001,
+      "ports": [30001],
+      "containerPorts": [7396],
+      "domains": [''],
       "enviromentParameters": [
         "USER=foldingUser",
         "TEAM=262156",
@@ -167,7 +172,6 @@ describe('checkHWParameters', () => {
         "--web-allow",
         "0/0"
       ],
-      "containerPort": 7396,
       "containerData": "/config",
       "cpu": 0.5,
       "ram": 500,
@@ -186,20 +190,22 @@ describe('checkHWParameters', () => {
     const type = 'fluxappregister';
     const version = 1;
     const timestamp = 1592988806887
-    const signature = 'HzHMIFf6oiHJYb8NFTZmF/Za7w14FYidyd5CjM8N11UuI4lG7lbkldgSBpYK9QY6vYct5pZjJSupsD5P0puvF00=';
-    const messageHash = 'cd11811818b92645e52c1e9bef690aaad65f5b796cf00e8cfb29b12956c38949'
+    const signature = 'H7AP+VrFUTrmi+DqG8x0nllBFXB+oD09AkSE/JEpemeOTzMglftjTtPaEY3rMW/FUezEiad0WZNgxiInFrUn6S8=';
+    const messageHash = 'c509eae87618e0c4c40106d3c515923d7611070bcafad261de9520238617c972'
     const message = type + version + JSON.stringify(fluxAppSpecs) + timestamp + signature;
     expect(await appService.messageHash(message)).to.be.equal(messageHash);
   });
 
   it('Message Hash is correctly verified', async () => {
     const fluxAppSpecs = {
-      "version": 1,
+      "version": 2,
       "name": "FoldingAtHome",
       "description": "Folding @ Home is cool :)",
       "repotag": "yurinnick/folding-at-home:latest",
       "owner": "1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC",
-      "port": 30001,
+      "ports": [30001],
+      "containerPorts": [7396],
+      "domains": [''],
       "enviromentParameters": [
         "USER=foldingUser",
         "TEAM=262156",
@@ -212,7 +218,6 @@ describe('checkHWParameters', () => {
         "--web-allow",
         "0/0"
       ],
-      "containerPort": 7396,
       "containerData": "/config",
       "cpu": 0.5,
       "ram": 500,
@@ -231,13 +236,13 @@ describe('checkHWParameters', () => {
     const type = 'fluxappregister';
     const version = 1;
     const timestamp = 1592988806887
-    const signature = 'HzHMIFf6oiHJYb8NFTZmF/Za7w14FYidyd5CjM8N11UuI4lG7lbkldgSBpYK9QY6vYct5pZjJSupsD5P0puvF00=';
-    const messageHash = 'cd11811818b92645e52c1e9bef690aaad65f5b796cf00e8cfb29b12956c38949';
+    const signature = 'H7AP+VrFUTrmi+DqG8x0nllBFXB+oD09AkSE/JEpemeOTzMglftjTtPaEY3rMW/FUezEiad0WZNgxiInFrUn6S8=';
+    const messageHash = 'c509eae87618e0c4c40106d3c515923d7611070bcafad261de9520238617c972';
     const message =  {
       type, 
       version,
       hash: messageHash,
-      zelAppSpecifications: fluxAppSpecs,
+      appSpecifications: fluxAppSpecs,
       timestamp,
       signature,
     }
@@ -246,12 +251,14 @@ describe('checkHWParameters', () => {
 
   it('Message is correctly signed', async () => {
     const fluxAppSpecs = {
-      "version": 1,
+      "version": 2,
       "name": "FoldingAtHome",
       "description": "Folding @ Home is cool :)",
       "repotag": "yurinnick/folding-at-home:latest",
       "owner": "1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC",
-      "port": 30001,
+      "ports": [30001],
+      "containerPorts": [7396],
+      "domains": [''],
       "enviromentParameters": [
         "USER=foldingUser",
         "TEAM=262156",
@@ -264,7 +271,6 @@ describe('checkHWParameters', () => {
         "--web-allow",
         "0/0"
       ],
-      "containerPort": 7396,
       "containerData": "/config",
       "cpu": 0.5,
       "ram": 500,
@@ -284,8 +290,8 @@ describe('checkHWParameters', () => {
     const version = 1;
     const timestamp = 1592988806887
     const messageToVerify = type + version + JSON.stringify(fluxAppSpecs) + timestamp;
-    // console.log(messageToVerify);
-    const signature = 'HzHMIFf6oiHJYb8NFTZmF/Za7w14FYidyd5CjM8N11UuI4lG7lbkldgSBpYK9QY6vYct5pZjJSupsD5P0puvF00=';
+    console.log(messageToVerify);
+    const signature = 'H7AP+VrFUTrmi+DqG8x0nllBFXB+oD09AkSE/JEpemeOTzMglftjTtPaEY3rMW/FUezEiad0WZNgxiInFrUn6S8=';
     expect(await appService.verifyAppMessageSignature(type, version, fluxAppSpecs, timestamp, signature)).to.be.equal(true);
   });
 });

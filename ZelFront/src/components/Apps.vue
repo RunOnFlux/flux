@@ -23,7 +23,7 @@
               sortable
             >
               <template slot-scope="scope">
-                {{ scope.row.Names[0].substr(4, scope.row.Names[0].length) }}
+                {{ scope.row.Names[0].startsWith('/flux') ? scope.row.Names[0].substr(5, scope.row.Names[0].length) : scope.row.Names[0].substr(4, scope.row.Names[0].length) }}
               </template>
             </el-table-column>
             <el-table-column
@@ -38,7 +38,7 @@
               sortable
             >
               <template slot-scope="scope">
-                <ElButton @click="openApp(scope.row.Names[0].substr(4, scope.row.Names[0].length))">
+                <ElButton @click="openApp(scope.row.Names[0].startsWith('/flux') ? scope.row.Names[0].substr(5, scope.row.Names[0].length) : scope.row.Names[0].substr(4, scope.row.Names[0].length))">
                   Visit
                 </ElButton>
               </template>
@@ -90,6 +90,9 @@
               prop="port"
               sortable
             >
+              <template slot-scope="scope">
+                {{ scope.row.port || scope.row.ports.toString() }}
+              </template>
             </el-table-column>
             <el-table-column
               label="CPU"
@@ -221,7 +224,7 @@
                   :key="location.ip"
                 >
                   <p>{{ location.ip }}
-                    <ElButton @click="openApp(props.row.name, location.ip, props.row.port)">
+                    <ElButton @click="openApp(props.row.name, location.ip, props.row.port || props.row.ports[0])">
                       Visit
                     </ElButton>
                   </p>
@@ -248,6 +251,9 @@
               prop="port"
               sortable
             >
+              <template slot-scope="scope">
+                {{ scope.row.port || scope.row.ports.toString() }}
+              </template>
             </el-table-column>
             <el-table-column
               label="CPU"
@@ -323,6 +329,9 @@
               prop="port"
               sortable
             >
+              <template slot-scope="scope">
+                {{ scope.row.port || scope.row.ports.toString() }}
+              </template>
             </el-table-column>
             <el-table-column
               label="CPU"
@@ -462,7 +471,7 @@
                   :key="location.ip"
                 >
                   <p>{{ location.ip }}
-                    <ElButton @click="openApp(props.row.name, location.ip, props.row.port)">
+                    <ElButton @click="openApp(props.row.name, location.ip, props.row.port || props.row.ports[0])">
                       Visit
                     </ElButton>
                   </p>
@@ -529,7 +538,7 @@
                   :key="location.ip"
                 >
                   <p>{{ location.ip }}
-                    <ElButton @click="openApp(props.row.name, location.ip, props.row.port)">
+                    <ElButton @click="openApp(props.row.name, location.ip, props.row.port || props.row.ports[0])">
                       Visit
                     </ElButton>
                   </p>
@@ -724,6 +733,9 @@
                 Description: {{ callResponse.data.description }}
               </p>
               <p>
+                Domains: {{ callResponse.data.domains }}
+              </p>
+              <p>
                 Specifications Hash: {{ callResponse.data.hash }}
               </p>
               <p>
@@ -742,10 +754,10 @@
                 Specifications version: {{ callResponse.data.version }}
               </p>
               <p>
-                Public Port: {{ callResponse.data.port }}
+                Public Ports: {{ callResponse.data.port || callResponse.data.ports }}
               </p>
               <p>
-                Forwarded Port: {{ callResponse.data.containerPort }}
+                Forwarded Ports: {{ callResponse.data.containerPort || callResponse.data.containerPorts }}
               </p>
               <p>
                 Application Data: {{ callResponse.data.containerData }}
@@ -815,6 +827,9 @@
                 Description: {{ callBResponse.data.description }}
               </p>
               <p>
+                Domains: {{ callBResponse.data.domains }}
+              </p>
+              <p>
                 Specifications Hash: {{ callBResponse.data.hash }}
               </p>
               <p>
@@ -833,10 +848,10 @@
                 Specifications version: {{ callBResponse.data.version }}
               </p>
               <p>
-                Public Port: {{ callBResponse.data.port }}
+                Public Ports: {{ callBResponse.data.port || callBResponse.data.ports }}
               </p>
               <p>
-                Forwarded Port: {{ callBResponse.data.containerPort }}
+                Forwarded Ports: {{ callBResponse.data.containerPort || callBResponse.data.containerPorts }}
               </p>
               <p>
                 Application Data: {{ callBResponse.data.containerData }}
@@ -958,7 +973,7 @@
                 sortable
               >
                 <template slot-scope="scope">
-                  <ElButton @click="openApp(scope.row.name, scope.row.ip, callBResponse.data.port)">
+                  <ElButton @click="openApp(scope.row.name, scope.row.ip, callBResponse.data.port || callBResponse.data.ports[0])">
                     Visit
                   </ElButton>
                 </template>
@@ -1184,6 +1199,9 @@
                 Description: {{ callBResponse.data.description }}
               </p>
               <p>
+                Domains: {{ callBResponse.data.domains }}
+              </p>
+              <p>
                 Specifications Hash: {{ callBResponse.data.hash }}
               </p>
               <p>
@@ -1202,10 +1220,10 @@
                 Specifications version: {{ callBResponse.data.version }}
               </p>
               <p>
-                Public Port: {{ callBResponse.data.port }}
+                Public Ports: {{ callBResponse.data.port || callBResponse.data.ports }}
               </p>
               <p>
-                Forwarded Port: {{ callBResponse.data.containerPort }}
+                Forwarded Ports: {{ callBResponse.data.containerPort || callBResponse.data.containerPorts }}
               </p>
               <p>
                 Application Data: {{ callBResponse.data.containerData }}
@@ -1317,13 +1335,21 @@
                   >
                   </el-input>
                 </el-form-item>
-                <el-form-item label="Port">
+                <el-form-item label="Ports">
                   <el-input
-                    placeholder="Port on which application will be available"
+                    placeholder="Array of Ports on which application will be available"
                     type="number"
                     min="31000"
                     max="39999"
-                    v-model="appUpdateSpecification.port"
+                    v-model="appUpdateSpecification.ports"
+                  >
+                  </el-input>
+                </el-form-item>
+                <el-form-item label="Domains">
+                  <el-input
+                    placeholder="Array of strings of Domains managed by Flux Domain Manager (FDM). Length has to corresponds to available ports. Use empty strings for no domains"
+                    textarea
+                    v-model="appUpdateSpecification.domains"
                   >
                   </el-input>
                 </el-form-item>
@@ -1343,13 +1369,13 @@
                   >
                   </el-input>
                 </el-form-item>
-                <el-form-item label="Cont. Port">
+                <el-form-item label="Cont. Ports">
                   <el-input
-                    placeholder="Container Port - port on which your container has"
+                    placeholder="Container Ports - array of ports on which your container has"
                     nubmer
                     min="0"
                     max="65535"
-                    v-model="appUpdateSpecification.containerPort"
+                    v-model="appUpdateSpecification.containerPorts"
                   >
                   </el-input>
                 </el-form-item>
@@ -1639,13 +1665,21 @@
             >
             </el-input>
           </el-form-item>
-          <el-form-item label="Port">
+          <el-form-item label="Ports">
             <el-input
-              placeholder="Port on which application will be available"
+              placeholder="Array of Ports on which application will be available"
               type="number"
               min="31000"
               max="39999"
-              v-model="appRegistrationSpecification.port"
+              v-model="appRegistrationSpecification.ports"
+            >
+            </el-input>
+          </el-form-item>
+          <el-form-item label="Domains">
+            <el-input
+              placeholder="Array of strings of Domains managed by Flux Domain Manager (FDM). Length has to corresponds to available ports. Use empty strings for no domains"
+              textarea
+              v-model="appRegistrationSpecification.domains"
             >
             </el-input>
           </el-form-item>
@@ -1665,13 +1699,13 @@
             >
             </el-input>
           </el-form-item>
-          <el-form-item label="Cont. Port">
+          <el-form-item label="Cont. Ports">
             <el-input
-              placeholder="Container Port - port on which your container has"
+              placeholder="Container Ports - array of ports on which your container has"
               nubmer
               min="0"
               max="65535"
-              v-model="appRegistrationSpecification.containerPort"
+              v-model="appRegistrationSpecification.containerPorts"
             >
             </el-input>
           </el-form-item>
@@ -1969,15 +2003,16 @@ export default {
       output: '',
       fluxCommunication: false,
       appRegistrationSpecification: {
-        version: 1,
+        version: 2,
         name: '',
         description: '',
         repotag: '',
         owner: '',
-        port: null,
+        ports: '', // []
+        domains: '', // []
         enviromentParameters: '', // []
         commands: '', // []
-        containerPort: null,
+        containerPorts: '', // []
         containerData: '',
         cpu: null,
         ram: null,
@@ -1994,15 +2029,16 @@ export default {
         hddbamf: null,
       },
       appUpdateSpecification: {
-        version: 1,
+        version: 2,
         name: '',
         description: '',
         repotag: '',
         owner: '',
-        port: null,
+        ports: '', // []
+        domains: '', // []
         enviromentParameters: '', // []
         commands: '', // []
-        containerPort: null,
+        containerPorts: '', // []
         containerData: '',
         cpu: null,
         ram: null,
@@ -2543,11 +2579,12 @@ export default {
       return this.installedApps.data.find((app) => app.name === appName);
     },
     openApp(name, _ip, _port) {
+      console.log(name, _ip, _port);
       const appInfo = this.installedApp(name);
       if (appInfo || (_port && _ip)) {
         const backendURL = store.get('backendURL') || `http://${this.userconfig.externalip}:${this.config.apiPort}`;
         const ip = _ip || backendURL.split(':')[1].split('//')[1];
-        const port = _port || appInfo.port;
+        const port = _port || appInfo.port || appInfo.ports[0];
         let url = `http://${ip}:${port}`;
         if (name === 'KadenaChainWebNode') {
           url = `https://${ip}:${port}/chainweb/0.0/mainnet01/cut`;
@@ -2678,22 +2715,23 @@ export default {
         let appSpecification = this.appRegistrationSpecification;
         console.log(appSpecification);
         appSpecification = this.ensureObject(appSpecification);
-        let { version } = appSpecification; // shall be 1
+        let { version } = appSpecification; // shall be 2
         let { name } = appSpecification;
         let { description } = appSpecification;
         let { repotag } = appSpecification;
         let { owner } = appSpecification;
-        let { port } = appSpecification;
+        let { ports } = appSpecification;
+        let { domains } = appSpecification;
         let { enviromentParameters } = appSpecification;
         let { commands } = appSpecification;
-        let { containerPort } = appSpecification;
+        let { containerPorts } = appSpecification;
         let { containerData } = appSpecification;
         let { cpu } = appSpecification;
         let { ram } = appSpecification;
         let { hdd } = appSpecification;
         const { tiered } = appSpecification;
         // check if signature of received data is correct
-        if (!version || !name || !description || !repotag || !owner || !port || !enviromentParameters || !commands || !containerPort || !containerData || !cpu || !ram || !hdd) {
+        if (!version || !name || !description || !repotag || !owner || !ports || !domains || !enviromentParameters || !commands || !containerPorts || !containerData || !cpu || !ram || !hdd) {
           throw new Error('Missing App specification parameter');
         }
         version = this.ensureNumber(version);
@@ -2701,7 +2739,26 @@ export default {
         description = this.ensureString(description);
         repotag = this.ensureString(repotag);
         owner = this.ensureString(owner);
-        port = this.ensureNumber(port);
+        ports = this.ensureObject(ports);
+        const portsCorrect = [];
+        if (Array.isArray(ports)) {
+          ports.forEach((parameter) => {
+            const param = this.ensureString(parameter);
+            portsCorrect.push(param);
+          });
+        } else {
+          throw new Error('Ports parameters for App are invalid');
+        }
+        domains = this.ensureObject(domains);
+        const domainsCorrect = [];
+        if (Array.isArray(domains)) {
+          domains.forEach((parameter) => {
+            const param = this.ensureString(parameter);
+            domainsCorrect.push(param);
+          });
+        } else {
+          throw new Error('Enviromental parameters for App are invalid');
+        }
         enviromentParameters = this.ensureObject(enviromentParameters);
         const envParamsCorrected = [];
         if (Array.isArray(enviromentParameters)) {
@@ -2722,7 +2779,16 @@ export default {
         } else {
           throw new Error('App commands are invalid');
         }
-        containerPort = this.ensureNumber(containerPort);
+        containerPorts = this.ensureObject(containerPorts);
+        const containerportsCorrect = [];
+        if (Array.isArray(containerPorts)) {
+          containerPorts.forEach((parameter) => {
+            const param = this.ensureString(parameter);
+            containerportsCorrect.push(param);
+          });
+        } else {
+          throw new Error('Container Ports parameters for App are invalid');
+        }
         containerData = this.ensureString(containerData);
         cpu = this.ensureNumber(cpu);
         ram = this.ensureNumber(ram);
@@ -2738,10 +2804,11 @@ export default {
           description, // string
           repotag, // string
           owner, // zelid string
-          port, // integer
+          ports: portsCorrect, // array of integers
+          domains: domainsCorrect, //  array of strings
           enviromentParameters: envParamsCorrected, // array of strings
           commands: commandsCorrected, // array of strings
-          containerPort, // integer
+          containerPorts: containerportsCorrect, // array of integers
           containerData, // string
           cpu, // float 0.1 step
           ram, // integer 100 step (mb)
@@ -2783,7 +2850,7 @@ export default {
           appSpecFormatted.hddbamf = hddbamf;
         }
         // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper port, repotag exists, string lengths, specs are ok
-        if (version !== 1) {
+        if (version !== 2) {
           throw new Error('App message version specification is invalid');
         }
         if (name.length > 32) {
@@ -2808,14 +2875,30 @@ export default {
           throw new Error(errorMessage);
         }
 
-        // check port is within range
-        if (appSpecFormatted.port < this.apps.portMin || appSpecFormatted.port > this.apps.portMax) {
-          throw new Error(`Assigned port is not within Apps range ${this.apps.portMin}-${this.apps.portMax}`);
+        // check ports is within range
+        appSpecFormatted.ports.forEach((port) => {
+          if (port < this.apps.portMin || port > this.apps.portMax) {
+            throw new Error(`Assigned port ${port} is not within Apps range ${this.apps.portMin}-${this.apps.portMax}`);
+          }
+        });
+
+        // check if containerPorts makes sense
+        appSpecFormatted.containerPorts.forEach((port) => {
+          if (port < 0 || port > 65535) {
+            throw new Error(`Container Port ${port} is not within system limits 0-65535`);
+          }
+        });
+
+        if (appSpecFormatted.containerPorts.length !== appSpecFormatted.ports) {
+          throw new Error('Ports specifications do not match');
         }
 
-        // check if containerPort makes sense
-        if (appSpecFormatted.containerPort < 0 || appSpecFormatted.containerPort > 65535) {
-          throw new Error('Container Port is not within system limits 0-65535');
+        if (appSpecFormatted.domains.length !== appSpecFormatted.ports) {
+          throw new Error('Domains specifications do not match available ports');
+        }
+
+        if (appSpecFormatted.ports.length > 5) {
+          throw new Error('Too many ports defined. Maximum of 5 allowed.');
         }
 
         // check wheter shared Folder is not root
@@ -2853,22 +2936,23 @@ export default {
         let appSpecification = this.appUpdateSpecification;
         console.log(appSpecification);
         appSpecification = this.ensureObject(appSpecification);
-        let { version } = appSpecification; // shall be 1
+        let { version } = appSpecification; // shall be 2
         let { name } = appSpecification;
         let { description } = appSpecification;
         let { repotag } = appSpecification;
         let { owner } = appSpecification;
-        let { port } = appSpecification;
+        let { ports } = appSpecification;
+        let { domains } = appSpecification;
         let { enviromentParameters } = appSpecification;
         let { commands } = appSpecification;
-        let { containerPort } = appSpecification;
+        let { containerPorts } = appSpecification;
         let { containerData } = appSpecification;
         let { cpu } = appSpecification;
         let { ram } = appSpecification;
         let { hdd } = appSpecification;
         const { tiered } = appSpecification;
         // check if signature of received data is correct
-        if (!version || !name || !description || !repotag || !owner || !port || !enviromentParameters || !commands || !containerPort || !containerData || !cpu || !ram || !hdd) {
+        if (!version || !name || !description || !repotag || !owner || !ports || !domains || !enviromentParameters || !commands || !containerPorts || !containerData || !cpu || !ram || !hdd) {
           throw new Error('Missing App specification parameter');
         }
         version = this.ensureNumber(version);
@@ -2876,7 +2960,27 @@ export default {
         description = this.ensureString(description);
         repotag = this.ensureString(repotag);
         owner = this.ensureString(owner);
-        port = this.ensureNumber(port);
+        ports = this.ensureObject(ports);
+        ports = this.ensureObject(ports);
+        const portsCorrect = [];
+        if (Array.isArray(ports)) {
+          ports.forEach((parameter) => {
+            const param = this.ensureString(parameter);
+            portsCorrect.push(param);
+          });
+        } else {
+          throw new Error('Ports parameters for App are invalid');
+        }
+        domains = this.ensureObject(domains);
+        const domainsCorrect = [];
+        if (Array.isArray(domains)) {
+          domains.forEach((parameter) => {
+            const param = this.ensureString(parameter);
+            domainsCorrect.push(param);
+          });
+        } else {
+          throw new Error('Enviromental parameters for App are invalid');
+        }
         enviromentParameters = this.ensureObject(enviromentParameters);
         const envParamsCorrected = [];
         if (Array.isArray(enviromentParameters)) {
@@ -2897,7 +3001,16 @@ export default {
         } else {
           throw new Error('App commands are invalid');
         }
-        containerPort = this.ensureNumber(containerPort);
+        containerPorts = this.ensureObject(containerPorts);
+        const containerportsCorrect = [];
+        if (Array.isArray(containerPorts)) {
+          containerPorts.forEach((parameter) => {
+            const param = this.ensureString(parameter);
+            containerportsCorrect.push(param);
+          });
+        } else {
+          throw new Error('Container Ports parameters for App are invalid');
+        }
         containerData = this.ensureString(containerData);
         cpu = this.ensureNumber(cpu);
         ram = this.ensureNumber(ram);
@@ -2913,10 +3026,11 @@ export default {
           description, // string
           repotag, // string
           owner, // zelid string
-          port, // integer
+          ports: portsCorrect, // array of integers
+          domains: domainsCorrect, // array of strings
           enviromentParameters: envParamsCorrected, // array of strings
           commands: commandsCorrected, // array of strings
-          containerPort, // integer
+          containerPorts: containerportsCorrect, // array of integers
           containerData, // string
           cpu, // float 0.1 step
           ram, // integer 100 step (mb)
@@ -2957,8 +3071,8 @@ export default {
           appSpecFormatted.hddsuper = hddsuper;
           appSpecFormatted.hddbamf = hddbamf;
         }
-        // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper port, repotag exists, string lengths, specs are ok
-        if (version !== 1) {
+        // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
+        if (version !== 2) {
           throw new Error('App message version specification is invalid');
         }
         if (name.length > 32) {
@@ -2989,14 +3103,30 @@ export default {
           throw new Error(errorMessage);
         }
 
-        // check port is within range
-        if (appSpecFormatted.port < this.apps.portMin || appSpecFormatted.port > this.apps.portMax) {
-          throw new Error(`Assigned port is not within Apps range ${this.apps.portMin}-${this.apps.portMax}`);
+        // check ports is within range
+        appSpecFormatted.ports.forEach((port) => {
+          if (port < this.apps.portMin || port > this.apps.portMax) {
+            throw new Error(`Assigned port ${port} is not within Apps range ${this.apps.portMin}-${this.apps.portMax}`);
+          }
+        });
+
+        // check if containerPorts makes sense
+        appSpecFormatted.containerPorts.forEach((port) => {
+          if (port < 0 || port > 65535) {
+            throw new Error(`Container Port ${port} is not within system limits 0-65535`);
+          }
+        });
+
+        if (appSpecFormatted.containerPorts.length !== appSpecFormatted.ports) {
+          throw new Error('Ports specifications do not match');
         }
 
-        // check if containerPort makes sense
-        if (appSpecFormatted.containerPort < 0 || appSpecFormatted.containerPort > 65535) {
-          throw new Error('Container Port is not within system limits 0-65535');
+        if (appSpecFormatted.domains.length !== appSpecFormatted.ports.length) {
+          throw new Error('Domains specifications do not match available ports');
+        }
+
+        if (appSpecFormatted.ports.length > 5) {
+          throw new Error('Too many ports defined. Maximum of 5 allowed.');
         }
 
         // check wheter shared Folder is not root
@@ -3066,8 +3196,14 @@ export default {
           const { ip } = location;
           const appSpecs = this.globalAppSpecs.data.find((app) => app.name === appName);
           const { port } = appSpecs;
-          const url = `http://${ip}:${port}`;
-          this.openSite(url);
+          const { ports } = appSpecs;
+          if (port) {
+            const url = `http://${ip}:${port}`;
+            this.openSite(url);
+          } else {
+            const url = `http://${ip}:${ports[0]}`;
+            this.openSite(url);
+          }
         }
       } else {
         vue.$customMes.error(response.data.data.message || response.data.data);
@@ -3307,10 +3443,11 @@ export default {
         this.appUpdateSpecification.description = specs.description;
         this.appUpdateSpecification.repotag = specs.repotag;
         this.appUpdateSpecification.owner = specs.owner;
-        this.appUpdateSpecification.port = specs.port;
+        this.appUpdateSpecification.ports = specs.port || this.ensureString(specs.ports); // v1 compatibility
+        this.appUpdateSpecification.domains = this.ensureString(specs.domains);
         this.appUpdateSpecification.enviromentParameters = this.ensureString(specs.enviromentParameters);
         this.appUpdateSpecification.commands = this.ensureString(specs.commands);
-        this.appUpdateSpecification.containerPort = specs.containerPort;
+        this.appUpdateSpecification.containerPorts = specs.containerPort || this.ensureString(specs.containerPorts); // v1 compatibility
         this.appUpdateSpecification.containerData = specs.containerData;
         this.appUpdateSpecification.cpu = specs.cpu;
         this.appUpdateSpecification.ram = specs.ram;
@@ -3523,7 +3660,7 @@ export default {
     getRandomPort() {
       const min = 31001;
       const max = 39998;
-      this.appRegistrationSpecification.port = Math.floor(Math.random() * (max - min) + min);
+      this.appRegistrationSpecification.ports = [Math.floor(Math.random() * (max - min) + min)];
     },
   },
 };

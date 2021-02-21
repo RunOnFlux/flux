@@ -389,6 +389,35 @@ async function nodeTier() {
 }
 
 async function appDockerCreate(appSpecifications) {
+  let exposedPorts = {};
+  let portBindings = {};
+  if (appSpecifications.version === 1) {
+    portBindings = {
+      [`${appSpecifications.containerPort.toString()}/tcp`]: [
+        {
+          HostPort: appSpecifications.port.toString(),
+        },
+      ],
+    };
+    exposedPorts = {
+      [`${appSpecifications.port.toString()}/tcp`]: {},
+      [`${appSpecifications.containerPort.toString()}/tcp`]: {},
+    };
+  } else if (appSpecifications.version === 2) {
+    appSpecifications.ports.forEach((port) => {
+      exposedPorts[[`${port.toString()}/tcp`]] = {};
+    });
+    appSpecifications.containerPorts.forEach((port) => {
+      exposedPorts[[`${port.toString()}/tcp`]] = {};
+    });
+    for (let i = 0; i < appSpecifications.containerPorts.length; i += 1) {
+      portBindings[[`${appSpecifications.containerPorts[i].toString()}/tcp`]] = [
+        {
+          HostPort: appSpecifications.ports[i].toString(),
+        },
+      ];
+    }
+  }
   const options = {
     Image: appSpecifications.repotag,
     name: getAppIdentifier(appSpecifications.name),
@@ -398,10 +427,7 @@ async function appDockerCreate(appSpecifications) {
     Cmd: appSpecifications.commands,
     Env: appSpecifications.enviromentParameters,
     Tty: false,
-    ExposedPorts: {
-      [`${appSpecifications.port.toString()}/tcp`]: {},
-      [`${appSpecifications.containerPort.toString()}/tcp`]: {},
-    },
+    ExposedPorts: exposedPorts,
     HostConfig: {
       NanoCPUs: appSpecifications.cpu * 1e9,
       Memory: appSpecifications.ram * 1024 * 1024,
@@ -413,13 +439,7 @@ async function appDockerCreate(appSpecifications) {
           Hard: 100000, // 1048576
         },
       ],
-      PortBindings: {
-        [`${appSpecifications.containerPort.toString()}/tcp`]: [
-          {
-            HostPort: appSpecifications.port.toString(),
-          },
-        ],
-      },
+      PortBindings: portBindings,
       RestartPolicy: {
         Name: 'unless-stopped',
       },
@@ -1228,7 +1248,7 @@ async function createAppVolume(appSpecifications, res) {
     global.allocationInterval = setInterval(() => {
       iterationAlloc += 1;
       const allocateSpaceB = {
-        status: `Space alocation is ruuning for ${20 * iterationAlloc}s. This may take quite some time...`,
+        status: `Space alocation is running for ${20 * iterationAlloc}s. This may take quite some time...`,
       };
       log.info(allocateSpaceB);
       if (res) {
@@ -1421,11 +1441,11 @@ async function createAppVolume(appSpecifications, res) {
 async function removeAppLocally(app, res, force = false, endResponse = true) {
   try {
     // remove app from local machine.
-    // find in database, stop app, remove container, close port delete data associated on system, remove from database
+    // find in database, stop app, remove container, close ports delete data associated on system, remove from database
     // we want to remove the image as well (repotag) what if other container uses the same image -> then it shall result in an error so ok anyway
     removalInProgress = true;
     if (!app) {
-      throw new Error('No  specified');
+      throw new Error('No App specified');
     }
 
     const appId = getAppIdentifier(app);
@@ -1456,7 +1476,10 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
           const query = {};
           const projection = { projection: { _id: 0 } };
           const messages = await serviceHelper.findInDatabase(database, globalAppsMessages, query, projection);
-          const appMessages = messages.filter((message) => message.zelAppSpecifications.name === app);
+          const appMessages = messages.filter((message) => {
+            const specifications = message.appSpecifications || message.zelAppSpecifications;
+            return specifications.name === app;
+          });
           let currentSpecifications;
           appMessages.forEach((message) => {
             if (!currentSpecifications || message.height > currentSpecifications.height) {
@@ -1464,7 +1487,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
             }
           });
           if (currentSpecifications && currentSpecifications.height) {
-            appSpecifications = currentSpecifications.zelAppSpecifications;
+            appSpecifications = currentSpecifications.appSpecifications || currentSpecifications.zelAppSpecifications;
           }
         }
       }
@@ -1549,15 +1572,24 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
     }
 
     const portStatus = {
-      status: 'Denying Flux App port...',
+      status: 'Denying Flux App ports...',
     };
     log.info(portStatus);
     if (res) {
       res.write(serviceHelper.ensureString(portStatus));
     }
-    await fluxCommunication.denyPort(appSpecifications.port);
+    if (appSpecifications.ports) {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const port of appSpecifications.ports) {
+        // eslint-disable-next-line no-await-in-loop
+        await fluxCommunication.denyPort(port);
+      }
+      // v1 compatibility
+    } else if (appSpecifications.port) {
+      await fluxCommunication.denyPort(appSpecifications.port);
+    }
     const portStatus2 = {
-      status: 'Port denied',
+      status: 'Ports denied',
     };
     log.info(portStatus2);
     if (res) {
@@ -1847,15 +1879,24 @@ async function softRemoveAppLocally(app, res) {
   }
 
   const portStatus = {
-    status: 'Denying Flux App port...',
+    status: 'Denying Flux App ports...',
   };
   log.info(portStatus);
   if (res) {
     res.write(serviceHelper.ensureString(portStatus));
   }
-  await fluxCommunication.denyPort(appSpecifications.port);
+  if (appSpecifications.ports) {
+    // eslint-disable-next-line no-restricted-syntax
+    for (const port of appSpecifications.ports) {
+      // eslint-disable-next-line no-await-in-loop
+      await fluxCommunication.denyPort(port);
+    }
+    // v1 compatibility
+  } else if (appSpecifications.port) {
+    await fluxCommunication.denyPort(appSpecifications.port);
+  }
   const portStatus2 = {
-    status: 'Port denied',
+    status: 'Ports denied',
   };
   log.info(portStatus2);
   if (res) {
@@ -1893,7 +1934,7 @@ async function removeAppLocallyApi(req, res) {
       res.json(errMessage);
     } else {
       // remove app from local machine.
-      // find in database, stop app, remove container, close port delete data associated on system, remove from database
+      // find in database, stop app, remove container, close ports delete data associated on system, remove from database
       // if other container uses the same image -> then it shall result in an error so ok anyway
       let { appname } = req.params;
       appname = appname || req.query.appname;
@@ -2123,37 +2164,71 @@ async function registerAppLocally(appSpecifications, res) {
           return;
         }
         const portStatusInitial = {
-          status: 'Allowing Flux App port...',
+          status: 'Allowing Flux App ports...',
         };
         log.info(portStatusInitial);
         if (res) {
           res.write(serviceHelper.ensureString(portStatusInitial));
         }
-        const portResponse = await fluxCommunication.allowPort(appSpecifications.port);
-        if (portResponse.status === true) {
-          const portStatus = {
-            status: 'Port OK',
-          };
-          log.info(portStatus);
-          if (res) {
-            res.write(serviceHelper.ensureString(portStatus));
+        if (appSpecifications.ports) {
+          // eslint-disable-next-line no-restricted-syntax
+          for (const port of appSpecifications.ports) {
+            // eslint-disable-next-line no-await-in-loop
+            const portResponse = await fluxCommunication.allowPort(port);
+            if (portResponse.status === true) {
+              const portStatus = {
+                status: `'Port ${port} OK'`,
+              };
+              log.info(portStatus);
+              if (res) {
+                res.write(serviceHelper.ensureString(portStatus));
+              }
+            } else {
+              const portStatus = {
+                status: `Error: Port ${port} FAILed to open.`,
+              };
+              log.info(portStatus);
+              if (res) {
+                res.write(serviceHelper.ensureString(portStatus));
+              }
+              const removeStatus = serviceHelper.createErrorMessage('Error occured. Initiating Flux App removal');
+              log.info(removeStatus);
+              if (res) {
+                res.write(serviceHelper.ensureString(removeStatus));
+              }
+              removeAppLocally(appName, res);
+              return;
+            }
           }
-        } else {
-          const portStatus = {
-            status: 'Error: Port FAILed to open.',
-          };
-          log.info(portStatus);
-          if (res) {
-            res.write(serviceHelper.ensureString(portStatus));
+        } else if (appSpecifications.port) {
+          // v1 compatibility
+          const portResponse = await fluxCommunication.allowPort(appSpecifications.port);
+          if (portResponse.status === true) {
+            const portStatus = {
+              status: 'Port OK',
+            };
+            log.info(portStatus);
+            if (res) {
+              res.write(serviceHelper.ensureString(portStatus));
+            }
+          } else {
+            const portStatus = {
+              status: 'Error: Port FAILed to open.',
+            };
+            log.info(portStatus);
+            if (res) {
+              res.write(serviceHelper.ensureString(portStatus));
+            }
+            const removeStatus = serviceHelper.createErrorMessage('Error occured. Initiating Flux App removal');
+            log.info(removeStatus);
+            if (res) {
+              res.write(serviceHelper.ensureString(removeStatus));
+            }
+            removeAppLocally(appName, res);
+            return;
           }
-          const removeStatus = serviceHelper.createErrorMessage('Error occured. Initiating Flux App removal');
-          log.info(removeStatus);
-          if (res) {
-            res.write(serviceHelper.ensureString(removeStatus));
-          }
-          removeAppLocally(appName, res);
-          return;
         }
+
         const startStatus = {
           status: 'Starting Flux App...',
         };
@@ -2342,36 +2417,69 @@ async function softRegisterAppLocally(appSpecifications, res) {
           return;
         }
         const portStatusInitial = {
-          status: 'Allowing Flux App port...',
+          status: 'Allowing Flux App ports...',
         };
         log.info(portStatusInitial);
         if (res) {
           res.write(serviceHelper.ensureString(portStatusInitial));
         }
-        const portResponse = await fluxCommunication.allowPort(appSpecifications.port);
-        if (portResponse.status === true) {
-          const portStatus = {
-            status: 'Port OK',
-          };
-          log.info(portStatus);
-          if (res) {
-            res.write(serviceHelper.ensureString(portStatus));
+        if (appSpecifications.ports) {
+          // eslint-disable-next-line no-restricted-syntax
+          for (const port of appSpecifications.ports) {
+            // eslint-disable-next-line no-await-in-loop
+            const portResponse = await fluxCommunication.allowPort(port);
+            if (portResponse.status === true) {
+              const portStatus = {
+                status: `'Port ${port} OK'`,
+              };
+              log.info(portStatus);
+              if (res) {
+                res.write(serviceHelper.ensureString(portStatus));
+              }
+            } else {
+              const portStatus = {
+                status: `Error: Port ${port} FAILed to open.`,
+              };
+              log.info(portStatus);
+              if (res) {
+                res.write(serviceHelper.ensureString(portStatus));
+              }
+              const removeStatus = serviceHelper.createErrorMessage('Error occured. Initiating Flux App removal');
+              log.info(removeStatus);
+              if (res) {
+                res.write(serviceHelper.ensureString(removeStatus));
+              }
+              removeAppLocally(appName, res, true);
+              return;
+            }
           }
-        } else {
-          const portStatus = {
-            status: 'Error: Port FAILed to open.',
-          };
-          log.info(portStatus);
-          if (res) {
-            res.write(serviceHelper.ensureString(portStatus));
+        } else if (appSpecifications.port) {
+          // v1 compatibility
+          const portResponse = await fluxCommunication.allowPort(appSpecifications.port);
+          if (portResponse.status === true) {
+            const portStatus = {
+              status: 'Port OK',
+            };
+            log.info(portStatus);
+            if (res) {
+              res.write(serviceHelper.ensureString(portStatus));
+            }
+          } else {
+            const portStatus = {
+              status: 'Error: Port FAILed to open.',
+            };
+            log.info(portStatus);
+            if (res) {
+              res.write(serviceHelper.ensureString(portStatus));
+            }
+            const removeStatus = serviceHelper.createErrorMessage('Error occured. Initiating Flux App removal');
+            log.info(removeStatus);
+            if (res) {
+              res.write(serviceHelper.ensureString(removeStatus));
+            }
+            removeAppLocally(appName, res, true);
+            return;
           }
-          const removeStatus = serviceHelper.createErrorMessage('Error occured. Initiating Flux App removal');
-          log.info(removeStatus);
-          if (res) {
-            res.write(serviceHelper.ensureString(removeStatus));
-          }
-          removeAppLocally(appName, res, true);
-          return;
         }
         const startStatus = {
           status: 'Starting Flux App...',
@@ -2549,12 +2657,15 @@ async function availableApps(req, res) {
   // simulate a similar response
   const apps = [
     { // app specifications
+      version: 2,
       name: 'FoldingAtHomeB',
       description: 'Folding @ Home is cool :)',
       repotag: 'yurinnick/folding-at-home:latest',
       owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
       tiered: true,
-      port: 30000,
+      ports: [30000],
+      containerPorts: [7396],
+      domains: [''],
       cpu: 0.5,
       ram: 500,
       hdd: 5,
@@ -2574,29 +2685,30 @@ async function availableApps(req, res) {
         '--web-allow',
         '0/0',
       ],
-      containerPort: 7396,
       containerData: '/config',
       hash: 'localappinstancehashABCDE', // hash of app message
       height: 0, // height of tx on which it was
     },
     {
+      version: 2,
       name: 'KadenaChainWebNode', // corresponds to docker name and this name is stored in apps mongo database
       description: 'Kadena is a fast, secure, and scalable blockchain using the Chainweb consensus protocol. '
         + 'Chainweb is a braided, parallelized Proof Of Work consensus mechanism that improves throughput and scalability in executing transactions on the blockchain while maintaining the security and integrity found in Bitcoin. '
-        + 'The healthy information tells you if node is running. If you just installed the docker it can say unhealthy for almost 1 hour because on first run a bootstrap is downloaded and extracted to make your node sync faster before the node is started. '
-        + 'Do not stop or restart the docker in the first hour after installation. To check if your kadena node is synced, when the app is healthy, go to running apps and press visit button on kadena and compare your node height with Kadena explorer. Thank you.',
-      repotag: 'zelcash/kadena-chainweb-node:2.4.1',
+        + 'The healthy information tells you if your node is running and synced. If you just installed the docker it can say unhealthy for long time because on first run a bootstrap is downloaded and extracted to make your node sync faster before the node is started. '
+        + 'Do not stop or restart the docker in the first hour after installation. You can also check if your kadena node is synced, by going to running apps and press visit button on kadena and compare your node height with Kadena explorer. Thank you.',
+      repotag: 'zelcash/kadena-chainweb-node:2.5',
       owner: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
-      port: 30004,
+      ports: [30004, 30005],
+      containerPorts: [30004, 30005],
+      domains: ['', ''],
       tiered: false,
       cpu: 2, // true resource registered for app. If not tiered only this is available
       ram: 4000, // true resource registered for app
       hdd: 60, // true resource registered for app
-      enviromentParameters: ['CHAINWEB_PORT=30004', 'LOGLEVEL=warn'],
+      enviromentParameters: ['CHAINWEB_P2P_PORT=30004', 'CHAINWEB_SERVICE_PORT=30005', 'LOGLEVEL=warn'],
       commands: ['/bin/bash', '-c', '(test -d /data/chainweb-db/0 && ./run-chainweb-node.sh) || (/chainweb/initialize-db.sh && ./run-chainweb-node.sh)'],
-      containerPort: 30004,
       containerData: '/data', // cannot be root todo in verification
-      hash: 'localSpecificationsVersion5', // hash of app message
+      hash: 'localSpecificationsVersion6', // hash of app message
       height: 680000, // height of tx on which it was
     },
   ];
@@ -2609,15 +2721,15 @@ async function verifyAppHash(message) {
   /* message object
   * @param type string
   * @param version number
-  * @param zelAppSpecifications object
+  * @param appSpecifications object
   * @param hash string
   * @param timestamp number
   * @param signature string
   */
-  const messToHash = message.type + message.version + JSON.stringify(message.zelAppSpecifications) + message.timestamp + message.signature;
+  const messToHash = message.type + message.version + JSON.stringify(message.appSpecifications || message.zelAppSpecifications) + message.timestamp + message.signature;
   const messageHASH = await messageHash(messToHash);
   if (messageHASH !== message.hash) {
-    throw new Error('Invalid Flux App ash received!');
+    throw new Error('Invalid Flux App hash received!');
   }
   return true;
 }
@@ -2723,7 +2835,7 @@ async function verifyAppSpecifications(appSpecifications) {
   if (typeof appSpecifications !== 'object') {
     throw new Error('Invalid Flux App Specifications');
   }
-  if (appSpecifications.version !== 1) {
+  if (appSpecifications.version !== 1 && appSpecifications.version !== 2) {
     throw new Error('Flux App message version specification is invalid');
   }
   if (appSpecifications.name.length > 32) {
@@ -2748,14 +2860,42 @@ async function verifyAppSpecifications(appSpecifications) {
     throw new Error(errorMessage);
   }
 
-  // check port is within range
-  if (appSpecifications.port < config.fluxapps.portMin || appSpecifications.port > config.fluxapps.portMax) {
-    throw new Error(`Assigned port is not within Flux Apps range ${config.fluxapps.portMin}-${config.fluxapps.portMax}`);
-  }
+  if (appSpecifications.version === 1) {
+    // check port is within range
+    if (appSpecifications.port < config.fluxapps.portMin || appSpecifications.port > config.fluxapps.portMax) {
+      throw new Error(`Assigned port ${appSpecifications.port} is not within Flux Apps range ${config.fluxapps.portMin}-${config.fluxapps.portMax}`);
+    }
 
-  // check if containerPort makes sense
-  if (appSpecifications.containerPort < 0 || appSpecifications.containerPort > 65535) {
-    throw new Error('Container Port is not within system limits 0-65535');
+    // check if containerPort makes sense{
+    if (appSpecifications.containerPort < 0 || appSpecifications.containerPort > 65535) {
+      throw new Error(`Container Port ${appSpecifications.containerPort} is not within system limits 0-65535`);
+    }
+  } else if (appSpecifications.version === 2) {
+    // check port is within range
+    appSpecifications.ports.forEach((port) => {
+      if (port < config.fluxapps.portMin || port > config.fluxapps.portMax) {
+        throw new Error(`Assigned port ${port} is not within Flux Apps range ${config.fluxapps.portMin}-${config.fluxapps.portMax}`);
+      }
+    });
+
+    // check if containerPort makes sense
+    appSpecifications.containerPorts.forEach((port) => {
+      if (port < 0 || port > 65535) {
+        throw new Error(`Container Port ${port} is not within system limits 0-65535`);
+      }
+    });
+
+    if (appSpecifications.containerPorts.length !== appSpecifications.ports.length) {
+      throw new Error('Ports specifications do not match');
+    }
+
+    if (appSpecifications.domains.length !== appSpecifications.ports.length) {
+      throw new Error('Domains specifications do not match available ports');
+    }
+
+    if (appSpecifications.ports.length > 5) {
+      throw new Error('Too many ports defined. Maximum of 5 allowed.');
+    }
   }
 
   // check wheter shared Folder is not root
@@ -2776,20 +2916,41 @@ async function verifyAppSpecifications(appSpecifications) {
 async function ensureCorrectApplicationPort(appSpecFormatted) {
   const dbopen = serviceHelper.databaseConnection();
   const appsDatabase = dbopen.db(config.database.appsglobal.database);
-  const portQuery = { port: appSpecFormatted.port };
-  const portProjection = {
-    projection: {
-      _id: 0,
-      name: 1,
-    },
-  };
-  const portResult = await serviceHelper.findOneInDatabase(appsDatabase, globalAppsInformation, portQuery, portProjection);
-  if (!portResult) {
-    return true;
-  }
+  if (appSpecFormatted.version === 1) {
+    const portQuery = { ports: appSpecFormatted.port };
+    const portProjection = {
+      projection: {
+        _id: 0,
+        name: 1,
+      },
+    };
+    // eslint-disable-next-line no-await-in-loop
+    const portsResult = await serviceHelper.findInDatabase(appsDatabase, globalAppsInformation, portQuery, portProjection);
 
-  if (portResult.name !== appSpecFormatted.name) {
-    throw new Error(`Flux App ${appSpecFormatted.name} port already registered with different application. Your Flux App has to use different port.`);
+    portsResult.forEach((result) => {
+      if (result.name !== appSpecFormatted.name) {
+        throw new Error(`Flux App ${appSpecFormatted.name} port ${appSpecFormatted.port} already registered with different application. Your Flux App has to use different port.`);
+      }
+    });
+  } else if (appSpecFormatted.version === 2) {
+    // eslint-disable-next-line no-restricted-syntax
+    for (const port of appSpecFormatted.ports) {
+      const portQuery = { ports: port };
+      const portProjection = {
+        projection: {
+          _id: 0,
+          name: 1,
+        },
+      };
+      // eslint-disable-next-line no-await-in-loop
+      const portsResult = await serviceHelper.findInDatabase(appsDatabase, globalAppsInformation, portQuery, portProjection);
+
+      portsResult.forEach((result) => {
+        if (result.name !== appSpecFormatted.name) {
+          throw new Error(`Flux App ${appSpecFormatted.name} port ${port} already registered with different application. Your Flux App has to use different port.`);
+        }
+      });
+    }
   }
   return true;
 }
@@ -2826,12 +2987,16 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
   /* message object
   * @param type string
   * @param version number
-  * @param zelAppSpecifications object
+  * @param appSpecifications object
   * @param hash string
   * @param timestamp number
   * @param signature string
   */
-  if (typeof message !== 'object' && typeof message.type !== 'string' && typeof message.version !== 'number' && typeof message.zelAppSpecifications !== 'object' && typeof message.signature !== 'string' && typeof message.timestamp !== 'number' && typeof message.hash !== 'string') {
+  if (typeof message !== 'object' && typeof message.type !== 'string' && typeof message.version !== 'number' && typeof message.signature !== 'string' && typeof message.timestamp !== 'number' && typeof message.hash !== 'string') {
+    return new Error('Invalid Flux App message for storing');
+  }
+  // expect one to be present
+  if (typeof message.appSpecifications !== 'object' && typeof message.zelAppSpecifications !== 'object') {
     return new Error('Invalid Flux App message for storing');
   }
   // check if we have the message in cache. If yes, return false. If not, store it and continue
@@ -2840,25 +3005,26 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
   }
   console.log(serviceHelper.ensureString(message));
   myCache.set(serviceHelper.ensureString(message), message);
+  const specifications = message.appSpecifications || message.zelAppSpecifications;
   // data shall already be verified by the broadcasting node. But verify all again.
   if (furtherVerification) {
     if (message.type === 'zelappregister' || message.type === 'fluxappregister') {
       // missing check for port?
-      await verifyAppSpecifications(message.zelAppSpecifications);
+      await verifyAppSpecifications(specifications);
       await verifyAppHash(message);
-      await ensureCorrectApplicationPort(message.zelAppSpecifications);
-      await checkApplicationNameConflicts(message.zelAppSpecifications);
-      await verifyAppMessageSignature(message.type, message.version, message.zelAppSpecifications, message.timestamp, message.signature);
+      await ensureCorrectApplicationPort(specifications);
+      await checkApplicationNameConflicts(specifications);
+      await verifyAppMessageSignature(message.type, message.version, specifications, message.timestamp, message.signature);
     } else if (message.type === 'zelappupdate' || message.type === 'fluxappupdate') {
       // stadard verifications
-      await verifyAppSpecifications(message.zelAppSpecifications);
+      await verifyAppSpecifications(specifications);
       await verifyAppHash(message);
-      await ensureCorrectApplicationPort(message.zelAppSpecifications);
+      await ensureCorrectApplicationPort(specifications);
       // verify that app exists, does not change repotag and is signed by app owner.
       const db = serviceHelper.databaseConnection();
       const database = db.db(config.database.appsglobal.database);
       // may throw
-      const query = { name: message.zelAppSpecifications.name };
+      const query = { name: specifications.name };
       const projection = {
         projection: {
           _id: 0,
@@ -2868,12 +3034,12 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
       if (!appInfo) {
         throw new Error('Flux App update message received but application does not exists!');
       }
-      if (appInfo.repotag !== message.zelAppSpecifications.repotag) {
+      if (appInfo.repotag !== specifications.repotag) {
         throw new Error('Flux App update of repotag is not allowed');
       }
       const { owner } = appInfo;
       // here signature is checked against PREVIOUS app owner
-      await verifyAppMessageUpdateSignature(message.type, message.version, message.zelAppSpecifications, message.timestamp, message.signature, owner);
+      await verifyAppMessageUpdateSignature(message.type, message.version, specifications, message.timestamp, message.signature, owner);
     } else {
       throw new Error('Invalid Flux App message received');
     }
@@ -2885,7 +3051,7 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
   const db = serviceHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
   const newMessage = {
-    zelAppSpecifications: message.zelAppSpecifications,
+    appSpecifications: specifications,
     type: message.type, // shall be fluxappregister, fluxappupdate
     version: message.version,
     hash: message.hash,
@@ -3006,15 +3172,16 @@ async function registerAppGlobalyApi(req, res) {
       messageType = serviceHelper.ensureString(messageType);
       typeVersion = serviceHelper.ensureNumber(typeVersion);
 
-      let { version } = appSpecification; // shall be 1
+      let { version } = appSpecification; // Active specs version is 2
       let { name } = appSpecification;
       let { description } = appSpecification;
       let { repotag } = appSpecification;
       let { owner } = appSpecification;
-      let { port } = appSpecification;
+      let { ports } = appSpecification;
+      let { domains } = appSpecification;
       let { enviromentParameters } = appSpecification;
       let { commands } = appSpecification;
-      let { containerPort } = appSpecification;
+      let { containerPorts } = appSpecification;
       let { containerData } = appSpecification;
       let { cpu } = appSpecification;
       let { ram } = appSpecification;
@@ -3022,7 +3189,7 @@ async function registerAppGlobalyApi(req, res) {
       const { tiered } = appSpecification;
 
       // check if signature of received data is correct
-      if (!version || !name || !description || !repotag || !owner || !port || !enviromentParameters || !commands || !containerPort || !containerData || !cpu || !ram || !hdd) {
+      if (!version || !name || !description || !repotag || !owner || !ports || !domains || !enviromentParameters || !commands || !containerPorts || !containerData || !cpu || !ram || !hdd) {
         throw new Error('Missing Flux App specification parameter');
       }
       version = serviceHelper.ensureNumber(version);
@@ -3030,7 +3197,26 @@ async function registerAppGlobalyApi(req, res) {
       description = serviceHelper.ensureString(description);
       repotag = serviceHelper.ensureString(repotag);
       owner = serviceHelper.ensureString(owner);
-      port = serviceHelper.ensureNumber(port);
+      ports = serviceHelper.ensureObject(ports);
+      const portsCorrect = [];
+      if (Array.isArray(ports)) {
+        ports.forEach((parameter) => {
+          const param = serviceHelper.ensureString(parameter);
+          portsCorrect.push(param);
+        });
+      } else {
+        throw new Error('Ports for Flux App are invalid');
+      }
+      domains = serviceHelper.ensureObject(domains);
+      const domainsCorect = [];
+      if (Array.isArray(domains)) {
+        domains.forEach((parameter) => {
+          const param = serviceHelper.ensureString(parameter);
+          domainsCorect.push(param);
+        });
+      } else {
+        throw new Error('Domains for Flux App are invalid');
+      }
       enviromentParameters = serviceHelper.ensureObject(enviromentParameters);
       const envParamsCorrected = [];
       if (Array.isArray(enviromentParameters)) {
@@ -3051,7 +3237,16 @@ async function registerAppGlobalyApi(req, res) {
       } else {
         throw new Error('Flux App commands are invalid');
       }
-      containerPort = serviceHelper.ensureNumber(containerPort);
+      containerPorts = serviceHelper.ensureObject(containerPorts);
+      const containerportsCorrect = [];
+      if (Array.isArray(containerPorts)) {
+        containerPorts.forEach((parameter) => {
+          const param = serviceHelper.ensureString(parameter);
+          containerportsCorrect.push(param);
+        });
+      } else {
+        throw new Error('Container Ports for Flux App are invalid');
+      }
       containerData = serviceHelper.ensureString(containerData);
       cpu = serviceHelper.ensureNumber(cpu);
       ram = serviceHelper.ensureNumber(ram);
@@ -3079,10 +3274,11 @@ async function registerAppGlobalyApi(req, res) {
         description, // string
         repotag, // string
         owner, // zelid string
-        port, // integer
+        ports: portsCorrect, // array of integers
+        domains: domainsCorect,
         enviromentParameters: envParamsCorrected, // array of strings
         commands: commandsCorrected, // array of strings
-        containerPort, // integer
+        containerPorts: containerportsCorrect, // array of integers
         containerData, // string
         cpu, // float 0.1 step
         ram, // integer 100 step (mb)
@@ -3123,13 +3319,13 @@ async function registerAppGlobalyApi(req, res) {
         appSpecFormatted.hddsuper = hddsuper;
         appSpecFormatted.hddbamf = hddbamf;
       }
-      // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper port, repotag exists, string lengths, specs are ok
+      // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
       await verifyAppSpecifications(appSpecFormatted);
 
       // check if name is not yet registered
       await checkApplicationNameConflicts(appSpecFormatted);
 
-      // check if port is not yet registered
+      // check if ports is not yet registered
       await ensureCorrectApplicationPort(appSpecFormatted);
 
       // check if zelid owner is correct ( done in message verification )
@@ -3146,7 +3342,7 @@ async function registerAppGlobalyApi(req, res) {
       const temporaryAppMessage = { // specification of temp message
         type: messageType,
         version: typeVersion,
-        zelAppSpecifications: appSpecFormatted,
+        appSpecifications: appSpecFormatted,
         hash: messageHASH,
         timestamp,
         signature,
@@ -3185,7 +3381,7 @@ async function updateAppGlobalyApi(req, res) {
       }
       const processedBody = serviceHelper.ensureObject(body);
       // Note. Actually signature, timestamp is not needed. But we require it only to verify that user indeed has access to the private key of the owner zelid.
-      // name and port HAVE to be unique for application. Check if they dont exist in global database
+      // name and ports HAVE to be unique for application. Check if they dont exist in global database
       // first lets check if all fields are present and have propper format excpet tiered and teired specifications and those can be ommited
       let { appSpecification } = processedBody;
       let { timestamp } = processedBody;
@@ -3207,15 +3403,16 @@ async function updateAppGlobalyApi(req, res) {
       messageType = serviceHelper.ensureString(messageType);
       typeVersion = serviceHelper.ensureNumber(typeVersion);
 
-      let { version } = appSpecification; // shall be 1
+      let { version } = appSpecification; // shall be 2
       let { name } = appSpecification;
       let { description } = appSpecification;
       let { repotag } = appSpecification;
       let { owner } = appSpecification;
-      let { port } = appSpecification;
+      let { ports } = appSpecification;
+      let { domains } = appSpecification;
       let { enviromentParameters } = appSpecification;
       let { commands } = appSpecification;
-      let { containerPort } = appSpecification;
+      let { containerPorts } = appSpecification;
       let { containerData } = appSpecification;
       let { cpu } = appSpecification;
       let { ram } = appSpecification;
@@ -3223,7 +3420,7 @@ async function updateAppGlobalyApi(req, res) {
       const { tiered } = appSpecification;
 
       // check if signature of received data is correct
-      if (!version || !name || !description || !repotag || !owner || !port || !enviromentParameters || !commands || !containerPort || !containerData || !cpu || !ram || !hdd) {
+      if (!version || !name || !description || !repotag || !owner || !ports || !domains || !enviromentParameters || !commands || !containerPorts || !containerData || !cpu || !ram || !hdd) {
         throw new Error('Missing Flux App specification parameter');
       }
       version = serviceHelper.ensureNumber(version);
@@ -3231,7 +3428,26 @@ async function updateAppGlobalyApi(req, res) {
       description = serviceHelper.ensureString(description);
       repotag = serviceHelper.ensureString(repotag);
       owner = serviceHelper.ensureString(owner);
-      port = serviceHelper.ensureNumber(port);
+      ports = serviceHelper.ensureObject(ports);
+      const portsCorrect = [];
+      if (Array.isArray(ports)) {
+        ports.forEach((parameter) => {
+          const param = serviceHelper.ensureString(parameter);
+          portsCorrect.push(param);
+        });
+      } else {
+        throw new Error('Ports for Flux App are invalid');
+      }
+      domains = serviceHelper.ensureObject(domains);
+      const domainsCorrect = [];
+      if (Array.isArray(domains)) {
+        domains.forEach((parameter) => {
+          const param = serviceHelper.ensureString(parameter);
+          domainsCorrect.push(param);
+        });
+      } else {
+        throw new Error('Domains for Flux App are invalid');
+      }
       enviromentParameters = serviceHelper.ensureObject(enviromentParameters);
       const envParamsCorrected = [];
       if (Array.isArray(enviromentParameters)) {
@@ -3252,7 +3468,16 @@ async function updateAppGlobalyApi(req, res) {
       } else {
         throw new Error('Flux App commands are invalid');
       }
-      containerPort = serviceHelper.ensureNumber(containerPort);
+      containerPorts = serviceHelper.ensureObject(containerPorts);
+      const containerportsCorrect = [];
+      if (Array.isArray(containerPorts)) {
+        containerPorts.forEach((parameter) => {
+          const param = serviceHelper.ensureString(parameter);
+          containerportsCorrect.push(param);
+        });
+      } else {
+        throw new Error('Container Ports for Flux App are invalid');
+      }
       containerData = serviceHelper.ensureString(containerData);
       cpu = serviceHelper.ensureNumber(cpu);
       ram = serviceHelper.ensureNumber(ram);
@@ -3268,10 +3493,11 @@ async function updateAppGlobalyApi(req, res) {
         description, // string
         repotag, // string
         owner, // zelid string
-        port, // integer
+        ports: portsCorrect, // array of integers
+        domains: domainsCorrect, // array of strings
         enviromentParameters: envParamsCorrected, // array of strings
         commands: commandsCorrected, // array of strings
-        containerPort, // integer
+        containerPorts: containerportsCorrect, // array of integers
         containerData, // string
         cpu, // float 0.1 step
         ram, // integer 100 step (mb)
@@ -3312,9 +3538,9 @@ async function updateAppGlobalyApi(req, res) {
         appSpecFormatted.hddsuper = hddsuper;
         appSpecFormatted.hddbamf = hddbamf;
       }
-      // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper port, repotag exists, string lengths, specs are ok
+      // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
       await verifyAppSpecifications(appSpecFormatted);
-      // check if port is not changing
+      // check if ports are not conflicting
       await ensureCorrectApplicationPort(appSpecFormatted);
 
       // verify that app exists, does not change repotag and is signed by app owner.
@@ -3348,7 +3574,7 @@ async function updateAppGlobalyApi(req, res) {
       const temporaryAppMessage = { // specification of temp message
         type: messageType,
         version: typeVersion,
-        zelAppSpecifications: appSpecFormatted,
+        appSpecifications: appSpecFormatted,
         hash: messageHASH,
         timestamp,
         signature,
@@ -3471,7 +3697,7 @@ async function storeAppPermanentMessage(message) {
   /* message object
   * @param type string
   * @param version number
-  * @param zelAppSpecifications object
+  * @param appSpecifications object
   * @param hash string
   * @param timestamp number
   * @param signature string
@@ -3479,7 +3705,7 @@ async function storeAppPermanentMessage(message) {
   * @param height number
   * @param valueSat number
   */
-  if (typeof message !== 'object' && typeof message.type !== 'string' && typeof message.version !== 'number' && typeof message.zelAppSpecifications !== 'object' && typeof message.signature !== 'string'
+  if (typeof message !== 'object' && typeof message.type !== 'string' && typeof message.version !== 'number' && typeof message.appSpecifications !== 'object' && typeof message.signature !== 'string'
     && typeof message.timestamp !== 'number' && typeof message.hash !== 'string' && typeof message.txid !== 'string' && typeof message.height !== 'number' && typeof message.valueSat !== 'number') {
     return new Error('Invalid Flux App message for storing');
   }
@@ -3496,15 +3722,16 @@ async function storeAppPermanentMessage(message) {
 async function updateAppSpecifications(appSpecs) {
   try {
     // appSpecs: {
-    //   version: 1,
+    //   version: 2,
     //   name: 'FoldingAtHomeB',
     //   description: 'Folding @ Home is cool :)',
     //   repotag: 'yurinnick/folding-at-home:latest',
     //   owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-    //   port: 30001,
+    //   ports: '[30001]',
+    //   containerPorts: '[7396]',
+    //   domains: '[""]',
     //   enviromentParameters: '["USER=foldingUser", "TEAM=262156", "ENABLE_GPU=false", "ENABLE_SMP=true"]', // []
     //   commands: '["--allow","0/0","--web-allow","0/0"]', // []
-    //   containerPort: 7396,
     //   containerData: '/config',
     //   cpu: 0.5,
     //   ram: 500,
@@ -3553,15 +3780,16 @@ async function updateAppSpecifications(appSpecs) {
 
 async function updateAppSpecsForRescanReindex(appSpecs) {
   // appSpecs: {
-  //   version: 1,
+  //   version: 2,
   //   name: 'FoldingAtHomeB',
   //   description: 'Folding @ Home is cool :)',
   //   repotag: 'yurinnick/folding-at-home:latest',
   //   owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-  //   port: 30001,
+  //   ports: '[30001]',
+  //   containerPorts: '[7396]',
+  //   domains: '[""]',
   //   enviromentParameters: '["USER=foldingUser", "TEAM=262156", "ENABLE_GPU=false", "ENABLE_SMP=true"]', // []
   //   commands: '["--allow","0/0","--web-allow","0/0"]', // []
-  //   containerPort: 7396,
   //   containerData: '/config',
   //   cpu: 0.5,
   //   ram: 500,
@@ -3614,6 +3842,7 @@ async function checkAppMessageExistence(hash) {
     //   type: messageType,
     //   version: typeVersion,
     //   zelAppSpecifications: appSpecFormatted,
+    //   appSpecifications: appSpecFormatted,
     //   hash: messageHASH,
     //   timestamp,
     //   signature,
@@ -3640,7 +3869,7 @@ async function checkAppTemporaryMessageExistence(hash) {
     const appsProjection = {};
     // a temporary zelappmessage looks like this:
     // const newMessage = {
-    //   zelAppSpecifications: message.zelAppSpecifications,
+    //   appSpecifications: message.appSpecifications,
     //   type: message.type,
     //   version: message.version,
     //   hash: message.hash,
@@ -3683,11 +3912,12 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
       // if we have it in temporary storage, get the temporary message
       const tempMessage = await checkAppTemporaryMessageExistence(hash);
       if (tempMessage) {
+        const specifications = tempMessage.appSpecifications || tempMessage.zelAppSpecifications;
         // temp message means its all ok. store it as permanent app message
         const permanentAppMessage = {
           type: tempMessage.type,
           version: tempMessage.version,
-          zelAppSpecifications: tempMessage.zelAppSpecifications,
+          appSpecifications: specifications,
           hash: tempMessage.hash,
           timestamp: tempMessage.timestamp,
           signature: tempMessage.signature,
@@ -3701,24 +3931,24 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
         // disregard other types
         if (tempMessage.type === 'zelappregister' || tempMessage.type === 'fluxappregister') {
           // check if value is optimal or higher
-          let appPrice = appPricePerMonth(tempMessage.zelAppSpecifications);
+          let appPrice = appPricePerMonth(specifications);
           if (appPrice < 1) {
             appPrice = 1;
           }
           if (valueSat >= appPrice * 1e8) {
-            const updateForSpecifications = permanentAppMessage.zelAppSpecifications;
+            const updateForSpecifications = permanentAppMessage.appSpecifications;
             updateForSpecifications.hash = permanentAppMessage.hash;
             updateForSpecifications.height = permanentAppMessage.height;
-            // object of zelAppSpecifications extended for hash and height
+            // object of appSpecifications extended for hash and height
             // do not await this
             updateAppSpecifications(updateForSpecifications);
           } // else do nothing notify its underpaid?
         } else if (tempMessage.type === 'zelappupdate' || tempMessage.type === 'fluxappupdate') {
-          // zelappSpecifications.name as identifier
+          // appSpecifications.name as identifier
           const db = serviceHelper.databaseConnection();
           const database = db.db(config.database.appsglobal.database);
           // may throw
-          const query = { name: tempMessage.zelAppSpecifications.name };
+          const query = { name: specifications.name };
           const projection = {
             projection: {
               _id: 0,
@@ -3727,7 +3957,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
           const appInfo = await serviceHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
           // here comparison of height differences and specifications
           // price shall be price for standard registration plus minus already paid price according to old specifics. height remains height valid for 22000 blocks
-          const appPrice = appPricePerMonth(tempMessage.zelAppSpecifications);
+          const appPrice = appPricePerMonth(specifications);
           const previousSpecsPrice = appPricePerMonth(appInfo);
           // what is the height difference
           const heightDifference = permanentAppMessage.height - appInfo.height; // has to be lower than 22000
@@ -3741,7 +3971,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
             actualPriceToPay = 1;
           }
           if (valueSat >= actualPriceToPay * 1e8) {
-            const updateForSpecifications = permanentAppMessage.zelAppSpecifications;
+            const updateForSpecifications = permanentAppMessage.appSpecifications;
             updateForSpecifications.hash = permanentAppMessage.hash;
             updateForSpecifications.height = permanentAppMessage.height;
             // object of appSpecifications extended for hash and height
@@ -3839,7 +4069,7 @@ async function reindexGlobalAppsInformation() {
     const results = await serviceHelper.findInDatabase(database, globalAppsMessages, query, projection);
     // eslint-disable-next-line no-restricted-syntax
     for (const message of results) {
-      const updateForSpecifications = message.zelAppSpecifications;
+      const updateForSpecifications = message.appSpecifications || message.zelAppSpecifications;
       updateForSpecifications.hash = message.hash;
       updateForSpecifications.height = message.height;
       // eslint-disable-next-line no-await-in-loop
@@ -3894,7 +4124,7 @@ async function rescanGlobalAppsInformation(height = 0, removeLastInformation = f
 
     // eslint-disable-next-line no-restricted-syntax
     for (const message of results) {
-      const updateForSpecifications = message.zelAppSpecifications;
+      const updateForSpecifications = message.appSpecifications || message.zelAppSpecifications;
       updateForSpecifications.hash = message.hash;
       updateForSpecifications.height = message.height;
       // eslint-disable-next-line no-await-in-loop
@@ -4214,15 +4444,16 @@ async function getApplicationLocalSpecifications(appName) {
 
 async function getApplicationSpecifications(appName) {
   // appSpecs: {
-  //   version: 1,
+  //   version: 2,
   //   name: 'FoldingAtHomeB',
   //   description: 'Folding @ Home is cool :)',
   //   repotag: 'yurinnick/folding-at-home:latest',
   //   owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-  //   port: 30001,
+  //   ports: '[30001]', // []
+  //   containerPorts: '[7396]', // []
+  //   domains: '[""]', // []
   //   enviromentParameters: '["USER=foldingUser", "TEAM=262156", "ENABLE_GPU=false", "ENABLE_SMP=true"]', // []
   //   commands: '["--allow","0/0","--web-allow","0/0"]', // []
-  //   containerPort: 7396,
   //   containerData: '/config',
   //   cpu: 0.5,
   //   ram: 500,
