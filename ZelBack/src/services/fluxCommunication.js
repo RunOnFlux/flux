@@ -728,21 +728,10 @@ async function getRandomConnection() {
   const randomNode = Math.floor((Math.random() * zlLength)); // we do not really need a 'random'
   const ip = nodeList[randomNode].ip || nodeList[randomNode].ipaddress;
 
-  // const nodeList = ['157.230.249.150', '94.177.240.7', '89.40.115.8', '94.177.241.10', '54.37.234.130', '194.182.83.182'];
-  // const zlLength = nodeList.length;
-  // const randomNode = Math.floor((Math.random() * zlLength)); // we do not really need a 'random'
-  // const ip = nodeList[randomNode];
-
-  // TODO checks for ipv4, ipv6, tor
-  if (ip === userconfig.initial.ipaddress || ip === myFluxIP) {
-    return null;
-  }
-
   return ip;
 }
 
 async function initiateAndHandleConnection(ip) {
-  console.log(`#connectionsOut: ${outgoingConnections.length}`);
   const wsuri = `ws://${ip}:${config.server.apiport}/ws/zelflux/`; // TODO adjust after version update
   const websocket = new WebSocket(wsuri);
 
@@ -843,30 +832,68 @@ async function fluxDiscovery() {
     }, 90 * 1000);
     return;
   }
-  const minPeers = 10;
-  const maxPeers = 20;
+  const minPeers = 15;
+  const maxPeers = 30;
   const zl = await deterministicFluxList();
   const numberOfFluxNodes = zl.length;
+  const currentIpsConnected = [];
   const requiredNumberOfConnections = numberOfFluxNodes / 100; // 1%
   const maxNumberOfConnections = numberOfFluxNodes / 50; // 2%
   const minCon = Math.max(minPeers, requiredNumberOfConnections); // awlays maintain at least 10 or 1% of nodes whatever is higher
   const maxCon = Math.max(maxPeers, maxNumberOfConnections); // have a maximum of 20 or 2% of nodes whatever is higher
-  // coonect a peer as maximum connections not yet established
-  if (outgoingConnections.length < maxCon) {
-    let ip = await getRandomConnection();
-    const clientExists = outgoingConnections.find((client) => client._socket.remoteAddress === ip);
-    if (clientExists) {
-      ip = null;
-    }
-    if (ip) {
-      log.info(`Adding Flux peer: ${ip}`);
-      initiateAndHandleConnection(ip);
+  log.info(`Current number of outgoing connections:${outgoingConnections.length}`);
+  // coonect to peers as min connections not yet established
+  while (outgoingConnections.length < minCon) {
+    // eslint-disable-next-line no-await-in-loop
+    const ip = await getRandomConnection();
+    if (ip != null) {
+      if (ip === userconfig.initial.ipaddress || ip === myFluxIP) {
+        // eslint-disable-next-line no-continue
+        continue;
+      }
+      const sameConnectedIp = currentIpsConnected.find((connectedIP) => connectedIP === ip);
+      if (sameConnectedIp) {
+        // eslint-disable-next-line no-continue
+        continue;
+      }
+      currentIpsConnected.push(ip);
+      const clientExists = outgoingConnections.find((client) => client._socket.remoteAddress === ip);
+      if (clientExists) {
+        // eslint-disable-next-line no-continue
+        continue;
+      }
+      if (ip) {
+        log.info(`Adding Flux peer: ${ip}`);
+        initiateAndHandleConnection(ip);
+        // eslint-disable-next-line no-await-in-loop
+        await serviceHelper.delay(50);
+      }
+    } else {
+      break;
     }
   }
-  // fast connect another peer as we do not have even enough connections to satisfy min or wait 1 min.
+  if (outgoingConnections.length < maxCon) {
+    let ip = await getRandomConnection();
+    if (ip != null && ip !== userconfig.initial.ipaddress && ip !== myFluxIP) {
+      const sameConnectedIp = currentIpsConnected.find((connectedIP) => connectedIP === ip);
+      if (sameConnectedIp) {
+        // eslint-disable-next-line no-continue
+        ip = null;
+      } else {
+        const clientExists = outgoingConnections.find((client) => client._socket.remoteAddress === ip);
+        if (clientExists) {
+          ip = null;
+        }
+      }
+      if (ip) {
+        log.info(`Adding Flux peer: ${ip}`);
+        initiateAndHandleConnection(ip);
+      }
+    }
+  }
   setTimeout(() => {
     fluxDiscovery();
-  }, outgoingConnections.length < minCon ? 1000 : 60 * 1000);
+  }, 10 * 1000);
 }
 
 function connectedPeers(req, res) {
@@ -1057,6 +1084,9 @@ async function checkMyFluxAvailability(nodelist) {
   if (nodelist.length > 10) {
     let askingIP = await getRandomConnection();
     if (typeof askingIP !== 'string' || typeof myFluxIP !== 'string') {
+      return;
+    }
+    if (askingIP === userconfig.initial.ipaddress || askingIP === myFluxIP) {
       return;
     }
     if (askingIP.includes(':')) {
