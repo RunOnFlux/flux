@@ -46,7 +46,7 @@
   "dependencies": {
     "@amcharts/amcharts4": "^4.10.15",
     "@amcharts/amcharts4-geodata": "^4.1.19",
-    "apicache": "1.5.2",
+    "apicache": "1.6.2",
     "archiver": "^5.0.2",
     "axios": "^0.21.0",
     "bitcoin": "^3.0.1",
