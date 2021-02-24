@@ -17,7 +17,7 @@ async function updateFlux(req, res) {
   const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
   if (authorized === true) {
     const nodedpath = path.join(__dirname, '../../../');
-    const exec = `cd ${nodedpath} && npm run updatezelflux`;
+    const exec = `cd ${nodedpath} && npm run updateflux`;
     cmd.get(exec, (err) => {
       if (err) {
         const errMessage = serviceHelper.createErrorMessage(`Error updating Flux: ${err.message}`, err.name, err.code);
@@ -37,7 +37,7 @@ async function hardUpdateFlux(req, res) {
   const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
   if (authorized === true) {
     const nodedpath = path.join(__dirname, '../../../');
-    const exec = `cd ${nodedpath} && npm run hardupdatezelflux`;
+    const exec = `cd ${nodedpath} && npm run hardupdateflux`;
     cmd.get(exec, (err) => {
       if (err) {
         const errMessage = serviceHelper.createErrorMessage(`Error hardupdating Flux: ${err.message}`, err.name, err.code);
@@ -57,7 +57,7 @@ async function rebuildHome(req, res) {
   const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
   if (authorized === true) {
     const nodedpath = path.join(__dirname, '../../../');
-    const exec = `cd ${nodedpath} && npm run zelfrontbuild`;
+    const exec = `cd ${nodedpath} && npm run homebuild`;
     cmd.get(exec, (err) => {
       if (err) {
         const errMessage = serviceHelper.createErrorMessage(`Error rebuilding Flux: ${err.message}`, err.name, err.code);
