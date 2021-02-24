@@ -236,11 +236,11 @@ async function pingAllOutgoingPeers() {
     for (const client of outConList) {
       try {
         // ping to keep connection alive, server will answer automatically with a pong
-        client.ping('ping', {}, true);
+        client.ping('ping');
         // eslint-disable-next-line no-await-in-loop
         await serviceHelper.delay(100);
       } catch (e) {
-        log.error(e);
+        console.error(e);
         removals.push(client);
         try {
           const ip = client._socket.remoteAddress;
@@ -284,7 +284,7 @@ async function sendToAllPeers(data, wsList) {
         await serviceHelper.delay(100);
         client.send(data);
       } catch (e) {
-        log.error(e);
+        console.error(e);
         removals.push(client);
         try {
           const ip = client._socket.remoteAddress;
@@ -328,7 +328,7 @@ async function sendToAllIncomingConnections(data, wsList) {
         // eslint-disable-next-line no-await-in-loop
         await serviceHelper.delay(100);
       } catch (e) {
-        console.log(e);
+        console.error(e);
         removals.push(client);
         try {
           const ip = client._socket.remoteAddress;
@@ -551,7 +551,7 @@ function handleIncomingConnection(ws, req, expressWS) {
               const messageReceived = await serialiseAndSignFluxBroadcast(data);
               ws.send(messageReceived);
             } catch (error) {
-              log.error(error);
+              console.error(error);
             }
           }
         } catch (e) {
@@ -803,7 +803,7 @@ async function initiateAndHandleConnection(ip) {
     try {
       websocket.send(helloFLux);
     } catch (error) {
-      log.error(error.code);
+      console.error(error.code);
     }
   };
 
@@ -903,15 +903,16 @@ async function fluxDiscovery() {
     myFluxIP = myIP;
     if (myIP !== null) {
       nodeList = await deterministicFluxList();
-      const result = nodeList.filter((node) => node.ip === myIP);
-      if (result.length === 0) {
+      const fluxNode = nodeList.find((node) => node.ip === myIP);
+      if (fluxNode) {
+        myNodePubKey = fluxNode.pubkey;
+      } else {
         log.warn('Node not Confirmed. Flux discovery is paused.');
         setTimeout(() => {
           fluxDiscovery();
         }, 90 * 1000);
         return;
       }
-      myNodePubKey = result[0].pubkey;
     } else {
       log.warn('Flux Ip not Detected. Flux discovery is paused.');
       setTimeout(() => {
@@ -929,6 +930,7 @@ async function fluxDiscovery() {
   const minCon = Math.max(minPeers, requiredNumberOfConnections); // awlays maintain at least 10 or 1% of nodes whatever is higher
   const maxCon = Math.max(maxPeers, maxNumberOfConnections); // have a maximum of 20 or 2% of nodes whatever is higher
   log.info(`Current number of outgoing connections:${outgoingConnections.length}`);
+  log.info(`Current number of incoming connections:${incomingConnections.length}`);
   // coonect to peers as min connections not yet established
   while (outgoingConnections.length < minCon) {
     // eslint-disable-next-line no-await-in-loop
@@ -949,7 +951,7 @@ async function fluxDiscovery() {
         log.info(`Adding Flux peer: ${ip}`);
         initiateAndHandleConnection(ip);
         // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay(100);
+        await serviceHelper.delay(1000);
       }
     } else {
       break;
