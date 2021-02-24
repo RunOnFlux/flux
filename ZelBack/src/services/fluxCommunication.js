@@ -538,21 +538,6 @@ function handleIncomingConnection(ws, req, expressWS) {
             respondWithAppMessage(msgObj, ws);
           } else if (msgObj.data.type === 'zelapprunning' || msgObj.data.type === 'fluxapprunning') {
             handleAppRunningMessage(msgObj, ws);
-          } else {
-            try {
-              const timestamp = Date.now();
-              const type = 'Hello';
-              const message = `Flux ${userconfig.initial.ipaddress} says message received!`;
-              const data = {
-                timestamp,
-                type,
-                message,
-              };
-              const messageReceived = await serialiseAndSignFluxBroadcast(data);
-              ws.send(messageReceived);
-            } catch (error) {
-              console.error(error);
-            }
           }
         } catch (e) {
           log.error(e);
@@ -775,7 +760,7 @@ async function getRandomConnection() {
   const ip = nodeList[randomNode].ip || nodeList[randomNode].ipaddress;
 
   if (ip === userconfig.initial.ipaddress || ip === myFluxIP) {
-    return getRandomConnection();
+    return null;
   }
   return ip;
 }
@@ -791,20 +776,6 @@ async function initiateAndHandleConnection(ip) {
       rtt: null,
     };
     outgoingPeers.push(peer);
-    const timestamp = Date.now();
-    const type = 'Hello';
-    const message = 'Hello Flux';
-    const data = {
-      timestamp,
-      type,
-      message,
-    };
-    const helloFLux = await serialiseAndSignFluxBroadcast(data);
-    try {
-      websocket.send(helloFLux);
-    } catch (error) {
-      console.error(error.code);
-    }
   };
 
   // every time a ping is sent a pong as received, commented, just used for tests
@@ -935,7 +906,7 @@ async function fluxDiscovery() {
   while (outgoingConnections.length < minCon) {
     // eslint-disable-next-line no-await-in-loop
     const ip = await getRandomConnection();
-    if (ip != null) {
+    if (ip) {
       const sameConnectedIp = currentIpsConnected.find((connectedIP) => connectedIP === ip);
       if (sameConnectedIp) {
         // eslint-disable-next-line no-continue
@@ -947,31 +918,41 @@ async function fluxDiscovery() {
         // eslint-disable-next-line no-continue
         continue;
       }
+      const clientIncomingExists = incomingConnections.find((client) => client._socket.remoteAddress === ip);
+      if (clientIncomingExists) {
+        // eslint-disable-next-line no-continue
+        continue;
+      }
       if (ip) {
         log.info(`Adding Flux peer: ${ip}`);
         initiateAndHandleConnection(ip);
         // eslint-disable-next-line no-await-in-loop
         await serviceHelper.delay(1000);
       }
-    } else {
-      break;
     }
+    // eslint-disable-next-line no-await-in-loop
+    await serviceHelper.delay(1000);
   }
   if (outgoingConnections.length < maxCon) {
     let ip = await getRandomConnection();
-    const sameConnectedIp = currentIpsConnected.find((connectedIP) => connectedIP === ip);
-    if (sameConnectedIp) {
-      // eslint-disable-next-line no-continue
-      ip = null;
-    } else {
-      const clientExists = outgoingConnections.find((client) => client._socket.remoteAddress === ip);
-      if (clientExists) {
-        ip = null;
-      }
-    }
     if (ip) {
-      log.info(`Adding Flux peer: ${ip}`);
-      initiateAndHandleConnection(ip);
+      const sameConnectedIp = currentIpsConnected.find((connectedIP) => connectedIP === ip);
+      if (sameConnectedIp) {
+        ip = null;
+      } else {
+        const clientExists = outgoingConnections.find((client) => client._socket.remoteAddress === ip);
+        if (clientExists) {
+          ip = null;
+        }
+        const clientIncomingExists = incomingConnections.find((client) => client._socket.remoteAddress === ip);
+        if (clientIncomingExists) {
+          ip = null;
+        }
+      }
+      if (ip) {
+        log.info(`Adding Flux peer: ${ip}`);
+        initiateAndHandleConnection(ip);
+      }
     }
   }
   setTimeout(() => {
