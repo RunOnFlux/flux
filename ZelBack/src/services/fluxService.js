@@ -479,42 +479,42 @@ function getFluxTimezone(req, res) {
 async function getFluxInfo(req, res) {
   try {
     const info = {
-      zelcash: {},
-      zelnode: {},
-      zelbench: {},
-      zelflux: {},
-      zelapps: {},
+      daemon: {},
+      node: {},
+      benchmark: {},
+      flux: {},
+      apps: {},
     };
     const versionRes = await getFluxVersion();
     if (versionRes.status === 'error') {
       throw versionRes.data;
     }
-    info.zelflux.version = versionRes.data;
+    info.flux.version = versionRes.data;
     const ipRes = await getFluxIP();
     if (ipRes.status === 'error') {
       throw ipRes.data;
     }
-    info.zelflux.ip = ipRes.data;
+    info.flux.ip = ipRes.data;
     const zelidRes = await getFluxZelID();
     if (zelidRes.status === 'error') {
       throw zelidRes.data;
     }
-    info.zelflux.zelid = zelidRes.data;
+    info.flux.zelid = zelidRes.data;
     const cruxidRes = await getFluxCruxID();
     if (cruxidRes.status === 'error') {
       throw cruxidRes.data;
     }
-    info.zelflux.cruxid = cruxidRes.data;
+    info.flux.cruxid = cruxidRes.data;
     const timeResult = await getFluxTimezone();
     if (timeResult.status === 'error') {
       throw timeResult.data;
     }
-    info.zelflux.timezone = timeResult.data;
+    info.flux.timezone = timeResult.data;
     const dosResult = await fluxCommunication.getDOSState();
     if (dosResult.status === 'error') {
       throw dosResult.data;
     }
-    info.zelflux.dos = dosResult.data;
+    info.flux.dos = dosResult.data;
 
     const daemonInfoRes = await daemonService.getInfo();
     if (daemonInfoRes.status === 'error') {
@@ -526,39 +526,39 @@ async function getFluxInfo(req, res) {
     if (daemonNodeStatusRes.status === 'error') {
       throw daemonNodeStatusRes.data;
     }
-    info.zelnode.status = daemonNodeStatusRes.data;
+    info.node.status = daemonNodeStatusRes.data;
 
     const benchmarkInfoRes = await benchmarkService.getInfo();
     if (benchmarkInfoRes.status === 'error') {
       throw benchmarkInfoRes.data;
     }
-    info.zelbench.info = benchmarkInfoRes.data;
+    info.benchmark.info = benchmarkInfoRes.data;
     const benchmarkStatusRes = await benchmarkService.getStatus();
     if (benchmarkStatusRes.status === 'error') {
       throw benchmarkStatusRes.data;
     }
-    info.zelbench.status = benchmarkStatusRes.data;
+    info.benchmark.status = benchmarkStatusRes.data;
     const benchmarkhBenchRes = await benchmarkService.getBenchmarks();
     if (benchmarkhBenchRes.status === 'error') {
       throw benchmarkhBenchRes.data;
     }
-    info.zelbench.bench = benchmarkhBenchRes.data;
+    info.benchmark.bench = benchmarkhBenchRes.data;
 
     const apppsFluxUsage = await appsService.fluxUsage();
     if (apppsFluxUsage.status === 'error') {
       throw apppsFluxUsage.data;
     }
-    info.zelapps.fluxusage = apppsFluxUsage.data;
+    info.apps.fluxusage = apppsFluxUsage.data;
     const appsRunning = await appsService.listRunningApps();
     if (appsRunning.status === 'error') {
       throw appsRunning.data;
     }
-    info.zelapps.runningapps = appsRunning.data;
+    info.apps.runningapps = appsRunning.data;
     const appsResources = await appsService.appsResources();
     if (appsResources.status === 'error') {
       throw appsResources.data;
     }
-    info.zelapps.resources = appsResources.data;
+    info.apps.resources = appsResources.data;
 
     const response = serviceHelper.createDataMessage(info);
     return res ? res.json(response) : response;
