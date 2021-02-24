@@ -425,9 +425,9 @@ async function handleAppRunningMessage(message, fromIP) {
 
 async function sendMessageToWS(message, ws) {
   try {
-    const pongResponse = await serialiseAndSignFluxBroadcast(message);
+    const messageSigned = await serialiseAndSignFluxBroadcast(message);
     try {
-      ws.send(pongResponse);
+      ws.send(messageSigned);
     } catch (e) {
       console.error(e);
     }
