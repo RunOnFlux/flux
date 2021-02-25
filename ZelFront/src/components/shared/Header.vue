@@ -14,7 +14,10 @@
       <el-menu-item index="0">
         <div class='header-logo'>
           <span class="helper"></span>
-          <img src="@/assets/img/flux_white_logo.svg" alt="Logo">
+          <img
+            src="@/assets/img/flux_white_logo.svg"
+            alt="Logo"
+          >
         </div>
       </el-menu-item>
       <el-submenu
@@ -323,6 +326,11 @@ export default {
   },
   mounted() {
     window.addEventListener('resize', this.handleResize);
+    setTimeout(() => {
+      if (this.$router.currentRoute.name === 'Dashboard') {
+        this.activeIndex = '60';
+      }
+    });
   },
   methods: {
     handleResize() {

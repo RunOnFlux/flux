@@ -4726,7 +4726,7 @@ async function checkAndNotifyPeersOfRunningApps() {
         // we can distinguish pure local apps from global with hash and height
         const broadcastedAt = new Date().getTime();
         const newAppRunningMessage = {
-          type: 'zelapprunning', // todo rename to fluxapprunning
+          type: 'fluxapprunning',
           version: 1,
           name: application.name,
           hash: application.hash, // hash of application specifics that are running

@@ -27,7 +27,7 @@ jobs:
       run: |
         npm i
         npm run ciconfig
-        npm run zelfrontbuild
+        npm run homebuild
         npm run test:zelback
       env:
         CI: true
