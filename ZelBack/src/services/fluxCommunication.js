@@ -282,7 +282,18 @@ async function sendToAllPeers(data, wsList) {
       try {
         // eslint-disable-next-line no-await-in-loop
         await serviceHelper.delay(100);
-        client.send(data);
+        if (client.readyState !== WebSocket.CLOSED && client.readyState !== WebSocket.CLOSING) {
+          client.send(data);
+        } else {
+          removals.push(client);
+          try {
+            const ip = client._socket.remoteAddress;
+            const foundPeer = outgoingPeers.find((peer) => peer.ip === ip);
+            ipremovals.push(foundPeer);
+          } catch (err) {
+            log.error(err);
+          }
+        }
       } catch (e) {
         console.error(e);
         removals.push(client);
@@ -324,9 +335,20 @@ async function sendToAllIncomingConnections(data, wsList) {
     // eslint-disable-next-line no-restricted-syntax
     for (const client of incConList) {
       try {
-        client.send(data);
         // eslint-disable-next-line no-await-in-loop
         await serviceHelper.delay(100);
+        if (client.readyState !== WebSocket.CLOSED && client.readyState !== WebSocket.CLOSING) {
+          client.send(data);
+        } else {
+          removals.push(client);
+          try {
+            const ip = client._socket.remoteAddress;
+            const foundPeer = incomingPeers.find((peer) => peer.ip === ip);
+            ipremovals.push(foundPeer);
+          } catch (err) {
+            log.error(err);
+          }
+        }
       } catch (e) {
         console.error(e);
         removals.push(client);
