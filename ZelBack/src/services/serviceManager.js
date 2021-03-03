@@ -16,44 +16,45 @@ async function startFluxFunctions() {
     const db = serviceHelper.databaseConnection();
     const database = db.db(config.database.local.database);
     await serviceHelper
-        .dropCollection(database,
-                        config.database.local.collections.activeLoginPhrases)
-        .catch((error) => {
-          if (error.message !== 'ns not found') {
-            log.error(error);
-          }
-        });
+      .dropCollection(
+        database,
+        config.database.local.collections.activeLoginPhrases
+      )
+      .catch((error) => {
+        if (error.message !== 'ns not found') {
+          log.error(error);
+        }
+      });
     await serviceHelper
-        .dropCollection(database,
-                        config.database.local.collections.activeSignatures)
-        .catch((error) => {
-          if (error.message !== 'ns not found') {
-            log.error(error);
-          }
-        });
+      .dropCollection(
+        database,
+        config.database.local.collections.activeSignatures
+      )
+      .catch((error) => {
+        if (error.message !== 'ns not found') {
+          log.error(error);
+        }
+      });
     await database
-        .collection(config.database.local.collections.activeLoginPhrases)
-        .createIndex({createdAt : 1}, {expireAfterSeconds : 900});
+      .collection(config.database.local.collections.activeLoginPhrases)
+      .createIndex({ createdAt: 1 }, { expireAfterSeconds: 900 });
     await database
-        .collection(config.database.local.collections.activeSignatures)
-        .createIndex({createdAt : 1}, {expireAfterSeconds : 900});
+      .collection(config.database.local.collections.activeSignatures)
+      .createIndex({ createdAt: 1 }, { expireAfterSeconds: 900 });
     log.info('Local database prepared');
     log.info('Preparing temporary database...');
     // no need to drop temporary messages
     const databaseTemp = db.db(config.database.appsglobal.database);
     await databaseTemp
-        .collection(
-            config.database.appsglobal.collections.appsTemporaryMessages)
-        .createIndex(
-            {receivedAt : 1},
-            {expireAfterSeconds : 3600}); // todo longer time? dropIndexes()
+      .collection(config.database.appsglobal.collections.appsTemporaryMessages)
+      .createIndex({ receivedAt: 1 }, { expireAfterSeconds: 3600 }); // todo longer time? dropIndexes()
     log.info('Temporary database prepared');
     log.info('Preparing Flux Apps locations');
     // more than 1 hour. Meaning we have not received status message for a long
     // time. So that node is no longer on a network or app is down.
     await databaseTemp
-        .collection(config.database.appsglobal.collections.appsLocations)
-        .createIndex({broadcastedAt : 1}, {expireAfterSeconds : 3900});
+      .collection(config.database.appsglobal.collections.appsLocations)
+      .createIndex({ broadcastedAt: 1 }, { expireAfterSeconds: 3900 });
     log.info('Flux Apps locations prepared');
     fluxCommunication.adjustFirewall();
     log.info('Firewalls checked');
@@ -62,9 +63,9 @@ async function startFluxFunctions() {
     daemonService.daemonBlockchainInfoService();
     log.info('Flux Daemon Info Service Started');
     fluxCommunication.checkDeterministicNodesCollisions();
-    setInterval(
-        () => { fluxCommunication.checkDeterministicNodesCollisions(); },
-        60000);
+    setInterval(() => {
+      fluxCommunication.checkDeterministicNodesCollisions();
+    }, 60000);
     log.info('Flux checks operational');
     fluxCommunication.fluxDiscovery();
     log.info('Flux Discovery started');
@@ -72,10 +73,12 @@ async function startFluxFunctions() {
       explorerService.initiateBlockProcessor(true, true);
       log.info('Flux Block Processing Service started');
     }, 40 * 1000);
-    setInterval(() => { // every 8 mins (4 blocks)
+    setInterval(() => {
+      // every 8 mins (4 blocks)
       appsService.continuousFluxAppHashesCheck();
     }, 8 * 60 * 1000);
-    setInterval(() => { // every 4 mins (2 blocks)
+    setInterval(() => {
+      // every 4 mins (2 blocks)
       appsService.checkAndNotifyPeersOfRunningApps();
     }, 4 * 60 * 1000);
     setTimeout(() => {
@@ -85,7 +88,9 @@ async function startFluxFunctions() {
     }, 16 * 60 * 1000);
   } catch (e) {
     log.error(e);
-    setTimeout(() => { startFluxFunctions(); }, 15000);
+    setTimeout(() => {
+      startFluxFunctions();
+    }, 15000);
   }
 }
 
