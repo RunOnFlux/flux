@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const homeDirPath = path.join(__dirname, '../../../../');
+const homeDirPath = path.join(__dirname, '../../../');
 
 function getFilesizeInBytes(filename) {
   try {
@@ -36,8 +36,7 @@ function error(args) {
   try {
     console.error(args);
     // write to file
-    const datadir = `${homeDirPath}zelflux`;
-    const filepath = `${datadir}/error.log`;
+    const filepath = `${homeDirPath}error.log`;
     writeToFile(filepath, args);
   } catch (err) {
     console.error('This shall not have happened');
@@ -49,8 +48,7 @@ function warn(args) {
   try {
     console.warn(args);
     // write to file
-    const datadir = `${homeDirPath}zelflux`;
-    const filepath = `${datadir}/warn.log`;
+    const filepath = `${homeDirPath}warn.log`;
     writeToFile(filepath, args);
   } catch (err) {
     console.error('This shall not have happened');
@@ -62,8 +60,7 @@ function info(args) {
   try {
     console.log(args);
     // write to file
-    const datadir = `${homeDirPath}zelflux`;
-    const filepath = `${datadir}/info.log`;
+    const filepath = `${homeDirPath}info.log`;
     writeToFile(filepath, args);
   } catch (err) {
     console.error('This shall not have happened');
@@ -75,8 +72,7 @@ function debug(args) {
   try {
     console.log(args);
     // write to file
-    const datadir = `${homeDirPath}zelflux`;
-    const filepath = `${datadir}/debug.log`;
+    const filepath = `${homeDirPath}debug.log`;
     writeToFile(filepath, args);
   } catch (err) {
     console.error('This shall not have happened');
