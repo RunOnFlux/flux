@@ -197,8 +197,8 @@ npm start
 To run this as Development: Start both solutions with
 
 ```bash
-npm run zelbackdev
-npm run zelfrontdev
+npm run fluxdev
+npm run homedev
 ```
 
 THE SETUP ENDS HERE...
@@ -213,13 +213,13 @@ The following information below provided for brief usage guidelines and/or examp
 
 ```bash
 # serve with hot reload at localhost:16126
-npm run zelfrontdev
+npm run homedev
 
 # build for production with minification
-npm run zelfrontbuild
+npm run homebuild
 
 # build for production and view the bundle analyzer report
-npm run zelfrontbuild --report
+npm run homebuild --report
 ```
 
 ## Flux Information
@@ -231,7 +231,7 @@ npm run zelfrontbuild --report
 
 ```bash
 # serve with hot reload at localhost:16126
-npm run zelbackdev
+npm run fluxdev
 ```
 
 Made with ❤️ by the Flux Team

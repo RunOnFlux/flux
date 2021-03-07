@@ -158,6 +158,9 @@ export default {
     this.loadSession();
     this.getZelIdLoginPhrase();
     this.daemonGetInfo();
+    if (this.$router.currentRoute.name === 'Dashboard') {
+      this.$store.commit('setDashboardSection', 'dashboard');
+    }
   },
   methods: {
     async loadSession() {

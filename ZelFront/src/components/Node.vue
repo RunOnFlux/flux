@@ -366,7 +366,6 @@ export default {
       this.getInfoResponse.data = response.data.data;
     },
     async daemonGetNodeStatus() {
-      // TODO more code statuses?
       const response = await DaemonService.getZelNodeStatus();
       this.getNodeStatusResponse.status = response.data.status;
       this.getNodeStatusResponse.data = response.data.data;
