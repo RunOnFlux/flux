@@ -159,8 +159,8 @@
               <h4>{{ beautifyValue(basicUSDRewardWeek * 4.34812141) }} USD</h4>
               <h4 style="visibility: hidden">No KDA available</h4>
               <br><br>
-              <h3>Profitability per month</h3>
-              <h4>Node only: {{ beautifyValue(superUSDRewardWeek * 4.34812141 - 3) }} USD</h4>
+              <h3>Profitability per month - Node Cost 6 USD</h3>
+              <h4>Node only: {{ beautifyValue(superUSDRewardWeek * 4.34812141 - 6) }} USD</h4>
               <h4 style="visibility: hidden">No KDA available</h4>
               <br>
             </div>
@@ -182,7 +182,7 @@
               <h4>{{ beautifyValue(kdaSuperWeek * 4.34812141) }} KDA ~ {{ beautifyValue(superUSDKDARewardWeek * 4.34812141) }} USD</h4>
               <h4>{{ beautifyValue((superUSDRewardWeek * 4.34812141) + (superUSDKDARewardWeek * 4.34812141)) }} USD</h4>
               <br><br>
-              <h3>Profitability per month</h3>
+              <h3>Profitability per month - Node Cost 6 USD</h3>
               <h4>Node only: {{ beautifyValue(superUSDRewardWeek * 4.34812141 - 6) }} USD</h4>
               <h4>With KDA: {{ beautifyValue((superUSDRewardWeek * 4.34812141) + (superUSDKDARewardWeek * 4.34812141) - 6) }} USD</h4>
               <br>
@@ -205,8 +205,8 @@
               <h4>{{ beautifyValue(kdaBamfWeek * 4.34812141) }} KDA ~ {{ beautifyValue(bamfUSDKDARewardWeek * 4.34812141) }} USD</h4>
               <h4>{{ beautifyValue((bamfUSDRewardWeek * 4.34812141) + (bamfUSDKDARewardWeek * 4.34812141)) }} USD</h4>
               <br><br>
-              <h3>Profitability per month</h3>
-              <h4>Node only: {{ beautifyValue(bamfUSDRewardWeek * 4.34812141 - 18.1) }} USD</h4>
+              <h3>Profitability per month - Node Cost 32 USD</h3>
+              <h4>Node only: {{ beautifyValue(bamfUSDRewardWeek * 4.34812141 - 32) }} USD</h4>
               <h4>With KDA: {{ beautifyValue((bamfUSDRewardWeek * 4.34812141) + (bamfUSDKDARewardWeek * 4.34812141) - 18.1) }} USD</h4>
               <br>
             </div>
