@@ -611,10 +611,10 @@ module.exports = (app, expressWs) => {
   app.get('/flux/rebuildhome', (req, res) => {
     fluxService.rebuildHome(req, res);
   });
-  app.get('/flux/updatedaemon', (req, res) => { // method shall be called only if zelcash version is obsolete
+  app.get('/flux/updatedaemon', (req, res) => { // method shall be called only if daemon version is obsolete
     fluxService.updateDaemon(req, res);
   });
-  app.get('/flux/updatebenchmark', (req, res) => { // method shall be called only if zelbench version is obsolete
+  app.get('/flux/updatebenchmark', (req, res) => { // method shall be called only if benchamrk version is obsolete
     fluxService.updateBenchmark(req, res);
   });
   app.get('/flux/daemondebug', (req, res) => {

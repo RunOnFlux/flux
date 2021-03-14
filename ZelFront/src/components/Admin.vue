@@ -751,22 +751,22 @@ export default {
     },
     updateDaemon() {
       DaemonService.getInfo()
-        .then((zelcashResponse) => {
-          console.log(zelcashResponse);
-          const zelcashVersion = zelcashResponse.data.data.version;
-          axios.get('https://zelcore.io/zelflux/zelcashinfo.php')
+        .then((daemonResponse) => {
+          console.log(daemonResponse);
+          const daemonVersion = daemonResponse.data.data.version;
+          axios.get('https://zelcore.io/flux/daemoninfo.php')
             .then((response) => {
               console.log(response);
-              if (response.data.version !== zelcashVersion) {
+              if (response.data.version !== daemonVersion) {
                 const zelidauth = localStorage.getItem('zelidauth');
                 const auth = qs.parse(zelidauth);
                 console.log(auth);
                 vue.$customMes.success('Daemon is now updating in the background');
                 FluxService.updateDaemon(zelidauth)
-                  .then((responseUpdateZelCash) => {
-                    console.log(responseUpdateZelCash);
-                    if (responseUpdateZelCash.data.status === 'error') {
-                      vue.$customMes.error(responseUpdateZelCash.data.data.message || responseUpdateZelCash.data.data);
+                  .then((responseUpdateDaemon) => {
+                    console.log(responseUpdateDaemon);
+                    if (responseUpdateDaemon.data.status === 'error') {
+                      vue.$customMes.error(responseUpdateDaemon.data.data.message || responseUpdateDaemon.data.data);
                     }
                   })
                   .catch((e) => {
@@ -936,22 +936,22 @@ export default {
     },
     updateBenchmark() {
       BenchmarkService.getInfo()
-        .then((zelbenchResponse) => {
-          console.log(zelbenchResponse);
-          const zelbenchVersion = zelbenchResponse.data.data.version;
-          axios.get('https://zelcore.io/zelflux/zelbenchinfo.php')
+        .then((benchmarkResponse) => {
+          console.log(benchmarkResponse);
+          const benchmarkVersion = benchmarkResponse.data.data.version;
+          axios.get('https://zelcore.io/flux/benchmarkinfo.php')
             .then((response) => {
               console.log(response);
-              if (response.data.version !== zelbenchVersion) {
+              if (response.data.version !== benchmarkVersion) {
                 const zelidauth = localStorage.getItem('zelidauth');
                 const auth = qs.parse(zelidauth);
                 console.log(auth);
-                vue.$customMes.success('ZelBench is now updating in the background');
+                vue.$customMes.success('Benchmark is now updating in the background');
                 FluxService.updateBenchmark(zelidauth)
-                  .then((responseUpdateZelBench) => {
-                    console.log(responseUpdateZelBench);
-                    if (responseUpdateZelBench.data.status === 'error') {
-                      vue.$customMes.error(responseUpdateZelBench.data.data.message || responseUpdateZelBench.data.data);
+                  .then((responseUpdateBenchmark) => {
+                    console.log(responseUpdateBenchmark);
+                    if (responseUpdateBenchmark.data.status === 'error') {
+                      vue.$customMes.error(responseUpdateBenchmark.data.data.message || responseUpdateBenchmark.data.data);
                     }
                   })
                   .catch((e) => {
@@ -1179,13 +1179,13 @@ export default {
     },
     checkDaemonVersion() {
       DaemonService.getInfo()
-        .then((zelcashResponse) => {
-          console.log(zelcashResponse);
-          const zelcashVersion = zelcashResponse.data.data.version;
-          axios.get('https://zelcore.io/zelflux/zelcashinfo.php')
+        .then((daemonResponse) => {
+          console.log(daemonResponse);
+          const daemonVersion = daemonResponse.data.data.version;
+          axios.get('https://zelcore.io/flux/daemoninfo.php')
             .then((response) => {
               console.log(response);
-              if (response.data.version !== zelcashVersion) {
+              if (response.data.version !== daemonVersion) {
                 vue.$customMes.warning('Daemon requires an update!');
               } else {
                 vue.$customMes.success('Daemon is up to date');
@@ -1203,13 +1203,13 @@ export default {
     },
     checkBenchmarkVersion() {
       BenchmarkService.getInfo()
-        .then((zelbenchResponse) => {
-          console.log(zelbenchResponse);
-          const zelbenchVersion = zelbenchResponse.data.data.version;
-          axios.get('https://zelcore.io/zelflux/zelbenchinfo.php')
+        .then((benchmarkResponse) => {
+          console.log(benchmarkResponse);
+          const benchmarkVersion = benchmarkResponse.data.data.version;
+          axios.get('https://zelcore.io/flux/benchmarkinfo.php')
             .then((response) => {
               console.log(response);
-              if (response.data.version !== zelbenchVersion) {
+              if (response.data.version !== benchmarkVersion) {
                 vue.$customMes.warning('Benchmark requires an update!');
               } else {
                 vue.$customMes.success('Benchmark is up to date');

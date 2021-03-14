@@ -496,7 +496,7 @@
     </div>
     <div v-if="daemonSection === 'zelnodecurrentwinner'">
       <p>
-        Current ZelNode winners that will be paid in next ZelCash block
+        Current ZelNode winners that will be paid in next Flux block
       </p>
       <el-table
         empty-text="No Data"
@@ -678,7 +678,7 @@
         </el-input>
       </div>
       <div>
-        <ElButton @click="zelcashGetRawTransaction()">
+        <ElButton @click="daemonGetRawTransaction()">
           Get Transaction
         </ElButton>
       </div>
@@ -696,17 +696,17 @@
     <!-- UTIL -->
     <div v-if="daemonSection === 'validateaddress'">
       <div>
-        <p>Please paste a transparent ZelCash address to display information about it</p>
+        <p>Please paste a transparent Flux address to display information about it</p>
       </div>
       <div>
         <el-input
-          placeholder="Insert transparent ZelCash address"
+          placeholder="Insert transparent Flux address"
           v-model="generalInput"
         >
         </el-input>
       </div>
       <div>
-        <ElButton @click="zelcashValidateAddress()">
+        <ElButton @click="fluxValidateAddress()">
           Validate Address
         </ElButton>
       </div>
@@ -1251,7 +1251,7 @@ export default {
       }
     },
     // RAW TRANSACTION
-    async zelcashGetRawTransaction() {
+    async daemonGetRawTransaction() {
       const response = await DaemonService.getRawTransaction(this.generalInput, 1);
       if (response.data.status === 'error') {
         vue.$customMes.error(response.data.data.message || response.data.data);
@@ -1261,7 +1261,7 @@ export default {
       }
     },
     // UTIL
-    async zelcashValidateAddress() {
+    async fluxValidateAddress() {
       const zelidauth = localStorage.getItem('zelidauth');
       const response = await DaemonService.validateAddress(zelidauth, this.generalInput);
       if (response.data.status === 'error') {

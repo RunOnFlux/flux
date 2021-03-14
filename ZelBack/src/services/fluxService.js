@@ -1,6 +1,7 @@
 const cmd = require('node-cmd');
 const path = require('path');
 const config = require('config');
+const fullnode = require('fullnode');
 const fs = require('fs').promises;
 
 const log = require('../lib/log');
@@ -258,8 +259,8 @@ async function daemonDebug(req, res) {
     return res.json(errMessage);
   }
   // check daemon datadir
-  const homeDirPath = path.join(__dirname, '../../../../');
-  const datadir = daemonService.getConfigValue('datadir') || `${homeDirPath}.zelcash`;
+  const defaultDir = new fullnode.Config().defaultFolderPath();
+  const datadir = daemonService.getConfigValue('datadir') || defaultDir;
   const filepath = `${datadir}/debug.log`;
 
   return res.download(filepath, 'debug.log');
@@ -272,7 +273,11 @@ async function benchmarkDebug(req, res) {
     return res.json(errMessage);
   }
   const homeDirPath = path.join(__dirname, '../../../../');
-  const datadir = `${homeDirPath}.zelbenchmark`;
+  const newBenchmarkPath = path.join(homeDirPath, '.benchmark');
+  let datadir = `${homeDirPath}.zelbenchmark`;
+  if (fs.existsSync(newBenchmarkPath)) {
+    datadir = newBenchmarkPath;
+  }
   const filepath = `${datadir}/debug.log`;
 
   return res.download(filepath, 'debug.log');
@@ -281,8 +286,8 @@ async function benchmarkDebug(req, res) {
 async function tailDaemonDebug(req, res) {
   const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
   if (authorized === true) {
-    const homeDirPath = path.join(__dirname, '../../../../');
-    const datadir = daemonService.getConfigValue('datadir') || `${homeDirPath}.zelcash`;
+    const defaultDir = new fullnode.Config().defaultFolderPath();
+    const datadir = daemonService.getConfigValue('datadir') || defaultDir;
     const filepath = `${datadir}/debug.log`;
     const exec = `tail -n 100 ${filepath}`;
     cmd.get(exec, (err, data) => {
@@ -304,7 +309,11 @@ async function tailBenchmarkDebug(req, res) {
   const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
   if (authorized === true) {
     const homeDirPath = path.join(__dirname, '../../../../');
-    const datadir = `${homeDirPath}.zelbenchmark`;
+    const newBenchmarkPath = path.join(homeDirPath, '.benchmark');
+    let datadir = `${homeDirPath}.zelbenchmark`;
+    if (fs.existsSync(newBenchmarkPath)) {
+      datadir = newBenchmarkPath;
+    }
     const filepath = `${datadir}/debug.log`;
     const exec = `tail -n 100 ${filepath}`;
     cmd.get(exec, (err, data) => {
