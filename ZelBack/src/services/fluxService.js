@@ -323,9 +323,8 @@ async function tailBenchmarkDebug(req, res) {
 }
 
 async function fluxLog(res, filelog) {
-  const homeDirPath = path.join(__dirname, '../../../../');
-  const datadir = `${homeDirPath}zelflux`;
-  const filepath = `${datadir}/${filelog}.log`;
+  const homeDirPath = path.join(__dirname, '../../../');
+  const filepath = `${homeDirPath}${filelog}.log`;
 
   return res.download(filepath, `${filelog}.log`);
 }
@@ -389,9 +388,8 @@ async function fluxDebugLog(req, res) {
 async function tailFluxLog(req, res, logfile) {
   const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
   if (authorized === true) {
-    const homeDirPath = path.join(__dirname, '../../../../');
-    const datadir = `${homeDirPath}zelflux`;
-    const filepath = `${datadir}/${logfile}.log`;
+    const homeDirPath = path.join(__dirname, '../../../');
+    const filepath = `${homeDirPath}${logfile}.log`;
     const exec = `tail -n 100 ${filepath}`;
     cmd.get(exec, (err, data) => {
       if (err) {

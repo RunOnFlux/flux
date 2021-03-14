@@ -41,7 +41,7 @@
     "dev": "node init.js && concurrently \"npm run fluxdev\" \"npm run homedev\"",
     "updateflux": "git pull; npm install",
     "hardupdateflux": "rm -rf node_modules; rm -f package-lock.json; git reset --hard; git pull; npm run start",
-    "ciconfig": "cp sampleUserConfig.js config/userconfig.js && mkdir ~/.zelcash && cp sampleZelCashConfig.conf ~/.zelcash/zelcash.conf"
+    "ciconfig": "cp sampleUserConfig.js config/userconfig.js && mkdir ~/.zelcash && cp sampleDaemonConfig.conf ~/.zelcash/zelcash.conf"
   },
   "dependencies": {
     "@amcharts/amcharts4": "^4.10.15",
