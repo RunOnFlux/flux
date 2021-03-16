@@ -40,7 +40,6 @@ async function startFluxFunctions() {
     fluxCommunication.adjustFirewall();
     log.info('Firewalls checked');
     fluxCommunication.keepConnectionsAlive();
-    fluxCommunication.keepIncomingConnectionsAlive();
     log.info('Connections polling prepared');
     daemonService.daemonBlockchainInfoService();
     log.info('Flux Daemon Info Service Started');
@@ -49,10 +48,8 @@ async function startFluxFunctions() {
       fluxCommunication.checkDeterministicNodesCollisions();
     }, 60000);
     log.info('Flux checks operational');
-    setTimeout(() => {
-      fluxCommunication.fluxDiscovery();
-      log.info('Flux Discovery started');
-    }, 20 * 1000);
+    fluxCommunication.fluxDiscovery();
+    log.info('Flux Discovery started');
     setTimeout(() => {
       explorerService.initiateBlockProcessor(true, true);
       log.info('Flux Block Processing Service started');
