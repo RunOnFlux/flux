@@ -50,16 +50,16 @@ async function startFluxFunctions() {
     log.info('Flux checks operational');
     fluxCommunication.fluxDiscovery();
     log.info('Flux Discovery started');
-    setTimeout(() => {
+    setTimeout(() => { // wait as of restarts due to ui building
       explorerService.initiateBlockProcessor(true, true);
       log.info('Flux Block Processing Service started');
-    }, 40 * 1000);
-    setInterval(() => { // every 8 mins (4 blocks)
-      appsService.continuousFluxAppHashesCheck();
-    }, 8 * 60 * 1000);
+    }, 2 * 60 * 1000);
     setInterval(() => { // every 4 mins (2 blocks)
       appsService.checkAndNotifyPeersOfRunningApps();
     }, 4 * 60 * 1000);
+    setInterval(() => { // every 8 mins (4 blocks)
+      appsService.continuousFluxAppHashesCheck();
+    }, 8 * 60 * 1000);
     setTimeout(() => {
       // after 16 minutes of running ok.
       log.info('Starting to spawn applications');

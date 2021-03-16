@@ -227,50 +227,6 @@ async function verifyTimestampInFluxBroadcast(data, currentTimeStamp) {
   return false;
 }
 
-async function pingAllOutgoingPeers() {
-  try {
-    let removals = [];
-    let ipremovals = [];
-    const outConList = outgoingConnections;
-    // eslint-disable-next-line no-restricted-syntax
-    for (const client of outConList) {
-      try {
-        // ping to keep connection alive, server will answer automatically with a pong
-        client.ping('ping');
-        // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay(100);
-      } catch (e) {
-        console.error(e);
-        removals.push(client);
-        try {
-          const ip = client._socket.remoteAddress;
-          const foundPeer = outgoingPeers.find((peer) => peer.ip === ip);
-          ipremovals.push(foundPeer);
-        } catch (err) {
-          log.error(err);
-        }
-      }
-    }
-
-    for (let i = 0; i < ipremovals.length; i += 1) {
-      const peerIndex = outgoingPeers.indexOf(ipremovals[i]);
-      if (peerIndex > -1) {
-        outgoingPeers.splice(peerIndex, 1);
-      }
-    }
-    for (let i = 0; i < removals.length; i += 1) {
-      const ocIndex = outgoingConnections.indexOf(removals[i]);
-      if (ocIndex > -1) {
-        outgoingConnections.splice(ocIndex, 1);
-      }
-    }
-    removals = [];
-    ipremovals = [];
-  } catch (error) {
-    log.error(error);
-  }
-}
-
 async function sendToAllPeers(data, wsList) {
   try {
     let removals = [];
@@ -282,20 +238,16 @@ async function sendToAllPeers(data, wsList) {
       try {
         // eslint-disable-next-line no-await-in-loop
         await serviceHelper.delay(100);
-        if (client.readyState !== WebSocket.CLOSED && client.readyState !== WebSocket.CLOSING) {
-          client.send(data);
-        } else {
-          removals.push(client);
-          try {
-            const ip = client._socket.remoteAddress;
-            const foundPeer = outgoingPeers.find((peer) => peer.ip === ip);
-            ipremovals.push(foundPeer);
-          } catch (err) {
-            log.error(err);
+        if (client.readyState === WebSocket.OPEN) {
+          if (!data) {
+            client.ping('flux'); // do ping with flux strc instead
+          } else {
+            client.send(data);
           }
+        } else {
+          throw new Error(`Connection to ${client._socket.remoteAddress} is not open`);
         }
       } catch (e) {
-        console.error(e);
         removals.push(client);
         try {
           const ip = client._socket.remoteAddress;
@@ -337,20 +289,12 @@ async function sendToAllIncomingConnections(data, wsList) {
       try {
         // eslint-disable-next-line no-await-in-loop
         await serviceHelper.delay(100);
-        if (client.readyState !== WebSocket.CLOSED && client.readyState !== WebSocket.CLOSING) {
+        if (client.readyState === WebSocket.OPEN) {
           client.send(data);
         } else {
-          removals.push(client);
-          try {
-            const ip = client._socket.remoteAddress;
-            const foundPeer = incomingPeers.find((peer) => peer.ip === ip);
-            ipremovals.push(foundPeer);
-          } catch (err) {
-            log.error(err);
-          }
+          throw new Error(`Connection to ${client._socket.remoteAddress} is not open`);
         }
       } catch (e) {
-        console.error(e);
         removals.push(client);
         try {
           const ip = client._socket.remoteAddress;
@@ -541,13 +485,13 @@ function handleIncomingConnection(ws, req, expressWS) {
     if (blockedPubKeysCache.has(pubKey)) {
       try {
         log.info('Closing connection, peer is on blockedList');
-        ws.close(1008); // close as of policy violation?
+        ws.close(1000, 'blocked list'); // close as of policy violation?
       } catch (e) {
         console.error(e);
       }
       return;
     }
-    const currentTimeStamp = Date.now(); // ms
+    const currentTimeStamp = Date.now();
     const messageOK = await verifyFluxBroadcast(msg, undefined, currentTimeStamp);
     if (messageOK === true) {
       const timestampOK = await verifyTimestampInFluxBroadcast(msg, currentTimeStamp);
@@ -560,30 +504,11 @@ function handleIncomingConnection(ws, req, expressWS) {
             respondWithAppMessage(msgObj, ws);
           } else if (msgObj.data.type === 'zelapprunning' || msgObj.data.type === 'fluxapprunning') {
             handleAppRunningMessage(msgObj, ws);
+          } else {
+            log.warn(`Unrecognised message type of ${msgObj.data.type}`);
           }
         } catch (e) {
           log.error(e);
-        }
-      // try rebroadcasting to all outgoing peers
-      // try {
-      //   sendToAllPeers(msg);
-      // } catch (e) {
-      //   log.error(e);
-      // }
-      } else {
-        try {
-          const timestamp = Date.now();
-          const type = 'Outdated';
-          const message = `Flux ${userconfig.initial.ipaddress} says message received but your message is outdated!`;
-          const data = {
-            timestamp,
-            type,
-            message,
-          };
-          const messageReceivedOutdated = await serialiseAndSignFluxBroadcast(data);
-          ws.send(messageReceivedOutdated);
-        } catch (e) {
-          console.error(e);
         }
       }
     } else {
@@ -592,7 +517,7 @@ function handleIncomingConnection(ws, req, expressWS) {
       try {
         blockedPubKeysCache.set(pubKey, pubKey);
         log.info('closing connection, adding peer to the blockedList');
-        ws.close(1008); // close as of policy violation?
+        ws.close(1000, 'invalid message, blocked'); // close as of policy violation?
       } catch (e) {
         console.error(e);
       }
@@ -791,7 +716,7 @@ async function initiateAndHandleConnection(ip) {
   const wsuri = `ws://${ip}:${config.server.apiport}/ws/flux/`;
   const websocket = new WebSocket(wsuri);
 
-  websocket.onopen = async () => {
+  websocket.onopen = () => {
     outgoingConnections.push(websocket);
     const peer = {
       ip: websocket._socket.remoteAddress,
@@ -1001,7 +926,7 @@ function connectedPeersInfo(req, res) {
 
 function keepConnectionsAlive() {
   setInterval(() => {
-    pingAllOutgoingPeers();
+    sendToAllPeers(); // perform ping
   }, 30 * 1000);
 }
 
@@ -1056,7 +981,7 @@ async function closeConnection(ip) {
     const ocIndex = outgoingConnections.indexOf(wsObj);
     const foundPeer = await outgoingPeers.find((peer) => peer.ip === ip);
     if (ocIndex > -1) {
-      wsObj.close(1000);
+      wsObj.close(1000, 'purpusfully closed');
       log.info(`Connection to ${ip} closed`);
       outgoingConnections.splice(ocIndex, 1);
       if (foundPeer) {
@@ -1088,7 +1013,7 @@ async function closeIncomingConnection(ip, expressWS) {
     const ocIndex = incomingConnections.indexOf(wsObj);
     const foundPeer = await incomingPeers.find((peer) => peer.ip === ip);
     if (ocIndex > -1) {
-      wsObj.close(1000);
+      wsObj.close(1000, 'purpusfully closed');
       log.info(`Connection from ${ip} closed`);
       incomingConnections.splice(ocIndex, 1);
       if (foundPeer) {
