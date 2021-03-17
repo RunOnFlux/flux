@@ -89,6 +89,7 @@ async function getMyFluxIP() {
     dosMessage = benchmarkResponse.data;
     dosState += 10;
   }
+  myFluxIP = myIP;
   return myIP;
 }
 
@@ -96,7 +97,7 @@ async function getMyFluxIP() {
 // filter can only be a publicKey!
 async function deterministicFluxList(filter) {
   try {
-    if (addingNodesToCache === true) {
+    if (addingNodesToCache) {
       // prevent several instances filling the cache at the same time.
       await serviceHelper.delay(100);
       return deterministicFluxList(filter);
@@ -795,116 +796,85 @@ async function initiateAndHandleConnection(ip) {
 }
 
 async function fluxDiscovery() {
-  const syncStatus = await daemonService.isDaemonSynced();
-  if (!syncStatus.data.synced) {
-    log.warn('Daemon not yet synced. Flux discovery is paused.');
-    setTimeout(() => {
-      fluxDiscovery();
-    }, 90 * 1000);
-    return;
-  }
-
-  let nodeList = [];
-
-  if (myNodePubKey != null) {
-    nodeList = await deterministicFluxList(myNodePubKey);
-    if (nodeList.length === 0) {
-      myNodePubKey = null;
-      log.warn('Node no longer Confirmed. Flux discovery is paused.');
-      setTimeout(() => {
-        fluxDiscovery();
-      }, 90 * 1000);
-      return;
+  try {
+    const syncStatus = await daemonService.isDaemonSynced();
+    if (!syncStatus.data.synced) {
+      throw new Error('Daemon not yet synced. Flux discovery is awaiting.');
     }
-  } else {
-    const myIP = await getMyFluxIP();
-    myFluxIP = myIP;
-    if (myIP !== null) {
-      nodeList = await deterministicFluxList();
-      const fluxNode = nodeList.find((node) => node.ip === myIP);
-      if (fluxNode) {
-        myNodePubKey = fluxNode.pubkey;
-      } else {
-        log.warn('Node not Confirmed. Flux discovery is paused.');
-        setTimeout(() => {
-          fluxDiscovery();
-        }, 90 * 1000);
-        return;
+
+    let nodeList = [];
+
+    if (myNodePubKey) {
+      nodeList = await deterministicFluxList(myNodePubKey);
+      if (nodeList.length === 0) {
+        myNodePubKey = null;
+        throw new Error('Node no longer confirmed. Flux discovery is awaiting.');
       }
     } else {
-      log.warn('Flux Ip not Detected. Flux discovery is paused.');
-      setTimeout(() => {
-        fluxDiscovery();
-      }, 90 * 1000);
-      return;
-    }
-  }
-  const minPeers = 15;
-  const maxPeers = 25;
-  const numberOfFluxNodes = nodeList.length;
-  const currentIpsConnected = [];
-  const requiredNumberOfConnections = numberOfFluxNodes / 100; // 1%
-  const maxNumberOfConnections = numberOfFluxNodes / 50; // 2%
-  const minCon = Math.max(minPeers, requiredNumberOfConnections); // awlays maintain at least 10 or 1% of nodes whatever is higher
-  const maxCon = Math.max(maxPeers, maxNumberOfConnections); // have a maximum of 20 or 2% of nodes whatever is higher
-  log.info(`Current number of outgoing connections:${outgoingConnections.length}`);
-  log.info(`Current number of incoming connections:${incomingConnections.length}`);
-  // coonect to peers as min connections not yet established
-  while (outgoingConnections.length < minCon) {
-    // eslint-disable-next-line no-await-in-loop
-    const ip = await getRandomConnection();
-    if (ip) {
-      const sameConnectedIp = currentIpsConnected.find((connectedIP) => connectedIP === ip);
-      if (sameConnectedIp) {
-        // eslint-disable-next-line no-continue
-        continue;
-      }
-      currentIpsConnected.push(ip);
-      const clientExists = outgoingConnections.find((client) => client._socket.remoteAddress === ip);
-      if (clientExists) {
-        // eslint-disable-next-line no-continue
-        continue;
-      }
-      const clientIncomingExists = incomingConnections.find((client) => client._socket.remoteAddress === ip);
-      if (clientIncomingExists) {
-        // eslint-disable-next-line no-continue
-        continue;
-      }
-      if (ip) {
-        log.info(`Adding Flux peer: ${ip}`);
-        initiateAndHandleConnection(ip);
-        // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay(1000);
-      }
-    }
-    // eslint-disable-next-line no-await-in-loop
-    await serviceHelper.delay(1000);
-  }
-  if (outgoingConnections.length < maxCon) {
-    let ip = await getRandomConnection();
-    if (ip) {
-      const sameConnectedIp = currentIpsConnected.find((connectedIP) => connectedIP === ip);
-      if (sameConnectedIp) {
-        ip = null;
+      const myIP = await getMyFluxIP();
+      if (myIP) {
+        nodeList = await deterministicFluxList();
+        const fluxNode = nodeList.find((node) => node.ip === myIP);
+        if (fluxNode) {
+          myNodePubKey = fluxNode.pubkey;
+        } else {
+          throw new Error('Node not confirmed. Flux discovery is awaiting.');
+        }
       } else {
-        const clientExists = outgoingConnections.find((client) => client._socket.remoteAddress === ip);
-        if (clientExists) {
-          ip = null;
-        }
-        const clientIncomingExists = incomingConnections.find((client) => client._socket.remoteAddress === ip);
-        if (clientIncomingExists) {
-          ip = null;
-        }
-      }
-      if (ip) {
-        log.info(`Adding Flux peer: ${ip}`);
-        initiateAndHandleConnection(ip);
+        throw new Error('Flux IP not detected. Flux discovery is awaiting.');
       }
     }
+    const minPeers = 15;
+    const maxPeers = 25;
+    const numberOfFluxNodes = nodeList.length;
+    const currentIpsConnTried = [];
+    const requiredNumberOfConnections = numberOfFluxNodes / 100; // 1%
+    const maxNumberOfConnections = numberOfFluxNodes / 50; // 2%
+    const minCon = Math.max(minPeers, requiredNumberOfConnections); // awlays maintain at least 10 or 1% of nodes whatever is higher
+    const maxCon = Math.max(maxPeers, maxNumberOfConnections); // have a maximum of 20 or 2% of nodes whatever is higher
+    log.info(`Current number of outgoing connections:${outgoingConnections.length}`);
+    log.info(`Current number of incoming connections:${incomingConnections.length}`);
+    // coonect to peers as min connections not yet established
+    while (outgoingConnections.length < minCon) {
+      // eslint-disable-next-line no-await-in-loop
+      const ip = await getRandomConnection();
+      if (ip) {
+        // additional precaution
+        const sameConnectedIp = currentIpsConnTried.find((connectedIP) => connectedIP === ip);
+        const clientExists = outgoingConnections.find((client) => client._socket.remoteAddress === ip);
+        const clientIncomingExists = incomingConnections.find((client) => client._socket.remoteAddress === ip);
+        if (!sameConnectedIp && !clientExists && !clientIncomingExists) {
+          log.info(`Adding Flux peer: ${ip}`);
+          initiateAndHandleConnection(ip);
+          // eslint-disable-next-line no-await-in-loop
+          await serviceHelper.delay(1000);
+        }
+      }
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay(1000);
+    }
+    if (outgoingConnections.length < maxCon) {
+      const ip = await getRandomConnection();
+      if (ip) {
+        // additional precaution
+        const sameConnectedIp = currentIpsConnTried.find((connectedIP) => connectedIP === ip);
+        const clientExists = outgoingConnections.find((client) => client._socket.remoteAddress === ip);
+        const clientIncomingExists = incomingConnections.find((client) => client._socket.remoteAddress === ip);
+        if (!sameConnectedIp && !clientExists && !clientIncomingExists) {
+          log.info(`Adding Flux peer: ${ip}`);
+          initiateAndHandleConnection(ip);
+        }
+      }
+    }
+    setTimeout(() => {
+      fluxDiscovery();
+    }, 60 * 1000);
+  } catch (error) {
+    log.warn(error.message || error);
+    setTimeout(() => {
+      fluxDiscovery();
+    }, 120 * 1000);
   }
-  setTimeout(() => {
-    fluxDiscovery();
-  }, 60 * 1000);
 }
 
 function connectedPeers(req, res) {
@@ -1153,8 +1123,7 @@ async function checkDeterministicNodesCollisions() {
     // if it returns more than 1 object, shut down.
     // another precatuion might be comparing node list on multiple nodes. evaulate in the future
     const myIP = await getMyFluxIP();
-    myFluxIP = myIP;
-    if (myIP !== null) {
+    if (myIP) {
       const syncStatus = await daemonService.isDaemonSynced();
       if (!syncStatus.data.synced) {
         return;
