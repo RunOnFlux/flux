@@ -14,10 +14,10 @@ const daemonService = require('./daemonService');
 const userconfig = require('../../../config/userconfig');
 
 const outgoingConnections = []; // websocket list
-const outgoingPeers = []; // array of objects containing ip and rtt latency
+const outgoingPeers = []; // array of objects containing ip, rtt latency, lastPingTime
 
 const incomingConnections = []; // websocket list
-const incomingPeers = []; // array of objects containing ip and rtt latency
+const incomingPeers = []; // array of objects containing ip
 
 let dosState = 0; // we can start at bigger number later
 let dosMessage = null;
@@ -241,7 +241,12 @@ async function sendToAllPeers(data, wsList) {
         await serviceHelper.delay(100);
         if (client.readyState === WebSocket.OPEN) {
           if (!data) {
+            const pingTime = new Date().getTime();
             client.ping('flux'); // do ping with flux strc instead
+            const foundPeer = outgoingPeers.find((peer) => peer.ip === client._socket.remoteAddress);
+            if (foundPeer) {
+              foundPeer.lastPingTime = pingTime;
+            }
           } else {
             client.send(data);
           }
@@ -476,7 +481,6 @@ function handleIncomingConnection(ws, req, expressWS) {
   incomingConnections.push(ws);
   const peer = {
     ip: ws._socket.remoteAddress,
-    rtt: null,
   };
   incomingPeers.push(peer);
   // verify data integrity, if not signed, close connection
@@ -721,20 +725,27 @@ async function initiateAndHandleConnection(ip) {
     outgoingConnections.push(websocket);
     const peer = {
       ip: websocket._socket.remoteAddress,
+      lastPingTime: null,
       rtt: null,
     };
     outgoingPeers.push(peer);
   };
 
-  // every time a ping is sent a pong as received, commented, just used for tests
-  /*
+  // every time a ping is sent a pong as received, measure rtt
   websocket.on('pong', () => {
-    const { url } = websocket;
-    let conIP = url.split('/')[2];
-    conIP = conIP.split(`:${config.server.apiport}`).join('');
-    log.info(`Received a pong from peer ${conIP}`);
+    try {
+      const curTime = new Date().getTime();
+      const { url } = websocket;
+      let conIP = url.split('/')[2];
+      conIP = conIP.split(`:${config.server.apiport}`).join('');
+      const foundPeer = outgoingPeers.find((peer) => peer.ip === conIP);
+      if (foundPeer) {
+        foundPeer.rtt = (curTime - foundPeer.lastPingTime);
+      }
+    } catch (error) {
+      log.error(error);
+    }
   });
-  */
 
   websocket.onclose = (evt) => {
     const { url } = websocket;
@@ -824,8 +835,8 @@ async function fluxDiscovery() {
         throw new Error('Flux IP not detected. Flux discovery is awaiting.');
       }
     }
-    const minPeers = 15;
-    const maxPeers = 25;
+    const minPeers = 12;
+    const maxPeers = 20;
     const numberOfFluxNodes = nodeList.length;
     const currentIpsConnTried = [];
     const requiredNumberOfConnections = numberOfFluxNodes / 100; // 1%

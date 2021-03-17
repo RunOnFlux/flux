@@ -62,6 +62,7 @@ async function startFluxFunctions() {
     }, 8 * 60 * 1000);
     setTimeout(() => {
       // after 16 minutes of running ok.
+      // is stopped on basics
       log.info('Starting to spawn applications');
       appsService.trySpawningGlobalApplication();
     }, 16 * 60 * 1000);

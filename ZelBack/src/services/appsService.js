@@ -4560,6 +4560,10 @@ async function trySpawningGlobalApplication() {
     // how do we continue with this function function?
     // we have globalapplication specifics list
     // check if we are synced
+    const tier = await nodeTier();
+    if (tier === 'basic') {
+      log.info('Basic node detected. Global applications will not be installed');
+    }
     const synced = await checkSynced();
     if (synced !== true) {
       log.info('Flux not yet synced');
@@ -4626,7 +4630,6 @@ async function trySpawningGlobalApplication() {
     }
     // run the verification
     // get tier and adjust specifications
-    const tier = await nodeTier();
     if (appSpecifications.tiered) {
       const hddTier = `hdd${tier}`;
       const ramTier = `ram${tier}`;

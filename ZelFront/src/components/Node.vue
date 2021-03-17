@@ -107,6 +107,12 @@
               sortable
             >
             </el-table-column>
+            <el-table-column
+              label="Last Ping"
+              prop="lastPingTime"
+              sortable
+            >
+            </el-table-column>
             <el-table-column align="right">
               <template
                 slot="header"
@@ -158,12 +164,6 @@
             <el-table-column
               label="IP address"
               prop="ip"
-              sortable
-            >
-            </el-table-column>
-            <el-table-column
-              label="Round Trip Time"
-              prop="rtt"
               sortable
             >
             </el-table-column>
