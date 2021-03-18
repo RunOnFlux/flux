@@ -534,7 +534,7 @@ async function getFluxInfo(req, res) {
     if (daemonInfoRes.status === 'error') {
       throw daemonInfoRes.data;
     }
-    info.zelcash.info = daemonInfoRes.data;
+    info.daemon.info = daemonInfoRes.data;
 
     const daemonNodeStatusRes = await daemonService.getZelNodeStatus();
     if (daemonNodeStatusRes.status === 'error') {
@@ -552,11 +552,11 @@ async function getFluxInfo(req, res) {
       throw benchmarkStatusRes.data;
     }
     info.benchmark.status = benchmarkStatusRes.data;
-    const benchmarkhBenchRes = await benchmarkService.getBenchmarks();
-    if (benchmarkhBenchRes.status === 'error') {
-      throw benchmarkhBenchRes.data;
+    const benchmarkBenchRes = await benchmarkService.getBenchmarks();
+    if (benchmarkBenchRes.status === 'error') {
+      throw benchmarkBenchRes.data;
     }
-    info.benchmark.bench = benchmarkhBenchRes.data;
+    info.benchmark.bench = benchmarkBenchRes.data;
 
     const apppsFluxUsage = await appsService.fluxUsage();
     if (apppsFluxUsage.status === 'error') {
