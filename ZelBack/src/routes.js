@@ -8,6 +8,12 @@ const fluxCommunication = require('./services/fluxCommunication');
 const appsService = require('./services/appsService');
 const explorerService = require('./services/explorerService');
 
+function isLocal(req, res, next) {
+  const remote = req.ip || req.connection.remoteAddress || req.socket.remoteAddress || req.headers['x-forwarded-for'];
+  if (remote === 'localhost' || remote === '127.0.0.1' || remote === '::ffff:127.0.0.1' || remote === '::1') return next();
+  return res.status(401).send('Access denied');
+}
+
 const cache = apicache.middleware;
 
 module.exports = (app, expressWs) => {
@@ -677,6 +683,9 @@ module.exports = (app, expressWs) => {
   });
   app.get('/flux/checkcommunication', (req, res) => {
     fluxCommunication.isCommunicationEstablished(req, res);
+  });
+  app.get('/flux/backendfolder', isLocal, (req, res) => {
+    fluxService.fluxBackendFolder(req, res);
   });
 
   app.get('/benchmark/start', (req, res) => {

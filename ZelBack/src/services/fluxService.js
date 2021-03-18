@@ -14,6 +14,13 @@ const fluxCommunication = require('./fluxCommunication');
 const userconfig = require('../../../config/userconfig');
 
 // eslint-disable-next-line consistent-return
+async function fluxBackendFolder(req, res) {
+  const fluxBackFolder = path.join(__dirname, '../../');
+  const message = serviceHelper.createDataMessage(fluxBackFolder);
+  return res.json(message);
+}
+
+// eslint-disable-next-line consistent-return
 async function updateFlux(req, res) {
   const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
   if (authorized === true) {
@@ -698,4 +705,5 @@ module.exports = {
   fluxDebugLog,
   adjustCruxID,
   adjustKadenaAccount,
+  fluxBackendFolder,
 };
