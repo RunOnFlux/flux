@@ -1133,9 +1133,9 @@ async function appsResources(req, res) {
       appsHddLocked += serviceHelper.ensureNumber(app.hdd) || 0;
     });
     const appsUsage = {
-      zelAppsCpusLocked: appsCpusLocked,
-      zelAppsRamLocked: appsRamLocked,
-      zelAppsHddLocked: appsHddLocked,
+      appsCpusLocked,
+      appsRamLocked,
+      appsHddLocked,
     };
     const response = serviceHelper.createDataMessage(appsUsage);
     return res ? res.json(response) : response;
@@ -1186,7 +1186,7 @@ async function createAppVolume(appSpecifications, res) {
   if (resourcesLocked.status !== 'success') {
     throw new Error('Unable to obtain locked system resources by Flux App. Aborting.');
   }
-  const hddLockedByApps = resourcesLocked.data.zelAppsHddLocked;
+  const hddLockedByApps = resourcesLocked.data.appsHddLocked;
   const availableSpaceForApps = useableSpaceOnNode - hddLockedByApps + appSpecifications.hdd; // because our application is already accounted in locked resources
   // bigger or equal so we have the 1 gb free...
   if (appSpecifications.hdd >= availableSpaceForApps) {
@@ -1971,7 +1971,7 @@ async function checkAppRequirements(appSpecs) {
 
   const totalSpaceOnNode = config.fluxSpecifics.hdd[tier];
   const useableSpaceOnNode = totalSpaceOnNode - config.lockedSystemResources.hdd;
-  const hddLockedByApps = resourcesLocked.data.zelAppsHddLocked;
+  const hddLockedByApps = resourcesLocked.data.apsHddLocked;
   const availableSpaceForApps = useableSpaceOnNode - hddLockedByApps;
   // bigger or equal so we have the 1 gb free...
   if (appSpecs.hdd >= availableSpaceForApps) {
@@ -1980,7 +1980,7 @@ async function checkAppRequirements(appSpecs) {
 
   const totalCpuOnNode = config.fluxSpecifics.cpu[tier];
   const useableCpuOnNode = totalCpuOnNode - config.lockedSystemResources.cpu;
-  const cpuLockedByApps = resourcesLocked.data.zelAppsCpusLocked * 10;
+  const cpuLockedByApps = resourcesLocked.data.appsCpusLocked * 10;
   const adjustedAppCpu = appSpecs.cpu * 10;
   const availableCpuForApps = useableCpuOnNode - cpuLockedByApps;
   // bigger or equal so we have the 1 gb free...
@@ -1990,7 +1990,7 @@ async function checkAppRequirements(appSpecs) {
 
   const totalRamOnNode = config.fluxSpecifics.ram[tier];
   const useableRamOnNode = totalRamOnNode - config.lockedSystemResources.ram;
-  const ramLockedByApps = resourcesLocked.data.zelAppsRamLocked;
+  const ramLockedByApps = resourcesLocked.data.appsRamLocked;
   const availableRamForApps = useableRamOnNode - ramLockedByApps;
   // bigger or equal so we have the 1 gb free...
   if (appSpecs.ram >= availableRamForApps) {
