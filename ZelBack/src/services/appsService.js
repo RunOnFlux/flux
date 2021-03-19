@@ -2696,7 +2696,7 @@ async function availableApps(req, res) {
         + 'Chainweb is a braided, parallelized Proof Of Work consensus mechanism that improves throughput and scalability in executing transactions on the blockchain while maintaining the security and integrity found in Bitcoin. '
         + 'The healthy information tells you if your node is running and synced. If you just installed the docker it can say unhealthy for long time because on first run a bootstrap is downloaded and extracted to make your node sync faster before the node is started. '
         + 'Do not stop or restart the docker in the first hour after installation. You can also check if your kadena node is synced, by going to running apps and press visit button on kadena and compare your node height with Kadena explorer. Thank you.',
-      repotag: 'zelcash/kadena-chainweb-node:2.5',
+      repotag: 'zelcash/kadena-chainweb-node:2.6',
       owner: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
       ports: [30004, 30005],
       containerPorts: [30004, 30005],
