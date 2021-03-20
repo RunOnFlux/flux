@@ -102,8 +102,8 @@
             >
             </el-table-column>
             <el-table-column
-              label="Round Trip Time"
-              prop="rtt"
+              label="Latency"
+              prop="latency"
               sortable
             >
             </el-table-column>

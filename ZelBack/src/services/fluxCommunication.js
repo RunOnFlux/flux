@@ -14,7 +14,7 @@ const daemonService = require('./daemonService');
 const userconfig = require('../../../config/userconfig');
 
 const outgoingConnections = []; // websocket list
-const outgoingPeers = []; // array of objects containing ip, rtt latency, lastPingTime
+const outgoingPeers = []; // array of objects containing ip, latency, lastPingTime
 
 const incomingConnections = []; // websocket list
 const incomingPeers = []; // array of objects containing ip
@@ -726,12 +726,12 @@ async function initiateAndHandleConnection(ip) {
     const peer = {
       ip: websocket._socket.remoteAddress,
       lastPingTime: null,
-      rtt: null,
+      latency: null,
     };
     outgoingPeers.push(peer);
   };
 
-  // every time a ping is sent a pong as received, measure rtt
+  // every time a ping is sent a pong as received, measure latency
   websocket.on('pong', () => {
     try {
       const curTime = new Date().getTime();
@@ -740,7 +740,7 @@ async function initiateAndHandleConnection(ip) {
       conIP = conIP.split(`:${config.server.apiport}`).join('');
       const foundPeer = outgoingPeers.find((peer) => peer.ip === conIP);
       if (foundPeer) {
-        foundPeer.rtt = (curTime - foundPeer.lastPingTime);
+        foundPeer.latency = Math.ceil((curTime - foundPeer.lastPingTime) / 2);
       }
     } catch (error) {
       log.error(error);
