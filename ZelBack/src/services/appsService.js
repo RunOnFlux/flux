@@ -5316,7 +5316,6 @@ async function fluxShareDatabaseShareFile(file) {
       name: file,
       token: crypto.createHash('sha256').update(string).digest('hex'),
     };
-    // put the utxo to our mongoDB utxoIndex collection.
     await serviceHelper.insertOneToDatabase(databaseFluxShare, sharedCollection, fileDetail);
     return fileDetail;
   } catch (error) {
