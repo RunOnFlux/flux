@@ -846,7 +846,9 @@ async function fluxDiscovery() {
     log.info(`Current number of outgoing connections:${outgoingConnections.length}`);
     log.info(`Current number of incoming connections:${incomingConnections.length}`);
     // coonect to peers as min connections not yet established
-    while (outgoingConnections.length < minCon) {
+    let index = 0;
+    while (outgoingConnections.length < minCon && index < 200) {
+      index += 1;
       // eslint-disable-next-line no-await-in-loop
       const ip = await getRandomConnection();
       if (ip) {
