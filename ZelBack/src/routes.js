@@ -1181,6 +1181,12 @@ module.exports = (app, expressWs) => {
   app.get('/explorer/scannedheight', cache('30 seconds'), (req, res) => {
     explorerService.getScannedHeight(req, res);
   });
+  // app.get('/explorer/fusion/coinbase/all', cache('30 seconds'), (req, res) => {
+  //   explorerService.getAllFusionCoinbase(req, res);
+  // });
+  app.get('/explorer/fusion/coinbase/:address?', cache('30 seconds'), (req, res) => {
+    explorerService.getAddressFusionCoinbase(req, res);
+  });
 
   // GET PROTECTED API - User level
   app.get('/daemon/prioritisetransaction/:txid?/:prioritydelta?/:feedelta?', cache('30 seconds'), (req, res) => {
