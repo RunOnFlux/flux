@@ -393,13 +393,13 @@
           Stable: {{ callResponse.data.stable }}
         </p>
         <p>
-          BASIC Tier: {{ callResponse.data['basic-enabled'] }}
+          Cumulus Tier: {{ callResponse.data['basic-enabled'] || callResponse.data['cumulus-enabled'] }}
         </p>
         <p>
-          SUPER Tier: {{ callResponse.data['super-enabled'] }}
+          Nimbus Tier: {{ callResponse.data['super-enabled'] || callResponse.data['nimbus-enabled'] }}
         </p>
         <p>
-          BAMF Tier: {{ callResponse.data['bamf-enabled'] }}
+          Stratus Tier: {{ callResponse.data['bamf-enabled'] || callResponse.data['stratus-enabled'] }}
         </p>
         <p>
           IPv4: {{ callResponse.data.ipv4 }}

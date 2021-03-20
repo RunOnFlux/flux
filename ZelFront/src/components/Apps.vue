@@ -773,31 +773,31 @@
               </p>
               <div v-if="callResponse.data.tiered">
                 <p>
-                  BAMF CPU: {{ callResponse.data.cpubamf }} Cores
+                  Stratus CPU: {{ callResponse.data.cpubamf }} Cores
                 </p>
                 <p>
-                  BAMF RAM: {{ callResponse.data.rambamf }} MB
+                  Stratus RAM: {{ callResponse.data.rambamf }} MB
                 </p>
                 <p>
-                  BAMF SSD: {{ callResponse.data.hddbamf }} GB
+                  Stratus SSD: {{ callResponse.data.hddbamf }} GB
                 </p>
                 <p>
-                  SUPER CPU: {{ callResponse.data.cpusuper }} Cores
+                  Nimbus CPU: {{ callResponse.data.cpusuper }} Cores
                 </p>
                 <p>
-                  SUPER RAM: {{ callResponse.data.ramsuper }} MB
+                  Nimbus RAM: {{ callResponse.data.ramsuper }} MB
                 </p>
                 <p>
-                  SUPER SSD: {{ callResponse.data.hddsuper }} GB
+                  Nimbus SSD: {{ callResponse.data.hddsuper }} GB
                 </p>
                 <p>
-                  BASIC CPU: {{ callResponse.data.cpubasic }} Cores
+                  Cumulus CPU: {{ callResponse.data.cpubasic }} Cores
                 </p>
                 <p>
-                  BASIC RAM: {{ callResponse.data.rambasic }} MB
+                  Cumulus RAM: {{ callResponse.data.rambasic }} MB
                 </p>
                 <p>
-                  BASIC SSD: {{ callResponse.data.hddbasic }} GB
+                  Cumulus SSD: {{ callResponse.data.hddbasic }} GB
                 </p>
               </div>
               <div v-else>
@@ -867,31 +867,31 @@
               </p>
               <div v-if="callBResponse.data.tiered">
                 <p>
-                  BAMF CPU: {{ callBResponse.data.cpubamf }} Cores
+                  Stratus CPU: {{ callBResponse.data.cpubamf }} Cores
                 </p>
                 <p>
-                  BAMF RAM: {{ callBResponse.data.rambamf }} MB
+                  Stratus RAM: {{ callBResponse.data.rambamf }} MB
                 </p>
                 <p>
-                  BAMF SSD: {{ callBResponse.data.hddbamf }} GB
+                  Stratus SSD: {{ callBResponse.data.hddbamf }} GB
                 </p>
                 <p>
-                  SUPER CPU: {{ callBResponse.data.cpusuper }} Cores
+                  Nimbus CPU: {{ callBResponse.data.cpusuper }} Cores
                 </p>
                 <p>
-                  SUPER RAM: {{ callBResponse.data.ramsuper }} MB
+                  Nimbus RAM: {{ callBResponse.data.ramsuper }} MB
                 </p>
                 <p>
-                  SUPER SSD: {{ callBResponse.data.hddsuper }} GB
+                  Nimbus SSD: {{ callBResponse.data.hddsuper }} GB
                 </p>
                 <p>
-                  BASIC CPU: {{ callBResponse.data.cpubasic }} Cores
+                  Cumulus CPU: {{ callBResponse.data.cpubasic }} Cores
                 </p>
                 <p>
-                  BASIC RAM: {{ callBResponse.data.rambasic }} MB
+                  Cumulus RAM: {{ callBResponse.data.rambasic }} MB
                 </p>
                 <p>
-                  BASIC SSD: {{ callBResponse.data.hddbasic }} GB
+                  Cumulus SSD: {{ callBResponse.data.hddbasic }} GB
                 </p>
               </div>
               <div v-else>
@@ -1239,31 +1239,31 @@
               </p>
               <div v-if="callBResponse.data.tiered">
                 <p>
-                  BAMF CPU: {{ callBResponse.data.cpubamf }} Cores
+                  Stratus CPU: {{ callBResponse.data.cpubamf }} Cores
                 </p>
                 <p>
-                  BAMF RAM: {{ callBResponse.data.rambamf }} MB
+                  Stratus RAM: {{ callBResponse.data.rambamf }} MB
                 </p>
                 <p>
-                  BAMF SSD: {{ callBResponse.data.hddbamf }} GB
+                  Stratus SSD: {{ callBResponse.data.hddbamf }} GB
                 </p>
                 <p>
-                  SUPER CPU: {{ callBResponse.data.cpusuper }} Cores
+                  Nimbus CPU: {{ callBResponse.data.cpusuper }} Cores
                 </p>
                 <p>
-                  SUPER RAM: {{ callBResponse.data.ramsuper }} MB
+                  Nimbus RAM: {{ callBResponse.data.ramsuper }} MB
                 </p>
                 <p>
-                  SUPER SSD: {{ callBResponse.data.hddsuper }} GB
+                  Nimbus SSD: {{ callBResponse.data.hddsuper }} GB
                 </p>
                 <p>
-                  BASIC CPU: {{ callBResponse.data.cpubasic }} Cores
+                  Cumulus CPU: {{ callBResponse.data.cpubasic }} Cores
                 </p>
                 <p>
-                  BASIC RAM: {{ callBResponse.data.rambasic }} MB
+                  Cumulus RAM: {{ callBResponse.data.rambasic }} MB
                 </p>
                 <p>
-                  BASIC SSD: {{ callBResponse.data.hddbasic }} GB
+                  Cumulus SSD: {{ callBResponse.data.hddbasic }} GB
                 </p>
               </div>
               <div v-else>
@@ -1424,9 +1424,9 @@
                   <el-switch v-model="appUpdateSpecification.tiered"></el-switch>
                 </el-form-item>
                 <div v-if="appUpdateSpecification.tiered">
-                  <el-form-item label="BASIC CPU">
+                  <el-form-item label="Cumulus CPU">
                     <el-input
-                      placeholder="CPU cores to use by BASIC"
+                      placeholder="CPU cores to use by Cumulus"
                       nubmer
                       min="0"
                       max="1"
@@ -1435,9 +1435,9 @@
                     >
                     </el-input>
                   </el-form-item>
-                  <el-form-item label="BASIC RAM">
+                  <el-form-item label="Cumulus RAM">
                     <el-input
-                      placeholder="RAM in MB value to use by BASIC"
+                      placeholder="RAM in MB value to use by Cumulus"
                       nubmer
                       min="0"
                       max="1000"
@@ -1446,9 +1446,9 @@
                     >
                     </el-input>
                   </el-form-item>
-                  <el-form-item label="BASIC SSD">
+                  <el-form-item label="Cumulus SSD">
                     <el-input
-                      placeholder="SSD in GB value to use by BASIC"
+                      placeholder="SSD in GB value to use by Cumulus"
                       nubmer
                       min="0"
                       max="20"
@@ -1457,9 +1457,9 @@
                     >
                     </el-input>
                   </el-form-item>
-                  <el-form-item label="SUPER CPU">
+                  <el-form-item label="Nimbus CPU">
                     <el-input
-                      placeholder="CPU cores to use by SUPER"
+                      placeholder="CPU cores to use by Nimbus"
                       nubmer
                       min="0"
                       max="3"
@@ -1468,9 +1468,9 @@
                     >
                     </el-input>
                   </el-form-item>
-                  <el-form-item label="SUPER RAM">
+                  <el-form-item label="Nimbus RAM">
                     <el-input
-                      placeholder="RAM in MB value to use by SUPER"
+                      placeholder="RAM in MB value to use by Nimbus"
                       nubmer
                       min="0"
                       max="5000"
@@ -1479,9 +1479,9 @@
                     >
                     </el-input>
                   </el-form-item>
-                  <el-form-item label="SUPER SSD">
+                  <el-form-item label="Nimbus SSD">
                     <el-input
-                      placeholder="SSD in GB value to use by SUPER"
+                      placeholder="SSD in GB value to use by Nimbus"
                       nubmer
                       min="0"
                       max="120"
@@ -1490,9 +1490,9 @@
                     >
                     </el-input>
                   </el-form-item>
-                  <el-form-item label="BAMF CPU">
+                  <el-form-item label="Stratus CPU">
                     <el-input
-                      placeholder="CPU cores to use by BAMF"
+                      placeholder="CPU cores to use by Stratus"
                       nubmer
                       min="0"
                       max="7"
@@ -1501,9 +1501,9 @@
                     >
                     </el-input>
                   </el-form-item>
-                  <el-form-item label="BAMF RAM">
+                  <el-form-item label="Stratus RAM">
                     <el-input
-                      placeholder="RAM in MB value to use by BAMF"
+                      placeholder="RAM in MB value to use by Stratus"
                       nubmer
                       min="0"
                       max="28000"
@@ -1512,9 +1512,9 @@
                     >
                     </el-input>
                   </el-form-item>
-                  <el-form-item label="BAMF SSD">
+                  <el-form-item label="Stratus SSD">
                     <el-input
-                      placeholder="SSD in GB value to use by BAMF"
+                      placeholder="SSD in GB value to use by Stratus"
                       nubmer
                       min="0"
                       max="570"
@@ -1754,9 +1754,9 @@
             <el-switch v-model="appRegistrationSpecification.tiered"></el-switch>
           </el-form-item>
           <div v-if="appRegistrationSpecification.tiered">
-            <el-form-item label="BASIC CPU">
+            <el-form-item label="Cumulus CPU">
               <el-input
-                placeholder="CPU cores to use by BASIC"
+                placeholder="CPU cores to use by Cumulus"
                 nubmer
                 min="0"
                 max="1"
@@ -1765,9 +1765,9 @@
               >
               </el-input>
             </el-form-item>
-            <el-form-item label="BASIC RAM">
+            <el-form-item label="Cumulus RAM">
               <el-input
-                placeholder="RAM in MB value to use by BASIC"
+                placeholder="RAM in MB value to use by Cumulus"
                 nubmer
                 min="0"
                 max="1000"
@@ -1776,9 +1776,9 @@
               >
               </el-input>
             </el-form-item>
-            <el-form-item label="BASIC SSD">
+            <el-form-item label="Cumulus SSD">
               <el-input
-                placeholder="SSD in GB value to use by BASIC"
+                placeholder="SSD in GB value to use by Cumulus"
                 nubmer
                 min="0"
                 max="20"
@@ -1787,9 +1787,9 @@
               >
               </el-input>
             </el-form-item>
-            <el-form-item label="SUPER CPU">
+            <el-form-item label="Nimbus CPU">
               <el-input
-                placeholder="CPU cores to use by SUPER"
+                placeholder="CPU cores to use by Nimbus"
                 nubmer
                 min="0"
                 max="3"
@@ -1798,9 +1798,9 @@
               >
               </el-input>
             </el-form-item>
-            <el-form-item label="SUPER RAM">
+            <el-form-item label="Nimbus RAM">
               <el-input
-                placeholder="RAM in MB value to use by SUPER"
+                placeholder="RAM in MB value to use by Nimbus"
                 nubmer
                 min="0"
                 max="5000"
@@ -1809,9 +1809,9 @@
               >
               </el-input>
             </el-form-item>
-            <el-form-item label="SUPER SSD">
+            <el-form-item label="Nimbus SSD">
               <el-input
-                placeholder="SSD in GB value to use by SUPER"
+                placeholder="SSD in GB value to use by Nimbus"
                 nubmer
                 min="0"
                 max="120"
@@ -1820,9 +1820,9 @@
               >
               </el-input>
             </el-form-item>
-            <el-form-item label="BAMF CPU">
+            <el-form-item label="Stratus CPU">
               <el-input
-                placeholder="CPU cores to use by BAMF"
+                placeholder="CPU cores to use by Stratus"
                 nubmer
                 min="0"
                 max="7"
@@ -1831,9 +1831,9 @@
               >
               </el-input>
             </el-form-item>
-            <el-form-item label="BAMF RAM">
+            <el-form-item label="Stratus RAM">
               <el-input
-                placeholder="RAM in MB value to use by BAMF"
+                placeholder="RAM in MB value to use by Stratus"
                 nubmer
                 min="0"
                 max="28000"
@@ -1842,9 +1842,9 @@
               >
               </el-input>
             </el-form-item>
-            <el-form-item label="BAMF SSD">
+            <el-form-item label="Stratus SSD">
               <el-input
-                placeholder="SSD in GB value to use by BAMF"
+                placeholder="SSD in GB value to use by Stratus"
                 nubmer
                 min="0"
                 max="570"
@@ -2601,37 +2601,37 @@ export default {
       }
     },
     resolveCpu(app) {
-      if (this.tier === 'BASIC') {
+      if (this.tier === 'BASIC' || this.tier === 'CUMULUS') {
         return (`${app.cpubasic || app.cpu} cores`);
       }
-      if (this.tier === 'SUPER') {
+      if (this.tier === 'SUPER' || this.tier === 'NIMBUS') {
         return (`${app.cpusuper || app.cpu} cores`);
       }
-      if (this.tier === 'BAMF') {
+      if (this.tier === 'BAMF' || this.tier === 'STRATUS') {
         return (`${app.cpubamf || app.cpu} cores`);
       }
       return (`${app.cpu} cores`);
     },
     resolveRam(app) {
-      if (this.tier === 'BASIC') {
+      if (this.tier === 'BASIC' || this.tier === 'CUMULUS') {
         return (`${app.rambasic || app.ram} MB`);
       }
-      if (this.tier === 'SUPER') {
+      if (this.tier === 'SUPER' || this.tier === 'NIMBUS') {
         return (`${app.ramsuper || app.ram} MB`);
       }
-      if (this.tier === 'BAMF') {
+      if (this.tier === 'BAMF' || this.tier === 'STRATUS') {
         return (`${app.rambamf || app.ram} MB`);
       }
       return (`${app.ram} MB`);
     },
     resolveHdd(app) {
-      if (this.tier === 'BASIC') {
+      if (this.tier === 'BASIC' || this.tier === 'CUMULUS') {
         return (`${app.hddbasic || app.hdd} GB`);
       }
-      if (this.tier === 'SUPER') {
+      if (this.tier === 'SUPER' || this.tier === 'NIMBUS') {
         return (`${app.hddsuper || app.hdd} GB`);
       }
-      if (this.tier === 'BAMF') {
+      if (this.tier === 'BAMF' || this.tier === 'STRATUS') {
         return (`${app.hddbamf || app.hdd} GB`);
       }
       return (`${app.hdd} GB`);
@@ -2653,31 +2653,31 @@ export default {
       }
       if (appSpecs.tiered) {
         if ((appSpecs.cpubasic * 10) % 1 !== 0 || (appSpecs.cpubasic * 10) > (this.fluxSpecifics.cpu.basic - this.lockedSystemResources.cpu) || appSpecs.cpubasic < 0.1) {
-          return new Error('CPU for BASIC badly assigned');
+          return new Error('CPU for Cumulus badly assigned');
         }
         if (appSpecs.rambasic % 100 !== 0 || appSpecs.rambasic > (this.fluxSpecifics.ram.basic - this.lockedSystemResources.ram) || appSpecs.rambasic < 100) {
-          return new Error('RAM for BASIC badly assigned');
+          return new Error('RAM for Cumulus badly assigned');
         }
         if (appSpecs.hddbasic % 1 !== 0 || appSpecs.hddbasic > (this.fluxSpecifics.hdd.basic - this.lockedSystemResources.hdd) || appSpecs.hddbasic < 1) {
-          return new Error('SSD for BASIC badly assigned');
+          return new Error('SSD for Cumulus badly assigned');
         }
         if ((appSpecs.cpusuper * 10) % 1 !== 0 || (appSpecs.cpusuper * 10) > (this.fluxSpecifics.cpu.super - this.lockedSystemResources.cpu) || appSpecs.cpusuper < 0.1) {
-          return new Error('CPU for SUPER badly assigned');
+          return new Error('CPU for Nimbus badly assigned');
         }
         if (appSpecs.ramsuper % 100 !== 0 || appSpecs.ramsuper > (this.fluxSpecifics.ram.super - this.lockedSystemResources.ram) || appSpecs.ramsuper < 100) {
-          return new Error('RAM for SUPER badly assigned');
+          return new Error('RAM for Nimbus badly assigned');
         }
         if (appSpecs.hddsuper % 1 !== 0 || appSpecs.hddsuper > (this.fluxSpecifics.hdd.super - this.lockedSystemResources.hdd) || appSpecs.hddsuper < 1) {
-          return new Error('SSD for SUPER badly assigned');
+          return new Error('SSD for Nimbus badly assigned');
         }
         if ((appSpecs.cpubamf * 10) % 1 !== 0 || (appSpecs.cpubamf * 10) > (this.fluxSpecifics.cpu.bamf - this.lockedSystemResources.cpu) || appSpecs.cpubamf < 0.1) {
-          return new Error('CPU for BAMF badly assigned');
+          return new Error('CPU for Stratus badly assigned');
         }
         if (appSpecs.rambamf % 100 !== 0 || appSpecs.rambamf > (this.fluxSpecifics.ram.bamf - this.lockedSystemResources.ram) || appSpecs.rambamf < 100) {
-          return new Error('RAM for BAMF badly assigned');
+          return new Error('RAM for Stratus badly assigned');
         }
         if (appSpecs.hddbamf % 1 !== 0 || appSpecs.hddbamf > (this.fluxSpecifics.hdd.bamf - this.lockedSystemResources.hdd) || appSpecs.hddbamf < 1) {
-          return new Error('SSD for BAMF badly assigned');
+          return new Error('SSD for Stratus badly assigned');
         }
       }
       return true;

@@ -142,7 +142,7 @@
           <br><br>
           <div class="gridThree">
             <div>
-              <h2>Basic Rewards</h2>
+              <h2>Cumulus Rewards</h2>
               <br><br>
               <h3>per day</h3>
               <h4>{{ beautifyValue(basicWeek / 7 ) }} FLUX</h4>
@@ -165,21 +165,21 @@
               <br>
             </div>
             <div>
-              <h2>Super Rewards</h2>
+              <h2>Nimbus Rewards</h2>
               <br><br>
               <h3>per day</h3>
               <h4>{{ beautifyValue(superWeek / 7) }} FLUX ~ {{ beautifyValue(superUSDRewardWeek / 7) }} USD</h4>
-              <h4>{{ beautifyValue(kdaSuperWeek / 7) }} KDA ~ {{ beautifyValue(superUSDKDARewardWeek / 7) }} USD</h4>
+              <h4>{{ beautifyValue(kdaNimbusWeek / 7) }} KDA ~ {{ beautifyValue(superUSDKDARewardWeek / 7) }} USD</h4>
               <h4>{{ beautifyValue((superUSDRewardWeek / 7) + (superUSDKDARewardWeek / 7)) }} USD</h4>
               <br><br>
               <h3>per week</h3>
               <h4>{{ beautifyValue(superWeek) }} FLUX ~ {{ beautifyValue(superUSDRewardWeek) }} USD</h4>
-              <h4>{{ beautifyValue(kdaSuperWeek) }} KDA ~ {{ beautifyValue(superUSDKDARewardWeek) }} USD</h4>
+              <h4>{{ beautifyValue(kdaNimbusWeek) }} KDA ~ {{ beautifyValue(superUSDKDARewardWeek) }} USD</h4>
               <h4>{{ beautifyValue((superUSDRewardWeek) + (superUSDKDARewardWeek)) }} USD</h4>
               <br><br>
               <h3>per month</h3>
               <h4>{{ beautifyValue(superWeek * 4.34812141) }} FLUX ~ {{ beautifyValue(superUSDRewardWeek * 4.34812141) }} USD</h4>
-              <h4>{{ beautifyValue(kdaSuperWeek * 4.34812141) }} KDA ~ {{ beautifyValue(superUSDKDARewardWeek * 4.34812141) }} USD</h4>
+              <h4>{{ beautifyValue(kdaNimbusWeek * 4.34812141) }} KDA ~ {{ beautifyValue(superUSDKDARewardWeek * 4.34812141) }} USD</h4>
               <h4>{{ beautifyValue((superUSDRewardWeek * 4.34812141) + (superUSDKDARewardWeek * 4.34812141)) }} USD</h4>
               <br><br>
               <h3>Profitability per month - Node Cost 6 USD</h3>
@@ -188,21 +188,21 @@
               <br>
             </div>
             <div>
-              <h2>Bamf Rewards</h2>
+              <h2>Stratus Rewards</h2>
               <br><br>
               <h3>per day</h3>
               <h4>{{ beautifyValue(bamfWeek / 7 ) }} FLUX ~ {{ beautifyValue(bamfUSDRewardWeek / 7) }} USD</h4>
-              <h4>{{ beautifyValue(kdaBamfWeek / 7 ) }} KDA ~ {{ beautifyValue(bamfUSDKDARewardWeek / 7) }} USD</h4>
+              <h4>{{ beautifyValue(kdaStratusWeek / 7 ) }} KDA ~ {{ beautifyValue(bamfUSDKDARewardWeek / 7) }} USD</h4>
               <h4>{{ beautifyValue((bamfUSDRewardWeek / 7) + (bamfUSDKDARewardWeek / 7)) }} USD</h4>
               <br><br>
               <h3>per week</h3>
               <h4>{{ beautifyValue(bamfWeek) }} FLUX ~ {{ beautifyValue(bamfUSDRewardWeek) }} USD</h4>
-              <h4>{{ beautifyValue(kdaBamfWeek ) }} KDA ~ {{ beautifyValue(bamfUSDKDARewardWeek) }} USD</h4>
+              <h4>{{ beautifyValue(kdaStratusWeek ) }} KDA ~ {{ beautifyValue(bamfUSDKDARewardWeek) }} USD</h4>
               <h4>{{ beautifyValue((bamfUSDRewardWeek) + (bamfUSDKDARewardWeek)) }} USD</h4>
               <br><br>
               <h3>per month</h3>
               <h4>{{ beautifyValue(bamfWeek * 4.34812141) }} FLUX ~ {{ beautifyValue(bamfUSDRewardWeek * 4.34812141) }} USD</h4>
-              <h4>{{ beautifyValue(kdaBamfWeek * 4.34812141) }} KDA ~ {{ beautifyValue(bamfUSDKDARewardWeek * 4.34812141) }} USD</h4>
+              <h4>{{ beautifyValue(kdaStratusWeek * 4.34812141) }} KDA ~ {{ beautifyValue(bamfUSDKDARewardWeek * 4.34812141) }} USD</h4>
               <h4>{{ beautifyValue((bamfUSDRewardWeek * 4.34812141) + (bamfUSDKDARewardWeek * 4.34812141)) }} USD</h4>
               <br><br>
               <h3>Profitability per month - Node Cost 32 USD</h3>
@@ -385,8 +385,8 @@ export default {
       bamfUSDRewardWeek: 0,
       superUSDKDARewardWeek: 0,
       bamfUSDKDARewardWeek: 0,
-      kdaSuperWeek: 0,
-      kdaBamfWeek: 0,
+      kdaNimbusWeek: 0,
+      kdaStratusWeek: 0,
     };
   },
   computed: {
@@ -458,9 +458,9 @@ export default {
       try {
         const resCount = await DashboardService.zelnodeCount();
         const counts = resCount.data.data;
-        const bamfs = counts['bamf-enabled'];
-        const supers = counts['super-enabled'];
-        const basics = counts['basic-enabled'];
+        const bamfs = counts['bamf-enabled'] || counts['stratus-enabled'];
+        const supers = counts['super-enabled'] || counts['nimbus-enabled'];
+        const basics = counts['basic-enabled'] || counts['cumulus-enabled'];
         console.log(resCount);
         const supply = bamfs * 100000 + supers * 25000 + basics * 10000;
         this.lockedSupply = supply;
@@ -473,33 +473,33 @@ export default {
     async generateEconomics(zelnodecounts) {
       try {
         console.log(this.rates);
-        const bamfs = zelnodecounts['bamf-enabled'];
-        const supers = zelnodecounts['super-enabled'];
-        const basics = zelnodecounts['basic-enabled'];
+        const bamfs = zelnodecounts['bamf-enabled'] || zelnodecounts['stratus-enabled'];
+        const supers = zelnodecounts['super-enabled'] || zelnodecounts['nimbus-enabled'];
+        const basics = zelnodecounts['basic-enabled'] || zelnodecounts['cumulus-enabled'];
         const resKDAEligible = await axios.get('https://api.flux.zel.network/kadena/eligible/7');
         const kdaData = resKDAEligible.data.data;
         const kdaCoins = 5749.77;
-        const supersS = kdaData.filter((result) => result.tier === 'SUPER');
-        const bamfsS = kdaData.filter((result) => result.tier === 'BAMF');
-        const totalSupers = supersS.length;
-        const totalBamfs = bamfsS.length;
-        const overallTotal = totalSupers + (4 * totalBamfs);
-        const perSuperWeek = Number((kdaCoins / overallTotal).toFixed(4)); // KDA
-        const perBamfWeek = Number(((kdaCoins / overallTotal) * 4).toFixed(4)); // KDA
-        const perBasicNode = 2.8125;
-        const perSuperNode = 4.6875;
-        const perBamfNode = 11.25;
+        const supersS = kdaData.filter((result) => (result.tier === 'SUPER' || result.tier === 'NIMBUS'));
+        const bamfsS = kdaData.filter((result) => (result.tier === 'BAMF' || result.tier === 'STRATUS'));
+        const totalNimbuss = supersS.length;
+        const totalStratuss = bamfsS.length;
+        const overallTotal = totalNimbuss + (4 * totalStratuss);
+        const perNimbusWeek = Number((kdaCoins / overallTotal).toFixed(4)); // KDA
+        const perStratusWeek = Number(((kdaCoins / overallTotal) * 4).toFixed(4)); // KDA
+        const perCumulusNode = 2.8125;
+        const perNimbusNode = 4.6875;
+        const perStratusNode = 11.25;
         // eslint-disable-next-line no-mixed-operators
-        const basicWeek = perBasicNode * 720 * 7 / basics;
+        const basicWeek = perCumulusNode * 720 * 7 / basics;
         // eslint-disable-next-line no-mixed-operators
-        const superWeek = perSuperNode * 720 * 7 / supers;
+        const superWeek = perNimbusNode * 720 * 7 / supers;
         // eslint-disable-next-line no-mixed-operators
-        const bamfWeek = perBamfNode * 720 * 7 / bamfs;
-        const basicUSDReward = this.getFiatRate('ZEL') * perBasicNode; // per one go
-        const superUSDReward = this.getFiatRate('ZEL') * perSuperNode; // per one go
-        const bamfUSDReward = this.getFiatRate('ZEL') * perBamfNode; // per one go
-        const superUSDKDARewardWeek = this.getFiatRate('KDA') * perSuperWeek; // per week
-        const bamfUSDKDARewardWeek = this.getFiatRate('KDA') * perBamfWeek; // per week
+        const bamfWeek = perStratusNode * 720 * 7 / bamfs;
+        const basicUSDReward = this.getFiatRate('ZEL') * perCumulusNode; // per one go
+        const superUSDReward = this.getFiatRate('ZEL') * perNimbusNode; // per one go
+        const bamfUSDReward = this.getFiatRate('ZEL') * perStratusNode; // per one go
+        const superUSDKDARewardWeek = this.getFiatRate('KDA') * perNimbusWeek; // per week
+        const bamfUSDKDARewardWeek = this.getFiatRate('KDA') * perStratusWeek; // per week
         // 720 blocks per day.
         // eslint-disable-next-line no-mixed-operators
         const basicUSDRewardWeek = 7 * 720 * basicUSDReward / basics;
@@ -515,8 +515,8 @@ export default {
         this.bamfUSDRewardWeek = bamfUSDRewardWeek;
         this.superUSDKDARewardWeek = superUSDKDARewardWeek;
         this.bamfUSDKDARewardWeek = bamfUSDKDARewardWeek;
-        this.kdaSuperWeek = perSuperWeek;
-        this.kdaBamfWeek = perBamfWeek;
+        this.kdaNimbusWeek = perNimbusWeek;
+        this.kdaStratusWeek = perStratusWeek;
 
         const self = this;
         axios.get('https://api.coingecko.com/api/v3/coins/zelcash/market_chart?vs_currency=USD&days=30').then((res2) => {
@@ -637,9 +637,9 @@ export default {
       // Create chart instance
       const chart = am4core.create('cpucurrent', am4charts.XYChart);
 
-      const basics = this.fluxList.filter((nodes) => nodes.tier === 'BASIC');
-      const supers = this.fluxList.filter((nodes) => nodes.tier === 'SUPER');
-      const bamfs = this.fluxList.filter((nodes) => nodes.tier === 'BAMF');
+      const basics = this.fluxList.filter((nodes) => (nodes.tier === 'BASIC' || nodes.tier === 'CUMULUS'));
+      const supers = this.fluxList.filter((nodes) => (nodes.tier === 'SUPER' || nodes.tier === 'NIMBUS'));
+      const bamfs = this.fluxList.filter((nodes) => (nodes.tier === 'BAMF' || nodes.tier === 'STRATUS'));
 
       const basicValue = basics.length * 2;
       const superValue = supers.length * 4;
@@ -650,15 +650,15 @@ export default {
       // Add data
       chart.data = [
         {
-          category: 'Basic',
+          category: 'Cumulus',
           value: basicValue,
         },
         {
-          category: 'Super',
+          category: 'Nimbus',
           value: superValue,
         },
         {
-          category: 'Bamf',
+          category: 'Stratus',
           value: bamfValue,
         },
       ];
@@ -695,9 +695,9 @@ export default {
       // Create chart instance
       const chart = am4core.create('ramcurrent', am4charts.XYChart);
 
-      const basics = this.fluxList.filter((nodes) => nodes.tier === 'BASIC');
-      const supers = this.fluxList.filter((nodes) => nodes.tier === 'SUPER');
-      const bamfs = this.fluxList.filter((nodes) => nodes.tier === 'BAMF');
+      const basics = this.fluxList.filter((nodes) => (nodes.tier === 'BASIC' || nodes.tier === 'CUMULUS'));
+      const supers = this.fluxList.filter((nodes) => (nodes.tier === 'SUPER' || nodes.tier === 'NIMBUS'));
+      const bamfs = this.fluxList.filter((nodes) => (nodes.tier === 'BAMF' || nodes.tier === 'STRATUS'));
 
       const basicValue = basics.length * 4;
       const superValue = supers.length * 8;
@@ -708,15 +708,15 @@ export default {
       // Add data
       chart.data = [
         {
-          category: 'Basic',
+          category: 'Cumulus',
           value: basicValue,
         },
         {
-          category: 'Super',
+          category: 'Nimbus',
           value: superValue,
         },
         {
-          category: 'Bamf',
+          category: 'Stratus',
           value: bamfValue,
         },
       ];
@@ -753,9 +753,9 @@ export default {
       // Create chart instance
       const chart = am4core.create('ssdcurrent', am4charts.XYChart);
 
-      const basics = this.fluxList.filter((nodes) => nodes.tier === 'BASIC');
-      const supers = this.fluxList.filter((nodes) => nodes.tier === 'SUPER');
-      const bamfs = this.fluxList.filter((nodes) => nodes.tier === 'BAMF');
+      const basics = this.fluxList.filter((nodes) => (nodes.tier === 'BASIC' || nodes.tier === 'CUMULUS'));
+      const supers = this.fluxList.filter((nodes) => (nodes.tier === 'SUPER' || nodes.tier === 'NIMBUS'));
+      const bamfs = this.fluxList.filter((nodes) => (nodes.tier === 'BAMF' || nodes.tier === 'STRATUS'));
 
       const basicValue = basics.length * 40;
       const superValue = supers.length * 150;
@@ -766,15 +766,15 @@ export default {
       // Add data
       chart.data = [
         {
-          category: 'Basic',
+          category: 'Cumulus',
           value: basicValue,
         },
         {
-          category: 'Super',
+          category: 'Nimbus',
           value: superValue,
         },
         {
-          category: 'Bamf',
+          category: 'Stratus',
           value: bamfValue,
         },
       ];
@@ -831,10 +831,10 @@ export default {
       valueAxis.tooltip.disabled = true;
 
       const series = chart.series.push(new am4charts.LineSeries());
-      series.name = 'Bamf';
+      series.name = 'Stratus';
       series.dataFields.dateX = 'time';
       series.dataFields.valueY = 'bamf';
-      series.tooltipText = 'Bamf [bold]{valueY.value}[/]';
+      series.tooltipText = 'Stratus [bold]{valueY.value}[/]';
       series.tooltip.background.fill = am4core.color('#000');
       series.tooltip.getStrokeFromObject = true;
       series.tooltip.background.strokeWidth = 3;
@@ -844,10 +844,10 @@ export default {
       series.stacked = true;
 
       const series2 = chart.series.push(new am4charts.LineSeries());
-      series2.name = 'Super';
+      series2.name = 'Nimbus';
       series2.dataFields.dateX = 'time';
       series2.dataFields.valueY = 'super';
-      series2.tooltipText = 'Super [bold]{valueY.value}[/]';
+      series2.tooltipText = 'Nimbus [bold]{valueY.value}[/]';
       series2.tooltip.background.fill = am4core.color('#000');
       series2.tooltip.getFillFromObject = false;
       series2.tooltip.getStrokeFromObject = true;
@@ -858,10 +858,10 @@ export default {
       series2.strokeWidth = 2;
 
       const series3 = chart.series.push(new am4charts.LineSeries());
-      series3.name = 'Basic';
+      series3.name = 'Cumulus';
       series3.dataFields.dateX = 'time';
       series3.dataFields.valueY = 'basic';
-      series3.tooltipText = 'Basic [bold]{valueY.value}[/]';
+      series3.tooltipText = 'Cumulus [bold]{valueY.value}[/]';
       series3.tooltip.background.fill = am4core.color('#000');
       series3.tooltip.getFillFromObject = false;
       series3.tooltip.getStrokeFromObject = true;
@@ -912,10 +912,10 @@ export default {
       valueAxis.tooltip.disabled = true;
 
       const series = chart.series.push(new am4charts.LineSeries());
-      series.name = 'Bamf';
+      series.name = 'Stratus';
       series.dataFields.dateX = 'time';
       series.dataFields.valueY = 'bamf';
-      series.tooltipText = 'Bamf [bold]{valueY.value}[/]';
+      series.tooltipText = 'Stratus [bold]{valueY.value}[/]';
       series.tooltip.background.fill = am4core.color('#000');
       series.tooltip.getStrokeFromObject = true;
       series.tooltip.background.strokeWidth = 3;
@@ -925,10 +925,10 @@ export default {
       series.stacked = true;
 
       const series2 = chart.series.push(new am4charts.LineSeries());
-      series2.name = 'Super';
+      series2.name = 'Nimbus';
       series2.dataFields.dateX = 'time';
       series2.dataFields.valueY = 'super';
-      series2.tooltipText = 'Super [bold]{valueY.value}[/]';
+      series2.tooltipText = 'Nimbus [bold]{valueY.value}[/]';
       series2.tooltip.background.fill = am4core.color('#000');
       series2.tooltip.getFillFromObject = false;
       series2.tooltip.getStrokeFromObject = true;
@@ -939,10 +939,10 @@ export default {
       series2.strokeWidth = 2;
 
       const series3 = chart.series.push(new am4charts.LineSeries());
-      series3.name = 'Basic';
+      series3.name = 'Cumulus';
       series3.dataFields.dateX = 'time';
       series3.dataFields.valueY = 'basic';
-      series3.tooltipText = 'Basic [bold]{valueY.value}[/]';
+      series3.tooltipText = 'Cumulus [bold]{valueY.value}[/]';
       series3.tooltip.background.fill = am4core.color('#000');
       series3.tooltip.getFillFromObject = false;
       series3.tooltip.getStrokeFromObject = true;
@@ -993,10 +993,10 @@ export default {
       valueAxis.tooltip.disabled = true;
 
       const series = chart.series.push(new am4charts.LineSeries());
-      series.name = 'Bamf';
+      series.name = 'Stratus';
       series.dataFields.dateX = 'time';
       series.dataFields.valueY = 'bamf';
-      series.tooltipText = 'Bamf [bold]{valueY.value}[/]';
+      series.tooltipText = 'Stratus [bold]{valueY.value}[/]';
       series.tooltip.background.fill = am4core.color('#000');
       series.tooltip.getStrokeFromObject = true;
       series.tooltip.background.strokeWidth = 3;
@@ -1006,10 +1006,10 @@ export default {
       series.stacked = true;
 
       const series2 = chart.series.push(new am4charts.LineSeries());
-      series2.name = 'Super';
+      series2.name = 'Nimbus';
       series2.dataFields.dateX = 'time';
       series2.dataFields.valueY = 'super';
-      series2.tooltipText = 'Super [bold]{valueY.value}[/]';
+      series2.tooltipText = 'Nimbus [bold]{valueY.value}[/]';
       series2.tooltip.background.fill = am4core.color('#000');
       series2.tooltip.getFillFromObject = false;
       series2.tooltip.getStrokeFromObject = true;
@@ -1020,10 +1020,10 @@ export default {
       series2.strokeWidth = 2;
 
       const series3 = chart.series.push(new am4charts.LineSeries());
-      series3.name = 'Basic';
+      series3.name = 'Cumulus';
       series3.dataFields.dateX = 'time';
       series3.dataFields.valueY = 'basic';
-      series3.tooltipText = 'Basic [bold]{valueY.value}[/]';
+      series3.tooltipText = 'Cumulus [bold]{valueY.value}[/]';
       series3.tooltip.background.fill = am4core.color('#000');
       series3.tooltip.getFillFromObject = false;
       series3.tooltip.getStrokeFromObject = true;
@@ -1074,10 +1074,10 @@ export default {
       valueAxis.tooltip.disabled = true;
 
       const series = chart.series.push(new am4charts.LineSeries());
-      series.name = 'Bamf';
+      series.name = 'Stratus';
       series.dataFields.dateX = 'time';
       series.dataFields.valueY = 'bamf';
-      series.tooltipText = 'Bamf [bold]{valueY.value}[/]';
+      series.tooltipText = 'Stratus [bold]{valueY.value}[/]';
       series.tooltip.background.fill = am4core.color('#000');
       series.tooltip.getStrokeFromObject = true;
       series.tooltip.background.strokeWidth = 3;
@@ -1087,10 +1087,10 @@ export default {
       series.stacked = true;
 
       const series2 = chart.series.push(new am4charts.LineSeries());
-      series2.name = 'Super';
+      series2.name = 'Nimbus';
       series2.dataFields.dateX = 'time';
       series2.dataFields.valueY = 'super';
-      series2.tooltipText = 'Super [bold]{valueY.value}[/]';
+      series2.tooltipText = 'Nimbus [bold]{valueY.value}[/]';
       series2.tooltip.background.fill = am4core.color('#000');
       series2.tooltip.getFillFromObject = false;
       series2.tooltip.getStrokeFromObject = true;
@@ -1101,10 +1101,10 @@ export default {
       series2.strokeWidth = 2;
 
       const series3 = chart.series.push(new am4charts.LineSeries());
-      series3.name = 'Basic';
+      series3.name = 'Cumulus';
       series3.dataFields.dateX = 'time';
       series3.dataFields.valueY = 'basic';
-      series3.tooltipText = 'Basic [bold]{valueY.value}[/]';
+      series3.tooltipText = 'Cumulus [bold]{valueY.value}[/]';
       series3.tooltip.background.fill = am4core.color('#000');
       series3.tooltip.getFillFromObject = false;
       series3.tooltip.getStrokeFromObject = true;
@@ -1140,15 +1140,15 @@ export default {
       // Add data
       chart.data = [
         {
-          type: 'Bamf',
+          type: 'Stratus',
           value: this.fluxHistoryStats[max].bamf,
         },
         {
-          type: 'Super',
+          type: 'Nimbus',
           value: this.fluxHistoryStats[max].super,
         },
         {
-          type: 'Basic',
+          type: 'Cumulus',
           value: this.fluxHistoryStats[max].basic,
         },
       ];
@@ -1220,15 +1220,15 @@ export default {
       // Add data
       chart.data = [
         {
-          type: 'Bamf ',
+          type: 'Stratus ',
           value: bamfS,
         },
         {
-          type: 'Super',
+          type: 'Nimbus',
           value: superS,
         },
         {
-          type: 'Basic',
+          type: 'Cumulus',
           value: basicS,
         },
       ];

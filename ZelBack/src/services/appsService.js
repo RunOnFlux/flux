@@ -2567,31 +2567,31 @@ function checkHWParameters(appSpecs) {
   }
   if (appSpecs.tiered) {
     if ((appSpecs.cpubasic * 10) % 1 !== 0 || (appSpecs.cpubasic * 10) > (config.fluxSpecifics.cpu.basic - config.lockedSystemResources.cpu) || appSpecs.cpubasic < 0.1) {
-      return new Error('CPU for BASIC badly assigned');
+      return new Error('CPU for Cumulus badly assigned');
     }
     if (appSpecs.rambasic % 100 !== 0 || appSpecs.rambasic > (config.fluxSpecifics.ram.basic - config.lockedSystemResources.ram) || appSpecs.rambasic < 100) {
-      return new Error('RAM for BASIC badly assigned');
+      return new Error('RAM for Cumulus badly assigned');
     }
     if (appSpecs.hddbasic % 1 !== 0 || appSpecs.hddbasic > (config.fluxSpecifics.hdd.basic - config.lockedSystemResources.hdd) || appSpecs.hddbasic < 1) {
-      return new Error('SSD for BASIC badly assigned');
+      return new Error('SSD for Cumulus badly assigned');
     }
     if ((appSpecs.cpusuper * 10) % 1 !== 0 || (appSpecs.cpusuper * 10) > (config.fluxSpecifics.cpu.super - config.lockedSystemResources.cpu) || appSpecs.cpusuper < 0.1) {
-      return new Error('CPU for SUPER badly assigned');
+      return new Error('CPU for Nimbus badly assigned');
     }
     if (appSpecs.ramsuper % 100 !== 0 || appSpecs.ramsuper > (config.fluxSpecifics.ram.super - config.lockedSystemResources.ram) || appSpecs.ramsuper < 100) {
-      return new Error('RAM for SUPER badly assigned');
+      return new Error('RAM for Nimbus badly assigned');
     }
     if (appSpecs.hddsuper % 1 !== 0 || appSpecs.hddsuper > (config.fluxSpecifics.hdd.super - config.lockedSystemResources.hdd) || appSpecs.hddsuper < 1) {
-      return new Error('SSD for SUPER badly assigned');
+      return new Error('SSD for Nimbus badly assigned');
     }
     if ((appSpecs.cpubamf * 10) % 1 !== 0 || (appSpecs.cpubamf * 10) > (config.fluxSpecifics.cpu.bamf - config.lockedSystemResources.cpu) || appSpecs.cpubamf < 0.1) {
-      return new Error('CPU for BAMF badly assigned');
+      return new Error('CPU for Stratus badly assigned');
     }
     if (appSpecs.rambamf % 100 !== 0 || appSpecs.rambamf > (config.fluxSpecifics.ram.bamf - config.lockedSystemResources.ram) || appSpecs.rambamf < 100) {
-      return new Error('RAM for BAMF badly assigned');
+      return new Error('RAM for Stratus badly assigned');
     }
     if (appSpecs.hddbamf % 1 !== 0 || appSpecs.hddbamf > (config.fluxSpecifics.hdd.bamf - config.lockedSystemResources.hdd) || appSpecs.hddbamf < 1) {
-      return new Error('SSD for BAMF badly assigned');
+      return new Error('SSD for Stratus badly assigned');
     }
   }
   return true;
