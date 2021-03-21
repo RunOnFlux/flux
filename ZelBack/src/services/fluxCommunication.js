@@ -93,6 +93,28 @@ async function getMyFluxIP() {
   return myIP;
 }
 
+async function getBenchPublicIp() {
+  const benchIpResponse = await daemonService.getBenchPublicIp();
+  let myIP = null;
+  if (benchIpResponse.status === 'success') {
+      myIP = benchIpResponse.data.length > 5 ? benchIpResponse.data : null;
+  } else {
+    dosMessage = benchIpResponse.data;
+    dosState += 10;
+  }
+  myFluxIP = myIP;
+  return myIP;
+}
+
+async function restartNodeBenchMarks() {
+  const restartNode = await daemonService.restartNodeBenchmarks();
+  if (restartNode.status !== 'success') {
+    dosMessage = benchIpResponse.data;
+    dosState += 10;
+  }
+}
+
+
 // get deterministc Flux list from cache
 // filter can only be a publicKey!
 async function deterministicFluxList(filter) {
@@ -1055,7 +1077,7 @@ async function checkMyFluxAvailability(nodelist) {
   // run if at least 10 available nodes
   if (nodelist.length > 10) {
     let askingIP = await getRandomConnection();
-    if (typeof askingIP !== 'string' || typeof myFluxIP !== 'string') {
+    if (typeof askingIP !== 'string' || typeof myFluxIP !== 'string' || myFluxIP === askingIP) {
       return;
     }
     if (askingIP.includes(':')) {
@@ -1081,7 +1103,13 @@ async function checkMyFluxAvailability(nodelist) {
     }
     if (resMyAvailability.data.status === 'error' || resMyAvailability.data.data.message.includes('not')) {
       log.error(`My Flux unavailability detected from ${askingIP}`);
-      // Asked Flux cannot reach me
+      // Asked Flux cannot reach me lets check if ip changed
+      const publicIp = await getBenchPublicIp();
+      if(publicIp && publicIp !== myIP){
+        await restartNodeBenchMarks();
+        await serviceHelper.delay(2*60*1000); //lets wait two minutes
+        return;
+      }
       dosState += 1.5;
       if (dosState > 10) {
         dosMessage = dosMessage || 'Flux is not available for outside communication';
@@ -1179,9 +1207,16 @@ async function checkDeterministicNodesCollisions() {
         log.error(dosMessage);
       }
     }
+    setTimeout(() => {
+      checkDeterministicNodesCollisions();
+    }, 60 * 1000);
   } catch (error) {
     log.error(error);
+    setTimeout(() => {
+      checkDeterministicNodesCollisions();
+    }, 120 * 1000);
   }
+
 }
 
 async function getDOSState(req, res) {

@@ -44,9 +44,6 @@ async function startFluxFunctions() {
     daemonService.daemonBlockchainInfoService();
     log.info('Flux Daemon Info Service Started');
     fluxCommunication.checkDeterministicNodesCollisions();
-    setInterval(() => {
-      fluxCommunication.checkDeterministicNodesCollisions();
-    }, 60000);
     log.info('Flux checks operational');
     fluxCommunication.fluxDiscovery();
     log.info('Flux Discovery started');
