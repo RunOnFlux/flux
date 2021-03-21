@@ -102,8 +102,14 @@
             >
             </el-table-column>
             <el-table-column
-              label="Round Trip Time"
-              prop="rtt"
+              label="Latency"
+              prop="latency"
+              sortable
+            >
+            </el-table-column>
+            <el-table-column
+              label="Last Ping"
+              prop="lastPingTime"
               sortable
             >
             </el-table-column>
@@ -158,12 +164,6 @@
             <el-table-column
               label="IP address"
               prop="ip"
-              sortable
-            >
-            </el-table-column>
-            <el-table-column
-              label="Round Trip Time"
-              prop="rtt"
               sortable
             >
             </el-table-column>
@@ -366,7 +366,6 @@ export default {
       this.getInfoResponse.data = response.data.data;
     },
     async daemonGetNodeStatus() {
-      // TODO more code statuses?
       const response = await DaemonService.getZelNodeStatus();
       this.getNodeStatusResponse.status = response.data.status;
       this.getNodeStatusResponse.data = response.data.data;

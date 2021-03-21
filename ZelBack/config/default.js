@@ -24,6 +24,7 @@ module.exports = {
         addressTransactionIndex: 'addresstransactionindex',
         fluxTransactions: 'zelnodetransactions',
         appsHashes: 'zelappshashes',
+        coinbaseFusionIndex: 'coinbasefusionindex',
       },
     },
     appslocal: {

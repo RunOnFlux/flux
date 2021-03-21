@@ -40,7 +40,6 @@ async function startFluxFunctions() {
     fluxCommunication.adjustFirewall();
     log.info('Firewalls checked');
     fluxCommunication.keepConnectionsAlive();
-    fluxCommunication.keepIncomingConnectionsAlive();
     log.info('Connections polling prepared');
     daemonService.daemonBlockchainInfoService();
     log.info('Flux Daemon Info Service Started');
@@ -49,22 +48,21 @@ async function startFluxFunctions() {
       fluxCommunication.checkDeterministicNodesCollisions();
     }, 60000);
     log.info('Flux checks operational');
-    setTimeout(() => {
-      fluxCommunication.fluxDiscovery();
-      log.info('Flux Discovery started');
-    }, 20 * 1000);
-    setTimeout(() => {
+    fluxCommunication.fluxDiscovery();
+    log.info('Flux Discovery started');
+    setTimeout(() => { // wait as of restarts due to ui building
       explorerService.initiateBlockProcessor(true, true);
       log.info('Flux Block Processing Service started');
-    }, 40 * 1000);
-    setInterval(() => { // every 8 mins (4 blocks)
-      appsService.continuousFluxAppHashesCheck();
-    }, 8 * 60 * 1000);
+    }, 2 * 60 * 1000);
     setInterval(() => { // every 4 mins (2 blocks)
       appsService.checkAndNotifyPeersOfRunningApps();
     }, 4 * 60 * 1000);
+    setInterval(() => { // every 8 mins (4 blocks)
+      appsService.continuousFluxAppHashesCheck();
+    }, 8 * 60 * 1000);
     setTimeout(() => {
       // after 16 minutes of running ok.
+      // is stopped on basics
       log.info('Starting to spawn applications');
       appsService.trySpawningGlobalApplication();
     }, 16 * 60 * 1000);

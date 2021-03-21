@@ -1,5 +1,6 @@
 /ZelFront/dist/
 /config/userconfig.js
-/lib/
+/lib/zelcashrpc/
+/lib/daemonrpc/
 /tests/
 /ZelApps/

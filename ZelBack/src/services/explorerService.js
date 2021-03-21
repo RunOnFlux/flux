@@ -5,6 +5,7 @@ const serviceHelper = require('./serviceHelper');
 const daemonService = require('./daemonService');
 const appsService = require('./appsService');
 
+const coinbaseFusionIndexCollection = config.database.daemon.collections.coinbaseFusionIndex; // fusion
 const utxoIndexCollection = config.database.daemon.collections.utxoIndex;
 const appsHashesCollection = config.database.daemon.collections.appsHashes;
 const addressTransactionIndexCollection = config.database.daemon.collections.addressTransactionIndex;
@@ -171,6 +172,10 @@ async function processTransaction(txContent, height) {
         };
         // put the utxo to our mongoDB utxoIndex collection.
         await serviceHelper.insertOneToDatabase(database, utxoIndexCollection, utxoDetail);
+        // track coinbase txs for additional rewards on paralel chains for fusion
+        if (coinbase && height > 825000) { // 825000 is snapshot, 825001 is first block eligible for rewards on other chains
+          await serviceHelper.insertOneToDatabase(database, coinbaseFusionIndexCollection, utxoDetail);
+        }
       }
     }));
 
@@ -344,6 +349,8 @@ async function processBlock(blockHeight) {
       log.info(`UTXO documents: ${result.size}, ${result.count}, ${result.avgObjSize}`);
       log.info(`ADDR documents: ${resultB.size}, ${resultB.count}, ${resultB.avgObjSize}`);
       log.info(`FLUX documents: ${resultC.size}, ${resultC.count}, ${resultC.avgObjSize}`);
+      const resultFusion = await serviceHelper.collectionStats(database, coinbaseFusionIndexCollection);
+      log.info(`Fusion documents: ${resultFusion.size}, ${resultFusion.count}, ${resultFusion.avgObjSize}`);
       if (blockDataVerbose.height >= config.fluxapps.epochstart) {
         appsService.expireGlobalApplications();
       }
@@ -415,6 +422,8 @@ async function restoreDatabaseToBlockheightState(height, rescanGlobalApps = fals
 
   // restore utxoDatabase collection
   await serviceHelper.removeDocumentsFromCollection(database, utxoIndexCollection, query);
+  // restore coinbaseDatabase collection
+  await serviceHelper.removeDocumentsFromCollection(database, coinbaseFusionIndexCollection, query);
   // restore addressTransactionIndex collection
   // remove transactions with height bigger than our scanned height
   await serviceHelper.updateInDatabase(database, addressTransactionIndexCollection, queryForAddresses, projection);
@@ -494,12 +503,21 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
           throw error;
         }
       });
-      log.info(result, resultB, resultC, resultD);
+      const resultFusion = await serviceHelper.dropCollection(database, coinbaseFusionIndexCollection).catch((error) => {
+        if (error.message !== 'ns not found') {
+          throw error;
+        }
+      });
+      log.info(result, resultB, resultC, resultD, resultFusion);
 
       await database.collection(utxoIndexCollection).createIndex({ txid: 1, vout: 1 }, { name: 'query for getting utxo', unique: true });
       await database.collection(utxoIndexCollection).createIndex({ txid: 1, vout: 1, satoshis: 1 }, { name: 'query for getting utxo for zelnode tx', unique: true });
       await database.collection(utxoIndexCollection).createIndex({ address: 1 }, { name: 'query for addresses utxo' });
       await database.collection(utxoIndexCollection).createIndex({ scriptPubKey: 1 }, { name: 'query for scriptPubKey utxo' });
+      await database.collection(coinbaseFusionIndexCollection).createIndex({ txid: 1, vout: 1 }, { name: 'query for getting coinbase fusion utxo', unique: true });
+      await database.collection(coinbaseFusionIndexCollection).createIndex({ txid: 1, vout: 1, satoshis: 1 }, { name: 'query for getting coinbase fusion utxo for zelnode tx', unique: true });
+      await database.collection(coinbaseFusionIndexCollection).createIndex({ address: 1 }, { name: 'query for addresses coinbase fusion utxo' });
+      await database.collection(coinbaseFusionIndexCollection).createIndex({ scriptPubKey: 1 }, { name: 'query for scriptPubKey coinbase fusion utxo' });
       await database.collection(addressTransactionIndexCollection).createIndex({ address: 1 }, { name: 'query for addresses transactions' });
       await database.collection(addressTransactionIndexCollection).createIndex({ address: 1, count: 1 }, { name: 'query for addresses transactions with count' });
       await database.collection(fluxTransactionCollection).createIndex({ ip: 1 }, { name: 'query for getting list of zelnode txs associated to IP address' });
@@ -659,6 +677,33 @@ async function getAllUtxos(req, res) {
   }
 }
 
+async function getAllFusionCoinbase(req, res) {
+  try {
+    const dbopen = serviceHelper.databaseConnection();
+    const database = dbopen.db(config.database.daemon.database);
+    const query = {};
+    const projection = {
+      projection: {
+        _id: 0,
+        txid: 1,
+        vout: 1,
+        height: 1,
+        address: 1,
+        satoshis: 1,
+        scriptPubKey: 1,
+        coinbase: 1,
+      },
+    };
+    const results = await serviceHelper.findInDatabase(database, coinbaseFusionIndexCollection, query, projection);
+    const resMessage = serviceHelper.createDataMessage(results);
+    res.json(resMessage);
+  } catch (error) {
+    log.error(error);
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+  }
+}
+
 async function getAllFluxTransactions(req, res) {
   try {
     const dbopen = serviceHelper.databaseConnection();
@@ -752,6 +797,38 @@ async function getAddressUtxos(req, res) {
       },
     };
     const results = await serviceHelper.findInDatabase(database, utxoIndexCollection, query, projection);
+    const resMessage = serviceHelper.createDataMessage(results);
+    res.json(resMessage);
+  } catch (error) {
+    log.error(error);
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+  }
+}
+
+async function getAddressFusionCoinbase(req, res) {
+  try {
+    let { address } = req.params; // we accept both help/command and help?command=getinfo
+    address = address || req.query.address;
+    if (!address) {
+      throw new Error('No address provided');
+    }
+    const dbopen = serviceHelper.databaseConnection();
+    const database = dbopen.db(config.database.daemon.database);
+    const query = { address };
+    const projection = {
+      projection: {
+        _id: 0,
+        txid: 1,
+        vout: 1,
+        height: 1,
+        address: 1,
+        satoshis: 1,
+        scriptPubKey: 1,
+        coinbase: 1,
+      },
+    };
+    const results = await serviceHelper.findInDatabase(database, coinbaseFusionIndexCollection, query, projection);
     const resMessage = serviceHelper.createDataMessage(results);
     res.json(resMessage);
   } catch (error) {
@@ -1069,4 +1146,6 @@ module.exports = {
   getAddressBalance,
   getFilteredFluxTxs,
   getScannedHeight,
+  getAllFusionCoinbase,
+  getAddressFusionCoinbase,
 };

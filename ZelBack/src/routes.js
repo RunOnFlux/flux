@@ -8,6 +8,12 @@ const fluxCommunication = require('./services/fluxCommunication');
 const appsService = require('./services/appsService');
 const explorerService = require('./services/explorerService');
 
+function isLocal(req, res, next) {
+  const remote = req.ip || req.connection.remoteAddress || req.socket.remoteAddress || req.headers['x-forwarded-for'];
+  if (remote === 'localhost' || remote === '127.0.0.1' || remote === '::ffff:127.0.0.1' || remote === '::1') return next();
+  return res.status(401).send('Access denied');
+}
+
 const cache = apicache.middleware;
 
 module.exports = (app, expressWs) => {
@@ -1175,6 +1181,12 @@ module.exports = (app, expressWs) => {
   app.get('/explorer/scannedheight', cache('30 seconds'), (req, res) => {
     explorerService.getScannedHeight(req, res);
   });
+  // app.get('/explorer/fusion/coinbase/all', cache('30 seconds'), (req, res) => {
+  //   explorerService.getAllFusionCoinbase(req, res);
+  // });
+  app.get('/explorer/fusion/coinbase/:address?', cache('30 seconds'), (req, res) => {
+    explorerService.getAddressFusionCoinbase(req, res);
+  });
 
   // GET PROTECTED API - User level
   app.get('/daemon/prioritisetransaction/:txid?/:prioritydelta?/:feedelta?', cache('30 seconds'), (req, res) => {
@@ -1460,19 +1472,19 @@ module.exports = (app, expressWs) => {
   app.get('/flux/restartdaemon', (req, res) => {
     fluxService.restartDaemon(req, res);
   });
-  app.get('/flux/updateflux', (req, res) => { // method shall be called only if zelflux version is obsolete.
+  app.get('/flux/updateflux', (req, res) => { // method shall be called only if flux version is obsolete.
     fluxService.updateFlux(req, res);
   });
-  app.get('/flux/hardupdateflux', (req, res) => { // method shall be called only if zelflux version is obsolete and updatezeflux is not working correctly
+  app.get('/flux/hardupdateflux', (req, res) => { // method shall be called only if flux version is obsolete and updatezeflux is not working correctly
     fluxService.hardUpdateFlux(req, res);
   });
   app.get('/flux/rebuildhome', (req, res) => {
     fluxService.rebuildHome(req, res);
   });
-  app.get('/flux/updatedaemon', (req, res) => { // method shall be called only if zelcash version is obsolete
+  app.get('/flux/updatedaemon', (req, res) => { // method shall be called only if daemon version is obsolete
     fluxService.updateDaemon(req, res);
   });
-  app.get('/flux/updatebenchmark', (req, res) => { // method shall be called only if zelbench version is obsolete
+  app.get('/flux/updatebenchmark', (req, res) => { // method shall be called only if benchamrk version is obsolete
     fluxService.updateBenchmark(req, res);
   });
   app.get('/flux/daemondebug', (req, res) => {
@@ -1535,6 +1547,9 @@ module.exports = (app, expressWs) => {
   });
   app.get('/flux/checkcommunication', (req, res) => {
     fluxCommunication.isCommunicationEstablished(req, res);
+  });
+  app.get('/flux/backendfolder', isLocal, (req, res) => {
+    fluxService.fluxBackendFolder(req, res);
   });
 
   app.get('/benchmark/start', (req, res) => {
@@ -1602,7 +1617,7 @@ module.exports = (app, expressWs) => {
   app.get('/apps/installtemporarylocalapp/KadenaChainWebNode', (req, res) => {
     appsService.installTemporaryLocalApplication(req, res, 'KadenaChainWebNode');
   });
-  app.get('/apps/createzelfluxnetwork', (req, res) => {
+  app.get('/apps/createfluxnetwork', (req, res) => {
     appsService.createFluxNetworkAPI(req, res);
   });
   app.get('/apps/rescanglobalappsinformation/:blockheight?/:removelastinformation?', (req, res) => {
@@ -1722,7 +1737,7 @@ module.exports = (app, expressWs) => {
     idService.wsRespondSignature(ws, req);
   });
 
-  // communication between multiple zelflux solution is on this:
+  // communication between multiple flux solution is on this:
   app.ws('/ws/flux', (ws, req) => {
     fluxCommunication.handleIncomingConnection(ws, req, expressWs.getWss('/ws/flux'));
   });

@@ -1133,9 +1133,9 @@ async function appsResources(req, res) {
       appsHddLocked += serviceHelper.ensureNumber(app.hdd) || 0;
     });
     const appsUsage = {
-      zelAppsCpusLocked: appsCpusLocked,
-      zelAppsRamLocked: appsRamLocked,
-      zelAppsHddLocked: appsHddLocked,
+      appsCpusLocked,
+      appsRamLocked,
+      appsHddLocked,
     };
     const response = serviceHelper.createDataMessage(appsUsage);
     return res ? res.json(response) : response;
@@ -1186,7 +1186,7 @@ async function createAppVolume(appSpecifications, res) {
   if (resourcesLocked.status !== 'success') {
     throw new Error('Unable to obtain locked system resources by Flux App. Aborting.');
   }
-  const hddLockedByApps = resourcesLocked.data.zelAppsHddLocked;
+  const hddLockedByApps = resourcesLocked.data.appsHddLocked;
   const availableSpaceForApps = useableSpaceOnNode - hddLockedByApps + appSpecifications.hdd; // because our application is already accounted in locked resources
   // bigger or equal so we have the 1 gb free...
   if (appSpecifications.hdd >= availableSpaceForApps) {
@@ -1971,7 +1971,7 @@ async function checkAppRequirements(appSpecs) {
 
   const totalSpaceOnNode = config.fluxSpecifics.hdd[tier];
   const useableSpaceOnNode = totalSpaceOnNode - config.lockedSystemResources.hdd;
-  const hddLockedByApps = resourcesLocked.data.zelAppsHddLocked;
+  const hddLockedByApps = resourcesLocked.data.apsHddLocked;
   const availableSpaceForApps = useableSpaceOnNode - hddLockedByApps;
   // bigger or equal so we have the 1 gb free...
   if (appSpecs.hdd >= availableSpaceForApps) {
@@ -1980,7 +1980,7 @@ async function checkAppRequirements(appSpecs) {
 
   const totalCpuOnNode = config.fluxSpecifics.cpu[tier];
   const useableCpuOnNode = totalCpuOnNode - config.lockedSystemResources.cpu;
-  const cpuLockedByApps = resourcesLocked.data.zelAppsCpusLocked * 10;
+  const cpuLockedByApps = resourcesLocked.data.appsCpusLocked * 10;
   const adjustedAppCpu = appSpecs.cpu * 10;
   const availableCpuForApps = useableCpuOnNode - cpuLockedByApps;
   // bigger or equal so we have the 1 gb free...
@@ -1990,7 +1990,7 @@ async function checkAppRequirements(appSpecs) {
 
   const totalRamOnNode = config.fluxSpecifics.ram[tier];
   const useableRamOnNode = totalRamOnNode - config.lockedSystemResources.ram;
-  const ramLockedByApps = resourcesLocked.data.zelAppsRamLocked;
+  const ramLockedByApps = resourcesLocked.data.appsRamLocked;
   const availableRamForApps = useableRamOnNode - ramLockedByApps;
   // bigger or equal so we have the 1 gb free...
   if (appSpecs.ram >= availableRamForApps) {
@@ -2567,31 +2567,31 @@ function checkHWParameters(appSpecs) {
   }
   if (appSpecs.tiered) {
     if ((appSpecs.cpubasic * 10) % 1 !== 0 || (appSpecs.cpubasic * 10) > (config.fluxSpecifics.cpu.basic - config.lockedSystemResources.cpu) || appSpecs.cpubasic < 0.1) {
-      return new Error('CPU for BASIC badly assigned');
+      return new Error('CPU for Cumulus badly assigned');
     }
     if (appSpecs.rambasic % 100 !== 0 || appSpecs.rambasic > (config.fluxSpecifics.ram.basic - config.lockedSystemResources.ram) || appSpecs.rambasic < 100) {
-      return new Error('RAM for BASIC badly assigned');
+      return new Error('RAM for Cumulus badly assigned');
     }
     if (appSpecs.hddbasic % 1 !== 0 || appSpecs.hddbasic > (config.fluxSpecifics.hdd.basic - config.lockedSystemResources.hdd) || appSpecs.hddbasic < 1) {
-      return new Error('SSD for BASIC badly assigned');
+      return new Error('SSD for Cumulus badly assigned');
     }
     if ((appSpecs.cpusuper * 10) % 1 !== 0 || (appSpecs.cpusuper * 10) > (config.fluxSpecifics.cpu.super - config.lockedSystemResources.cpu) || appSpecs.cpusuper < 0.1) {
-      return new Error('CPU for SUPER badly assigned');
+      return new Error('CPU for Nimbus badly assigned');
     }
     if (appSpecs.ramsuper % 100 !== 0 || appSpecs.ramsuper > (config.fluxSpecifics.ram.super - config.lockedSystemResources.ram) || appSpecs.ramsuper < 100) {
-      return new Error('RAM for SUPER badly assigned');
+      return new Error('RAM for Nimbus badly assigned');
     }
     if (appSpecs.hddsuper % 1 !== 0 || appSpecs.hddsuper > (config.fluxSpecifics.hdd.super - config.lockedSystemResources.hdd) || appSpecs.hddsuper < 1) {
-      return new Error('SSD for SUPER badly assigned');
+      return new Error('SSD for Nimbus badly assigned');
     }
     if ((appSpecs.cpubamf * 10) % 1 !== 0 || (appSpecs.cpubamf * 10) > (config.fluxSpecifics.cpu.bamf - config.lockedSystemResources.cpu) || appSpecs.cpubamf < 0.1) {
-      return new Error('CPU for BAMF badly assigned');
+      return new Error('CPU for Stratus badly assigned');
     }
     if (appSpecs.rambamf % 100 !== 0 || appSpecs.rambamf > (config.fluxSpecifics.ram.bamf - config.lockedSystemResources.ram) || appSpecs.rambamf < 100) {
-      return new Error('RAM for BAMF badly assigned');
+      return new Error('RAM for Stratus badly assigned');
     }
     if (appSpecs.hddbamf % 1 !== 0 || appSpecs.hddbamf > (config.fluxSpecifics.hdd.bamf - config.lockedSystemResources.hdd) || appSpecs.hddbamf < 1) {
-      return new Error('SSD for BAMF badly assigned');
+      return new Error('SSD for Stratus badly assigned');
     }
   }
   return true;
@@ -2696,7 +2696,7 @@ async function availableApps(req, res) {
         + 'Chainweb is a braided, parallelized Proof Of Work consensus mechanism that improves throughput and scalability in executing transactions on the blockchain while maintaining the security and integrity found in Bitcoin. '
         + 'The healthy information tells you if your node is running and synced. If you just installed the docker it can say unhealthy for long time because on first run a bootstrap is downloaded and extracted to make your node sync faster before the node is started. '
         + 'Do not stop or restart the docker in the first hour after installation. You can also check if your kadena node is synced, by going to running apps and press visit button on kadena and compare your node height with Kadena explorer. Thank you.',
-      repotag: 'zelcash/kadena-chainweb-node:2.5',
+      repotag: 'zelcash/kadena-chainweb-node:2.6',
       owner: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
       ports: [30004, 30005],
       containerPorts: [30004, 30005],
@@ -2708,7 +2708,7 @@ async function availableApps(req, res) {
       enviromentParameters: ['CHAINWEB_P2P_PORT=30004', 'CHAINWEB_SERVICE_PORT=30005', 'LOGLEVEL=warn'],
       commands: ['/bin/bash', '-c', '(test -d /data/chainweb-db/0 && ./run-chainweb-node.sh) || (/chainweb/initialize-db.sh && ./run-chainweb-node.sh)'],
       containerData: '/data', // cannot be root todo in verification
-      hash: 'localSpecificationsVersion6', // hash of app message
+      hash: 'localSpecificationsVersion7', // hash of app message
       height: 680000, // height of tx on which it was
     },
   ];
@@ -4560,6 +4560,10 @@ async function trySpawningGlobalApplication() {
     // how do we continue with this function function?
     // we have globalapplication specifics list
     // check if we are synced
+    const tier = await nodeTier();
+    if (tier === 'basic') {
+      log.info('Basic node detected. Global applications will not be installed');
+    }
     const synced = await checkSynced();
     if (synced !== true) {
       log.info('Flux not yet synced');
@@ -4626,7 +4630,6 @@ async function trySpawningGlobalApplication() {
     }
     // run the verification
     // get tier and adjust specifications
-    const tier = await nodeTier();
     if (appSpecifications.tiered) {
       const hddTier = `hdd${tier}`;
       const ramTier = `ram${tier}`;
@@ -4726,7 +4729,7 @@ async function checkAndNotifyPeersOfRunningApps() {
         // we can distinguish pure local apps from global with hash and height
         const broadcastedAt = new Date().getTime();
         const newAppRunningMessage = {
-          type: 'zelapprunning', // todo rename to fluxapprunning
+          type: 'fluxapprunning',
           version: 1,
           name: application.name,
           hash: application.hash, // hash of application specifics that are running
@@ -5313,7 +5316,6 @@ async function fluxShareDatabaseShareFile(file) {
       name: file,
       token: crypto.createHash('sha256').update(string).digest('hex'),
     };
-    // put the utxo to our mongoDB utxoIndex collection.
     await serviceHelper.insertOneToDatabase(databaseFluxShare, sharedCollection, fileDetail);
     return fileDetail;
   } catch (error) {

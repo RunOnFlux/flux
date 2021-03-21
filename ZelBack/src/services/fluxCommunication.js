@@ -14,16 +14,18 @@ const daemonService = require('./daemonService');
 const userconfig = require('../../../config/userconfig');
 
 const outgoingConnections = []; // websocket list
-const outgoingPeers = []; // array of objects containing ip and rtt latency
+const outgoingPeers = []; // array of objects containing ip, latency, lastPingTime
 
 const incomingConnections = []; // websocket list
-const incomingPeers = []; // array of objects containing ip and rtt latency
+const incomingPeers = []; // array of objects containing ip
 
 let dosState = 0; // we can start at bigger number later
 let dosMessage = null;
 
 // my external Flux IP from benchmark
 let myFluxIP = null;
+
+let myNodePubKey = null;
 
 let response = serviceHelper.createErrorMessage();
 // default cache
@@ -44,7 +46,7 @@ async function isFluxAvailable(ip) {
     timeout: 8888,
   };
   try {
-    const fluxResponse = await serviceHelper.axiosGet(`http://${ip}:${config.server.apiport}/zelflux/version`, axiosConfig); // TODO adjust
+    const fluxResponse = await serviceHelper.axiosGet(`http://${ip}:${config.server.apiport}/flux/version`, axiosConfig);
     if (fluxResponse.data.status === 'success') {
       return true;
     }
@@ -87,6 +89,7 @@ async function getMyFluxIP() {
     dosMessage = benchmarkResponse.data;
     dosState += 10;
   }
+  myFluxIP = myIP;
   return myIP;
 }
 
@@ -94,7 +97,7 @@ async function getMyFluxIP() {
 // filter can only be a publicKey!
 async function deterministicFluxList(filter) {
   try {
-    if (addingNodesToCache === true) {
+    if (addingNodesToCache) {
       // prevent several instances filling the cache at the same time.
       await serviceHelper.delay(100);
       return deterministicFluxList(filter);
@@ -236,9 +239,21 @@ async function sendToAllPeers(data, wsList) {
       try {
         // eslint-disable-next-line no-await-in-loop
         await serviceHelper.delay(100);
-        client.send(data);
+        if (client.readyState === WebSocket.OPEN) {
+          if (!data) {
+            const pingTime = new Date().getTime();
+            client.ping('flux'); // do ping with flux strc instead
+            const foundPeer = outgoingPeers.find((peer) => peer.ip === client._socket.remoteAddress);
+            if (foundPeer) {
+              foundPeer.lastPingTime = pingTime;
+            }
+          } else {
+            client.send(data);
+          }
+        } else {
+          throw new Error(`Connection to ${client._socket.remoteAddress} is not open`);
+        }
       } catch (e) {
-        console.log(e);
         removals.push(client);
         try {
           const ip = client._socket.remoteAddress;
@@ -280,9 +295,12 @@ async function sendToAllIncomingConnections(data, wsList) {
       try {
         // eslint-disable-next-line no-await-in-loop
         await serviceHelper.delay(100);
-        client.send(data);
+        if (client.readyState === WebSocket.OPEN) {
+          client.send(data);
+        } else {
+          throw new Error(`Connection to ${client._socket.remoteAddress} is not open`);
+        }
       } catch (e) {
-        console.log(e);
         removals.push(client);
         try {
           const ip = client._socket.remoteAddress;
@@ -379,9 +397,9 @@ async function handleAppRunningMessage(message, fromIP) {
 
 async function sendMessageToWS(message, ws) {
   try {
-    const pongResponse = await serialiseAndSignFluxBroadcast(message);
+    const messageSigned = await serialiseAndSignFluxBroadcast(message);
     try {
-      ws.send(pongResponse);
+      ws.send(messageSigned);
     } catch (e) {
       console.error(e);
     }
@@ -463,7 +481,6 @@ function handleIncomingConnection(ws, req, expressWS) {
   incomingConnections.push(ws);
   const peer = {
     ip: ws._socket.remoteAddress,
-    rtt: null,
   };
   incomingPeers.push(peer);
   // verify data integrity, if not signed, close connection
@@ -472,13 +489,14 @@ function handleIncomingConnection(ws, req, expressWS) {
     const { pubKey } = dataObj;
     if (blockedPubKeysCache.has(pubKey)) {
       try {
-        ws.close(1008); // close as of policy violation?
+        log.info('Closing connection, peer is on blockedList');
+        ws.close(1000, 'blocked list'); // close as of policy violation?
       } catch (e) {
         console.error(e);
       }
       return;
     }
-    const currentTimeStamp = Date.now(); // ms
+    const currentTimeStamp = Date.now();
     const messageOK = await verifyFluxBroadcast(msg, undefined, currentTimeStamp);
     if (messageOK === true) {
       const timestampOK = await verifyTimestampInFluxBroadcast(msg, currentTimeStamp);
@@ -491,47 +509,11 @@ function handleIncomingConnection(ws, req, expressWS) {
             respondWithAppMessage(msgObj, ws);
           } else if (msgObj.data.type === 'zelapprunning' || msgObj.data.type === 'fluxapprunning') {
             handleAppRunningMessage(msgObj, ws);
-          } else if (msgObj.data.type === 'HeartBeat' && msgObj.data.message === 'ping') { // we know that data exists
-            const newMessage = msgObj.data;
-            newMessage.message = 'pong';
-            const pongResponse = await serialiseAndSignFluxBroadcast(newMessage);
-            try {
-              ws.send(pongResponse);
-            } catch (error) {
-              console.log(error);
-            }
-          } else if (msgObj.data.type === 'HeartBeat' && msgObj.data.message === 'pong') { // we know that data exists. This is measuring rtt from incoming conn
-            const newerTimeStamp = Date.now(); // ms, get a bit newer time that has passed verification of broadcast
-            const rtt = newerTimeStamp - msgObj.data.timestamp;
-            const ip = ws._socket.remoteAddress;
-            const foundPeer = incomingPeers.find((mypeer) => mypeer.ip === ip);
-            if (foundPeer) {
-              const peerIndex = incomingPeers.indexOf(foundPeer);
-              if (peerIndex > -1) {
-                incomingPeers[peerIndex].rtt = rtt;
-              }
-            }
           } else {
-            try {
-              ws.send(`Flux ${userconfig.initial.ipaddress} says message received!`);
-            } catch (error) {
-              console.log(error);
-            }
+            log.warn(`Unrecognised message type of ${msgObj.data.type}`);
           }
         } catch (e) {
           log.error(e);
-        }
-      // try rebroadcasting to all outgoing peers
-      // try {
-      //   sendToAllPeers(msg);
-      // } catch (e) {
-      //   log.error(e);
-      // }
-      } else {
-        try {
-          ws.send(`Flux ${userconfig.initial.ipaddress} says message received but your message is outdated!`);
-        } catch (e) {
-          console.error(e);
         }
       }
     } else {
@@ -539,7 +521,8 @@ function handleIncomingConnection(ws, req, expressWS) {
       // and add him to blocklist
       try {
         blockedPubKeysCache.set(pubKey, pubKey);
-        ws.close(1008); // close as of policy violation?
+        log.info('closing connection, adding peer to the blockedList');
+        ws.close(1000, 'invalid message, blocked'); // close as of policy violation?
       } catch (e) {
         console.error(e);
       }
@@ -728,32 +711,40 @@ async function getRandomConnection() {
   const randomNode = Math.floor((Math.random() * zlLength)); // we do not really need a 'random'
   const ip = nodeList[randomNode].ip || nodeList[randomNode].ipaddress;
 
-  // const nodeList = ['157.230.249.150', '94.177.240.7', '89.40.115.8', '94.177.241.10', '54.37.234.130', '194.182.83.182'];
-  // const zlLength = nodeList.length;
-  // const randomNode = Math.floor((Math.random() * zlLength)); // we do not really need a 'random'
-  // const ip = nodeList[randomNode];
-
-  // TODO checks for ipv4, ipv6, tor
   if (ip === userconfig.initial.ipaddress || ip === myFluxIP) {
     return null;
   }
-
   return ip;
 }
 
 async function initiateAndHandleConnection(ip) {
-  console.log(`#connectionsOut: ${outgoingConnections.length}`);
-  const wsuri = `ws://${ip}:${config.server.apiport}/ws/zelflux/`; // TODO adjust after version update
+  const wsuri = `ws://${ip}:${config.server.apiport}/ws/flux/`;
   const websocket = new WebSocket(wsuri);
 
-  websocket.on('open', () => {
+  websocket.onopen = () => {
     outgoingConnections.push(websocket);
     const peer = {
       ip: websocket._socket.remoteAddress,
-      rtt: null,
+      lastPingTime: null,
+      latency: null,
     };
     outgoingPeers.push(peer);
-    broadcastMessageToOutgoing('Hello Flux');
+  };
+
+  // every time a ping is sent a pong as received, measure latency
+  websocket.on('pong', () => {
+    try {
+      const curTime = new Date().getTime();
+      const { url } = websocket;
+      let conIP = url.split('/')[2];
+      conIP = conIP.split(`:${config.server.apiport}`).join('');
+      const foundPeer = outgoingPeers.find((peer) => peer.ip === conIP);
+      if (foundPeer) {
+        foundPeer.latency = Math.ceil((curTime - foundPeer.lastPingTime) / 2);
+      }
+    } catch (error) {
+      log.error(error);
+    }
   });
 
   websocket.onclose = (evt) => {
@@ -790,25 +781,6 @@ async function initiateAndHandleConnection(ip) {
         respondWithAppMessage(msgObj, websocket);
       } else if (msgObj.data.type === 'zelapprunning' || msgObj.data.type === 'fluxapprunning') {
         handleAppRunningMessage(msgObj, websocket);
-      } else if (msgObj.data.type === 'HeartBeat' && msgObj.data.message === 'pong') {
-        const newerTimeStamp = Date.now(); // ms, get a bit newer time that has passed verification of broadcast
-        const rtt = newerTimeStamp - msgObj.data.timestamp;
-        const foundPeer = outgoingPeers.find((peer) => peer.ip === conIP);
-        if (foundPeer) {
-          const peerIndex = outgoingPeers.indexOf(foundPeer);
-          if (peerIndex > -1) {
-            outgoingPeers[peerIndex].rtt = rtt;
-          }
-        }
-      } else if (msgObj.data.type === 'HeartBeat' && msgObj.data.message === 'ping') {
-        const newMessage = msgObj.data;
-        newMessage.message = 'pong';
-        const pongResponse = await serialiseAndSignFluxBroadcast(newMessage);
-        try {
-          websocket.send(pongResponse);
-        } catch (error) {
-          console.log(error.code);
-        }
       }
     } // else we do not react to this message;
   };
@@ -835,38 +807,87 @@ async function initiateAndHandleConnection(ip) {
 }
 
 async function fluxDiscovery() {
-  const syncStatus = await daemonService.isDaemonSynced();
-  if (!syncStatus.data.synced) {
-    log.warn('Daemon not yet synced. Flux discovery is paused.');
+  try {
+    const syncStatus = await daemonService.isDaemonSynced();
+    if (!syncStatus.data.synced) {
+      throw new Error('Daemon not yet synced. Flux discovery is awaiting.');
+    }
+
+    let nodeList = [];
+
+    if (myNodePubKey) {
+      nodeList = await deterministicFluxList(myNodePubKey);
+      if (nodeList.length === 0) {
+        myNodePubKey = null;
+        throw new Error('Node no longer confirmed. Flux discovery is awaiting.');
+      }
+    } else {
+      const myIP = await getMyFluxIP();
+      if (myIP) {
+        nodeList = await deterministicFluxList();
+        const fluxNode = nodeList.find((node) => node.ip === myIP);
+        if (fluxNode) {
+          myNodePubKey = fluxNode.pubkey;
+        } else {
+          throw new Error('Node not confirmed. Flux discovery is awaiting.');
+        }
+      } else {
+        throw new Error('Flux IP not detected. Flux discovery is awaiting.');
+      }
+    }
+    const minPeers = 12;
+    const maxPeers = 20;
+    const numberOfFluxNodes = nodeList.length;
+    const currentIpsConnTried = [];
+    const requiredNumberOfConnections = numberOfFluxNodes / 100; // 1%
+    const maxNumberOfConnections = numberOfFluxNodes / 50; // 2%
+    const minCon = Math.max(minPeers, requiredNumberOfConnections); // awlays maintain at least 10 or 1% of nodes whatever is higher
+    const maxCon = Math.max(maxPeers, maxNumberOfConnections); // have a maximum of 20 or 2% of nodes whatever is higher
+    log.info(`Current number of outgoing connections:${outgoingConnections.length}`);
+    log.info(`Current number of incoming connections:${incomingConnections.length}`);
+    // coonect to peers as min connections not yet established
+    let index = 0;
+    while (outgoingConnections.length < minCon && index < 100) {
+      index += 1;
+      // eslint-disable-next-line no-await-in-loop
+      const ip = await getRandomConnection();
+      if (ip) {
+        // additional precaution
+        const sameConnectedIp = currentIpsConnTried.find((connectedIP) => connectedIP === ip);
+        const clientExists = outgoingConnections.find((client) => client._socket.remoteAddress === ip);
+        const clientIncomingExists = incomingConnections.find((client) => client._socket.remoteAddress === ip);
+        if (!sameConnectedIp && !clientExists && !clientIncomingExists) {
+          log.info(`Adding Flux peer: ${ip}`);
+          initiateAndHandleConnection(ip);
+          // eslint-disable-next-line no-await-in-loop
+          await serviceHelper.delay(1000);
+        }
+      }
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay(1000);
+    }
+    if (outgoingConnections.length < maxCon) {
+      const ip = await getRandomConnection();
+      if (ip) {
+        // additional precaution
+        const sameConnectedIp = currentIpsConnTried.find((connectedIP) => connectedIP === ip);
+        const clientExists = outgoingConnections.find((client) => client._socket.remoteAddress === ip);
+        const clientIncomingExists = incomingConnections.find((client) => client._socket.remoteAddress === ip);
+        if (!sameConnectedIp && !clientExists && !clientIncomingExists) {
+          log.info(`Adding Flux peer: ${ip}`);
+          initiateAndHandleConnection(ip);
+        }
+      }
+    }
     setTimeout(() => {
       fluxDiscovery();
-    }, 90 * 1000);
-    return;
+    }, 60 * 1000);
+  } catch (error) {
+    log.warn(error.message || error);
+    setTimeout(() => {
+      fluxDiscovery();
+    }, 120 * 1000);
   }
-  const minPeers = 10;
-  const maxPeers = 20;
-  const zl = await deterministicFluxList();
-  const numberOfFluxNodes = zl.length;
-  const requiredNumberOfConnections = numberOfFluxNodes / 100; // 1%
-  const maxNumberOfConnections = numberOfFluxNodes / 50; // 2%
-  const minCon = Math.max(minPeers, requiredNumberOfConnections); // awlays maintain at least 10 or 1% of nodes whatever is higher
-  const maxCon = Math.max(maxPeers, maxNumberOfConnections); // have a maximum of 20 or 2% of nodes whatever is higher
-  // coonect a peer as maximum connections not yet established
-  if (outgoingConnections.length < maxCon) {
-    let ip = await getRandomConnection();
-    const clientExists = outgoingConnections.find((client) => client._socket.remoteAddress === ip);
-    if (clientExists) {
-      ip = null;
-    }
-    if (ip) {
-      log.info(`Adding Flux peer: ${ip}`);
-      initiateAndHandleConnection(ip);
-    }
-  }
-  // fast connect another peer as we do not have even enough connections to satisfy min or wait 1 min.
-  setTimeout(() => {
-    fluxDiscovery();
-  }, outgoingConnections.length < minCon ? 1000 : 60 * 1000);
 }
 
 function connectedPeers(req, res) {
@@ -888,30 +909,8 @@ function connectedPeersInfo(req, res) {
 
 function keepConnectionsAlive() {
   setInterval(() => {
-    const timestamp = Date.now();
-    const type = 'HeartBeat';
-    const message = 'ping';
-    const data = {
-      timestamp,
-      type,
-      message,
-    };
-    broadcastMessageToOutgoing(data);
-  }, 40000);
-}
-
-function keepIncomingConnectionsAlive() {
-  setInterval(() => {
-    const timestamp = Date.now();
-    const type = 'HeartBeat';
-    const message = 'ping';
-    const data = {
-      timestamp,
-      type,
-      message,
-    };
-    broadcastMessageToIncoming(data);
-  }, 30000);
+    sendToAllPeers(); // perform ping
+  }, 30 * 1000);
 }
 
 async function addPeer(req, res) {
@@ -965,7 +964,7 @@ async function closeConnection(ip) {
     const ocIndex = outgoingConnections.indexOf(wsObj);
     const foundPeer = await outgoingPeers.find((peer) => peer.ip === ip);
     if (ocIndex > -1) {
-      wsObj.close(1000);
+      wsObj.close(1000, 'purpusfully closed');
       log.info(`Connection to ${ip} closed`);
       outgoingConnections.splice(ocIndex, 1);
       if (foundPeer) {
@@ -997,7 +996,7 @@ async function closeIncomingConnection(ip, expressWS) {
     const ocIndex = incomingConnections.indexOf(wsObj);
     const foundPeer = await incomingPeers.find((peer) => peer.ip === ip);
     if (ocIndex > -1) {
-      wsObj.close(1000);
+      wsObj.close(1000, 'purpusfully closed');
       log.info(`Connection from ${ip} closed`);
       incomingConnections.splice(ocIndex, 1);
       if (foundPeer) {
@@ -1067,7 +1066,7 @@ async function checkMyFluxAvailability(nodelist) {
     if (myIP.includes(':')) {
       myIP = `[${myIP}]`;
     }
-    const resMyAvailability = await serviceHelper.axiosGet(`http://${askingIP}:${config.server.apiport}/zelflux/checkfluxavailability/${myIP}`).catch((error) => { // TODO adjust
+    const resMyAvailability = await serviceHelper.axiosGet(`http://${askingIP}:${config.server.apiport}/flux/checkfluxavailability/${myIP}`).catch((error) => {
       log.error(`${askingIP} is not reachable`);
       log.error(error);
     });
@@ -1137,8 +1136,7 @@ async function checkDeterministicNodesCollisions() {
     // if it returns more than 1 object, shut down.
     // another precatuion might be comparing node list on multiple nodes. evaulate in the future
     const myIP = await getMyFluxIP();
-    myFluxIP = myIP;
-    if (myIP !== null) {
+    if (myIP) {
       const syncStatus = await daemonService.isDaemonSynced();
       if (!syncStatus.data.synced) {
         return;
@@ -1389,7 +1387,6 @@ module.exports = {
   isCommunicationEstablished,
   broadcastTemporaryAppMessage,
   broadcastAppRunningMessage,
-  keepIncomingConnectionsAlive,
   keepConnectionsAlive,
   adjustFirewall,
   checkDeterministicNodesCollisions,

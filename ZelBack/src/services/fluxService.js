@@ -1,6 +1,7 @@
 const cmd = require('node-cmd');
 const path = require('path');
 const config = require('config');
+const fullnode = require('fullnode');
 const fs = require('fs').promises;
 
 const log = require('../lib/log');
@@ -13,11 +14,18 @@ const fluxCommunication = require('./fluxCommunication');
 const userconfig = require('../../../config/userconfig');
 
 // eslint-disable-next-line consistent-return
+async function fluxBackendFolder(req, res) {
+  const fluxBackFolder = path.join(__dirname, '../../');
+  const message = serviceHelper.createDataMessage(fluxBackFolder);
+  return res.json(message);
+}
+
+// eslint-disable-next-line consistent-return
 async function updateFlux(req, res) {
   const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
   if (authorized === true) {
     const nodedpath = path.join(__dirname, '../../../');
-    const exec = `cd ${nodedpath} && npm run updatezelflux`;
+    const exec = `cd ${nodedpath} && npm run updateflux`;
     cmd.get(exec, (err) => {
       if (err) {
         const errMessage = serviceHelper.createErrorMessage(`Error updating Flux: ${err.message}`, err.name, err.code);
@@ -37,7 +45,7 @@ async function hardUpdateFlux(req, res) {
   const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
   if (authorized === true) {
     const nodedpath = path.join(__dirname, '../../../');
-    const exec = `cd ${nodedpath} && npm run hardupdatezelflux`;
+    const exec = `cd ${nodedpath} && npm run hardupdateflux`;
     cmd.get(exec, (err) => {
       if (err) {
         const errMessage = serviceHelper.createErrorMessage(`Error hardupdating Flux: ${err.message}`, err.name, err.code);
@@ -57,7 +65,7 @@ async function rebuildHome(req, res) {
   const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
   if (authorized === true) {
     const nodedpath = path.join(__dirname, '../../../');
-    const exec = `cd ${nodedpath} && npm run zelfrontbuild`;
+    const exec = `cd ${nodedpath} && npm run homebuild`;
     cmd.get(exec, (err) => {
       if (err) {
         const errMessage = serviceHelper.createErrorMessage(`Error rebuilding Flux: ${err.message}`, err.name, err.code);
@@ -258,8 +266,8 @@ async function daemonDebug(req, res) {
     return res.json(errMessage);
   }
   // check daemon datadir
-  const homeDirPath = path.join(__dirname, '../../../../');
-  const datadir = daemonService.getConfigValue('datadir') || `${homeDirPath}.zelcash`;
+  const defaultDir = new fullnode.Config().defaultFolderPath();
+  const datadir = daemonService.getConfigValue('datadir') || defaultDir;
   const filepath = `${datadir}/debug.log`;
 
   return res.download(filepath, 'debug.log');
@@ -272,7 +280,11 @@ async function benchmarkDebug(req, res) {
     return res.json(errMessage);
   }
   const homeDirPath = path.join(__dirname, '../../../../');
-  const datadir = `${homeDirPath}.zelbenchmark`;
+  const newBenchmarkPath = path.join(homeDirPath, '.benchmark');
+  let datadir = `${homeDirPath}.zelbenchmark`;
+  if (fs.existsSync(newBenchmarkPath)) {
+    datadir = newBenchmarkPath;
+  }
   const filepath = `${datadir}/debug.log`;
 
   return res.download(filepath, 'debug.log');
@@ -281,8 +293,8 @@ async function benchmarkDebug(req, res) {
 async function tailDaemonDebug(req, res) {
   const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
   if (authorized === true) {
-    const homeDirPath = path.join(__dirname, '../../../../');
-    const datadir = daemonService.getConfigValue('datadir') || `${homeDirPath}.zelcash`;
+    const defaultDir = new fullnode.Config().defaultFolderPath();
+    const datadir = daemonService.getConfigValue('datadir') || defaultDir;
     const filepath = `${datadir}/debug.log`;
     const exec = `tail -n 100 ${filepath}`;
     cmd.get(exec, (err, data) => {
@@ -304,7 +316,11 @@ async function tailBenchmarkDebug(req, res) {
   const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
   if (authorized === true) {
     const homeDirPath = path.join(__dirname, '../../../../');
-    const datadir = `${homeDirPath}.zelbenchmark`;
+    const newBenchmarkPath = path.join(homeDirPath, '.benchmark');
+    let datadir = `${homeDirPath}.zelbenchmark`;
+    if (fs.existsSync(newBenchmarkPath)) {
+      datadir = newBenchmarkPath;
+    }
     const filepath = `${datadir}/debug.log`;
     const exec = `tail -n 100 ${filepath}`;
     cmd.get(exec, (err, data) => {
@@ -323,9 +339,8 @@ async function tailBenchmarkDebug(req, res) {
 }
 
 async function fluxLog(res, filelog) {
-  const homeDirPath = path.join(__dirname, '../../../../');
-  const datadir = `${homeDirPath}zelflux`;
-  const filepath = `${datadir}/${filelog}.log`;
+  const homeDirPath = path.join(__dirname, '../../../');
+  const filepath = `${homeDirPath}${filelog}.log`;
 
   return res.download(filepath, `${filelog}.log`);
 }
@@ -389,9 +404,8 @@ async function fluxDebugLog(req, res) {
 async function tailFluxLog(req, res, logfile) {
   const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
   if (authorized === true) {
-    const homeDirPath = path.join(__dirname, '../../../../');
-    const datadir = `${homeDirPath}zelflux`;
-    const filepath = `${datadir}/${logfile}.log`;
+    const homeDirPath = path.join(__dirname, '../../../');
+    const filepath = `${homeDirPath}${logfile}.log`;
     const exec = `tail -n 100 ${filepath}`;
     cmd.get(exec, (err, data) => {
       if (err) {
@@ -479,86 +493,86 @@ function getFluxTimezone(req, res) {
 async function getFluxInfo(req, res) {
   try {
     const info = {
-      zelcash: {},
-      zelnode: {},
-      zelbench: {},
-      zelflux: {},
-      zelapps: {},
+      daemon: {},
+      node: {},
+      benchmark: {},
+      flux: {},
+      apps: {},
     };
     const versionRes = await getFluxVersion();
     if (versionRes.status === 'error') {
       throw versionRes.data;
     }
-    info.zelflux.version = versionRes.data;
+    info.flux.version = versionRes.data;
     const ipRes = await getFluxIP();
     if (ipRes.status === 'error') {
       throw ipRes.data;
     }
-    info.zelflux.ip = ipRes.data;
+    info.flux.ip = ipRes.data;
     const zelidRes = await getFluxZelID();
     if (zelidRes.status === 'error') {
       throw zelidRes.data;
     }
-    info.zelflux.zelid = zelidRes.data;
+    info.flux.zelid = zelidRes.data;
     const cruxidRes = await getFluxCruxID();
     if (cruxidRes.status === 'error') {
       throw cruxidRes.data;
     }
-    info.zelflux.cruxid = cruxidRes.data;
+    info.flux.cruxid = cruxidRes.data;
     const timeResult = await getFluxTimezone();
     if (timeResult.status === 'error') {
       throw timeResult.data;
     }
-    info.zelflux.timezone = timeResult.data;
+    info.flux.timezone = timeResult.data;
     const dosResult = await fluxCommunication.getDOSState();
     if (dosResult.status === 'error') {
       throw dosResult.data;
     }
-    info.zelflux.dos = dosResult.data;
+    info.flux.dos = dosResult.data;
 
     const daemonInfoRes = await daemonService.getInfo();
     if (daemonInfoRes.status === 'error') {
       throw daemonInfoRes.data;
     }
-    info.zelcash.info = daemonInfoRes.data;
+    info.daemon.info = daemonInfoRes.data;
 
     const daemonNodeStatusRes = await daemonService.getZelNodeStatus();
     if (daemonNodeStatusRes.status === 'error') {
       throw daemonNodeStatusRes.data;
     }
-    info.zelnode.status = daemonNodeStatusRes.data;
+    info.node.status = daemonNodeStatusRes.data;
 
     const benchmarkInfoRes = await benchmarkService.getInfo();
     if (benchmarkInfoRes.status === 'error') {
       throw benchmarkInfoRes.data;
     }
-    info.zelbench.info = benchmarkInfoRes.data;
+    info.benchmark.info = benchmarkInfoRes.data;
     const benchmarkStatusRes = await benchmarkService.getStatus();
     if (benchmarkStatusRes.status === 'error') {
       throw benchmarkStatusRes.data;
     }
-    info.zelbench.status = benchmarkStatusRes.data;
-    const benchmarkhBenchRes = await benchmarkService.getBenchmarks();
-    if (benchmarkhBenchRes.status === 'error') {
-      throw benchmarkhBenchRes.data;
+    info.benchmark.status = benchmarkStatusRes.data;
+    const benchmarkBenchRes = await benchmarkService.getBenchmarks();
+    if (benchmarkBenchRes.status === 'error') {
+      throw benchmarkBenchRes.data;
     }
-    info.zelbench.bench = benchmarkhBenchRes.data;
+    info.benchmark.bench = benchmarkBenchRes.data;
 
     const apppsFluxUsage = await appsService.fluxUsage();
     if (apppsFluxUsage.status === 'error') {
       throw apppsFluxUsage.data;
     }
-    info.zelapps.fluxusage = apppsFluxUsage.data;
+    info.apps.fluxusage = apppsFluxUsage.data;
     const appsRunning = await appsService.listRunningApps();
     if (appsRunning.status === 'error') {
       throw appsRunning.data;
     }
-    info.zelapps.runningapps = appsRunning.data;
+    info.apps.runningapps = appsRunning.data;
     const appsResources = await appsService.appsResources();
     if (appsResources.status === 'error') {
       throw appsResources.data;
     }
-    info.zelapps.resources = appsResources.data;
+    info.apps.resources = appsResources.data;
 
     const response = serviceHelper.createDataMessage(info);
     return res ? res.json(response) : response;
@@ -691,4 +705,5 @@ module.exports = {
   fluxDebugLog,
   adjustCruxID,
   adjustKadenaAccount,
+  fluxBackendFolder,
 };
