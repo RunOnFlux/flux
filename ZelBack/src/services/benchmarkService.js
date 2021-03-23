@@ -1,12 +1,21 @@
 const benchmarkrpc = require('daemonrpc');
 const config = require('config');
+const path = require('path');
+const fs = require('fs');
 const serviceHelper = require('./serviceHelper');
 const userconfig = require('../../../config/userconfig');
 
 const isTestnet = userconfig.initial.testnet;
-const rpcuser = 'zelbenchuser';
-const rpcpassword = 'zelbenchpassword';
+let rpcuser = 'zelbenchuser';
+let rpcpassword = 'zelbenchpassword';
 const rpcport = isTestnet === true ? config.benchmark.rpcporttestnet : config.benchmark.rpcport;
+
+const homeDirPath = path.join(__dirname, '../../../../');
+const newBenchmarkPath = path.join(homeDirPath, '.fluxbenchmark');
+if (fs.existsSync(newBenchmarkPath)) {
+  rpcuser = 'fluxbenchuser';
+  rpcpassword = 'fluxbenchpassword';
+}
 
 const client = new benchmarkrpc.Client({
   port: rpcport,

@@ -280,7 +280,7 @@ async function benchmarkDebug(req, res) {
     return res.json(errMessage);
   }
   const homeDirPath = path.join(__dirname, '../../../../');
-  const newBenchmarkPath = path.join(homeDirPath, '.benchmark');
+  const newBenchmarkPath = path.join(homeDirPath, '.fluxbenchmark');
   let datadir = `${homeDirPath}.zelbenchmark`;
   if (fs.existsSync(newBenchmarkPath)) {
     datadir = newBenchmarkPath;
@@ -316,7 +316,7 @@ async function tailBenchmarkDebug(req, res) {
   const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
   if (authorized === true) {
     const homeDirPath = path.join(__dirname, '../../../../');
-    const newBenchmarkPath = path.join(homeDirPath, '.benchmark');
+    const newBenchmarkPath = path.join(homeDirPath, '.fluxbenchmark');
     let datadir = `${homeDirPath}.zelbenchmark`;
     if (fs.existsSync(newBenchmarkPath)) {
       datadir = newBenchmarkPath;
