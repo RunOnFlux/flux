@@ -7,8 +7,10 @@ const userconfig = require('../../../config/userconfig');
 
 const isTestnet = userconfig.initial.testnet;
 
-const rpcport = isTestnet === true ? config.benchmark.rpcporttestnet
-                                   : config.benchmark.rpcport;
+const rpcport =
+  isTestnet === true
+    ? config.benchmark.rpcporttestnet
+    : config.benchmark.rpcport;
 
 const homeDirPath = path.join(__dirname, '../../../../');
 const newBenchmarkPath = path.join(homeDirPath, '.fluxbenchmark');
@@ -27,17 +29,20 @@ async function executeCall(rpc, params) {
     }
 
     const client = new benchmarkrpc.Client({
-      port : rpcport,
-      user : rpcuser,
-      pass : rpcpassword,
-      timeout : 60000,
+      port: rpcport,
+      user: rpcuser,
+      pass: rpcpassword,
+      timeout: 60000,
     });
     const data = await client[rpc](...rpcparameters);
     const successResponse = serviceHelper.createDataMessage(data);
     callResponse = successResponse;
   } catch (error) {
-    const daemonError =
-        serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const daemonError = serviceHelper.createErrorMessage(
+      error.message,
+      error.name,
+      error.code
+    );
     callResponse = daemonError;
   }
 
@@ -54,8 +59,10 @@ async function getStatus(req, res) {
 }
 
 async function restartNodeBenchmarks(req, res) {
-  const authorized =
-      await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await serviceHelper.verifyPrivilege(
+    'adminandfluxteam',
+    req
+  );
   if (authorized === true) {
     const rpccall = 'restartnodebenchmarks';
 
@@ -69,7 +76,7 @@ async function restartNodeBenchmarks(req, res) {
 
 async function signFluxTransaction(req, res) {
   const authorized = await serviceHelper.verifyPrivilege('admin', req);
-  let {hexstring} = req.params;
+  let { hexstring } = req.params;
   hexstring = hexstring || req.query.hexstring;
   if (authorized === true) {
     const rpccall = 'signzelnodetransaction';
@@ -88,10 +95,12 @@ async function signFluxTransaction(req, res) {
 
 async function signFluxTransactionPost(req, res) {
   let body = '';
-  req.on('data', (data) => { body += data; });
+  req.on('data', (data) => {
+    body += data;
+  });
   req.on('end', async () => {
     const processedBody = serviceHelper.ensureObject(body);
-    const {hexstring} = processedBody;
+    const { hexstring } = processedBody;
     const authorized = await serviceHelper.verifyPrivilege('admin', req);
     if (authorized === true) {
       const rpccall = 'signzelnodetransaction';
@@ -109,11 +118,11 @@ async function signFluxTransactionPost(req, res) {
 
 // == Control ==
 async function help(req, res) {
-  let {command} = req.params;
+  let { command } = req.params;
   command = command || req.query.command || '';
 
   const rpccall = 'help';
-  const rpcparameters = [ command ];
+  const rpcparameters = [command];
 
   response = await executeCall(rpccall, rpcparameters);
 

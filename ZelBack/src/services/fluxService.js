@@ -22,19 +22,24 @@ async function fluxBackendFolder(req, res) {
 
 // eslint-disable-next-line consistent-return
 async function updateFlux(req, res) {
-  const authorized =
-      await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
+  const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(
+    req.headers
+  );
   if (authorized === true) {
     const nodedpath = path.join(__dirname, '../../../');
     const exec = `cd ${nodedpath} && npm run updateflux`;
     cmd.get(exec, (err) => {
       if (err) {
         const errMessage = serviceHelper.createErrorMessage(
-            `Error updating Flux: ${err.message}`, err.name, err.code);
+          `Error updating Flux: ${err.message}`,
+          err.name,
+          err.code
+        );
         return res.json(errMessage);
       }
-      const message =
-          serviceHelper.createSuccessMessage('Flux successfully updated');
+      const message = serviceHelper.createSuccessMessage(
+        'Flux successfully updated'
+      );
       return res.json(message);
     });
   } else {
@@ -45,19 +50,24 @@ async function updateFlux(req, res) {
 
 // eslint-disable-next-line consistent-return
 async function hardUpdateFlux(req, res) {
-  const authorized =
-      await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
+  const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(
+    req.headers
+  );
   if (authorized === true) {
     const nodedpath = path.join(__dirname, '../../../');
     const exec = `cd ${nodedpath} && npm run hardupdateflux`;
     cmd.get(exec, (err) => {
       if (err) {
         const errMessage = serviceHelper.createErrorMessage(
-            `Error hardupdating Flux: ${err.message}`, err.name, err.code);
+          `Error hardupdating Flux: ${err.message}`,
+          err.name,
+          err.code
+        );
         return res.json(errMessage);
       }
-      const message =
-          serviceHelper.createSuccessMessage('Flux successfully updating');
+      const message = serviceHelper.createSuccessMessage(
+        'Flux successfully updating'
+      );
       return res.json(message);
     });
   } else {
@@ -68,19 +78,24 @@ async function hardUpdateFlux(req, res) {
 
 // eslint-disable-next-line consistent-return
 async function rebuildHome(req, res) {
-  const authorized =
-      await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
+  const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(
+    req.headers
+  );
   if (authorized === true) {
     const nodedpath = path.join(__dirname, '../../../');
     const exec = `cd ${nodedpath} && npm run homebuild`;
     cmd.get(exec, (err) => {
       if (err) {
         const errMessage = serviceHelper.createErrorMessage(
-            `Error rebuilding Flux: ${err.message}`, err.name, err.code);
+          `Error rebuilding Flux: ${err.message}`,
+          err.name,
+          err.code
+        );
         return res.json(errMessage);
       }
-      const message =
-          serviceHelper.createSuccessMessage('Flux successfully rebuilt');
+      const message = serviceHelper.createSuccessMessage(
+        'Flux successfully rebuilt'
+      );
       return res.json(message);
     });
   } else {
@@ -91,19 +106,24 @@ async function rebuildHome(req, res) {
 
 // eslint-disable-next-line consistent-return
 async function updateDaemon(req, res) {
-  const authorized =
-      await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
+  const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(
+    req.headers
+  );
   if (authorized === true) {
     const nodedpath = path.join(__dirname, '../../../helpers');
     const exec = `cd ${nodedpath} && sh updateDaemon.sh`;
     cmd.get(exec, (err) => {
       if (err) {
         const errMessage = serviceHelper.createErrorMessage(
-            `Error updating Daemon: ${err.message}`, err.name, err.code);
+          `Error updating Daemon: ${err.message}`,
+          err.name,
+          err.code
+        );
         return res.json(errMessage);
       }
-      const message =
-          serviceHelper.createSuccessMessage('Daemon successfully updated');
+      const message = serviceHelper.createSuccessMessage(
+        'Daemon successfully updated'
+      );
       return res.json(message);
     });
   } else {
@@ -114,19 +134,24 @@ async function updateDaemon(req, res) {
 
 // eslint-disable-next-line consistent-return
 async function updateBenchmark(req, res) {
-  const authorized =
-      await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
+  const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(
+    req.headers
+  );
   if (authorized === true) {
     const nodedpath = path.join(__dirname, '../../../helpers');
     const exec = `cd ${nodedpath} && sh updateBenchmark.sh`;
     cmd.get(exec, (err) => {
       if (err) {
         const errMessage = serviceHelper.createErrorMessage(
-            `Error updating Benchmark: ${err.message}`, err.name, err.code);
+          `Error updating Benchmark: ${err.message}`,
+          err.name,
+          err.code
+        );
         return res.json(errMessage);
       }
-      const message =
-          serviceHelper.createSuccessMessage('Benchmark successfully updated');
+      const message = serviceHelper.createSuccessMessage(
+        'Benchmark successfully updated'
+      );
       return res.json(message);
     });
   } else {
@@ -137,19 +162,24 @@ async function updateBenchmark(req, res) {
 
 // eslint-disable-next-line consistent-return
 async function startBenchmark(req, res) {
-  const authorized =
-      await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
+  const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(
+    req.headers
+  );
   if (authorized === true) {
     const exec = 'zelbenchd -daemon';
     cmd.get(exec, (err, data) => {
       if (err) {
         const errMessage = serviceHelper.createErrorMessage(
-            `Error starting Benchmark: ${err.message}`, err.name, err.code);
+          `Error starting Benchmark: ${err.message}`,
+          err.name,
+          err.code
+        );
         return res.json(errMessage);
       }
       console.log(data);
-      const message =
-          serviceHelper.createSuccessMessage('Benchamrk successfully started');
+      const message = serviceHelper.createSuccessMessage(
+        'Benchamrk successfully started'
+      );
       return res.json(message);
     });
   } else {
@@ -160,19 +190,24 @@ async function startBenchmark(req, res) {
 
 // eslint-disable-next-line consistent-return
 async function restartBenchmark(req, res) {
-  const authorized =
-      await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
+  const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(
+    req.headers
+  );
   if (authorized === true) {
     const nodedpath = path.join(__dirname, '../../../helpers');
     const exec = `cd ${nodedpath} && sh restartBenchmark.sh`;
     cmd.get(exec, (err) => {
       if (err) {
         const errMessage = serviceHelper.createErrorMessage(
-            `Error restarting Benchmark: ${err.message}`, err.name, err.code);
+          `Error restarting Benchmark: ${err.message}`,
+          err.name,
+          err.code
+        );
         return res.json(errMessage);
       }
       const message = serviceHelper.createSuccessMessage(
-          'Benchmakr successfully restarted');
+        'Benchmakr successfully restarted'
+      );
       return res.json(message);
     });
   } else {
@@ -184,19 +219,24 @@ async function restartBenchmark(req, res) {
 
 // eslint-disable-next-line consistent-return
 async function startDaemon(req, res) {
-  const authorized =
-      await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
+  const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(
+    req.headers
+  );
   if (authorized === true) {
     const exec = 'zelcashd';
     cmd.get(exec, (err, data) => {
       if (err) {
         const errMessage = serviceHelper.createErrorMessage(
-            `Error starting Daemon: ${err.message}`, err.name, err.code);
+          `Error starting Daemon: ${err.message}`,
+          err.name,
+          err.code
+        );
         return res.json(errMessage);
       }
       console.log(data);
-      const message =
-          serviceHelper.createSuccessMessage('Daemon successfully started');
+      const message = serviceHelper.createSuccessMessage(
+        'Daemon successfully started'
+      );
       return res.json(message);
     });
   } else {
@@ -207,19 +247,24 @@ async function startDaemon(req, res) {
 
 // eslint-disable-next-line consistent-return
 async function restartDaemon(req, res) {
-  const authorized =
-      await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
+  const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(
+    req.headers
+  );
   if (authorized === true) {
     const nodedpath = path.join(__dirname, '../../../helpers');
     const exec = `cd ${nodedpath} && sh restartDaemon.sh`;
     cmd.get(exec, (err) => {
       if (err) {
         const errMessage = serviceHelper.createErrorMessage(
-            `Error restarting Daemon: ${err.message}`, err.name, err.code);
+          `Error restarting Daemon: ${err.message}`,
+          err.name,
+          err.code
+        );
         return res.json(errMessage);
       }
-      const message =
-          serviceHelper.createSuccessMessage('Daemon successfully restarted');
+      const message = serviceHelper.createSuccessMessage(
+        'Daemon successfully restarted'
+      );
       return res.json(message);
     });
   } else {
@@ -238,11 +283,15 @@ async function reindexDaemon(req, res) {
     cmd.get(exec, (err) => {
       if (err) {
         const errMessage = serviceHelper.createErrorMessage(
-            `Error reindexing Daemon: ${err.message}`, err.name, err.code);
+          `Error reindexing Daemon: ${err.message}`,
+          err.name,
+          err.code
+        );
         return res.json(errMessage);
       }
-      const message =
-          serviceHelper.createSuccessMessage('Daemon successfully reindexing');
+      const message = serviceHelper.createSuccessMessage(
+        'Daemon successfully reindexing'
+      );
       return res.json(message);
     });
   } else {
@@ -252,7 +301,7 @@ async function reindexDaemon(req, res) {
 }
 
 function getFluxVersion(req, res) {
-  const {version} = packageJson;
+  const { version } = packageJson;
   const message = serviceHelper.createDataMessage(version);
   return res ? res.json(message) : message;
 }
@@ -263,9 +312,10 @@ async function getFluxIP(req, res) {
   if (benchmarkResponse.status === 'success') {
     const benchmarkResponseData = JSON.parse(benchmarkResponse.data);
     if (benchmarkResponseData.ipaddress) {
-      myIP = benchmarkResponseData.ipaddress.length > 5
-                 ? benchmarkResponseData.ipaddress
-                 : null;
+      myIP =
+        benchmarkResponseData.ipaddress.length > 5
+          ? benchmarkResponseData.ipaddress
+          : null;
     }
   }
   const message = serviceHelper.createDataMessage(myIP);
@@ -291,8 +341,10 @@ function getFluxKadena(req, res) {
 }
 
 async function daemonDebug(req, res) {
-  const authorized =
-      await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await serviceHelper.verifyPrivilege(
+    'adminandfluxteam',
+    req
+  );
   if (!authorized) {
     const errMessage = serviceHelper.errUnauthorizedMessage();
     return res.json(errMessage);
@@ -306,8 +358,10 @@ async function daemonDebug(req, res) {
 }
 
 async function benchmarkDebug(req, res) {
-  const authorized =
-      await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await serviceHelper.verifyPrivilege(
+    'adminandfluxteam',
+    req
+  );
   if (!authorized) {
     const errMessage = serviceHelper.errUnauthorizedMessage();
     return res.json(errMessage);
@@ -324,8 +378,9 @@ async function benchmarkDebug(req, res) {
 }
 
 async function tailDaemonDebug(req, res) {
-  const authorized =
-      await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
+  const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(
+    req.headers
+  );
   if (authorized === true) {
     const defaultDir = new fullnode.Config().defaultFolderPath();
     const datadir = daemonService.getConfigValue('datadir') || defaultDir;
@@ -334,8 +389,10 @@ async function tailDaemonDebug(req, res) {
     cmd.get(exec, (err, data) => {
       if (err) {
         const errMessage = serviceHelper.createErrorMessage(
-            `Error obtaining Daemon debug file: ${err.message}`, err.name,
-            err.code);
+          `Error obtaining Daemon debug file: ${err.message}`,
+          err.name,
+          err.code
+        );
         res.json(errMessage);
         return;
       }
@@ -349,8 +406,9 @@ async function tailDaemonDebug(req, res) {
 }
 
 async function tailBenchmarkDebug(req, res) {
-  const authorized =
-      await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
+  const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(
+    req.headers
+  );
   if (authorized === true) {
     const homeDirPath = path.join(__dirname, '../../../../');
     const newBenchmarkPath = path.join(homeDirPath, '.fluxbenchmark');
@@ -363,8 +421,10 @@ async function tailBenchmarkDebug(req, res) {
     cmd.get(exec, (err, data) => {
       if (err) {
         const errMessage = serviceHelper.createErrorMessage(
-            `Error obtaining Benchmark debug file: ${err.message}`, err.name,
-            err.code);
+          `Error obtaining Benchmark debug file: ${err.message}`,
+          err.name,
+          err.code
+        );
         res.json(errMessage);
         return;
       }
@@ -386,8 +446,10 @@ async function fluxLog(res, filelog) {
 
 async function fluxErrorLog(req, res) {
   try {
-    const authorized =
-        await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+    const authorized = await serviceHelper.verifyPrivilege(
+      'adminandfluxteam',
+      req
+    );
     if (!authorized) {
       const errMessage = serviceHelper.errUnauthorizedMessage();
       res.json(errMessage);
@@ -401,8 +463,10 @@ async function fluxErrorLog(req, res) {
 
 async function fluxWarnLog(req, res) {
   try {
-    const authorized =
-        await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+    const authorized = await serviceHelper.verifyPrivilege(
+      'adminandfluxteam',
+      req
+    );
     if (!authorized) {
       const errMessage = serviceHelper.errUnauthorizedMessage();
       res.json(errMessage);
@@ -416,8 +480,10 @@ async function fluxWarnLog(req, res) {
 
 async function fluxInfoLog(req, res) {
   try {
-    const authorized =
-        await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+    const authorized = await serviceHelper.verifyPrivilege(
+      'adminandfluxteam',
+      req
+    );
     if (!authorized) {
       const errMessage = serviceHelper.errUnauthorizedMessage();
       res.json(errMessage);
@@ -431,8 +497,10 @@ async function fluxInfoLog(req, res) {
 
 async function fluxDebugLog(req, res) {
   try {
-    const authorized =
-        await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+    const authorized = await serviceHelper.verifyPrivilege(
+      'adminandfluxteam',
+      req
+    );
     if (!authorized) {
       const errMessage = serviceHelper.errUnauthorizedMessage();
       res.json(errMessage);
@@ -445,8 +513,9 @@ async function fluxDebugLog(req, res) {
 }
 
 async function tailFluxLog(req, res, logfile) {
-  const authorized =
-      await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
+  const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(
+    req.headers
+  );
   if (authorized === true) {
     const homeDirPath = path.join(__dirname, '../../../');
     const filepath = `${homeDirPath}${logfile}.log`;
@@ -454,8 +523,10 @@ async function tailFluxLog(req, res, logfile) {
     cmd.get(exec, (err, data) => {
       if (err) {
         const errMessage = serviceHelper.createErrorMessage(
-            `Error obtaining Flux ${logfile} file: ${err.message}`, err.name,
-            err.code);
+          `Error obtaining Flux ${logfile} file: ${err.message}`,
+          err.name,
+          err.code
+        );
         res.json(errMessage);
         return;
       }
@@ -470,8 +541,9 @@ async function tailFluxLog(req, res, logfile) {
 
 async function tailFluxErrorLog(req, res) {
   try {
-    const authorized =
-        await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
+    const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(
+      req.headers
+    );
     if (authorized === true) {
       tailFluxLog(req, res, 'error');
     } else {
@@ -485,8 +557,9 @@ async function tailFluxErrorLog(req, res) {
 
 async function tailFluxWarnLog(req, res) {
   try {
-    const authorized =
-        await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
+    const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(
+      req.headers
+    );
     if (authorized === true) {
       tailFluxLog(req, res, 'warn');
     } else {
@@ -500,8 +573,9 @@ async function tailFluxWarnLog(req, res) {
 
 async function tailFluxInfoLog(req, res) {
   try {
-    const authorized =
-        await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
+    const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(
+      req.headers
+    );
     if (authorized === true) {
       tailFluxLog(req, res, 'info');
     } else {
@@ -515,8 +589,9 @@ async function tailFluxInfoLog(req, res) {
 
 async function tailFluxDebugLog(req, res) {
   try {
-    const authorized =
-        await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
+    const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(
+      req.headers
+    );
     if (authorized === true) {
       tailFluxLog(req, res, 'debug');
     } else {
@@ -543,11 +618,11 @@ function getFluxTimezone(req, res) {
 async function getFluxInfo(req, res) {
   try {
     const info = {
-      daemon : {},
-      node : {},
-      benchmark : {},
-      flux : {},
-      apps : {},
+      daemon: {},
+      node: {},
+      benchmark: {},
+      flux: {},
+      apps: {},
     };
     const versionRes = await getFluxVersion();
     if (versionRes.status === 'error') {
@@ -629,9 +704,9 @@ async function getFluxInfo(req, res) {
   } catch (error) {
     log.error(error);
     const errorResponse = serviceHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
+      error.message || error,
+      error.name,
+      error.code
     );
     return res ? res.json(errorResponse) : errorResponse;
   }
@@ -641,7 +716,7 @@ async function adjustCruxID(req, res) {
   try {
     const authorized = await serviceHelper.verifyAdminSession(req.headers);
     if (authorized === true) {
-      let {cruxid} = req.params;
+      let { cruxid } = req.params;
       cruxid = cruxid || req.query.cruxid;
       if (!cruxid) {
         throw new Error('No Crux ID provided');
@@ -665,8 +740,9 @@ async function adjustCruxID(req, res) {
 
       await fs.writeFile(fluxDirPath, dataToWrite);
 
-      const successMessage =
-          serviceHelper.createSuccessMessage('CruxID adjusted');
+      const successMessage = serviceHelper.createSuccessMessage(
+        'CruxID adjusted'
+      );
       res.json(successMessage);
     } else {
       const errMessage = serviceHelper.errUnauthorizedMessage();
@@ -674,8 +750,11 @@ async function adjustCruxID(req, res) {
     }
   } catch (error) {
     log.error(error);
-    const errMessage =
-        serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const errMessage = serviceHelper.createErrorMessage(
+      error.message,
+      error.name,
+      error.code
+    );
     res.json(errMessage);
   }
 }
@@ -684,9 +763,9 @@ async function adjustKadenaAccount(req, res) {
   try {
     const authorized = await serviceHelper.verifyAdminSession(req.headers);
     if (authorized === true) {
-      let {account} = req.params;
+      let { account } = req.params;
       account = account || req.query.account;
-      let {chainid} = req.params;
+      let { chainid } = req.params;
       chainid = chainid || req.query.chainid;
       if (!account) {
         throw new Error('No Kadena Account provided');
@@ -695,8 +774,11 @@ async function adjustKadenaAccount(req, res) {
         throw new Error('No Kadena Chain ID provided');
       }
       const chainIDNumber = serviceHelper.ensureNumber(chainid);
-      if (chainIDNumber > 20 || chainIDNumber < 0 ||
-          Number.isNaN(chainIDNumber)) {
+      if (
+        chainIDNumber > 20 ||
+        chainIDNumber < 0 ||
+        Number.isNaN(chainIDNumber)
+      ) {
         throw new Error(`Invalid Chain ID ${chainid} provided.`);
       }
       const kadenaURI = `kadena:${account}?chainid=${chainid}`;
@@ -713,8 +795,9 @@ async function adjustKadenaAccount(req, res) {
 
       await fs.writeFile(fluxDirPath, dataToWrite);
 
-      const successMessage =
-          serviceHelper.createSuccessMessage('Kadena account adjusted');
+      const successMessage = serviceHelper.createSuccessMessage(
+        'Kadena account adjusted'
+      );
       res.json(successMessage);
     } else {
       const errMessage = serviceHelper.errUnauthorizedMessage();
@@ -722,8 +805,11 @@ async function adjustKadenaAccount(req, res) {
     }
   } catch (error) {
     log.error(error);
-    const errMessage =
-        serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const errMessage = serviceHelper.createErrorMessage(
+      error.message,
+      error.name,
+      error.code
+    );
     res.json(errMessage);
   }
 }
