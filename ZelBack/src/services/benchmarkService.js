@@ -6,23 +6,11 @@ const serviceHelper = require('./serviceHelper');
 const userconfig = require('../../../config/userconfig');
 
 const isTestnet = userconfig.initial.testnet;
-let rpcuser = 'zelbenchuser';
-let rpcpassword = 'zelbenchpassword';
+
 const rpcport = isTestnet === true ? config.benchmark.rpcporttestnet : config.benchmark.rpcport;
 
 const homeDirPath = path.join(__dirname, '../../../../');
 const newBenchmarkPath = path.join(homeDirPath, '.fluxbenchmark');
-if (fs.existsSync(newBenchmarkPath)) {
-  rpcuser = 'fluxbenchuser';
-  rpcpassword = 'fluxbenchpassword';
-}
-
-let client = new benchmarkrpc.Client({
-  port: rpcport,
-  user: rpcuser,
-  pass: rpcpassword,
-  timeout: 60000,
-});
 
 let response = serviceHelper.createErrorMessage();
 
@@ -30,25 +18,25 @@ async function executeCall(rpc, params) {
   let callResponse;
   const rpcparameters = params || [];
   try {
+    let rpcuser = 'zelbenchuser';
+    let rpcpassword = 'zelbenchpassword';
+    if (fs.existsSync(newBenchmarkPath)) {
+      rpcuser = 'fluxbenchuser';
+      rpcpassword = 'fluxbenchpassword';
+    }
+
+    const client = new benchmarkrpc.Client({
+      port: rpcport,
+      user: rpcuser,
+      pass: rpcpassword,
+      timeout: 60000,
+    });
     const data = await client[rpc](...rpcparameters);
     const successResponse = serviceHelper.createDataMessage(data);
     callResponse = successResponse;
   } catch (error) {
     const daemonError = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     callResponse = daemonError;
-    rpcuser = 'zelbenchuser';
-    rpcpassword = 'zelbenchpassword';
-    if (fs.existsSync(newBenchmarkPath)) {
-      rpcuser = 'fluxbenchuser';
-      rpcpassword = 'fluxbenchpassword';
-    }
-
-    client = new benchmarkrpc.Client({
-      port: rpcport,
-      user: rpcuser,
-      pass: rpcpassword,
-      timeout: 60000,
-    });
   }
 
   return callResponse;
