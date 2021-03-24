@@ -2,9 +2,11 @@
 
 ![Flux.png](ZelFront/src/assets/img/flux_banner.png)
 
-[![DeepScan grade](https://deepscan.io/api/teams/6436/projects/8442/branches/100920/badge/grade.svg)](https://deepscan.io/dashboard#view=project&tid=6436&pid=8442&bid=100920) [![CodeFactor](https://www.codefactor.io/repository/github/zelcash/zelflux/badge)](https://www.codefactor.io/repository/github/zelcash/zelflux)[![Language grade: JavaScript](https://img.shields.io/lgtm/grade/javascript/g/zelcash/zelflux.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/zelcash/zelflux/context:javascript)
+[![DeepScan grade](https://deepscan.io/api/teams/6436/projects/8442/branches/100920/badge/grade.svg)](https://deepscan.io/dashboard#view=project&tid=6436&pid=8442&bid=100920)
+[![CodeFactor](https://www.codefactor.io/repository/github/zelcash/zelflux/badge)](https://www.codefactor.io/repository/github/zelcash/zelflux)[![Language grade: JavaScript](https://img.shields.io/lgtm/grade/javascript/g/zelcash/zelflux.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/zelcash/zelflux/context:javascript)
 
-Flux is available on domains, load balancing the entire Flux network. You can access both UI and API on following main domain
+Flux is available on domains, load balancing the entire Flux network. You can
+access both UI and API on following main domain
 
 [Flux](https://home.runonflux.io)
 
@@ -16,11 +18,16 @@ Flux is available on domains, load balancing the entire Flux network. You can ac
 
 ## The gateway to the Flux Network
 
-Flux is the frontend UI to the entire Flux Network, it enables Flux operators to manage their Flux Node easily via a simple web interface. Flux enables an operator to perform all tasks such as updating and maintenance from a simple web interface, instead of having to remotely login to their Flux to manage it.
+Flux is the frontend UI to the entire Flux Network, it enables Flux operators to
+manage their Flux Node easily via a simple web interface. Flux enables an
+operator to perform all tasks such as updating and maintenance from a simple web
+interface, instead of having to remotely login to their Flux to manage it.
 
-Flux Requires a reasonably new version of Node.js (npm), MongoDB and Docker. It is a MongoDB, Express.js, Vue.js, Node.js (MEVN) application
+Flux Requires a reasonably new version of Node.js (npm), MongoDB and Docker. It
+is a MongoDB, Express.js, Vue.js, Node.js (MEVN) application
 
-This application communicates locally with the Flux Daemon (zelcashd), Benchmark Daemon (zelbenchd) and other Flux instances.
+This application communicates locally with the Flux Daemon (zelcashd), Benchmark
+Daemon (zelbenchd) and other Flux instances.
 
 ## Application Overview
 
@@ -31,7 +38,8 @@ This application communicates locally with the Flux Daemon (zelcashd), Benchmark
 - Listen and handle frontend requests
 - Requests signing and authenticity verifying
 - Handle communication with other Fluxes
-- Manage Flux applications - smart spawning, distributing workload, termination depending of application subscription.
+- Manage Flux applications - smart spawning, distributing workload, termination
+  depending of application subscription.
 - Provide Explorer solution
 - and more!
 
@@ -53,7 +61,8 @@ This application is open source and distributed under the GNU AGPLv3 licence
 
 ## Start Flux
 
-Flux needs Daemon to be running, to setup Daemon follow [these instructions.](https://github.com/zelcash/ZelNodeInstallv3)
+Flux needs Daemon to be running, to setup Daemon follow
+[these instructions.](https://github.com/zelcash/ZelNodeInstallv3)
 
 build-essential is a recommended dependency
 
@@ -201,13 +210,12 @@ npm run fluxdev
 npm run homedev
 ```
 
-THE SETUP ENDS HERE...
-The following information below provided for brief usage guidelines and/or examples only.
+THE SETUP ENDS HERE... The following information below provided for brief usage
+guidelines and/or examples only.
 
 ## Flux Home Information
 
-> Frontend interface to interact with the Zel network
-> Uses port 16126
+> Frontend interface to interact with the Zel network Uses port 16126
 
 ## Build Setup
 
@@ -224,8 +232,7 @@ npm run homebuild --report
 
 ## Flux Information
 
-> Backend interface to interact with the Flux Network
-> Uses port 16127
+> Backend interface to interact with the Flux Network Uses port 16127
 
 ## Continued Build Setup
 
