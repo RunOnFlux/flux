@@ -1248,7 +1248,7 @@ async function createAppVolume(appSpecifications, res) {
     global.allocationInterval = setInterval(() => {
       iterationAlloc += 1;
       const allocateSpaceB = {
-        status: `Space alocation is running for ${20 * iterationAlloc}s. This may take quite some time...`,
+        status: `Space allocation is running for ${20 * iterationAlloc}s. This may take quite some time...`,
       };
       log.info(allocateSpaceB);
       if (res) {
@@ -1334,7 +1334,7 @@ async function createAppVolume(appSpecifications, res) {
     global.verificationInterval = setInterval(() => {
       interationVerif += 1;
       const spaceVerifB = {
-        status: `Space verification is ruuning for ${20 * interationVerif}s. This may take quite some time...`,
+        status: `Space verification is running for ${20 * interationVerif}s. This may take quite some time...`,
       };
       log.info(spaceVerifB);
       if (res) {

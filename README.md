@@ -53,7 +53,7 @@ This application is open source and distributed under the GNU AGPLv3 licence
 
 ## Start Flux
 
-Flux needs Daemon to be ruuning, to setup Daemon follow [these instructions.](https://github.com/zelcash/ZelNodeInstallv3)
+Flux needs Daemon to be running, to setup Daemon follow [these instructions.](https://github.com/zelcash/ZelNodeInstallv3)
 
 build-essential is a recommended dependency
 
