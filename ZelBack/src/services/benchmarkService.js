@@ -17,7 +17,7 @@ if (fs.existsSync(newBenchmarkPath)) {
   rpcpassword = 'fluxbenchpassword';
 }
 
-const client = new benchmarkrpc.Client({
+let client = new benchmarkrpc.Client({
   port: rpcport,
   user: rpcuser,
   pass: rpcpassword,
@@ -36,6 +36,19 @@ async function executeCall(rpc, params) {
   } catch (error) {
     const daemonError = serviceHelper.createErrorMessage(error.message, error.name, error.code);
     callResponse = daemonError;
+    rpcuser = 'zelbenchuser';
+    rpcpassword = 'zelbenchpassword';
+    if (fs.existsSync(newBenchmarkPath)) {
+      rpcuser = 'fluxbenchuser';
+      rpcpassword = 'fluxbenchpassword';
+    }
+
+    client = new benchmarkrpc.Client({
+      port: rpcport,
+      user: rpcuser,
+      pass: rpcpassword,
+      timeout: 60000,
+    });
   }
 
   return callResponse;
