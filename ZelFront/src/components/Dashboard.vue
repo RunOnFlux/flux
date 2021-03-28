@@ -140,7 +140,7 @@
         >
           <div id="priceChart" />
           <br><br>
-          <h2>Rewards After April 10th</h2>
+          <h2>Rewards After April 10th(Miners 50%/50% Flux Nodes)</h2>
           <br><br>
           <div class="gridThree">
             <div>
@@ -214,7 +214,7 @@
             </div>
           </div>
           <br><br>
-          <h2>Rewards Until April 10th</h2>
+          <h2>Rewards Until April 10th (Miners 75%/25% Flux Nodes)</h2>
           <br><br>
           <div class="gridThree">
             <div>
