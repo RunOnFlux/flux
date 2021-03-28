@@ -140,6 +140,8 @@
         >
           <div id="priceChart" />
           <br><br>
+          <h2>Rewards After April 10th</h2>
+          <br><br>
           <div class="gridThree">
             <div>
               <h2>Cumulus Rewards</h2>
@@ -160,7 +162,7 @@
               <h4 style="visibility: hidden">No KDA available</h4>
               <br><br>
               <h3>Profitability per month - Node Cost 6 USD</h3>
-              <h4>Node only: {{ beautifyValue(superUSDRewardWeek * 4.34812141 - 6) }} USD</h4>
+              <h4>Node only: {{ beautifyValue(basicUSDRewardWeek * 4.34812141 - 6) }} USD</h4>
               <h4 style="visibility: hidden">No KDA available</h4>
               <br>
             </div>
@@ -208,6 +210,80 @@
               <h3>Profitability per month - Node Cost 32 USD</h3>
               <h4>Node only: {{ beautifyValue(bamfUSDRewardWeek * 4.34812141 - 32) }} USD</h4>
               <h4>With KDA: {{ beautifyValue((bamfUSDRewardWeek * 4.34812141) + (bamfUSDKDARewardWeek * 4.34812141) - 18.1) }} USD</h4>
+              <br>
+            </div>
+          </div>
+          <br><br>
+          <h2>Rewards Until April 10th</h2>
+          <br><br>
+          <div class="gridThree">
+            <div>
+              <h2>Cumulus Rewards</h2>
+              <br><br>
+              <h3>per day</h3>
+              <h4>{{ beautifyValue(beforeForkbasicWeek / 7 ) }} FLUX</h4>
+              <h4>{{ beautifyValue(beforeForkbasicUSDRewardWeek / 7) }} USD</h4>
+              <h4 style="visibility: hidden">No KDA available</h4>
+              <br><br>
+              <h3>per week</h3>
+              <h4>{{ beautifyValue(beforeForkbasicWeek) }} FLUX</h4>
+              <h4>{{ beautifyValue(beforeForkbasicUSDRewardWeek) }} USD</h4>
+              <h4 style="visibility: hidden">No KDA available</h4>
+              <br><br>
+              <h3>per month</h3>
+              <h4>{{ beautifyValue(beforeForkbasicWeek * 4.34812141) }} FLUX</h4>
+              <h4>{{ beautifyValue(beforeForkbasicUSDRewardWeek * 4.34812141) }} USD</h4>
+              <h4 style="visibility: hidden">No KDA available</h4>
+              <br><br>
+              <h3>Profitability per month - Node Cost 6 USD</h3>
+              <h4>Node only: {{ beautifyValue(beforeForkbasicUSDRewardWeek * 4.34812141 - 6) }} USD</h4>
+              <h4 style="visibility: hidden">No KDA available</h4>
+              <br>
+            </div>
+            <div>
+              <h2>Nimbus Rewards</h2>
+              <br><br>
+              <h3>per day</h3>
+              <h4>{{ beautifyValue(beforeForksuperWeek / 7) }} FLUX ~ {{ beautifyValue(beforeForksuperUSDRewardWeek / 7) }} USD</h4>
+              <h4>{{ beautifyValue(kdaNimbusWeek / 7) }} KDA ~ {{ beautifyValue(superUSDKDARewardWeek / 7) }} USD</h4>
+              <h4>{{ beautifyValue((beforeForksuperUSDRewardWeek / 7) + (superUSDKDARewardWeek / 7)) }} USD</h4>
+              <br><br>
+              <h3>per week</h3>
+              <h4>{{ beautifyValue(beforeForksuperWeek) }} FLUX ~ {{ beautifyValue(beforeForksuperUSDRewardWeek) }} USD</h4>
+              <h4>{{ beautifyValue(kdaNimbusWeek) }} KDA ~ {{ beautifyValue(superUSDKDARewardWeek) }} USD</h4>
+              <h4>{{ beautifyValue((beforeForksuperUSDRewardWeek) + (superUSDKDARewardWeek)) }} USD</h4>
+              <br><br>
+              <h3>per month</h3>
+              <h4>{{ beautifyValue(beforeForksuperWeek * 4.34812141) }} FLUX ~ {{ beautifyValue(beforeForksuperUSDRewardWeek * 4.34812141) }} USD</h4>
+              <h4>{{ beautifyValue(kdaNimbusWeek * 4.34812141) }} KDA ~ {{ beautifyValue(superUSDKDARewardWeek * 4.34812141) }} USD</h4>
+              <h4>{{ beautifyValue((beforeForksuperUSDRewardWeek * 4.34812141) + (superUSDKDARewardWeek * 4.34812141)) }} USD</h4>
+              <br><br>
+              <h3>Profitability per month - Node Cost 6 USD</h3>
+              <h4>Node only: {{ beautifyValue(beforeForksuperUSDRewardWeek * 4.34812141 - 6) }} USD</h4>
+              <h4>With KDA: {{ beautifyValue((beforeForksuperUSDRewardWeek * 4.34812141) + (superUSDKDARewardWeek * 4.34812141) - 6) }} USD</h4>
+              <br>
+            </div>
+            <div>
+              <h2>Stratus Rewards</h2>
+              <br><br>
+              <h3>per day</h3>
+              <h4>{{ beautifyValue(beforeForkbamfWeek / 7 ) }} FLUX ~ {{ beautifyValue(beforeForkbamfUSDRewardWeek / 7) }} USD</h4>
+              <h4>{{ beautifyValue(kdaStratusWeek / 7 ) }} KDA ~ {{ beautifyValue(bamfUSDKDARewardWeek / 7) }} USD</h4>
+              <h4>{{ beautifyValue((beforeForkbamfUSDRewardWeek / 7) + (bamfUSDKDARewardWeek / 7)) }} USD</h4>
+              <br><br>
+              <h3>per week</h3>
+              <h4>{{ beautifyValue(beforeForkbamfWeek) }} FLUX ~ {{ beautifyValue(beforeForkbamfUSDRewardWeek) }} USD</h4>
+              <h4>{{ beautifyValue(kdaStratusWeek ) }} KDA ~ {{ beautifyValue(bamfUSDKDARewardWeek) }} USD</h4>
+              <h4>{{ beautifyValue((beforeForkbamfUSDRewardWeek) + (bamfUSDKDARewardWeek)) }} USD</h4>
+              <br><br>
+              <h3>per month</h3>
+              <h4>{{ beautifyValue(beforeForkbamfWeek * 4.34812141) }} FLUX ~ {{ beautifyValue(beforeForkbamfUSDRewardWeek * 4.34812141) }} USD</h4>
+              <h4>{{ beautifyValue(kdaStratusWeek * 4.34812141) }} KDA ~ {{ beautifyValue(bamfUSDKDARewardWeek * 4.34812141) }} USD</h4>
+              <h4>{{ beautifyValue((beforeForkbamfUSDRewardWeek * 4.34812141) + (bamfUSDKDARewardWeek * 4.34812141)) }} USD</h4>
+              <br><br>
+              <h3>Profitability per month - Node Cost 32 USD</h3>
+              <h4>Node only: {{ beautifyValue(beforeForkbamfUSDRewardWeek * 4.34812141 - 32) }} USD</h4>
+              <h4>With KDA: {{ beautifyValue((beforeForkbamfUSDRewardWeek * 4.34812141) + (bamfUSDKDARewardWeek * 4.34812141) - 18.1) }} USD</h4>
               <br>
             </div>
           </div>
@@ -387,6 +463,14 @@ export default {
       bamfUSDKDARewardWeek: 0,
       kdaNimbusWeek: 0,
       kdaStratusWeek: 0,
+      beforeForkbasicWeek: 0,
+      beforeForksuperWeek: 0,
+      beforeForkbamfWeek: 0,
+      beforeForkbasicUSDRewardWeek: 0,
+      beforeForksuperUSDRewardWeek: 0,
+      beforeForkbamfUSDRewardWeek: 0,
+      beforForkkdaNimbusWeek: 0,
+      beforForkkdaStratusWeek: 0,
     };
   },
   computed: {
@@ -486,9 +570,9 @@ export default {
         const overallTotal = totalNimbuss + (4 * totalStratuss);
         const perNimbusWeek = Number((kdaCoins / overallTotal).toFixed(4)); // KDA
         const perStratusWeek = Number(((kdaCoins / overallTotal) * 4).toFixed(4)); // KDA
-        const perCumulusNode = 2.8125;
-        const perNimbusNode = 4.6875;
-        const perStratusNode = 11.25;
+        const perCumulusNode = 5.625;
+        const perNimbusNode = 9.375;
+        const perStratusNode = 22.5;
         // eslint-disable-next-line no-mixed-operators
         const basicWeek = perCumulusNode * 720 * 7 / basics;
         // eslint-disable-next-line no-mixed-operators
@@ -517,6 +601,32 @@ export default {
         this.bamfUSDKDARewardWeek = bamfUSDKDARewardWeek;
         this.kdaNimbusWeek = perNimbusWeek;
         this.kdaStratusWeek = perStratusWeek;
+
+        const beforeForkperCumulusNode = 2.8125;
+        const beforeForkperNimbusNode = 4.6875;
+        const beforeForkperStratusNode = 11.25;
+        // eslint-disable-next-line no-mixed-operators
+        const beforeForkbasicWeek = beforeForkperCumulusNode * 720 * 7 / basics;
+        // eslint-disable-next-line no-mixed-operators
+        const beforeForksuperWeek = beforeForkperNimbusNode * 720 * 7 / supers;
+        // eslint-disable-next-line no-mixed-operators
+        const beforeForkbamfWeek = beforeForkperStratusNode * 720 * 7 / bamfs;
+        const beforeForkbasicUSDReward = this.getFiatRate('ZEL') * beforeForkperCumulusNode; // per one go
+        const beforeForksuperUSDReward = this.getFiatRate('ZEL') * beforeForkperNimbusNode; // per one go
+        const beforeForkbamfUSDReward = this.getFiatRate('ZEL') * beforeForkperStratusNode; // per one go
+        // 720 blocks per day.
+        // eslint-disable-next-line no-mixed-operators
+        const beforeForkbasicUSDRewardWeek = 7 * 720 * beforeForkbasicUSDReward / basics;
+        // eslint-disable-next-line no-mixed-operators
+        const beforeForksuperUSDRewardWeek = 7 * 720 * beforeForksuperUSDReward / supers;
+        // eslint-disable-next-line no-mixed-operators
+        const beforeForkbamfUSDRewardWeek = 7 * 720 * beforeForkbamfUSDReward / bamfs;
+        this.beforeForkbasicWeek = beforeForkbasicWeek;
+        this.beforeForksuperWeek = beforeForksuperWeek;
+        this.beforeForkbamfWeek = beforeForkbamfWeek;
+        this.beforeForkbasicUSDRewardWeek = beforeForkbasicUSDRewardWeek;
+        this.beforeForksuperUSDRewardWeek = beforeForksuperUSDRewardWeek;
+        this.beforeForkbamfUSDRewardWeek = beforeForkbamfUSDRewardWeek;
 
         const self = this;
         axios.get('https://api.coingecko.com/api/v3/coins/zelcash/market_chart?vs_currency=USD&days=30').then((res2) => {
