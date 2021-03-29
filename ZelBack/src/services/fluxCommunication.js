@@ -1106,6 +1106,7 @@ async function checkMyFluxAvailability(nodelist) {
       // Asked Flux cannot reach me lets check if ip changed
       const publicIp = await getBenchPublicIp();
       if(publicIp && publicIp !== myIP){
+        myIP = publicIp;
         await restartNodeBenchMarks();
         await serviceHelper.delay(2*60*1000); //lets wait two minutes
         return;
