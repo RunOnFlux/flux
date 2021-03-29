@@ -161,8 +161,8 @@
               <h4>{{ beautifyValue(basicUSDRewardWeek * 4.34812141) }} USD</h4>
               <h4 style="visibility: hidden">No KDA available</h4>
               <br><br>
-              <h3>Profitability per month - Node Cost 6 USD</h3>
-              <h4>Node only: {{ beautifyValue(basicUSDRewardWeek * 4.34812141 - 6) }} USD</h4>
+              <h3>Profitability per month - Node Cost 4.70 USD</h3>
+              <h4>Node only: {{ beautifyValue(basicUSDRewardWeek * 4.34812141 - 4.70) }} USD</h4>
               <h4 style="visibility: hidden">No KDA available</h4>
               <br>
             </div>
@@ -235,8 +235,8 @@
               <h4>{{ beautifyValue(beforeForkbasicUSDRewardWeek * 4.34812141) }} USD</h4>
               <h4 style="visibility: hidden">No KDA available</h4>
               <br><br>
-              <h3>Profitability per month - Node Cost 6 USD</h3>
-              <h4>Node only: {{ beautifyValue(beforeForkbasicUSDRewardWeek * 4.34812141 - 6) }} USD</h4>
+              <h3>Profitability per month - Node Cost 4.70 USD</h3>
+              <h4>Node only: {{ beautifyValue(beforeForkbasicUSDRewardWeek * 4.34812141 - 4.70) }} USD</h4>
               <h4 style="visibility: hidden">No KDA available</h4>
               <br>
             </div>
