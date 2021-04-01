@@ -542,9 +542,9 @@ export default {
       try {
         const resCount = await DashboardService.zelnodeCount();
         const counts = resCount.data.data;
-        const stratuss = counts['basic-enabled'] || counts['stratus-enabled'];
-        const nimbuss = counts['super-enabled'] || counts['nimbus-enabled'];
-        const cumuluss = counts['bamf-enabled'] || counts['cumulus-enabled'];
+        const stratuss = counts['stratus-enabled'] || counts['stratus-enabled'];
+        const nimbuss = counts['nimbus-enabled'] || counts['nimbus-enabled'];
+        const cumuluss = counts['cumulus-enabled'] || counts['cumulus-enabled'];
         console.log(resCount);
         const supply = stratuss * 100000 + nimbuss * 25000 + cumuluss * 10000;
         this.lockedSupply = supply;
@@ -557,9 +557,9 @@ export default {
     async generateEconomics(zelnodecounts) {
       try {
         console.log(this.rates);
-        const stratuss = zelnodecounts['basic-enabled'] || zelnodecounts['stratus-enabled'];
-        const nimbuss = zelnodecounts['super-enabled'] || zelnodecounts['nimbus-enabled'];
-        const cumuluss = zelnodecounts['bamf-enabled'] || zelnodecounts['cumulus-enabled'];
+        const stratuss = zelnodecounts['stratus-enabled'] || zelnodecounts['stratus-enabled'];
+        const nimbuss = zelnodecounts['nimbus-enabled'] || zelnodecounts['nimbus-enabled'];
+        const cumuluss = zelnodecounts['cumulus-enabled'] || zelnodecounts['cumulus-enabled'];
         const resKDAEligible = await axios.get('https://api.flux.zel.network/kadena/eligible/7');
         const kdaData = resKDAEligible.data.data;
         const kdaCoins = 5749.77;
