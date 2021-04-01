@@ -773,31 +773,31 @@
               </p>
               <div v-if="callResponse.data.tiered">
                 <p>
-                  Stratus CPU: {{ callResponse.data.cpustratus }} Cores
+                  Stratus CPU: {{ callResponse.data.cpubamf }} Cores
                 </p>
                 <p>
-                  Stratus RAM: {{ callResponse.data.ramstratus }} MB
+                  Stratus RAM: {{ callResponse.data.rambamf }} MB
                 </p>
                 <p>
-                  Stratus SSD: {{ callResponse.data.hddstratus }} GB
+                  Stratus SSD: {{ callResponse.data.hddbamf }} GB
                 </p>
                 <p>
-                  Nimbus CPU: {{ callResponse.data.cpunimbus }} Cores
+                  Nimbus CPU: {{ callResponse.data.cpusuper }} Cores
                 </p>
                 <p>
-                  Nimbus RAM: {{ callResponse.data.ramnimbus }} MB
+                  Nimbus RAM: {{ callResponse.data.ramsuper }} MB
                 </p>
                 <p>
-                  Nimbus SSD: {{ callResponse.data.hddnimbus }} GB
+                  Nimbus SSD: {{ callResponse.data.hddsuper }} GB
                 </p>
                 <p>
-                  Cumulus CPU: {{ callResponse.data.cpucumulus }} Cores
+                  Cumulus CPU: {{ callResponse.data.cpubasic }} Cores
                 </p>
                 <p>
-                  Cumulus RAM: {{ callResponse.data.ramcumulus }} MB
+                  Cumulus RAM: {{ callResponse.data.rambasic }} MB
                 </p>
                 <p>
-                  Cumulus SSD: {{ callResponse.data.hddcumulus }} GB
+                  Cumulus SSD: {{ callResponse.data.hddbasic }} GB
                 </p>
               </div>
               <div v-else>
@@ -867,31 +867,31 @@
               </p>
               <div v-if="callBResponse.data.tiered">
                 <p>
-                  Stratus CPU: {{ callBResponse.data.cpustratus }} Cores
+                  Stratus CPU: {{ callBResponse.data.cpubamf }} Cores
                 </p>
                 <p>
-                  Stratus RAM: {{ callBResponse.data.ramstratus }} MB
+                  Stratus RAM: {{ callBResponse.data.rambamf }} MB
                 </p>
                 <p>
-                  Stratus SSD: {{ callBResponse.data.hddstratus }} GB
+                  Stratus SSD: {{ callBResponse.data.hddbamf }} GB
                 </p>
                 <p>
-                  Nimbus CPU: {{ callBResponse.data.cpunimbus }} Cores
+                  Nimbus CPU: {{ callBResponse.data.cpusuper }} Cores
                 </p>
                 <p>
-                  Nimbus RAM: {{ callBResponse.data.ramnimbus }} MB
+                  Nimbus RAM: {{ callBResponse.data.ramsuper }} MB
                 </p>
                 <p>
-                  Nimbus SSD: {{ callBResponse.data.hddnimbus }} GB
+                  Nimbus SSD: {{ callBResponse.data.hddsuper }} GB
                 </p>
                 <p>
-                  Cumulus CPU: {{ callBResponse.data.cpucumulus }} Cores
+                  Cumulus CPU: {{ callBResponse.data.cpubasic }} Cores
                 </p>
                 <p>
-                  Cumulus RAM: {{ callBResponse.data.ramcumulus }} MB
+                  Cumulus RAM: {{ callBResponse.data.rambasic }} MB
                 </p>
                 <p>
-                  Cumulus SSD: {{ callBResponse.data.hddcumulus }} GB
+                  Cumulus SSD: {{ callBResponse.data.hddbasic }} GB
                 </p>
               </div>
               <div v-else>
@@ -1239,31 +1239,31 @@
               </p>
               <div v-if="callBResponse.data.tiered">
                 <p>
-                  Stratus CPU: {{ callBResponse.data.cpustratus }} Cores
+                  Stratus CPU: {{ callBResponse.data.cpubamf }} Cores
                 </p>
                 <p>
-                  Stratus RAM: {{ callBResponse.data.ramstratus }} MB
+                  Stratus RAM: {{ callBResponse.data.rambamf }} MB
                 </p>
                 <p>
-                  Stratus SSD: {{ callBResponse.data.hddstratus }} GB
+                  Stratus SSD: {{ callBResponse.data.hddbamf }} GB
                 </p>
                 <p>
-                  Nimbus CPU: {{ callBResponse.data.cpunimbus }} Cores
+                  Nimbus CPU: {{ callBResponse.data.cpusuper }} Cores
                 </p>
                 <p>
-                  Nimbus RAM: {{ callBResponse.data.ramnimbus }} MB
+                  Nimbus RAM: {{ callBResponse.data.ramsuper }} MB
                 </p>
                 <p>
-                  Nimbus SSD: {{ callBResponse.data.hddnimbus }} GB
+                  Nimbus SSD: {{ callBResponse.data.hddsuper }} GB
                 </p>
                 <p>
-                  Cumulus CPU: {{ callBResponse.data.cpucumulus }} Cores
+                  Cumulus CPU: {{ callBResponse.data.cpubasic }} Cores
                 </p>
                 <p>
-                  Cumulus RAM: {{ callBResponse.data.ramcumulus }} MB
+                  Cumulus RAM: {{ callBResponse.data.rambasic }} MB
                 </p>
                 <p>
-                  Cumulus SSD: {{ callBResponse.data.hddcumulus }} GB
+                  Cumulus SSD: {{ callBResponse.data.hddbasic }} GB
                 </p>
               </div>
               <div v-else>
@@ -1431,7 +1431,7 @@
                       min="0"
                       max="1"
                       step="0.1"
-                      v-model="appUpdateSpecification.cpucumulus"
+                      v-model="appUpdateSpecification.cpubasic"
                     >
                     </el-input>
                   </el-form-item>
@@ -1442,7 +1442,7 @@
                       min="0"
                       max="1000"
                       step="100"
-                      v-model="appUpdateSpecification.ramcumulus"
+                      v-model="appUpdateSpecification.rambasic"
                     >
                     </el-input>
                   </el-form-item>
@@ -1453,7 +1453,7 @@
                       min="0"
                       max="20"
                       step="1"
-                      v-model="appUpdateSpecification.hddcumulus"
+                      v-model="appUpdateSpecification.hddbasic"
                     >
                     </el-input>
                   </el-form-item>
@@ -1464,7 +1464,7 @@
                       min="0"
                       max="3"
                       step="0.1"
-                      v-model="appUpdateSpecification.cpunimbus"
+                      v-model="appUpdateSpecification.cpusuper"
                     >
                     </el-input>
                   </el-form-item>
@@ -1475,7 +1475,7 @@
                       min="0"
                       max="5000"
                       step="100"
-                      v-model="appUpdateSpecification.ramnimbus"
+                      v-model="appUpdateSpecification.ramsuper"
                     >
                     </el-input>
                   </el-form-item>
@@ -1486,7 +1486,7 @@
                       min="0"
                       max="120"
                       step="1"
-                      v-model="appUpdateSpecification.hddnimbus"
+                      v-model="appUpdateSpecification.hddsuper"
                     >
                     </el-input>
                   </el-form-item>
@@ -1497,7 +1497,7 @@
                       min="0"
                       max="7"
                       step="0.1"
-                      v-model="appUpdateSpecification.cpustratus"
+                      v-model="appUpdateSpecification.cpubamf"
                     >
                     </el-input>
                   </el-form-item>
@@ -1508,7 +1508,7 @@
                       min="0"
                       max="28000"
                       step="100"
-                      v-model="appUpdateSpecification.ramstratus"
+                      v-model="appUpdateSpecification.rambamf"
                     >
                     </el-input>
                   </el-form-item>
@@ -1519,7 +1519,7 @@
                       min="0"
                       max="570"
                       step="1"
-                      v-model="appUpdateSpecification.hddstratus"
+                      v-model="appUpdateSpecification.hddbamf"
                     >
                     </el-input>
                   </el-form-item>
@@ -1761,7 +1761,7 @@
                 min="0"
                 max="1"
                 step="0.1"
-                v-model="appRegistrationSpecification.cpucumulus"
+                v-model="appRegistrationSpecification.cpubasic"
               >
               </el-input>
             </el-form-item>
@@ -1772,7 +1772,7 @@
                 min="0"
                 max="1000"
                 step="100"
-                v-model="appRegistrationSpecification.ramcumulus"
+                v-model="appRegistrationSpecification.rambasic"
               >
               </el-input>
             </el-form-item>
@@ -1783,7 +1783,7 @@
                 min="0"
                 max="20"
                 step="1"
-                v-model="appRegistrationSpecification.hddcumulus"
+                v-model="appRegistrationSpecification.hddbasic"
               >
               </el-input>
             </el-form-item>
@@ -1794,7 +1794,7 @@
                 min="0"
                 max="3"
                 step="0.1"
-                v-model="appRegistrationSpecification.cpunimbus"
+                v-model="appRegistrationSpecification.cpusuper"
               >
               </el-input>
             </el-form-item>
@@ -1805,7 +1805,7 @@
                 min="0"
                 max="5000"
                 step="100"
-                v-model="appRegistrationSpecification.ramnimbus"
+                v-model="appRegistrationSpecification.ramsuper"
               >
               </el-input>
             </el-form-item>
@@ -1816,7 +1816,7 @@
                 min="0"
                 max="120"
                 step="1"
-                v-model="appRegistrationSpecification.hddnimbus"
+                v-model="appRegistrationSpecification.hddsuper"
               >
               </el-input>
             </el-form-item>
@@ -1827,7 +1827,7 @@
                 min="0"
                 max="7"
                 step="0.1"
-                v-model="appRegistrationSpecification.cpustratus"
+                v-model="appRegistrationSpecification.cpubamf"
               >
               </el-input>
             </el-form-item>
@@ -1838,7 +1838,7 @@
                 min="0"
                 max="28000"
                 step="100"
-                v-model="appRegistrationSpecification.ramstratus"
+                v-model="appRegistrationSpecification.rambamf"
               >
               </el-input>
             </el-form-item>
@@ -1849,7 +1849,7 @@
                 min="0"
                 max="570"
                 step="1"
-                v-model="appRegistrationSpecification.hddstratus"
+                v-model="appRegistrationSpecification.hddbamf"
               >
               </el-input>
             </el-form-item>
@@ -2018,15 +2018,15 @@ export default {
         ram: null,
         hdd: null,
         tiered: false,
-        cpucumulus: null,
-        ramcumulus: null,
-        hddcumulus: null,
-        cpunimbus: null,
-        ramnimbus: null,
-        hddnimbus: null,
-        cpustratus: null,
-        ramstratus: null,
-        hddstratus: null,
+        cpubasic: null,
+        rambasic: null,
+        hddbasic: null,
+        cpusuper: null,
+        ramsuper: null,
+        hddsuper: null,
+        cpubamf: null,
+        rambamf: null,
+        hddbamf: null,
       },
       appUpdateSpecification: {
         version: 2,
@@ -2044,15 +2044,15 @@ export default {
         ram: null,
         hdd: null,
         tiered: false,
-        cpucumulus: null,
-        ramcumulus: null,
-        hddcumulus: null,
-        cpunimbus: null,
-        ramnimbus: null,
-        hddnimbus: null,
-        cpustratus: null,
-        ramstratus: null,
-        hddstratus: null,
+        cpubasic: null,
+        rambasic: null,
+        hddbasic: null,
+        cpusuper: null,
+        ramsuper: null,
+        hddsuper: null,
+        cpubamf: null,
+        rambamf: null,
+        hddbamf: null,
       },
       registrationtype: 'fluxappregister',
       updatetype: 'fluxappupdate',
@@ -2066,24 +2066,24 @@ export default {
       updateHash: '',
       fluxSpecifics: {
         cpu: {
-          cumulus: 20, // 10 available for apps
-          nimbus: 40, // 30 available for apps
-          stratus: 80, // 70 available for apps
+          basic: 20, // 10 available for apps
+          super: 40, // 30 available for apps
+          bamf: 80, // 70 available for apps
         },
         ram: {
-          cumulus: 3000, // 1000 available for apps
-          nimbus: 7000, // 5000 available for apps
-          stratus: 30000, // available 28000 for apps
+          basic: 3000, // 1000 available for apps
+          super: 7000, // 5000 available for apps
+          bamf: 30000, // available 28000 for apps
         },
         hdd: {
-          cumulus: 50, // 20 for apps
-          nimbus: 150, // 120 for apps
-          stratus: 600, // 570 for apps
+          basic: 50, // 20 for apps
+          super: 150, // 120 for apps
+          bamf: 600, // 570 for apps
         },
         collateral: {
-          cumulus: 10000,
-          nimbus: 25000,
-          stratus: 100000,
+          basic: 10000,
+          super: 25000,
+          bamf: 100000,
         },
       },
       lockedSystemResources: {
@@ -2602,37 +2602,37 @@ export default {
     },
     resolveCpu(app) {
       if (this.tier === 'BASIC' || this.tier === 'CUMULUS') {
-        return (`${app.cpucumulus || app.cpu} cores`);
+        return (`${app.cpubasic || app.cpu} cores`);
       }
       if (this.tier === 'SUPER' || this.tier === 'NIMBUS') {
-        return (`${app.cpunimbus || app.cpu} cores`);
+        return (`${app.cpusuper || app.cpu} cores`);
       }
       if (this.tier === 'BAMF' || this.tier === 'STRATUS') {
-        return (`${app.cpustratus || app.cpu} cores`);
+        return (`${app.cpubamf || app.cpu} cores`);
       }
       return (`${app.cpu} cores`);
     },
     resolveRam(app) {
       if (this.tier === 'BASIC' || this.tier === 'CUMULUS') {
-        return (`${app.ramcumulus || app.ram} MB`);
+        return (`${app.rambasic || app.ram} MB`);
       }
       if (this.tier === 'SUPER' || this.tier === 'NIMBUS') {
-        return (`${app.ramnimbus || app.ram} MB`);
+        return (`${app.ramsuper || app.ram} MB`);
       }
       if (this.tier === 'BAMF' || this.tier === 'STRATUS') {
-        return (`${app.ramstratus || app.ram} MB`);
+        return (`${app.rambamf || app.ram} MB`);
       }
       return (`${app.ram} MB`);
     },
     resolveHdd(app) {
       if (this.tier === 'BASIC' || this.tier === 'CUMULUS') {
-        return (`${app.hddcumulus || app.hdd} GB`);
+        return (`${app.hddbasic || app.hdd} GB`);
       }
       if (this.tier === 'SUPER' || this.tier === 'NIMBUS') {
-        return (`${app.hddnimbus || app.hdd} GB`);
+        return (`${app.hddsuper || app.hdd} GB`);
       }
       if (this.tier === 'BAMF' || this.tier === 'STRATUS') {
-        return (`${app.hddstratus || app.hdd} GB`);
+        return (`${app.hddbamf || app.hdd} GB`);
       }
       return (`${app.hdd} GB`);
     },
@@ -2642,41 +2642,41 @@ export default {
     },
     checkHWParameters(appSpecs) {
       // check specs parameters. JS precision
-      if ((appSpecs.cpu * 10) % 1 !== 0 || (appSpecs.cpu * 10) > (this.fluxSpecifics.cpu.stratus - this.lockedSystemResources.cpu) || appSpecs.cpu < 0.1) {
+      if ((appSpecs.cpu * 10) % 1 !== 0 || (appSpecs.cpu * 10) > (this.fluxSpecifics.cpu.bamf - this.lockedSystemResources.cpu) || appSpecs.cpu < 0.1) {
         return new Error('CPU badly assigned');
       }
-      if (appSpecs.ram % 100 !== 0 || appSpecs.ram > (this.fluxSpecifics.ram.stratus - this.lockedSystemResources.ram) || appSpecs.ram < 100) {
+      if (appSpecs.ram % 100 !== 0 || appSpecs.ram > (this.fluxSpecifics.ram.bamf - this.lockedSystemResources.ram) || appSpecs.ram < 100) {
         return new Error('RAM badly assigned');
       }
-      if (appSpecs.hdd % 1 !== 0 || appSpecs.hdd > (this.fluxSpecifics.hdd.stratus - this.lockedSystemResources.hdd) || appSpecs.hdd < 1) {
+      if (appSpecs.hdd % 1 !== 0 || appSpecs.hdd > (this.fluxSpecifics.hdd.bamf - this.lockedSystemResources.hdd) || appSpecs.hdd < 1) {
         return new Error('SSD badly assigned');
       }
       if (appSpecs.tiered) {
-        if ((appSpecs.cpucumulus * 10) % 1 !== 0 || (appSpecs.cpucumulus * 10) > (this.fluxSpecifics.cpu.cumulus - this.lockedSystemResources.cpu) || appSpecs.cpucumulus < 0.1) {
+        if ((appSpecs.cpubasic * 10) % 1 !== 0 || (appSpecs.cpubasic * 10) > (this.fluxSpecifics.cpu.basic - this.lockedSystemResources.cpu) || appSpecs.cpubasic < 0.1) {
           return new Error('CPU for Cumulus badly assigned');
         }
-        if (appSpecs.ramcumulus % 100 !== 0 || appSpecs.ramcumulus > (this.fluxSpecifics.ram.cumulus - this.lockedSystemResources.ram) || appSpecs.ramcumulus < 100) {
+        if (appSpecs.rambasic % 100 !== 0 || appSpecs.rambasic > (this.fluxSpecifics.ram.basic - this.lockedSystemResources.ram) || appSpecs.rambasic < 100) {
           return new Error('RAM for Cumulus badly assigned');
         }
-        if (appSpecs.hddcumulus % 1 !== 0 || appSpecs.hddcumulus > (this.fluxSpecifics.hdd.cumulus - this.lockedSystemResources.hdd) || appSpecs.hddcumulus < 1) {
+        if (appSpecs.hddbasic % 1 !== 0 || appSpecs.hddbasic > (this.fluxSpecifics.hdd.basic - this.lockedSystemResources.hdd) || appSpecs.hddbasic < 1) {
           return new Error('SSD for Cumulus badly assigned');
         }
-        if ((appSpecs.cpunimbus * 10) % 1 !== 0 || (appSpecs.cpunimbus * 10) > (this.fluxSpecifics.cpu.nimbus - this.lockedSystemResources.cpu) || appSpecs.cpunimbus < 0.1) {
+        if ((appSpecs.cpusuper * 10) % 1 !== 0 || (appSpecs.cpusuper * 10) > (this.fluxSpecifics.cpu.super - this.lockedSystemResources.cpu) || appSpecs.cpusuper < 0.1) {
           return new Error('CPU for Nimbus badly assigned');
         }
-        if (appSpecs.ramnimbus % 100 !== 0 || appSpecs.ramnimbus > (this.fluxSpecifics.ram.nimbus - this.lockedSystemResources.ram) || appSpecs.ramnimbus < 100) {
+        if (appSpecs.ramsuper % 100 !== 0 || appSpecs.ramsuper > (this.fluxSpecifics.ram.super - this.lockedSystemResources.ram) || appSpecs.ramsuper < 100) {
           return new Error('RAM for Nimbus badly assigned');
         }
-        if (appSpecs.hddnimbus % 1 !== 0 || appSpecs.hddnimbus > (this.fluxSpecifics.hdd.nimbus - this.lockedSystemResources.hdd) || appSpecs.hddnimbus < 1) {
+        if (appSpecs.hddsuper % 1 !== 0 || appSpecs.hddsuper > (this.fluxSpecifics.hdd.super - this.lockedSystemResources.hdd) || appSpecs.hddsuper < 1) {
           return new Error('SSD for Nimbus badly assigned');
         }
-        if ((appSpecs.cpustratus * 10) % 1 !== 0 || (appSpecs.cpustratus * 10) > (this.fluxSpecifics.cpu.stratus - this.lockedSystemResources.cpu) || appSpecs.cpustratus < 0.1) {
+        if ((appSpecs.cpubamf * 10) % 1 !== 0 || (appSpecs.cpubamf * 10) > (this.fluxSpecifics.cpu.bamf - this.lockedSystemResources.cpu) || appSpecs.cpubamf < 0.1) {
           return new Error('CPU for Stratus badly assigned');
         }
-        if (appSpecs.ramstratus % 100 !== 0 || appSpecs.ramstratus > (this.fluxSpecifics.ram.stratus - this.lockedSystemResources.ram) || appSpecs.ramstratus < 100) {
+        if (appSpecs.rambamf % 100 !== 0 || appSpecs.rambamf > (this.fluxSpecifics.ram.bamf - this.lockedSystemResources.ram) || appSpecs.rambamf < 100) {
           return new Error('RAM for Stratus badly assigned');
         }
-        if (appSpecs.hddstratus % 1 !== 0 || appSpecs.hddstratus > (this.fluxSpecifics.hdd.stratus - this.lockedSystemResources.hdd) || appSpecs.hddstratus < 1) {
+        if (appSpecs.hddbamf % 1 !== 0 || appSpecs.hddbamf > (this.fluxSpecifics.hdd.bamf - this.lockedSystemResources.hdd) || appSpecs.hddbamf < 1) {
           return new Error('SSD for Stratus badly assigned');
         }
       }
@@ -2817,37 +2817,37 @@ export default {
         };
 
         if (tiered) {
-          let { cpucumulus } = appSpecification;
-          let { cpunimbus } = appSpecification;
-          let { cpustratus } = appSpecification;
-          let { ramcumulus } = appSpecification;
-          let { ramnimbus } = appSpecification;
-          let { ramstratus } = appSpecification;
-          let { hddcumulus } = appSpecification;
-          let { hddnimbus } = appSpecification;
-          let { hddstratus } = appSpecification;
-          if (!cpucumulus || !cpunimbus || !cpustratus || !ramcumulus || !ramnimbus || !ramstratus || !hddcumulus || !hddnimbus || !hddstratus) {
+          let { cpubasic } = appSpecification;
+          let { cpusuper } = appSpecification;
+          let { cpubamf } = appSpecification;
+          let { rambasic } = appSpecification;
+          let { ramsuper } = appSpecification;
+          let { rambamf } = appSpecification;
+          let { hddbasic } = appSpecification;
+          let { hddsuper } = appSpecification;
+          let { hddbamf } = appSpecification;
+          if (!cpubasic || !cpusuper || !cpubamf || !rambasic || !ramsuper || !rambamf || !hddbasic || !hddsuper || !hddbamf) {
             throw new Error('App was requested as tiered setup but specifications are missing');
           }
-          cpucumulus = this.ensureNumber(cpucumulus);
-          cpunimbus = this.ensureNumber(cpunimbus);
-          cpustratus = this.ensureNumber(cpustratus);
-          ramcumulus = this.ensureNumber(ramcumulus);
-          ramnimbus = this.ensureNumber(ramnimbus);
-          ramstratus = this.ensureNumber(ramstratus);
-          hddcumulus = this.ensureNumber(hddcumulus);
-          hddnimbus = this.ensureNumber(hddnimbus);
-          hddstratus = this.ensureNumber(hddstratus);
+          cpubasic = this.ensureNumber(cpubasic);
+          cpusuper = this.ensureNumber(cpusuper);
+          cpubamf = this.ensureNumber(cpubamf);
+          rambasic = this.ensureNumber(rambasic);
+          ramsuper = this.ensureNumber(ramsuper);
+          rambamf = this.ensureNumber(rambamf);
+          hddbasic = this.ensureNumber(hddbasic);
+          hddsuper = this.ensureNumber(hddsuper);
+          hddbamf = this.ensureNumber(hddbamf);
 
-          appSpecFormatted.cpucumulus = cpucumulus;
-          appSpecFormatted.cpunimbus = cpunimbus;
-          appSpecFormatted.cpustratus = cpustratus;
-          appSpecFormatted.ramcumulus = ramcumulus;
-          appSpecFormatted.ramnimbus = ramnimbus;
-          appSpecFormatted.ramstratus = ramstratus;
-          appSpecFormatted.hddcumulus = hddcumulus;
-          appSpecFormatted.hddnimbus = hddnimbus;
-          appSpecFormatted.hddstratus = hddstratus;
+          appSpecFormatted.cpubasic = cpubasic;
+          appSpecFormatted.cpusuper = cpusuper;
+          appSpecFormatted.cpubamf = cpubamf;
+          appSpecFormatted.rambasic = rambasic;
+          appSpecFormatted.ramsuper = ramsuper;
+          appSpecFormatted.rambamf = rambamf;
+          appSpecFormatted.hddbasic = hddbasic;
+          appSpecFormatted.hddsuper = hddsuper;
+          appSpecFormatted.hddbamf = hddbamf;
         }
         // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper port, repotag exists, string lengths, specs are ok
         if (version !== 2) {
@@ -3039,37 +3039,37 @@ export default {
         };
 
         if (tiered) {
-          let { cpucumulus } = appSpecFormatted;
-          let { cpunimbus } = appSpecFormatted;
-          let { cpustratus } = appSpecFormatted;
-          let { ramcumulus } = appSpecFormatted;
-          let { ramnimbus } = appSpecFormatted;
-          let { ramstratus } = appSpecFormatted;
-          let { hddcumulus } = appSpecFormatted;
-          let { hddnimbus } = appSpecFormatted;
-          let { hddstratus } = appSpecFormatted;
-          if (!cpucumulus || !cpunimbus || !cpustratus || !ramcumulus || !ramnimbus || !ramstratus || !hddcumulus || !hddnimbus || !hddstratus) {
+          let { cpubasic } = appSpecFormatted;
+          let { cpusuper } = appSpecFormatted;
+          let { cpubamf } = appSpecFormatted;
+          let { rambasic } = appSpecFormatted;
+          let { ramsuper } = appSpecFormatted;
+          let { rambamf } = appSpecFormatted;
+          let { hddbasic } = appSpecFormatted;
+          let { hddsuper } = appSpecFormatted;
+          let { hddbamf } = appSpecFormatted;
+          if (!cpubasic || !cpusuper || !cpubamf || !rambasic || !ramsuper || !rambamf || !hddbasic || !hddsuper || !hddbamf) {
             throw new Error('App was requested as tiered setup but specifications are missing');
           }
-          cpucumulus = this.ensureNumber(cpucumulus);
-          cpunimbus = this.ensureNumber(cpunimbus);
-          cpustratus = this.ensureNumber(cpustratus);
-          ramcumulus = this.ensureNumber(ramcumulus);
-          ramnimbus = this.ensureNumber(ramnimbus);
-          ramstratus = this.ensureNumber(ramstratus);
-          hddcumulus = this.ensureNumber(hddcumulus);
-          hddnimbus = this.ensureNumber(hddnimbus);
-          hddstratus = this.ensureNumber(hddstratus);
+          cpubasic = this.ensureNumber(cpubasic);
+          cpusuper = this.ensureNumber(cpusuper);
+          cpubamf = this.ensureNumber(cpubamf);
+          rambasic = this.ensureNumber(rambasic);
+          ramsuper = this.ensureNumber(ramsuper);
+          rambamf = this.ensureNumber(rambamf);
+          hddbasic = this.ensureNumber(hddbasic);
+          hddsuper = this.ensureNumber(hddsuper);
+          hddbamf = this.ensureNumber(hddbamf);
 
-          appSpecFormatted.cpucumulus = cpucumulus;
-          appSpecFormatted.cpunimbus = cpunimbus;
-          appSpecFormatted.cpustratus = cpustratus;
-          appSpecFormatted.ramcumulus = ramcumulus;
-          appSpecFormatted.ramnimbus = ramnimbus;
-          appSpecFormatted.ramstratus = ramstratus;
-          appSpecFormatted.hddcumulus = hddcumulus;
-          appSpecFormatted.hddnimbus = hddnimbus;
-          appSpecFormatted.hddstratus = hddstratus;
+          appSpecFormatted.cpubasic = cpubasic;
+          appSpecFormatted.cpusuper = cpusuper;
+          appSpecFormatted.cpubamf = cpubamf;
+          appSpecFormatted.rambasic = rambasic;
+          appSpecFormatted.ramsuper = ramsuper;
+          appSpecFormatted.rambamf = rambamf;
+          appSpecFormatted.hddbasic = hddbasic;
+          appSpecFormatted.hddsuper = hddsuper;
+          appSpecFormatted.hddbamf = hddbamf;
         }
         // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
         if (version !== 2) {
@@ -3453,15 +3453,15 @@ export default {
         this.appUpdateSpecification.ram = specs.ram;
         this.appUpdateSpecification.hdd = specs.hdd;
         this.appUpdateSpecification.tiered = specs.tiered;
-        this.appUpdateSpecification.cpucumulus = specs.cpucumulus;
-        this.appUpdateSpecification.ramcumulus = specs.ramcumulus;
-        this.appUpdateSpecification.hddcumulus = specs.hddcumulus;
-        this.appUpdateSpecification.cpunimbus = specs.cpunimbus;
-        this.appUpdateSpecification.ramnimbus = specs.ramnimbus;
-        this.appUpdateSpecification.hddnimbus = specs.hddnimbus;
-        this.appUpdateSpecification.cpustratus = specs.cpustratus;
-        this.appUpdateSpecification.ramstratus = specs.ramstratus;
-        this.appUpdateSpecification.hddstratus = specs.hddstratus;
+        this.appUpdateSpecification.cpubasic = specs.cpubasic;
+        this.appUpdateSpecification.rambasic = specs.rambasic;
+        this.appUpdateSpecification.hddbasic = specs.hddbasic;
+        this.appUpdateSpecification.cpusuper = specs.cpusuper;
+        this.appUpdateSpecification.ramsuper = specs.ramsuper;
+        this.appUpdateSpecification.hddsuper = specs.hddsuper;
+        this.appUpdateSpecification.cpubamf = specs.cpubamf;
+        this.appUpdateSpecification.rambamf = specs.rambamf;
+        this.appUpdateSpecification.hddbamf = specs.hddbamf;
       }
     },
     async getApplicationLocations() {
@@ -3609,13 +3609,13 @@ export default {
     appPricePerMonthMethod(specifications) {
       let price;
       if (specifications.tiered) {
-        const cpuTotalCount = specifications.cpucumulus + specifications.cpunimbus + specifications.cpustratus;
+        const cpuTotalCount = specifications.cpubasic + specifications.cpusuper + specifications.cpubamf;
         const cpuPrice = cpuTotalCount * this.apps.price.cpu * 10; // 0.1 core cost cpu price
         const cpuTotal = cpuPrice / 3;
-        const ramTotalCount = specifications.ramcumulus + specifications.ramnimbus + specifications.ramstratus;
+        const ramTotalCount = specifications.rambasic + specifications.ramsuper + specifications.rambamf;
         const ramPrice = (ramTotalCount * this.apps.price.ram) / 100;
         const ramTotal = ramPrice / 3;
-        const hddTotalCount = specifications.hddcumulus + specifications.hddnimbus + specifications.hddstratus;
+        const hddTotalCount = specifications.hddbasic + specifications.hddsuper + specifications.hddbamf;
         const hddPrice = hddTotalCount * this.apps.price.hdd;
         const hddTotal = hddPrice / 3;
         const totalPrice = cpuTotal + ramTotal + hddTotal;
