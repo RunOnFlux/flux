@@ -104,24 +104,24 @@ module.exports = {
   },
   fluxSpecifics: {
     cpu: {
-      basic: 20, // 10 available for apps
-      super: 40, // 30 available for apps
-      bamf: 80, // 70 available for apps
+      cumulus: 20, // 10 available for apps
+      nimbus: 40, // 30 available for apps
+      stratus: 80, // 70 available for apps
     },
     ram: {
-      basic: 3000, // 1000 available for apps
-      super: 7000, // 5000 available for apps
-      bamf: 30000, // available 28000 for apps
+      cumulus: 3000, // 1000 available for apps
+      nimbus: 7000, // 5000 available for apps
+      stratus: 30000, // available 28000 for apps
     },
     hdd: {
-      basic: 50, // 20 for apps
-      super: 150, // 120 for apps
-      bamf: 600, // 570 for apps
+      cumulus: 50, // 20 for apps
+      nimbus: 150, // 120 for apps
+      stratus: 600, // 570 for apps
     },
     collateral: {
-      basic: 10000,
-      super: 25000,
-      bamf: 100000,
+      cumulus: 10000,
+      nimbus: 25000,
+      stratus: 100000,
     },
   },
 };

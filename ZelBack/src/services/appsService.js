@@ -356,7 +356,7 @@ async function listAppsImages(req, res) {
 }
 
 async function nodeTier() {
-  // get our collateral information to decide if app specifications are basic, super, bamf
+  // get our collateral information to decide if app specifications are cumulus, nimbus, stratus
   // getzlenodestatus.collateral
   const nodeStatus = await daemonService.getZelNodeStatus();
   if (nodeStatus.status === 'error') {
@@ -377,13 +377,13 @@ async function nodeTier() {
   // get collateralInformation.txindex vout
   const { value } = txInformation.data.vout[collateralInformation.txindex];
   if (value === 10000) {
-    return 'basic';
+    return 'cumulus';
   }
   if (value === 25000) {
-    return 'super';
+    return 'nimbus';
   }
   if (value === 100000) {
-    return 'bamf';
+    return 'stratus';
   }
   throw new Error('Unrecognised Flux Node tier');
 }
@@ -2535,13 +2535,13 @@ function appPricePerMonth(dataForAppRegistration) {
     return new Error('Application specification not provided');
   }
   if (dataForAppRegistration.tiered) {
-    const cpuTotalCount = dataForAppRegistration.cpubasic + dataForAppRegistration.cpusuper + dataForAppRegistration.cpubamf;
+    const cpuTotalCount = dataForAppRegistration.cpucumulus + dataForAppRegistration.cpunimbus + dataForAppRegistration.cpustratus;
     const cpuPrice = cpuTotalCount * config.fluxapps.price.cpu * 10;
     const cpuTotal = cpuPrice / 3;
-    const ramTotalCount = dataForAppRegistration.rambasic + dataForAppRegistration.ramsuper + dataForAppRegistration.rambamf;
+    const ramTotalCount = dataForAppRegistration.ramcumulus + dataForAppRegistration.ramnimbus + dataForAppRegistration.ramstratus;
     const ramPrice = (ramTotalCount * config.fluxapps.price.ram) / 100;
     const ramTotal = ramPrice / 3;
-    const hddTotalCount = dataForAppRegistration.hddbasic + dataForAppRegistration.hddsuper + dataForAppRegistration.hddbamf;
+    const hddTotalCount = dataForAppRegistration.hddcumulus + dataForAppRegistration.hddnimbus + dataForAppRegistration.hddstratus;
     const hddPrice = hddTotalCount * config.fluxapps.price.hdd;
     const hddTotal = hddPrice / 3;
     const totalPrice = cpuTotal + ramTotal + hddTotal;
@@ -2556,41 +2556,41 @@ function appPricePerMonth(dataForAppRegistration) {
 
 function checkHWParameters(appSpecs) {
   // check specs parameters. JS precision
-  if ((appSpecs.cpu * 10) % 1 !== 0 || (appSpecs.cpu * 10) > (config.fluxSpecifics.cpu.bamf - config.lockedSystemResources.cpu) || appSpecs.cpu < 0.1) {
+  if ((appSpecs.cpu * 10) % 1 !== 0 || (appSpecs.cpu * 10) > (config.fluxSpecifics.cpu.stratus - config.lockedSystemResources.cpu) || appSpecs.cpu < 0.1) {
     return new Error('CPU badly assigned');
   }
-  if (appSpecs.ram % 100 !== 0 || appSpecs.ram > (config.fluxSpecifics.ram.bamf - config.lockedSystemResources.ram) || appSpecs.ram < 100) {
+  if (appSpecs.ram % 100 !== 0 || appSpecs.ram > (config.fluxSpecifics.ram.stratus - config.lockedSystemResources.ram) || appSpecs.ram < 100) {
     return new Error('RAM badly assigned');
   }
-  if (appSpecs.hdd % 1 !== 0 || appSpecs.hdd > (config.fluxSpecifics.hdd.bamf - config.lockedSystemResources.hdd) || appSpecs.hdd < 1) {
+  if (appSpecs.hdd % 1 !== 0 || appSpecs.hdd > (config.fluxSpecifics.hdd.stratus - config.lockedSystemResources.hdd) || appSpecs.hdd < 1) {
     return new Error('SSD badly assigned');
   }
   if (appSpecs.tiered) {
-    if ((appSpecs.cpubasic * 10) % 1 !== 0 || (appSpecs.cpubasic * 10) > (config.fluxSpecifics.cpu.basic - config.lockedSystemResources.cpu) || appSpecs.cpubasic < 0.1) {
+    if ((appSpecs.cpucumulus * 10) % 1 !== 0 || (appSpecs.cpucumulus * 10) > (config.fluxSpecifics.cpu.cumulus - config.lockedSystemResources.cpu) || appSpecs.cpucumulus < 0.1) {
       return new Error('CPU for Cumulus badly assigned');
     }
-    if (appSpecs.rambasic % 100 !== 0 || appSpecs.rambasic > (config.fluxSpecifics.ram.basic - config.lockedSystemResources.ram) || appSpecs.rambasic < 100) {
+    if (appSpecs.ramcumulus % 100 !== 0 || appSpecs.ramcumulus > (config.fluxSpecifics.ram.cumulus - config.lockedSystemResources.ram) || appSpecs.ramcumulus < 100) {
       return new Error('RAM for Cumulus badly assigned');
     }
-    if (appSpecs.hddbasic % 1 !== 0 || appSpecs.hddbasic > (config.fluxSpecifics.hdd.basic - config.lockedSystemResources.hdd) || appSpecs.hddbasic < 1) {
+    if (appSpecs.hddcumulus % 1 !== 0 || appSpecs.hddcumulus > (config.fluxSpecifics.hdd.cumulus - config.lockedSystemResources.hdd) || appSpecs.hddcumulus < 1) {
       return new Error('SSD for Cumulus badly assigned');
     }
-    if ((appSpecs.cpusuper * 10) % 1 !== 0 || (appSpecs.cpusuper * 10) > (config.fluxSpecifics.cpu.super - config.lockedSystemResources.cpu) || appSpecs.cpusuper < 0.1) {
+    if ((appSpecs.cpunimbus * 10) % 1 !== 0 || (appSpecs.cpunimbus * 10) > (config.fluxSpecifics.cpu.nimbus - config.lockedSystemResources.cpu) || appSpecs.cpunimbus < 0.1) {
       return new Error('CPU for Nimbus badly assigned');
     }
-    if (appSpecs.ramsuper % 100 !== 0 || appSpecs.ramsuper > (config.fluxSpecifics.ram.super - config.lockedSystemResources.ram) || appSpecs.ramsuper < 100) {
+    if (appSpecs.ramnimbus % 100 !== 0 || appSpecs.ramnimbus > (config.fluxSpecifics.ram.nimbus - config.lockedSystemResources.ram) || appSpecs.ramnimbus < 100) {
       return new Error('RAM for Nimbus badly assigned');
     }
-    if (appSpecs.hddsuper % 1 !== 0 || appSpecs.hddsuper > (config.fluxSpecifics.hdd.super - config.lockedSystemResources.hdd) || appSpecs.hddsuper < 1) {
+    if (appSpecs.hddnimbus % 1 !== 0 || appSpecs.hddnimbus > (config.fluxSpecifics.hdd.nimbus - config.lockedSystemResources.hdd) || appSpecs.hddnimbus < 1) {
       return new Error('SSD for Nimbus badly assigned');
     }
-    if ((appSpecs.cpubamf * 10) % 1 !== 0 || (appSpecs.cpubamf * 10) > (config.fluxSpecifics.cpu.bamf - config.lockedSystemResources.cpu) || appSpecs.cpubamf < 0.1) {
+    if ((appSpecs.cpustratus * 10) % 1 !== 0 || (appSpecs.cpustratus * 10) > (config.fluxSpecifics.cpu.stratus - config.lockedSystemResources.cpu) || appSpecs.cpustratus < 0.1) {
       return new Error('CPU for Stratus badly assigned');
     }
-    if (appSpecs.rambamf % 100 !== 0 || appSpecs.rambamf > (config.fluxSpecifics.ram.bamf - config.lockedSystemResources.ram) || appSpecs.rambamf < 100) {
+    if (appSpecs.ramstratus % 100 !== 0 || appSpecs.ramstratus > (config.fluxSpecifics.ram.stratus - config.lockedSystemResources.ram) || appSpecs.ramstratus < 100) {
       return new Error('RAM for Stratus badly assigned');
     }
-    if (appSpecs.hddbamf % 1 !== 0 || appSpecs.hddbamf > (config.fluxSpecifics.hdd.bamf - config.lockedSystemResources.hdd) || appSpecs.hddbamf < 1) {
+    if (appSpecs.hddstratus % 1 !== 0 || appSpecs.hddstratus > (config.fluxSpecifics.hdd.stratus - config.lockedSystemResources.hdd) || appSpecs.hddstratus < 1) {
       return new Error('SSD for Stratus badly assigned');
     }
   }
@@ -2669,15 +2669,15 @@ async function availableApps(req, res) {
       cpu: 0.5,
       ram: 500,
       hdd: 5,
-      cpubasic: 0.5,
-      cpusuper: 1,
-      cpubamf: 2,
-      rambasic: 500,
-      ramsuper: 1000,
-      rambamf: 4000,
-      hddbasic: 5,
-      hddsuper: 5,
-      hddbamf: 5,
+      cpucumulus: 0.5,
+      cpunimbus: 1,
+      cpustratus: 2,
+      ramcumulus: 500,
+      ramnimbus: 1000,
+      ramstratus: 4000,
+      hddcumulus: 5,
+      hddnimbus: 5,
+      hddstratus: 5,
       enviromentParameters: [`USER=${userconfig.initial.zelid}`, 'TEAM=262156', 'ENABLE_GPU=false', 'ENABLE_SMP=true'],
       commands: [
         '--allow',
@@ -3287,37 +3287,37 @@ async function registerAppGlobalyApi(req, res) {
       };
 
       if (tiered) {
-        let { cpubasic } = appSpecification;
-        let { cpusuper } = appSpecification;
-        let { cpubamf } = appSpecification;
-        let { rambasic } = appSpecification;
-        let { ramsuper } = appSpecification;
-        let { rambamf } = appSpecification;
-        let { hddbasic } = appSpecification;
-        let { hddsuper } = appSpecification;
-        let { hddbamf } = appSpecification;
-        if (!cpubasic || !cpusuper || !cpubamf || !rambasic || !ramsuper || !rambamf || !hddbasic || !hddsuper || !hddbamf) {
+        let { cpucumulus } = appSpecification;
+        let { cpunimbus } = appSpecification;
+        let { cpustratus } = appSpecification;
+        let { ramcumulus } = appSpecification;
+        let { ramnimbus } = appSpecification;
+        let { ramstratus } = appSpecification;
+        let { hddcumulus } = appSpecification;
+        let { hddnimbus } = appSpecification;
+        let { hddstratus } = appSpecification;
+        if (!cpucumulus || !cpunimbus || !cpustratus || !ramcumulus || !ramnimbus || !ramstratus || !hddcumulus || !hddnimbus || !hddstratus) {
           throw new Error('Flux App was requested as tiered setup but specifications are missing');
         }
-        cpubasic = serviceHelper.ensureNumber(cpubasic);
-        cpusuper = serviceHelper.ensureNumber(cpusuper);
-        cpubamf = serviceHelper.ensureNumber(cpubamf);
-        rambasic = serviceHelper.ensureNumber(rambasic);
-        ramsuper = serviceHelper.ensureNumber(ramsuper);
-        rambamf = serviceHelper.ensureNumber(rambamf);
-        hddbasic = serviceHelper.ensureNumber(hddbasic);
-        hddsuper = serviceHelper.ensureNumber(hddsuper);
-        hddbamf = serviceHelper.ensureNumber(hddbamf);
+        cpucumulus = serviceHelper.ensureNumber(cpucumulus);
+        cpunimbus = serviceHelper.ensureNumber(cpunimbus);
+        cpustratus = serviceHelper.ensureNumber(cpustratus);
+        ramcumulus = serviceHelper.ensureNumber(ramcumulus);
+        ramnimbus = serviceHelper.ensureNumber(ramnimbus);
+        ramstratus = serviceHelper.ensureNumber(ramstratus);
+        hddcumulus = serviceHelper.ensureNumber(hddcumulus);
+        hddnimbus = serviceHelper.ensureNumber(hddnimbus);
+        hddstratus = serviceHelper.ensureNumber(hddstratus);
 
-        appSpecFormatted.cpubasic = cpubasic;
-        appSpecFormatted.cpusuper = cpusuper;
-        appSpecFormatted.cpubamf = cpubamf;
-        appSpecFormatted.rambasic = rambasic;
-        appSpecFormatted.ramsuper = ramsuper;
-        appSpecFormatted.rambamf = rambamf;
-        appSpecFormatted.hddbasic = hddbasic;
-        appSpecFormatted.hddsuper = hddsuper;
-        appSpecFormatted.hddbamf = hddbamf;
+        appSpecFormatted.cpucumulus = cpucumulus;
+        appSpecFormatted.cpunimbus = cpunimbus;
+        appSpecFormatted.cpustratus = cpustratus;
+        appSpecFormatted.ramcumulus = ramcumulus;
+        appSpecFormatted.ramnimbus = ramnimbus;
+        appSpecFormatted.ramstratus = ramstratus;
+        appSpecFormatted.hddcumulus = hddcumulus;
+        appSpecFormatted.hddnimbus = hddnimbus;
+        appSpecFormatted.hddstratus = hddstratus;
       }
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
       await verifyAppSpecifications(appSpecFormatted);
@@ -3506,37 +3506,37 @@ async function updateAppGlobalyApi(req, res) {
       };
 
       if (tiered) {
-        let { cpubasic } = appSpecification;
-        let { cpusuper } = appSpecification;
-        let { cpubamf } = appSpecification;
-        let { rambasic } = appSpecification;
-        let { ramsuper } = appSpecification;
-        let { rambamf } = appSpecification;
-        let { hddbasic } = appSpecification;
-        let { hddsuper } = appSpecification;
-        let { hddbamf } = appSpecification;
-        if (!cpubasic || !cpusuper || !cpubamf || !rambasic || !ramsuper || !rambamf || !hddbasic || !hddsuper || !hddbamf) {
+        let { cpucumulus } = appSpecification;
+        let { cpunimbus } = appSpecification;
+        let { cpustratus } = appSpecification;
+        let { ramcumulus } = appSpecification;
+        let { ramnimbus } = appSpecification;
+        let { ramstratus } = appSpecification;
+        let { hddcumulus } = appSpecification;
+        let { hddnimbus } = appSpecification;
+        let { hddstratus } = appSpecification;
+        if (!cpucumulus || !cpunimbus || !cpustratus || !ramcumulus || !ramnimbus || !ramstratus || !hddcumulus || !hddnimbus || !hddstratus) {
           throw new Error('Flux App was requested as tiered setup but specifications are missing');
         }
-        cpubasic = serviceHelper.ensureNumber(cpubasic);
-        cpusuper = serviceHelper.ensureNumber(cpusuper);
-        cpubamf = serviceHelper.ensureNumber(cpubamf);
-        rambasic = serviceHelper.ensureNumber(rambasic);
-        ramsuper = serviceHelper.ensureNumber(ramsuper);
-        rambamf = serviceHelper.ensureNumber(rambamf);
-        hddbasic = serviceHelper.ensureNumber(hddbasic);
-        hddsuper = serviceHelper.ensureNumber(hddsuper);
-        hddbamf = serviceHelper.ensureNumber(hddbamf);
+        cpucumulus = serviceHelper.ensureNumber(cpucumulus);
+        cpunimbus = serviceHelper.ensureNumber(cpunimbus);
+        cpustratus = serviceHelper.ensureNumber(cpustratus);
+        ramcumulus = serviceHelper.ensureNumber(ramcumulus);
+        ramnimbus = serviceHelper.ensureNumber(ramnimbus);
+        ramstratus = serviceHelper.ensureNumber(ramstratus);
+        hddcumulus = serviceHelper.ensureNumber(hddcumulus);
+        hddnimbus = serviceHelper.ensureNumber(hddnimbus);
+        hddstratus = serviceHelper.ensureNumber(hddstratus);
 
-        appSpecFormatted.cpubasic = cpubasic;
-        appSpecFormatted.cpusuper = cpusuper;
-        appSpecFormatted.cpubamf = cpubamf;
-        appSpecFormatted.rambasic = rambasic;
-        appSpecFormatted.ramsuper = ramsuper;
-        appSpecFormatted.rambamf = rambamf;
-        appSpecFormatted.hddbasic = hddbasic;
-        appSpecFormatted.hddsuper = hddsuper;
-        appSpecFormatted.hddbamf = hddbamf;
+        appSpecFormatted.cpucumulus = cpucumulus;
+        appSpecFormatted.cpunimbus = cpunimbus;
+        appSpecFormatted.cpustratus = cpustratus;
+        appSpecFormatted.ramcumulus = ramcumulus;
+        appSpecFormatted.ramnimbus = ramnimbus;
+        appSpecFormatted.ramstratus = ramstratus;
+        appSpecFormatted.hddcumulus = hddcumulus;
+        appSpecFormatted.hddnimbus = hddnimbus;
+        appSpecFormatted.hddstratus = hddstratus;
       }
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
       await verifyAppSpecifications(appSpecFormatted);
@@ -3607,15 +3607,15 @@ async function installTemporaryLocalApplication(req, res, applicationName) {
       // get our tier and adjust true resource registered
       if (appSpecifications.tiered) {
         const tier = await nodeTier();
-        if (tier === 'basic') {
-          appSpecifications.cpu = appSpecifications.cpubasic || appSpecifications.cpu;
-          appSpecifications.ram = appSpecifications.rambasic || appSpecifications.ram;
-        } else if (tier === 'super') {
-          appSpecifications.cpu = appSpecifications.cpusuper || appSpecifications.cpu;
-          appSpecifications.ram = appSpecifications.ramsuper || appSpecifications.ram;
-        } else if (tier === 'bamf') {
-          appSpecifications.cpu = appSpecifications.cpubamf || appSpecifications.cpu;
-          appSpecifications.ram = appSpecifications.rambamf || appSpecifications.ram;
+        if (tier === 'cumulus') {
+          appSpecifications.cpu = appSpecifications.cpucumulus || appSpecifications.cpu;
+          appSpecifications.ram = appSpecifications.ramcumulus || appSpecifications.ram;
+        } else if (tier === 'nimbus') {
+          appSpecifications.cpu = appSpecifications.cpunimbus || appSpecifications.cpu;
+          appSpecifications.ram = appSpecifications.ramnimbus || appSpecifications.ram;
+        } else if (tier === 'stratus') {
+          appSpecifications.cpu = appSpecifications.cpustratus || appSpecifications.cpu;
+          appSpecifications.ram = appSpecifications.ramstratus || appSpecifications.ram;
         } else {
           throw new Error('Unrecognised Flux Node tier');
         }
@@ -3737,15 +3737,15 @@ async function updateAppSpecifications(appSpecs) {
     //   ram: 500,
     //   hdd: 5,
     //   tiered: true,
-    //   cpubasic: 0.5,
-    //   rambasic: 500,
-    //   hddbasic: 5,
-    //   cpusuper: 1,
-    //   ramsuper: 1000,
-    //   hddsuper: 5,
-    //   cpubamf: 2,
-    //   rambamf: 2000,
-    //   hddbamf: 5,
+    //   cpucumulus: 0.5,
+    //   ramcumulus: 500,
+    //   hddcumulus: 5,
+    //   cpunimbus: 1,
+    //   ramnimbus: 1000,
+    //   hddnimbus: 5,
+    //   cpustratus: 2,
+    //   ramstratus: 2000,
+    //   hddstratus: 5,
     //   hash: hash of message that has these paramenters,
     //   height: height containing the message
     // };
@@ -3795,15 +3795,15 @@ async function updateAppSpecsForRescanReindex(appSpecs) {
   //   ram: 500,
   //   hdd: 5,
   //   tiered: true,
-  //   cpubasic: 0.5,
-  //   rambasic: 500,
-  //   hddbasic: 5,
-  //   cpusuper: 1,
-  //   ramsuper: 1000,
-  //   hddsuper: 5,
-  //   cpubamf: 2,
-  //   rambamf: 2000,
-  //   hddbamf: 5,
+  //   cpucumulus: 0.5,
+  //   ramcumulus: 500,
+  //   hddcumulus: 5,
+  //   cpunimbus: 1,
+  //   ramnimbus: 1000,
+  //   hddnimbus: 5,
+  //   cpustratus: 2,
+  //   ramstratus: 2000,
+  //   hddstratus: 5,
   //   hash: hash of message that has these paramenters,
   //   height: height containing the message
   // };
@@ -4459,15 +4459,15 @@ async function getApplicationSpecifications(appName) {
   //   ram: 500,
   //   hdd: 5,
   //   tiered: true,
-  //   cpubasic: 0.5,
-  //   rambasic: 500,
-  //   hddbasic: 5,
-  //   cpusuper: 1,
-  //   ramsuper: 1000,
-  //   hddsuper: 5,
-  //   cpubamf: 2,
-  //   rambamf: 2000,
-  //   hddbamf: 5,
+  //   cpucumulus: 0.5,
+  //   ramcumulus: 500,
+  //   hddcumulus: 5,
+  //   cpunimbus: 1,
+  //   ramnimbus: 1000,
+  //   hddnimbus: 5,
+  //   cpustratus: 2,
+  //   ramstratus: 2000,
+  //   hddstratus: 5,
   //   hash: hash of message that has these paramenters,
   //   height: height containing the message
   // };
@@ -4561,8 +4561,8 @@ async function trySpawningGlobalApplication() {
     // we have globalapplication specifics list
     // check if we are synced
     const tier = await nodeTier();
-    if (tier === 'basic') {
-      log.info('Basic node detected. Global applications will not be installed');
+    if (tier === 'cumulus') {
+      log.info('Cumulus node detected. Global applications will not be installed');
     }
     const synced = await checkSynced();
     if (synced !== true) {
@@ -5061,37 +5061,37 @@ async function getAppPrice(req, res) {
       };
 
       if (tiered) {
-        let { cpubasic } = appSpecification;
-        let { cpusuper } = appSpecification;
-        let { cpubamf } = appSpecification;
-        let { rambasic } = appSpecification;
-        let { ramsuper } = appSpecification;
-        let { rambamf } = appSpecification;
-        let { hddbasic } = appSpecification;
-        let { hddsuper } = appSpecification;
-        let { hddbamf } = appSpecification;
-        if (!cpubasic || !cpusuper || !cpubamf || !rambasic || !ramsuper || !rambamf || !hddbasic || !hddsuper || !hddbamf) {
+        let { cpucumulus } = appSpecification;
+        let { cpunimbus } = appSpecification;
+        let { cpustratus } = appSpecification;
+        let { ramcumulus } = appSpecification;
+        let { ramnimbus } = appSpecification;
+        let { ramstratus } = appSpecification;
+        let { hddcumulus } = appSpecification;
+        let { hddnimbus } = appSpecification;
+        let { hddstratus } = appSpecification;
+        if (!cpucumulus || !cpunimbus || !cpustratus || !ramcumulus || !ramnimbus || !ramstratus || !hddcumulus || !hddnimbus || !hddstratus) {
           throw new Error('Flux App was requested as tiered setup but specifications are missing');
         }
-        cpubasic = serviceHelper.ensureNumber(cpubasic);
-        cpusuper = serviceHelper.ensureNumber(cpusuper);
-        cpubamf = serviceHelper.ensureNumber(cpubamf);
-        rambasic = serviceHelper.ensureNumber(rambasic);
-        ramsuper = serviceHelper.ensureNumber(ramsuper);
-        rambamf = serviceHelper.ensureNumber(rambamf);
-        hddbasic = serviceHelper.ensureNumber(hddbasic);
-        hddsuper = serviceHelper.ensureNumber(hddsuper);
-        hddbamf = serviceHelper.ensureNumber(hddbamf);
+        cpucumulus = serviceHelper.ensureNumber(cpucumulus);
+        cpunimbus = serviceHelper.ensureNumber(cpunimbus);
+        cpustratus = serviceHelper.ensureNumber(cpustratus);
+        ramcumulus = serviceHelper.ensureNumber(ramcumulus);
+        ramnimbus = serviceHelper.ensureNumber(ramnimbus);
+        ramstratus = serviceHelper.ensureNumber(ramstratus);
+        hddcumulus = serviceHelper.ensureNumber(hddcumulus);
+        hddnimbus = serviceHelper.ensureNumber(hddnimbus);
+        hddstratus = serviceHelper.ensureNumber(hddstratus);
 
-        appSpecFormatted.cpubasic = cpubasic;
-        appSpecFormatted.cpusuper = cpusuper;
-        appSpecFormatted.cpubamf = cpubamf;
-        appSpecFormatted.rambasic = rambasic;
-        appSpecFormatted.ramsuper = ramsuper;
-        appSpecFormatted.rambamf = rambamf;
-        appSpecFormatted.hddbasic = hddbasic;
-        appSpecFormatted.hddsuper = hddsuper;
-        appSpecFormatted.hddbamf = hddbamf;
+        appSpecFormatted.cpucumulus = cpucumulus;
+        appSpecFormatted.cpunimbus = cpunimbus;
+        appSpecFormatted.cpustratus = cpustratus;
+        appSpecFormatted.ramcumulus = ramcumulus;
+        appSpecFormatted.ramnimbus = ramnimbus;
+        appSpecFormatted.ramstratus = ramstratus;
+        appSpecFormatted.hddcumulus = hddcumulus;
+        appSpecFormatted.hddnimbus = hddnimbus;
+        appSpecFormatted.hddstratus = hddstratus;
       }
       const parameters = checkHWParameters(appSpecFormatted);
       if (parameters !== true) {

@@ -42,15 +42,15 @@ describe('checkHWParameters', () => {
       "ram": 500,
       "hdd": 5,
       "tiered": true,
-      "cpubasic": 0.5,
-      "cpusuper": 1,
-      "cpubamf": 2,
-      "rambasic": 500,
-      "ramsuper": 1000,
-      "rambamf": 2000,
-      "hddbasic": 5,
-      "hddsuper": 5,
-      "hddbamf": 5
+      "cpucumulus": 0.5,
+      "cpunimbus": 1,
+      "cpustratus": 2,
+      "ramcumulus": 500,
+      "ramnimbus": 1000,
+      "ramstratus": 2000,
+      "hddcumulus": 5,
+      "hddnimbus": 5,
+      "hddstratus": 5
     };
     expect(appService.checkHWParameters(fluxAppSpecs)).to.be.equal(true);
   });
@@ -82,15 +82,15 @@ describe('checkHWParameters', () => {
       "ram": 'badly assigned',
       "hdd": 5,
       "tiered": true,
-      "cpubasic": 0.5,
-      "cpusuper": 1,
-      "cpubamf": 2,
-      "rambasic": 500,
-      "ramsuper": 1000,
-      "rambamf": 2000,
-      "hddbasic": 5,
-      "hddsuper": 5,
-      "hddbamf": 5
+      "cpucumulus": 0.5,
+      "cpunimbus": 1,
+      "cpustratus": 2,
+      "ramcumulus": 500,
+      "ramnimbus": 1000,
+      "ramstratus": 2000,
+      "hddcumulus": 5,
+      "hddnimbus": 5,
+      "hddstratus": 5
     };
     expect(appService.checkHWParameters(fluxAppSpecs)).to.be.an('error');
   });
@@ -122,15 +122,15 @@ describe('checkHWParameters', () => {
       "ram": 4000,
       "hdd": 5,
       "tiered": true,
-      "cpubasic": 0.5,
-      "cpusuper": 1,
-      "cpubamf": 2,
-      "rambasic": 500,
-      "ramsuper": 1000,
-      "rambamf": 2000,
-      "hddbasic": 5,
-      "hddsuper": 5,
-      "hddbamf": 21
+      "cpucumulus": 0.5,
+      "cpunimbus": 1,
+      "cpustratus": 2,
+      "ramcumulus": 500,
+      "ramnimbus": 1000,
+      "ramstratus": 2000,
+      "hddcumulus": 5,
+      "hddnimbus": 5,
+      "hddstratus": 21
     };
     const hwSpecs = appService.checkHWParameters(fluxAppSpecs);
     expect(hwSpecs).to.be.an('error');
@@ -177,15 +177,15 @@ describe('checkHWParameters', () => {
       "ram": 500,
       "hdd": 5,
       "tiered": true,
-      "cpubasic": 0.5,
-      "cpusuper": 1,
-      "cpubamf": 2,
-      "rambasic": 500,
-      "ramsuper": 1000,
-      "rambamf": 2000,
-      "hddbasic": 5,
-      "hddsuper": 5,
-      "hddbamf": 5
+      "cpucumulus": 0.5,
+      "cpunimbus": 1,
+      "cpustratus": 2,
+      "ramcumulus": 500,
+      "ramnimbus": 1000,
+      "ramstratus": 2000,
+      "hddcumulus": 5,
+      "hddnimbus": 5,
+      "hddstratus": 5
     };
     const type = 'fluxappregister';
     const version = 1;
@@ -223,15 +223,15 @@ describe('checkHWParameters', () => {
       "ram": 500,
       "hdd": 5,
       "tiered": true,
-      "cpubasic": 0.5,
-      "cpusuper": 1,
-      "cpubamf": 2,
-      "rambasic": 500,
-      "ramsuper": 1000,
-      "rambamf": 2000,
-      "hddbasic": 5,
-      "hddsuper": 5,
-      "hddbamf": 5
+      "cpucumulus": 0.5,
+      "cpunimbus": 1,
+      "cpustratus": 2,
+      "ramcumulus": 500,
+      "ramnimbus": 1000,
+      "ramstratus": 2000,
+      "hddcumulus": 5,
+      "hddnimbus": 5,
+      "hddstratus": 5
     };
     const type = 'fluxappregister';
     const version = 1;
@@ -276,15 +276,15 @@ describe('checkHWParameters', () => {
       "ram": 500,
       "hdd": 5,
       "tiered": true,
-      "cpubasic": 0.5,
-      "cpusuper": 1,
-      "cpubamf": 2,
-      "rambasic": 500,
-      "ramsuper": 1000,
-      "rambamf": 2000,
-      "hddbasic": 5,
-      "hddsuper": 5,
-      "hddbamf": 5
+      "cpucumulus": 0.5,
+      "cpunimbus": 1,
+      "cpustratus": 2,
+      "ramcumulus": 500,
+      "ramnimbus": 1000,
+      "ramstratus": 2000,
+      "hddcumulus": 5,
+      "hddnimbus": 5,
+      "hddstratus": 5
     };
     const type = 'fluxappregister';
     const version = 1;
