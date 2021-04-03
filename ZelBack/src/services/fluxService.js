@@ -3,7 +3,7 @@ const path = require('path');
 const config = require('config');
 const fullnode = require('fullnode');
 const fs = require('fs').promises;
-
+const fsPromises = fs.promises;
 const log = require('../lib/log');
 const packageJson = require('../../../package.json');
 const serviceHelper = require('./serviceHelper');
@@ -266,7 +266,7 @@ async function daemonDebug(req, res) {
     return res.json(errMessage);
   }
   // check daemon datadir
-  const defaultDir = new fullnode.Config().defaultFolderPath();
+  const defaultDir = new fullnode.Config().defaultFolderPath;
   const datadir = daemonService.getConfigValue('datadir') || defaultDir;
   const filepath = `${datadir}/debug.log`;
 
@@ -293,7 +293,7 @@ async function benchmarkDebug(req, res) {
 async function tailDaemonDebug(req, res) {
   const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
   if (authorized === true) {
-    const defaultDir = new fullnode.Config().defaultFolderPath();
+    const defaultDir = new fullnode.Config().defaultFolderPath;
     const datadir = daemonService.getConfigValue('datadir') || defaultDir;
     const filepath = `${datadir}/debug.log`;
     const exec = `tail -n 100 ${filepath}`;
@@ -613,7 +613,7 @@ async function adjustCruxID(req, res) {
   }
 }`;
 
-      await fs.writeFile(fluxDirPath, dataToWrite);
+      await fsPromises.writeFile(fluxDirPath, dataToWrite);
 
       const successMessage = serviceHelper.createSuccessMessage('CruxID adjusted');
       res.json(successMessage);
@@ -658,7 +658,7 @@ async function adjustKadenaAccount(req, res) {
   }
 }`;
 
-      await fs.writeFile(fluxDirPath, dataToWrite);
+      await fsPromises.writeFile(fluxDirPath, dataToWrite);
 
       const successMessage = serviceHelper.createSuccessMessage('Kadena account adjusted');
       res.json(successMessage);
