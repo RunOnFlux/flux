@@ -512,10 +512,10 @@ export default {
     },
     async getCircSupply() {
       this.circSupplyLoading = true;
-      const result = await axios.get('https://explorer.zel.network/api/supply');
+      const result = await axios.get('https://explorer.runonflux.io/api/statistics/circulating-supply'); // we want just one chain
       this.circulatingSupply = result.data;
       this.circSupplyLoading = false;
-      this.circulatingSupplyPerc = Number(((this.circulatingSupply / 210000000) * 100).toFixed(2));
+      this.circulatingSupplyPerc = Number(((this.circulatingSupply / 440000000) * 100).toFixed(2));
       this.ratesLoading = true;
       const resultB = await axios.get('https://vipdrates.zelcore.io/rates');
       this.rates = resultB.data;
@@ -525,7 +525,7 @@ export default {
     async getHistoryStats() {
       try {
         this.historyStatsLoading = true;
-        const result = await axios.get('https://api.flux.zel.network/fluxhistorystats');
+        const result = await axios.get('https://stats.runonflux.io/fluxhistorystats');
         this.fluxHistoryStats = result.data.data;
         this.historyStatsLoading = false;
         this.generateCPUHistory();
@@ -560,7 +560,7 @@ export default {
         const bamfs = zelnodecounts['bamf-enabled'] || zelnodecounts['stratus-enabled'];
         const supers = zelnodecounts['super-enabled'] || zelnodecounts['nimbus-enabled'];
         const basics = zelnodecounts['basic-enabled'] || zelnodecounts['cumulus-enabled'];
-        const resKDAEligible = await axios.get('https://api.flux.zel.network/kadena/eligible/7');
+        const resKDAEligible = await axios.get('https://stats.runonflux.io/kadena/eligible/7');
         const kdaData = resKDAEligible.data.data;
         const kdaCoins = 5749.77;
         const supersS = kdaData.filter((result) => (result.tier === 'SUPER' || result.tier === 'NIMBUS'));
@@ -640,7 +640,7 @@ export default {
     async getFluxList() {
       try {
         this.fluxListLoading = true;
-        const resLoc = await axios.get('https://api.flux.zel.network/fluxlocations');
+        const resLoc = await axios.get('https://stats.runonflux.io/fluxlocations');
         const locations = resLoc.data.data;
         const resList = await DashboardService.listZelNodes();
         const fluxList = resList.data.data;
