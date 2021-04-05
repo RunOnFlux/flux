@@ -754,7 +754,7 @@ export default {
         .then((daemonResponse) => {
           console.log(daemonResponse);
           const daemonVersion = daemonResponse.data.data.version;
-          axios.get('https://zelcore.io/flux/daemoninfo.php')
+          axios.get('https://raw.githubusercontent.com/zelcash/zelflux/master/helpers/daemoninfo.json')
             .then((response) => {
               console.log(response);
               if (response.data.version !== daemonVersion) {
@@ -939,7 +939,7 @@ export default {
         .then((benchmarkResponse) => {
           console.log(benchmarkResponse);
           const benchmarkVersion = benchmarkResponse.data.data.version;
-          axios.get('https://zelcore.io/flux/benchmarkinfo.php')
+          axios.get('https://raw.githubusercontent.com/zelcash/zelflux/master/helpers/benchmarkinfo.json')
             .then((response) => {
               console.log(response);
               if (response.data.version !== benchmarkVersion) {
@@ -1182,7 +1182,7 @@ export default {
         .then((daemonResponse) => {
           console.log(daemonResponse);
           const daemonVersion = daemonResponse.data.data.version;
-          axios.get('https://zelcore.io/flux/daemoninfo.php')
+          axios.get('https://raw.githubusercontent.com/zelcash/zelflux/master/helpers/daemoninfo.json')
             .then((response) => {
               console.log(response);
               if (response.data.version !== daemonVersion) {
@@ -1206,7 +1206,7 @@ export default {
         .then((benchmarkResponse) => {
           console.log(benchmarkResponse);
           const benchmarkVersion = benchmarkResponse.data.data.version;
-          axios.get('https://zelcore.io/flux/benchmarkinfo.php')
+          axios.get('https://raw.githubusercontent.com/zelcash/zelflux/master/helpers/benchmarkinfo.json')
             .then((response) => {
               console.log(response);
               if (response.data.version !== benchmarkVersion) {
