@@ -4,28 +4,24 @@ const config = require('config');
 const bitcoinMessage = require('bitcoinjs-message');
 const bitcoinjs = require('bitcoinjs-lib');
 const zeltrezjs = require('zeltrezjs');
-const { randomBytes } = require('crypto');
+const {randomBytes} = require('crypto');
 const qs = require('qs');
 
 const userconfig = require('../../../config/userconfig');
 const log = require('../lib/log');
 
-const { MongoClient } = mongodb;
+const {MongoClient} = mongodb;
 const mongoUrl = `mongodb://${config.database.url}:${config.database.port}/`;
 
 let openDBConnection = null;
 
-function databaseConnection() {
-  return openDBConnection;
-}
+function databaseConnection() { return openDBConnection; }
 
-function delay(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+function delay(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
 
 function createDataMessage(data) {
   const successMessage = {
-    status: 'success',
+    status : 'success',
     data,
   };
   return successMessage;
@@ -33,8 +29,8 @@ function createDataMessage(data) {
 
 function createSuccessMessage(message, name, code) {
   const successMessage = {
-    status: 'success',
-    data: {
+    status : 'success',
+    data : {
       code,
       name,
       message,
@@ -45,8 +41,8 @@ function createSuccessMessage(message, name, code) {
 
 function createWarningMessage(message, name, code) {
   const warningMessage = {
-    status: 'warning',
-    data: {
+    status : 'warning',
+    data : {
       code,
       name,
       message,
@@ -57,11 +53,11 @@ function createWarningMessage(message, name, code) {
 
 function createErrorMessage(message, name, code) {
   const errMessage = {
-    status: 'error',
-    data: {
+    status : 'error',
+    data : {
       code,
       name,
-      message: message || 'Unknown error',
+      message : message || 'Unknown error',
     },
   };
   return errMessage;
@@ -69,11 +65,11 @@ function createErrorMessage(message, name, code) {
 
 function errUnauthorizedMessage() {
   const errMessage = {
-    status: 'error',
-    data: {
-      code: 401,
-      name: 'Unauthorized',
-      message: 'Unauthorized. Access denied.',
+    status : 'error',
+    data : {
+      code : 401,
+      name : 'Unauthorized',
+      message : 'Unauthorized. Access denied.',
     },
   };
   return errMessage;
@@ -81,10 +77,12 @@ function errUnauthorizedMessage() {
 
 function ensureBoolean(parameter) {
   let param;
-  if (parameter === 'false' || parameter === 0 || parameter === '0' || parameter === false) {
+  if (parameter === 'false' || parameter === 0 || parameter === '0' ||
+      parameter === false) {
     param = false;
   }
-  if (parameter === 'true' || parameter === 1 || parameter === '1' || parameter === true) {
+  if (parameter === 'true' || parameter === 1 || parameter === '1' ||
+      parameter === true) {
     param = true;
   }
   return param;
@@ -115,9 +113,9 @@ function ensureString(parameter) {
 async function connectMongoDb(url) {
   const connectUrl = url || mongoUrl;
   const mongoSettings = {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-    poolSize: 10,
+    useNewUrlParser : true,
+    useUnifiedTopology : true,
+    poolSize : 10,
   };
   const db = await MongoClient.connect(connectUrl, mongoSettings);
   return db;
@@ -129,23 +127,28 @@ async function initiateDB() {
 }
 
 async function distinctDatabase(database, collection, distinct, query) {
-  const results = await database.collection(collection).distinct(distinct, query);
+  const results =
+      await database.collection(collection).distinct(distinct, query);
   return results;
 }
 
 async function findInDatabase(database, collection, query, projection) {
-  const results = await database.collection(collection).find(query, projection).toArray();
+  const results =
+      await database.collection(collection).find(query, projection).toArray();
   return results;
 }
 
 async function findOneInDatabase(database, collection, query, projection) {
-  const result = await database.collection(collection).findOne(query, projection);
+  const result =
+      await database.collection(collection).findOne(query, projection);
   return result;
 }
 
-async function findOneAndUpdateInDatabase(database, collection, query, update, options) {
+async function findOneAndUpdateInDatabase(database, collection, query, update,
+                                          options) {
   const passedOptions = options || {};
-  const result = await database.collection(collection).findOneAndUpdate(query, update, passedOptions);
+  const result = await database.collection(collection)
+                     .findOneAndUpdate(query, update, passedOptions);
   return result;
 }
 
@@ -154,19 +157,24 @@ async function insertOneToDatabase(database, collection, value) {
   return result;
 }
 
-async function updateOneInDatabase(database, collection, query, update, options) {
+async function updateOneInDatabase(database, collection, query, update,
+                                   options) {
   const passedOptions = options || {};
-  const result = await database.collection(collection).updateOne(query, update, passedOptions);
+  const result = await database.collection(collection)
+                     .updateOne(query, update, passedOptions);
   return result;
 }
 
 async function updateInDatabase(database, collection, query, projection) {
-  const result = await database.collection(collection).updateMany(query, projection);
+  const result =
+      await database.collection(collection).updateMany(query, projection);
   return result;
 }
 
-async function findOneAndDeleteInDatabase(database, collection, query, projection) {
-  const result = await database.collection(collection).findOneAndDelete(query, projection);
+async function findOneAndDeleteInDatabase(database, collection, query,
+                                          projection) {
+  const result =
+      await database.collection(collection).findOneAndDelete(query, projection);
   return result;
 }
 
@@ -192,22 +200,25 @@ async function getApplicationOwner(appName) {
   const db = databaseConnection();
   const database = db.db(config.database.appsglobal.database);
 
-  const query = { name: new RegExp(`^${appName}$`, 'i') };
+  const query = {name : new RegExp(`^${appName}$`, 'i')};
   const projection = {
-    projection: {
-      _id: 0,
-      owner: 1,
+    projection : {
+      _id : 0,
+      owner : 1,
     },
   };
-  const globalAppsInformation = config.database.appsglobal.collections.appsInformation;
-  const appSpecs = await findOneInDatabase(database, globalAppsInformation, query, projection);
+  const globalAppsInformation =
+      config.database.appsglobal.collections.appsInformation;
+  const appSpecs = await findOneInDatabase(database, globalAppsInformation,
+                                           query, projection);
   if (appSpecs) {
     return appSpecs.owner;
   }
   // eslint-disable-next-line global-require
-  const { availableApps } = require('./appsService');
+  const {availableApps} = require('./appsService');
   const allApps = await availableApps();
-  const appInfo = allApps.find((app) => app.name.toLowerCase() === appName.toLowerCase());
+  const appInfo =
+      allApps.find((app) => app.name.toLowerCase() === appName.toLowerCase());
   if (appInfo) {
     return appInfo.owner;
   }
@@ -227,16 +238,20 @@ async function verifyAdminSession(headers) {
         const db = databaseConnection();
         const database = db.db(config.database.local.database);
         const collection = config.database.local.collections.loggedUsers;
-        const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
+        const query = {
+          $and : [ {signature : auth.signature}, {zelid : auth.zelid} ]
+        };
         const projection = {};
-        const result = await findOneInDatabase(database, collection, query, projection);
+        const result =
+            await findOneInDatabase(database, collection, query, projection);
         const loggedUser = result;
         // console.log(result)
         if (loggedUser) {
           // check if signature corresponds to message with that zelid
           let valid = false;
           try {
-            valid = bitcoinMessage.verify(loggedUser.loginPhrase, auth.zelid, auth.signature);
+            valid = bitcoinMessage.verify(loggedUser.loginPhrase, auth.zelid,
+                                          auth.signature);
           } catch (error) {
             return false;
           }
@@ -266,16 +281,20 @@ async function verifyUserSession(headers) {
       const db = databaseConnection();
       const database = db.db(config.database.local.database);
       const collection = config.database.local.collections.loggedUsers;
-      const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
+      const query = {
+        $and : [ {signature : auth.signature}, {zelid : auth.zelid} ]
+      };
       const projection = {};
-      const result = await findOneInDatabase(database, collection, query, projection);
+      const result =
+          await findOneInDatabase(database, collection, query, projection);
       const loggedUser = result;
       // console.log(result)
       if (loggedUser) {
         // check if signature corresponds to message with that zelid
         let valid = false;
         try {
-          valid = bitcoinMessage.verify(loggedUser.loginPhrase, auth.zelid, auth.signature);
+          valid = bitcoinMessage.verify(loggedUser.loginPhrase, auth.zelid,
+                                        auth.signature);
         } catch (error) {
           return false;
         }
@@ -302,15 +321,19 @@ async function verifyFluxTeamSession(headers) {
         const db = databaseConnection();
         const database = db.db(config.database.local.database);
         const collection = config.database.local.collections.loggedUsers;
-        const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
+        const query = {
+          $and : [ {signature : auth.signature}, {zelid : auth.zelid} ]
+        };
         const projection = {};
-        const result = await findOneInDatabase(database, collection, query, projection);
+        const result =
+            await findOneInDatabase(database, collection, query, projection);
         const loggedUser = result;
         if (loggedUser) {
           // check if signature corresponds to message with that zelid
           let valid = false;
           try {
-            valid = bitcoinMessage.verify(loggedUser.loginPhrase, auth.zelid, auth.signature);
+            valid = bitcoinMessage.verify(loggedUser.loginPhrase, auth.zelid,
+                                          auth.signature);
           } catch (error) {
             return false;
           }
@@ -335,19 +358,25 @@ async function verifyAdminAndFluxTeamSession(headers) {
   if (headers && headers.zelidauth) {
     const auth = ensureObject(headers.zelidauth);
     if (auth.zelid && auth.signature) {
-      if (auth.zelid === config.fluxTeamZelId || auth.zelid === userconfig.initial.zelid) { // admin is considered as fluxTeam
+      if (auth.zelid === config.fluxTeamZelId ||
+          auth.zelid ===
+              userconfig.initial.zelid) { // admin is considered as fluxTeam
         const db = databaseConnection();
         const database = db.db(config.database.local.database);
         const collection = config.database.local.collections.loggedUsers;
-        const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
+        const query = {
+          $and : [ {signature : auth.signature}, {zelid : auth.zelid} ]
+        };
         const projection = {};
-        const result = await findOneInDatabase(database, collection, query, projection);
+        const result =
+            await findOneInDatabase(database, collection, query, projection);
         const loggedUser = result;
         if (loggedUser) {
           // check if signature corresponds to message with that zelid
           let valid = false;
           try {
-            valid = bitcoinMessage.verify(loggedUser.loginPhrase, auth.zelid, auth.signature);
+            valid = bitcoinMessage.verify(loggedUser.loginPhrase, auth.zelid,
+                                          auth.signature);
           } catch (error) {
             return false;
           }
@@ -377,15 +406,19 @@ async function verifyAppOwnerSession(headers, appName) {
         const db = databaseConnection();
         const database = db.db(config.database.local.database);
         const collection = config.database.local.collections.loggedUsers;
-        const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
+        const query = {
+          $and : [ {signature : auth.signature}, {zelid : auth.zelid} ]
+        };
         const projection = {};
-        const result = await findOneInDatabase(database, collection, query, projection);
+        const result =
+            await findOneInDatabase(database, collection, query, projection);
         const loggedUser = result;
         if (loggedUser) {
           // check if signature corresponds to message with that zelid
           let valid = false;
           try {
-            valid = bitcoinMessage.verify(loggedUser.loginPhrase, auth.zelid, auth.signature);
+            valid = bitcoinMessage.verify(loggedUser.loginPhrase, auth.zelid,
+                                          auth.signature);
           } catch (error) {
             return false;
           }
@@ -411,19 +444,24 @@ async function verifyAppOwnerOrHigherSession(headers, appName) {
     const auth = ensureObject(headers.zelidauth);
     if (auth.zelid && auth.signature) {
       const ownerZelID = await getApplicationOwner(appName);
-      if (auth.zelid === ownerZelID || auth.zelid === config.fluxTeamZelId || auth.zelid === userconfig.initial.zelid) {
+      if (auth.zelid === ownerZelID || auth.zelid === config.fluxTeamZelId ||
+          auth.zelid === userconfig.initial.zelid) {
         const db = databaseConnection();
         const database = db.db(config.database.local.database);
         const collection = config.database.local.collections.loggedUsers;
-        const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
+        const query = {
+          $and : [ {signature : auth.signature}, {zelid : auth.zelid} ]
+        };
         const projection = {};
-        const result = await findOneInDatabase(database, collection, query, projection);
+        const result =
+            await findOneInDatabase(database, collection, query, projection);
         const loggedUser = result;
         if (loggedUser) {
           // check if signature corresponds to message with that zelid
           let valid = false;
           try {
-            valid = bitcoinMessage.verify(loggedUser.loginPhrase, auth.zelid, auth.signature);
+            valid = bitcoinMessage.verify(loggedUser.loginPhrase, auth.zelid,
+                                          auth.signature);
           } catch (error) {
             return false;
           }
@@ -447,27 +485,27 @@ async function verifyAppOwnerOrHigherSession(headers, appName) {
 async function verifyPrivilege(privilege, req, appName) {
   let authorized;
   switch (privilege) {
-    case 'admin':
-      authorized = await verifyAdminSession(req.headers);
-      break;
-    case 'fluxteam':
-      authorized = await verifyFluxTeamSession(req.headers);
-      break;
-    case 'adminandfluxteam':
-      authorized = await verifyAdminAndFluxTeamSession(req.headers);
-      break;
-    case 'appownerabove':
-      authorized = await verifyAppOwnerOrHigherSession(req.headers, appName);
-      break;
-    case 'appowner':
-      authorized = await verifyAppOwnerSession(req.headers, appName);
-      break;
-    case 'user':
-      authorized = await verifyUserSession(req.headers);
-      break;
-    default:
-      authorized = false;
-      break;
+  case 'admin':
+    authorized = await verifyAdminSession(req.headers);
+    break;
+  case 'fluxteam':
+    authorized = await verifyFluxTeamSession(req.headers);
+    break;
+  case 'adminandfluxteam':
+    authorized = await verifyAdminAndFluxTeamSession(req.headers);
+    break;
+  case 'appownerabove':
+    authorized = await verifyAppOwnerOrHigherSession(req.headers, appName);
+    break;
+  case 'appowner':
+    authorized = await verifyAppOwnerSession(req.headers, appName);
+    break;
+  case 'user':
+    authorized = await verifyUserSession(req.headers);
+    break;
+  default:
+    authorized = false;
+    break;
   }
   return authorized;
 }
@@ -495,7 +533,8 @@ function verifyZelID(address) {
   return isValid;
 }
 
-function verifyMessage(message, address, signature, strMessageMagic, checkSegwitAlways) {
+function verifyMessage(message, address, signature, strMessageMagic,
+                       checkSegwitAlways) {
   let isValid = false;
   let signingAddress = address;
   try {
@@ -507,11 +546,13 @@ function verifyMessage(message, address, signature, strMessageMagic, checkSegwit
       const btcPubKeyHash = '00';
       const sigAddress = zeltrezjs.address.pubKeyToAddr(address, btcPubKeyHash);
       // const publicKeyBuffer = Buffer.from(address, 'hex');
-      // const publicKey = bitcoinjs.ECPair.fromPublicKeyBuffer(publicKeyBuffer);
-      // const sigAddress = bitcoinjs.payments.p2pkh({ pubkey: publicKeyBuffer }).address);
+      // const publicKey =
+      // bitcoinjs.ECPair.fromPublicKeyBuffer(publicKeyBuffer); const sigAddress
+      // = bitcoinjs.payments.p2pkh({ pubkey: publicKeyBuffer }).address);
       signingAddress = sigAddress;
     }
-    isValid = bitcoinMessage.verify(message, signingAddress, signature, strMessageMagic, checkSegwitAlways);
+    isValid = bitcoinMessage.verify(message, signingAddress, signature,
+                                    strMessageMagic, checkSegwitAlways);
   } catch (e) {
     log.error(e);
     isValid = e;
@@ -523,11 +564,12 @@ function signMessage(message, pk) {
   let signature;
   try {
     const keyPair = bitcoinjs.ECPair.fromWIF(pk);
-    const { privateKey } = keyPair;
+    const {privateKey} = keyPair;
     // console.log(keyPair.privateKey.toString('hex'));
     // console.log(keyPair.publicKey.toString('hex'));
 
-    signature = bitcoinMessage.sign(message, privateKey, keyPair.compressed, { extraEntropy: randomBytes(32) });
+    signature = bitcoinMessage.sign(message, privateKey, keyPair.compressed,
+                                    {extraEntropy : randomBytes(32)});
     signature = signature.toString('base64');
     // => different (but valid) signature each time
   } catch (e) {
@@ -539,19 +581,17 @@ function signMessage(message, pk) {
 
 // helper function for timeout on axios connection
 const axiosGet = (url, options = {
-  timeout: 20000,
+  timeout : 20000,
 }) => {
   const abort = axios.CancelToken.source();
   const id = setTimeout(
-    () => abort.cancel(`Timeout of ${options.timeout}ms.`),
-    options.timeout,
+      () => abort.cancel(`Timeout of ${options.timeout}ms.`),
+      options.timeout,
   );
-  return axios
-    .get(url, { cancelToken: abort.token, ...options })
-    .then((res) => {
-      clearTimeout(id);
-      return res;
-    });
+  return axios.get(url, {cancelToken : abort.token, ...options}).then((res) => {
+    clearTimeout(id);
+    return res;
+  });
 };
 
 module.exports = {

@@ -15,27 +15,45 @@ async function startFluxFunctions() {
     log.info('Preparing local database...');
     const db = serviceHelper.databaseConnection();
     const database = db.db(config.database.local.database);
-    await serviceHelper.dropCollection(database, config.database.local.collections.activeLoginPhrases).catch((error) => {
-      if (error.message !== 'ns not found') {
-        log.error(error);
-      }
-    });
-    await serviceHelper.dropCollection(database, config.database.local.collections.activeSignatures).catch((error) => {
-      if (error.message !== 'ns not found') {
-        log.error(error);
-      }
-    });
-    await database.collection(config.database.local.collections.activeLoginPhrases).createIndex({ createdAt: 1 }, { expireAfterSeconds: 900 });
-    await database.collection(config.database.local.collections.activeSignatures).createIndex({ createdAt: 1 }, { expireAfterSeconds: 900 });
+    await serviceHelper
+        .dropCollection(database,
+                        config.database.local.collections.activeLoginPhrases)
+        .catch((error) => {
+          if (error.message !== 'ns not found') {
+            log.error(error);
+          }
+        });
+    await serviceHelper
+        .dropCollection(database,
+                        config.database.local.collections.activeSignatures)
+        .catch((error) => {
+          if (error.message !== 'ns not found') {
+            log.error(error);
+          }
+        });
+    await database
+        .collection(config.database.local.collections.activeLoginPhrases)
+        .createIndex({createdAt : 1}, {expireAfterSeconds : 900});
+    await database
+        .collection(config.database.local.collections.activeSignatures)
+        .createIndex({createdAt : 1}, {expireAfterSeconds : 900});
     log.info('Local database prepared');
     log.info('Preparing temporary database...');
     // no need to drop temporary messages
     const databaseTemp = db.db(config.database.appsglobal.database);
-    await databaseTemp.collection(config.database.appsglobal.collections.appsTemporaryMessages).createIndex({ receivedAt: 1 }, { expireAfterSeconds: 3600 }); // todo longer time? dropIndexes()
+    await databaseTemp
+        .collection(
+            config.database.appsglobal.collections.appsTemporaryMessages)
+        .createIndex(
+            {receivedAt : 1},
+            {expireAfterSeconds : 3600}); // todo longer time? dropIndexes()
     log.info('Temporary database prepared');
     log.info('Preparing Flux Apps locations');
-    // more than 1 hour. Meaning we have not received status message for a long time. So that node is no longer on a network or app is down.
-    await databaseTemp.collection(config.database.appsglobal.collections.appsLocations).createIndex({ broadcastedAt: 1 }, { expireAfterSeconds: 3900 });
+    // more than 1 hour. Meaning we have not received status message for a long
+    // time. So that node is no longer on a network or app is down.
+    await databaseTemp
+        .collection(config.database.appsglobal.collections.appsLocations)
+        .createIndex({broadcastedAt : 1}, {expireAfterSeconds : 3900});
     log.info('Flux Apps locations prepared');
     fluxCommunication.adjustFirewall();
     log.info('Firewalls checked');
@@ -65,9 +83,7 @@ async function startFluxFunctions() {
     }, 16 * 60 * 1000);
   } catch (e) {
     log.error(e);
-    setTimeout(() => {
-      startFluxFunctions();
-    }, 15000);
+    setTimeout(() => { startFluxFunctions(); }, 15000);
   }
 }
 
