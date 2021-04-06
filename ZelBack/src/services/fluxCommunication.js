@@ -1108,7 +1108,7 @@ async function checkMyFluxAvailability(nodelist) {
       if(publicIp && publicIp !== myIP){
         myIP = publicIp;
         await restartNodeBenchMarks();
-        await serviceHelper.delay(2*60*1000); //lets wait two minutes
+        await serviceHelper.delay(2 * 60 * 1000); //lets wait two minutes
         return;
       }
       dosState += 1.5;
