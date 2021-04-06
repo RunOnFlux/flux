@@ -580,7 +580,7 @@
           Benchmarking: {{ callResponse.data.benchmarking }}
         </p>
         <p>
-          Flux: {{ callResponse.data.zelback }}
+          Flux: {{ callResponse.data.zelback || callResponse.data.flux }}
         </p>
       </div>
     </div>
