@@ -139,7 +139,7 @@ async function getInfo(req, res) {
   return res ? res.json(response) : response;
 }
 
-async function getBenchPublicIp(req, res) {
+async function getPublicIp(req, res) {
   const rpccall = 'getpublicip';
 
   response = await executeCall(rpccall);
@@ -161,5 +161,5 @@ module.exports = {
   // == Zelnode ==
   getBenchmarks,
   getInfo,
-  getBenchPublicIp,
+  getPublicIp,
 };

@@ -94,7 +94,7 @@ async function getMyFluxIP() {
 }
 
 async function getBenchPublicIp() {
-  const benchIpResponse = await daemonService.getBenchPublicIp();
+  const benchIpResponse = await daemonService.getPublicIp();
   let myIP = null;
   if (benchIpResponse.status === 'success') {
       myIP = benchIpResponse.data.length > 5 ? benchIpResponse.data : null;
