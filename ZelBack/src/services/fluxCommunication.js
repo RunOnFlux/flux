@@ -1055,7 +1055,7 @@ async function checkMyFluxAvailability(nodelist) {
   // run if at least 10 available nodes
   if (nodelist.length > 10) {
     let askingIP = await getRandomConnection();
-    if (typeof askingIP !== 'string' || typeof myFluxIP !== 'string') {
+    if (typeof askingIP !== 'string' || typeof myFluxIP !== 'string' || myFluxIP === askingIP) {
       return;
     }
     if (askingIP.includes(':')) {
@@ -1081,7 +1081,24 @@ async function checkMyFluxAvailability(nodelist) {
     }
     if (resMyAvailability.data.status === 'error' || resMyAvailability.data.data.message.includes('not')) {
       log.error(`My Flux unavailability detected from ${askingIP}`);
-      // Asked Flux cannot reach me
+      // Asked Flux cannot reach me lets check if ip changed
+      const benchIpResponse = await daemonService.getPublicIp();
+      if (benchIpResponse.status === 'success') {
+        const benchMyIP = benchIpResponse.data.length > 5 ? benchIpResponse.data : null;
+        if (benchMyIP && benchMyIP !== myIP) {
+          myIP = benchMyIP;
+          const restartNodeResponse = await daemonService.restartNodeBenchmarks();
+          if (restartNodeResponse.status !== 'success') {
+            dosMessage = benchIpResponse.data;
+            dosState += 10;
+          }
+          await serviceHelper.delay(2 * 60 * 1000); // lets wait two minutes
+          return;
+        }
+      } else {
+        dosMessage = benchIpResponse.data;
+        dosState += 10;
+      }
       dosState += 1.5;
       if (dosState > 10) {
         dosMessage = dosMessage || 'Flux is not available for outside communication';
@@ -1179,8 +1196,14 @@ async function checkDeterministicNodesCollisions() {
         log.error(dosMessage);
       }
     }
+    setTimeout(() => {
+      checkDeterministicNodesCollisions();
+    }, 60 * 1000);
   } catch (error) {
     log.error(error);
+    setTimeout(() => {
+      checkDeterministicNodesCollisions();
+    }, 120 * 1000);
   }
 }
 

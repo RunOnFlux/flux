@@ -479,6 +479,10 @@ function verifyZelID(address) {
       throw new Error('Missing parameters for message verification');
     }
 
+    if (!address.startsWith('1')) {
+      throw new Error('Invalid zelID');
+    }
+
     if (address.length > 36) {
       const btcPubKeyHash = '00';
       zeltrezjs.address.pubKeyToAddr(address, btcPubKeyHash);
@@ -491,7 +495,7 @@ function verifyZelID(address) {
   return isValid;
 }
 
-function verifyMessage(message, address, signature) {
+function verifyMessage(message, address, signature, strMessageMagic, checkSegwitAlways) {
   let isValid = false;
   let signingAddress = address;
   try {
@@ -507,7 +511,7 @@ function verifyMessage(message, address, signature) {
       // const sigAddress = bitcoinjs.payments.p2pkh({ pubkey: publicKeyBuffer }).address);
       signingAddress = sigAddress;
     }
-    isValid = bitcoinMessage.verify(message, signingAddress, signature);
+    isValid = bitcoinMessage.verify(message, signingAddress, signature, strMessageMagic, checkSegwitAlways);
   } catch (e) {
     log.error(e);
     isValid = e;

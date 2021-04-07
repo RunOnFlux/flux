@@ -1610,7 +1610,7 @@
       <div>
         Note: Only verified developers and images can currently run on Flux. To become a verified developer with whitelisted images, please contact Flux Team via
         <el-link
-          href="https://discord.io/zel"
+          href="https://discord.io/runonflux"
           target="_blank"
           type="primary"
         >
