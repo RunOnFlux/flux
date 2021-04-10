@@ -140,29 +140,27 @@
         >
           <div id="priceChart" />
           <br><br>
-          <h2>Rewards After April 10th(Miners 50%/50% Flux Nodes)</h2>
-          <br><br>
           <div class="gridThree">
             <div>
               <h2>Cumulus Rewards</h2>
               <br><br>
               <h3>per day</h3>
-              <h4>{{ beautifyValue(basicWeek / 7 ) }} FLUX</h4>
-              <h4>{{ beautifyValue(basicUSDRewardWeek / 7) }} USD</h4>
+              <h4>{{ beautifyValue(cumulusWeek / 7 ) }} FLUX</h4>
+              <h4>{{ beautifyValue(cumulusUSDRewardWeek / 7) }} USD</h4>
               <h4 style="visibility: hidden">No KDA available</h4>
               <br><br>
               <h3>per week</h3>
-              <h4>{{ beautifyValue(basicWeek) }} FLUX</h4>
-              <h4>{{ beautifyValue(basicUSDRewardWeek) }} USD</h4>
+              <h4>{{ beautifyValue(cumulusWeek) }} FLUX</h4>
+              <h4>{{ beautifyValue(cumulusUSDRewardWeek) }} USD</h4>
               <h4 style="visibility: hidden">No KDA available</h4>
               <br><br>
               <h3>per month</h3>
-              <h4>{{ beautifyValue(basicWeek * 4.34812141) }} FLUX</h4>
-              <h4>{{ beautifyValue(basicUSDRewardWeek * 4.34812141) }} USD</h4>
+              <h4>{{ beautifyValue(cumulusWeek * 4.34812141) }} FLUX</h4>
+              <h4>{{ beautifyValue(cumulusUSDRewardWeek * 4.34812141) }} USD</h4>
               <h4 style="visibility: hidden">No KDA available</h4>
               <br><br>
               <h3>Profitability per month - Node Cost 4.70 USD</h3>
-              <h4>Node only: {{ beautifyValue(basicUSDRewardWeek * 4.34812141 - 4.70) }} USD</h4>
+              <h4>Node only: {{ beautifyValue(cumulusUSDRewardWeek * 4.34812141 - 4.70) }} USD</h4>
               <h4 style="visibility: hidden">No KDA available</h4>
               <br>
             </div>
@@ -170,120 +168,46 @@
               <h2>Nimbus Rewards</h2>
               <br><br>
               <h3>per day</h3>
-              <h4>{{ beautifyValue(superWeek / 7) }} FLUX ~ {{ beautifyValue(superUSDRewardWeek / 7) }} USD</h4>
-              <h4>{{ beautifyValue(kdaNimbusWeek / 7) }} KDA ~ {{ beautifyValue(superUSDKDARewardWeek / 7) }} USD</h4>
-              <h4>{{ beautifyValue((superUSDRewardWeek / 7) + (superUSDKDARewardWeek / 7)) }} USD</h4>
+              <h4>{{ beautifyValue(nimbusWeek / 7) }} FLUX ~ {{ beautifyValue(nimbusUSDRewardWeek / 7) }} USD</h4>
+              <h4>{{ beautifyValue(kdaNimbusWeek / 7) }} KDA ~ {{ beautifyValue(nimbusUSDKDARewardWeek / 7) }} USD</h4>
+              <h4>{{ beautifyValue((nimbusUSDRewardWeek / 7) + (nimbusUSDKDARewardWeek / 7)) }} USD</h4>
               <br><br>
               <h3>per week</h3>
-              <h4>{{ beautifyValue(superWeek) }} FLUX ~ {{ beautifyValue(superUSDRewardWeek) }} USD</h4>
-              <h4>{{ beautifyValue(kdaNimbusWeek) }} KDA ~ {{ beautifyValue(superUSDKDARewardWeek) }} USD</h4>
-              <h4>{{ beautifyValue((superUSDRewardWeek) + (superUSDKDARewardWeek)) }} USD</h4>
+              <h4>{{ beautifyValue(nimbusWeek) }} FLUX ~ {{ beautifyValue(nimbusUSDRewardWeek) }} USD</h4>
+              <h4>{{ beautifyValue(kdaNimbusWeek) }} KDA ~ {{ beautifyValue(nimbusUSDKDARewardWeek) }} USD</h4>
+              <h4>{{ beautifyValue((nimbusUSDRewardWeek) + (nimbusUSDKDARewardWeek)) }} USD</h4>
               <br><br>
               <h3>per month</h3>
-              <h4>{{ beautifyValue(superWeek * 4.34812141) }} FLUX ~ {{ beautifyValue(superUSDRewardWeek * 4.34812141) }} USD</h4>
-              <h4>{{ beautifyValue(kdaNimbusWeek * 4.34812141) }} KDA ~ {{ beautifyValue(superUSDKDARewardWeek * 4.34812141) }} USD</h4>
-              <h4>{{ beautifyValue((superUSDRewardWeek * 4.34812141) + (superUSDKDARewardWeek * 4.34812141)) }} USD</h4>
+              <h4>{{ beautifyValue(nimbusWeek * 4.34812141) }} FLUX ~ {{ beautifyValue(nimbusUSDRewardWeek * 4.34812141) }} USD</h4>
+              <h4>{{ beautifyValue(kdaNimbusWeek * 4.34812141) }} KDA ~ {{ beautifyValue(nimbusUSDKDARewardWeek * 4.34812141) }} USD</h4>
+              <h4>{{ beautifyValue((nimbusUSDRewardWeek * 4.34812141) + (nimbusUSDKDARewardWeek * 4.34812141)) }} USD</h4>
               <br><br>
               <h3>Profitability per month - Node Cost 6 USD</h3>
-              <h4>Node only: {{ beautifyValue(superUSDRewardWeek * 4.34812141 - 6) }} USD</h4>
-              <h4>With KDA: {{ beautifyValue((superUSDRewardWeek * 4.34812141) + (superUSDKDARewardWeek * 4.34812141) - 6) }} USD</h4>
+              <h4>Node only: {{ beautifyValue(nimbusUSDRewardWeek * 4.34812141 - 6) }} USD</h4>
+              <h4>With KDA: {{ beautifyValue((nimbusUSDRewardWeek * 4.34812141) + (nimbusUSDKDARewardWeek * 4.34812141) - 6) }} USD</h4>
               <br>
             </div>
             <div>
               <h2>Stratus Rewards</h2>
               <br><br>
               <h3>per day</h3>
-              <h4>{{ beautifyValue(bamfWeek / 7 ) }} FLUX ~ {{ beautifyValue(bamfUSDRewardWeek / 7) }} USD</h4>
-              <h4>{{ beautifyValue(kdaStratusWeek / 7 ) }} KDA ~ {{ beautifyValue(bamfUSDKDARewardWeek / 7) }} USD</h4>
-              <h4>{{ beautifyValue((bamfUSDRewardWeek / 7) + (bamfUSDKDARewardWeek / 7)) }} USD</h4>
+              <h4>{{ beautifyValue(stratusWeek / 7 ) }} FLUX ~ {{ beautifyValue(stratusUSDRewardWeek / 7) }} USD</h4>
+              <h4>{{ beautifyValue(kdaStratusWeek / 7 ) }} KDA ~ {{ beautifyValue(stratusUSDKDARewardWeek / 7) }} USD</h4>
+              <h4>{{ beautifyValue((stratusUSDRewardWeek / 7) + (stratusUSDKDARewardWeek / 7)) }} USD</h4>
               <br><br>
               <h3>per week</h3>
-              <h4>{{ beautifyValue(bamfWeek) }} FLUX ~ {{ beautifyValue(bamfUSDRewardWeek) }} USD</h4>
-              <h4>{{ beautifyValue(kdaStratusWeek ) }} KDA ~ {{ beautifyValue(bamfUSDKDARewardWeek) }} USD</h4>
-              <h4>{{ beautifyValue((bamfUSDRewardWeek) + (bamfUSDKDARewardWeek)) }} USD</h4>
+              <h4>{{ beautifyValue(stratusWeek) }} FLUX ~ {{ beautifyValue(stratusUSDRewardWeek) }} USD</h4>
+              <h4>{{ beautifyValue(kdaStratusWeek ) }} KDA ~ {{ beautifyValue(stratusUSDKDARewardWeek) }} USD</h4>
+              <h4>{{ beautifyValue((stratusUSDRewardWeek) + (stratusUSDKDARewardWeek)) }} USD</h4>
               <br><br>
               <h3>per month</h3>
-              <h4>{{ beautifyValue(bamfWeek * 4.34812141) }} FLUX ~ {{ beautifyValue(bamfUSDRewardWeek * 4.34812141) }} USD</h4>
-              <h4>{{ beautifyValue(kdaStratusWeek * 4.34812141) }} KDA ~ {{ beautifyValue(bamfUSDKDARewardWeek * 4.34812141) }} USD</h4>
-              <h4>{{ beautifyValue((bamfUSDRewardWeek * 4.34812141) + (bamfUSDKDARewardWeek * 4.34812141)) }} USD</h4>
+              <h4>{{ beautifyValue(stratusWeek * 4.34812141) }} FLUX ~ {{ beautifyValue(stratusUSDRewardWeek * 4.34812141) }} USD</h4>
+              <h4>{{ beautifyValue(kdaStratusWeek * 4.34812141) }} KDA ~ {{ beautifyValue(stratusUSDKDARewardWeek * 4.34812141) }} USD</h4>
+              <h4>{{ beautifyValue((stratusUSDRewardWeek * 4.34812141) + (stratusUSDKDARewardWeek * 4.34812141)) }} USD</h4>
               <br><br>
               <h3>Profitability per month - Node Cost 32 USD</h3>
-              <h4>Node only: {{ beautifyValue(bamfUSDRewardWeek * 4.34812141 - 32) }} USD</h4>
-              <h4>With KDA: {{ beautifyValue((bamfUSDRewardWeek * 4.34812141) + (bamfUSDKDARewardWeek * 4.34812141) - 18.1) }} USD</h4>
-              <br>
-            </div>
-          </div>
-          <br><br>
-          <h2>Rewards Until April 10th (Miners 75%/25% Flux Nodes)</h2>
-          <br><br>
-          <div class="gridThree">
-            <div>
-              <h2>Cumulus Rewards</h2>
-              <br><br>
-              <h3>per day</h3>
-              <h4>{{ beautifyValue(beforeForkbasicWeek / 7 ) }} FLUX</h4>
-              <h4>{{ beautifyValue(beforeForkbasicUSDRewardWeek / 7) }} USD</h4>
-              <h4 style="visibility: hidden">No KDA available</h4>
-              <br><br>
-              <h3>per week</h3>
-              <h4>{{ beautifyValue(beforeForkbasicWeek) }} FLUX</h4>
-              <h4>{{ beautifyValue(beforeForkbasicUSDRewardWeek) }} USD</h4>
-              <h4 style="visibility: hidden">No KDA available</h4>
-              <br><br>
-              <h3>per month</h3>
-              <h4>{{ beautifyValue(beforeForkbasicWeek * 4.34812141) }} FLUX</h4>
-              <h4>{{ beautifyValue(beforeForkbasicUSDRewardWeek * 4.34812141) }} USD</h4>
-              <h4 style="visibility: hidden">No KDA available</h4>
-              <br><br>
-              <h3>Profitability per month - Node Cost 4.70 USD</h3>
-              <h4>Node only: {{ beautifyValue(beforeForkbasicUSDRewardWeek * 4.34812141 - 4.70) }} USD</h4>
-              <h4 style="visibility: hidden">No KDA available</h4>
-              <br>
-            </div>
-            <div>
-              <h2>Nimbus Rewards</h2>
-              <br><br>
-              <h3>per day</h3>
-              <h4>{{ beautifyValue(beforeForksuperWeek / 7) }} FLUX ~ {{ beautifyValue(beforeForksuperUSDRewardWeek / 7) }} USD</h4>
-              <h4>{{ beautifyValue(kdaNimbusWeek / 7) }} KDA ~ {{ beautifyValue(superUSDKDARewardWeek / 7) }} USD</h4>
-              <h4>{{ beautifyValue((beforeForksuperUSDRewardWeek / 7) + (superUSDKDARewardWeek / 7)) }} USD</h4>
-              <br><br>
-              <h3>per week</h3>
-              <h4>{{ beautifyValue(beforeForksuperWeek) }} FLUX ~ {{ beautifyValue(beforeForksuperUSDRewardWeek) }} USD</h4>
-              <h4>{{ beautifyValue(kdaNimbusWeek) }} KDA ~ {{ beautifyValue(superUSDKDARewardWeek) }} USD</h4>
-              <h4>{{ beautifyValue((beforeForksuperUSDRewardWeek) + (superUSDKDARewardWeek)) }} USD</h4>
-              <br><br>
-              <h3>per month</h3>
-              <h4>{{ beautifyValue(beforeForksuperWeek * 4.34812141) }} FLUX ~ {{ beautifyValue(beforeForksuperUSDRewardWeek * 4.34812141) }} USD</h4>
-              <h4>{{ beautifyValue(kdaNimbusWeek * 4.34812141) }} KDA ~ {{ beautifyValue(superUSDKDARewardWeek * 4.34812141) }} USD</h4>
-              <h4>{{ beautifyValue((beforeForksuperUSDRewardWeek * 4.34812141) + (superUSDKDARewardWeek * 4.34812141)) }} USD</h4>
-              <br><br>
-              <h3>Profitability per month - Node Cost 6 USD</h3>
-              <h4>Node only: {{ beautifyValue(beforeForksuperUSDRewardWeek * 4.34812141 - 6) }} USD</h4>
-              <h4>With KDA: {{ beautifyValue((beforeForksuperUSDRewardWeek * 4.34812141) + (superUSDKDARewardWeek * 4.34812141) - 6) }} USD</h4>
-              <br>
-            </div>
-            <div>
-              <h2>Stratus Rewards</h2>
-              <br><br>
-              <h3>per day</h3>
-              <h4>{{ beautifyValue(beforeForkbamfWeek / 7 ) }} FLUX ~ {{ beautifyValue(beforeForkbamfUSDRewardWeek / 7) }} USD</h4>
-              <h4>{{ beautifyValue(kdaStratusWeek / 7 ) }} KDA ~ {{ beautifyValue(bamfUSDKDARewardWeek / 7) }} USD</h4>
-              <h4>{{ beautifyValue((beforeForkbamfUSDRewardWeek / 7) + (bamfUSDKDARewardWeek / 7)) }} USD</h4>
-              <br><br>
-              <h3>per week</h3>
-              <h4>{{ beautifyValue(beforeForkbamfWeek) }} FLUX ~ {{ beautifyValue(beforeForkbamfUSDRewardWeek) }} USD</h4>
-              <h4>{{ beautifyValue(kdaStratusWeek ) }} KDA ~ {{ beautifyValue(bamfUSDKDARewardWeek) }} USD</h4>
-              <h4>{{ beautifyValue((beforeForkbamfUSDRewardWeek) + (bamfUSDKDARewardWeek)) }} USD</h4>
-              <br><br>
-              <h3>per month</h3>
-              <h4>{{ beautifyValue(beforeForkbamfWeek * 4.34812141) }} FLUX ~ {{ beautifyValue(beforeForkbamfUSDRewardWeek * 4.34812141) }} USD</h4>
-              <h4>{{ beautifyValue(kdaStratusWeek * 4.34812141) }} KDA ~ {{ beautifyValue(bamfUSDKDARewardWeek * 4.34812141) }} USD</h4>
-              <h4>{{ beautifyValue((beforeForkbamfUSDRewardWeek * 4.34812141) + (bamfUSDKDARewardWeek * 4.34812141)) }} USD</h4>
-              <br><br>
-              <h3>Profitability per month - Node Cost 32 USD</h3>
-              <h4>Node only: {{ beautifyValue(beforeForkbamfUSDRewardWeek * 4.34812141 - 32) }} USD</h4>
-              <h4>With KDA: {{ beautifyValue((beforeForkbamfUSDRewardWeek * 4.34812141) + (bamfUSDKDARewardWeek * 4.34812141) - 18.1) }} USD</h4>
+              <h4>Node only: {{ beautifyValue(stratusUSDRewardWeek * 4.34812141 - 32) }} USD</h4>
+              <h4>With KDA: {{ beautifyValue((stratusUSDRewardWeek * 4.34812141) + (stratusUSDKDARewardWeek * 4.34812141) - 18.1) }} USD</h4>
               <br>
             </div>
           </div>
@@ -453,24 +377,16 @@ export default {
       ramHistoryLoading: true,
       cpuHistoryLoading: true,
       historicalPrices: [],
-      basicWeek: 0,
-      superWeek: 0,
-      bamfWeek: 0,
-      basicUSDRewardWeek: 0,
-      superUSDRewardWeek: 0,
-      bamfUSDRewardWeek: 0,
-      superUSDKDARewardWeek: 0,
-      bamfUSDKDARewardWeek: 0,
+      cumulusWeek: 0,
+      nimbusWeek: 0,
+      stratusWeek: 0,
+      cumulusUSDRewardWeek: 0,
+      nimbusUSDRewardWeek: 0,
+      stratusUSDRewardWeek: 0,
+      nimbusUSDKDARewardWeek: 0,
+      stratusUSDKDARewardWeek: 0,
       kdaNimbusWeek: 0,
       kdaStratusWeek: 0,
-      beforeForkbasicWeek: 0,
-      beforeForksuperWeek: 0,
-      beforeForkbamfWeek: 0,
-      beforeForkbasicUSDRewardWeek: 0,
-      beforeForksuperUSDRewardWeek: 0,
-      beforeForkbamfUSDRewardWeek: 0,
-      beforForkkdaNimbusWeek: 0,
-      beforForkkdaStratusWeek: 0,
     };
   },
   computed: {
@@ -542,11 +458,11 @@ export default {
       try {
         const resCount = await DashboardService.zelnodeCount();
         const counts = resCount.data.data;
-        const bamfs = counts['bamf-enabled'] || counts['stratus-enabled'];
-        const supers = counts['super-enabled'] || counts['nimbus-enabled'];
-        const basics = counts['basic-enabled'] || counts['cumulus-enabled'];
+        const stratuses = counts['bamf-enabled'] || counts['stratus-enabled'];
+        const nimbuses = counts['super-enabled'] || counts['nimbus-enabled'];
+        const cumuluses = counts['basic-enabled'] || counts['cumulus-enabled'];
         console.log(resCount);
-        const supply = bamfs * 100000 + supers * 25000 + basics * 10000;
+        const supply = stratuses * 100000 + nimbuses * 25000 + cumuluses * 10000;
         this.lockedSupply = supply;
         this.lockedSupplyPerc = Number(((supply / this.circulatingSupply) * 100).toFixed(2));
         this.generateEconomics(counts);
@@ -557,16 +473,16 @@ export default {
     async generateEconomics(zelnodecounts) {
       try {
         console.log(this.rates);
-        const bamfs = zelnodecounts['bamf-enabled'] || zelnodecounts['stratus-enabled'];
-        const supers = zelnodecounts['super-enabled'] || zelnodecounts['nimbus-enabled'];
-        const basics = zelnodecounts['basic-enabled'] || zelnodecounts['cumulus-enabled'];
+        const stratuses = zelnodecounts['bamf-enabled'] || zelnodecounts['stratus-enabled'];
+        const nimbuses = zelnodecounts['super-enabled'] || zelnodecounts['nimbus-enabled'];
+        const cumuluses = zelnodecounts['basic-enabled'] || zelnodecounts['cumulus-enabled'];
         const resKDAEligible = await axios.get('https://stats.runonflux.io/kadena/eligible/7');
         const kdaData = resKDAEligible.data.data;
         const kdaCoins = 5749.77;
-        const supersS = kdaData.filter((result) => (result.tier === 'SUPER' || result.tier === 'NIMBUS'));
-        const bamfsS = kdaData.filter((result) => (result.tier === 'BAMF' || result.tier === 'STRATUS'));
-        const totalNimbuss = supersS.length;
-        const totalStratuss = bamfsS.length;
+        const nimbusesS = kdaData.filter((result) => (result.tier === 'SUPER' || result.tier === 'NIMBUS'));
+        const stratusesS = kdaData.filter((result) => (result.tier === 'BAMF' || result.tier === 'STRATUS'));
+        const totalNimbuss = nimbusesS.length;
+        const totalStratuss = stratusesS.length;
         const overallTotal = totalNimbuss + (4 * totalStratuss);
         const perNimbusWeek = Number((kdaCoins / overallTotal).toFixed(4)); // KDA
         const perStratusWeek = Number(((kdaCoins / overallTotal) * 4).toFixed(4)); // KDA
@@ -574,60 +490,33 @@ export default {
         const perNimbusNode = 9.375;
         const perStratusNode = 22.5;
         // eslint-disable-next-line no-mixed-operators
-        const basicWeek = perCumulusNode * 720 * 7 / basics;
+        const cumulusWeek = perCumulusNode * 720 * 7 / cumuluses;
         // eslint-disable-next-line no-mixed-operators
-        const superWeek = perNimbusNode * 720 * 7 / supers;
+        const nimbusWeek = perNimbusNode * 720 * 7 / nimbuses;
         // eslint-disable-next-line no-mixed-operators
-        const bamfWeek = perStratusNode * 720 * 7 / bamfs;
-        const basicUSDReward = this.getFiatRate('ZEL') * perCumulusNode; // per one go
-        const superUSDReward = this.getFiatRate('ZEL') * perNimbusNode; // per one go
-        const bamfUSDReward = this.getFiatRate('ZEL') * perStratusNode; // per one go
-        const superUSDKDARewardWeek = this.getFiatRate('KDA') * perNimbusWeek; // per week
-        const bamfUSDKDARewardWeek = this.getFiatRate('KDA') * perStratusWeek; // per week
+        const stratusWeek = perStratusNode * 720 * 7 / stratuses;
+        const cumulusUSDReward = this.getFiatRate('ZEL') * perCumulusNode; // per one go
+        const nimbusUSDReward = this.getFiatRate('ZEL') * perNimbusNode; // per one go
+        const stratusUSDReward = this.getFiatRate('ZEL') * perStratusNode; // per one go
+        const nimbusUSDKDARewardWeek = this.getFiatRate('KDA') * perNimbusWeek; // per week
+        const stratusUSDKDARewardWeek = this.getFiatRate('KDA') * perStratusWeek; // per week
         // 720 blocks per day.
         // eslint-disable-next-line no-mixed-operators
-        const basicUSDRewardWeek = 7 * 720 * basicUSDReward / basics;
+        const cumulusUSDRewardWeek = 7 * 720 * cumulusUSDReward / cumuluses;
         // eslint-disable-next-line no-mixed-operators
-        const superUSDRewardWeek = 7 * 720 * superUSDReward / supers;
+        const nimbusUSDRewardWeek = 7 * 720 * nimbusUSDReward / nimbuses;
         // eslint-disable-next-line no-mixed-operators
-        const bamfUSDRewardWeek = 7 * 720 * bamfUSDReward / bamfs;
-        this.basicWeek = basicWeek;
-        this.superWeek = superWeek;
-        this.bamfWeek = bamfWeek;
-        this.basicUSDRewardWeek = basicUSDRewardWeek;
-        this.superUSDRewardWeek = superUSDRewardWeek;
-        this.bamfUSDRewardWeek = bamfUSDRewardWeek;
-        this.superUSDKDARewardWeek = superUSDKDARewardWeek;
-        this.bamfUSDKDARewardWeek = bamfUSDKDARewardWeek;
+        const stratusUSDRewardWeek = 7 * 720 * stratusUSDReward / stratuses;
+        this.cumulusWeek = cumulusWeek;
+        this.nimbusWeek = nimbusWeek;
+        this.stratusWeek = stratusWeek;
+        this.cumulusUSDRewardWeek = cumulusUSDRewardWeek;
+        this.nimbusUSDRewardWeek = nimbusUSDRewardWeek;
+        this.stratusUSDRewardWeek = stratusUSDRewardWeek;
+        this.nimbusUSDKDARewardWeek = nimbusUSDKDARewardWeek;
+        this.stratusUSDKDARewardWeek = stratusUSDKDARewardWeek;
         this.kdaNimbusWeek = perNimbusWeek;
         this.kdaStratusWeek = perStratusWeek;
-
-        const beforeForkperCumulusNode = 2.8125;
-        const beforeForkperNimbusNode = 4.6875;
-        const beforeForkperStratusNode = 11.25;
-        // eslint-disable-next-line no-mixed-operators
-        const beforeForkbasicWeek = beforeForkperCumulusNode * 720 * 7 / basics;
-        // eslint-disable-next-line no-mixed-operators
-        const beforeForksuperWeek = beforeForkperNimbusNode * 720 * 7 / supers;
-        // eslint-disable-next-line no-mixed-operators
-        const beforeForkbamfWeek = beforeForkperStratusNode * 720 * 7 / bamfs;
-        const beforeForkbasicUSDReward = this.getFiatRate('ZEL') * beforeForkperCumulusNode; // per one go
-        const beforeForksuperUSDReward = this.getFiatRate('ZEL') * beforeForkperNimbusNode; // per one go
-        const beforeForkbamfUSDReward = this.getFiatRate('ZEL') * beforeForkperStratusNode; // per one go
-        // 720 blocks per day.
-        // eslint-disable-next-line no-mixed-operators
-        const beforeForkbasicUSDRewardWeek = 7 * 720 * beforeForkbasicUSDReward / basics;
-        // eslint-disable-next-line no-mixed-operators
-        const beforeForksuperUSDRewardWeek = 7 * 720 * beforeForksuperUSDReward / supers;
-        // eslint-disable-next-line no-mixed-operators
-        const beforeForkbamfUSDRewardWeek = 7 * 720 * beforeForkbamfUSDReward / bamfs;
-        this.beforeForkbasicWeek = beforeForkbasicWeek;
-        this.beforeForksuperWeek = beforeForksuperWeek;
-        this.beforeForkbamfWeek = beforeForkbamfWeek;
-        this.beforeForkbasicUSDRewardWeek = beforeForkbasicUSDRewardWeek;
-        this.beforeForksuperUSDRewardWeek = beforeForksuperUSDRewardWeek;
-        this.beforeForkbamfUSDRewardWeek = beforeForkbamfUSDRewardWeek;
-
         const self = this;
         axios.get('https://api.coingecko.com/api/v3/coins/zelcash/market_chart?vs_currency=USD&days=30').then((res2) => {
           self.historicalPrices = res2.data.prices.filter((a) => a[0] > 1483232400000); // min date from  January 1, 2017 1:00:00 AM
@@ -747,29 +636,29 @@ export default {
       // Create chart instance
       const chart = am4core.create('cpucurrent', am4charts.XYChart);
 
-      const basics = this.fluxList.filter((nodes) => (nodes.tier === 'BASIC' || nodes.tier === 'CUMULUS'));
-      const supers = this.fluxList.filter((nodes) => (nodes.tier === 'SUPER' || nodes.tier === 'NIMBUS'));
-      const bamfs = this.fluxList.filter((nodes) => (nodes.tier === 'BAMF' || nodes.tier === 'STRATUS'));
+      const cumuluses = this.fluxList.filter((nodes) => (nodes.tier === 'BASIC' || nodes.tier === 'CUMULUS'));
+      const nimbuses = this.fluxList.filter((nodes) => (nodes.tier === 'SUPER' || nodes.tier === 'NIMBUS'));
+      const stratuses = this.fluxList.filter((nodes) => (nodes.tier === 'BAMF' || nodes.tier === 'STRATUS'));
 
-      const basicValue = basics.length * 2;
-      const superValue = supers.length * 4;
-      const bamfValue = bamfs.length * 8;
+      const cumulusValue = cumuluses.length * 2;
+      const nimbusValue = nimbuses.length * 4;
+      const stratusValus = stratuses.length * 8;
 
-      const total = bamfValue + superValue + basicValue;
+      const total = stratusValus + nimbusValue + cumulusValue;
 
       // Add data
       chart.data = [
         {
           category: 'Cumulus',
-          value: basicValue,
+          value: cumulusValue,
         },
         {
           category: 'Nimbus',
-          value: superValue,
+          value: nimbusValue,
         },
         {
           category: 'Stratus',
-          value: bamfValue,
+          value: stratusValus,
         },
       ];
 
@@ -805,29 +694,29 @@ export default {
       // Create chart instance
       const chart = am4core.create('ramcurrent', am4charts.XYChart);
 
-      const basics = this.fluxList.filter((nodes) => (nodes.tier === 'BASIC' || nodes.tier === 'CUMULUS'));
-      const supers = this.fluxList.filter((nodes) => (nodes.tier === 'SUPER' || nodes.tier === 'NIMBUS'));
-      const bamfs = this.fluxList.filter((nodes) => (nodes.tier === 'BAMF' || nodes.tier === 'STRATUS'));
+      const cumuluses = this.fluxList.filter((nodes) => (nodes.tier === 'BASIC' || nodes.tier === 'CUMULUS'));
+      const nimbuses = this.fluxList.filter((nodes) => (nodes.tier === 'SUPER' || nodes.tier === 'NIMBUS'));
+      const stratuses = this.fluxList.filter((nodes) => (nodes.tier === 'BAMF' || nodes.tier === 'STRATUS'));
 
-      const basicValue = basics.length * 4;
-      const superValue = supers.length * 8;
-      const bamfValue = bamfs.length * 30;
+      const cumulusValue = cumuluses.length * 4;
+      const nimbusValue = nimbuses.length * 8;
+      const stratusValus = stratuses.length * 30;
 
-      const total = bamfValue + superValue + basicValue;
+      const total = stratusValus + nimbusValue + cumulusValue;
 
       // Add data
       chart.data = [
         {
           category: 'Cumulus',
-          value: basicValue,
+          value: cumulusValue,
         },
         {
           category: 'Nimbus',
-          value: superValue,
+          value: nimbusValue,
         },
         {
           category: 'Stratus',
-          value: bamfValue,
+          value: stratusValus,
         },
       ];
 
@@ -863,29 +752,29 @@ export default {
       // Create chart instance
       const chart = am4core.create('ssdcurrent', am4charts.XYChart);
 
-      const basics = this.fluxList.filter((nodes) => (nodes.tier === 'BASIC' || nodes.tier === 'CUMULUS'));
-      const supers = this.fluxList.filter((nodes) => (nodes.tier === 'SUPER' || nodes.tier === 'NIMBUS'));
-      const bamfs = this.fluxList.filter((nodes) => (nodes.tier === 'BAMF' || nodes.tier === 'STRATUS'));
+      const cumuluses = this.fluxList.filter((nodes) => (nodes.tier === 'BASIC' || nodes.tier === 'CUMULUS'));
+      const nimbuses = this.fluxList.filter((nodes) => (nodes.tier === 'SUPER' || nodes.tier === 'NIMBUS'));
+      const stratuses = this.fluxList.filter((nodes) => (nodes.tier === 'BAMF' || nodes.tier === 'STRATUS'));
 
-      const basicValue = basics.length * 40;
-      const superValue = supers.length * 150;
-      const bamfValue = bamfs.length * 600;
+      const cumulusValue = cumuluses.length * 40;
+      const nimbusValue = nimbuses.length * 150;
+      const stratusValus = stratuses.length * 600;
 
-      const total = bamfValue + superValue + basicValue;
+      const total = stratusValus + nimbusValue + cumulusValue;
 
       // Add data
       chart.data = [
         {
           category: 'Cumulus',
-          value: basicValue,
+          value: cumulusValue,
         },
         {
           category: 'Nimbus',
-          value: superValue,
+          value: nimbusValue,
         },
         {
           category: 'Stratus',
-          value: bamfValue,
+          value: stratusValus,
         },
       ];
 
@@ -926,9 +815,9 @@ export default {
       timePoints.forEach((time) => {
         cpuData.push({
           time: new Date(Number(time)),
-          bamf: this.fluxHistoryStats[time].bamf * 8,
-          super: this.fluxHistoryStats[time].super * 4,
-          basic: this.fluxHistoryStats[time].basic * 2,
+          stratus: (this.fluxHistoryStats[time].stratus || this.fluxHistoryStats[time].bamf) * 8,
+          nimbus: (this.fluxHistoryStats[time].nimbus || this.fluxHistoryStats[time].super) * 4,
+          cumulus: (this.fluxHistoryStats[time].cumulus || this.fluxHistoryStats[time].basic) * 2,
         });
       });
 
@@ -943,7 +832,7 @@ export default {
       const series = chart.series.push(new am4charts.LineSeries());
       series.name = 'Stratus';
       series.dataFields.dateX = 'time';
-      series.dataFields.valueY = 'bamf';
+      series.dataFields.valueY = 'stratus';
       series.tooltipText = 'Stratus [bold]{valueY.value}[/]';
       series.tooltip.background.fill = am4core.color('#000');
       series.tooltip.getStrokeFromObject = true;
@@ -956,7 +845,7 @@ export default {
       const series2 = chart.series.push(new am4charts.LineSeries());
       series2.name = 'Nimbus';
       series2.dataFields.dateX = 'time';
-      series2.dataFields.valueY = 'super';
+      series2.dataFields.valueY = 'nimbus';
       series2.tooltipText = 'Nimbus [bold]{valueY.value}[/]';
       series2.tooltip.background.fill = am4core.color('#000');
       series2.tooltip.getFillFromObject = false;
@@ -970,7 +859,7 @@ export default {
       const series3 = chart.series.push(new am4charts.LineSeries());
       series3.name = 'Cumulus';
       series3.dataFields.dateX = 'time';
-      series3.dataFields.valueY = 'basic';
+      series3.dataFields.valueY = 'cumulus';
       series3.tooltipText = 'Cumulus [bold]{valueY.value}[/]';
       series3.tooltip.background.fill = am4core.color('#000');
       series3.tooltip.getFillFromObject = false;
@@ -1008,9 +897,9 @@ export default {
       timePoints.forEach((time) => {
         ramData.push({
           time: new Date(Number(time)),
-          bamf: this.fluxHistoryStats[time].bamf * 30,
-          super: this.fluxHistoryStats[time].super * 8,
-          basic: this.fluxHistoryStats[time].basic * 4,
+          stratus: (this.fluxHistoryStats[time].stratus || this.fluxHistoryStats[time].bamf) * 32,
+          nimbus: (this.fluxHistoryStats[time].nimbus || this.fluxHistoryStats[time].super) * 8,
+          cumulus: (this.fluxHistoryStats[time].cumulus || this.fluxHistoryStats[time].basic) * 4,
         });
       });
 
@@ -1024,7 +913,7 @@ export default {
       const series = chart.series.push(new am4charts.LineSeries());
       series.name = 'Stratus';
       series.dataFields.dateX = 'time';
-      series.dataFields.valueY = 'bamf';
+      series.dataFields.valueY = 'stratus';
       series.tooltipText = 'Stratus [bold]{valueY.value}[/]';
       series.tooltip.background.fill = am4core.color('#000');
       series.tooltip.getStrokeFromObject = true;
@@ -1037,7 +926,7 @@ export default {
       const series2 = chart.series.push(new am4charts.LineSeries());
       series2.name = 'Nimbus';
       series2.dataFields.dateX = 'time';
-      series2.dataFields.valueY = 'super';
+      series2.dataFields.valueY = 'nimbus';
       series2.tooltipText = 'Nimbus [bold]{valueY.value}[/]';
       series2.tooltip.background.fill = am4core.color('#000');
       series2.tooltip.getFillFromObject = false;
@@ -1051,7 +940,7 @@ export default {
       const series3 = chart.series.push(new am4charts.LineSeries());
       series3.name = 'Cumulus';
       series3.dataFields.dateX = 'time';
-      series3.dataFields.valueY = 'basic';
+      series3.dataFields.valueY = 'cumulus';
       series3.tooltipText = 'Cumulus [bold]{valueY.value}[/]';
       series3.tooltip.background.fill = am4core.color('#000');
       series3.tooltip.getFillFromObject = false;
@@ -1089,9 +978,9 @@ export default {
       timePoints.forEach((time) => {
         ssdData.push({
           time: new Date(Number(time)),
-          bamf: this.fluxHistoryStats[time].bamf * 600,
-          super: this.fluxHistoryStats[time].super * 150,
-          basic: this.fluxHistoryStats[time].basic * 40,
+          stratus: (this.fluxHistoryStats[time].stratus || this.fluxHistoryStats[time].bamf) * 600,
+          nimbus: (this.fluxHistoryStats[time].nimbus || this.fluxHistoryStats[time].super) * 150,
+          cumulus: (this.fluxHistoryStats[time].cumulus || this.fluxHistoryStats[time].basic) * 40,
         });
       });
 
@@ -1105,7 +994,7 @@ export default {
       const series = chart.series.push(new am4charts.LineSeries());
       series.name = 'Stratus';
       series.dataFields.dateX = 'time';
-      series.dataFields.valueY = 'bamf';
+      series.dataFields.valueY = 'stratus';
       series.tooltipText = 'Stratus [bold]{valueY.value}[/]';
       series.tooltip.background.fill = am4core.color('#000');
       series.tooltip.getStrokeFromObject = true;
@@ -1118,7 +1007,7 @@ export default {
       const series2 = chart.series.push(new am4charts.LineSeries());
       series2.name = 'Nimbus';
       series2.dataFields.dateX = 'time';
-      series2.dataFields.valueY = 'super';
+      series2.dataFields.valueY = 'nimbus';
       series2.tooltipText = 'Nimbus [bold]{valueY.value}[/]';
       series2.tooltip.background.fill = am4core.color('#000');
       series2.tooltip.getFillFromObject = false;
@@ -1132,7 +1021,7 @@ export default {
       const series3 = chart.series.push(new am4charts.LineSeries());
       series3.name = 'Cumulus';
       series3.dataFields.dateX = 'time';
-      series3.dataFields.valueY = 'basic';
+      series3.dataFields.valueY = 'cumulus';
       series3.tooltipText = 'Cumulus [bold]{valueY.value}[/]';
       series3.tooltip.background.fill = am4core.color('#000');
       series3.tooltip.getFillFromObject = false;
@@ -1170,9 +1059,9 @@ export default {
       timePoints.forEach((time) => {
         fluxData.push({
           time: new Date(Number(time)),
-          bamf: this.fluxHistoryStats[time].bamf,
-          super: this.fluxHistoryStats[time].super,
-          basic: this.fluxHistoryStats[time].basic,
+          stratus: this.fluxHistoryStats[time].stratus || this.fluxHistoryStats[time].bamf,
+          nimbus: this.fluxHistoryStats[time].nimbus || this.fluxHistoryStats[time].super,
+          cumulus: this.fluxHistoryStats[time].cumulus || this.fluxHistoryStats[time].basic,
         });
       });
 
@@ -1186,7 +1075,7 @@ export default {
       const series = chart.series.push(new am4charts.LineSeries());
       series.name = 'Stratus';
       series.dataFields.dateX = 'time';
-      series.dataFields.valueY = 'bamf';
+      series.dataFields.valueY = 'stratus';
       series.tooltipText = 'Stratus [bold]{valueY.value}[/]';
       series.tooltip.background.fill = am4core.color('#000');
       series.tooltip.getStrokeFromObject = true;
@@ -1199,7 +1088,7 @@ export default {
       const series2 = chart.series.push(new am4charts.LineSeries());
       series2.name = 'Nimbus';
       series2.dataFields.dateX = 'time';
-      series2.dataFields.valueY = 'super';
+      series2.dataFields.valueY = 'nimbus';
       series2.tooltipText = 'Nimbus [bold]{valueY.value}[/]';
       series2.tooltip.background.fill = am4core.color('#000');
       series2.tooltip.getFillFromObject = false;
@@ -1213,7 +1102,7 @@ export default {
       const series3 = chart.series.push(new am4charts.LineSeries());
       series3.name = 'Cumulus';
       series3.dataFields.dateX = 'time';
-      series3.dataFields.valueY = 'basic';
+      series3.dataFields.valueY = 'cumulus';
       series3.tooltipText = 'Cumulus [bold]{valueY.value}[/]';
       series3.tooltip.background.fill = am4core.color('#000');
       series3.tooltip.getFillFromObject = false;
@@ -1245,21 +1134,21 @@ export default {
       const timePoints = Object.keys(this.fluxHistoryStats);
       const max = Math.max(...timePoints);
 
-      const total = this.fluxHistoryStats[max].bamf + this.fluxHistoryStats[max].super + this.fluxHistoryStats[max].basic;
+      const total = (this.fluxHistoryStats[max].stratus + this.fluxHistoryStats[max].nimbus + this.fluxHistoryStats[max].cumulus) || (this.fluxHistoryStats[max].bamf + this.fluxHistoryStats[max].super + this.fluxHistoryStats[max].basic);
 
       // Add data
       chart.data = [
         {
           type: 'Stratus',
-          value: this.fluxHistoryStats[max].bamf,
+          value: this.fluxHistoryStats[max].stratus || this.fluxHistoryStats[max].bamf,
         },
         {
           type: 'Nimbus',
-          value: this.fluxHistoryStats[max].super,
+          value: this.fluxHistoryStats[max].nimbus || this.fluxHistoryStats[max].super,
         },
         {
           type: 'Cumulus',
-          value: this.fluxHistoryStats[max].basic,
+          value: this.fluxHistoryStats[max].cumulus || this.fluxHistoryStats[max].basic,
         },
       ];
 
@@ -1321,25 +1210,25 @@ export default {
 
       const timePoints = Object.keys(this.fluxHistoryStats);
       const max = Math.max(...timePoints);
-      const basicS = this.fluxHistoryStats[max].basic * 10000;
-      const superS = this.fluxHistoryStats[max].super * 25000;
-      const bamfS = this.fluxHistoryStats[max].bamf * 100000;
+      const cumulusS = (this.fluxHistoryStats[max].cumulus || this.fluxHistoryStats[max].basic) * 10000;
+      const nimbusS = (this.fluxHistoryStats[max].nimbus || this.fluxHistoryStats[max].super) * 25000;
+      const stratusS = (this.fluxHistoryStats[max].stratus || this.fluxHistoryStats[max].bamf) * 100000;
 
-      const total = basicS + superS + bamfS;
+      const total = cumulusS + nimbusS + stratusS;
 
       // Add data
       chart.data = [
         {
           type: 'Stratus ',
-          value: bamfS,
+          value: stratusS,
         },
         {
           type: 'Nimbus',
-          value: superS,
+          value: nimbusS,
         },
         {
           type: 'Cumulus',
-          value: basicS,
+          value: cumulusS,
         },
       ];
 
