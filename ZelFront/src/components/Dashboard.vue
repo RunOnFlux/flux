@@ -59,7 +59,7 @@
               class="supplyStats"
             >
               <h3>Total Supply</h3>
-              <h4>{{ beautifyValue(210000000) }} FLUX</h4>
+              <h4>{{ beautifyValue(440000000) }} FLUX</h4>
               <br>
               <h3>Circulating Supply</h3>
               <h4>{{ beautifyValue(this.circulatingSupply) }} FLUX</h4>
