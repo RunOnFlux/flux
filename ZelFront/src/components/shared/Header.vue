@@ -68,14 +68,14 @@
           :popper-append-to-body=true
           index="1-2"
         >
-          <template slot="title">ZelNode</template>
-          <el-menu-item index="1-2-1">Get ZelNode Status</el-menu-item>
-          <el-menu-item index="1-2-2">List ZelNodes</el-menu-item>
-          <el-menu-item index="1-2-3">View Deterministic ZelNode List</el-menu-item>
-          <el-menu-item index="1-2-4">Get ZelNode Count</el-menu-item>
+          <template slot="title">FluxNode</template>
+          <el-menu-item index="1-2-1">Get FluxNode Status</el-menu-item>
+          <el-menu-item index="1-2-2">List FluxNodes</el-menu-item>
+          <el-menu-item index="1-2-3">View Deterministic FluxNode List</el-menu-item>
+          <el-menu-item index="1-2-4">Get FluxNode Count</el-menu-item>
           <el-menu-item index="1-2-5">Get Start List</el-menu-item>
           <el-menu-item index="1-2-6">Get DOS List</el-menu-item>
-          <el-menu-item index="1-2-7">ZelNode Current Winner</el-menu-item>
+          <el-menu-item index="1-2-7">FluxNode Current Winner</el-menu-item>
         </el-submenu>
         <el-submenu
           :popper-append-to-body=true
@@ -180,7 +180,7 @@
           :popper-append-to-body=true
           index="2-2"
         >
-          <template slot="title">ZelNode</template>
+          <template slot="title">FluxNode</template>
           <el-menu-item index="2-2-1">Get Benchmarks</el-menu-item>
           <el-menu-item index="2-2-2">Get Info</el-menu-item>
         </el-submenu>
@@ -200,7 +200,7 @@
             index="2-3-3"
             v-if="privilage === 'admin'"
           >
-            Sign ZelNode Transaction
+            Sign FluxNode Transaction
           </el-menu-item>
         </el-submenu>
         <el-menu-item

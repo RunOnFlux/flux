@@ -222,10 +222,10 @@
         </ElButton>
       </el-popconfirm>
     </div>
-    <!-- ZELNODE SECTION -->
+    <!-- FluxNode SECTION -->
     <div v-if="daemonSection === 'getzelnodestatus'">
       <div>
-        <p>Output from Get ZelNode Status command</p>
+        <p>Output from Get FluxNode Status command</p>
       </div>
       <div>
         <p>
@@ -383,7 +383,7 @@
     </div>
     <div v-if="daemonSection === 'getzelnodecount'">
       <div>
-        <p>Output from Get ZelNode Count command</p>
+        <p>Output from Get FluxNode Count command</p>
       </div>
       <div>
         <p>
@@ -414,7 +414,7 @@
     </div>
     <div v-if="daemonSection === 'getstartlist'">
       <el-table
-        empty-text="No ZelNode in Start state"
+        empty-text="No FluxNode in Start state"
         :data="zelnodeList"
         style="width: 100%"
       >
@@ -455,7 +455,7 @@
     </div>
     <div v-if="daemonSection === 'getdoslist'">
       <el-table
-        empty-text="No ZelNode in DOS state"
+        empty-text="No FluxNode in DOS state"
         :data="zelnodeList"
         style="width: 100%"
       >
@@ -496,7 +496,7 @@
     </div>
     <div v-if="daemonSection === 'zelnodecurrentwinner'">
       <p>
-        Current ZelNode winners that will be paid in next Flux block
+        Current FluxNode winners that will be paid in next Flux block
       </p>
       <el-table
         empty-text="No Data"
@@ -1109,7 +1109,7 @@ export default {
         }
       }
     },
-    // ZELNODE
+    // FluxNODE
     async daemonGetNodeStatus() {
       const response = await DaemonService.getZelNodeStatus();
       if (response.data.status === 'error') {
