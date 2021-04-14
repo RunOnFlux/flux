@@ -1323,10 +1323,8 @@ async function adjustFirewall() {
 
 function isCommunicationEstablished(req, res) {
   let message;
-  if (outgoingPeers.length < config.fluxapps.minOutgoing) {
-    message = serviceHelper.createErrorMessage('Not enough outgoing connections');
-  } else if (incomingPeers.length < config.fluxapps.minIncoming) {
-    message = serviceHelper.createErrorMessage('Not enough incoming connections');
+  if (outgoingPeers.length + incomingPeers.length < config.fluxapps.minOutgoing + config.fluxapps.minIncoming) {
+    message = serviceHelper.createErrorMessage('Not enough connections established to Flux network');
   } else {
     message = serviceHelper.createSuccessMessage('Communication to Flux network is properly established');
   }

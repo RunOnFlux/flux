@@ -3144,8 +3144,8 @@ async function registerAppGlobalyApi(req, res) {
         const errMessage = serviceHelper.errUnauthorizedMessage();
         return res.json(errMessage);
       }
-      // first  check if this node is available for application registration - has at least 5 outgoing connections and 2 incoming connections (that is sufficient as it means it is confirmed and works correctly)
-      if (fluxCommunication.outgoingPeers.length < config.fluxapps.minOutgoing || fluxCommunication.incomingPeers.length < config.fluxapps.minIncoming) {
+      // first  check if this node is available for application registration - has at least 7 connections (that is sufficient as it means it is confirmed and works correctly)
+      if (fluxCommunication.outgoingPeers.length + fluxCommunication.incomingPeers.length < config.fluxapps.minOutgoing + config.fluxapps.minIncoming) {
         throw new Error('Sorry, This Flux does not have enough peers for safe application registration');
       }
       const processedBody = serviceHelper.ensureObject(body);
@@ -3375,9 +3375,9 @@ async function updateAppGlobalyApi(req, res) {
         const errMessage = serviceHelper.errUnauthorizedMessage();
         return res.json(errMessage);
       }
-      // first  check if this node is available for application update - has at least 5 outgoing connections and 2 incoming connections (that is sufficient as it means it is confirmed and works correctly)
-      if (fluxCommunication.outgoingPeers.length < config.fluxapps.minOutgoing || fluxCommunication.incomingPeers.length < config.fluxapps.minIncoming) {
-        throw new Error('Sorry, This Flux does not have enough peers for safe application update');
+      // first  check if this node is available for application update - has at least 7 connections (that is sufficient as it means it is confirmed and works correctly)
+      if (fluxCommunication.outgoingPeers.length + fluxCommunication.incomingPeers.length < config.fluxapps.minOutgoing + config.fluxapps.minIncoming) {
+        throw new Error('Sorry, This Flux does not have enough peers for safe application registration');
       }
       const processedBody = serviceHelper.ensureObject(body);
       // Note. Actually signature, timestamp is not needed. But we require it only to verify that user indeed has access to the private key of the owner zelid.
