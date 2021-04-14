@@ -1093,6 +1093,10 @@ async function checkMyFluxAvailability(nodelist) {
             dosState += 10;
           }
           await serviceHelper.delay(2 * 60 * 1000); // lets wait two minutes
+          setTimeout(() => {
+            // it will try to create a confirmation transaction after 6 minutes of ask bench to restart, should be enough to restart and finish the bench.
+            daemonService.createConfirmationTransaction(); // on my pi for reference, running bench on micro sd card took 3 minutes to finish
+          }, 4 * 60 * 1000);
           return;
         }
       } else {
