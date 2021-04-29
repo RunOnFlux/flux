@@ -1,0 +1,45 @@
+version: 2
+updates:
+- package-ecosystem: npm
+  directory: "/"
+  schedule:
+    interval: daily
+    time: "10:00"
+  open-pull-requests-limit: 10
+  ignore:
+  - dependency-name: eslint-plugin-vue
+    versions:
+    - 7.5.0
+    - 7.6.0
+    - 7.7.0
+    - 7.8.0
+  - dependency-name: mocha
+    versions:
+    - 8.3.0
+    - 8.3.1
+    - 8.3.2
+  - dependency-name: inquirer
+    versions:
+    - 8.0.0
+  - dependency-name: element-ui
+    versions:
+    - 2.15.1
+  - dependency-name: apicache
+    versions:
+    - 1.6.2
+  - dependency-name: concurrently
+    versions:
+    - 6.0.0
+  - dependency-name: compression-webpack-plugin
+    versions:
+    - 7.1.2
+  - dependency-name: sass-loader
+    versions:
+    - 11.0.0
+    - 11.0.1
+  - dependency-name: "@vue/test-utils"
+    versions:
+    - 1.1.3
+  - dependency-name: supertest
+    versions:
+    - 6.1.3
