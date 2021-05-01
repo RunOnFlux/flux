@@ -1233,30 +1233,19 @@ async function createAppVolume(appSpecifications, res) {
 
   try {
     const allocateSpace = {
-      status: 'Allocating space, this may take a while...',
+      status: 'Allocating space...',
     };
     log.info(allocateSpace);
     if (res) {
       res.write(serviceHelper.ensureString(allocateSpace));
     }
-    // space hdd * 10, thats why 0 at the end. As we have 100mb bs.
-    let execDD = `sudo dd if=/dev/zero of=${useThisVolume.mount}/${appId}FLUXFSVOL bs=107374182 count=${appSpecifications.hdd}0 status=progress`; // eg /mnt/sthMounted/zelappTEMP
+
+    let execDD = `sudo fallocate -l ${appSpecifications.hdd}G ${useThisVolume.mount}/${appId}FLUXFSVOL`; // eg /mnt/sthMounted/zelappTEMP
     if (useThisVolume.mount === '/') {
-      execDD = `sudo dd if=/dev/zero of=${fluxDirPath}appvolumes/${appId}FLUXFSVOL bs=107374182 count=${appSpecifications.hdd}0 status=progress`; // if root mount then temp file is /tmp/zelappTEMP
+      execDD = `sudo fallocate -l ${appSpecifications.hdd}G ${fluxDirPath}appvolumes/${appId}FLUXFSVOL`; // if root mount then temp file is /tmp/zelappTEMP
     }
-    let iterationAlloc = 0;
-    global.allocationInterval = setInterval(() => {
-      iterationAlloc += 1;
-      const allocateSpaceB = {
-        status: `Space allocation is running for ${20 * iterationAlloc}s. This may take quite some time...`,
-      };
-      log.info(allocateSpaceB);
-      if (res) {
-        res.write(serviceHelper.ensureString(allocateSpaceB));
-      }
-    }, 20 * 1000);
+
     await cmdAsync(execDD);
-    clearInterval(global.allocationInterval);
     const allocateSpace2 = {
       status: 'Space allocated',
     };
@@ -1320,52 +1309,6 @@ async function createAppVolume(appSpecifications, res) {
     log.info(execMount);
     if (res) {
       res.write(serviceHelper.ensureString(mountingStatus2));
-    }
-
-    const spaceVerification = {
-      status: 'Beginning space verification. This may take a while...',
-    };
-    log.info(spaceVerification);
-    if (res) {
-      res.write(serviceHelper.ensureString(spaceVerification));
-    }
-    const execVerif = `sudo dd if=/dev/zero of=${appsFolder + appId}/${appId}VERTEMP bs=96636763 count=${appSpecifications.hdd}0 status=progress`; // 90%
-    let interationVerif = 0;
-    global.verificationInterval = setInterval(() => {
-      interationVerif += 1;
-      const spaceVerifB = {
-        status: `Space verification is running for ${20 * interationVerif}s. This may take quite some time...`,
-      };
-      log.info(spaceVerifB);
-      if (res) {
-        res.write(serviceHelper.ensureString(spaceVerifB));
-      }
-    }, 20 * 1000);
-    await cmdAsync(execVerif);
-    clearInterval(global.verificationInterval);
-    const spaceVerification2 = {
-      status: 'Verification written...',
-    };
-    log.info(spaceVerification2);
-    if (res) {
-      res.write(serviceHelper.ensureString(spaceVerification2));
-    }
-
-    const finaliseSpace = {
-      status: 'Finalising space assignment',
-    };
-    log.info(finaliseSpace);
-    if (res) {
-      res.write(serviceHelper.ensureString(finaliseSpace));
-    }
-    const execFinal = `sudo rm -rf ${appsFolder + appId}/${appId}VERTEMP`;
-    await cmdAsync(execFinal);
-    const finaliseSpace2 = {
-      status: `Space for Flux App ${appSpecifications.name} created and assigned.`,
-    };
-    log.info(finaliseSpace2);
-    if (res) {
-      res.write(serviceHelper.ensureString(finaliseSpace2));
     }
 
     const cronStatus = {
@@ -1436,7 +1379,6 @@ async function createAppVolume(appSpecifications, res) {
     throw error;
   }
 }
-
 // force determines if some a check for app not found is skipped
 async function removeAppLocally(app, res, force = false, endResponse = true) {
   try {
