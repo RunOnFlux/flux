@@ -3,6 +3,7 @@ const path = require('path');
 const config = require('config');
 const fullnode = require('fullnode');
 const fs = require('fs');
+
 const fsPromises = fs.promises;
 
 const log = require('../lib/log');
