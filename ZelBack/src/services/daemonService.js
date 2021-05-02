@@ -2769,6 +2769,14 @@ async function fluxDaemonBlockchainInfo() {
   }
 }
 
+async function createConfirmationTransaction(req, res) {
+  const rpccall = 'createconfirmationtransaction';
+
+  response = await executeCall(rpccall);
+
+  return res ? res.json(response) : response;
+}
+
 function daemonBlockchainInfoService() {
   fluxDaemonBlockchainInfo();
   setInterval(() => {
@@ -2950,6 +2958,7 @@ module.exports = {
   zcRawReceive, // == available but DEPRECATED ==
   zcRawReceivePost, // == available but DEPRECATED ==
   zcSampleJoinSplit,
+  createConfirmationTransaction,
 
   // == Benchmarks ==
   getBenchmarks,

@@ -1233,30 +1233,19 @@ async function createAppVolume(appSpecifications, res) {
 
   try {
     const allocateSpace = {
-      status: 'Allocating space, this may take a while...',
+      status: 'Allocating space...',
     };
     log.info(allocateSpace);
     if (res) {
       res.write(serviceHelper.ensureString(allocateSpace));
     }
-    // space hdd * 10, thats why 0 at the end. As we have 100mb bs.
-    let execDD = `sudo dd if=/dev/zero of=${useThisVolume.mount}/${appId}FLUXFSVOL bs=107374182 count=${appSpecifications.hdd}0 status=progress`; // eg /mnt/sthMounted/zelappTEMP
+
+    let execDD = `sudo fallocate -l ${appSpecifications.hdd}G ${useThisVolume.mount}/${appId}FLUXFSVOL`; // eg /mnt/sthMounted/zelappTEMP
     if (useThisVolume.mount === '/') {
-      execDD = `sudo dd if=/dev/zero of=${fluxDirPath}appvolumes/${appId}FLUXFSVOL bs=107374182 count=${appSpecifications.hdd}0 status=progress`; // if root mount then temp file is /tmp/zelappTEMP
+      execDD = `sudo fallocate -l ${appSpecifications.hdd}G ${fluxDirPath}appvolumes/${appId}FLUXFSVOL`; // if root mount then temp file is /tmp/zelappTEMP
     }
-    let iterationAlloc = 0;
-    global.allocationInterval = setInterval(() => {
-      iterationAlloc += 1;
-      const allocateSpaceB = {
-        status: `Space allocation is running for ${20 * iterationAlloc}s. This may take quite some time...`,
-      };
-      log.info(allocateSpaceB);
-      if (res) {
-        res.write(serviceHelper.ensureString(allocateSpaceB));
-      }
-    }, 20 * 1000);
+
     await cmdAsync(execDD);
-    clearInterval(global.allocationInterval);
     const allocateSpace2 = {
       status: 'Space allocated',
     };
@@ -1320,52 +1309,6 @@ async function createAppVolume(appSpecifications, res) {
     log.info(execMount);
     if (res) {
       res.write(serviceHelper.ensureString(mountingStatus2));
-    }
-
-    const spaceVerification = {
-      status: 'Beginning space verification. This may take a while...',
-    };
-    log.info(spaceVerification);
-    if (res) {
-      res.write(serviceHelper.ensureString(spaceVerification));
-    }
-    const execVerif = `sudo dd if=/dev/zero of=${appsFolder + appId}/${appId}VERTEMP bs=96636763 count=${appSpecifications.hdd}0 status=progress`; // 90%
-    let interationVerif = 0;
-    global.verificationInterval = setInterval(() => {
-      interationVerif += 1;
-      const spaceVerifB = {
-        status: `Space verification is running for ${20 * interationVerif}s. This may take quite some time...`,
-      };
-      log.info(spaceVerifB);
-      if (res) {
-        res.write(serviceHelper.ensureString(spaceVerifB));
-      }
-    }, 20 * 1000);
-    await cmdAsync(execVerif);
-    clearInterval(global.verificationInterval);
-    const spaceVerification2 = {
-      status: 'Verification written...',
-    };
-    log.info(spaceVerification2);
-    if (res) {
-      res.write(serviceHelper.ensureString(spaceVerification2));
-    }
-
-    const finaliseSpace = {
-      status: 'Finalising space assignment',
-    };
-    log.info(finaliseSpace);
-    if (res) {
-      res.write(serviceHelper.ensureString(finaliseSpace));
-    }
-    const execFinal = `sudo rm -rf ${appsFolder + appId}/${appId}VERTEMP`;
-    await cmdAsync(execFinal);
-    const finaliseSpace2 = {
-      status: `Space for Flux App ${appSpecifications.name} created and assigned.`,
-    };
-    log.info(finaliseSpace2);
-    if (res) {
-      res.write(serviceHelper.ensureString(finaliseSpace2));
     }
 
     const cronStatus = {
@@ -1436,7 +1379,6 @@ async function createAppVolume(appSpecifications, res) {
     throw error;
   }
 }
-
 // force determines if some a check for app not found is skipped
 async function removeAppLocally(app, res, force = false, endResponse = true) {
   try {
@@ -2696,7 +2638,7 @@ async function availableApps(req, res) {
         + 'Chainweb is a braided, parallelized Proof Of Work consensus mechanism that improves throughput and scalability in executing transactions on the blockchain while maintaining the security and integrity found in Bitcoin. '
         + 'The healthy information tells you if your node is running and synced. If you just installed the docker it can say unhealthy for long time because on first run a bootstrap is downloaded and extracted to make your node sync faster before the node is started. '
         + 'Do not stop or restart the docker in the first hour after installation. You can also check if your kadena node is synced, by going to running apps and press visit button on kadena and compare your node height with Kadena explorer. Thank you.',
-      repotag: 'zelcash/kadena-chainweb-node:2.6',
+      repotag: 'zelcash/kadena-chainweb-node:2.7',
       owner: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
       ports: [30004, 30005],
       containerPorts: [30004, 30005],
@@ -2708,7 +2650,7 @@ async function availableApps(req, res) {
       enviromentParameters: ['CHAINWEB_P2P_PORT=30004', 'CHAINWEB_SERVICE_PORT=30005', 'LOGLEVEL=warn'],
       commands: ['/bin/bash', '-c', '(test -d /data/chainweb-db/0 && ./run-chainweb-node.sh) || (/chainweb/initialize-db.sh && ./run-chainweb-node.sh)'],
       containerData: '/data', // cannot be root todo in verification
-      hash: 'localSpecificationsVersion7', // hash of app message
+      hash: 'localSpecificationsVersion8', // hash of app message
       height: 680000, // height of tx on which it was
     },
   ];
@@ -3144,8 +3086,8 @@ async function registerAppGlobalyApi(req, res) {
         const errMessage = serviceHelper.errUnauthorizedMessage();
         return res.json(errMessage);
       }
-      // first  check if this node is available for application registration - has at least 5 outgoing connections and 2 incoming connections (that is sufficient as it means it is confirmed and works correctly)
-      if (fluxCommunication.outgoingPeers.length < config.fluxapps.minOutgoing || fluxCommunication.incomingPeers.length < config.fluxapps.minIncoming) {
+      // first  check if this node is available for application registration - has at least 7 connections (that is sufficient as it means it is confirmed and works correctly)
+      if (fluxCommunication.outgoingPeers.length + fluxCommunication.incomingPeers.length < config.fluxapps.minOutgoing + config.fluxapps.minIncoming) {
         throw new Error('Sorry, This Flux does not have enough peers for safe application registration');
       }
       const processedBody = serviceHelper.ensureObject(body);
@@ -3375,9 +3317,9 @@ async function updateAppGlobalyApi(req, res) {
         const errMessage = serviceHelper.errUnauthorizedMessage();
         return res.json(errMessage);
       }
-      // first  check if this node is available for application update - has at least 5 outgoing connections and 2 incoming connections (that is sufficient as it means it is confirmed and works correctly)
-      if (fluxCommunication.outgoingPeers.length < config.fluxapps.minOutgoing || fluxCommunication.incomingPeers.length < config.fluxapps.minIncoming) {
-        throw new Error('Sorry, This Flux does not have enough peers for safe application update');
+      // first  check if this node is available for application update - has at least 7 connections (that is sufficient as it means it is confirmed and works correctly)
+      if (fluxCommunication.outgoingPeers.length + fluxCommunication.incomingPeers.length < config.fluxapps.minOutgoing + config.fluxapps.minIncoming) {
+        throw new Error('Sorry, This Flux does not have enough peers for safe application registration');
       }
       const processedBody = serviceHelper.ensureObject(body);
       // Note. Actually signature, timestamp is not needed. But we require it only to verify that user indeed has access to the private key of the owner zelid.
