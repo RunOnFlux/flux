@@ -13,7 +13,7 @@ PATH=$PATH:"$COIN_PATH"
 export PATH
 
 #Closing zelcash daemon
-sudo systemctl stop "$COIN_NAME" >/dev/null 2>&1 && sleep 3
+sudo systemctl stop "$SERVICE_NAME" >/dev/null 2>&1 && sleep 3
 "$COIN_CLI" stop >/dev/null 2>&1 && sleep 3
 sudo killall "$COIN_DAEMON" >/dev/null 2>&1
 sudo killall -s SIGKILL zelbenchd >/dev/null 2>&1
