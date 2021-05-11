@@ -101,7 +101,7 @@
     "eslint-plugin-vue": "^6.2.2",
     "mocha": "^6.2.2",
     "sass": "^1.26.11",
-    "sass-loader": "^10.0.2",
+    "sass-loader": "^11.1.0",
     "supertest": "^5.0.0",
     "vue-template-compiler": "^2.6.12"
   }
