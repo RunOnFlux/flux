@@ -187,6 +187,7 @@ async function verifyLogin(req, res) {
             };
             const resMessage = serviceHelper.createDataMessage(resData);
             res.json(resMessage);
+            serviceHelper.deleteLoginPhrase(message); // delete so it cannot be used again
           } else {
             throw new Error('Invalid signature');
           }
