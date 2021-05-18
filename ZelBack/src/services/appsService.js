@@ -45,6 +45,7 @@ const LRUoptions = {
 const myCache = new LRU(LRUoptions);
 
 let removalInProgress = false;
+let installationInProgress = false;
 
 function getAppIdentifier(appName) {
   // this id is used for volumes, docker names so we know it reall belongs to flux
@@ -1385,6 +1386,28 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
     // remove app from local machine.
     // find in database, stop app, remove container, close ports delete data associated on system, remove from database
     // we want to remove the image as well (repotag) what if other container uses the same image -> then it shall result in an error so ok anyway
+    if (!force) {
+      if (removalInProgress) {
+        log.warn('Another application is undergoing removal');
+        if (res) {
+          res.write(serviceHelper.ensureString('Another application is undergoing removal'));
+          if (endResponse) {
+            res.end();
+          }
+        }
+        return;
+      }
+      if (installationInProgress) {
+        log.warn('Another application is undergoing installation');
+        if (res) {
+          res.write(serviceHelper.ensureString('Another application is undergoing installation'));
+          if (endResponse) {
+            res.end();
+          }
+        }
+        return;
+      }
+    }
     removalInProgress = true;
     if (!app) {
       throw new Error('No App specified');
@@ -1738,6 +1761,13 @@ async function softRemoveAppLocally(app, res) {
   // remove app from local machine.
   // find in database, stop app, remove container, close port, remove from database
   // we want to remove the image as well (repotag) what if other container uses the same image -> then it shall result in an error so ok anyway
+  if (removalInProgress) {
+    throw new Error('Another application is undergoing removal');
+  }
+  if (installationInProgress) {
+    throw new Error('Another application is undergoing installation');
+  }
+  removalInProgress = true;
   if (!app) {
     throw new Error('No Flux App specified');
   }
@@ -1866,6 +1896,7 @@ async function softRemoveAppLocally(app, res) {
   if (res) {
     res.write(serviceHelper.ensureString(appRemovalResponse));
   }
+  removalInProgress = false;
 }
 
 async function removeAppLocallyApi(req, res) {
@@ -1946,7 +1977,14 @@ async function registerAppLocally(appSpecifications, res) {
   // get applications specifics from aapp messages database
   // check if hash is in blockchain
   // register and launch according to specifications in message
+  if (removalInProgress) {
+    throw new Error('Another application is undergoing removal');
+  }
+  if (installationInProgress) {
+    throw new Error('Another application is undergoing installation');
+  }
   try {
+    installationInProgress = true;
     const appName = appSpecifications.name;
     const precheckForInstallation = {
       status: 'Running initial checks for Flux App...',
@@ -2041,6 +2079,7 @@ async function registerAppLocally(appSpecifications, res) {
         if (res) {
           res.write(serviceHelper.ensureString(removeStatus));
         }
+        installationInProgress = false;
         removeAppLocally(appName, res);
       } else {
         const pullStatus = {
@@ -2067,10 +2106,12 @@ async function registerAppLocally(appSpecifications, res) {
           if (res) {
             res.write(serviceHelper.ensureString(removeStatus));
           }
+          installationInProgress = false;
           removeAppLocally(appName, res);
         });
 
         if (!volumeOK) {
+          installationInProgress = false;
           return;
         }
         log.info(volumeOK);
@@ -2101,9 +2142,11 @@ async function registerAppLocally(appSpecifications, res) {
           if (res) {
             res.write(serviceHelper.ensureString(removeStatus));
           }
+          installationInProgress = false;
           removeAppLocally(appName, res);
         });
         if (!dockerCreated) {
+          installationInProgress = false;
           return;
         }
         const portStatusInitial = {
@@ -2139,6 +2182,7 @@ async function registerAppLocally(appSpecifications, res) {
               if (res) {
                 res.write(serviceHelper.ensureString(removeStatus));
               }
+              installationInProgress = false;
               removeAppLocally(appName, res);
               return;
             }
@@ -2167,6 +2211,7 @@ async function registerAppLocally(appSpecifications, res) {
             if (res) {
               res.write(serviceHelper.ensureString(removeStatus));
             }
+            installationInProgress = false;
             removeAppLocally(appName, res);
             return;
           }
@@ -2194,8 +2239,10 @@ async function registerAppLocally(appSpecifications, res) {
           if (res) {
             res.write(serviceHelper.ensureString(removeStatus));
           }
+          installationInProgress = false;
           removeAppLocally(appName, res);
         });
+        installationInProgress = false;
         if (!app) {
           return;
         }
@@ -2208,6 +2255,7 @@ async function registerAppLocally(appSpecifications, res) {
       }
     });
   } catch (error) {
+    installationInProgress = false;
     log.error(error);
     const errorResponse = serviceHelper.createErrorMessage(
       error.message || error,
@@ -2227,7 +2275,15 @@ async function softRegisterAppLocally(appSpecifications, res) {
   // get applications specifics from app messages database
   // check if hash is in blockchain
   // register and launch according to specifications in message
+  // throw without catching
+  if (removalInProgress) {
+    throw new Error('Another application is undergoing removal');
+  }
+  if (installationInProgress) {
+    throw new Error('Another application is undergoing installation');
+  }
   try {
+    installationInProgress = true;
     const appName = appSpecifications.name;
     const precheckForInstallation = {
       status: 'Running initial checks for Flux App...',
@@ -2322,6 +2378,7 @@ async function softRegisterAppLocally(appSpecifications, res) {
         if (res) {
           res.write(serviceHelper.ensureString(removeStatus));
         }
+        installationInProgress = false;
         removeAppLocally(appName, res, true);
       } else {
         const pullStatus = {
@@ -2354,6 +2411,7 @@ async function softRegisterAppLocally(appSpecifications, res) {
           if (res) {
             res.write(serviceHelper.ensureString(removeStatus));
           }
+          installationInProgress = false;
           removeAppLocally(appName, res, true);
         });
         if (!dockerCreated) {
@@ -2392,6 +2450,7 @@ async function softRegisterAppLocally(appSpecifications, res) {
               if (res) {
                 res.write(serviceHelper.ensureString(removeStatus));
               }
+              installationInProgress = false;
               removeAppLocally(appName, res, true);
               return;
             }
@@ -2420,6 +2479,7 @@ async function softRegisterAppLocally(appSpecifications, res) {
             if (res) {
               res.write(serviceHelper.ensureString(removeStatus));
             }
+            installationInProgress = false;
             removeAppLocally(appName, res, true);
             return;
           }
@@ -2446,8 +2506,10 @@ async function softRegisterAppLocally(appSpecifications, res) {
           if (res) {
             res.write(serviceHelper.ensureString(removeStatus));
           }
+          installationInProgress = false;
           removeAppLocally(appName, res, true);
         });
+        installationInProgress = false;
         if (!app) {
           return;
         }
@@ -2460,6 +2522,7 @@ async function softRegisterAppLocally(appSpecifications, res) {
       }
     });
   } catch (error) {
+    installationInProgress = false;
     log.error(error);
     const errorResponse = serviceHelper.createErrorMessage(
       error.message || error,
@@ -3565,7 +3628,7 @@ async function installTemporaryLocalApplication(req, res, applicationName) {
       }
 
       res.setHeader('Content-Type', 'application/json');
-      registerAppLocally(appSpecifications, res);
+      registerAppLocally(appSpecifications, res); // can throw
     } else {
       const errMessage = serviceHelper.errUnauthorizedMessage();
       res.json(errMessage);
@@ -4595,7 +4658,7 @@ async function trySpawningGlobalApplication() {
     }
     // an application was selected and checked that it can run on this node. try to install and run it locally
     // install the app
-    await registerAppLocally(appSpecifications);
+    await registerAppLocally(appSpecifications); // can throw
 
     await serviceHelper.delay(10 * config.fluxapps.installation.delay * 1000);
     log.info('Reinitiating possible app installation');
@@ -4650,11 +4713,11 @@ async function checkAndNotifyPeersOfRunningApps() {
           // it is a stopped global app. Try to run it.
           const appId = getAppIdentifier(stoppedApp);
           // check if some removal is in progress as if it is dont start it!
-          if (!removalInProgress) {
+          if (!removalInProgress && !installationInProgress) {
             // eslint-disable-next-line no-await-in-loop
             await appDockerStart(appId);
           } else {
-            log.warn(`Not starting ${stoppedApp} as of application removal in progress`);
+            log.warn(`Not starting ${stoppedApp} as of application removal or installation in progress`);
           }
         }
       } catch (err) {
@@ -4813,7 +4876,29 @@ async function checkAndRemoveApplicationInstance() {
 
 async function softRedeploy(appSpecs, res) {
   try {
-    await softRemoveAppLocally(appSpecs.name, res);
+    if (removalInProgress) {
+      log.warn('Another application is undergoing removal');
+      const appRedeployResponse = serviceHelper.createDataMessage('Another application is undergoing removal');
+      if (res) {
+        res.write(serviceHelper.ensureString(appRedeployResponse));
+      }
+      return;
+    }
+    if (installationInProgress) {
+      log.warn('Another application is undergoing installation');
+      const appRedeployResponse = serviceHelper.createDataMessage('Another application is undergoing installation');
+      if (res) {
+        res.write(serviceHelper.ensureString(appRedeployResponse));
+      }
+      return;
+    }
+    try {
+      await softRemoveAppLocally(appSpecs.name, res);
+    } catch (error) {
+      log.error(error);
+      removalInProgress = false;
+      throw error;
+    }
     const appRedeployResponse = serviceHelper.createDataMessage('Application softly removed. Awaiting installation...');
     log.info(appRedeployResponse);
     if (res) {
@@ -4835,7 +4920,7 @@ async function softRedeploy(appSpecs, res) {
     // verify requirements
     await checkAppRequirements(appSpecifications);
     // register
-    await softRegisterAppLocally(appSpecifications, res);
+    await softRegisterAppLocally(appSpecifications, res); // can throw
     log.info('Application softly redeployed');
   } catch (error) {
     log.error(error);
@@ -4867,7 +4952,7 @@ async function hardRedeploy(appSpecs, res) {
     // verify requirements
     await checkAppRequirements(appSpecifications);
     // register
-    await registerAppLocally(appSpecifications, res);
+    await registerAppLocally(appSpecifications, res); // can throw
     log.info('Application redeployed');
   } catch (error) {
     log.error(error);
@@ -4919,17 +5004,30 @@ async function reinstallOldApplications() {
             log.warn('Beginning Soft Redeployment...');
             // soft redeployment
             try {
-              // eslint-disable-next-line no-await-in-loop
-              await softRemoveAppLocally(installedApp.name);
-              log.warn('Application softly removed. Awaiting installation...');
+              try {
+                if (removalInProgress) {
+                  log.warn('Another application is undergoing removal');
+                  return;
+                }
+                if (installationInProgress) {
+                  log.warn('Another application is undergoing installation');
+                  return;
+                }
+                // eslint-disable-next-line no-await-in-loop
+                await softRemoveAppLocally(installedApp.name);
+                log.warn('Application softly removed. Awaiting installation...');
+              } catch (error) {
+                log.error(error);
+                removalInProgress = false;
+                throw error;
+              }
               // eslint-disable-next-line no-await-in-loop
               await serviceHelper.delay(config.fluxapps.redeploy.delay * 1000); // wait for delay mins so we dont have more removals at the same time
               // eslint-disable-next-line no-await-in-loop
               await checkAppRequirements(appSpecifications);
-
               // install the app
               // eslint-disable-next-line no-await-in-loop
-              await softRegisterAppLocally(appSpecifications);
+              await softRegisterAppLocally(appSpecifications); // can throw which is ok
             } catch (error) {
               log.error(error);
               removeAppLocally(appSpecifications.name, null, true);
@@ -4948,7 +5046,7 @@ async function reinstallOldApplications() {
 
               // install the app
               // eslint-disable-next-line no-await-in-loop
-              await registerAppLocally(appSpecifications);
+              await registerAppLocally(appSpecifications); // can throw
             } catch (error) {
               log.error(error);
               removeAppLocally(appSpecifications.name, null, true);
