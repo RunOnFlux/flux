@@ -109,16 +109,16 @@ import Vue from 'vue';
 import DaemonService from '@/services/DaemonService';
 import IDService from '@/services/IDService';
 
-const Header = () => import('@/components/shared/Header.vue');
-const Footer = () => import('@/components/shared/Footer.vue');
-const Login = () => import('@/components/Login.vue');
-const Daemon = () => import('@/components/Daemon.vue');
-const Benchmark = () => import('@/components/Benchmark.vue');
-const Node = () => import('@/components/Node.vue');
-const Admin = () => import('@/components/Admin.vue');
-const Apps = () => import('@/components/Apps.vue');
-const Explorer = () => import('@/components/Explorer.vue');
-const Dashboard = () => import('@/components/Dashboard.vue');
+const Header = () => import('@/components/shared/Header');
+const Footer = () => import('@/components/shared/Footer');
+const Login = () => import('@/components/Login');
+const Daemon = () => import('@/components/Daemon');
+const Benchmark = () => import('@/components/Benchmark');
+const Node = () => import('@/components/Node');
+const Admin = () => import('@/components/Admin');
+const Apps = () => import('@/components/Apps');
+const Explorer = () => import('@/components/Explorer');
+const Dashboard = () => import('@/components/Dashboard');
 
 const qs = require('qs');
 

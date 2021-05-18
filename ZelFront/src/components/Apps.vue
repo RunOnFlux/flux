@@ -1948,7 +1948,7 @@ import Vue from 'vue';
 import DaemonService from '@/services/DaemonService';
 import AppsService from '@/services/AppsService';
 
-const FluxShare = () => import('@/components/FluxShare.vue');
+const FluxShare = () => import('@/components/FluxShare');
 
 const store = require('store');
 const qs = require('qs');

@@ -19,6 +19,10 @@ module.exports = {
       },
     ],
     'no-console': 'off',
+    'import/extensions': [
+      'error',
+      'never',
+    ],
     'linebreak-style': [
       'error',
       'unix',
