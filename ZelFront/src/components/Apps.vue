@@ -2737,7 +2737,7 @@ export default {
         const portsCorrect = [];
         if (Array.isArray(ports)) {
           ports.forEach((parameter) => {
-            const param = this.ensureString(parameter);
+            const param = this.ensureString(parameter); // todo ensureNumber
             portsCorrect.push(param);
           });
         } else {
@@ -2777,7 +2777,7 @@ export default {
         const containerportsCorrect = [];
         if (Array.isArray(containerPorts)) {
           containerPorts.forEach((parameter) => {
-            const param = this.ensureString(parameter);
+            const param = this.ensureString(parameter); // todo ensureNumber
             containerportsCorrect.push(param);
           });
         } else {
@@ -2959,7 +2959,7 @@ export default {
         const portsCorrect = [];
         if (Array.isArray(ports)) {
           ports.forEach((parameter) => {
-            const param = this.ensureString(parameter);
+            const param = this.ensureString(parameter); // todo ensureNumber
             portsCorrect.push(param);
           });
         } else {
@@ -2999,7 +2999,7 @@ export default {
         const containerportsCorrect = [];
         if (Array.isArray(containerPorts)) {
           containerPorts.forEach((parameter) => {
-            const param = this.ensureString(parameter);
+            const param = this.ensureString(parameter); // todo ensureNumber
             containerportsCorrect.push(param);
           });
         } else {
@@ -3654,7 +3654,10 @@ export default {
     getRandomPort() {
       const min = 31001;
       const max = 39998;
-      this.appRegistrationSpecification.ports = [Math.floor(Math.random() * (max - min) + min)];
+      const portsArray = [];
+      const port = Math.floor(Math.random() * (max - min) + min);
+      portsArray.push(port);
+      this.appRegistrationSpecification.ports = JSON.stringify(portsArray);
     },
   },
 };

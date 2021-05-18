@@ -3143,7 +3143,7 @@ async function registerAppGlobalyApi(req, res) {
       const portsCorrect = [];
       if (Array.isArray(ports)) {
         ports.forEach((parameter) => {
-          const param = serviceHelper.ensureString(parameter);
+          const param = serviceHelper.ensureString(parameter); // next specification fork here we want to do ensureNumber
           portsCorrect.push(param);
         });
       } else {
@@ -3183,7 +3183,7 @@ async function registerAppGlobalyApi(req, res) {
       const containerportsCorrect = [];
       if (Array.isArray(containerPorts)) {
         containerPorts.forEach((parameter) => {
-          const param = serviceHelper.ensureString(parameter);
+          const param = serviceHelper.ensureString(parameter); // next specification fork here we want to do ensureNumber
           containerportsCorrect.push(param);
         });
       } else {
@@ -3374,7 +3374,7 @@ async function updateAppGlobalyApi(req, res) {
       const portsCorrect = [];
       if (Array.isArray(ports)) {
         ports.forEach((parameter) => {
-          const param = serviceHelper.ensureString(parameter);
+          const param = serviceHelper.ensureString(parameter); // todo ensureNumber
           portsCorrect.push(param);
         });
       } else {
@@ -3414,7 +3414,7 @@ async function updateAppGlobalyApi(req, res) {
       const containerportsCorrect = [];
       if (Array.isArray(containerPorts)) {
         containerPorts.forEach((parameter) => {
-          const param = serviceHelper.ensureString(parameter);
+          const param = serviceHelper.ensureString(parameter); // todo ensureNumber
           containerportsCorrect.push(param);
         });
       } else {

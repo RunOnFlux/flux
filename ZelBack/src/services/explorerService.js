@@ -307,7 +307,7 @@ async function processBlock(blockHeight) {
           await serviceHelper.updateOneInDatabase(database, addressTransactionIndexCollection, query, update, options);
         }));
         // MAY contain App transaction. Store it.
-        if (isFluxAppMessageValue >= 1e8 && message.length === 64 && blockDataVerbose.height >= config.fluxapps.epochstart) { // min of 10 flux had to be paid for us bothering checking
+        if (isFluxAppMessageValue >= 1e8 && message.length === 64 && blockDataVerbose.height >= config.fluxapps.epochstart) { // min of 1 flux had to be paid for us bothering checking
           const appTxRecord = {
             txid: tx.txid, height: blockDataVerbose.height, hash: message, value: isFluxAppMessageValue, message: false, // message is boolean saying if we already have it stored as permanent message
           };
