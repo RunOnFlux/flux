@@ -13,6 +13,13 @@ COIN_PATH='/usr/local/bin'
 PATH=$PATH:"$COIN_PATH"
 export PATH
 
+apt_number=$(ps aux | grep 'apt' | wc -l)
+if [[ "$apt_number" > 1 ]]; then
+   sudo killall apt > /dev/null 2>&1
+   sudo killall apt-get > /dev/null 2>&1
+   sudo dpkg --configure -a > /dev/null 2>&1
+fi
+
 #Closing zelcash daemon and purge apt package
 sudo systemctl stop "$SERVICE_NAME" && sleep 3
 
