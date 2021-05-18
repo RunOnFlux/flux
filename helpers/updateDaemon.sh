@@ -8,6 +8,14 @@ COIN_CLI='flux-cli'
 COIN_PATH='/usr/local/bin'
 #end of required details
 
+apt_number=$(ps aux | grep 'apt' | wc -l)
+if [[ "$apt_number" > 1 ]]; then
+   sudo killall apt > /dev/null 2>&1
+   sudo killall apt-get > /dev/null 2>&1
+   sudo dpkg --configure -a > /dev/null 2>&1
+fi
+    
+
 # add to path
 PATH=$PATH:"$COIN_PATH"
 export PATH
