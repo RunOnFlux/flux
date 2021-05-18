@@ -138,11 +138,15 @@
           label="Economics"
           name="economics"
         >
-          <div id="priceChart" />
+          <div v-show="priceInformationLoading">
+              loading...
+          </div>
+          <div v-show="!priceInformationLoading" id="priceChart" />
           <br><br>
-          <div class="gridThree">
+          <div v-show="!priceInformationLoading" class="gridThree">
             <div>
               <h2>Cumulus Rewards</h2>
+              <h3>10k Flux Collateral</h3>
               <br><br>
               <h3>per day</h3>
               <h4>{{ beautifyValue(cumulusWeek / 7 ) }} FLUX</h4>
@@ -166,6 +170,7 @@
             </div>
             <div>
               <h2>Nimbus Rewards</h2>
+              <h3>25k Flux Collateral</h3>
               <br><br>
               <h3>per day</h3>
               <h4>{{ beautifyValue(nimbusWeek / 7) }} FLUX ~ {{ beautifyValue(nimbusUSDRewardWeek / 7) }} USD</h4>
@@ -189,6 +194,7 @@
             </div>
             <div>
               <h2>Stratus Rewards</h2>
+              <h3>100k Flux Collateral</h3>
               <br><br>
               <h3>per day</h3>
               <h4>{{ beautifyValue(stratusWeek / 7 ) }} FLUX ~ {{ beautifyValue(stratusUSDRewardWeek / 7) }} USD</h4>
@@ -387,6 +393,7 @@ export default {
       stratusUSDKDARewardWeek: 0,
       kdaNimbusWeek: 0,
       kdaStratusWeek: 0,
+      priceInformationLoading: true,
     };
   },
   computed: {
@@ -472,6 +479,7 @@ export default {
     },
     async generateEconomics(zelnodecounts) {
       try {
+        this.priceInformationLoading = true;
         console.log(this.rates);
         const stratuses = zelnodecounts['stratus-enabled'];
         const nimbuses = zelnodecounts['nimbus-enabled'];
@@ -520,6 +528,7 @@ export default {
           self.historicalPrices = res2.data.prices.filter((a) => a[0] > 1483232400000); // min date from  January 1, 2017 1:00:00 AM
           self.fillChartData();
         });
+        this.priceInformationLoading = false;
       } catch (error) {
         console.log(error);
       }
