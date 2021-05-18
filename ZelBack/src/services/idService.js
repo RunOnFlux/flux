@@ -25,11 +25,19 @@ async function loginPhrase(req, res) {
     if (dosState.status === 'success') {
       if (dosState.data.dosState > 10 || dosState.data.dosMessage !== null) {
         let errMessage = serviceHelper.createErrorMessage(
-            dosState.data.dosMessage, 'DOS', dosState.data.dosState);
-        if (dosState.data.dosMessage !== 'Flux IP detection failed' &&
-            dosState.data.dosMessage !== 'Flux collision detection') {
+          dosState.data.dosMessage,
+          'DOS',
+          dosState.data.dosState
+        );
+        if (
+          dosState.data.dosMessage !== 'Flux IP detection failed' &&
+          dosState.data.dosMessage !== 'Flux collision detection'
+        ) {
           errMessage = serviceHelper.createErrorMessage(
-              dosState.data.dosMessage, 'CONNERROR', dosState.data.dosState);
+            dosState.data.dosMessage,
+            'CONNERROR',
+            dosState.data.dosState
+          );
         }
         res.json(errMessage);
         return;
@@ -37,11 +45,13 @@ async function loginPhrase(req, res) {
     }
 
     const timestamp = new Date().getTime();
-    const validTill = timestamp + (15 * 60 * 1000); // 15 minutes
-    const phrase = timestamp + Math.random().toString(36).substring(2, 15) +
-                   Math.random().toString(36).substring(2, 15) +
-                   Math.random().toString(36).substring(2, 15) +
-                   Math.random().toString(36).substring(2, 15);
+    const validTill = timestamp + 15 * 60 * 1000; // 15 minutes
+    const phrase =
+      timestamp +
+      Math.random().toString(36).substring(2, 15) +
+      Math.random().toString(36).substring(2, 15) +
+      Math.random().toString(36).substring(2, 15) +
+      Math.random().toString(36).substring(2, 15);
 
     /* const activeLoginPhrases = [
        {
@@ -54,9 +64,9 @@ async function loginPhrase(req, res) {
     const database = db.db(config.database.local.database);
     const collection = config.database.local.collections.activeLoginPhrases;
     const newLoginPhrase = {
-      loginPhrase : phrase,
-      createdAt : new Date(timestamp),
-      expireAt : new Date(validTill),
+      loginPhrase: phrase,
+      createdAt: new Date(timestamp),
+      expireAt: new Date(validTill),
     };
     const value = newLoginPhrase;
     await serviceHelper.insertOneToDatabase(database, collection, value);
@@ -65,8 +75,11 @@ async function loginPhrase(req, res) {
     res.json(phraseResponse);
   } catch (error) {
     log.error(error);
-    const errMessage =
-        serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const errMessage = serviceHelper.createErrorMessage(
+      error.message,
+      error.name,
+      error.code
+    );
     res.json(errMessage);
   }
 }
@@ -75,19 +88,21 @@ async function loginPhrase(req, res) {
 async function emergencyPhrase(req, res) {
   try {
     const timestamp = new Date().getTime();
-    const validTill = timestamp + (15 * 60 * 1000); // 15 minutes
-    const phrase = timestamp + Math.random().toString(36).substring(2, 15) +
-                   Math.random().toString(36).substring(2, 15) +
-                   Math.random().toString(36).substring(2, 15) +
-                   Math.random().toString(36).substring(2, 15);
+    const validTill = timestamp + 15 * 60 * 1000; // 15 minutes
+    const phrase =
+      timestamp +
+      Math.random().toString(36).substring(2, 15) +
+      Math.random().toString(36).substring(2, 15) +
+      Math.random().toString(36).substring(2, 15) +
+      Math.random().toString(36).substring(2, 15);
 
     const db = serviceHelper.databaseConnection();
     const database = db.db(config.database.local.database);
     const collection = config.database.local.collections.activeLoginPhrases;
     const newLoginPhrase = {
-      loginPhrase : phrase,
-      createdAt : new Date(timestamp),
-      expireAt : new Date(validTill),
+      loginPhrase: phrase,
+      createdAt: new Date(timestamp),
+      expireAt: new Date(validTill),
     };
     const value = newLoginPhrase;
     await serviceHelper.insertOneToDatabase(database, collection, value);
@@ -95,8 +110,11 @@ async function emergencyPhrase(req, res) {
     res.json(phraseResponse);
   } catch (error) {
     log.error(error);
-    const errMessage =
-        serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const errMessage = serviceHelper.createErrorMessage(
+      error.message,
+      error.name,
+      error.code
+    );
     res.json(errMessage);
   }
 }
@@ -104,12 +122,14 @@ async function emergencyPhrase(req, res) {
 async function verifyLogin(req, res) {
   // Phase 2 - check that request is valid
   let body = '';
-  req.on('data', (data) => { body += data; });
+  req.on('data', (data) => {
+    body += data;
+  });
   req.on('end', async () => {
     try {
       const processedBody = serviceHelper.ensureObject(body);
       const address = processedBody.zelid || processedBody.address;
-      const {signature} = processedBody;
+      const { signature } = processedBody;
       const message = processedBody.loginPhrase || processedBody.message;
       const timestamp = new Date().getTime();
 
@@ -140,8 +160,10 @@ async function verifyLogin(req, res) {
         throw new Error('Signed message is not valid');
       }
 
-      if (message.substring(0, 13) < (timestamp - 900000) ||
-          message.substring(0, 13) > timestamp) {
+      if (
+        message.substring(0, 13) < timestamp - 900000 ||
+        message.substring(0, 13) > timestamp
+      ) {
         throw new Error('Signed message is not valid');
       }
 
@@ -154,10 +176,14 @@ async function verifyLogin(req, res) {
       const db = serviceHelper.databaseConnection();
       const database = db.db(config.database.local.database);
       const collection = config.database.local.collections.activeLoginPhrases;
-      const query = {loginPhrase : message};
+      const query = { loginPhrase: message };
       const projection = {};
-      const result = await serviceHelper.findOneInDatabase(database, collection,
-                                                           query, projection);
+      const result = await serviceHelper.findOneInDatabase(
+        database,
+        collection,
+        query,
+        projection
+      );
 
       if (result) {
         // It is present in our database
@@ -182,8 +208,8 @@ async function verifyLogin(req, res) {
             //   .update(signature)
             //   .digest('hex')
             const newLogin = {
-              zelid : address,
-              loginPhrase : message,
+              zelid: address,
+              loginPhrase: message,
               signature,
             };
             let privilage = 'user';
@@ -193,36 +219,43 @@ async function verifyLogin(req, res) {
               privilage = 'admin';
             }
             const loggedUsersCollection =
-                config.database.local.collections.loggedUsers;
+              config.database.local.collections.loggedUsers;
             const value = newLogin;
             await serviceHelper.insertOneToDatabase(
-                database, loggedUsersCollection, value);
+              database,
+              loggedUsersCollection,
+              value
+            );
             const resData = {
-              message : 'Successfully logged in',
-              zelid : address,
-              loginPhrase : message,
+              message: 'Successfully logged in',
+              zelid: address,
+              loginPhrase: message,
               signature,
               privilage,
             };
             const resMessage = serviceHelper.createDataMessage(resData);
             res.json(resMessage);
-            serviceHelper.deleteLoginPhrase(
-                message); // delete so it cannot be used again
+            serviceHelper.deleteLoginPhrase(message); // delete so it cannot be used again
           } else {
             throw new Error('Invalid signature');
           }
         } else {
           throw new Error(
-              'Signed message is no longer valid. Please request a new one.');
+            'Signed message is no longer valid. Please request a new one.'
+          );
         }
       } else {
         throw new Error(
-            'Signed message is no longer valid. Please request a new one.');
+          'Signed message is no longer valid. Please request a new one.'
+        );
       }
     } catch (error) {
       log.error(error);
       const errMessage = serviceHelper.createErrorMessage(
-          error.message, error.name, error.code);
+        error.message,
+        error.name,
+        error.code
+      );
       res.json(errMessage);
     }
   });
@@ -230,12 +263,14 @@ async function verifyLogin(req, res) {
 
 async function provideSign(req, res) {
   let body = '';
-  req.on('data', (data) => { body += data; });
+  req.on('data', (data) => {
+    body += data;
+  });
   req.on('end', async () => {
     try {
       const processedBody = serviceHelper.ensureObject(body);
       const address = processedBody.zelid || processedBody.address;
-      const {signature} = processedBody;
+      const { signature } = processedBody;
       const message = processedBody.loginPhrase || processedBody.message;
 
       if (address === undefined || address === '') {
@@ -266,7 +301,7 @@ async function provideSign(req, res) {
         throw new Error('No signature is specified');
       }
       const timestamp = new Date().getTime();
-      const validTill = timestamp + (15 * 60 * 1000); // 15 minutes
+      const validTill = timestamp + 15 * 60 * 1000; // 15 minutes
       const identifier = address + message.substr(message.length - 13);
 
       const db = serviceHelper.databaseConnection();
@@ -275,8 +310,8 @@ async function provideSign(req, res) {
       const newSignature = {
         signature,
         identifier,
-        createdAt : new Date(timestamp),
-        expireAt : new Date(validTill),
+        createdAt: new Date(timestamp),
+        expireAt: new Date(validTill),
       };
       const value = newSignature;
       await serviceHelper.insertOneToDatabase(database, collection, value);
@@ -286,7 +321,10 @@ async function provideSign(req, res) {
     } catch (error) {
       log.error(error);
       const errMessage = serviceHelper.createErrorMessage(
-          error.message, error.name, error.code);
+        error.message,
+        error.name,
+        error.code
+      );
       res.json(errMessage);
     }
   });
@@ -302,15 +340,19 @@ async function activeLoginPhrases(req, res) {
       const collection = config.database.local.collections.activeLoginPhrases;
       const query = {};
       const projection = {
-        projection : {
-          _id : 0,
-          loginPhrase : 1,
-          createdAt : 1,
-          expireAt : 1,
+        projection: {
+          _id: 0,
+          loginPhrase: 1,
+          createdAt: 1,
+          expireAt: 1,
         },
       };
-      const results = await serviceHelper.findInDatabase(database, collection,
-                                                         query, projection);
+      const results = await serviceHelper.findInDatabase(
+        database,
+        collection,
+        query,
+        projection
+      );
       const resultsResponse = serviceHelper.createDataMessage(results);
       res.json(resultsResponse);
     } else {
@@ -319,8 +361,11 @@ async function activeLoginPhrases(req, res) {
     }
   } catch (error) {
     log.error(error);
-    const errMessage =
-        serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const errMessage = serviceHelper.createErrorMessage(
+      error.message,
+      error.name,
+      error.code
+    );
     res.json(errMessage);
   }
 }
@@ -333,9 +378,13 @@ async function loggedUsers(req, res) {
       const database = db.db(config.database.local.database);
       const collection = config.database.local.collections.loggedUsers;
       const query = {};
-      const projection = {projection : {_id : 0, zelid : 1, loginPhrase : 1}};
-      const results = await serviceHelper.findInDatabase(database, collection,
-                                                         query, projection);
+      const projection = { projection: { _id: 0, zelid: 1, loginPhrase: 1 } };
+      const results = await serviceHelper.findInDatabase(
+        database,
+        collection,
+        query,
+        projection
+      );
       const resultsResponse = serviceHelper.createDataMessage(results);
       res.json(resultsResponse);
     } else {
@@ -344,8 +393,11 @@ async function loggedUsers(req, res) {
     }
   } catch (error) {
     log.error(error);
-    const errMessage =
-        serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const errMessage = serviceHelper.createErrorMessage(
+      error.message,
+      error.name,
+      error.code
+    );
     res.json(errMessage);
   }
 }
@@ -360,10 +412,14 @@ async function loggedSessions(req, res) {
       const queryZelID = auth.zelid;
       const database = db.db(config.database.local.database);
       const collection = config.database.local.collections.loggedUsers;
-      const query = {zelid : queryZelID};
-      const projection = {projection : {_id : 0, zelid : 1, loginPhrase : 1}};
-      const results = await serviceHelper.findInDatabase(database, collection,
-                                                         query, projection);
+      const query = { zelid: queryZelID };
+      const projection = { projection: { _id: 0, zelid: 1, loginPhrase: 1 } };
+      const results = await serviceHelper.findInDatabase(
+        database,
+        collection,
+        query,
+        projection
+      );
       const resultsResponse = serviceHelper.createDataMessage(results);
       res.json(resultsResponse);
     } else {
@@ -372,8 +428,11 @@ async function loggedSessions(req, res) {
     }
   } catch (error) {
     log.error(error);
-    const errMessage =
-        serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const errMessage = serviceHelper.createErrorMessage(
+      error.message,
+      error.name,
+      error.code
+    );
     res.json(errMessage);
   }
 }
@@ -387,14 +446,19 @@ async function logoutCurrentSession(req, res) {
       const database = db.db(config.database.local.database);
       const collection = config.database.local.collections.loggedUsers;
       const query = {
-        $and : [ {signature : auth.signature}, {zelid : auth.zelid} ]
+        $and: [{ signature: auth.signature }, { zelid: auth.zelid }],
       };
       const projection = {};
-      await serviceHelper.findOneAndDeleteInDatabase(database, collection,
-                                                     query, projection);
+      await serviceHelper.findOneAndDeleteInDatabase(
+        database,
+        collection,
+        query,
+        projection
+      );
       // console.log(results)
-      const message =
-          serviceHelper.createSuccessMessage('Successfully logged out');
+      const message = serviceHelper.createSuccessMessage(
+        'Successfully logged out'
+      );
       res.json(message);
     } else {
       const errMessage = serviceHelper.errUnauthorizedMessage();
@@ -402,15 +466,20 @@ async function logoutCurrentSession(req, res) {
     }
   } catch (error) {
     log.error(error);
-    const errMessage =
-        serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const errMessage = serviceHelper.createErrorMessage(
+      error.message,
+      error.name,
+      error.code
+    );
     res.json(errMessage);
   }
 }
 
 async function logoutSpecificSession(req, res) {
   let body = '';
-  req.on('data', (data) => { body += data; });
+  req.on('data', (data) => {
+    body += data;
+  });
   req.on('end', async () => {
     try {
       const authorized = await serviceHelper.verifyUserSession(req.headers);
@@ -420,17 +489,23 @@ async function logoutSpecificSession(req, res) {
         const db = serviceHelper.databaseConnection();
         const database = db.db(config.database.local.database);
         const collection = config.database.local.collections.loggedUsers;
-        const query = {loginPhrase : obtainedLoginPhrase};
+        const query = { loginPhrase: obtainedLoginPhrase };
         const projection = {};
         const result = await serviceHelper.findOneAndDeleteInDatabase(
-            database, collection, query, projection);
+          database,
+          collection,
+          query,
+          projection
+        );
         if (result.value === null) {
           const message = serviceHelper.createWarningMessage(
-              'Specified user was already logged out');
+            'Specified user was already logged out'
+          );
           res.json(message);
         }
         const message = serviceHelper.createSuccessMessage(
-            'Session successfully logged out');
+          'Session successfully logged out'
+        );
         res.json(message);
       } else {
         const errMessage = serviceHelper.errUnauthorizedMessage();
@@ -439,7 +514,10 @@ async function logoutSpecificSession(req, res) {
     } catch (error) {
       log.error(error);
       const errMessage = serviceHelper.createErrorMessage(
-          error.message, error.name, error.code);
+        error.message,
+        error.name,
+        error.code
+      );
       res.json(errMessage);
     }
   });
@@ -453,12 +531,16 @@ async function logoutAllSessions(req, res) {
       const db = serviceHelper.databaseConnection();
       const database = db.db(config.database.local.database);
       const collection = config.database.local.collections.loggedUsers;
-      const query = {zelid : auth.zelid};
-      await serviceHelper.removeDocumentsFromCollection(database, collection,
-                                                        query);
+      const query = { zelid: auth.zelid };
+      await serviceHelper.removeDocumentsFromCollection(
+        database,
+        collection,
+        query
+      );
       // console.log(result)
       const message = serviceHelper.createSuccessMessage(
-          'Successfully logged out all sessions');
+        'Successfully logged out all sessions'
+      );
       res.json(message);
     } else {
       const errMessage = serviceHelper.errUnauthorizedMessage();
@@ -466,8 +548,11 @@ async function logoutAllSessions(req, res) {
     }
   } catch (error) {
     log.error(error);
-    const errMessage =
-        serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const errMessage = serviceHelper.createErrorMessage(
+      error.message,
+      error.name,
+      error.code
+    );
     res.json(errMessage);
   }
 }
@@ -480,10 +565,14 @@ async function logoutAllUsers(req, res) {
       const database = db.db(config.database.local.database);
       const collection = config.database.local.collections.loggedUsers;
       const query = {};
-      await serviceHelper.removeDocumentsFromCollection(database, collection,
-                                                        query);
+      await serviceHelper.removeDocumentsFromCollection(
+        database,
+        collection,
+        query
+      );
       const message = serviceHelper.createSuccessMessage(
-          'Successfully logged out all users');
+        'Successfully logged out all users'
+      );
       res.json(message);
     } else {
       const errMessage = serviceHelper.errUnauthorizedMessage();
@@ -491,14 +580,17 @@ async function logoutAllUsers(req, res) {
     }
   } catch (error) {
     log.error(error);
-    const errMessage =
-        serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const errMessage = serviceHelper.createErrorMessage(
+      error.message,
+      error.name,
+      error.code
+    );
     res.json(errMessage);
   }
 }
 
 async function wsRespondLoginPhrase(ws, req) {
-  const {loginphrase} = req.params;
+  const { loginphrase } = req.params;
   // console.log(loginphrase)
   // respond with object containing address and signature to received message
   let connclosed = false;
@@ -517,21 +609,23 @@ async function wsRespondLoginPhrase(ws, req) {
 
   const database = db.db(config.database.local.database);
   const collection = config.database.local.collections.loggedUsers;
-  const query = {loginPhrase : loginphrase};
+  const query = { loginPhrase: loginphrase };
   const projection = {};
   // eslint-disable-next-line no-inner-declarations
   async function searchDatabase() {
     try {
-      const result =
-          await serviceHelper
-              .findOneInDatabase(database, collection, query, projection)
-              .catch((error) => {
-                const errMessage = serviceHelper.createErrorMessage(
-                    error.message, error.name, error.code);
-                ws.send(qs.stringify(errMessage));
-                ws.close(1011);
-                throw error;
-              });
+      const result = await serviceHelper
+        .findOneInDatabase(database, collection, query, projection)
+        .catch((error) => {
+          const errMessage = serviceHelper.createErrorMessage(
+            error.message,
+            error.name,
+            error.code
+          );
+          ws.send(qs.stringify(errMessage));
+          ws.close(1011);
+          throw error;
+        });
 
       if (result) {
         // user is logged, all ok
@@ -542,10 +636,10 @@ async function wsRespondLoginPhrase(ws, req) {
           privilage = 'admin';
         }
         const resData = {
-          message : 'Successfully logged in',
-          zelid : result.zelid,
-          loginPhrase : result.loginPhrase,
-          signature : result.signature,
+          message: 'Successfully logged in',
+          zelid: result.zelid,
+          loginPhrase: result.loginPhrase,
+          signature: result.signature,
           privilage,
         };
         const message = serviceHelper.createDataMessage(resData);
@@ -561,18 +655,24 @@ async function wsRespondLoginPhrase(ws, req) {
         // check if this loginPhrase is still active. If so rerun this searching
         // process
         const activeLoginPhrasesCollection =
-            config.database.local.collections.activeLoginPhrases;
-        const resultB =
-            await serviceHelper
-                .findOneInDatabase(database, activeLoginPhrasesCollection,
-                                   query, projection)
-                .catch((error) => {
-                  const errMessage = serviceHelper.createErrorMessage(
-                      error.message, error.name, error.code);
-                  ws.send(qs.stringify(errMessage));
-                  ws.close(1011);
-                  throw error;
-                });
+          config.database.local.collections.activeLoginPhrases;
+        const resultB = await serviceHelper
+          .findOneInDatabase(
+            database,
+            activeLoginPhrasesCollection,
+            query,
+            projection
+          )
+          .catch((error) => {
+            const errMessage = serviceHelper.createErrorMessage(
+              error.message,
+              error.name,
+              error.code
+            );
+            ws.send(qs.stringify(errMessage));
+            ws.close(1011);
+            throw error;
+          });
         if (resultB) {
           setTimeout(() => {
             if (!connclosed) {
@@ -581,7 +681,8 @@ async function wsRespondLoginPhrase(ws, req) {
           }, 500);
         } else {
           const errMessage = serviceHelper.createErrorMessage(
-              'Signed message is no longer valid. Please request a new one.');
+            'Signed message is no longer valid. Please request a new one.'
+          );
           if (!connclosed) {
             try {
               ws.send(qs.stringify(errMessage));
@@ -600,7 +701,7 @@ async function wsRespondLoginPhrase(ws, req) {
 }
 
 async function wsRespondSignature(ws, req) {
-  const {message} = req.params;
+  const { message } = req.params;
   console.log(message);
 
   let connclosed = false;
@@ -619,20 +720,22 @@ async function wsRespondSignature(ws, req) {
 
   const database = db.db(config.database.local.database);
   const collection = config.database.local.collections.activeSignatures;
-  const query = {identifier : message};
+  const query = { identifier: message };
   const projection = {};
   async function searchDatabase() {
     try {
-      const result =
-          await serviceHelper
-              .findOneInDatabase(database, collection, query, projection)
-              .catch((error) => {
-                const errMessage = serviceHelper.createErrorMessage(
-                    error.message, error.name, error.code);
-                ws.send(qs.stringify(errMessage));
-                ws.close(1011);
-                throw error;
-              });
+      const result = await serviceHelper
+        .findOneInDatabase(database, collection, query, projection)
+        .catch((error) => {
+          const errMessage = serviceHelper.createErrorMessage(
+            error.message,
+            error.name,
+            error.code
+          );
+          ws.send(qs.stringify(errMessage));
+          ws.close(1011);
+          throw error;
+        });
 
       if (result) {
         // signature exists
@@ -661,12 +764,14 @@ async function wsRespondSignature(ws, req) {
 
 async function checkLoggedUser(req, res) {
   let body = '';
-  req.on('data', (data) => { body += data; });
+  req.on('data', (data) => {
+    body += data;
+  });
   req.on('end', async () => {
     try {
       const processedBody = serviceHelper.ensureObject(body);
-      const {zelid} = processedBody;
-      const {signature} = processedBody;
+      const { zelid } = processedBody;
+      const { signature } = processedBody;
       if (!zelid) {
         throw new Error('No user ZelID specificed');
       }
@@ -674,7 +779,7 @@ async function checkLoggedUser(req, res) {
         throw new Error('No user ZelID signature specificed');
       }
       const headers = {
-        zelidauth : {
+        zelidauth: {
           zelid,
           signature,
         },
@@ -702,7 +807,10 @@ async function checkLoggedUser(req, res) {
     } catch (error) {
       log.error(error);
       const errMessage = serviceHelper.createErrorMessage(
-          error.message, error.name, error.code);
+        error.message,
+        error.name,
+        error.code
+      );
       res.json(errMessage);
     }
   });
