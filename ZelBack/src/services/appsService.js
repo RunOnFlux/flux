@@ -1307,7 +1307,7 @@ async function createAppVolume(appSpecifications, res) {
     const mountingStatus2 = {
       status: 'Volume mounted',
     };
-    log.info(execMount);
+    log.info(mountingStatus2);
     if (res) {
       res.write(serviceHelper.ensureString(mountingStatus2));
     }
@@ -4697,7 +4697,7 @@ async function checkAndNotifyPeersOfRunningApps() {
     const appsInstalled = installedAppsRes.data;
     const runningApps = runningAppsRes.data;
     const installedAppsNames = appsInstalled.map((app) => app.name);
-    const runningAppsNames = runningApps.map((app) => app.Names[0].substr(4, app.Names[0].length));
+    const runningAppsNames = runningApps.map((app) => app.Names[0].substr(5, app.Names[0].length)); // all global application start with /flux
     // installed always is bigger array than running
     const runningSet = new Set(runningAppsNames);
     const stoppedApps = installedAppsNames.filter((installedApp) => !runningSet.has(installedApp));
