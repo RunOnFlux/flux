@@ -1524,11 +1524,11 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
       // eslint-disable-next-line no-restricted-syntax
       for (const port of appSpecifications.ports) {
         // eslint-disable-next-line no-await-in-loop
-        await fluxCommunication.denyPort(port);
+        await fluxCommunication.denyPort(serviceHelper.ensureNumber(port));
       }
       // v1 compatibility
     } else if (appSpecifications.port) {
-      await fluxCommunication.denyPort(appSpecifications.port);
+      await fluxCommunication.denyPort(serviceHelper.ensureNumber(appSpecifications.port));
     }
     const portStatus2 = {
       status: 'Ports denied',
@@ -1831,11 +1831,11 @@ async function softRemoveAppLocally(app, res) {
     // eslint-disable-next-line no-restricted-syntax
     for (const port of appSpecifications.ports) {
       // eslint-disable-next-line no-await-in-loop
-      await fluxCommunication.denyPort(port);
+      await fluxCommunication.denyPort(serviceHelper.ensureNumber(port));
     }
     // v1 compatibility
   } else if (appSpecifications.port) {
-    await fluxCommunication.denyPort(appSpecifications.port);
+    await fluxCommunication.denyPort(serviceHelper.ensureNumber(appSpecifications.port));
   }
   const portStatus2 = {
     status: 'Ports denied',
@@ -2046,6 +2046,7 @@ async function registerAppLocally(appSpecifications, res) {
         const pullStatus = {
           status: 'Pulling global Flux App was successful',
         };
+        log.info(pullStatus);
         if (res) {
           res.write(serviceHelper.ensureString(pullStatus));
         }
@@ -2116,10 +2117,10 @@ async function registerAppLocally(appSpecifications, res) {
           // eslint-disable-next-line no-restricted-syntax
           for (const port of appSpecifications.ports) {
             // eslint-disable-next-line no-await-in-loop
-            const portResponse = await fluxCommunication.allowPort(port);
+            const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(port));
             if (portResponse.status === true) {
               const portStatus = {
-                status: `'Port ${port} OK'`,
+                status: `Port ${port} OK`,
               };
               log.info(portStatus);
               if (res) {
@@ -2144,7 +2145,7 @@ async function registerAppLocally(appSpecifications, res) {
           }
         } else if (appSpecifications.port) {
           // v1 compatibility
-          const portResponse = await fluxCommunication.allowPort(appSpecifications.port);
+          const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(appSpecifications.port));
           if (portResponse.status === true) {
             const portStatus = {
               status: 'Port OK',
@@ -2369,7 +2370,7 @@ async function softRegisterAppLocally(appSpecifications, res) {
           // eslint-disable-next-line no-restricted-syntax
           for (const port of appSpecifications.ports) {
             // eslint-disable-next-line no-await-in-loop
-            const portResponse = await fluxCommunication.allowPort(port);
+            const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(port));
             if (portResponse.status === true) {
               const portStatus = {
                 status: `'Port ${port} OK'`,
@@ -2397,7 +2398,7 @@ async function softRegisterAppLocally(appSpecifications, res) {
           }
         } else if (appSpecifications.port) {
           // v1 compatibility
-          const portResponse = await fluxCommunication.allowPort(appSpecifications.port);
+          const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(appSpecifications.port));
           if (portResponse.status === true) {
             const portStatus = {
               status: 'Port OK',
@@ -4504,7 +4505,8 @@ async function trySpawningGlobalApplication() {
     // check if we are synced
     const tier = await nodeTier();
     if (tier === 'basic') {
-      log.info('Basic node detected. Global applications will not be installed');
+      log.info('Cumulus node detected. Global applications will not be installed');
+      return;
     }
     const synced = await checkSynced();
     if (synced !== true) {
@@ -4731,7 +4733,7 @@ async function expireGlobalApplications() {
     // find applications that have specifications height lower than expirationHeight
     const databaseApps = dbopen.db(config.database.appsglobal.database);
     const queryApps = { height: { $lt: expirationHeight } };
-    const projectionApps = { projection: { _id: 0, name: 1 } };
+    const projectionApps = { projection: { _id: 0, name: 1, hash: 1 } }; // todo look into correction for checking hash of app
     const results = await serviceHelper.findInDatabase(databaseApps, globalAppsInformation, queryApps, projectionApps);
     const appNamesToExpire = results.map((res) => res.name);
     // remove appNamesToExpire apps from global database
@@ -4753,6 +4755,7 @@ async function expireGlobalApplications() {
     // remove appsToRemoveNames apps from locally running
     // eslint-disable-next-line no-restricted-syntax
     for (const appName of appsToRemoveNames) {
+      log.warn(`Application ${appName} is expired, removing`);
       // eslint-disable-next-line no-await-in-loop
       await removeAppLocally(appName);
       // eslint-disable-next-line no-await-in-loop
