@@ -21,7 +21,9 @@ module.exports = {
     'no-console': 'off',
     'import/extensions': [
       'error',
-      'never',
+      'never', {
+        vue: 'never',
+      },
     ],
     'linebreak-style': [
       'error',

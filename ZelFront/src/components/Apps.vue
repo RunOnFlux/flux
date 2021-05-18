@@ -3111,7 +3111,7 @@ export default {
           }
         });
 
-        if (appSpecFormatted.containerPorts.length !== appSpecFormatted.ports) {
+        if (appSpecFormatted.containerPorts.length !== appSpecFormatted.ports.length) {
           throw new Error('Ports specifications do not match');
         }
 
