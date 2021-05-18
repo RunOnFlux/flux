@@ -1947,7 +1947,7 @@ async function checkAppRequirements(appSpecs) {
   const hddLockedByApps = resourcesLocked.data.apsHddLocked;
   const availableSpaceForApps = useableSpaceOnNode - hddLockedByApps;
   // bigger or equal so we have the 1 gb free...
-  if (appSpecs.hdd >= availableSpaceForApps) {
+  if (appSpecs.hdd > availableSpaceForApps) {
     throw new Error('Insufficient space on Flux Node to spawn an application');
   }
 
@@ -1956,8 +1956,7 @@ async function checkAppRequirements(appSpecs) {
   const cpuLockedByApps = resourcesLocked.data.appsCpusLocked * 10;
   const adjustedAppCpu = appSpecs.cpu * 10;
   const availableCpuForApps = useableCpuOnNode - cpuLockedByApps;
-  // bigger or equal so we have the 1 gb free...
-  if (adjustedAppCpu >= availableCpuForApps) {
+  if (adjustedAppCpu > availableCpuForApps) {
     throw new Error('Insufficient CPU power on Flux Node to spawn an application');
   }
 
@@ -1965,8 +1964,7 @@ async function checkAppRequirements(appSpecs) {
   const useableRamOnNode = totalRamOnNode - config.lockedSystemResources.ram;
   const ramLockedByApps = resourcesLocked.data.appsRamLocked;
   const availableRamForApps = useableRamOnNode - ramLockedByApps;
-  // bigger or equal so we have the 1 gb free...
-  if (appSpecs.ram >= availableRamForApps) {
+  if (appSpecs.ram > availableRamForApps) {
     throw new Error('Insufficient RAM on Flux Node to spawn an application');
   }
   return true;
