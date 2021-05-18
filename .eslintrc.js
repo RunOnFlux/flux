@@ -21,9 +21,7 @@ module.exports = {
     'no-console': 'off',
     'import/extensions': [
       'error',
-      'never', {
-        vue: 'never',
-      },
+      'never',
     ],
     'linebreak-style': [
       'error',
@@ -32,6 +30,17 @@ module.exports = {
   },
   parserOptions: {
     parser: 'babel-eslint',
+  },
+  settings: {
+    'import/resolver': {
+      node: {
+        extensions: [
+          '.js',
+          '.jsx',
+          '.vue',
+        ],
+      },
+    },
   },
   overrides: [
     {
