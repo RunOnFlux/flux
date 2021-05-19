@@ -48,7 +48,7 @@ if [[ "$(lsb_release -cs)" == "xenial" ]]; then
          gpg --export 4B69CA27A986265D | sudo apt-key add - > /dev/null 2>&1   
      fi
 
-    sudo apt-get updaten -y
+    sudo apt-get update -y
     sudo apt-get install "$BENCH_NAME" -y
     sudo chmod 755 "$COIN_PATH/"* && sleep 2
           
