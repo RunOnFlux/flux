@@ -31,6 +31,17 @@ module.exports = {
   parserOptions: {
     parser: 'babel-eslint',
   },
+  settings: {
+    'import/resolver': {
+      node: {
+        extensions: [
+          '.js',
+          '.jsx',
+          '.vue',
+        ],
+      },
+    },
+  },
   overrides: [
     {
       files: [

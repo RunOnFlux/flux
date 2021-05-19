@@ -58,11 +58,11 @@ async function startFluxFunctions() {
       appsService.continuousFluxAppHashesCheck();
     }, 8 * 60 * 1000);
     setTimeout(() => {
-      // after 16 minutes of running ok.
+      // after 14 minutes of running ok.
       // is stopped on basics
       log.info('Starting to spawn applications');
       appsService.trySpawningGlobalApplication();
-    }, 16 * 60 * 1000);
+    }, 14 * 60 * 1000);
   } catch (e) {
     log.error(e);
     setTimeout(() => {

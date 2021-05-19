@@ -45,6 +45,7 @@ const LRUoptions = {
 const myCache = new LRU(LRUoptions);
 
 let removalInProgress = false;
+let installationInProgress = false;
 
 function getAppIdentifier(appName) {
   // this id is used for volumes, docker names so we know it reall belongs to flux
@@ -1306,7 +1307,7 @@ async function createAppVolume(appSpecifications, res) {
     const mountingStatus2 = {
       status: 'Volume mounted',
     };
-    log.info(execMount);
+    log.info(mountingStatus2);
     if (res) {
       res.write(serviceHelper.ensureString(mountingStatus2));
     }
@@ -1385,6 +1386,28 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
     // remove app from local machine.
     // find in database, stop app, remove container, close ports delete data associated on system, remove from database
     // we want to remove the image as well (repotag) what if other container uses the same image -> then it shall result in an error so ok anyway
+    if (!force) {
+      if (removalInProgress) {
+        log.warn('Another application is undergoing removal');
+        if (res) {
+          res.write(serviceHelper.ensureString('Another application is undergoing removal'));
+          if (endResponse) {
+            res.end();
+          }
+        }
+        return;
+      }
+      if (installationInProgress) {
+        log.warn('Another application is undergoing installation');
+        if (res) {
+          res.write(serviceHelper.ensureString('Another application is undergoing installation'));
+          if (endResponse) {
+            res.end();
+          }
+        }
+        return;
+      }
+    }
     removalInProgress = true;
     if (!app) {
       throw new Error('No App specified');
@@ -1524,11 +1547,11 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
       // eslint-disable-next-line no-restricted-syntax
       for (const port of appSpecifications.ports) {
         // eslint-disable-next-line no-await-in-loop
-        await fluxCommunication.denyPort(port);
+        await fluxCommunication.denyPort(serviceHelper.ensureNumber(port));
       }
       // v1 compatibility
     } else if (appSpecifications.port) {
-      await fluxCommunication.denyPort(appSpecifications.port);
+      await fluxCommunication.denyPort(serviceHelper.ensureNumber(appSpecifications.port));
     }
     const portStatus2 = {
       status: 'Ports denied',
@@ -1738,6 +1761,13 @@ async function softRemoveAppLocally(app, res) {
   // remove app from local machine.
   // find in database, stop app, remove container, close port, remove from database
   // we want to remove the image as well (repotag) what if other container uses the same image -> then it shall result in an error so ok anyway
+  if (removalInProgress) {
+    throw new Error('Another application is undergoing removal');
+  }
+  if (installationInProgress) {
+    throw new Error('Another application is undergoing installation');
+  }
+  removalInProgress = true;
   if (!app) {
     throw new Error('No Flux App specified');
   }
@@ -1831,11 +1861,11 @@ async function softRemoveAppLocally(app, res) {
     // eslint-disable-next-line no-restricted-syntax
     for (const port of appSpecifications.ports) {
       // eslint-disable-next-line no-await-in-loop
-      await fluxCommunication.denyPort(port);
+      await fluxCommunication.denyPort(serviceHelper.ensureNumber(port));
     }
     // v1 compatibility
   } else if (appSpecifications.port) {
-    await fluxCommunication.denyPort(appSpecifications.port);
+    await fluxCommunication.denyPort(serviceHelper.ensureNumber(appSpecifications.port));
   }
   const portStatus2 = {
     status: 'Ports denied',
@@ -1866,6 +1896,7 @@ async function softRemoveAppLocally(app, res) {
   if (res) {
     res.write(serviceHelper.ensureString(appRemovalResponse));
   }
+  removalInProgress = false;
 }
 
 async function removeAppLocallyApi(req, res) {
@@ -1916,7 +1947,7 @@ async function checkAppRequirements(appSpecs) {
   const hddLockedByApps = resourcesLocked.data.apsHddLocked;
   const availableSpaceForApps = useableSpaceOnNode - hddLockedByApps;
   // bigger or equal so we have the 1 gb free...
-  if (appSpecs.hdd >= availableSpaceForApps) {
+  if (appSpecs.hdd > availableSpaceForApps) {
     throw new Error('Insufficient space on Flux Node to spawn an application');
   }
 
@@ -1925,8 +1956,7 @@ async function checkAppRequirements(appSpecs) {
   const cpuLockedByApps = resourcesLocked.data.appsCpusLocked * 10;
   const adjustedAppCpu = appSpecs.cpu * 10;
   const availableCpuForApps = useableCpuOnNode - cpuLockedByApps;
-  // bigger or equal so we have the 1 gb free...
-  if (adjustedAppCpu >= availableCpuForApps) {
+  if (adjustedAppCpu > availableCpuForApps) {
     throw new Error('Insufficient CPU power on Flux Node to spawn an application');
   }
 
@@ -1934,8 +1964,7 @@ async function checkAppRequirements(appSpecs) {
   const useableRamOnNode = totalRamOnNode - config.lockedSystemResources.ram;
   const ramLockedByApps = resourcesLocked.data.appsRamLocked;
   const availableRamForApps = useableRamOnNode - ramLockedByApps;
-  // bigger or equal so we have the 1 gb free...
-  if (appSpecs.ram >= availableRamForApps) {
+  if (appSpecs.ram > availableRamForApps) {
     throw new Error('Insufficient RAM on Flux Node to spawn an application');
   }
   return true;
@@ -1946,7 +1975,14 @@ async function registerAppLocally(appSpecifications, res) {
   // get applications specifics from aapp messages database
   // check if hash is in blockchain
   // register and launch according to specifications in message
+  if (removalInProgress) {
+    throw new Error('Another application is undergoing removal');
+  }
+  if (installationInProgress) {
+    throw new Error('Another application is undergoing installation');
+  }
   try {
+    installationInProgress = true;
     const appName = appSpecifications.name;
     const precheckForInstallation = {
       status: 'Running initial checks for Flux App...',
@@ -2041,11 +2077,13 @@ async function registerAppLocally(appSpecifications, res) {
         if (res) {
           res.write(serviceHelper.ensureString(removeStatus));
         }
+        installationInProgress = false;
         removeAppLocally(appName, res);
       } else {
         const pullStatus = {
           status: 'Pulling global Flux App was successful',
         };
+        log.info(pullStatus);
         if (res) {
           res.write(serviceHelper.ensureString(pullStatus));
         }
@@ -2066,10 +2104,12 @@ async function registerAppLocally(appSpecifications, res) {
           if (res) {
             res.write(serviceHelper.ensureString(removeStatus));
           }
+          installationInProgress = false;
           removeAppLocally(appName, res);
         });
 
         if (!volumeOK) {
+          installationInProgress = false;
           return;
         }
         log.info(volumeOK);
@@ -2100,9 +2140,11 @@ async function registerAppLocally(appSpecifications, res) {
           if (res) {
             res.write(serviceHelper.ensureString(removeStatus));
           }
+          installationInProgress = false;
           removeAppLocally(appName, res);
         });
         if (!dockerCreated) {
+          installationInProgress = false;
           return;
         }
         const portStatusInitial = {
@@ -2116,10 +2158,10 @@ async function registerAppLocally(appSpecifications, res) {
           // eslint-disable-next-line no-restricted-syntax
           for (const port of appSpecifications.ports) {
             // eslint-disable-next-line no-await-in-loop
-            const portResponse = await fluxCommunication.allowPort(port);
+            const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(port));
             if (portResponse.status === true) {
               const portStatus = {
-                status: `'Port ${port} OK'`,
+                status: `Port ${port} OK`,
               };
               log.info(portStatus);
               if (res) {
@@ -2138,13 +2180,14 @@ async function registerAppLocally(appSpecifications, res) {
               if (res) {
                 res.write(serviceHelper.ensureString(removeStatus));
               }
+              installationInProgress = false;
               removeAppLocally(appName, res);
               return;
             }
           }
         } else if (appSpecifications.port) {
           // v1 compatibility
-          const portResponse = await fluxCommunication.allowPort(appSpecifications.port);
+          const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(appSpecifications.port));
           if (portResponse.status === true) {
             const portStatus = {
               status: 'Port OK',
@@ -2166,6 +2209,7 @@ async function registerAppLocally(appSpecifications, res) {
             if (res) {
               res.write(serviceHelper.ensureString(removeStatus));
             }
+            installationInProgress = false;
             removeAppLocally(appName, res);
             return;
           }
@@ -2193,8 +2237,10 @@ async function registerAppLocally(appSpecifications, res) {
           if (res) {
             res.write(serviceHelper.ensureString(removeStatus));
           }
+          installationInProgress = false;
           removeAppLocally(appName, res);
         });
+        installationInProgress = false;
         if (!app) {
           return;
         }
@@ -2207,6 +2253,7 @@ async function registerAppLocally(appSpecifications, res) {
       }
     });
   } catch (error) {
+    installationInProgress = false;
     log.error(error);
     const errorResponse = serviceHelper.createErrorMessage(
       error.message || error,
@@ -2226,7 +2273,15 @@ async function softRegisterAppLocally(appSpecifications, res) {
   // get applications specifics from app messages database
   // check if hash is in blockchain
   // register and launch according to specifications in message
+  // throw without catching
+  if (removalInProgress) {
+    throw new Error('Another application is undergoing removal');
+  }
+  if (installationInProgress) {
+    throw new Error('Another application is undergoing installation');
+  }
   try {
+    installationInProgress = true;
     const appName = appSpecifications.name;
     const precheckForInstallation = {
       status: 'Running initial checks for Flux App...',
@@ -2321,6 +2376,7 @@ async function softRegisterAppLocally(appSpecifications, res) {
         if (res) {
           res.write(serviceHelper.ensureString(removeStatus));
         }
+        installationInProgress = false;
         removeAppLocally(appName, res, true);
       } else {
         const pullStatus = {
@@ -2353,6 +2409,7 @@ async function softRegisterAppLocally(appSpecifications, res) {
           if (res) {
             res.write(serviceHelper.ensureString(removeStatus));
           }
+          installationInProgress = false;
           removeAppLocally(appName, res, true);
         });
         if (!dockerCreated) {
@@ -2369,7 +2426,7 @@ async function softRegisterAppLocally(appSpecifications, res) {
           // eslint-disable-next-line no-restricted-syntax
           for (const port of appSpecifications.ports) {
             // eslint-disable-next-line no-await-in-loop
-            const portResponse = await fluxCommunication.allowPort(port);
+            const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(port));
             if (portResponse.status === true) {
               const portStatus = {
                 status: `'Port ${port} OK'`,
@@ -2391,13 +2448,14 @@ async function softRegisterAppLocally(appSpecifications, res) {
               if (res) {
                 res.write(serviceHelper.ensureString(removeStatus));
               }
+              installationInProgress = false;
               removeAppLocally(appName, res, true);
               return;
             }
           }
         } else if (appSpecifications.port) {
           // v1 compatibility
-          const portResponse = await fluxCommunication.allowPort(appSpecifications.port);
+          const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(appSpecifications.port));
           if (portResponse.status === true) {
             const portStatus = {
               status: 'Port OK',
@@ -2419,6 +2477,7 @@ async function softRegisterAppLocally(appSpecifications, res) {
             if (res) {
               res.write(serviceHelper.ensureString(removeStatus));
             }
+            installationInProgress = false;
             removeAppLocally(appName, res, true);
             return;
           }
@@ -2445,8 +2504,10 @@ async function softRegisterAppLocally(appSpecifications, res) {
           if (res) {
             res.write(serviceHelper.ensureString(removeStatus));
           }
+          installationInProgress = false;
           removeAppLocally(appName, res, true);
         });
+        installationInProgress = false;
         if (!app) {
           return;
         }
@@ -2459,6 +2520,7 @@ async function softRegisterAppLocally(appSpecifications, res) {
       }
     });
   } catch (error) {
+    installationInProgress = false;
     log.error(error);
     const errorResponse = serviceHelper.createErrorMessage(
       error.message || error,
@@ -2738,7 +2800,7 @@ async function checkWhitelistedRepository(repotag) {
   }
   const splittedRepo = repotag.split(':');
   if (splittedRepo[0] && splittedRepo[1] && !splittedRepo[2]) {
-    const resWhitelistRepo = await serviceHelper.axiosGet('https://zel.network/project/zelflux/repositories.html');
+    const resWhitelistRepo = await serviceHelper.axiosGet('https://raw.githubusercontent.com/zelcash/zelflux/master/helpers/repositories.json');
 
     if (!resWhitelistRepo) {
       throw new Error('Unable to communicate with Flux Services! Try again later.');
@@ -2759,7 +2821,7 @@ async function checkWhitelistedZelID(zelid) {
   if (typeof zelid !== 'string') {
     throw new Error('Invalid Owner ZelID');
   }
-  const resZelIDs = await serviceHelper.axiosGet('https://zel.network/project/zelflux/zelids.html');
+  const resZelIDs = await serviceHelper.axiosGet('https://raw.githubusercontent.com/zelcash/zelflux/master/helpers/zelids.json');
 
   if (!resZelIDs) {
     throw new Error('Unable to communicate with Flux Services! Try again later.');
@@ -3143,7 +3205,7 @@ async function registerAppGlobalyApi(req, res) {
       const portsCorrect = [];
       if (Array.isArray(ports)) {
         ports.forEach((parameter) => {
-          const param = serviceHelper.ensureString(parameter);
+          const param = serviceHelper.ensureString(parameter); // next specification fork here we want to do ensureNumber
           portsCorrect.push(param);
         });
       } else {
@@ -3183,7 +3245,7 @@ async function registerAppGlobalyApi(req, res) {
       const containerportsCorrect = [];
       if (Array.isArray(containerPorts)) {
         containerPorts.forEach((parameter) => {
-          const param = serviceHelper.ensureString(parameter);
+          const param = serviceHelper.ensureString(parameter); // next specification fork here we want to do ensureNumber
           containerportsCorrect.push(param);
         });
       } else {
@@ -3374,7 +3436,7 @@ async function updateAppGlobalyApi(req, res) {
       const portsCorrect = [];
       if (Array.isArray(ports)) {
         ports.forEach((parameter) => {
-          const param = serviceHelper.ensureString(parameter);
+          const param = serviceHelper.ensureString(parameter); // todo ensureNumber
           portsCorrect.push(param);
         });
       } else {
@@ -3414,7 +3476,7 @@ async function updateAppGlobalyApi(req, res) {
       const containerportsCorrect = [];
       if (Array.isArray(containerPorts)) {
         containerPorts.forEach((parameter) => {
-          const param = serviceHelper.ensureString(parameter);
+          const param = serviceHelper.ensureString(parameter); // todo ensureNumber
           containerportsCorrect.push(param);
         });
       } else {
@@ -3564,7 +3626,7 @@ async function installTemporaryLocalApplication(req, res, applicationName) {
       }
 
       res.setHeader('Content-Type', 'application/json');
-      registerAppLocally(appSpecifications, res);
+      registerAppLocally(appSpecifications, res); // can throw
     } else {
       const errMessage = serviceHelper.errUnauthorizedMessage();
       res.json(errMessage);
@@ -4504,7 +4566,8 @@ async function trySpawningGlobalApplication() {
     // check if we are synced
     const tier = await nodeTier();
     if (tier === 'basic') {
-      log.info('Basic node detected. Global applications will not be installed');
+      log.info('Cumulus node detected. Global applications will not be installed');
+      return;
     }
     const synced = await checkSynced();
     if (synced !== true) {
@@ -4593,7 +4656,7 @@ async function trySpawningGlobalApplication() {
     }
     // an application was selected and checked that it can run on this node. try to install and run it locally
     // install the app
-    await registerAppLocally(appSpecifications);
+    await registerAppLocally(appSpecifications); // can throw
 
     await serviceHelper.delay(10 * config.fluxapps.installation.delay * 1000);
     log.info('Reinitiating possible app installation');
@@ -4632,7 +4695,7 @@ async function checkAndNotifyPeersOfRunningApps() {
     const appsInstalled = installedAppsRes.data;
     const runningApps = runningAppsRes.data;
     const installedAppsNames = appsInstalled.map((app) => app.name);
-    const runningAppsNames = runningApps.map((app) => app.Names[0].substr(4, app.Names[0].length));
+    const runningAppsNames = runningApps.map((app) => app.Names[0].substr(5, app.Names[0].length)); // all global application start with /flux
     // installed always is bigger array than running
     const runningSet = new Set(runningAppsNames);
     const stoppedApps = installedAppsNames.filter((installedApp) => !runningSet.has(installedApp));
@@ -4648,11 +4711,11 @@ async function checkAndNotifyPeersOfRunningApps() {
           // it is a stopped global app. Try to run it.
           const appId = getAppIdentifier(stoppedApp);
           // check if some removal is in progress as if it is dont start it!
-          if (!removalInProgress) {
+          if (!removalInProgress && !installationInProgress) {
             // eslint-disable-next-line no-await-in-loop
             await appDockerStart(appId);
           } else {
-            log.warn(`Not starting ${stoppedApp} as of application removal in progress`);
+            log.warn(`Not starting ${stoppedApp} as of application removal or installation in progress`);
           }
         }
       } catch (err) {
@@ -4731,7 +4794,7 @@ async function expireGlobalApplications() {
     // find applications that have specifications height lower than expirationHeight
     const databaseApps = dbopen.db(config.database.appsglobal.database);
     const queryApps = { height: { $lt: expirationHeight } };
-    const projectionApps = { projection: { _id: 0, name: 1 } };
+    const projectionApps = { projection: { _id: 0, name: 1, hash: 1 } }; // todo look into correction for checking hash of app
     const results = await serviceHelper.findInDatabase(databaseApps, globalAppsInformation, queryApps, projectionApps);
     const appNamesToExpire = results.map((res) => res.name);
     // remove appNamesToExpire apps from global database
@@ -4753,6 +4816,7 @@ async function expireGlobalApplications() {
     // remove appsToRemoveNames apps from locally running
     // eslint-disable-next-line no-restricted-syntax
     for (const appName of appsToRemoveNames) {
+      log.warn(`Application ${appName} is expired, removing`);
       // eslint-disable-next-line no-await-in-loop
       await removeAppLocally(appName);
       // eslint-disable-next-line no-await-in-loop
@@ -4810,7 +4874,29 @@ async function checkAndRemoveApplicationInstance() {
 
 async function softRedeploy(appSpecs, res) {
   try {
-    await softRemoveAppLocally(appSpecs.name, res);
+    if (removalInProgress) {
+      log.warn('Another application is undergoing removal');
+      const appRedeployResponse = serviceHelper.createDataMessage('Another application is undergoing removal');
+      if (res) {
+        res.write(serviceHelper.ensureString(appRedeployResponse));
+      }
+      return;
+    }
+    if (installationInProgress) {
+      log.warn('Another application is undergoing installation');
+      const appRedeployResponse = serviceHelper.createDataMessage('Another application is undergoing installation');
+      if (res) {
+        res.write(serviceHelper.ensureString(appRedeployResponse));
+      }
+      return;
+    }
+    try {
+      await softRemoveAppLocally(appSpecs.name, res);
+    } catch (error) {
+      log.error(error);
+      removalInProgress = false;
+      throw error;
+    }
     const appRedeployResponse = serviceHelper.createDataMessage('Application softly removed. Awaiting installation...');
     log.info(appRedeployResponse);
     if (res) {
@@ -4832,7 +4918,7 @@ async function softRedeploy(appSpecs, res) {
     // verify requirements
     await checkAppRequirements(appSpecifications);
     // register
-    await softRegisterAppLocally(appSpecifications, res);
+    await softRegisterAppLocally(appSpecifications, res); // can throw
     log.info('Application softly redeployed');
   } catch (error) {
     log.error(error);
@@ -4864,7 +4950,7 @@ async function hardRedeploy(appSpecs, res) {
     // verify requirements
     await checkAppRequirements(appSpecifications);
     // register
-    await registerAppLocally(appSpecifications, res);
+    await registerAppLocally(appSpecifications, res); // can throw
     log.info('Application redeployed');
   } catch (error) {
     log.error(error);
@@ -4916,17 +5002,30 @@ async function reinstallOldApplications() {
             log.warn('Beginning Soft Redeployment...');
             // soft redeployment
             try {
-              // eslint-disable-next-line no-await-in-loop
-              await softRemoveAppLocally(installedApp.name);
-              log.warn('Application softly removed. Awaiting installation...');
+              try {
+                if (removalInProgress) {
+                  log.warn('Another application is undergoing removal');
+                  return;
+                }
+                if (installationInProgress) {
+                  log.warn('Another application is undergoing installation');
+                  return;
+                }
+                // eslint-disable-next-line no-await-in-loop
+                await softRemoveAppLocally(installedApp.name);
+                log.warn('Application softly removed. Awaiting installation...');
+              } catch (error) {
+                log.error(error);
+                removalInProgress = false;
+                throw error;
+              }
               // eslint-disable-next-line no-await-in-loop
               await serviceHelper.delay(config.fluxapps.redeploy.delay * 1000); // wait for delay mins so we dont have more removals at the same time
               // eslint-disable-next-line no-await-in-loop
               await checkAppRequirements(appSpecifications);
-
               // install the app
               // eslint-disable-next-line no-await-in-loop
-              await softRegisterAppLocally(appSpecifications);
+              await softRegisterAppLocally(appSpecifications); // can throw which is ok
             } catch (error) {
               log.error(error);
               removeAppLocally(appSpecifications.name, null, true);
@@ -4945,7 +5044,7 @@ async function reinstallOldApplications() {
 
               // install the app
               // eslint-disable-next-line no-await-in-loop
-              await registerAppLocally(appSpecifications);
+              await registerAppLocally(appSpecifications); // can throw
             } catch (error) {
               log.error(error);
               removeAppLocally(appSpecifications.name, null, true);
@@ -5132,7 +5231,7 @@ async function redeployAPI(req, res) {
 
 async function whitelistedRepositories(req, res) {
   try {
-    const whitelisted = await serviceHelper.axiosGet('https://zel.network/project/zelflux/repositories.html');
+    const whitelisted = await serviceHelper.axiosGet('https://raw.githubusercontent.com/zelcash/zelflux/master/helpers/repositories.json');
     const resultsResponse = serviceHelper.createDataMessage(whitelisted.data);
     res.json(resultsResponse);
   } catch (error) {
@@ -5144,7 +5243,7 @@ async function whitelistedRepositories(req, res) {
 
 async function whitelistedZelIDs(req, res) {
   try {
-    const whitelisted = await serviceHelper.axiosGet('https://zel.network/project/zelflux/zelids.html');
+    const whitelisted = await serviceHelper.axiosGet('https://raw.githubusercontent.com/zelcash/zelflux/master/helpers/zelids.json');
     const resultsResponse = serviceHelper.createDataMessage(whitelisted.data);
     res.json(resultsResponse);
   } catch (error) {

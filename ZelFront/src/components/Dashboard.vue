@@ -138,11 +138,15 @@
           label="Economics"
           name="economics"
         >
-          <div id="priceChart" />
+          <div v-show="priceInformationLoading">
+              loading...
+          </div>
+          <div v-show="!priceInformationLoading" id="priceChart" />
           <br><br>
-          <div class="gridThree">
+          <div v-show="!priceInformationLoading" class="gridThree">
             <div>
               <h2>Cumulus Rewards</h2>
+              <h3>10k Flux Collateral</h3>
               <br><br>
               <h3>per day</h3>
               <h4>{{ beautifyValue(cumulusWeek / 7 ) }} FLUX</h4>
@@ -166,6 +170,7 @@
             </div>
             <div>
               <h2>Nimbus Rewards</h2>
+              <h3>25k Flux Collateral</h3>
               <br><br>
               <h3>per day</h3>
               <h4>{{ beautifyValue(nimbusWeek / 7) }} FLUX ~ {{ beautifyValue(nimbusUSDRewardWeek / 7) }} USD</h4>
@@ -189,6 +194,7 @@
             </div>
             <div>
               <h2>Stratus Rewards</h2>
+              <h3>100k Flux Collateral</h3>
               <br><br>
               <h3>per day</h3>
               <h4>{{ beautifyValue(stratusWeek / 7 ) }} FLUX ~ {{ beautifyValue(stratusUSDRewardWeek / 7) }} USD</h4>
@@ -387,6 +393,7 @@ export default {
       stratusUSDKDARewardWeek: 0,
       kdaNimbusWeek: 0,
       kdaStratusWeek: 0,
+      priceInformationLoading: true,
     };
   },
   computed: {
@@ -458,9 +465,9 @@ export default {
       try {
         const resCount = await DashboardService.zelnodeCount();
         const counts = resCount.data.data;
-        const stratuses = counts['bamf-enabled'] || counts['stratus-enabled'];
-        const nimbuses = counts['super-enabled'] || counts['nimbus-enabled'];
-        const cumuluses = counts['basic-enabled'] || counts['cumulus-enabled'];
+        const stratuses = counts['stratus-enabled'];
+        const nimbuses = counts['nimbus-enabled'];
+        const cumuluses = counts['cumulus-enabled'];
         console.log(resCount);
         const supply = stratuses * 100000 + nimbuses * 25000 + cumuluses * 10000;
         this.lockedSupply = supply;
@@ -472,17 +479,16 @@ export default {
     },
     async generateEconomics(zelnodecounts) {
       try {
+        this.priceInformationLoading = true;
         console.log(this.rates);
-        const stratuses = zelnodecounts['bamf-enabled'] || zelnodecounts['stratus-enabled'];
-        const nimbuses = zelnodecounts['super-enabled'] || zelnodecounts['nimbus-enabled'];
-        const cumuluses = zelnodecounts['basic-enabled'] || zelnodecounts['cumulus-enabled'];
-        const resKDAEligible = await axios.get('https://stats.runonflux.io/kadena/eligible/7');
+        const stratuses = zelnodecounts['stratus-enabled'];
+        const nimbuses = zelnodecounts['nimbus-enabled'];
+        const cumuluses = zelnodecounts['cumulus-enabled'];
+        const resKDAEligible = await axios.get('https://stats.runonflux.io/kadena/eligiblestats/7');
         const kdaData = resKDAEligible.data.data;
         const kdaCoins = 5749.77;
-        const nimbusesS = kdaData.filter((result) => (result.tier === 'SUPER' || result.tier === 'NIMBUS'));
-        const stratusesS = kdaData.filter((result) => (result.tier === 'BAMF' || result.tier === 'STRATUS'));
-        const totalNimbuss = nimbusesS.length;
-        const totalStratuss = stratusesS.length;
+        const totalNimbuss = kdaData.nimbus;
+        const totalStratuss = kdaData.stratus;
         const overallTotal = totalNimbuss + (4 * totalStratuss);
         const perNimbusWeek = Number((kdaCoins / overallTotal).toFixed(4)); // KDA
         const perStratusWeek = Number(((kdaCoins / overallTotal) * 4).toFixed(4)); // KDA
@@ -522,6 +528,7 @@ export default {
           self.historicalPrices = res2.data.prices.filter((a) => a[0] > 1483232400000); // min date from  January 1, 2017 1:00:00 AM
           self.fillChartData();
         });
+        this.priceInformationLoading = false;
       } catch (error) {
         console.log(error);
       }
@@ -636,9 +643,9 @@ export default {
       // Create chart instance
       const chart = am4core.create('cpucurrent', am4charts.XYChart);
 
-      const cumuluses = this.fluxList.filter((nodes) => (nodes.tier === 'BASIC' || nodes.tier === 'CUMULUS'));
-      const nimbuses = this.fluxList.filter((nodes) => (nodes.tier === 'SUPER' || nodes.tier === 'NIMBUS'));
-      const stratuses = this.fluxList.filter((nodes) => (nodes.tier === 'BAMF' || nodes.tier === 'STRATUS'));
+      const cumuluses = this.fluxList.filter((node) => (node.tier === 'CUMULUS'));
+      const nimbuses = this.fluxList.filter((node) => (node.tier === 'NIMBUS'));
+      const stratuses = this.fluxList.filter((node) => (node.tier === 'STRATUS'));
 
       const cumulusValue = cumuluses.length * 2;
       const nimbusValue = nimbuses.length * 4;
@@ -694,9 +701,9 @@ export default {
       // Create chart instance
       const chart = am4core.create('ramcurrent', am4charts.XYChart);
 
-      const cumuluses = this.fluxList.filter((nodes) => (nodes.tier === 'BASIC' || nodes.tier === 'CUMULUS'));
-      const nimbuses = this.fluxList.filter((nodes) => (nodes.tier === 'SUPER' || nodes.tier === 'NIMBUS'));
-      const stratuses = this.fluxList.filter((nodes) => (nodes.tier === 'BAMF' || nodes.tier === 'STRATUS'));
+      const cumuluses = this.fluxList.filter((node) => (node.tier === 'CUMULUS'));
+      const nimbuses = this.fluxList.filter((node) => (node.tier === 'NIMBUS'));
+      const stratuses = this.fluxList.filter((node) => (node.tier === 'STRATUS'));
 
       const cumulusValue = cumuluses.length * 4;
       const nimbusValue = nimbuses.length * 8;
@@ -752,9 +759,9 @@ export default {
       // Create chart instance
       const chart = am4core.create('ssdcurrent', am4charts.XYChart);
 
-      const cumuluses = this.fluxList.filter((nodes) => (nodes.tier === 'BASIC' || nodes.tier === 'CUMULUS'));
-      const nimbuses = this.fluxList.filter((nodes) => (nodes.tier === 'SUPER' || nodes.tier === 'NIMBUS'));
-      const stratuses = this.fluxList.filter((nodes) => (nodes.tier === 'BAMF' || nodes.tier === 'STRATUS'));
+      const cumuluses = this.fluxList.filter((node) => (node.tier === 'CUMULUS'));
+      const nimbuses = this.fluxList.filter((node) => (node.tier === 'NIMBUS'));
+      const stratuses = this.fluxList.filter((node) => (node.tier === 'STRATUS'));
 
       const cumulusValue = cumuluses.length * 40;
       const nimbusValue = nimbuses.length * 150;
@@ -815,9 +822,9 @@ export default {
       timePoints.forEach((time) => {
         cpuData.push({
           time: new Date(Number(time)),
-          stratus: (this.fluxHistoryStats[time].stratus || this.fluxHistoryStats[time].bamf) * 8,
-          nimbus: (this.fluxHistoryStats[time].nimbus || this.fluxHistoryStats[time].super) * 4,
-          cumulus: (this.fluxHistoryStats[time].cumulus || this.fluxHistoryStats[time].basic) * 2,
+          stratus: (this.fluxHistoryStats[time].stratus) * 8,
+          nimbus: (this.fluxHistoryStats[time].nimbus) * 4,
+          cumulus: (this.fluxHistoryStats[time].cumulus) * 2,
         });
       });
 
@@ -897,9 +904,9 @@ export default {
       timePoints.forEach((time) => {
         ramData.push({
           time: new Date(Number(time)),
-          stratus: (this.fluxHistoryStats[time].stratus || this.fluxHistoryStats[time].bamf) * 32,
-          nimbus: (this.fluxHistoryStats[time].nimbus || this.fluxHistoryStats[time].super) * 8,
-          cumulus: (this.fluxHistoryStats[time].cumulus || this.fluxHistoryStats[time].basic) * 4,
+          stratus: (this.fluxHistoryStats[time].stratus) * 32,
+          nimbus: (this.fluxHistoryStats[time].nimbus) * 8,
+          cumulus: (this.fluxHistoryStats[time].cumulus) * 4,
         });
       });
 
@@ -978,9 +985,9 @@ export default {
       timePoints.forEach((time) => {
         ssdData.push({
           time: new Date(Number(time)),
-          stratus: (this.fluxHistoryStats[time].stratus || this.fluxHistoryStats[time].bamf) * 600,
-          nimbus: (this.fluxHistoryStats[time].nimbus || this.fluxHistoryStats[time].super) * 150,
-          cumulus: (this.fluxHistoryStats[time].cumulus || this.fluxHistoryStats[time].basic) * 40,
+          stratus: (this.fluxHistoryStats[time].stratus) * 600,
+          nimbus: (this.fluxHistoryStats[time].nimbus) * 150,
+          cumulus: (this.fluxHistoryStats[time].cumulus) * 40,
         });
       });
 
@@ -1059,9 +1066,9 @@ export default {
       timePoints.forEach((time) => {
         fluxData.push({
           time: new Date(Number(time)),
-          stratus: this.fluxHistoryStats[time].stratus || this.fluxHistoryStats[time].bamf,
-          nimbus: this.fluxHistoryStats[time].nimbus || this.fluxHistoryStats[time].super,
-          cumulus: this.fluxHistoryStats[time].cumulus || this.fluxHistoryStats[time].basic,
+          stratus: this.fluxHistoryStats[time].stratus,
+          nimbus: this.fluxHistoryStats[time].nimbus,
+          cumulus: this.fluxHistoryStats[time].cumulus,
         });
       });
 
@@ -1134,21 +1141,21 @@ export default {
       const timePoints = Object.keys(this.fluxHistoryStats);
       const max = Math.max(...timePoints);
 
-      const total = (this.fluxHistoryStats[max].stratus + this.fluxHistoryStats[max].nimbus + this.fluxHistoryStats[max].cumulus) || (this.fluxHistoryStats[max].bamf + this.fluxHistoryStats[max].super + this.fluxHistoryStats[max].basic);
+      const total = (this.fluxHistoryStats[max].stratus + this.fluxHistoryStats[max].nimbus + this.fluxHistoryStats[max].cumulus);
 
       // Add data
       chart.data = [
         {
           type: 'Stratus',
-          value: this.fluxHistoryStats[max].stratus || this.fluxHistoryStats[max].bamf,
+          value: this.fluxHistoryStats[max].stratus,
         },
         {
           type: 'Nimbus',
-          value: this.fluxHistoryStats[max].nimbus || this.fluxHistoryStats[max].super,
+          value: this.fluxHistoryStats[max].nimbus,
         },
         {
           type: 'Cumulus',
-          value: this.fluxHistoryStats[max].cumulus || this.fluxHistoryStats[max].basic,
+          value: this.fluxHistoryStats[max].cumulus,
         },
       ];
 
@@ -1210,9 +1217,9 @@ export default {
 
       const timePoints = Object.keys(this.fluxHistoryStats);
       const max = Math.max(...timePoints);
-      const cumulusS = (this.fluxHistoryStats[max].cumulus || this.fluxHistoryStats[max].basic) * 10000;
-      const nimbusS = (this.fluxHistoryStats[max].nimbus || this.fluxHistoryStats[max].super) * 25000;
-      const stratusS = (this.fluxHistoryStats[max].stratus || this.fluxHistoryStats[max].bamf) * 100000;
+      const cumulusS = (this.fluxHistoryStats[max].cumulus) * 10000;
+      const nimbusS = (this.fluxHistoryStats[max].nimbus) * 25000;
+      const stratusS = (this.fluxHistoryStats[max].stratus) * 100000;
 
       const total = cumulusS + nimbusS + stratusS;
 

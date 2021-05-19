@@ -841,7 +841,7 @@
               <p>
                 Registered on Blockheight: {{ callBResponse.data.height }}
               </p>
-              <p v-if="callResponse.data.hash.length === 64">
+              <p v-if="callBResponse.data.hash.length === 64">
                 Expires on Blockheight: {{ callBResponse.data.height + 22000 }}
               </p>
               <p>
@@ -1213,7 +1213,7 @@
               <p>
                 Registered on Blockheight: {{ callBResponse.data.height }}
               </p>
-              <p v-if="callResponse.data.hash.length === 64">
+              <p v-if="callBResponse.data.hash.length === 64">
                 Expires on Blockheight: {{ callBResponse.data.height + 22000 }}
               </p>
               <p>
@@ -1668,9 +1668,6 @@
           <el-form-item label="Ports">
             <el-input
               placeholder="Array of Ports on which application will be available"
-              type="number"
-              min="31000"
-              max="39999"
               v-model="appRegistrationSpecification.ports"
             >
             </el-input>
@@ -1702,9 +1699,6 @@
           <el-form-item label="Cont. Ports">
             <el-input
               placeholder="Container Ports - array of ports on which your container has"
-              nubmer
-              min="0"
-              max="65535"
               v-model="appRegistrationSpecification.containerPorts"
             >
             </el-input>
@@ -1954,7 +1948,7 @@ import Vue from 'vue';
 import DaemonService from '@/services/DaemonService';
 import AppsService from '@/services/AppsService';
 
-const FluxShare = () => import('@/components/FluxShare.vue');
+const FluxShare = () => import('@/components/FluxShare');
 
 const store = require('store');
 const qs = require('qs');
@@ -2743,7 +2737,7 @@ export default {
         const portsCorrect = [];
         if (Array.isArray(ports)) {
           ports.forEach((parameter) => {
-            const param = this.ensureString(parameter);
+            const param = this.ensureString(parameter); // todo ensureNumber
             portsCorrect.push(param);
           });
         } else {
@@ -2757,7 +2751,7 @@ export default {
             domainsCorrect.push(param);
           });
         } else {
-          throw new Error('Enviromental parameters for App are invalid');
+          throw new Error('Domains for Flux App are invalid');
         }
         enviromentParameters = this.ensureObject(enviromentParameters);
         const envParamsCorrected = [];
@@ -2783,7 +2777,7 @@ export default {
         const containerportsCorrect = [];
         if (Array.isArray(containerPorts)) {
           containerPorts.forEach((parameter) => {
-            const param = this.ensureString(parameter);
+            const param = this.ensureString(parameter); // todo ensureNumber
             containerportsCorrect.push(param);
           });
         } else {
@@ -2889,11 +2883,11 @@ export default {
           }
         });
 
-        if (appSpecFormatted.containerPorts.length !== appSpecFormatted.ports) {
+        if (appSpecFormatted.containerPorts.length !== appSpecFormatted.ports.length) {
           throw new Error('Ports specifications do not match');
         }
 
-        if (appSpecFormatted.domains.length !== appSpecFormatted.ports) {
+        if (appSpecFormatted.domains.length !== appSpecFormatted.ports.length) {
           throw new Error('Domains specifications do not match available ports');
         }
 
@@ -2965,7 +2959,7 @@ export default {
         const portsCorrect = [];
         if (Array.isArray(ports)) {
           ports.forEach((parameter) => {
-            const param = this.ensureString(parameter);
+            const param = this.ensureString(parameter); // todo ensureNumber
             portsCorrect.push(param);
           });
         } else {
@@ -3005,7 +2999,7 @@ export default {
         const containerportsCorrect = [];
         if (Array.isArray(containerPorts)) {
           containerPorts.forEach((parameter) => {
-            const param = this.ensureString(parameter);
+            const param = this.ensureString(parameter); // todo ensureNumber
             containerportsCorrect.push(param);
           });
         } else {
@@ -3117,7 +3111,7 @@ export default {
           }
         });
 
-        if (appSpecFormatted.containerPorts.length !== appSpecFormatted.ports) {
+        if (appSpecFormatted.containerPorts.length !== appSpecFormatted.ports.length) {
           throw new Error('Ports specifications do not match');
         }
 
@@ -3660,7 +3654,10 @@ export default {
     getRandomPort() {
       const min = 31001;
       const max = 39998;
-      this.appRegistrationSpecification.ports = [Math.floor(Math.random() * (max - min) + min)];
+      const portsArray = [];
+      const port = Math.floor(Math.random() * (max - min) + min);
+      portsArray.push(port);
+      this.appRegistrationSpecification.ports = JSON.stringify(portsArray);
     },
   },
 };

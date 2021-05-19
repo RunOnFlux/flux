@@ -366,8 +366,8 @@ import Vue from 'vue';
 import DaemonService from '@/services/DaemonService';
 import ExplorerService from '@/services/ExplorerService';
 
-const Transaction = () => import('@/components/Transaction.vue');
-const FluxTx = () => import('@/components/FluxTx.vue');
+const Transaction = () => import('@/components/Transaction');
+const FluxTx = () => import('@/components/FluxTx');
 
 Vue.use(Vuex);
 

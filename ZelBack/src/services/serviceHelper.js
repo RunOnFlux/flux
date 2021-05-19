@@ -537,6 +537,19 @@ function signMessage(message, pk) {
   return signature;
 }
 
+async function deleteLoginPhrase(phrase) {
+  try {
+    const db = databaseConnection();
+    const database = db.db(config.database.local.database);
+    const collection = config.database.local.collections.activeLoginPhrases;
+    const query = { loginPhrase: phrase };
+    const projection = {};
+    await findOneAndDeleteInDatabase(database, collection, query, projection);
+  } catch (error) {
+    log.error(error);
+  }
+}
+
 // helper function for timeout on axios connection
 const axiosGet = (url, options = {
   timeout: 20000,
@@ -591,4 +604,5 @@ module.exports = {
   initiateDB,
   databaseConnection,
   getApplicationOwner,
+  deleteLoginPhrase,
 };
