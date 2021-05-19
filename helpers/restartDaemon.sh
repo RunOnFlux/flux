@@ -25,4 +25,3 @@ if sudo systemctl list-units --full --no-legend --no-pager --plain --all --type 
 else
   "$COIN_DAEMON"
 fi
-
