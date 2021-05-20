@@ -4621,7 +4621,7 @@ async function trySpawningGlobalApplication() {
     if (runningApps.status !== 'success') {
       throw new Error('Unable to check running apps on this Flux');
     }
-    if (runningApps.data.find((app) => app.Names[0].substr(4, app.Names[0].length) === randomApp)) {
+    if (runningApps.data.find((app) => app.Names[0].substr(5, app.Names[0].length) === randomApp)) {
       log.info(`${randomApp} application is already running on this Flux`);
       await serviceHelper.delay(config.fluxapps.installation.delay * 1000);
       trySpawningGlobalApplication();
@@ -4695,7 +4695,13 @@ async function checkAndNotifyPeersOfRunningApps() {
     const appsInstalled = installedAppsRes.data;
     const runningApps = runningAppsRes.data;
     const installedAppsNames = appsInstalled.map((app) => app.name);
-    const runningAppsNames = runningApps.map((app) => app.Names[0].substr(5, app.Names[0].length)); // all global application start with /flux
+    // kadena and folding is old naming scheme having /zel.  all global application start with /flux
+    const runningAppsNames = runningApps.map((app) => {
+      if (app.Names[0].startsWith('/zel')) {
+        return app.Names[0].substr(4, app.Names[0].length);
+      }
+      return app.Names[0].substr(5, app.Names[0].length);
+    });
     // installed always is bigger array than running
     const runningSet = new Set(runningAppsNames);
     const stoppedApps = installedAppsNames.filter((installedApp) => !runningSet.has(installedApp));
