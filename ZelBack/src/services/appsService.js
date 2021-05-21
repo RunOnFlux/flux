@@ -2719,6 +2719,26 @@ async function availableApps(req, res) {
       hash: 'localSpecificationsVersion8', // hash of app message
       height: 680000, // height of tx on which it was
     },
+    { // app specifications
+      version: 2,
+      name: 'FoldingAtHomeArm64',
+      description: 'Folding @ Home For ARM64 Devices',
+      repotag: 'runonflux/folding-at-home-arm:latest',
+      owner: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
+      ports: [30000],
+      containerPorts: [7396],
+      domains: [''],
+      tiered: false,
+      cpu: 2, // true resource registered for app. If not tiered only this is available
+      ram: 1000, // true resource registered for app
+      hdd: 5, // true resource registered for app
+      enviromentParameters: [`FOLD_USER=${userconfig.initial.zelid}`, 'FOLD_TEAM=262156', 'FOLD_ANON=false'],
+      commands: [
+      ],
+      containerData: '/config',
+      hash: 'localSpecificationsVersion1', // hash of app message
+      height: 0, // height of tx on which it was
+    },
   ];
 
   const dataResponse = serviceHelper.createDataMessage(apps);

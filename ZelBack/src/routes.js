@@ -709,6 +709,9 @@ module.exports = (app, expressWs) => {
   app.get('/zelapps/installtemporarylocalapp/KadenaChainWebNode', (req, res) => {
     appsService.installTemporaryLocalApplication(req, res, 'KadenaChainWebNode');
   });
+  app.get('/zelapps/installtemporarylocalapp/FoldingAtHomeArm64', (req, res) => {
+    appsService.installTemporaryLocalApplication(req, res, 'FoldingAtHomeArm64');
+  });
   app.get('/zelapps/createzelfluxnetwork', (req, res) => {
     appsService.createFluxNetworkAPI(req, res);
   });
