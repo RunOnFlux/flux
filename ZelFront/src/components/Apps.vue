@@ -1338,9 +1338,6 @@
                 <el-form-item label="Ports">
                   <el-input
                     placeholder="Array of Ports on which application will be available"
-                    type="number"
-                    min="31000"
-                    max="39999"
                     v-model="appUpdateSpecification.ports"
                   >
                   </el-input>
@@ -1372,9 +1369,6 @@
                 <el-form-item label="Cont. Ports">
                   <el-input
                     placeholder="Container Ports - array of ports on which your container has"
-                    nubmer
-                    min="0"
-                    max="65535"
                     v-model="appUpdateSpecification.containerPorts"
                   >
                   </el-input>
