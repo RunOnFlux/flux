@@ -1458,6 +1458,10 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
       }
     }
 
+    if (!appSpecifications) {
+      throw new Error('Flux App not found');
+    }
+
     // simplifying ignore error messages for now
     const stopStatus = {
       status: 'Stopping Flux App...',
@@ -3598,12 +3602,19 @@ async function updateAppGlobalyApi(req, res) {
   });
 }
 
-async function installTemporaryLocalApplication(req, res, applicationName) {
+async function installTemporaryLocalApplication(req, res) {
   try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname;
+
+    if (!appname) {
+      throw new Error('No Flux App specified');
+    }
+
     const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized) {
       const allApps = await availableApps();
-      const appSpecifications = allApps.find((app) => app.name === applicationName);
+      const appSpecifications = allApps.find((app) => app.name === appname);
       if (!appSpecifications) {
         throw new Error('Application Specifications not found');
       }

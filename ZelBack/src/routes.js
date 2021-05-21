@@ -1611,11 +1611,8 @@ module.exports = (app, expressWs) => {
   app.get('/apps/appremove/:appname?/:force?', (req, res) => {
     appsService.removeAppLocallyApi(req, res);
   });
-  app.get('/apps/installtemporarylocalapp/FoldingAtHomeB', (req, res) => {
-    appsService.installTemporaryLocalApplication(req, res, 'FoldingAtHomeB');
-  });
-  app.get('/apps/installtemporarylocalapp/KadenaChainWebNode', (req, res) => {
-    appsService.installTemporaryLocalApplication(req, res, 'KadenaChainWebNode');
+  app.get('/apps/installtemporarylocalapp/:appname?', (req, res) => {
+    appsService.installTemporaryLocalApplication(req, res);
   });
   app.get('/apps/createfluxnetwork', (req, res) => {
     appsService.createFluxNetworkAPI(req, res);
