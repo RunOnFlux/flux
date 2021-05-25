@@ -2725,13 +2725,22 @@ async function availableApps(req, res) {
       description: 'Folding @ Home For ARM64 Devices',
       repotag: 'runonflux/folding-at-home-arm:latest',
       owner: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
+      tiered: true,
       ports: [30000],
       containerPorts: [7396],
       domains: [''],
-      tiered: false,
-      cpu: 2, // true resource registered for app. If not tiered only this is available
-      ram: 1000, // true resource registered for app
-      hdd: 5, // true resource registered for app
+      cpu: 1,
+      ram: 500,
+      hdd: 5,
+      cpubasic: 1,
+      cpusuper: 2,
+      cpubamf: 2,
+      rambasic: 500,
+      ramsuper: 1000,
+      rambamf: 4000,
+      hddbasic: 5,
+      hddsuper: 5,
+      hddbamf: 5,
       enviromentParameters: [`FOLD_USER=${userconfig.initial.zelid}`, 'FOLD_TEAM=262156', 'FOLD_ANON=false'],
       commands: [
       ],
