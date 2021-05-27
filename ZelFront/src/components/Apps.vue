@@ -1705,6 +1705,14 @@
             >
             </el-input>
           </el-form-item>
+          <el-form-item label="User Vol. Owner.">
+            <el-input
+              placeholder="Type a user if the docker creates a user that needs to have ownership of the volume created for the App"
+              textarea
+              v-model="appRegistrationSpecification.userVolumeyOwnership"
+            >
+            </el-input>
+          </el-form-item>
           <el-form-item label="CPU">
             <el-input
               placeholder="CPU cores to use by default"

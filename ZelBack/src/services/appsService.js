@@ -1312,6 +1312,18 @@ async function createAppVolume(appSpecifications, res) {
       res.write(serviceHelper.ensureString(mountingStatus2));
     }
 
+    if (appSpecifications.userVolumeyOwnership) {
+      const execUserOwner = `sudo chown ${appSpecifications.userVolumeyOwnership}.${appSpecifications.userVolumeyOwnership} ${appsFolder + appId} -R`;
+      await cmdAsync(execUserOwner);
+      const cronStatus = {
+        status: 'User Volume Ownership set...',
+      };
+      log.info(cronStatus);
+      if (res) {
+        res.write(serviceHelper.ensureString(cronStatus));
+      }
+    }
+
     const cronStatus = {
       status: 'Creating crontab...',
     };
@@ -2748,6 +2760,27 @@ async function availableApps(req, res) {
       hash: 'localSpecificationsVersion1', // hash of app message
       height: 0, // height of tx on which it was
     },
+    { // app specifications
+      version: 2,
+      name: 'KusamaNodeValidator', // corresponds to docker name and this name is stored in apps mongo database
+      description: 'Kusama is a "canary network" for Polkadot, an early unaudited release of the code that is available first and holds real economic value. For developers, Kusama is a proving ground for runtime upgrades, on-chain governance, and parachains.',
+      repotag: 'parity/polkadot:latest',
+      owner: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
+      ports: [31113, 31112, 31111],
+      containerPorts: [30333, 9933, 9944],
+      domains: ['', '', ''],
+      tiered: false,
+      cpu: 0.8, // true resource registered for app. If not tiered only this is available
+      ram: 1800, // true resource registered for app
+      hdd: 20, // true resource registered for app
+      enviromentParameters: [],
+      commands: ['--base-path', '/chaindata', '--chain', 'kusama', '--name', 'RunOnFlux', '--rpc-external',
+        '--ws-external', '--rpc-methods', 'Safe'],
+      containerData: '/chaindata', // cannot be root todo in verification
+      hash: 'localSpecificationsVersion1', // hash of app message
+      height: 0, // height of tx on which it was
+      userVolumeyOwnership: 1000,
+    },
   ];
 
   const dataResponse = serviceHelper.createDataMessage(apps);
@@ -3224,6 +3257,7 @@ async function registerAppGlobalyApi(req, res) {
       let { ram } = appSpecification;
       let { hdd } = appSpecification;
       const { tiered } = appSpecification;
+      let { userVolumeyOwnership } = appSpecification;
 
       // check if signature of received data is correct
       if (!version || !name || !description || !repotag || !owner || !ports || !domains || !enviromentParameters || !commands || !containerPorts || !containerData || !cpu || !ram || !hdd) {
@@ -3235,6 +3269,7 @@ async function registerAppGlobalyApi(req, res) {
       repotag = serviceHelper.ensureString(repotag);
       owner = serviceHelper.ensureString(owner);
       ports = serviceHelper.ensureObject(ports);
+      userVolumeyOwnership = serviceHelper.ensureString(userVolumeyOwnership);
       const portsCorrect = [];
       if (Array.isArray(ports)) {
         ports.forEach((parameter) => {
@@ -3321,6 +3356,7 @@ async function registerAppGlobalyApi(req, res) {
         ram, // integer 100 step (mb)
         hdd, // integer 1 step
         tiered, // boolean
+        userVolumeyOwnership, // string
       };
 
       if (tiered) {
@@ -3455,6 +3491,7 @@ async function updateAppGlobalyApi(req, res) {
       let { ram } = appSpecification;
       let { hdd } = appSpecification;
       const { tiered } = appSpecification;
+      let { userVolumeyOwnership } = appSpecification;
 
       // check if signature of received data is correct
       if (!version || !name || !description || !repotag || !owner || !ports || !domains || !enviromentParameters || !commands || !containerPorts || !containerData || !cpu || !ram || !hdd) {
@@ -3466,6 +3503,7 @@ async function updateAppGlobalyApi(req, res) {
       repotag = serviceHelper.ensureString(repotag);
       owner = serviceHelper.ensureString(owner);
       ports = serviceHelper.ensureObject(ports);
+      userVolumeyOwnership = serviceHelper.ensureString(userVolumeyOwnership);
       const portsCorrect = [];
       if (Array.isArray(ports)) {
         ports.forEach((parameter) => {
@@ -3540,6 +3578,7 @@ async function updateAppGlobalyApi(req, res) {
         ram, // integer 100 step (mb)
         hdd, // integer 1 step
         tiered, // boolean
+        userVolumeyOwnership, // string
       };
 
       if (tiered) {
