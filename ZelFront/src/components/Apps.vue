@@ -1709,7 +1709,7 @@
             <el-input
               placeholder="Type a user if the docker creates a user that needs to have ownership of the volume created for the App"
               textarea
-              v-model="appRegistrationSpecification.userVolumeyOwnership"
+              v-model="appRegistrationSpecification.userVolumeOwnership"
             >
             </el-input>
           </el-form-item>

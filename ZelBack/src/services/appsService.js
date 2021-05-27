@@ -1312,8 +1312,8 @@ async function createAppVolume(appSpecifications, res) {
       res.write(serviceHelper.ensureString(mountingStatus2));
     }
 
-    if (appSpecifications.userVolumeyOwnership) {
-      const execUserOwner = `sudo chown ${appSpecifications.userVolumeyOwnership}.${appSpecifications.userVolumeyOwnership} ${appsFolder + appId} -R`;
+    if (appSpecifications.userVolumeOwnership) {
+      const execUserOwner = `sudo chown ${appSpecifications.userVolumeOwnership}.${appSpecifications.userVolumeOwnership} ${appsFolder + appId} -R`;
       await cmdAsync(execUserOwner);
       const cronStatus = {
         status: 'User Volume Ownership set...',
@@ -3236,7 +3236,7 @@ async function registerAppGlobalyApi(req, res) {
       let { ram } = appSpecification;
       let { hdd } = appSpecification;
       const { tiered } = appSpecification;
-      let { userVolumeyOwnership } = appSpecification;
+      let { userVolumeOwnership } = appSpecification;
 
       // check if signature of received data is correct
       if (!version || !name || !description || !repotag || !owner || !ports || !domains || !enviromentParameters || !commands || !containerPorts || !containerData || !cpu || !ram || !hdd) {
@@ -3248,7 +3248,7 @@ async function registerAppGlobalyApi(req, res) {
       repotag = serviceHelper.ensureString(repotag);
       owner = serviceHelper.ensureString(owner);
       ports = serviceHelper.ensureObject(ports);
-      userVolumeyOwnership = serviceHelper.ensureString(userVolumeyOwnership);
+      userVolumeOwnership = serviceHelper.ensureString(userVolumeOwnership);
       const portsCorrect = [];
       if (Array.isArray(ports)) {
         ports.forEach((parameter) => {
@@ -3335,7 +3335,7 @@ async function registerAppGlobalyApi(req, res) {
         ram, // integer 100 step (mb)
         hdd, // integer 1 step
         tiered, // boolean
-        userVolumeyOwnership, // string
+        userVolumeOwnership, // string
       };
 
       if (tiered) {
@@ -3470,7 +3470,7 @@ async function updateAppGlobalyApi(req, res) {
       let { ram } = appSpecification;
       let { hdd } = appSpecification;
       const { tiered } = appSpecification;
-      let { userVolumeyOwnership } = appSpecification;
+      let { userVolumeOwnership } = appSpecification;
 
       // check if signature of received data is correct
       if (!version || !name || !description || !repotag || !owner || !ports || !domains || !enviromentParameters || !commands || !containerPorts || !containerData || !cpu || !ram || !hdd) {
@@ -3482,7 +3482,7 @@ async function updateAppGlobalyApi(req, res) {
       repotag = serviceHelper.ensureString(repotag);
       owner = serviceHelper.ensureString(owner);
       ports = serviceHelper.ensureObject(ports);
-      userVolumeyOwnership = serviceHelper.ensureString(userVolumeyOwnership);
+      userVolumeOwnership = serviceHelper.ensureString(userVolumeOwnership);
       const portsCorrect = [];
       if (Array.isArray(ports)) {
         ports.forEach((parameter) => {
@@ -3557,7 +3557,7 @@ async function updateAppGlobalyApi(req, res) {
         ram, // integer 100 step (mb)
         hdd, // integer 1 step
         tiered, // boolean
-        userVolumeyOwnership, // string
+        userVolumeOwnership, // string
       };
 
       if (tiered) {
