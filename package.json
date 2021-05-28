@@ -61,7 +61,7 @@
     "crypto": "^1.0.1",
     "daemonrpc": "file:lib/daemonrpc",
     "dockerode": "^3.2.1",
-    "element-ui": "~2.14.0",
+    "element-ui": "~2.15.2",
     "express": "^4.17.1",
     "express-ws": "^4.0.0",
     "formidable": "2.0.0-canary.20200504.1",
