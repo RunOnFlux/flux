@@ -2732,7 +2732,7 @@ async function availableApps(req, res) {
       containerPorts: [30004, 30005],
       domains: ['', ''],
       tiered: false,
-      cpu: 1, // true resource registered for app. If not tiered only this is available
+      cpu: 0.8, // true resource registered for app. If not tiered only this is available
       ram: 1800, // true resource registered for app
       hdd: 60, // true resource registered for app
       enviromentParameters: ['CHAINWEB_P2P_PORT=30004', 'CHAINWEB_SERVICE_PORT=30005', 'LOGLEVEL=warn'],
