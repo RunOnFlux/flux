@@ -2732,8 +2732,8 @@ async function availableApps(req, res) {
       containerPorts: [30004, 30005],
       domains: ['', ''],
       tiered: false,
-      cpu: 2, // true resource registered for app. If not tiered only this is available
-      ram: 4000, // true resource registered for app
+      cpu: 1, // true resource registered for app. If not tiered only this is available
+      ram: 1800, // true resource registered for app
       hdd: 60, // true resource registered for app
       enviromentParameters: ['CHAINWEB_P2P_PORT=30004', 'CHAINWEB_SERVICE_PORT=30005', 'LOGLEVEL=warn'],
       commands: ['/bin/bash', '-c', '(test -d /data/chainweb-db/0 && ./run-chainweb-node.sh) || (/chainweb/initialize-db.sh && ./run-chainweb-node.sh)'],
@@ -3663,7 +3663,7 @@ async function installTemporaryLocalApplication(req, res) {
     }
     const isNodeConfirmed = await isNodeStatusConfirmed();
     if (!isNodeConfirmed) {
-      throw new Error('Flux Node is not Confirmed. Aborting.');
+      throw new Error('Flux Node is not Confirmed. Aborting install.');
     }
     const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized) {
@@ -3673,9 +3673,12 @@ async function installTemporaryLocalApplication(req, res) {
         throw new Error('Application Specifications not found');
       }
 
+      const tier = await nodeTier();
+      if (appname === 'KadenaChainWebNode' && tier === 'basic') {
+        throw new Error('KadenaChainWebNode is not allowed to install on Cumulus Node.');
+      }
       // get our tier and adjust true resource registered
       if (appSpecifications.tiered) {
-        const tier = await nodeTier();
         if (tier === 'basic') {
           appSpecifications.cpu = appSpecifications.cpubasic || appSpecifications.cpu;
           appSpecifications.ram = appSpecifications.rambasic || appSpecifications.ram;
