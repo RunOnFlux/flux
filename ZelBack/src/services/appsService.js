@@ -389,6 +389,20 @@ async function nodeTier() {
   throw new Error('Unrecognised Flux Node tier');
 }
 
+async function isNodeStatusConfirmed() {
+  const response = await daemonService.getZelNodeStatus();
+  if (response.status === 'error') {
+    throw response.data;
+  }
+  if (response.data) {
+    if (response.data.status === 'CONFIRMED') {
+      return true;
+    }
+    return false;
+  }
+  return false;
+}
+
 async function appDockerCreate(appSpecifications) {
   let exposedPorts = {};
   let portBindings = {};
@@ -1152,6 +1166,10 @@ async function appsResources(req, res) {
 }
 
 async function createAppVolume(appSpecifications, res) {
+  const isNodeConfirmed = await isNodeStatusConfirmed();
+  if (!isNodeConfirmed) {
+    throw new Error('Flux Node is not Confirmed. Aborting.');
+  }
   const dfAsync = util.promisify(df);
   const appId = getAppIdentifier(appSpecifications.name);
 
@@ -1940,6 +1958,10 @@ async function removeAppLocallyApi(req, res) {
 
 async function checkAppRequirements(appSpecs) {
   // appSpecs has hdd, cpu and ram assigned to correct tier
+  const isNodeConfirmed = await isNodeStatusConfirmed();
+  if (!isNodeConfirmed) {
+    throw new Error('Flux Node is not Confirmed. Aborting.');
+  }
   const tier = await nodeTier();
   const resourcesLocked = await appsResources();
   if (resourcesLocked.status !== 'success') {
@@ -3639,7 +3661,10 @@ async function installTemporaryLocalApplication(req, res) {
     if (!appname) {
       throw new Error('No Flux App specified');
     }
-
+    const isNodeConfirmed = await isNodeStatusConfirmed();
+    if (!isNodeConfirmed) {
+      throw new Error('Flux Node is not Confirmed. Aborting.');
+    }
     const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized) {
       const allApps = await availableApps();
@@ -4604,6 +4629,11 @@ async function trySpawningGlobalApplication() {
     // how do we continue with this function function?
     // we have globalapplication specifics list
     // check if we are synced
+    const isNodeConfirmed = await isNodeStatusConfirmed();
+    if (!isNodeConfirmed) {
+      log.info('Flux Node not Confirmed. Global applications will not be installed');
+      return;
+    }
     const tier = await nodeTier();
     if (tier === 'basic') {
       log.info('Cumulus node detected. Global applications will not be installed');
