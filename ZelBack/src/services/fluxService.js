@@ -126,7 +126,13 @@ async function updateBenchmark(req, res) {
 async function startBenchmark(req, res) {
   const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
   if (authorized === true) {
-    const exec = 'zelbenchd -daemon';
+   
+    if (fs.existsSync('/usr/local/bin/fluxbenchd')) {
+      const exec = 'fluxbenchd -daemon';
+    } else {
+      const exec = 'zelbenchd -daemon';
+    }
+       
     cmd.get(exec, (err, data) => {
       if (err) {
         const errMessage = serviceHelper.createErrorMessage(`Error starting Benchmark: ${err.message}`, err.name, err.code);
@@ -167,7 +173,11 @@ async function restartBenchmark(req, res) {
 async function startDaemon(req, res) {
   const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
   if (authorized === true) {
-    const exec = 'zelcashd';
+    if (fs.existsSync('/usr/local/bin/fluxd')) {
+      const exec = 'fluxd';
+    } else {
+      const exec = 'zelcashd';
+    }
     cmd.get(exec, (err, data) => {
       if (err) {
         const errMessage = serviceHelper.createErrorMessage(`Error starting Daemon: ${err.message}`, err.name, err.code);
