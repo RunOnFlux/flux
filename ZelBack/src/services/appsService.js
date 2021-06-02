@@ -2689,7 +2689,7 @@ async function availableApps(req, res) {
     { // app specifications
       version: 2,
       name: 'FoldingAtHomeB',
-      description: 'Folding @ Home is cool :)',
+      description: 'Folding @ Home for AMD64 Devices. Folding@home is a project focused on disease research. Client Visit was disabled, to check your stats go to https://stats.foldingathome.org/donor and search for your zelid.',
       repotag: 'yurinnick/folding-at-home:latest',
       owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
       tiered: true,
@@ -2709,12 +2709,7 @@ async function availableApps(req, res) {
       hddsuper: 5,
       hddbamf: 5,
       enviromentParameters: [`USER=${userconfig.initial.zelid}`, 'TEAM=262156', 'ENABLE_GPU=false', 'ENABLE_SMP=true'],
-      commands: [
-        '--allow',
-        '0/0',
-        '--web-allow',
-        '0/0',
-      ],
+      commands: [],
       containerData: '/config',
       hash: 'localappinstancehashABCDE', // hash of app message
       height: 0, // height of tx on which it was
@@ -2744,8 +2739,8 @@ async function availableApps(req, res) {
     { // app specifications
       version: 2,
       name: 'FoldingAtHomeArm64',
-      description: 'Folding @ Home For ARM64 Devices',
-      repotag: 'runonflux/folding-at-home-arm:latest',
+      description: 'Folding @ Home For ARM64. Folding@home is a project focused on disease research. Client Visit was disabled, to check your stats go to https://stats.foldingathome.org/donor and search for your zelid.',
+      repotag: 'beastob/foldingathome-arm64',
       owner: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
       tiered: true,
       ports: [30000],
