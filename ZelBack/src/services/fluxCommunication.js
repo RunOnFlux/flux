@@ -1387,7 +1387,7 @@ async function adjustGitRepository() {
     const cmdAsync = util.promisify(cmd.get);
     const cmdres = await cmdAsync(execGetRepo);
     log.info(cmdres);
-    if (execGetRepo.includes('zelcash/zelflux')) {
+    if (cmdres.includes('zelcash/zelflux')) {
       await cmdAsync(execAdjustRepo);
       log.info('Flux repository adjusted');
       const cmdresB = await cmdAsync(execGetRepo);
