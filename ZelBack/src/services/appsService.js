@@ -2705,7 +2705,7 @@ async function availableApps(req, res) {
       enviromentParameters: [`USER=${userconfig.initial.zelid}`, 'TEAM=262156', 'ENABLE_GPU=false', 'ENABLE_SMP=true'],
       commands: [],
       containerData: '/config',
-      hash: 'localappinstancehashABCDE', // hash of app message
+      hash: 'localappinstancehashABCDEF', // hash of app message
       height: 0, // height of tx on which it was
     },
     {
