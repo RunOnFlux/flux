@@ -128,7 +128,7 @@ async function startBenchmark(req, res) {
   if (authorized === true) {
     let exec = 'zelbenchd -daemon';
     if (fs.existsSync('/usr/local/bin/fluxbenchd')) {
-       exec = 'fluxbenchd -daemon';
+      exec = 'fluxbenchd -daemon';
     }
     cmd.get(exec, (err, data) => {
       if (err) {
@@ -156,7 +156,7 @@ async function restartBenchmark(req, res) {
         const errMessage = serviceHelper.createErrorMessage(`Error restarting Benchmark: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
       }
-      const message = serviceHelper.createSuccessMessage('Benchmakr successfully restarted');
+      const message = serviceHelper.createSuccessMessage('Benchmark successfully restarted');
       return res.json(message);
     });
   } else {
@@ -172,7 +172,7 @@ async function startDaemon(req, res) {
   if (authorized === true) {
     let exec = 'zelcashd';
     if (fs.existsSync('/usr/local/bin/fluxd')) {
-       exec = 'fluxd';
+      exec = 'fluxd';
     }
     cmd.get(exec, (err, data) => {
       if (err) {

@@ -29,8 +29,8 @@ else
   zelcash-cli stop >/dev/null 2>&1 && sleep 3
 fi
 
-sudo killall "$COIN_DAEMON" >/dev/null 2>&1
-
+sudo killall "$COIN_DAEMON" >/dev/null 2>&1 && sleep 1
+sudo killall -s SIGKILL zelcashd >/dev/null 2>&1 && sleep 1
 sudo killall -s SIGKILL zelbenchd >/dev/null 2>&1 && sleep 1
 sudo killall -s SIGKILL fluxbenchd >/dev/null 2>&1 && sleep 1
 sudo apt-get purge --auto-remove "$COIN_NAME" zelcash -y >/dev/null 2>&1 && sleep 1

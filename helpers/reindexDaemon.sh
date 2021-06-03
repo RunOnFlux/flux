@@ -16,6 +16,7 @@ export PATH
 sudo systemctl stop "$SERVICE_NAME" >/dev/null 2>&1 && sleep 3
 "$COIN_CLI" stop >/dev/null 2>&1 && sleep 3
 sudo killall "$COIN_DAEMON" >/dev/null 2>&1
+sudo killall -s SIGKILL zelcashd >/dev/null 2>&1
 sudo killall -s SIGKILL zelbenchd >/dev/null 2>&1
 sudo killall -s SIGKILL fluxbenchd >/dev/null 2>&1
 sleep 2
