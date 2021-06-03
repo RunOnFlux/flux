@@ -1553,7 +1553,7 @@
                 <br>
                 <a
                   @click="initiateSignWSUpdate"
-                  :href="'zel:?action=sign&message=' + dataToSign + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Fzelcash%2Fzelflux%2Fmaster%2FZelFront%2Fsrc%2Fassets%2Fimg%2FzelID.svg&callback=' + callbackValue"
+                  :href="'zel:?action=sign&message=' + dataToSign + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FZelFront%2Fsrc%2Fassets%2Fimg%2FzelID.svg&callback=' + callbackValue"
                 >
                   <img
                     class="zelidLogin"
@@ -1585,7 +1585,7 @@
               <div v-if="updateHash">
                 Pay with ZelCore
                 <br>
-                <a :href="'zel:?action=pay&coin=zelcash&address=' + apps.address + '&amount=' + appPricePerMonthForUpdate + '&message=' + updateHash + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Fzelcash%2Fzelflux%2Fmaster%2FZelFront%2Fsrc%2Fassets%2Fimg%2Fflux_banner.png'">
+                <a :href="'zel:?action=pay&coin=zelcash&address=' + apps.address + '&amount=' + appPricePerMonthForUpdate + '&message=' + updateHash + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FZelFront%2Fsrc%2Fassets%2Fimg%2Fflux_banner.png'">
                   <img
                     class="zelidLogin"
                     src="@/assets/img/zelID.svg"
@@ -1873,7 +1873,7 @@
             <br>
             <a
               @click="initiateSignWS"
-              :href="'zel:?action=sign&message=' + dataToSign + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Fzelcash%2Fzelflux%2Fmaster%2FZelFront%2Fsrc%2Fassets%2Fimg%2FzelID.svg&callback=' + callbackValue"
+              :href="'zel:?action=sign&message=' + dataToSign + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FZelFront%2Fsrc%2Fassets%2Fimg%2FzelID.svg&callback=' + callbackValue"
             >
               <img
                 class="zelidLogin"
@@ -1905,7 +1905,7 @@
           <div v-if="registrationHash">
             Pay with ZelCore
             <br>
-            <a :href="'zel:?action=pay&coin=zelcash&address=' + apps.address + '&amount=' + appPricePerMonth + '&message=' + registrationHash + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Fzelcash%2Fzelflux%2Fmaster%2FZelFront%2Fsrc%2Fassets%2Fimg%2Fflux_banner.png'">
+            <a :href="'zel:?action=pay&coin=zelcash&address=' + apps.address + '&amount=' + appPricePerMonth + '&message=' + registrationHash + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FZelFront%2Fsrc%2Fassets%2Fimg%2Fflux_banner.png'">
               <img
                 class="zelidLogin"
                 src="@/assets/img/zelID.svg"

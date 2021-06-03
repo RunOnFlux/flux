@@ -691,7 +691,7 @@ export default {
       const auth = qs.parse(zelidauth);
       console.log(auth);
       const self = this;
-      axios.get('https://raw.githubusercontent.com/zelcash/zelflux/master/package.json')
+      axios.get('https://raw.githubusercontent.com/runonflux/flux/master/package.json')
         .then((response) => {
           console.log(response);
           if (response.data.version !== self.fluxVersion) {
@@ -754,7 +754,7 @@ export default {
         .then((daemonResponse) => {
           console.log(daemonResponse);
           const daemonVersion = daemonResponse.data.data.version;
-          axios.get('https://raw.githubusercontent.com/zelcash/zelflux/master/helpers/daemoninfo.json')
+          axios.get('https://raw.githubusercontent.com/runonflux/flux/master/helpers/daemoninfo.json')
             .then((response) => {
               console.log(response);
               if (response.data.version !== daemonVersion) {
@@ -939,7 +939,7 @@ export default {
         .then((benchmarkResponse) => {
           console.log(benchmarkResponse);
           const benchmarkVersion = benchmarkResponse.data.data.version;
-          axios.get('https://raw.githubusercontent.com/zelcash/zelflux/master/helpers/benchmarkinfo.json')
+          axios.get('https://raw.githubusercontent.com/runonflux/flux/master/helpers/benchmarkinfo.json')
             .then((response) => {
               console.log(response);
               if (response.data.version !== benchmarkVersion) {
@@ -1163,7 +1163,7 @@ export default {
     },
     getLatestFluxVersion() {
       const self = this;
-      axios.get('https://raw.githubusercontent.com/zelcash/zelflux/master/package.json')
+      axios.get('https://raw.githubusercontent.com/runonflux/flux/master/package.json')
         .then((response) => {
           console.log(response);
           if (response.data.version !== self.fluxVersion) {
@@ -1182,7 +1182,7 @@ export default {
         .then((daemonResponse) => {
           console.log(daemonResponse);
           const daemonVersion = daemonResponse.data.data.version;
-          axios.get('https://raw.githubusercontent.com/zelcash/zelflux/master/helpers/daemoninfo.json')
+          axios.get('https://raw.githubusercontent.com/runonflux/flux/master/helpers/daemoninfo.json')
             .then((response) => {
               console.log(response);
               if (response.data.version !== daemonVersion) {
@@ -1206,7 +1206,7 @@ export default {
         .then((benchmarkResponse) => {
           console.log(benchmarkResponse);
           const benchmarkVersion = benchmarkResponse.data.data.version;
-          axios.get('https://raw.githubusercontent.com/zelcash/zelflux/master/helpers/benchmarkinfo.json')
+          axios.get('https://raw.githubusercontent.com/runonflux/flux/master/helpers/benchmarkinfo.json')
             .then((response) => {
               console.log(response);
               if (response.data.version !== benchmarkVersion) {

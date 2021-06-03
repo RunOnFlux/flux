@@ -26,7 +26,7 @@
     <div class="footer-middle">
       <ElLink
         type="primary"
-        href="https://github.com/zelcash/zelflux"
+        href="https://github.com/runonflux/flux"
         target="_blank" rel="noopener noreferrer"
       >Flux, Your Gateway to a Decentralized World</ElLink>
     </div>
@@ -95,7 +95,7 @@ export default {
   methods: {
     getLatestFluxVersion() {
       const self = this;
-      axios.get('https://raw.githubusercontent.com/zelcash/zelflux/master/package.json')
+      axios.get('https://raw.githubusercontent.com/runonflux/flux/master/package.json')
         .then((response) => {
           console.log(response);
           if (response.data.version !== self.fluxVersion) {

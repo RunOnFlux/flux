@@ -2850,7 +2850,7 @@ async function checkWhitelistedRepository(repotag) {
   }
   const splittedRepo = repotag.split(':');
   if (splittedRepo[0] && splittedRepo[1] && !splittedRepo[2]) {
-    const resWhitelistRepo = await serviceHelper.axiosGet('https://raw.githubusercontent.com/zelcash/zelflux/master/helpers/repositories.json');
+    const resWhitelistRepo = await serviceHelper.axiosGet('https://raw.githubusercontent.com/runonflux/flux/master/helpers/repositories.json');
 
     if (!resWhitelistRepo) {
       throw new Error('Unable to communicate with Flux Services! Try again later.');
@@ -2871,7 +2871,7 @@ async function checkWhitelistedZelID(zelid) {
   if (typeof zelid !== 'string') {
     throw new Error('Invalid Owner ZelID');
   }
-  const resZelIDs = await serviceHelper.axiosGet('https://raw.githubusercontent.com/zelcash/zelflux/master/helpers/zelids.json');
+  const resZelIDs = await serviceHelper.axiosGet('https://raw.githubusercontent.com/runonflux/flux/master/helpers/zelids.json');
 
   if (!resZelIDs) {
     throw new Error('Unable to communicate with Flux Services! Try again later.');
@@ -5305,7 +5305,7 @@ async function redeployAPI(req, res) {
 
 async function whitelistedRepositories(req, res) {
   try {
-    const whitelisted = await serviceHelper.axiosGet('https://raw.githubusercontent.com/zelcash/zelflux/master/helpers/repositories.json');
+    const whitelisted = await serviceHelper.axiosGet('https://raw.githubusercontent.com/runonflux/flux/master/helpers/repositories.json');
     const resultsResponse = serviceHelper.createDataMessage(whitelisted.data);
     res.json(resultsResponse);
   } catch (error) {
@@ -5317,7 +5317,7 @@ async function whitelistedRepositories(req, res) {
 
 async function whitelistedZelIDs(req, res) {
   try {
-    const whitelisted = await serviceHelper.axiosGet('https://raw.githubusercontent.com/zelcash/zelflux/master/helpers/zelids.json');
+    const whitelisted = await serviceHelper.axiosGet('https://raw.githubusercontent.com/runonflux/flux/master/helpers/zelids.json');
     const resultsResponse = serviceHelper.createDataMessage(whitelisted.data);
     res.json(resultsResponse);
   } catch (error) {
