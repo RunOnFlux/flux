@@ -390,17 +390,19 @@ async function nodeTier() {
 }
 
 async function isNodeStatusConfirmed() {
-  const response = await daemonService.getZelNodeStatus();
-  if (response.status === 'error') {
-    throw response.data;
-  }
-  if (response.data) {
+  try {
+    const response = await daemonService.getZelNodeStatus();
+    if (response.status === 'error') {
+      throw response.data;
+    }
     if (response.data.status === 'CONFIRMED') {
       return true;
     }
     return false;
+  } catch (error) {
+    log.error(error);
+    return false;
   }
-  return false;
 }
 
 async function appDockerCreate(appSpecifications) {
@@ -1166,10 +1168,6 @@ async function appsResources(req, res) {
 }
 
 async function createAppVolume(appSpecifications, res) {
-  const isNodeConfirmed = await isNodeStatusConfirmed();
-  if (!isNodeConfirmed) {
-    throw new Error('Flux Node is not Confirmed. Aborting.');
-  }
   const dfAsync = util.promisify(df);
   const appId = getAppIdentifier(appSpecifications.name);
 
@@ -1958,10 +1956,6 @@ async function removeAppLocallyApi(req, res) {
 
 async function checkAppRequirements(appSpecs) {
   // appSpecs has hdd, cpu and ram assigned to correct tier
-  const isNodeConfirmed = await isNodeStatusConfirmed();
-  if (!isNodeConfirmed) {
-    throw new Error('Flux Node is not Confirmed. Aborting.');
-  }
   const tier = await nodeTier();
   const resourcesLocked = await appsResources();
   if (resourcesLocked.status !== 'success') {
@@ -2759,10 +2753,9 @@ async function availableApps(req, res) {
       hddsuper: 5,
       hddbamf: 5,
       enviromentParameters: [`FOLD_USER=${userconfig.initial.zelid}`, 'FOLD_TEAM=262156', 'FOLD_ANON=false'],
-      commands: [
-      ],
+      commands: [],
       containerData: '/config',
-      hash: 'localSpecificationsVersion1', // hash of app message
+      hash: 'localSpecificationsFoldingVersion1', // hash of app message
       height: 0, // height of tx on which it was
     },
   ];
@@ -3656,10 +3649,6 @@ async function installTemporaryLocalApplication(req, res) {
     if (!appname) {
       throw new Error('No Flux App specified');
     }
-    const isNodeConfirmed = await isNodeStatusConfirmed();
-    if (!isNodeConfirmed) {
-      throw new Error('Flux Node is not Confirmed. Aborting install.');
-    }
     const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized) {
       const allApps = await availableApps();
@@ -3668,12 +3657,9 @@ async function installTemporaryLocalApplication(req, res) {
         throw new Error('Application Specifications not found');
       }
 
-      const tier = await nodeTier();
-      if (appname === 'KadenaChainWebNode' && tier === 'basic') {
-        throw new Error('KadenaChainWebNode is not allowed to install on Cumulus Node.');
-      }
       // get our tier and adjust true resource registered
       if (appSpecifications.tiered) {
+        const tier = await nodeTier();
         if (tier === 'basic') {
           appSpecifications.cpu = appSpecifications.cpubasic || appSpecifications.cpu;
           appSpecifications.ram = appSpecifications.rambasic || appSpecifications.ram;
@@ -4627,11 +4613,6 @@ async function trySpawningGlobalApplication() {
     // how do we continue with this function function?
     // we have globalapplication specifics list
     // check if we are synced
-    const isNodeConfirmed = await isNodeStatusConfirmed();
-    if (!isNodeConfirmed) {
-      log.info('Flux Node not Confirmed. Global applications will not be installed');
-      return;
-    }
     const tier = await nodeTier();
     if (tier === 'basic') {
       log.info('Cumulus node detected. Global applications will not be installed');
@@ -4640,6 +4621,13 @@ async function trySpawningGlobalApplication() {
     const synced = await checkSynced();
     if (synced !== true) {
       log.info('Flux not yet synced');
+      await serviceHelper.delay(config.fluxapps.installation.delay * 1000);
+      trySpawningGlobalApplication();
+      return;
+    }
+    const isNodeConfirmed = await isNodeStatusConfirmed();
+    if (!isNodeConfirmed) {
+      log.info('Flux Node not Confirmed. Global applications will not be installed');
       await serviceHelper.delay(config.fluxapps.installation.delay * 1000);
       trySpawningGlobalApplication();
       return;
@@ -4659,9 +4647,14 @@ async function trySpawningGlobalApplication() {
     // check if there is < 5 instances of nodes running the app
     // TODO evaluate if its not better to check locally running applications!
     const runningAppList = await getRunningAppList(randomApp);
+
+    const delay = config.fluxapps.installation.delay * 1000;
+    const probLn = Math.log(2 + numberOfGlobalApps); // from ln(2) -> ln(2 + x)
+    const adjustedDelay = delay / probLn;
+
     if (runningAppList.length >= config.fluxapps.minimumInstances) {
       log.info(`Application ${randomApp} is already spawned on ${runningAppList.length} instances`);
-      await serviceHelper.delay(config.fluxapps.installation.delay * 1000);
+      await serviceHelper.delay(adjustedDelay);
       trySpawningGlobalApplication();
       return;
     }
@@ -4680,7 +4673,7 @@ async function trySpawningGlobalApplication() {
     // check if app not running on this device
     if (runningAppList.find((document) => document.ip === myIP)) {
       log.info(`Application ${randomApp} is reported as already running on this Flux`);
-      await serviceHelper.delay(config.fluxapps.installation.delay * 1000);
+      await serviceHelper.delay(adjustedDelay);
       trySpawningGlobalApplication();
       return;
     }
@@ -4691,7 +4684,7 @@ async function trySpawningGlobalApplication() {
     }
     if (runningApps.data.find((app) => app.Names[0].substr(5, app.Names[0].length) === randomApp)) {
       log.info(`${randomApp} application is already running on this Flux`);
-      await serviceHelper.delay(config.fluxapps.installation.delay * 1000);
+      await serviceHelper.delay(adjustedDelay);
       trySpawningGlobalApplication();
       return;
     }
@@ -4715,10 +4708,10 @@ async function trySpawningGlobalApplication() {
     await checkAppRequirements(appSpecifications);
 
     // if all ok Check hashes comparison if its out turn to start the app. 1% probability.
-    const randomNumber = Math.floor((Math.random() * config.fluxapps.installation.probability));
+    const randomNumber = Math.floor((Math.random() * (config.fluxapps.installation.probability / probLn))); // higher probability for more apps on network
     if (randomNumber !== 0) {
       log.info('Other Fluxes are evaluating application installation');
-      await serviceHelper.delay(config.fluxapps.installation.delay * 1000);
+      await serviceHelper.delay(adjustedDelay);
       trySpawningGlobalApplication();
       return;
     }
