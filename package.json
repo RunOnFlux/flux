@@ -1,10 +1,10 @@
 {
   "name": "flux",
-  "version": "1.16.1",
+  "version": "1.17.0",
   "description": "Flux, Your Gateway to a Decentralized World",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/zelcash/zelflux.git"
+    "url": "git+https://github.com/runonflux/flux.git"
   },
   "keywords": [
     "fluxnode",
@@ -21,9 +21,9 @@
   "author": "Tadeas Kmenta (tadeas@zel.network)",
   "license": "AGPL-3.0-or-later",
   "bugs": {
-    "url": "https://github.com/zelcash/zelflux/issues"
+    "url": "https://github.com/runonflux/flux/issues"
   },
-  "homepage": "https://github.com/zelcash/zelflux#readme",
+  "homepage": "https://github.com/runonflux/flux#readme",
   "scripts": {
     "lint": "vue-cli-service lint",
     "test:e2e": "vue-cli-service test:e2e",

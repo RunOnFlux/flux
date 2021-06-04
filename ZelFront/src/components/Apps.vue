@@ -1338,9 +1338,6 @@
                 <el-form-item label="Ports">
                   <el-input
                     placeholder="Array of Ports on which application will be available"
-                    type="number"
-                    min="31000"
-                    max="39999"
                     v-model="appUpdateSpecification.ports"
                   >
                   </el-input>
@@ -1372,9 +1369,6 @@
                 <el-form-item label="Cont. Ports">
                   <el-input
                     placeholder="Container Ports - array of ports on which your container has"
-                    nubmer
-                    min="0"
-                    max="65535"
                     v-model="appUpdateSpecification.containerPorts"
                   >
                   </el-input>
@@ -1559,7 +1553,7 @@
                 <br>
                 <a
                   @click="initiateSignWSUpdate"
-                  :href="'zel:?action=sign&message=' + dataToSign + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Fzelcash%2Fzelflux%2Fmaster%2FZelFront%2Fsrc%2Fassets%2Fimg%2FzelID.svg&callback=' + callbackValue"
+                  :href="'zel:?action=sign&message=' + dataToSign + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FZelFront%2Fsrc%2Fassets%2Fimg%2FzelID.svg&callback=' + callbackValue"
                 >
                   <img
                     class="zelidLogin"
@@ -1591,7 +1585,7 @@
               <div v-if="updateHash">
                 Pay with ZelCore
                 <br>
-                <a :href="'zel:?action=pay&coin=zelcash&address=' + apps.address + '&amount=' + appPricePerMonthForUpdate + '&message=' + updateHash + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Fzelcash%2Fzelflux%2Fmaster%2FZelFront%2Fsrc%2Fassets%2Fimg%2Fflux_banner.png'">
+                <a :href="'zel:?action=pay&coin=zelcash&address=' + apps.address + '&amount=' + appPricePerMonthForUpdate + '&message=' + updateHash + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FZelFront%2Fsrc%2Fassets%2Fimg%2Fflux_banner.png'">
                   <img
                     class="zelidLogin"
                     src="@/assets/img/zelID.svg"
@@ -1879,7 +1873,7 @@
             <br>
             <a
               @click="initiateSignWS"
-              :href="'zel:?action=sign&message=' + dataToSign + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Fzelcash%2Fzelflux%2Fmaster%2FZelFront%2Fsrc%2Fassets%2Fimg%2FzelID.svg&callback=' + callbackValue"
+              :href="'zel:?action=sign&message=' + dataToSign + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FZelFront%2Fsrc%2Fassets%2Fimg%2FzelID.svg&callback=' + callbackValue"
             >
               <img
                 class="zelidLogin"
@@ -1911,7 +1905,7 @@
           <div v-if="registrationHash">
             Pay with ZelCore
             <br>
-            <a :href="'zel:?action=pay&coin=zelcash&address=' + apps.address + '&amount=' + appPricePerMonth + '&message=' + registrationHash + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Fzelcash%2Fzelflux%2Fmaster%2FZelFront%2Fsrc%2Fassets%2Fimg%2Fflux_banner.png'">
+            <a :href="'zel:?action=pay&coin=zelcash&address=' + apps.address + '&amount=' + appPricePerMonth + '&message=' + registrationHash + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FZelFront%2Fsrc%2Fassets%2Fimg%2Fflux_banner.png'">
               <img
                 class="zelidLogin"
                 src="@/assets/img/zelID.svg"

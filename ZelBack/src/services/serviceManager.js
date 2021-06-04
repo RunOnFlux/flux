@@ -63,6 +63,7 @@ async function startFluxFunctions() {
       log.info('Starting to spawn applications');
       appsService.trySpawningGlobalApplication();
     }, 14 * 60 * 1000);
+    fluxCommunication.adjustGitRepository(); // temporary function to be removed after couple of versions
   } catch (e) {
     log.error(e);
     setTimeout(() => {

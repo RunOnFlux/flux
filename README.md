@@ -2,7 +2,7 @@
 
 ![Flux.png](ZelFront/src/assets/img/flux_banner.png)
 
-[![DeepScan grade](https://deepscan.io/api/teams/6436/projects/8442/branches/100920/badge/grade.svg)](https://deepscan.io/dashboard#view=project&tid=6436&pid=8442&bid=100920) [![CodeFactor](https://www.codefactor.io/repository/github/zelcash/zelflux/badge)](https://www.codefactor.io/repository/github/zelcash/zelflux)[![Language grade: JavaScript](https://img.shields.io/lgtm/grade/javascript/g/zelcash/zelflux.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/zelcash/zelflux/context:javascript)
+[![DeepScan grade](https://deepscan.io/api/teams/6436/projects/8442/branches/100920/badge/grade.svg)](https://deepscan.io/dashboard#view=project&tid=6436&pid=8442&bid=100920) [![CodeFactor](https://www.codefactor.io/repository/github/runonflux/flux/badge)](https://www.codefactor.io/repository/github/runonflux/flux)[![Language grade: JavaScript](https://img.shields.io/lgtm/grade/javascript/g/runonflux/flux.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/runonflux/flux/context:javascript)
 
 Flux is available on domains, load balancing the entire Flux network. You can access both UI and API on following main domain
 
@@ -12,7 +12,7 @@ Flux is available on domains, load balancing the entire Flux network. You can ac
 
 ## API Documentation
 
-[API documentation](https://zelcash.github.io/zelfluxdocs/)
+[API documentation](https://docs.runonflux.io)
 
 ## The gateway to the Flux Network
 
@@ -53,7 +53,7 @@ This application is open source and distributed under the GNU AGPLv3 licence
 
 ## Start Flux
 
-Flux needs Daemon to be running, to setup Daemon follow [these instructions.](https://github.com/zelcash/ZelNodeInstallv3)
+Flux needs Daemon to be running, use apt.runonflux.io to install flux daemon
 
 build-essential is a recommended dependency
 

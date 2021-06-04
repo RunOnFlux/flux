@@ -394,6 +394,15 @@ export default {
       kdaNimbusWeek: 0,
       kdaStratusWeek: 0,
       priceInformationLoading: true,
+      cumulusCpuValue: 0,
+      nimbusCpuValue: 0,
+      stratusCpuValue: 0,
+      cumulusRamValue: 0,
+      nimbusRamValue: 0,
+      stratusRamValue: 0,
+      cumulusStorageValue: 0,
+      nimbusStorageValue: 0,
+      stratusStorageValue: 0,
     };
   },
   computed: {
@@ -632,7 +641,40 @@ export default {
       });
       imageSeries.data = nodeData;
     },
-    generateResources() {
+    async generateResources() {
+      const fluxTierBench = await axios.get('https://stats.runonflux.io/fluxinfo?projection=tier,benchmark');
+      const fluxTierBenchList = fluxTierBench.data.data;
+      fluxTierBenchList.forEach((node) => {
+        if (node.tier === 'CUMULUS' && node.benchmark && node.benchmark.bench) {
+          this.cumulusCpuValue += node.benchmark.bench.cores === 0 ? 2 : node.benchmark.bench.cores;
+          this.cumulusRamValue += node.benchmark.bench.ram < 4 ? 4 : Math.round(node.benchmark.bench.ram);
+          // const auxStorage = Number.isNaN(node.benchmark.bench.ssd) || Number.isNaN(node.benchmark.bench.hdd) ? 0 : node.benchmark.bench.ssd + node.benchmark.bench.hdd;
+          this.cumulusStorageValue += node.benchmark.bench.ssd + node.benchmark.bench.hdd < 50 ? 50 : node.benchmark.bench.ssd + node.benchmark.bench.hdd;
+        } else if (node.tier === 'CUMULUS') {
+          this.cumulusCpuValue += 2;
+          this.cumulusRamValue += 4;
+          this.cumulusStorageValue += 50;
+        } else if (node.tier === 'NIMBUS' && node.benchmark && node.benchmark.bench) {
+          this.nimbusCpuValue += node.benchmark.bench.cores === 0 ? 4 : node.benchmark.bench.cores;
+          this.nimbusRamValue += node.benchmark.bench.ram < 8 ? 8 : Math.round(node.benchmark.bench.ram);
+          // const auxStorage = Number.isNaN(node.benchmark.bench.ssd) || Number.isNaN(node.benchmark.bench.hdd) ? 0 : node.benchmark.bench.ssd + node.benchmark.bench.hdd;
+          this.nimbusStorageValue += node.benchmark.bench.ssd + node.benchmark.bench.hdd < 150 ? 150 : node.benchmark.bench.ssd + node.benchmark.bench.hdd;
+        } else if (node.tier === 'NIMBUS') {
+          this.nimbusCpuValue += 4;
+          this.nimbusRamValue += 8;
+          this.nimbusStorageValue += 150;
+        } else if (node.tier === 'STRATUS' && node.benchmark && node.benchmark.bench) {
+          this.stratusCpuValue += node.benchmark.bench.cores === 0 ? 8 : node.benchmark.bench.cores;
+          this.stratusRamValue += node.benchmark.bench.ram < 32 ? 32 : Math.round(node.benchmark.bench.ram);
+          // const auxStorage = Number.isNaN(node.benchmark.bench.ssd) || Number.isNaN(node.benchmark.bench.hdd) ? 0 : node.benchmark.bench.ssd + node.benchmark.bench.hdd;
+          this.stratusStorageValue += node.benchmark.bench.ssd + node.benchmark.bench.hdd < 600 ? 600 : node.benchmark.bench.ssd + node.benchmark.bench.hdd;
+        } else if (node.tier === 'STRATUS') {
+          this.stratusCpuValue += 8;
+          this.stratusRamValue += 32;
+          this.stratusStorageValue += 600;
+        }
+      });
+
       this.generateCPU();
       this.generateRAM();
       this.generateSSD();
@@ -643,29 +685,21 @@ export default {
       // Create chart instance
       const chart = am4core.create('cpucurrent', am4charts.XYChart);
 
-      const cumuluses = this.fluxList.filter((node) => (node.tier === 'CUMULUS'));
-      const nimbuses = this.fluxList.filter((node) => (node.tier === 'NIMBUS'));
-      const stratuses = this.fluxList.filter((node) => (node.tier === 'STRATUS'));
-
-      const cumulusValue = cumuluses.length * 2;
-      const nimbusValue = nimbuses.length * 4;
-      const stratusValus = stratuses.length * 8;
-
-      const total = stratusValus + nimbusValue + cumulusValue;
+      const total = this.stratusCpuValue + this.nimbusCpuValue + this.cumulusCpuValue;
 
       // Add data
       chart.data = [
         {
           category: 'Cumulus',
-          value: cumulusValue,
+          value: this.cumulusCpuValue,
         },
         {
           category: 'Nimbus',
-          value: nimbusValue,
+          value: this.nimbusCpuValue,
         },
         {
           category: 'Stratus',
-          value: stratusValus,
+          value: this.stratusCpuValue,
         },
       ];
 
@@ -695,35 +729,28 @@ export default {
         self.cpuLoading = false;
       }, 1000);
     },
+
     generateRAM() {
       am4core.useTheme(am4themes_dark);
       am4core.useTheme(am4themes_myTheme);
       // Create chart instance
       const chart = am4core.create('ramcurrent', am4charts.XYChart);
 
-      const cumuluses = this.fluxList.filter((node) => (node.tier === 'CUMULUS'));
-      const nimbuses = this.fluxList.filter((node) => (node.tier === 'NIMBUS'));
-      const stratuses = this.fluxList.filter((node) => (node.tier === 'STRATUS'));
-
-      const cumulusValue = cumuluses.length * 4;
-      const nimbusValue = nimbuses.length * 8;
-      const stratusValus = stratuses.length * 30;
-
-      const total = stratusValus + nimbusValue + cumulusValue;
+      const total = this.stratusRamValue + this.nimbusRamValue + this.cumulusRamValue;
 
       // Add data
       chart.data = [
         {
           category: 'Cumulus',
-          value: cumulusValue,
+          value: this.cumulusRamValue,
         },
         {
           category: 'Nimbus',
-          value: nimbusValue,
+          value: this.nimbusRamValue,
         },
         {
           category: 'Stratus',
-          value: stratusValus,
+          value: this.stratusRamValue,
         },
       ];
 
@@ -759,29 +786,21 @@ export default {
       // Create chart instance
       const chart = am4core.create('ssdcurrent', am4charts.XYChart);
 
-      const cumuluses = this.fluxList.filter((node) => (node.tier === 'CUMULUS'));
-      const nimbuses = this.fluxList.filter((node) => (node.tier === 'NIMBUS'));
-      const stratuses = this.fluxList.filter((node) => (node.tier === 'STRATUS'));
-
-      const cumulusValue = cumuluses.length * 40;
-      const nimbusValue = nimbuses.length * 150;
-      const stratusValus = stratuses.length * 600;
-
-      const total = stratusValus + nimbusValue + cumulusValue;
+      const total = this.stratusStorageValue + this.nimbusStorageValue + this.cumulusStorageValue;
 
       // Add data
       chart.data = [
         {
           category: 'Cumulus',
-          value: cumulusValue,
+          value: this.cumulusStorageValue,
         },
         {
           category: 'Nimbus',
-          value: nimbusValue,
+          value: this.nimbusStorageValue,
         },
         {
           category: 'Stratus',
-          value: stratusValus,
+          value: this.stratusStorageValue,
         },
       ];
 
@@ -885,7 +904,7 @@ export default {
       chart.legend = new am4charts.Legend();
       chart.legend.position = 'top';
       const title = chart.titles.create();
-      title.text = 'CPU History';
+      title.text = 'CPU History (Based min. req. specs)';
       title.fontSize = 20;
       title.marginBottom = 15;
       const self = this;
@@ -966,7 +985,7 @@ export default {
       chart.legend = new am4charts.Legend();
       chart.legend.position = 'top';
       const title = chart.titles.create();
-      title.text = 'RAM History';
+      title.text = 'RAM History (Based min. req. specs)';
       title.fontSize = 20;
       title.marginBottom = 15;
       const self = this;
@@ -1047,7 +1066,7 @@ export default {
       chart.legend = new am4charts.Legend();
       chart.legend.position = 'top';
       const title = chart.titles.create();
-      title.text = 'SSD History';
+      title.text = 'SSD History (Based min. req. specs)';
       title.fontSize = 20;
       title.marginBottom = 15;
       const self = this;

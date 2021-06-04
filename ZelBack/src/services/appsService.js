@@ -389,6 +389,22 @@ async function nodeTier() {
   throw new Error('Unrecognised Flux Node tier');
 }
 
+async function isNodeStatusConfirmed() {
+  try {
+    const response = await daemonService.getZelNodeStatus();
+    if (response.status === 'error') {
+      throw response.data;
+    }
+    if (response.data.status === 'CONFIRMED') {
+      return true;
+    }
+    return false;
+  } catch (error) {
+    log.error(error);
+    return false;
+  }
+}
+
 async function appDockerCreate(appSpecifications) {
   let exposedPorts = {};
   let portBindings = {};
@@ -1456,6 +1472,10 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
           }
         }
       }
+    }
+
+    if (!appSpecifications) {
+      throw new Error('Flux App not found');
     }
 
     // simplifying ignore error messages for now
@@ -2663,7 +2683,7 @@ async function availableApps(req, res) {
     { // app specifications
       version: 2,
       name: 'FoldingAtHomeB',
-      description: 'Folding @ Home is cool :)',
+      description: 'Folding @ Home for AMD64 Devices. Folding@home is a project focused on disease research. Client Visit was disabled, to check your stats go to https://stats.foldingathome.org/donor and search for your zelid.',
       repotag: 'yurinnick/folding-at-home:latest',
       owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
       tiered: true,
@@ -2677,20 +2697,15 @@ async function availableApps(req, res) {
       cpusuper: 1,
       cpubamf: 2,
       rambasic: 500,
-      ramsuper: 1000,
-      rambamf: 4000,
+      ramsuper: 500,
+      rambamf: 500,
       hddbasic: 5,
       hddsuper: 5,
       hddbamf: 5,
       enviromentParameters: [`USER=${userconfig.initial.zelid}`, 'TEAM=262156', 'ENABLE_GPU=false', 'ENABLE_SMP=true'],
-      commands: [
-        '--allow',
-        '0/0',
-        '--web-allow',
-        '0/0',
-      ],
+      commands: [],
       containerData: '/config',
-      hash: 'localappinstancehashABCDE', // hash of app message
+      hash: 'localappinstancehashABCDEF', // hash of app message
       height: 0, // height of tx on which it was
     },
     {
@@ -2700,20 +2715,48 @@ async function availableApps(req, res) {
         + 'Chainweb is a braided, parallelized Proof Of Work consensus mechanism that improves throughput and scalability in executing transactions on the blockchain while maintaining the security and integrity found in Bitcoin. '
         + 'The healthy information tells you if your node is running and synced. If you just installed the docker it can say unhealthy for long time because on first run a bootstrap is downloaded and extracted to make your node sync faster before the node is started. '
         + 'Do not stop or restart the docker in the first hour after installation. You can also check if your kadena node is synced, by going to running apps and press visit button on kadena and compare your node height with Kadena explorer. Thank you.',
-      repotag: 'zelcash/kadena-chainweb-node:2.7',
+      repotag: 'runonflux/kadena-chainweb-node:2.7',
       owner: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
       ports: [30004, 30005],
       containerPorts: [30004, 30005],
       domains: ['', ''],
       tiered: false,
-      cpu: 2, // true resource registered for app. If not tiered only this is available
-      ram: 4000, // true resource registered for app
+      cpu: 0.8, // true resource registered for app. If not tiered only this is available
+      ram: 1800, // true resource registered for app
       hdd: 60, // true resource registered for app
       enviromentParameters: ['CHAINWEB_P2P_PORT=30004', 'CHAINWEB_SERVICE_PORT=30005', 'LOGLEVEL=warn'],
       commands: ['/bin/bash', '-c', '(test -d /data/chainweb-db/0 && ./run-chainweb-node.sh) || (/chainweb/initialize-db.sh && ./run-chainweb-node.sh)'],
       containerData: '/data', // cannot be root todo in verification
       hash: 'localSpecificationsVersion8', // hash of app message
       height: 680000, // height of tx on which it was
+    },
+    { // app specifications
+      version: 2,
+      name: 'FoldingAtHomeArm64',
+      description: 'Folding @ Home For ARM64. Folding@home is a project focused on disease research. Client Visit was disabled, to check your stats go to https://stats.foldingathome.org/donor and search for your zelid.',
+      repotag: 'beastob/foldingathome-arm64',
+      owner: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
+      tiered: true,
+      ports: [30000],
+      containerPorts: [7396],
+      domains: [''],
+      cpu: 1,
+      ram: 500,
+      hdd: 5,
+      cpubasic: 1,
+      cpusuper: 2,
+      cpubamf: 2,
+      rambasic: 500,
+      ramsuper: 500,
+      rambamf: 500,
+      hddbasic: 5,
+      hddsuper: 5,
+      hddbamf: 5,
+      enviromentParameters: [`FOLD_USER=${userconfig.initial.zelid}`, 'FOLD_TEAM=262156', 'FOLD_ANON=false'],
+      commands: [],
+      containerData: '/config',
+      hash: 'localSpecificationsFoldingVersion1', // hash of app message
+      height: 0, // height of tx on which it was
     },
   ];
 
@@ -2800,7 +2843,7 @@ async function checkWhitelistedRepository(repotag) {
   }
   const splittedRepo = repotag.split(':');
   if (splittedRepo[0] && splittedRepo[1] && !splittedRepo[2]) {
-    const resWhitelistRepo = await serviceHelper.axiosGet('https://raw.githubusercontent.com/zelcash/zelflux/master/helpers/repositories.json');
+    const resWhitelistRepo = await serviceHelper.axiosGet('https://raw.githubusercontent.com/runonflux/flux/master/helpers/repositories.json');
 
     if (!resWhitelistRepo) {
       throw new Error('Unable to communicate with Flux Services! Try again later.');
@@ -2821,7 +2864,7 @@ async function checkWhitelistedZelID(zelid) {
   if (typeof zelid !== 'string') {
     throw new Error('Invalid Owner ZelID');
   }
-  const resZelIDs = await serviceHelper.axiosGet('https://raw.githubusercontent.com/zelcash/zelflux/master/helpers/zelids.json');
+  const resZelIDs = await serviceHelper.axiosGet('https://raw.githubusercontent.com/runonflux/flux/master/helpers/zelids.json');
 
   if (!resZelIDs) {
     throw new Error('Unable to communicate with Flux Services! Try again later.');
@@ -3598,12 +3641,18 @@ async function updateAppGlobalyApi(req, res) {
   });
 }
 
-async function installTemporaryLocalApplication(req, res, applicationName) {
+async function installTemporaryLocalApplication(req, res) {
   try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname;
+
+    if (!appname) {
+      throw new Error('No Flux App specified');
+    }
     const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized) {
       const allApps = await availableApps();
-      const appSpecifications = allApps.find((app) => app.name === applicationName);
+      const appSpecifications = allApps.find((app) => app.name === appname);
       if (!appSpecifications) {
         throw new Error('Application Specifications not found');
       }
@@ -4576,6 +4625,13 @@ async function trySpawningGlobalApplication() {
       trySpawningGlobalApplication();
       return;
     }
+    const isNodeConfirmed = await isNodeStatusConfirmed();
+    if (!isNodeConfirmed) {
+      log.info('Flux Node not Confirmed. Global applications will not be installed');
+      await serviceHelper.delay(config.fluxapps.installation.delay * 1000);
+      trySpawningGlobalApplication();
+      return;
+    }
     // get all the applications list names
     const globalAppNames = await getAllGlobalApplicationsNames();
     // pick a random one
@@ -4591,9 +4647,14 @@ async function trySpawningGlobalApplication() {
     // check if there is < 5 instances of nodes running the app
     // TODO evaluate if its not better to check locally running applications!
     const runningAppList = await getRunningAppList(randomApp);
+
+    const delay = config.fluxapps.installation.delay * 1000;
+    const probLn = Math.log(2 + numberOfGlobalApps); // from ln(2) -> ln(2 + x)
+    const adjustedDelay = delay / probLn;
+
     if (runningAppList.length >= config.fluxapps.minimumInstances) {
       log.info(`Application ${randomApp} is already spawned on ${runningAppList.length} instances`);
-      await serviceHelper.delay(config.fluxapps.installation.delay * 1000);
+      await serviceHelper.delay(adjustedDelay);
       trySpawningGlobalApplication();
       return;
     }
@@ -4612,7 +4673,7 @@ async function trySpawningGlobalApplication() {
     // check if app not running on this device
     if (runningAppList.find((document) => document.ip === myIP)) {
       log.info(`Application ${randomApp} is reported as already running on this Flux`);
-      await serviceHelper.delay(config.fluxapps.installation.delay * 1000);
+      await serviceHelper.delay(adjustedDelay);
       trySpawningGlobalApplication();
       return;
     }
@@ -4623,7 +4684,7 @@ async function trySpawningGlobalApplication() {
     }
     if (runningApps.data.find((app) => app.Names[0].substr(5, app.Names[0].length) === randomApp)) {
       log.info(`${randomApp} application is already running on this Flux`);
-      await serviceHelper.delay(config.fluxapps.installation.delay * 1000);
+      await serviceHelper.delay(adjustedDelay);
       trySpawningGlobalApplication();
       return;
     }
@@ -4647,10 +4708,10 @@ async function trySpawningGlobalApplication() {
     await checkAppRequirements(appSpecifications);
 
     // if all ok Check hashes comparison if its out turn to start the app. 1% probability.
-    const randomNumber = Math.floor((Math.random() * config.fluxapps.installation.probability));
+    const randomNumber = Math.floor((Math.random() * (config.fluxapps.installation.probability / probLn))); // higher probability for more apps on network
     if (randomNumber !== 0) {
       log.info('Other Fluxes are evaluating application installation');
-      await serviceHelper.delay(config.fluxapps.installation.delay * 1000);
+      await serviceHelper.delay(adjustedDelay);
       trySpawningGlobalApplication();
       return;
     }
@@ -5237,7 +5298,7 @@ async function redeployAPI(req, res) {
 
 async function whitelistedRepositories(req, res) {
   try {
-    const whitelisted = await serviceHelper.axiosGet('https://raw.githubusercontent.com/zelcash/zelflux/master/helpers/repositories.json');
+    const whitelisted = await serviceHelper.axiosGet('https://raw.githubusercontent.com/runonflux/flux/master/helpers/repositories.json');
     const resultsResponse = serviceHelper.createDataMessage(whitelisted.data);
     res.json(resultsResponse);
   } catch (error) {
@@ -5249,7 +5310,7 @@ async function whitelistedRepositories(req, res) {
 
 async function whitelistedZelIDs(req, res) {
   try {
-    const whitelisted = await serviceHelper.axiosGet('https://raw.githubusercontent.com/zelcash/zelflux/master/helpers/zelids.json');
+    const whitelisted = await serviceHelper.axiosGet('https://raw.githubusercontent.com/runonflux/flux/master/helpers/zelids.json');
     const resultsResponse = serviceHelper.createDataMessage(whitelisted.data);
     res.json(resultsResponse);
   } catch (error) {
