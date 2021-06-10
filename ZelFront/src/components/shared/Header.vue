@@ -272,6 +272,14 @@
       <el-menu-item index="60">
         Dashboard
       </el-menu-item>
+      <el-submenu
+        index="70"
+        :popper-append-to-body=true
+      >
+        <template slot="title">XDAO</template>
+        <el-menu-item index="70-1">List Proposal</el-menu-item>
+        <el-menu-item index="70-2">Submit Proposal</el-menu-item>
+      </el-submenu>
       <el-menu-item
         v-if="privilage === 'user' || privilage === 'admin' || privilage === 'fluxteam'"
         index="100"
@@ -490,6 +498,12 @@ export default {
           break;
         case '60':
           this.$store.commit('setDashboardSection', 'dashboard');
+          break;
+        case '70-1':
+          this.$store.commit('setXdaoSection', 'listproposals');
+          break;
+        case '70-2':
+          this.$store.commit('setXdaoSection', 'submitproposal');
           break;
         case '100':
           this.logoutCurrentSession();
