@@ -277,7 +277,7 @@
         :popper-append-to-body=true
       >
         <template slot="title">XDAO</template>
-        <el-menu-item index="70-1">List Proposal</el-menu-item>
+        <el-menu-item index="70-1">List Proposals</el-menu-item>
         <el-menu-item index="70-2">Submit Proposal</el-menu-item>
       </el-submenu>
       <el-menu-item
