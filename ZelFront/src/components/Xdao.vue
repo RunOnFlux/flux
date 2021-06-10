@@ -402,6 +402,7 @@ export default {
           this.getKadenaAccount();
           this.getLatestFluxVersion();
           break;
+        case null:
           console.log('xdao Section hidden');
           break;
         default:
