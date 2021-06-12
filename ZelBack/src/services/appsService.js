@@ -6094,6 +6094,7 @@ async function fluxShareUpload(req, res) {
 }
 
 module.exports = {
+  nodeTier,
   dockerListContainers,
   appPull,
   listRunningApps,

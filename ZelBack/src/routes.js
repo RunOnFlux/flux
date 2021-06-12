@@ -1052,7 +1052,7 @@ module.exports = (app, expressWs) => {
     idService.emergencyPhrase(req, res);
   });
 
-  app.get('/flux/getnodetier', cache('30 seconds'), (req, res) => {
+  app.get('/flux/nodetier', cache('30 seconds'), (req, res) => {
     fluxService.getNodeTier(req, res);
   });
   app.get('/flux/info', cache('30 seconds'), (req, res) => {

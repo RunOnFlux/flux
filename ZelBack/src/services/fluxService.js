@@ -681,45 +681,26 @@ async function adjustKadenaAccount(req, res) {
   }
 }
 
-function getCollateralInfo(collateralOutpoint) {
-  const a = collateralOutpoint;
-  const b = a.split(', ');
-  const txhash = b[0].substr(10, b[0].length);
-  const txindex = serviceHelper.ensureNumber(b[1].split(')')[0]);
-  return { txhash, txindex };
-}
-
 async function getNodeTier(req, res) {
-  // function specific used by fluxbench to know the flux tier that benchmarks should pass
-  const nodeStatus = await daemonService.getZelNodeStatus();
-  if (nodeStatus.status === 'error') {
-    throw nodeStatus.data;
+  try {
+    let responseAux;
+    const tier = await appsService.nodeTier();
+    if (tier === 'basic') {
+      responseAux = 'cumulus';
+    } else if (tier === 'super') {
+      responseAux = 'nimbus';
+    } else if (tier === 'bamf') {
+      responseAux = 'stratus';
+    } else {
+      throw new Error('Unrecognised Flux node tier'); // shall not happen as nodeTier throws
+    }
+    const response = serviceHelper.createDataMessage(responseAux);
+    res.json(response);
+  } catch (error) {
+    log.error(error);
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
   }
-  const collateralInformation = getCollateralInfo(nodeStatus.data.collateral);
-  // get transaction information about collateralInformation.txhash
-  const request = {
-    params: {
-      txid: collateralInformation.txhash,
-      verbose: 1,
-    },
-  };
-  const txInformation = await daemonService.getRawTransaction(request);
-  if (txInformation.status === 'error') {
-    throw txInformation.data;
-  }
-  // get collateralInformation.txindex vout
-  const { value } = txInformation.data.vout[collateralInformation.txindex];
-
-  let responseAux = 'Unrecognised Flux Node tier';
-  if (value === 10000) {
-    responseAux = 'cumulus';
-  } else if (value === 25000) {
-    responseAux = 'nimbus';
-  } else if (value === 100000) {
-    responseAux = 'stratus';
-  }
-  const response = serviceHelper.createDataMessage(responseAux);
-  return res ? res.json(response) : response;
 }
 
 module.exports = {
