@@ -1,0 +1,87 @@
+export default [
+  {
+    path: '/fluxadmin/loggedsessions',
+    name: 'fluxadmin-loggedsessions',
+    component: () => import('@/views/daemon/control/GetInfo.vue'),
+    meta: {
+      pageTitle: 'Logged Sessions',
+      breadcrumb: [
+        {
+          text: 'Flux Admin',
+        },
+        {
+          text: 'Logged Sessions',
+          active: true,
+        },
+      ],
+    },
+  },
+  {
+    path: '/fluxadmin/manageflux',
+    name: 'fluxadmin-manageflux',
+    component: () => import('@/views/daemon/control/GetInfo.vue'),
+    meta: {
+      pageTitle: 'Manage Flux',
+      breadcrumb: [
+        {
+          text: 'Flux Admin',
+        },
+        {
+          text: 'Manage Flux',
+          active: true,
+        },
+      ],
+    },
+  },
+  {
+    path: '/fluxadmin/managedaemon',
+    name: 'fluxadmin-managedaemon',
+    component: () => import('@/views/daemon/control/GetInfo.vue'),
+    meta: {
+      pageTitle: 'Manage Daemon',
+      breadcrumb: [
+        {
+          text: 'Flux Admin',
+        },
+        {
+          text: 'Manage Daemon',
+          active: true,
+        },
+      ],
+    },
+  },
+  {
+    path: '/fluxadmin/managebenchmark',
+    name: 'fluxadmin-managebenchmark',
+    component: () => import('@/views/daemon/control/GetInfo.vue'),
+    meta: {
+      pageTitle: 'Manage Benchmark',
+      breadcrumb: [
+        {
+          text: 'Flux Admin',
+        },
+        {
+          text: 'Manage Benchmark',
+          active: true,
+        },
+      ],
+    },
+  },
+  {
+    path: '/fluxadmin/manageusers',
+    name: 'fluxadmin-manageusers',
+    component: () => import('@/views/daemon/control/GetInfo.vue'),
+    meta: {
+      pageTitle: 'Manage Users',
+      breadcrumb: [
+        {
+          text: 'Flux Admin',
+        },
+        {
+          text: 'Manage Users',
+          active: true,
+        },
+      ],
+    },
+  },
+]

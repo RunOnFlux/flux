@@ -1,18 +1,18 @@
-import Api from '@/services/Api';
+import Api from '@/services/Api'
 
-const qs = require('qs');
+const qs = require('qs')
 
 export default {
   loginPhrase() {
-    return Api().get('/id/loginphrase');
+    return Api().get('/id/loginphrase')
   },
 
   emergencyLoginPhrase() {
-    return Api().get('/id/emergencyphrase');
+    return Api().get('/id/emergencyphrase')
   },
 
   verifyLogin(loginInfo) {
-    return Api().post('/id/verifylogin', qs.stringify(loginInfo));
+    return Api().post('/id/verifylogin', qs.stringify(loginInfo))
   },
 
   loggedSessions(zelidauthHeader) {
@@ -20,7 +20,7 @@ export default {
       headers: {
         zelidauth: zelidauthHeader,
       },
-    });
+    })
   },
 
   loggedUsers(zelidauthHeader) {
@@ -28,7 +28,7 @@ export default {
       headers: {
         zelidauth: zelidauthHeader,
       },
-    });
+    })
   },
 
   activeLoginPhrases(zelidauthHeader) {
@@ -36,7 +36,7 @@ export default {
       headers: {
         zelidauth: zelidauthHeader,
       },
-    });
+    })
   },
 
   logoutCurrentSession(zelidauthHeader) {
@@ -44,19 +44,19 @@ export default {
       headers: {
         zelidauth: zelidauthHeader,
       },
-    });
+    })
   },
 
   logoutSpecificSession(zelidauthHeader, loginPhrase) {
     const data = {
       loginPhrase,
-    };
+    }
     const axiosConfig = {
       headers: {
         zelidauth: zelidauthHeader,
       },
-    };
-    return Api().post('/id/logoutspecificsession', qs.stringify(data), axiosConfig);
+    }
+    return Api().post('/id/logoutspecificsession', qs.stringify(data), axiosConfig)
   },
 
   logoutAllSessions(zelidauthHeader) {
@@ -64,7 +64,7 @@ export default {
       headers: {
         zelidauth: zelidauthHeader,
       },
-    });
+    })
   },
 
   logoutAllUsers(zelidauthHeader) {
@@ -72,13 +72,13 @@ export default {
       headers: {
         zelidauth: zelidauthHeader,
       },
-    });
+    })
   },
   checkUserLogged(zelid, signature) {
     const data = {
       zelid,
       signature,
-    };
-    return Api().post('/id/checkprivilege', qs.stringify(data));
+    }
+    return Api().post('/id/checkprivilege', qs.stringify(data))
   },
-};
+}

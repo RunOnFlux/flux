@@ -1,4 +1,5 @@
 const path = require('path');
+const CopyPlugin = require('copy-webpack-plugin');
 const CompressionPlugin = require('compression-webpack-plugin');
 // ideally https://github.com/webpack-contrib/compression-webpack-plugin#using-brotli from nodejs 11.7.0
 // const BrotliPlugin = require('brotli-webpack-plugin');
@@ -6,7 +7,13 @@ const CompressionPlugin = require('compression-webpack-plugin');
 
 // const productionGzipExtensions = ['js', 'css'];
 
-const plugins = [];
+const plugins = [
+  new CopyPlugin({
+    patterns: [
+      { from: path.resolve(__dirname, "ZelFront", "public"), },
+    ],
+  }),
+];
 
 // if (process.env.NODE_ENV === 'production') {
 //   const compressionTest = /\.(js|css|json|txt|html|ico|svg)(\?.*)?$/i;
@@ -29,35 +36,27 @@ const plugins = [];
 // }
 
 module.exports = {
-  chainWebpack: (config) => {
-    config
-      .entry('app')
-      .clear()
-      .add('./ZelFront/src/main.js')
-      .end();
-    config.resolve.alias
-      .set('@', path.join(__dirname, './ZelFront/src'));
-    config.plugin('CompressionPlugin').use(CompressionPlugin);
-    config.plugin('preload-index').tap((options) => {
-      // eslint-disable-next-line no-param-reassign
-      options[0].include = {
-        type: 'allChunks',
-      };
-      return options;
-    });
-  },
-  outputDir: path.join(__dirname, './ZelFront/dist'),
-  pages: {
-    index: {
-      // entry for the page
-      entry: 'ZelFront/src/main.js',
-      // the source template
-      template: 'ZelFront/public/index.html',
-      // output as dist/index.html
-      filename: 'index.html',
+  css: {
+    loaderOptions: {
+      sass: {
+        sassOptions: {
+          includePaths: ['./node_modules', './ZelFront/src/assets'],
+        },
+      },
     },
   },
   configureWebpack: {
+    resolve: {
+      alias: {
+        '@': path.resolve(__dirname, './ZelFront/src/'),
+        '@themeConfig': path.resolve(__dirname, './ZelFront/themeConfig.js'),
+        '@core': path.resolve(__dirname, './ZelFront/src/@core'),
+        '@validations': path.resolve(__dirname, './ZelFront/src/@core/utils/validations/validations.js'),
+        '@axios': path.resolve(__dirname, './ZelFront/src/libs/axios'),
+        'ZelBack': path.resolve(__dirname, './ZelBack'),
+        'Config': path.resolve(__dirname, './config'),
+      },
+    },
     plugins,
     externals(context, request, callback) {
       if (/xlsx|canvg|pdfmake/.test(request)) {
@@ -67,6 +66,40 @@ module.exports = {
     },
     watchOptions: {
       ignored: /node_modules/,
+    },
+  },
+  chainWebpack: config => {
+    config.module
+      .rule('vue')
+      .use('vue-loader')
+      .loader('vue-loader')
+      .tap(options => {
+        // eslint-disable-next-line no-param-reassign
+        options.transformAssetUrls = {
+          img: 'src',
+          image: 'xlink:href',
+          'b-avatar': 'src',
+          'b-img': 'src',
+          'b-img-lazy': ['src', 'blank-src'],
+          'b-card': 'img-src',
+          'b-card-img': 'src',
+          'b-card-img-lazy': ['src', 'blank-src'],
+          'b-carousel-slide': 'img-src',
+          'b-embed': 'src',
+        }
+        return options
+      })
+  },
+  transpileDependencies: ['resize-detector'],
+  outputDir: path.join(__dirname, './ZelFront/dist'),
+  pages: {
+    index: {
+      // entry for the page
+      entry: 'ZelFront/src/main.js',
+      // the source template
+      template: 'ZelFront/public/index.html',
+      // output as dist/index.html
+      filename: 'index.html',
     },
   },
 };
