@@ -681,6 +681,28 @@ async function adjustKadenaAccount(req, res) {
   }
 }
 
+async function getNodeTier(req, res) {
+  try {
+    let responseAux;
+    const tier = await appsService.nodeTier();
+    if (tier === 'basic') {
+      responseAux = 'cumulus';
+    } else if (tier === 'super') {
+      responseAux = 'nimbus';
+    } else if (tier === 'bamf') {
+      responseAux = 'stratus';
+    } else {
+      throw new Error('Unrecognised Flux node tier'); // shall not happen as nodeTier throws
+    }
+    const response = serviceHelper.createDataMessage(responseAux);
+    res.json(response);
+  } catch (error) {
+    log.error(error);
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+  }
+}
+
 module.exports = {
   startDaemon,
   updateFlux,
@@ -714,4 +736,5 @@ module.exports = {
   adjustCruxID,
   adjustKadenaAccount,
   fluxBackendFolder,
+  getNodeTier,
 };
