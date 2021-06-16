@@ -114,7 +114,6 @@
                 :data="row.item.rank.toFixed(0)"
               />
             </b-card>
-            {{ row }}
           </template>
         </b-table>
       </b-col>
