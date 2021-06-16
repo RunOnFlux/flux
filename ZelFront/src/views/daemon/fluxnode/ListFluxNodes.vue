@@ -1,7 +1,11 @@
 <template>
   <b-card>
     <b-row>
-      <b-col md="4" sm="4" class="my-1">
+      <b-col
+        md="4"
+        sm="4"
+        class="my-1"
+      >
         <b-form-group class="mb-0">
           <label class="d-inline-block text-left mr-50">Per page</label>
           <b-form-select
@@ -13,7 +17,10 @@
           />
         </b-form-group>
       </b-col>
-      <b-col md="8" class="my-1">
+      <b-col
+        md="8"
+        class="my-1"
+      >
         <b-form-group
           label="Filter"
           label-cols-sm="1"
@@ -42,6 +49,7 @@
 
       <b-col cols="12">
         <b-table
+          class="fluxnode-table"
           striped
           hover
           responsive
@@ -56,6 +64,58 @@
           :filter-included-fields="filterOn"
           @filtered="onFiltered"
         >
+          <template #cell(show_details)="row">
+            <a @click="row.toggleDetails">
+              <v-icon
+                v-if="!row.detailsShowing"
+                name="chevron-down"
+              />
+              <v-icon
+                v-if="row.detailsShowing"
+                name="chevron-up"
+              />
+            </a>
+          </template>
+          <template #row-details="row">
+            <b-card class="mx-2">
+              <list-entry
+                v-if="row.item.collateral"
+                title="Collateral"
+                :data="row.item.collateral"
+              />
+              <list-entry
+                v-if="row.item.lastpaid"
+                title="Last Paid"
+                :data="new Date(row.item.lastpaid * 1000).toLocaleString('en-GB', timeoptions.shortDate)"
+              />
+              <list-entry
+                v-if="row.item.activesince"
+                title="Active Since"
+                :data="new Date(row.item.activesince * 1000).toLocaleString('en-GB', timeoptions.shortDate)"
+              />
+              <list-entry
+                v-if="row.item.last_paid_height"
+                title="Last Paid Height"
+                :data="row.item.last_paid_height.toFixed(0)"
+              />
+              <list-entry
+                v-if="row.item.confirmed_height"
+                title="Confirmed Height"
+                :data="row.item.confirmed_height.toFixed(0)"
+              />
+              <list-entry
+                v-if="row.item.last_confirmed_height"
+                title="Last Confirmed Height"
+                :data="row.item.last_confirmed_height.toFixed(0)"
+              />
+              <list-entry
+                v-if="row.item.rank >= 0"
+                title="Rank"
+                :data="row.item.rank.toFixed(0)"
+              />
+            </b-card>
+            {{ row }}
+          </template>
         </b-table>
       </b-col>
 
@@ -77,11 +137,32 @@
 import {
   BCard, BTable, BRow, BCol, BFormGroup, BFormSelect, BPagination, BInputGroup, BFormInput, BInputGroupAppend, BButton,
 } from 'bootstrap-vue'
+import ListEntry from '@/views/components/ListEntry.vue'
 import DaemonService from '@/services/DaemonService'
+import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
+
+const timeoptions = require('@/libs/dateFormat')
 
 export default {
+  components: {
+    BCard,
+    BTable,
+    BRow,
+    BCol,
+    BPagination,
+    BFormGroup,
+    BFormSelect,
+    BInputGroup,
+    BFormInput,
+    BInputGroupAppend,
+    BButton,
+    ListEntry,
+    // eslint-disable-next-line vue/no-unused-components
+    ToastificationContent,
+  },
   data() {
     return {
+      timeoptions,
       callResponse: {
         status: '',
         data: '',
@@ -95,6 +176,7 @@ export default {
       filter: '',
       filterOn: [],
       fields: [
+        { key: 'show_details', label: '' },
         { key: 'payment_address', label: 'Address', sortable: true },
         { key: 'ip', label: 'IP', sortable: true },
         { key: 'tier', label: 'Tier', sortable: true },
@@ -103,19 +185,6 @@ export default {
       totalRows: 1,
       currentPage: 1,
     }
-  },
-  components: {
-    BCard,
-    BTable,
-    BRow,
-    BCol,
-    BPagination,
-    BFormGroup,
-    BFormSelect,
-    BInputGroup,
-    BFormInput,
-    BInputGroupAppend,
-    BButton,
   },
   computed: {
     sortOptions() {
@@ -132,16 +201,18 @@ export default {
     async daemonListZelNodes() {
       const response = await DaemonService.listZelNodes()
       if (response.data.status === 'error') {
-        // vue.$customMes.error(response.data.data.message || response.data.data)
-        console.error(response)
+        this.$toast({
+          component: ToastificationContent,
+          props: {
+            title: response.data.data.message || response.data.data,
+            icon: 'InfoIcon',
+            variant: 'danger',
+          },
+        })
       } else {
         const self = this
         response.data.data.forEach(item => {
-          if (item.status === 'expired') {
-            console.log(item)
-          } else {
-            self.items.push(item)
-          }
+          self.items.push(item)
         })
         this.totalRows = this.items.length
         this.currentPage = 1
@@ -157,5 +228,10 @@ export default {
 </script>
 
 <style>
-
+.fluxnode-table td:nth-child(1) {
+  padding: 0 0 0 5px;
+}
+.fluxnode-table th:nth-child(1) {
+  padding: 0 0 0 5px;
+}
 </style>
