@@ -31,8 +31,8 @@ export default {
   getDOSList() {
     return Api().get('/daemon/getdoslist')
   },
-  zelnodeCurrentWinner() {
-    return Api().get('/daemon/zelnodecurrentwinner')
+  fluxCurrentWinner() {
+    return Api().get('/daemon/fluxcurrentwinner')
   },
   getBenchmarks() {
     return Api().get('/daemon/getbenchmarks')

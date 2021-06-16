@@ -1,5 +1,39 @@
 <template>
-  <b-card>
+  <b-card title="Current FluxNode winners that will be paid in the next Flux block">
+    <b-card
+      v-for="(item, key) in callResponse.data"
+      :key="key"
+      :title="toPascalCase(key)"
+    >
+      <list-entry
+        title="Address"
+        :data="callResponse.data[key].payment_address"
+      />
+      <list-entry
+        title="IP Address"
+        :data="callResponse.data[key].ip"
+      />
+      <list-entry
+        title="Added Height"
+        :data="callResponse.data[key].added_height"
+      />
+      <list-entry
+        title="Collateral"
+        :data="callResponse.data[key].collateral"
+      />
+      <list-entry
+        title="Last Paid Height"
+        :data="callResponse.data[key].last_paid_height.toFixed(0)"
+      />
+      <list-entry
+        title="Confirmed Height"
+        :data="callResponse.data[key].confirmed_height.toFixed(0)"
+      />
+      <list-entry
+        title="Last Confirmed Height"
+        :data="callResponse.data[key].last_confirmed_height.toFixed(0)"
+      />
+    </b-card>
   </b-card>
 </template>
 
@@ -7,34 +41,65 @@
 import {
   BCard,
 } from 'bootstrap-vue'
+import ListEntry from '@/views/components/ListEntry.vue'
 import DaemonService from '@/services/DaemonService'
+import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
 
 export default {
-  data() {
-    return {
-    }
-  },
   components: {
     BCard,
+    ListEntry,
+    // eslint-disable-next-line vue/no-unused-components
+    ToastificationContent,
+  },
+  data() {
+    return {
+      callResponse: {
+        status: '',
+        data: '',
+      },
+    }
   },
   mounted() {
-    this.daemonGetNodeStatus()
+    this.daemonFluxCurrentWinner()
   },
   methods: {
-    async daemonGetNodeStatus() {
-      const response = await DaemonService.getZelNodeStatus()
+    async daemonFluxCurrentWinner() {
+      const response = await DaemonService.fluxCurrentWinner()
       if (response.data.status === 'error') {
-        // vue.$customMes.error(response.data.data.message || response.data.data);
+        this.$toast({
+          component: ToastificationContent,
+          props: {
+            title: response.data.data.message || response.data.data,
+            icon: 'InfoIcon',
+            variant: 'danger',
+          },
+        })
       } else {
-        // this.callResponse.status = response.data.status;
-        // this.callResponse.data = response.data.data;
-        console.log(response.data)
+        this.callResponse.status = response.data.status
+        this.callResponse.data = response.data.data
+        console.log(response)
       }
+    },
+    toPascalCase(str) {
+      const arr = str.split(/\s|_/)
+      let i
+      let l
+      for (i = 0, l = arr.length; i < l; i += 1) {
+        arr[i] = arr[i].substr(0, 1).toUpperCase()
+                 + (arr[i].length > 1 ? arr[i].substr(1).toLowerCase() : '')
+      }
+      return arr.join(' ')
     },
   },
 }
 </script>
 
 <style>
-
+.fluxnode-table td:nth-child(1) {
+  padding: 0 0 0 5px;
+}
+.fluxnode-table th:nth-child(1) {
+  padding: 0 0 0 5px;
+}
 </style>
