@@ -11,6 +11,7 @@ export default [
   ...benchmarks,
   {
     title: 'Debug',
+    icon: 'bug',
     route: 'benchmark-debug',
     id: 'benchmark-debug',
     privilege: ['admin', 'fluxteam'],

@@ -43,6 +43,7 @@
     "vue": "2.x",
     "vue-apexcharts": "1.6.0",
     "vue-autosuggest": "2.2.0",
+    "vue-awesome": "^4.3.1",
     "vue-awesome-swiper": "4.1.1",
     "vue-chartjs": "3.5.1",
     "vue-cleave-component": "2.1.3",

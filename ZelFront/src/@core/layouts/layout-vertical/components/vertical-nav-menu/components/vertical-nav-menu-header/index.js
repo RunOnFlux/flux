@@ -28,9 +28,9 @@ export default {
   render(h) {
     if (this.hasPrivilegeLevel(this.item)) {
       const span = h('span', {}, t(this.item.header))
-      const icon = h('feather-icon', { props: { icon: 'MoreHorizontalIcon', size: '18' } })
+      // const icon = h('v-icon', { props: { name: 'ellipsis-h', size: '18' } })
       if (canViewVerticalNavMenuHeader(this.item)) {
-        return h('li', { class: 'navigation-header text-truncate' }, [span, icon])
+        return h('li', { class: 'navigation-header text-truncate' }, [span])
       }
     }
     return h()

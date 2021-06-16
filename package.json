@@ -44,10 +44,10 @@
     "ciconfig": "cp sampleUserConfig.js config/userconfig.js && mkdir ~/.zelcash && cp sampleDaemonConfig.conf ~/.zelcash/zelcash.conf"
   },
   "dependencies": {
-    "@casl/ability": "4.1.6",
-    "@casl/vue": "1.1.1",
     "@amcharts/amcharts4": "^4.10.15",
     "@amcharts/amcharts4-geodata": "^4.1.19",
+    "@casl/ability": "4.1.6",
+    "@casl/vue": "1.1.1",
     "@vue/composition-api": "1.0.0-beta.22",
     "@vueuse/core": "4.0.0",
     "apexcharts": "3.23.0",
@@ -87,6 +87,7 @@
     "stream": "0.0.2",
     "vue": "^2.6.12",
     "vue-apexcharts": "1.6.0",
+    "vue-awesome": "^4.3.1",
     "vue-feather-icons": "5.1.0",
     "vue-perfect-scrollbar": "0.2.1",
     "vue-ripple-directive": "2.0.1",

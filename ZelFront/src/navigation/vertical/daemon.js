@@ -23,6 +23,7 @@ export default [
   ...wallet,
   {
     title: 'Debug',
+    icon: 'bug',
     route: 'daemon-debug',
     id: 'daemon-debug',
     privilege: ['admin', 'fluxteam'],

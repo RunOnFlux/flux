@@ -8,27 +8,27 @@ export default [
   //  children: [
   {
     title: 'Overview',
-    icon: 'PieChartIcon',
+    icon: 'chart-pie',
     route: 'dashboard-overview',
   },
   {
     title: 'Resources',
-    icon: 'ServerIcon',
+    icon: 'server',
     route: 'dashboard-resources',
   },
   {
     title: 'Map',
-    icon: 'MapIcon',
+    icon: 'map-marker-alt',
     route: 'dashboard-map',
   },
   {
     title: 'Economics',
-    icon: 'DollarSignIcon',
+    icon: 'dollar-sign',
     route: 'dashboard-economics',
   },
   {
     title: 'List',
-    icon: 'ListIcon',
+    icon: 'list-ul',
     route: 'dashboard-list',
   },
   //  ],
