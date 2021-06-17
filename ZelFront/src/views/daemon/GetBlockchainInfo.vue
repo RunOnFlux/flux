@@ -50,7 +50,7 @@ export default {
         })
       } else {
         this.callResponse.status = response.data.status
-        this.callResponse.data = response.data.data
+        this.callResponse.data = JSON.stringify(response.data.data, null, 4)
       }
     },
   },
