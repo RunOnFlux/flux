@@ -2,7 +2,7 @@ export default [
   {
     path: '/daemon/getwalletinfo',
     name: 'daemon-wallet-getwalletinfo',
-    component: () => import('@/views/daemon/control/GetInfo.vue'),
+    component: () => import('@/views/daemon/GetWalletInfo.vue'),
     meta: {
       pageTitle: 'Get Wallet Info',
       breadcrumb: [

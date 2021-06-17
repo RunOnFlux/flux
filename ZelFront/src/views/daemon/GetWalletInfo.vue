@@ -1,0 +1,63 @@
+<template>
+  <b-card>
+    <b-form-textarea
+      v-if="callResponse.data"
+      plaintext
+      no-resize
+      rows="11"
+      :value="callResponse.data"
+    />
+  </b-card>
+</template>
+
+<script>
+import {
+  BCard,
+  BFormTextarea,
+} from 'bootstrap-vue'
+import DaemonService from '@/services/DaemonService'
+import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
+
+export default {
+  components: {
+    BCard,
+    BFormTextarea,
+    // eslint-disable-next-line vue/no-unused-components
+    ToastificationContent,
+  },
+  data() {
+    return {
+      callResponse: {
+        status: '',
+        data: '',
+      },
+    }
+  },
+  mounted() {
+    this.daemonGetWalletInfo()
+  },
+  methods: {
+    async daemonGetWalletInfo() {
+      const zelidauth = localStorage.getItem('zelidauth')
+      const response = await DaemonService.getWalletInfo(zelidauth)
+      if (response.data.status === 'error') {
+        this.$toast({
+          component: ToastificationContent,
+          props: {
+            title: response.data.data.message || response.data.data,
+            icon: 'InfoIcon',
+            variant: 'danger',
+          },
+        })
+      } else {
+        this.callResponse.status = response.data.status
+        this.callResponse.data = JSON.stringify(response.data.data, null, 4)
+      }
+    },
+  },
+}
+</script>
+
+<style>
+
+</style>
