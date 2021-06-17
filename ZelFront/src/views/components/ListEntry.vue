@@ -7,7 +7,7 @@
       class="col-sm-9 mb-0"
       :class="`text-${variant}`"
     >
-      {{ (data || number) || 'No Data' }}
+      {{ (data.length > 0 ? data : (number !== Number.MAX_VALUE ? number : '' )) }}
     </dd>
   </dl>
 </template>
@@ -23,10 +23,12 @@ export default {
     data: {
       type: String,
       required: false,
+      default: '',
     },
     number: {
       type: Number,
       required: false,
+      default: Number.MAX_VALUE,
     },
     variant: {
       type: String,

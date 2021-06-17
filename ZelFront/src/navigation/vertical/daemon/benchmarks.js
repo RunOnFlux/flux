@@ -17,13 +17,13 @@ export default [
       {
         title: 'Start Benchmark',
         icon: 'play',
-        route: 'daemon-benchmarks-startbenchmark',
+        route: 'daemon-benchmarks-start',
         privilege: ['admin', 'fluxteam'],
       },
       {
         title: 'Stop Benchmark',
         icon: 'power-off',
-        route: 'daemon-benchmarks-stopbenchmark',
+        route: 'daemon-benchmarks-stop',
         privilege: ['admin', 'fluxteam'],
       },
     ],

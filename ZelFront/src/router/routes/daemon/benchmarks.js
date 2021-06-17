@@ -2,7 +2,7 @@ export default [
   {
     path: '/daemon/benchmarks/getbenchmarks',
     name: 'daemon-benchmarks-getbenchmarks',
-    component: () => import('@/views/daemon/control/GetInfo.vue'),
+    component: () => import('@/views/daemon/benchmarks/GetBenchmarks.vue'),
     meta: {
       pageTitle: 'Get Benchmarks',
       breadcrumb: [
@@ -22,7 +22,7 @@ export default [
   {
     path: '/daemon/benchmarks/getstatus',
     name: 'daemon-benchmarks-getstatus',
-    component: () => import('@/views/daemon/control/Help.vue'),
+    component: () => import('@/views/daemon/benchmarks/GetBenchStatus.vue'),
     meta: {
       pageTitle: 'Get Bench Status',
       breadcrumb: [
@@ -41,8 +41,8 @@ export default [
   },
   {
     path: '/daemon/benchmarks/startbenchmark',
-    name: 'daemon-benchmarks-startbenchmark',
-    component: () => import('@/views/daemon/control/RescanBlockchain.vue'),
+    name: 'daemon-benchmarks-start',
+    component: () => import('@/views/daemon/benchmarks/StartBenchmark.vue'),
     meta: {
       pageTitle: 'Start Benchmark',
       breadcrumb: [
@@ -61,8 +61,8 @@ export default [
   },
   {
     path: '/daemon/benchmarks/stopbenchmark',
-    name: 'daemon-benchmarks-stopbenchmark',
-    component: () => import('@/views/daemon/control/ReindexBlockchain.vue'),
+    name: 'daemon-benchmarks-stop',
+    component: () => import('@/views/daemon/benchmarks/StopBenchmark.vue'),
     meta: {
       pageTitle: 'Stop Benchmark',
       breadcrumb: [
