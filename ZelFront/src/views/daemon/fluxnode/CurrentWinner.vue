@@ -1,39 +1,41 @@
 <template>
   <b-card title="Current FluxNode winners that will be paid in the next Flux block">
-    <b-card
-      v-for="(item, key) in callResponse.data"
-      :key="key"
-      :title="toPascalCase(key)"
-    >
-      <list-entry
-        title="Address"
-        :data="callResponse.data[key].payment_address"
-      />
-      <list-entry
-        title="IP Address"
-        :data="callResponse.data[key].ip"
-      />
-      <list-entry
-        title="Added Height"
-        :data="callResponse.data[key].added_height"
-      />
-      <list-entry
-        title="Collateral"
-        :data="callResponse.data[key].collateral"
-      />
-      <list-entry
-        title="Last Paid Height"
-        :data="callResponse.data[key].last_paid_height.toFixed(0)"
-      />
-      <list-entry
-        title="Confirmed Height"
-        :data="callResponse.data[key].confirmed_height.toFixed(0)"
-      />
-      <list-entry
-        title="Last Confirmed Height"
-        :data="callResponse.data[key].last_confirmed_height.toFixed(0)"
-      />
-    </b-card>
+    <app-collapse>
+      <app-collapse-item
+        v-for="(item, key) in callResponse.data"
+        :key="key"
+        :title="toPascalCase(key)"
+      >
+        <list-entry
+          title="Address"
+          :data="callResponse.data[key].payment_address"
+        />
+        <list-entry
+          title="IP Address"
+          :data="callResponse.data[key].ip"
+        />
+        <list-entry
+          title="Added Height"
+          :data="callResponse.data[key].added_height"
+        />
+        <list-entry
+          title="Collateral"
+          :data="callResponse.data[key].collateral"
+        />
+        <list-entry
+          title="Last Paid Height"
+          :data="callResponse.data[key].last_paid_height.toFixed(0)"
+        />
+        <list-entry
+          title="Confirmed Height"
+          :data="callResponse.data[key].confirmed_height.toFixed(0)"
+        />
+        <list-entry
+          title="Last Confirmed Height"
+          :data="callResponse.data[key].last_confirmed_height.toFixed(0)"
+        />
+      </app-collapse-item>
+    </app-collapse>
   </b-card>
 </template>
 
@@ -44,11 +46,15 @@ import {
 import ListEntry from '@/views/components/ListEntry.vue'
 import DaemonService from '@/services/DaemonService'
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
+import AppCollapse from '@core/components/app-collapse/AppCollapse.vue'
+import AppCollapseItem from '@core/components/app-collapse/AppCollapseItem.vue'
 
 export default {
   components: {
     BCard,
     ListEntry,
+    AppCollapse,
+    AppCollapseItem,
     // eslint-disable-next-line vue/no-unused-components
     ToastificationContent,
   },
