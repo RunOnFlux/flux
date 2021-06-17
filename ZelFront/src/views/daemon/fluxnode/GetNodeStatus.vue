@@ -12,68 +12,68 @@
       :data="callResponse.data.collateral"
     />
     <list-entry
-      title="TX Hash"
       v-if="callResponse.data.txhash"
+      title="TX Hash"
       :data="callResponse.data.txhash"
     />
     <list-entry
-      title="Output ID"
       v-if="callResponse.data.outidx"
+      title="Output ID"
       :data="callResponse.data.outidx"
     />
     <list-entry
-      title="IP Address"
       v-if="callResponse.data.ip"
+      title="IP Address"
       :data="callResponse.data.ip"
     />
     <list-entry
-      title="Network"
       v-if="callResponse.data.network"
+      title="Network"
       :data="callResponse.data.network"
     />
     <list-entry
-      title="Added Height"
       v-if="callResponse.data.added_height"
+      title="Added Height"
       :data="callResponse.data.added_height"
     />
     <list-entry
-      title="Confirmed Height"
       v-if="callResponse.data.confirmed_height"
+      title="Confirmed Height"
       :data="callResponse.data.confirmed_height"
     />
     <list-entry
-      title="Last Confirmed Height"
       v-if="callResponse.data.last_confirmed_height"
+      title="Last Confirmed Height"
       :data="callResponse.data.last_confirmed_height"
     />
     <list-entry
-      title="Last Paid Height"
       v-if="callResponse.data.last_paid_height"
+      title="Last Paid Height"
       :data="callResponse.data.last_paid_height"
     />
     <list-entry
-      title="Tier"
       v-if="callResponse.data.tier"
+      title="Tier"
       :data="callResponse.data.tier"
     />
     <list-entry
-      title="Payment Address"
       v-if="callResponse.data.payment_address"
+      title="Payment Address"
       :data="callResponse.data.payment_address"
     />
     <list-entry
-      title="Public Key"
       v-if="callResponse.data.pubkey"
+      title="Public Key"
       :data="callResponse.data.pubkey"
     />
     <list-entry
-      title="Active Since"
       v-if="callResponse.data.activesince"
+      title="Active Since"
       :data="new Date(callResponse.data.activesince * 1000).toLocaleString('en-GB', timeoptions.shortDate)"
     />
     <list-entry
-      title="Last Paid"
       v-if="callResponse.data.lastpaid"
+      title="Last Paid"
       :data="new Date(callResponse.data.lastpaid * 1000).toLocaleString('en-GB', timeoptions.shortDate)"
     />
   </b-card>

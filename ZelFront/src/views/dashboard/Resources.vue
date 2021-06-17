@@ -24,7 +24,9 @@
                   icon="CpuIcon"
                 />
               </b-avatar>
-              <h2 class="mt-1">Total Cores: {{ beautifyValue(totalCores, 0) }}</h2>
+              <h2 class="mt-1">
+                Total Cores: {{ beautifyValue(totalCores, 0) }}
+              </h2>
               <vue-apex-charts
                 type="bar"
                 height="400"
@@ -58,7 +60,9 @@
                   icon="DatabaseIcon"
                 />
               </b-avatar>
-              <h2 class="mt-1">Total RAM: {{ beautifyValue(totalRAM / 1024, 2) }} TB</h2>
+              <h2 class="mt-1">
+                Total RAM: {{ beautifyValue(totalRAM / 1024, 2) }} TB
+              </h2>
               <vue-apex-charts
                 type="bar"
                 height="400"
@@ -92,7 +96,9 @@
                   icon="HardDriveIcon"
                 />
               </b-avatar>
-              <h2 class="mt-1">Total SSD: {{ beautifyValue(totalSSD / 1000, 2) }} TB</h2>
+              <h2 class="mt-1">
+                Total SSD: {{ beautifyValue(totalSSD / 1000, 2) }} TB
+              </h2>
               <vue-apex-charts
                 type="bar"
                 height="400"
@@ -128,7 +134,9 @@
                   icon="CpuIcon"
                 />
               </b-avatar>
-              <h2 class="mt-1">CPU History</h2>
+              <h2 class="mt-1">
+                CPU History
+              </h2>
             </b-card-body>
             <vue-apex-charts
               type="area"
@@ -163,7 +171,9 @@
                   icon="DatabaseIcon"
                 />
               </b-avatar>
-              <h2 class="mt-1">RAM History</h2>
+              <h2 class="mt-1">
+                RAM History
+              </h2>
             </b-card-body>
             <vue-apex-charts
               type="area"
@@ -198,7 +208,9 @@
                   icon="HardDriveIcon"
                 />
               </b-avatar>
-              <h2 class="mt-1">SSD History</h2>
+              <h2 class="mt-1">
+                SSD History
+              </h2>
             </b-card-body>
             <vue-apex-charts
               type="area"
