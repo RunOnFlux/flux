@@ -7,7 +7,7 @@
       class="col-sm-9 mb-0"
       :class="`text-${variant}`"
     >
-      {{ data }}
+      {{ (data || number) || 'No Data' }}
     </dd>
   </dl>
 </template>
@@ -22,7 +22,11 @@ export default {
     },
     data: {
       type: String,
-      required: true,
+      required: false,
+    },
+    number: {
+      type: Number,
+      required: false,
     },
     variant: {
       type: String,
