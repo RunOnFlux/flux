@@ -10,9 +10,6 @@ export default [
           text: 'Daemon',
         },
         {
-          text: 'Blockchain',
-        },
-        {
           text: 'Get Blockchain Info',
           active: true,
         },
