@@ -1,8 +1,8 @@
 export default [
   {
     path: '/daemon/blockchain/getblockchaininfo',
-    name: 'daemon-blockchain-getblockchaininfo',
-    component: () => import('@/views/daemon/control/GetInfo.vue'),
+    name: 'daemon-blockchain-getchaininfo',
+    component: () => import('@/views/daemon/GetBlockchainInfo.vue'),
     meta: {
       pageTitle: 'Get Blockchain Info',
       breadcrumb: [
