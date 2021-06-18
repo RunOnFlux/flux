@@ -2,7 +2,7 @@ export default [
   {
     path: '/daemon/validateaddress',
     name: 'daemon-util-validateaddress',
-    component: () => import('@/views/daemon/control/GetInfo.vue'),
+    component: () => import('@/views/daemon/ValidateAddress.vue'),
     meta: {
       pageTitle: 'Validate Address',
       breadcrumb: [
