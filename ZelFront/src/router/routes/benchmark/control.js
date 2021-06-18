@@ -22,7 +22,7 @@ export default [
   {
     path: '/benchmark/control/start',
     name: 'benchmark-control-start',
-    component: () => import('@/views/daemon/control/GetInfo.vue'),
+    component: () => import('@/views/benchmark/control/Start.vue'),
     meta: {
       pageTitle: 'Start',
       breadcrumb: [
