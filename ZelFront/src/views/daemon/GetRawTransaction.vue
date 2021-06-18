@@ -29,21 +29,27 @@
 <script>
 import {
   BCard,
+  BCardText,
   BButton,
   BFormInput,
   BFormTextarea,
 } from 'bootstrap-vue'
 import DaemonService from '@/services/DaemonService'
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
+import Ripple from 'vue-ripple-directive'
 
 export default {
   components: {
     BCard,
+    BCardText,
     BButton,
     BFormInput,
     BFormTextarea,
     // eslint-disable-next-line vue/no-unused-components
     ToastificationContent,
+  },
+  directives: {
+    Ripple,
   },
   data() {
     return {
@@ -68,7 +74,7 @@ export default {
         })
       } else {
         this.callResponse.status = response.data.status
-        this.callResponse.data = response.data.data
+        this.callResponse.data = JSON.stringify(response.data.data, null, 4)
       }
     },
   },
