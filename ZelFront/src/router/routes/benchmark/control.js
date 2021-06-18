@@ -62,7 +62,7 @@ export default [
   {
     path: '/benchmark/control/restart',
     name: 'benchmark-control-restart',
-    component: () => import('@/views/daemon/control/GetInfo.vue'),
+    component: () => import('@/views/benchmark/control/Restart.vue'),
     meta: {
       pageTitle: 'Restart',
       breadcrumb: [
