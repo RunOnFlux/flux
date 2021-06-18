@@ -2,7 +2,7 @@ export default [
   {
     path: '/benchmark/control/help',
     name: 'benchmark-control-help',
-    component: () => import('@/views/daemon/control/GetInfo.vue'),
+    component: () => import('@/views/benchmark/control/Help.vue'),
     meta: {
       pageTitle: 'Help',
       breadcrumb: [
