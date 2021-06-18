@@ -2,7 +2,7 @@ export default [
   {
     path: '/benchmark/benchmarks/getstatus',
     name: 'benchmark-benchmarks-getstatus',
-    component: () => import('@/views/daemon/control/GetInfo.vue'),
+    component: () => import('@/views/benchmark/benchmarks/GetStatus.vue'),
     meta: {
       pageTitle: 'Get Status',
       breadcrumb: [
