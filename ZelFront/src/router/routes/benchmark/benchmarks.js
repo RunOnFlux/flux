@@ -22,7 +22,7 @@ export default [
   {
     path: '/benchmark/benchmarks/restartbenchmarks',
     name: 'benchmark-benchmarks-restartbenchmarks',
-    component: () => import('@/views/daemon/control/GetInfo.vue'),
+    component: () => import('@/views/benchmark/benchmarks/RestartBenchmark.vue'),
     meta: {
       pageTitle: 'Restart Node Benchmarks',
       breadcrumb: [
