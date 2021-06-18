@@ -42,7 +42,7 @@ export default [
   {
     path: '/benchmark/control/stop',
     name: 'benchmark-control-stop',
-    component: () => import('@/views/daemon/control/GetInfo.vue'),
+    component: () => import('@/views/benchmark/control/Stop.vue'),
     meta: {
       pageTitle: 'Stop',
       breadcrumb: [
