@@ -9,7 +9,7 @@ export default [
   {
     path: '/benchmark/debug',
     name: 'benchmark-debug',
-    component: () => import('@/views/daemon/control/GetInfo.vue'),
+    component: () => import('@/views/benchmark/Debug.vue'),
     meta: {
       pageTitle: 'Debug',
       breadcrumb: [
