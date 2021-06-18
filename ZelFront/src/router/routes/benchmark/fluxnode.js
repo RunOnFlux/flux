@@ -2,7 +2,7 @@ export default [
   {
     path: '/benchmark/fluxnode/getbenchmarks',
     name: 'benchmark-fluxnode-getbenchmarks',
-    component: () => import('@/views/daemon/control/GetInfo.vue'),
+    component: () => import('@/views/benchmark/fluxnode/GetBenchmarks.vue'),
     meta: {
       pageTitle: 'Get Benchmarks',
       breadcrumb: [
