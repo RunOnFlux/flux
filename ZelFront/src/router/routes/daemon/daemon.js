@@ -21,7 +21,7 @@ export default [
   {
     path: '/daemon/debug',
     name: 'daemon-debug',
-    component: () => import('@/views/daemon/control/RescanBlockchain.vue'),
+    component: () => import('@/views/daemon/Debug.vue'),
     meta: {
       pageTitle: 'Debug',
       breadcrumb: [
