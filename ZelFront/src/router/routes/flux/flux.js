@@ -2,7 +2,7 @@ export default [
   {
     path: '/flux/nodestatus',
     name: 'flux-nodestatus',
-    component: () => import('@/views/daemon/control/GetInfo.vue'),
+    component: () => import('@/views/flux/NodeStatus.vue'),
     meta: {
       pageTitle: 'Node Status',
       breadcrumb: [
