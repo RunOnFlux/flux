@@ -42,7 +42,7 @@ export default [
   {
     path: '/benchmark/benchmarks/signtransaction',
     name: 'benchmark-benchmarks-signtransaction',
-    component: () => import('@/views/daemon/control/GetInfo.vue'),
+    component: () => import('@/views/benchmark/benchmarks/SignTransaction.vue'),
     meta: {
       pageTitle: 'Sign FluxNode Transaction',
       breadcrumb: [
