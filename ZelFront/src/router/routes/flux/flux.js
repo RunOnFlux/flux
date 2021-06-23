@@ -19,7 +19,7 @@ export default [
   {
     path: '/flux/fluxnetwork',
     name: 'flux-fluxnetwork',
-    component: () => import('@/views/daemon/control/GetInfo.vue'),
+    component: () => import('@/views/flux/FluxNetwork.vue'),
     meta: {
       pageTitle: 'Flux Network',
       breadcrumb: [
