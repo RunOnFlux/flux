@@ -70,7 +70,7 @@ export default [
   {
     path: '/fluxadmin/manageusers',
     name: 'fluxadmin-manageusers',
-    component: () => import('@/views/daemon/control/GetInfo.vue'),
+    component: () => import('@/views/fluxadmin/ManageUsers.vue'),
     meta: {
       pageTitle: 'Manage Users',
       breadcrumb: [
