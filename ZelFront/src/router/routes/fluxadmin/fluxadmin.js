@@ -2,7 +2,7 @@ export default [
   {
     path: '/fluxadmin/loggedsessions',
     name: 'fluxadmin-loggedsessions',
-    component: () => import('@/views/daemon/control/GetInfo.vue'),
+    component: () => import('@/views/fluxadmin/LoggedSessions.vue'),
     meta: {
       pageTitle: 'Logged Sessions',
       breadcrumb: [
