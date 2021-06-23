@@ -36,7 +36,7 @@ export default [
   {
     path: '/flux/debug',
     name: 'flux-debug',
-    component: () => import('@/views/daemon/control/GetInfo.vue'),
+    component: () => import('@/views/flux/Debug.vue'),
     meta: {
       pageTitle: 'Debug',
       breadcrumb: [
