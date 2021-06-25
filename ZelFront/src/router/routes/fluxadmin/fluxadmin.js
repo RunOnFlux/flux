@@ -19,7 +19,7 @@ export default [
   {
     path: '/fluxadmin/manageflux',
     name: 'fluxadmin-manageflux',
-    component: () => import('@/views/daemon/control/GetInfo.vue'),
+    component: () => import('@/views/fluxadmin/ManageFlux.vue'),
     meta: {
       pageTitle: 'Manage Flux',
       breadcrumb: [
