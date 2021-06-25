@@ -36,7 +36,7 @@ export default [
   {
     path: '/fluxadmin/managedaemon',
     name: 'fluxadmin-managedaemon',
-    component: () => import('@/views/daemon/control/GetInfo.vue'),
+    component: () => import('@/views/fluxadmin/ManageDaemon.vue'),
     meta: {
       pageTitle: 'Manage Daemon',
       breadcrumb: [
