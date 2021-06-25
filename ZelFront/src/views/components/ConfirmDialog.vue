@@ -6,6 +6,7 @@
     :show.sync="show"
     placement="auto"
     container="my-container"
+    :custom-class="`confirm-dialog-${width}`"
   >
     <template v-slot:title>
       <div class="d-flex justify-content-between align-items-center">
@@ -25,7 +26,7 @@
       </div>
     </template>
 
-    <div>
+    <div class="text-center">
       <b-button
         v-ripple.400="'rgba(255, 255, 255, 0.15)'"
         size="sm"
@@ -82,6 +83,11 @@ export default {
       type: String,
       required: true,
     },
+    width: {
+      type: Number,
+      required: false,
+      default: 300,
+    },
   },
   data() {
     return {
@@ -98,5 +104,22 @@ export default {
 </script>
 
 <style>
-
+.popover {
+  max-width: 400px;
+}
+.confirm-dialog-250 {
+  width: 250px;
+}
+.confirm-dialog-275 {
+  width: 275px;
+}
+.confirm-dialog-300 {
+  width: 300px;
+}
+.confirm-dialog-350 {
+  width: 350px;
+}
+.confirm-dialog-400 {
+  width: 400px;
+}
 </style>

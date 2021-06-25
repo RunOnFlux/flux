@@ -138,10 +138,5 @@ export default {
 </script>
 
 <style>
-.popover-header {
-  width: 300px;
-}
-.popover-body {
-  width: 300px;
-}
+
 </style>
