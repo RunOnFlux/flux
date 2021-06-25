@@ -53,7 +53,7 @@ export default [
   {
     path: '/fluxadmin/managebenchmark',
     name: 'fluxadmin-managebenchmark',
-    component: () => import('@/views/daemon/control/GetInfo.vue'),
+    component: () => import('@/views/fluxadmin/ManageBenchmark.vue'),
     meta: {
       pageTitle: 'Manage Benchmark',
       breadcrumb: [
