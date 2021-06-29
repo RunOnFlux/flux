@@ -19,7 +19,7 @@ export default [
   {
     path: '/apps/globalapps',
     name: 'apps-globalapps',
-    component: () => import('@/views/daemon/control/GetInfo.vue'),
+    component: () => import('@/views/apps/GlobalApps.vue'),
     meta: {
       pageTitle: 'Global Apps',
       breadcrumb: [
