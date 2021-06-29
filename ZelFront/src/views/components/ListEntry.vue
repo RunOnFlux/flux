@@ -1,5 +1,8 @@
 <template>
-  <dl class="row mb-1">
+  <dl
+    class="row"
+    :class="classes"
+  >
     <dt class="col-sm-3">
       {{ title }}
     </dt>
@@ -40,6 +43,11 @@ export default {
     title: {
       type: String,
       required: true,
+    },
+    classes: {
+      type: String,
+      required: false,
+      default: 'mb-1',
     },
     data: {
       type: String,

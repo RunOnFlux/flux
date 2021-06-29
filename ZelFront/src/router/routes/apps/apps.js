@@ -2,7 +2,7 @@ export default [
   {
     path: '/apps/localapps',
     name: 'apps-localapps',
-    component: () => import('@/views/daemon/control/GetInfo.vue'),
+    component: () => import('@/views/apps/LocalApps.vue'),
     meta: {
       pageTitle: 'Local Apps',
       breadcrumb: [
