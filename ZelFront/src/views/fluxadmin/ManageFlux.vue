@@ -1,51 +1,6 @@
 <template>
   <div>
     <b-row class="match-height">
-      <b-col
-        sm="12"
-        lg="8"
-      >
-        <b-card title="Kadena">
-          <b-card-text class="mb-3">
-            Running a Kadena node makes you eligible for Kadena Rewards. Adjust your Kadena Account and Chain ID to ensure the reward distribution.
-          </b-card-text>
-          <div class="text-center">
-            <b-form-input
-              v-model="kadenaAccountInput"
-              placeholder="Kadena Account"
-              class="mb-2"
-            />
-            <div
-              style="display: flex; justify-content: center; align-items: center;"
-              class="mb-2"
-            >
-              <b-card-text class="mr-1 mb-0">
-                Chain ID
-              </b-card-text>
-              <b-form-spinbutton
-                id="sb-vertical"
-                v-model="kadenaChainIDInput"
-                min="0"
-                max="19"
-                style="width: 150px;"
-              />
-            </div>
-            <b-button
-              id="update-kadena"
-              v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-              variant="success"
-              aria-label="Update Kadena Account"
-            >
-              Update Kadena Account
-            </b-button>
-            <confirm-dialog
-              target="update-kadena"
-              confirm-button="Update Kadena"
-              @confirm="adjustKadena()"
-            />
-          </div>
-        </b-card>
-      </b-col>
       <b-col class="d-lg-flex d-none">
         <b-row>
           <b-col lg="12">
@@ -113,6 +68,51 @@
             </b-card>
           </b-col>
         </b-row>
+      </b-col>
+      <b-col
+        sm="12"
+        lg="8"
+      >
+        <b-card title="Kadena">
+          <b-card-text class="mb-3">
+            Running a Kadena node makes you eligible for Kadena Rewards. Adjust your Kadena Account and Chain ID to ensure the reward distribution.
+          </b-card-text>
+          <div class="text-center">
+            <b-form-input
+              v-model="kadenaAccountInput"
+              placeholder="Kadena Account"
+              class="mb-2"
+            />
+            <div
+              style="display: flex; justify-content: center; align-items: center;"
+              class="mb-2"
+            >
+              <b-card-text class="mr-1 mb-0">
+                Chain ID
+              </b-card-text>
+              <b-form-spinbutton
+                id="sb-vertical"
+                v-model="kadenaChainIDInput"
+                min="0"
+                max="19"
+                style="width: 150px;"
+              />
+            </div>
+            <b-button
+              id="update-kadena"
+              v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+              variant="success"
+              aria-label="Update Kadena Account"
+            >
+              Update Kadena Account
+            </b-button>
+            <confirm-dialog
+              target="update-kadena"
+              confirm-button="Update Kadena"
+              @confirm="adjustKadena()"
+            />
+          </div>
+        </b-card>
       </b-col>
     </b-row>
     <b-row class="d-lg-none match-height">
@@ -531,7 +531,7 @@ export default {
         const chainID = acc.pop()
         const account = acc.join('?chainid=').substr(7)
         this.kadenaAccountInput = account
-        this.kadenaChainIDInput = chainID
+        this.kadenaChainIDInput = Number(chainID)
       }
     },
     async adjustKadena() {
