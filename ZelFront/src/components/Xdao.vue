@@ -363,18 +363,22 @@
               </el-form-item>
             </el-form>
           </div>
-          <div v-else>
-            <el-form label-width="150px">
-              <el-form-item label="Your Vote">
-                <el-input
-                  class="width100"
-                  placeholder="Your Vote"
-                  v-model="proposalDetail.proposalNickName"
-                  disabled
-                >
-                </el-input>
-              </el-form-item>
-            </el-form>
+          <div v-if="haveVoted == false && proposalDetail.proposalStatus === 'Open' && myNumberOfVotes > 0">
+            <p>
+              You have not voted yet on this proposal. You have {{ myNumberOfVotes }} votes.
+            </p>
+            <br>
+            <ElButton @click="voteYes">
+              Vote Yes
+            </ElButton>
+            <ElButton @click="voteNo">
+              Vote No
+            </ElButton>
+          </div>
+          <div v-if="haveVoted == false && proposalDetail.proposalStatus !== 'Open'">
+            <p>
+              This proposal is no longer open to votes. You have not voted on this proposal.
+            </p>
           </div>
       </div>
     </div>
@@ -526,7 +530,7 @@ export default {
         votesRequired: 230000,
         votesYes: 12020,
         votesNo: 2700,
-        proposalDetails: 'Funds will be spend on Marketing',
+        proposalDescription: 'Funds will be spend on Marketing',
       };
       submitDate.setDate(submitDate.getDate() - 8);
       endDate.setDate(submitDate.getDate() + 7);
@@ -542,7 +546,7 @@ export default {
         votesRequired: 210040,
         votesYes: 432890,
         votesNo: 4550,
-        proposalDetails: 'Funds will be spend on Dev Stuff',
+        proposalDescription: 'Funds will be spend on Dev Stuff',
       };
       this.proprosalsTable.push(proposal1);
       this.proprosalsTable.push(proposal2);
@@ -657,7 +661,7 @@ export default {
             }; */
             vue.$customMes.success(response.data.data.message);
             // TODO Call Xdao API to check if Voted
-            this.haveVoted = true;
+            this.haveVoted = false;
             this.myVote = 'Yes';
             this.myNumberOfVotes = 210;
           } else {
@@ -712,7 +716,7 @@ export default {
         }; */
         vue.$customMes.success(data.data.message);
         // TODO Call Xdao API to check if Voted
-        this.haveVoted = true;
+        this.haveVoted = false;
         this.myVote = 'Yes';
         this.myNumberOfVotes = 210;
       }
@@ -726,6 +730,12 @@ export default {
     async register() {
       // Todo call Flux Xdao Api to store proposal. sucess should return registration hash
       this.registrationHash = this.signature;
+    },
+    async voteYes() {
+      // Todo call Flux Xdao Api to vote Yes
+    },
+    async voteNo() {
+      // Todo call Flux Xdao Api to vote No
     },
   },
 };
