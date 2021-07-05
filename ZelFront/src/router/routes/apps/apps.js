@@ -53,7 +53,7 @@ export default [
   {
     path: '/apps/fluxsharestorage',
     name: 'apps-fluxsharestorage',
-    component: () => import('@/views/daemon/control/GetInfo.vue'),
+    component: () => import('@/views/apps/MyFluxShare.vue'),
     meta: {
       pageTitle: 'My FluxShare Storage',
       breadcrumb: [
