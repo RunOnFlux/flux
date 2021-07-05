@@ -355,7 +355,8 @@
           Global Specifications loading...
         </div>
       </b-tab>
-      <b-tab title="Information"
+      <b-tab
+        title="Information"
         :disabled="!isApplicationInstalledLocally"
       >
         <b-form-textarea
@@ -366,7 +367,8 @@
           :value="JSON.stringify(callResponse.data, null, 4)"
         />
       </b-tab>
-      <b-tab title="Resources"
+      <b-tab
+        title="Resources"
         :disabled="!isApplicationInstalledLocally"
       >
         <b-form-textarea
@@ -377,7 +379,8 @@
           :value="stringifiedResponse"
         />
       </b-tab>
-      <b-tab title="File Changes"
+      <b-tab
+        title="File Changes"
         :disabled="!isApplicationInstalledLocally"
       >
         <b-form-textarea
@@ -388,7 +391,8 @@
           :value="JSON.stringify(callResponse.data, null, 4)"
         />
       </b-tab>
-      <b-tab title="Processes"
+      <b-tab
+        title="Processes"
         :disabled="!isApplicationInstalledLocally"
       >
         <b-form-textarea
@@ -399,7 +403,8 @@
           :value="JSON.stringify(callResponse.data, null, 4)"
         />
       </b-tab>
-      <b-tab title="Log File"
+      <b-tab
+        title="Log File"
         :disabled="!isApplicationInstalledLocally"
       >
         <div class="text-center">
@@ -442,7 +447,8 @@
           </div>
         </div>
       </b-tab>
-      <b-tab title="Control"
+      <b-tab
+        title="Control"
         :disabled="!isApplicationInstalledLocally"
       >
         <b-row class="match-height">
@@ -598,7 +604,8 @@
           </b-col>
         </b-row>
       </b-tab>
-      <b-tab title="Execute Commands"
+      <b-tab
+        title="Execute Commands"
         :disabled="!isApplicationInstalledLocally"
       >
         <div class="text-center">
@@ -655,7 +662,8 @@
         title="Global App Management"
         disabled
       />
-      <b-tab title="Global Specifications"
+      <b-tab
+        title="Global Specifications"
         :active="global"
       >
         <h2 class="mt-2">

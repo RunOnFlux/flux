@@ -596,7 +596,7 @@ export default {
     },
     async stopAll(app) {
       this.output = ''
-      this.showToast('warning', `Stopping ${app}`)
+      this.showToast('warning', `Stopping ${this.getAppName(app)}`)
       const zelidauth = localStorage.getItem('zelidauth')
       const response = await AppsService.stopAll(zelidauth, app)
       if (response.data.status === 'success') {
@@ -610,7 +610,7 @@ export default {
     },
     async startApp(app) {
       this.output = ''
-      this.showToast('warning', `Starting ${app}`)
+      this.showToast('warning', `Starting ${this.getAppName(app)}`)
       const zelidauth = localStorage.getItem('zelidauth')
       const response = await AppsService.startApp(zelidauth, app)
       if (response.data.status === 'success') {
@@ -624,7 +624,7 @@ export default {
     },
     async restartApp(app) {
       this.output = ''
-      this.showToast('warning', `Restarting ${app}`)
+      this.showToast('warning', `Restarting ${this.getAppName(app)}`)
       const zelidauth = localStorage.getItem('zelidauth')
       const response = await AppsService.restartApp(zelidauth, app)
       if (response.data.status === 'success') {
@@ -638,7 +638,7 @@ export default {
     },
     async pauseApp(app) {
       this.output = ''
-      this.showToast('warning', `Pausing ${app}`)
+      this.showToast('warning', `Pausing ${this.getAppName(app)}`)
       const zelidauth = localStorage.getItem('zelidauth')
       const response = await AppsService.pauseApp(zelidauth, app)
       if (response.data.status === 'success') {
@@ -651,7 +651,7 @@ export default {
     },
     async unpauseApp(app) {
       this.output = ''
-      this.showToast('warning', `Unpausing ${app}`)
+      this.showToast('warning', `Unpausing ${this.getAppName(app)}`)
       const zelidauth = localStorage.getItem('zelidauth')
       const response = await AppsService.unpauseApp(zelidauth, app)
       if (response.data.status === 'success') {
@@ -671,7 +671,7 @@ export default {
     async redeployApp(app, force) {
       const self = this
       this.output = ''
-      this.showToast('warning', `Redeploying ${app}`)
+      this.showToast('warning', `Redeploying ${this.getAppName(app)}`)
       const zelidauth = localStorage.getItem('zelidauth')
       const axiosConfig = {
         headers: {
@@ -697,7 +697,7 @@ export default {
     async removeApp(app) {
       const self = this
       this.output = ''
-      this.showToast('warning', `Removing ${app}`)
+      this.showToast('warning', `Removing ${this.getAppName(app)}`)
       const zelidauth = localStorage.getItem('zelidauth')
       const axiosConfig = {
         headers: {
@@ -729,7 +729,7 @@ export default {
       const appName = app
       const self = this
       this.output = ''
-      this.showToast('warning', `Installing ${appName}`)
+      this.showToast('warning', `Installing ${this.getAppName(app)}`)
       const zelidauth = localStorage.getItem('zelidauth')
       // const response = await AppsService.installTemporaryLocalApp(zelidauth, app);
       const axiosConfig = {
