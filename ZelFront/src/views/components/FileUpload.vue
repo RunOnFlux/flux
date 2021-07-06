@@ -11,6 +11,7 @@
           class="flux-share-upload-drop text-center"
           @drop.prevent="addFile"
           @dragover.prevent
+          @click="selectFiles"
         >
           <v-icon name="cloud-upload-alt" />
           <p>Drop files here or <em>click to upload</em></p>
@@ -18,6 +19,14 @@
             (File size is limited to 5GB)
           </p>
         </div>
+        <input
+          id="file-selector"
+          ref="fileselector"
+          class="flux-share-upload-input"
+          type="file"
+          multiple
+          @change="handleFiles"
+        >
       </b-col>
       <b-col
         xs="4"
@@ -121,10 +130,23 @@ export default {
     },
   },
   methods: {
+    selectFiles() {
+      console.log('select files')
+      this.$refs.fileselector.click()
+    },
+    handleFiles(ev) {
+      const { files } = ev.target
+      if (!files) return
+      console.log(files)
+      this.addFiles(([...files]))
+    },
     addFile(e) {
       const droppedFiles = e.dataTransfer.files
       if (!droppedFiles) return
-      ([...droppedFiles]).forEach(f => {
+      this.addFiles(([...droppedFiles]))
+    },
+    addFiles(filesToAdd) {
+      filesToAdd.forEach(f => {
         const existingFiles = this.files.some(file => file.file.name === f.name)
         console.log(existingFiles)
         if (existingFiles) {
@@ -179,14 +201,14 @@ export default {
 
       xhr.onerror = function error(e) {
         console.log(e)
-        this.showToast('danger', `An error occurred while uploading '${file.file.name}' - ${e}`)
+        self.showToast('danger', `An error occurred while uploading '${file.file.name}' - ${e}`)
       }
 
       xhr.onload = function onload() {
         if (xhr.status < 200 || xhr.status >= 300) {
           console.log('error')
           console.log(xhr.status)
-          this.showToast('danger', `An error occurred while uploading '${file.file.name}' - Status code: ${xhr.status}`)
+          self.showToast('danger', `An error occurred while uploading '${file.file.name}' - Status code: ${xhr.status}`)
           return
         }
 
@@ -194,7 +216,7 @@ export default {
         file.uploading = false
         self.$emit('complete')
 
-        this.showToast('success', `'${file.file.name}' has been uploaded`)
+        self.showToast('success', `'${file.file.name}' has been uploaded`)
       }
 
       xhr.open('post', action, true)
@@ -240,6 +262,9 @@ export default {
   width: 100px;
   height: 100px;
   margin: 50px 0 10px 0;
+}
+.flux-share-upload-input {
+  display: none;
 }
 .upload-footer {
   font-size: 10px;
