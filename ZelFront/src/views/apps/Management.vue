@@ -1299,7 +1299,7 @@
             >
               <b-card>
                 <b-card-text>
-                  To finish the application update, please make a transaction of {{ appPricePerMonthForUpdate }} to address
+                  To finish the application update, please make a transaction of {{ appPricePerMonthForUpdate }} FLUX to address
                   '{{ apps.address }}'
                   with the following message:
                   '{{ updateHash }}'
@@ -1372,9 +1372,11 @@ import ListEntry from '@/views/components/ListEntry.vue'
 import AppsService from '@/services/AppsService'
 import DaemonService from '@/services/DaemonService'
 
+import fluxapps from '@/libs/fluxApps'
+
+const qs = require('qs')
 const store = require('store')
 const timeoptions = require('@/libs/dateFormat')
-const qs = require('qs')
 
 export default {
   components: {
@@ -1433,45 +1435,6 @@ export default {
       websocket: null,
       currentHeight: 0,
       selectedAppOwner: '',
-      fluxSpecifics: {
-        cpu: {
-          basic: 20, // 10 available for apps
-          super: 40, // 30 available for apps
-          bamf: 80, // 70 available for apps
-        },
-        ram: {
-          basic: 3000, // 1000 available for apps
-          super: 7000, // 5000 available for apps
-          bamf: 30000, // available 28000 for apps
-        },
-        hdd: {
-          basic: 50, // 20 for apps
-          super: 150, // 120 for apps
-          bamf: 600, // 570 for apps
-        },
-        collateral: {
-          basic: 10000,
-          super: 25000,
-          bamf: 100000,
-        },
-      },
-      lockedSystemResources: {
-        cpu: 10, // 1 cpu core
-        ram: 2000, // 2000mb
-        hdd: 30, // 30gb // this value is likely to rise
-      },
-      apps: {
-        // in flux per month
-        price: {
-          cpu: 3, // per 0.1 cpu core,
-          ram: 1, // per 100mb,
-          hdd: 0.5, // per 1gb,
-        },
-        address: 't1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6', // apps registration address
-        epochstart: 694000, // apps epoch blockheight start
-        portMin: 31000, // originally should have been from 30000 but we got temporary folding there
-        portMax: 39999,
-      },
       callResponse: { // general
         status: '',
         data: '',
@@ -1999,8 +1962,8 @@ export default {
 
         // check ports is within range
         appSpecFormatted.ports.forEach(port => {
-          if (port < this.apps.portMin || port > this.apps.portMax) {
-            throw new Error(`Assigned port ${port} is not within Apps range ${this.apps.portMin}-${this.apps.portMax}`)
+          if (port < fluxapps.apps.portMin || port > fluxapps.apps.portMax) {
+            throw new Error(`Assigned port ${port} is not within Apps range ${fluxapps.apps.portMin}-${fluxapps.apps.portMax}`)
           }
         })
 
@@ -2057,41 +2020,41 @@ export default {
 
     checkHWParameters(appSpecs) {
       // check specs parameters. JS precision
-      if ((appSpecs.cpu * 10) % 1 !== 0 || (appSpecs.cpu * 10) > (this.fluxSpecifics.cpu.bamf - this.lockedSystemResources.cpu) || appSpecs.cpu < 0.1) {
+      if ((appSpecs.cpu * 10) % 1 !== 0 || (appSpecs.cpu * 10) > (fluxapps.fluxSpecifics.cpu.bamf - fluxapps.lockedSystemResources.cpu) || appSpecs.cpu < 0.1) {
         return new Error('CPU badly assigned')
       }
-      if (appSpecs.ram % 100 !== 0 || appSpecs.ram > (this.fluxSpecifics.ram.bamf - this.lockedSystemResources.ram) || appSpecs.ram < 100) {
+      if (appSpecs.ram % 100 !== 0 || appSpecs.ram > (fluxapps.fluxSpecifics.ram.bamf - fluxapps.lockedSystemResources.ram) || appSpecs.ram < 100) {
         return new Error('RAM badly assigned')
       }
-      if (appSpecs.hdd % 1 !== 0 || appSpecs.hdd > (this.fluxSpecifics.hdd.bamf - this.lockedSystemResources.hdd) || appSpecs.hdd < 1) {
+      if (appSpecs.hdd % 1 !== 0 || appSpecs.hdd > (fluxapps.fluxSpecifics.hdd.bamf - fluxapps.lockedSystemResources.hdd) || appSpecs.hdd < 1) {
         return new Error('SSD badly assigned')
       }
       if (appSpecs.tiered) {
-        if ((appSpecs.cpubasic * 10) % 1 !== 0 || (appSpecs.cpubasic * 10) > (this.fluxSpecifics.cpu.basic - this.lockedSystemResources.cpu) || appSpecs.cpubasic < 0.1) {
+        if ((appSpecs.cpubasic * 10) % 1 !== 0 || (appSpecs.cpubasic * 10) > (fluxapps.fluxSpecifics.cpu.basic - fluxapps.lockedSystemResources.cpu) || appSpecs.cpubasic < 0.1) {
           return new Error('CPU for Cumulus badly assigned')
         }
-        if (appSpecs.rambasic % 100 !== 0 || appSpecs.rambasic > (this.fluxSpecifics.ram.basic - this.lockedSystemResources.ram) || appSpecs.rambasic < 100) {
+        if (appSpecs.rambasic % 100 !== 0 || appSpecs.rambasic > (fluxapps.fluxSpecifics.ram.basic - fluxapps.lockedSystemResources.ram) || appSpecs.rambasic < 100) {
           return new Error('RAM for Cumulus badly assigned')
         }
-        if (appSpecs.hddbasic % 1 !== 0 || appSpecs.hddbasic > (this.fluxSpecifics.hdd.basic - this.lockedSystemResources.hdd) || appSpecs.hddbasic < 1) {
+        if (appSpecs.hddbasic % 1 !== 0 || appSpecs.hddbasic > (fluxapps.fluxSpecifics.hdd.basic - fluxapps.lockedSystemResources.hdd) || appSpecs.hddbasic < 1) {
           return new Error('SSD for Cumulus badly assigned')
         }
-        if ((appSpecs.cpusuper * 10) % 1 !== 0 || (appSpecs.cpusuper * 10) > (this.fluxSpecifics.cpu.super - this.lockedSystemResources.cpu) || appSpecs.cpusuper < 0.1) {
+        if ((appSpecs.cpusuper * 10) % 1 !== 0 || (appSpecs.cpusuper * 10) > (fluxapps.fluxSpecifics.cpu.super - fluxapps.lockedSystemResources.cpu) || appSpecs.cpusuper < 0.1) {
           return new Error('CPU for Nimbus badly assigned')
         }
-        if (appSpecs.ramsuper % 100 !== 0 || appSpecs.ramsuper > (this.fluxSpecifics.ram.super - this.lockedSystemResources.ram) || appSpecs.ramsuper < 100) {
+        if (appSpecs.ramsuper % 100 !== 0 || appSpecs.ramsuper > (fluxapps.fluxSpecifics.ram.super - fluxapps.lockedSystemResources.ram) || appSpecs.ramsuper < 100) {
           return new Error('RAM for Nimbus badly assigned')
         }
-        if (appSpecs.hddsuper % 1 !== 0 || appSpecs.hddsuper > (this.fluxSpecifics.hdd.super - this.lockedSystemResources.hdd) || appSpecs.hddsuper < 1) {
+        if (appSpecs.hddsuper % 1 !== 0 || appSpecs.hddsuper > (fluxapps.fluxSpecifics.hdd.super - fluxapps.lockedSystemResources.hdd) || appSpecs.hddsuper < 1) {
           return new Error('SSD for Nimbus badly assigned')
         }
-        if ((appSpecs.cpubamf * 10) % 1 !== 0 || (appSpecs.cpubamf * 10) > (this.fluxSpecifics.cpu.bamf - this.lockedSystemResources.cpu) || appSpecs.cpubamf < 0.1) {
+        if ((appSpecs.cpubamf * 10) % 1 !== 0 || (appSpecs.cpubamf * 10) > (fluxapps.fluxSpecifics.cpu.bamf - fluxapps.lockedSystemResources.cpu) || appSpecs.cpubamf < 0.1) {
           return new Error('CPU for Stratus badly assigned')
         }
-        if (appSpecs.rambamf % 100 !== 0 || appSpecs.rambamf > (this.fluxSpecifics.ram.bamf - this.lockedSystemResources.ram) || appSpecs.rambamf < 100) {
+        if (appSpecs.rambamf % 100 !== 0 || appSpecs.rambamf > (fluxapps.fluxSpecifics.ram.bamf - fluxapps.lockedSystemResources.ram) || appSpecs.rambamf < 100) {
           return new Error('RAM for Stratus badly assigned')
         }
-        if (appSpecs.hddbamf % 1 !== 0 || appSpecs.hddbamf > (this.fluxSpecifics.hdd.bamf - this.lockedSystemResources.hdd) || appSpecs.hddbamf < 1) {
+        if (appSpecs.hddbamf % 1 !== 0 || appSpecs.hddbamf > (fluxapps.fluxSpecifics.hdd.bamf - fluxapps.lockedSystemResources.hdd) || appSpecs.hddbamf < 1) {
           return new Error('SSD for Stratus badly assigned')
         }
       }
@@ -2173,13 +2136,13 @@ export default {
       let price
       if (specifications.tiered) {
         const cpuTotalCount = specifications.cpubasic + specifications.cpusuper + specifications.cpubamf
-        const cpuPrice = cpuTotalCount * this.apps.price.cpu * 10 // 0.1 core cost cpu price
+        const cpuPrice = cpuTotalCount * fluxapps.apps.price.cpu * 10 // 0.1 core cost cpu price
         const cpuTotal = cpuPrice / 3
         const ramTotalCount = specifications.rambasic + specifications.ramsuper + specifications.rambamf
-        const ramPrice = (ramTotalCount * this.apps.price.ram) / 100
+        const ramPrice = (ramTotalCount * fluxapps.apps.price.ram) / 100
         const ramTotal = ramPrice / 3
         const hddTotalCount = specifications.hddbasic + specifications.hddsuper + specifications.hddbamf
-        const hddPrice = hddTotalCount * this.apps.price.hdd
+        const hddPrice = hddTotalCount * fluxapps.apps.price.hdd
         const hddTotal = hddPrice / 3
         const totalPrice = cpuTotal + ramTotal + hddTotal
         price = Number(Math.ceil(totalPrice * 100) / 100)
@@ -2188,9 +2151,9 @@ export default {
         }
         return price
       }
-      const cpuTotal = specifications.cpu * this.apps.price.cpu * 10
-      const ramTotal = (specifications.ram * this.apps.price.ram) / 100
-      const hddTotal = specifications.hdd * this.apps.price.hdd
+      const cpuTotal = specifications.cpu * fluxapps.apps.price.cpu * 10
+      const ramTotal = (specifications.ram * fluxapps.apps.price.ram) / 100
+      const hddTotal = specifications.hdd * fluxapps.apps.price.hdd
       const totalPrice = cpuTotal + ramTotal + hddTotal
       price = Number(Math.ceil(totalPrice * 100) / 100)
       if (price < 1) {
