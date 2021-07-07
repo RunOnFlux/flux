@@ -144,7 +144,7 @@ describe('checkHWParameters', () => {
     const repA = await appService.verifyRepository(fluxAppSpecs.repotag);
     expect(repA).to.be.equal(true);
     const repB = await appService.verifyRepository(fluxAppSpecs.repotagB).catch((error) => {
-      expect(error.message).to.be.equal('Repository is not in valid format namespace/repository:tag')
+      expect(error.message).to.be.equal('Repository yurinnick/folding-at-home:latestaaa is not in valid format namespace/repository:tag')
     });
     expect(repB).to.be.equal(undefined)
     // expect(appService.verifyAppSpecifications(fluxAppSpecs)).to.not.throw();

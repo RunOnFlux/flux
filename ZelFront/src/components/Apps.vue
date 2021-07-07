@@ -2909,7 +2909,7 @@ export default {
             throw resDocker.data.data;
           }
         } else {
-          throw new Error('Repository is not in valid format namespace/repository:tag');
+          throw new Error(`Repository ${repotag} is not in valid format namespace/repository:tag`);
         }
         this.timestamp = new Date().getTime();
         this.dataForAppRegistration = appSpecFormatted;
@@ -3137,7 +3137,7 @@ export default {
             throw resDocker.data.data;
           }
         } else {
-          throw new Error('Repository is not in valid format namespace/repository:tag');
+          throw new Error(`Repository ${repotag} is not in valid format namespace/repository:tag`);
         }
         this.timestamp = new Date().getTime();
         this.dataForAppUpdate = appSpecFormatted;
