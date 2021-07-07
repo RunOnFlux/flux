@@ -36,7 +36,7 @@ export default [
   {
     path: '/apps/registerapp',
     name: 'apps-registerapp',
-    component: () => import('@/views/daemon/control/GetInfo.vue'),
+    component: () => import('@/views/apps/RegisterFluxApp.vue'),
     meta: {
       pageTitle: 'Register Flux App',
       breadcrumb: [
