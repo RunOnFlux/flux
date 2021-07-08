@@ -1,89 +1,95 @@
 <template>
-  <b-card>
-    <b-card-text>
-      Please paste a valid Flux Transaction (hex) below
-    </b-card-text>
-    <b-form-input
-      v-model="hexFluxTransaction"
-      placeholder="Transaction Hex"
-    />
-    <b-button
-      id="sign-transaction"
-      v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-      variant="outline-primary"
-      size="md"
-      class="ml-1 my-1"
-    >
-      Sign Transaction
-    </b-button>
-    <div
-      class="ml-1 mt-1"
-      v-if="callResponse.status === 'success'"
-    >
-      <p>
-        Status: {{ callResponse.data.status }}
-      </p>
-      <p v-if="callResponse.data.tier">
-        Tier: {{ callResponse.data.tier }}
-      </p>
-      <p v-if="callResponse.data.hex">
-        Hex: {{ callResponse.data.hex }}
-      </p>
-    </div>
-    <b-popover
-      ref="popover"
-      target="sign-transaction"
-      triggers="click"
-      :show.sync="popoverShow"
-      placement="auto"
-      container="my-container"
-    >
-      <template v-slot:title>
-        <div class="d-flex justify-content-between align-items-center">
-          <span>Are You Sure?</span>
+  <b-overlay
+    :show="signingInProgress"
+    variant="transparent"
+    blur="5px"
+  >
+    <b-card>
+      <b-card-text>
+        Please paste a valid Flux Transaction (hex) below
+      </b-card-text>
+      <b-form-input
+        v-model="hexFluxTransaction"
+        placeholder="Transaction Hex"
+      />
+      <b-button
+        id="sign-transaction"
+        v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+        variant="outline-primary"
+        size="md"
+        class="my-1"
+      >
+        Sign Transaction
+      </b-button>
+      <div
+        class="ml-1 mt-1"
+        v-if="callResponse.status === 'success'"
+      >
+        <p>
+          Status: {{ callResponse.data.status }}
+        </p>
+        <p v-if="callResponse.data.tier">
+          Tier: {{ callResponse.data.tier }}
+        </p>
+        <p v-if="callResponse.data.hex">
+          Hex: {{ callResponse.data.hex }}
+        </p>
+      </div>
+      <b-popover
+        ref="popover"
+        target="sign-transaction"
+        triggers="click"
+        :show.sync="popoverShow"
+        placement="auto"
+        container="my-container"
+      >
+        <template v-slot:title>
+          <div class="d-flex justify-content-between align-items-center">
+            <span>Are You Sure?</span>
+            <b-button
+              v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+              class="close"
+              variant="transparent"
+              aria-label="Close"
+              @click="onClose"
+            >
+              <span
+                class="d-inline-block text-white"
+                aria-hidden="true"
+              >&times;</span>
+            </b-button>
+          </div>
+        </template>
+
+        <div>
           <b-button
             v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-            class="close"
-            variant="transparent"
-            aria-label="Close"
+            size="sm"
+            variant="danger"
+            class="mr-1"
             @click="onClose"
           >
-            <span
-              class="d-inline-block text-white"
-              aria-hidden="true"
-            >&times;</span>
+            Cancel
+          </b-button>
+          <b-button
+            v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+            size="sm"
+            variant="primary"
+            @click="signFluxTransaction"
+          >
+            Sign Transaction
           </b-button>
         </div>
-      </template>
-
-      <div>
-        <b-button
-          v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-          size="sm"
-          variant="danger"
-          class="mr-1"
-          @click="onClose"
-        >
-          Cancel
-        </b-button>
-        <b-button
-          v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-          size="sm"
-          variant="primary"
-          @click="signFluxTransaction"
-        >
-          Sign Transaction
-        </b-button>
-      </div>
-    </b-popover>
-    <b-form-textarea
-      v-if="callResponse.data"
-      plaintext
-      no-resize
-      rows="30"
-      :value="callResponse.data"
-    />
-  </b-card>
+      </b-popover>
+      <b-form-textarea
+        v-if="callResponse.data"
+        plaintext
+        no-resize
+        rows="30"
+        :value="callResponse.data"
+      />
+    </b-card>
+  </b-overlay>
 </template>
 
 <script>
@@ -94,6 +100,7 @@ import {
   BPopover,
   BFormInput,
   BFormTextarea,
+  BOverlay,
 } from 'bootstrap-vue'
 import BenchmarkService from '@/services/BenchmarkService'
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
@@ -107,6 +114,7 @@ export default {
     BPopover,
     BFormInput,
     BFormTextarea,
+    BOverlay,
     // eslint-disable-next-line vue/no-unused-components
     ToastificationContent,
   },
@@ -121,6 +129,7 @@ export default {
         status: '',
         data: '',
       },
+      signingInProgress: false,
     }
   },
   methods: {
@@ -140,6 +149,7 @@ export default {
         })
         return
       }
+      this.signingInProgress = true
       const zelidauth = localStorage.getItem('zelidauth')
       BenchmarkService.signFluxTransaction(zelidauth, this.hexFluxTransaction)
         .then(response => {
@@ -157,6 +167,7 @@ export default {
             this.callResponse.status = response.data.status
             this.callResponse.data = response.data.data
           }
+          this.signingInProgress = false
         })
         .catch(error => {
           console.log(error)
@@ -168,6 +179,7 @@ export default {
               variant: 'danger',
             },
           })
+          this.signingInProgress = false
         })
     },
   },
