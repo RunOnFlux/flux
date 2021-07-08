@@ -129,6 +129,7 @@ export default {
         status: '',
         data: '',
       },
+      hexFluxTransaction: '',
       signingInProgress: false,
     }
   },
