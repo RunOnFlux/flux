@@ -1,155 +1,161 @@
 <template>
-  <b-card>
-    <b-row>
-      <b-col
-        md="4"
-        sm="4"
-        class="my-1"
-      >
-        <b-form-group class="mb-0">
-          <label class="d-inline-block text-left mr-50">Per page</label>
-          <b-form-select
-            id="perPageSelect"
-            v-model="perPage"
-            size="sm"
-            :options="pageOptions"
-            class="w-50"
-          />
-        </b-form-group>
-      </b-col>
-      <b-col
-        md="8"
-        class="my-1"
-      >
-        <b-form-group
-          label="Filter"
-          label-cols-sm="1"
-          label-align-sm="right"
-          label-for="filterInput"
-          class="mb-0"
+  <b-overlay
+    :show="fluxListLoading"
+    variant="transparent"
+    blur="5px"
+  >
+    <b-card>
+      <b-row>
+        <b-col
+          md="4"
+          sm="4"
+          class="my-1"
         >
-          <b-input-group size="sm">
-            <b-form-input
-              id="filterInput"
-              v-model="filter"
-              type="search"
-              placeholder="Type to Search"
+          <b-form-group class="mb-0">
+            <label class="d-inline-block text-left mr-50">Per page</label>
+            <b-form-select
+              id="perPageSelect"
+              v-model="perPage"
+              size="sm"
+              :options="pageOptions"
+              class="w-50"
             />
-            <b-input-group-append>
-              <b-button
-                :disabled="!filter"
-                @click="filter = ''"
-              >
-                Clear
-              </b-button>
-            </b-input-group-append>
-          </b-input-group>
-        </b-form-group>
-      </b-col>
-
-      <b-col cols="12">
-        <b-table
-          class="fluxnode-table"
-          striped
-          hover
-          responsive
-          :per-page="perPage"
-          :current-page="currentPage"
-          :items="items"
-          :fields="fields"
-          :sort-by.sync="sortBy"
-          :sort-desc.sync="sortDesc"
-          :sort-direction="sortDirection"
-          :filter="filter"
-          :filter-included-fields="filterOn"
-          @filtered="onFiltered"
+          </b-form-group>
+        </b-col>
+        <b-col
+          md="8"
+          class="my-1"
         >
-          <template #cell(show_details)="row">
-            <a @click="row.toggleDetails">
-              <v-icon
-                v-if="!row.detailsShowing"
-                name="chevron-down"
+          <b-form-group
+            label="Filter"
+            label-cols-sm="1"
+            label-align-sm="right"
+            label-for="filterInput"
+            class="mb-0"
+          >
+            <b-input-group size="sm">
+              <b-form-input
+                id="filterInput"
+                v-model="filter"
+                type="search"
+                placeholder="Type to Search"
               />
-              <v-icon
-                v-if="row.detailsShowing"
-                name="chevron-up"
-              />
-            </a>
-          </template>
-          <template #row-details="row">
-            <b-card class="mx-2">
-              <list-entry
-                v-if="row.item.collateral"
-                title="Collateral"
-                :data="row.item.collateral"
-              />
-              <list-entry
-                v-if="row.item.txhash"
-                title="TX Hash"
-                :data="row.item.txhash"
-              />
-              <list-entry
-                v-if="row.item.outidx"
-                title="Output ID"
-                :data="row.item.outidx"
-              />
-              <list-entry
-                v-if="row.item.pubkey"
-                title="Public Key"
-                :data="row.item.pubkey"
-              />
-              <list-entry
-                v-if="row.item.network"
-                title="Network"
-                :data="row.item.network"
-              />
-              <list-entry
-                v-if="row.item.lastpaid"
-                title="Last Paid"
-                :data="new Date(row.item.lastpaid * 1000).toLocaleString('en-GB', timeoptions.shortDate)"
-              />
-              <list-entry
-                v-if="row.item.activesince"
-                title="Active Since"
-                :data="new Date(row.item.activesince * 1000).toLocaleString('en-GB', timeoptions.shortDate)"
-              />
-              <list-entry
-                v-if="row.item.last_paid_height"
-                title="Last Paid Height"
-                :data="row.item.last_paid_height.toFixed(0)"
-              />
-              <list-entry
-                v-if="row.item.confirmed_height"
-                title="Confirmed Height"
-                :data="row.item.confirmed_height.toFixed(0)"
-              />
-              <list-entry
-                v-if="row.item.last_confirmed_height"
-                title="Last Confirmed Height"
-                :data="row.item.last_confirmed_height.toFixed(0)"
-              />
-              <list-entry
-                v-if="row.item.rank >= 0"
-                title="Rank"
-                :data="row.item.rank.toFixed(0)"
-              />
-            </b-card>
-          </template>
-        </b-table>
-      </b-col>
+              <b-input-group-append>
+                <b-button
+                  :disabled="!filter"
+                  @click="filter = ''"
+                >
+                  Clear
+                </b-button>
+              </b-input-group-append>
+            </b-input-group>
+          </b-form-group>
+        </b-col>
 
-      <b-col cols="12">
-        <b-pagination
-          v-model="currentPage"
-          :total-rows="totalRows"
-          :per-page="perPage"
-          align="center"
-          size="sm"
-          class="my-0"
-        />
-      </b-col>
-    </b-row>
-  </b-card>
+        <b-col cols="12">
+          <b-table
+            class="fluxnode-table"
+            striped
+            hover
+            responsive
+            :per-page="perPage"
+            :current-page="currentPage"
+            :items="items"
+            :fields="fields"
+            :sort-by.sync="sortBy"
+            :sort-desc.sync="sortDesc"
+            :sort-direction="sortDirection"
+            :filter="filter"
+            :filter-included-fields="filterOn"
+            @filtered="onFiltered"
+          >
+            <template #cell(show_details)="row">
+              <a @click="row.toggleDetails">
+                <v-icon
+                  v-if="!row.detailsShowing"
+                  name="chevron-down"
+                />
+                <v-icon
+                  v-if="row.detailsShowing"
+                  name="chevron-up"
+                />
+              </a>
+            </template>
+            <template #row-details="row">
+              <b-card class="mx-2">
+                <list-entry
+                  v-if="row.item.collateral"
+                  title="Collateral"
+                  :data="row.item.collateral"
+                />
+                <list-entry
+                  v-if="row.item.txhash"
+                  title="TX Hash"
+                  :data="row.item.txhash"
+                />
+                <list-entry
+                  v-if="row.item.outidx"
+                  title="Output ID"
+                  :data="row.item.outidx"
+                />
+                <list-entry
+                  v-if="row.item.pubkey"
+                  title="Public Key"
+                  :data="row.item.pubkey"
+                />
+                <list-entry
+                  v-if="row.item.network"
+                  title="Network"
+                  :data="row.item.network"
+                />
+                <list-entry
+                  v-if="row.item.lastpaid"
+                  title="Last Paid"
+                  :data="new Date(row.item.lastpaid * 1000).toLocaleString('en-GB', timeoptions.shortDate)"
+                />
+                <list-entry
+                  v-if="row.item.activesince"
+                  title="Active Since"
+                  :data="new Date(row.item.activesince * 1000).toLocaleString('en-GB', timeoptions.shortDate)"
+                />
+                <list-entry
+                  v-if="row.item.last_paid_height"
+                  title="Last Paid Height"
+                  :data="row.item.last_paid_height.toFixed(0)"
+                />
+                <list-entry
+                  v-if="row.item.confirmed_height"
+                  title="Confirmed Height"
+                  :data="row.item.confirmed_height.toFixed(0)"
+                />
+                <list-entry
+                  v-if="row.item.last_confirmed_height"
+                  title="Last Confirmed Height"
+                  :data="row.item.last_confirmed_height.toFixed(0)"
+                />
+                <list-entry
+                  v-if="row.item.rank >= 0"
+                  title="Rank"
+                  :data="row.item.rank.toFixed(0)"
+                />
+              </b-card>
+            </template>
+          </b-table>
+        </b-col>
+
+        <b-col cols="12">
+          <b-pagination
+            v-model="currentPage"
+            :total-rows="totalRows"
+            :per-page="perPage"
+            align="center"
+            size="sm"
+            class="my-0"
+          />
+        </b-col>
+      </b-row>
+    </b-card>
+  </b-overlay>
 </template>
 
 <script>
@@ -165,6 +171,7 @@ import {
   BFormInput,
   BInputGroupAppend,
   BButton,
+  BOverlay,
 } from 'bootstrap-vue'
 import ListEntry from '@/views/components/ListEntry.vue'
 import DaemonService from '@/services/DaemonService'
@@ -185,6 +192,7 @@ export default {
     BFormInput,
     BInputGroupAppend,
     BButton,
+    BOverlay,
     ListEntry,
     // eslint-disable-next-line vue/no-unused-components
     ToastificationContent,
@@ -213,6 +221,7 @@ export default {
       ],
       totalRows: 1,
       currentPage: 1,
+      fluxListLoading: true,
     }
   },
   computed: {
@@ -246,6 +255,7 @@ export default {
         this.totalRows = this.items.length
         this.currentPage = 1
       }
+      this.fluxListLoading = false
     },
     onFiltered(filteredItems) {
       // Trigger pagination to update the number of buttons/pages due to filtering
