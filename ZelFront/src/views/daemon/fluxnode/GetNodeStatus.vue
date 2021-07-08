@@ -34,22 +34,22 @@
     <list-entry
       v-if="callResponse.data.added_height"
       title="Added Height"
-      :data="callResponse.data.added_height"
+      :number="callResponse.data.added_height"
     />
     <list-entry
       v-if="callResponse.data.confirmed_height"
       title="Confirmed Height"
-      :data="callResponse.data.confirmed_height"
+      :number="callResponse.data.confirmed_height"
     />
     <list-entry
       v-if="callResponse.data.last_confirmed_height"
       title="Last Confirmed Height"
-      :data="callResponse.data.last_confirmed_height"
+      :number="callResponse.data.last_confirmed_height"
     />
     <list-entry
       v-if="callResponse.data.last_paid_height"
       title="Last Paid Height"
-      :data="callResponse.data.last_paid_height"
+      :number="callResponse.data.last_paid_height"
     />
     <list-entry
       v-if="callResponse.data.tier"
