@@ -161,7 +161,7 @@
         <b-overlay
           :show="!transactionDetail.txid"
           variant="transparent"
-          blur="3px"
+          blur="5px"
           opacity="0.82"
         >
           <b-card :title="`Transaction: ${transactionDetail.txid ? transactionDetail.txid : 'Loading...'}`">
@@ -179,7 +179,7 @@
       v-if="addressView"
       :show="!addressWithTransactions[address]"
       variant="transparent"
-      blur="3px"
+      blur="5px"
       opacity="0.82"
     >
       <b-row
