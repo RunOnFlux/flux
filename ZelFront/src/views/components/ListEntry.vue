@@ -21,6 +21,16 @@
       </b-link>
     </dd>
     <dd
+      v-if="click"
+      class="col-sm-9 mb-0"
+      :class="`text-${variant}`"
+      @click="$emit('click')"
+    >
+      <b-link>
+        {{ (data.length > 0 ? data : (number !== Number.MAX_VALUE ? number : '' )) }}
+      </b-link>
+    </dd>
+    <dd
       v-else
       class="col-sm-9 mb-0"
       :class="`text-${variant}`"
@@ -68,6 +78,11 @@ export default {
       type: String,
       required: false,
       default: '',
+    },
+    click: {
+      type: Boolean,
+      required: false,
+      default: false,
     },
   },
 }
