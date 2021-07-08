@@ -30,6 +30,20 @@ const router = new VueRouter({
         ],
       },
     },
+    {
+      path: '/explorer',
+      name: 'explorer',
+      component: () => import('@/views/explorer/Explorer.vue'),
+      meta: {
+        pageTitle: 'Explorer',
+        breadcrumb: [
+          {
+            text: 'Explorer',
+            active: true,
+          },
+        ],
+      },
+    },
     ...dashboard,
     ...daemon,
     ...benchmark,

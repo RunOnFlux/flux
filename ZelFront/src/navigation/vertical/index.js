@@ -11,6 +11,11 @@ export default [
     route: 'home',
     icon: 'home',
   },
+  {
+    title: 'Explorer',
+    route: 'explorer',
+    icon: 'search',
+  },
   ...dashboard,
   ...daemon,
   ...benchmark,
