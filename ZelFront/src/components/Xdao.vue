@@ -7,32 +7,38 @@
       >
         <el-table-column
           label="Topic"
-          prop="proposalTopic"
+          prop="topic"
         >
         </el-table-column>
         <el-table-column
           label="Grant Value"
-          prop="proposalGrantValue"
+          prop="grantValue"
         >
         </el-table-column>
         <el-table-column
           label="Name/NickName"
-          prop="proposalNickName"
+          prop="nickName"
         >
         </el-table-column>
         <el-table-column
           label="Submit Date"
-          prop="proposalSubmitDate"
+          prop="submitDate"
         >
+          <template slot-scope="scope">
+            {{ new Date(scope.row.submitDate).toLocaleString('en-GB', timeoptions) }}
+          </template>
         </el-table-column>
         <el-table-column
           label="End Date"
-          prop="proposalEndDate"
+          prop="voteEndDate"
         >
+          <template slot-scope="scope">
+            {{ new Date(scope.row.voteEndDate).toLocaleString('en-GB', timeoptions) }}
+          </template>
         </el-table-column>
         <el-table-column
           label="Status"
-          prop="proposalStatus"
+          prop="status"
         >
         </el-table-column>
         <el-table-column align="right">
@@ -95,75 +101,42 @@
           </el-input>
         </el-form-item>
       </el-form>
-      <div>
-        <ElButton @click="checkProposal">
-          Compute Flux Xdao Proposal
+      <div v-if="!proposalValid">
+        <ElButton @click="validateProposal">
+          Validate Xdao Proposal
         </ElButton>
       </div>
-      <div v-if="dataToSign">
-          <el-form>
-            <el-form-item label="Registration Message">
-              <el-input
-                type="textarea"
-                autosize
-                disabled
-                v-model="dataToSign"
-              >
-              </el-input>
-            </el-form-item>
-            <el-form-item label="Signature">
-              <el-input
-                type="textarea"
-                autosize
-                v-model="signature"
-              >
-              </el-input>
-            </el-form-item>
-          </el-form>
-          <div>
-            Sign with ZelCore
-            <br>
-            <a
-              @click="initiateSignWS"
-              :href="'zel:?action=sign&message=' + dataToSign + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FZelFront%2Fsrc%2Fassets%2Fimg%2FzelID.svg&callback=' + callbackValueSign"
-            >
-              <img
-                class="zelidLogin"
-                src="@/assets/img/zelID.svg"
-                alt="Zel ID"
-                height="100%"
-                width="100%"
-              />
-            </a>
-          </div>
+      <div v-if="proposalValid">
+        <br>
+        <p>Proposal is Valid</p>
+        <br>
+        Proposal Price: {{proposalPrice}} FLUX
+        <br>
+        <ElButton @click="register">
+          Register Flux XDAO Proposal
+        </ElButton>
+        <br><br>
+        <div v-if="registrationHash">
+          To finish registration, please do a transaction of {{proposalPrice}} Flux to address
+          {{ foundationAddress }}
+          with following message:
+          {{ registrationHash }}
           <br><br>
-          Proposal Price: 100 FLUX
+          Transaction must be mined by {{ new Date(validTill).toLocaleString('en-GB', timeoptions) }}
           <br><br>
-          <ElButton @click="register">
-            Register Flux XDAO Proposal
-          </ElButton>
-          <br><br>
-          <div v-if="registrationHash">
-            To finish registration, please do a transaction of 100 Flux to address
-            {{ foundationAddress }}
-            with following message:
-            {{ registrationHash }}
-            <br><br>
-            Transaction must be mined by {{ new Date(validTill).toLocaleString('en-GB', timeoptions) }}
-            <br><br>
-          </div>
-          <div v-if="registrationHash">
-            Pay with ZelCore
-            <br>
-            <a :href="'zel:?action=pay&coin=zelcash&address=' + foundationAddress + '&amount=' + 100 + '&message=' + registrationHash + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FZelFront%2Fsrc%2Fassets%2Fimg%2Fflux_banner.png'">
-              <img
-                class="zelidLogin"
-                src="@/assets/img/zelID.svg"
-                height="100%"
-                width="100%"
-              />
-            </a>
-          </div>
+        </div>
+        <div v-if="registrationHash">
+          Pay with ZelCore
+          <br>
+          <a :href="'zel:?action=pay&coin=zelcash&address=' + foundationAddress + '&amount=' + proposalPrice + '&message=' + registrationHash + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FZelFront%2Fsrc%2Fassets%2Fimg%2Fflux_banner.png'">
+            <img
+              class="zelidLogin"
+              src="@/assets/img/zelID.svg"
+              height="100%"
+              width="100%"
+            />
+          </a>
+        </div>
       </div>
     </div>
     <div v-if="xdaoSection === 'proposaldetail'">
@@ -176,7 +149,7 @@
         <el-form-item label="Status">
           <el-input
             placeholder="Proposal Status"
-            v-model="proposalDetail.proposalStatus"
+            v-model="proposalDetail.status"
             disabled
           >
           </el-input>
@@ -185,7 +158,7 @@
         <el-form-item label="Submit Date">
           <el-input
             placeholder="Proposal Submit Date"
-            v-model="proposalDetail.proposalSubmitDate"
+            v-model="proposalDetail.submitDate"
             disabled
           >
           </el-input>
@@ -194,7 +167,7 @@
         <el-form-item label="Vote End Date">
           <el-input
             placeholder="Proposal Vote End Date"
-            v-model="proposalDetail.proposalEndDate"
+            v-model="proposalDetail.voteEndDate"
             disabled
           >
           </el-input>
@@ -204,6 +177,15 @@
           <el-input
             placeholder="Total Votes Required"
             v-model="proposalDetail.votesRequired"
+            disabled
+          >
+          </el-input>
+        </el-form-item>
+
+        <el-form-item label="Total Votes">
+          <el-input
+            placeholder="Total Votes"
+            v-model="proposalDetail.votesTotal"
             disabled
           >
           </el-input>
@@ -230,7 +212,7 @@
         <el-form-item label="Topic">
           <el-input
             placeholder="Proposal Topic"
-            v-model="proposalDetail.proposalTopic"
+            v-model="proposalDetail.topic"
             disabled
           >
           </el-input>
@@ -239,7 +221,7 @@
         <el-form-item label="Grant Value">
           <el-input
             placeholder="Grant Flux Value"
-            v-model="proposalDetail.proposalGrantValue"
+            v-model="proposalDetail.grantValue"
             disabled
           >
           </el-input>
@@ -248,7 +230,7 @@
         <el-form-item label="Grant Address">
           <el-input
             placeholder="Flux Address to Receive Grant"
-            v-model="proposalDetail.proposalGrantAddress"
+            v-model="proposalDetail.grantAddress"
             disabled
           >
           </el-input>
@@ -259,7 +241,7 @@
             type="textarea"
             autosize
             placeholder="Proposal Description"
-            v-model="proposalDetail.proposalDescription"
+            v-model="proposalDetail.description"
             disabled
           >
           </el-input>
@@ -269,13 +251,13 @@
           <el-input
             class="width100"
             placeholder="Name/NickName of Proposal Owner"
-            v-model="proposalDetail.proposalNickName"
+            v-model="proposalDetail.nickName"
             disabled
           >
           </el-input>
         </el-form-item>
       </el-form>
-      <div v-if="haveVoted == null">
+      <div v-if="haveVoted == null && proposalDetail.status !== 'Unpaid' && proposalDetail.status !== 'Rejected Unpaid'">
           <div class="loginSection">
             <p>
               To vote, or check the status of your vote, log in using your ZelID
@@ -363,22 +345,19 @@
               </el-form-item>
             </el-form>
           </div>
-          <div v-if="haveVoted == false && proposalDetail.proposalStatus === 'Open' && myNumberOfVotes > 0">
-            <p>
-              You have not voted yet on this proposal. You have {{ myNumberOfVotes }} votes.
-            </p>
-            <br>
-            <ElButton @click="voteYes">
+          <div v-else>
+            <p>You haven't voted yet! You have a total of {{ myNumberOfVotes }} available. After voting you won't be able to change your vote.</p>
+            <ElButton
+                @click="vote(true)"
+              >
               Vote Yes
             </ElButton>
-            <ElButton @click="voteNo">
+            &nbsp;
+            <ElButton
+                @click="vote(false)"
+              >
               Vote No
             </ElButton>
-          </div>
-          <div v-if="haveVoted == false && proposalDetail.proposalStatus !== 'Open'">
-            <p>
-              This proposal is no longer open to votes. You have not voted on this proposal.
-            </p>
           </div>
       </div>
     </div>
@@ -392,6 +371,7 @@ import IDService from '@/services/IDService';
 
 const store = require('store');
 const qs = require('qs');
+const axios = require('axios');
 
 Vue.use(Vuex);
 const vue = new Vue();
@@ -405,15 +385,9 @@ export default {
       proposalGrantAddress: '',
       proposalDescription: '',
       proposalNickName: '',
-      proposalZelId: '',
-      version: 1,
-      dataToSign: '',
-      timestamp: '',
-      signature: '',
+      proposalValid: false,
       registrationHash: '',
-      updateHash: '',
-      foundationAddress: 't1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6',
-      registrationtype: 'fluxdaoproposalsubmit',
+      foundationAddress: null,
       websocket: null,
       timeoptions: {
         year: 'numeric',
@@ -429,10 +403,10 @@ export default {
         signature: '',
         loginPhrase: '',
       },
-      loginPhrase: null,
       haveVoted: null,
       myVote: null,
       myNumberOfVotes: null,
+      proposalPrice: 100,
     };
   },
   computed: {
@@ -441,32 +415,6 @@ export default {
       'userconfig',
       'xdaoSection',
     ]),
-    currentLoginPhrase() {
-      const zelidauth = localStorage.getItem('zelidauth');
-      const auth = qs.parse(zelidauth);
-      console.log(auth);
-      return auth.loginPhrase;
-    },
-    callbackValueSign() {
-      console.log('callbackValueSign');
-      const { protocol, hostname } = window.location;
-      let mybackend = '';
-      mybackend += protocol;
-      mybackend += '//';
-      const regex = /[A-Za-z]/g;
-      if (hostname.match(regex)) {
-        const names = hostname.split('.');
-        names[0] = 'api';
-        mybackend += names.join('.');
-      } else {
-        mybackend += this.userconfig.externalip;
-        mybackend += ':';
-        mybackend += this.config.apiPort;
-      }
-      const backendURL = store.get('backendURL') || mybackend;
-      const url = `${backendURL}/zelid/providesign`;
-      return encodeURI(url);
-    },
     callbackValueLogin() {
       const { protocol, hostname } = window.location;
       let mybackend = '';
@@ -500,9 +448,12 @@ export default {
     switcher(value) {
       switch (value) {
         case 'listproposals':
+          this.proprosalsTable = [];
+          this.cleanProposalDetail();
           this.getXdaoProposals();
           break;
         case 'submitproposal':
+          this.cleanProposalSubmit();
           break;
         case 'proposaldetail':
           break;
@@ -513,93 +464,77 @@ export default {
           console.log('xdao Section: Unrecognized method'); // should not be seeable if all works correctly
       }
     },
+    cleanProposalDetail() {
+      this.proposalDetail = {};
+      this.loginForm = {
+        zelid: '',
+        signature: '',
+        loginPhrase: '',
+      };
+      this.haveVoted = null;
+      this.myVote = null;
+      this.myNumberOfVotes = null;
+    },
+    cleanProposalSubmit() {
+      this.proposalTopic = '';
+      this.proposalGrantValue = 0;
+      this.proposalGrantAddress = '';
+      this.proposalDescription = '';
+      this.proposalNickName = '';
+      this.proposalValid = false;
+      this.registrationHash = '';
+    },
     async getXdaoProposals() {
-      // Todo call Flux Xdao Api to get proposals list.
-      const submitDate = new Date();
-      const endDate = new Date();
-      endDate.setDate(submitDate.getDate() + 7);
-      const proposal1 = {
-        proposalHash: '123456789',
-        proposalTopic: 'Marketing',
-        proposalGrantValue: 100000,
-        proposalNickName: 'Cabecinha84',
-        proposalGrantAddress: 't1jklfsajds08319312',
-        proposalSubmitDate: submitDate.toLocaleString('en-GB', this.timeoptions),
-        proposalEndDate: endDate.toLocaleString('en-GB', this.timeoptions),
-        proposalStatus: 'Open',
-        votesRequired: 230000,
-        votesYes: 12020,
-        votesNo: 2700,
-        proposalDescription: 'Funds will be spend on Marketing',
-      };
-      submitDate.setDate(submitDate.getDate() - 8);
-      endDate.setDate(submitDate.getDate() + 7);
-      const proposal2 = {
-        proposalHash: '1234567890',
-        proposalTopic: 'Dev Stuff',
-        proposalGrantValue: 200000,
-        proposalNickName: 'Cabecinha84',
-        proposalGrantAddress: 't1jklfsajds08319312',
-        proposalSubmitDate: submitDate.toLocaleString('en-GB', this.timeoptions),
-        proposalEndDate: endDate.toLocaleString('en-GB', this.timeoptions),
-        proposalStatus: 'Passed',
-        votesRequired: 210040,
-        votesYes: 432890,
-        votesNo: 4550,
-        proposalDescription: 'Funds will be spend on Dev Stuff',
-      };
-      this.proprosalsTable.push(proposal1);
-      this.proprosalsTable.push(proposal2);
+      const response = await axios.get('https://stats.runonflux.io/proposals/listProposals');
+      console.log(response);
+      if (response.data.status === 'success') {
+        this.proprosalsTable = response.data.data;
+      } else {
+        vue.$customMes.error(response.data.data.message || response.data.data);
+      }
     },
     async getProposalDetails(index) {
-      // Todo call Flux Xdao Api to get proposal detail information.
       this.proposalDetail = this.proprosalsTable[index];
+      console.log(this.proposalDetail);
       this.getZelIdLoginPhrase();
       this.$store.commit('setXdaoSection', 'proposaldetail');
     },
-    checkProposal() {
-      this.timestamp = new Date().getTime();
-      this.dataToSign = this.version + this.proposalZelId + this.timestamp;
-    },
-    initiateSignWS() {
-      const self = this;
-      const { protocol, hostname } = window.location;
-      let mybackend = '';
-      mybackend += protocol;
-      mybackend += '//';
-      const regex = /[A-Za-z]/g;
-      if (hostname.match(regex)) {
-        const names = hostname.split('.');
-        names[0] = 'api';
-        mybackend += names.join('.');
-      } else {
-        mybackend += this.userconfig.externalip;
-        mybackend += ':';
-        mybackend += this.config.apiPort;
+    validateProposal() {
+      if (this.proposalTopic === '') {
+        vue.$customMes.error('Proposal Topic is Mandatory');
+        return;
       }
-      let backendURL = store.get('backendURL') || mybackend;
-      backendURL = backendURL.replace('https://', 'wss://');
-      backendURL = backendURL.replace('http://', 'ws://');
-      const signatureMessage = this.proposalZelId + this.timestamp;
-      const wsuri = `${backendURL}/ws/sign/${signatureMessage}`;
-      const websocket = new WebSocket(wsuri);
-      this.websocket = websocket;
-
-      websocket.onopen = (evt) => { self.onOpen(evt); };
-      websocket.onclose = (evt) => { self.onClose(evt); };
-      websocket.onmessage = (evt) => { self.onMessage(evt); };
-      websocket.onerror = (evt) => { self.onError(evt); };
+      if (this.proposalDescription === '') {
+        vue.$customMes.error('Proposal Description is Mandatory');
+        return;
+      }
+      if (this.proposalGrantValue !== '') {
+        const isnum = /^\d+$/.test(this.proposalGrantValue);
+        if (isnum === true) {
+          if (this.proposalGrantValue !== '0' && this.proposalGrantAddress === '') {
+            vue.$customMes.error('Proposal Grant Address missing');
+            return;
+          }
+        } else {
+          vue.$customMes.error('Proposal Grant Value needs to be a Integer Number');
+          return;
+        }
+      }
+      if (this.proposalTopic.length < 3) {
+        vue.$customMes.error('Proposal Topic needs to have more words');
+        return;
+      }
+      if (this.proposalDescription.length < 50) {
+        vue.$customMes.error('Proposal Description needs to have more details');
+        return;
+      }
+      if (/\s/.test(this.proposalGrantAddress)) {
+        vue.$customMes.error('Proposal Grant Address Invalid, white space detected');
+        return;
+      }
+      this.proposalValid = true;
     },
     onError(evt) {
-      console.log(evt);
-    },
-    onMessage(evt) {
-      const data = qs.parse(evt.data);
-      if (data.status === 'success' && data.data) {
-        // user is now signed. Store their values
-        this.signature = data.data.signature;
-      }
-      console.log(data);
       console.log(evt);
     },
     onClose(evt) {
@@ -620,7 +555,6 @@ export default {
               this.errorMessage = response.data.data.message;
             }
           } else {
-            this.loginPhrase = response.data.data;
             this.loginForm.loginPhrase = response.data.data;
           }
         })
@@ -637,7 +571,6 @@ export default {
           if (response.data.status === 'error') {
             this.errorMessage = response.data.data.message;
           } else {
-            this.loginPhrase = response.data.data;
             this.loginForm.loginPhrase = response.data.data;
           }
         })
@@ -647,34 +580,50 @@ export default {
           this.errorMessage = 'Error connecting to Flux';
         });
     },
-    login() {
+    async login() {
       console.log(this.loginForm);
-      IDService.verifyLogin(this.loginForm)
-        .then((response) => {
-          console.log(response);
-          if (response.data.status === 'success') {
-            // user is  now signed. Store their values
-            /* const zelidauth = {
-              zelid: this.loginForm.zelid,
-              signature: this.loginForm.signature,
-              loginPhrase: this.loginForm.loginPhrase,
-            }; */
-            vue.$customMes.success(response.data.data.message);
-            // TODO Call Xdao API to check if Voted
-            this.haveVoted = false;
-            this.myVote = 'Yes';
-            this.myNumberOfVotes = 210;
+      const response = await IDService.verifyLogin(this.loginForm);
+      console.log(response);
+      if (response.data.status === 'success') {
+        this.myNumberOfVotes = 0;
+        let responseApi = await axios.get(`https://stats.runonflux.io/proposals/voteInformation?hash=${this.proposalDetail.hash}&zelid=${this.loginForm.zelid}`);
+        console.log(responseApi);
+        if (responseApi.data.status === 'success') {
+          let votesInformantion = responseApi.data.data;
+          if (this.proposalDetail.status === 'Open' && (votesInformantion == null || votesInformantion.length === 0)) {
+            responseApi = await axios.get(`https://stats.runonflux.io/proposals/getVotePower?zelid=${this.loginForm.zelid}`);
+            console.log(responseApi);
+            if (responseApi.data.status === 'success') {
+              votesInformantion = responseApi.data.data;
+              votesInformantion.forEach((vote) => {
+                this.myNumberOfVotes += vote.numberOfVotes;
+              });
+              this.haveVoted = false;
+            } else {
+              vue.$customMes.error(responseApi.data.data.message || responseApi.data.data);
+              return;
+            }
           } else {
-            vue.$customMes({
-              type: response.data.status,
-              message: response.data.data.message || response.data.data,
+            votesInformantion.forEach((vote) => {
+              this.myNumberOfVotes += vote.numberOfVotes;
             });
+            this.myVote = 'No';
+            if (votesInformantion[0].vote) {
+              this.myVote = 'Yes';
+            }
+            this.haveVoted = true;
           }
-        })
-        .catch((e) => {
-          console.log(e);
-          vue.$customMes.error(e.toString());
+        } else {
+          vue.$customMes.error(response.data.data.message || response.data.data);
+          return;
+        }
+        vue.$customMes.success(response.data.data.message);
+      } else {
+        vue.$customMes({
+          type: response.data.status,
+          message: response.data.data.message || response.data.data,
         });
+      }
     },
     initiateLoginWS() {
       const self = this;
@@ -695,7 +644,7 @@ export default {
       let backendURL = store.get('backendURL') || mybackend;
       backendURL = backendURL.replace('https://', 'wss://');
       backendURL = backendURL.replace('http://', 'ws://');
-      const wsuri = `${backendURL}/ws/id/${this.loginPhrase}`;
+      const wsuri = `${backendURL}/ws/id/${this.loginForm.loginPhrase}`;
       const websocket = new WebSocket(wsuri);
       this.websocket = websocket;
 
@@ -704,38 +653,92 @@ export default {
       websocket.onmessage = (evt) => { self.onLoginMessage(evt); };
       websocket.onerror = (evt) => { self.onError(evt); };
     },
-    onLoginMessage(evt) {
+    async onLoginMessage(evt) {
       console.log('onLoginMessage');
       const data = qs.parse(evt.data);
       if (data.status === 'success' && data.data) {
-        // user is now signed. Store their values
-        /* const zelidauth = {
+        this.loginForm = {
           zelid: data.data.zelid,
           signature: data.data.signature,
           loginPhrase: data.data.loginPhrase,
-        }; */
+        };
+        this.myNumberOfVotes = 0;
+        let response = await axios.get(`https://stats.runonflux.io/proposals/voteInformation?hash=${this.proposalDetail.hash}&zelid=${this.loginForm.zelid}`);
+        console.log(response);
+        if (response.data.status === 'success') {
+          let votesInformantion = response.data.data;
+          if (this.proposalDetail.status === 'Open' && (votesInformantion == null || votesInformantion.length === 0)) {
+            response = await axios.get(`https://stats.runonflux.io/proposals/getVotePower?zelid=${this.loginForm.zelid}`);
+            console.log(response);
+            if (response.data.status === 'success') {
+              votesInformantion = response.data.data;
+              votesInformantion.forEach((vote) => {
+                this.myNumberOfVotes += vote.numberOfVotes;
+              });
+              this.haveVoted = false;
+            } else {
+              vue.$customMes.error(response.data.data.message || response.data.data);
+              return;
+            }
+          } else {
+            votesInformantion.forEach((vote) => {
+              this.myNumberOfVotes += vote.numberOfVotes;
+            });
+            this.myVote = 'No';
+            if (votesInformantion[0].vote) {
+              this.myVote = 'Yes';
+            }
+            this.haveVoted = true;
+          }
+        } else {
+          vue.$customMes.error(response.data.data.message || response.data.data);
+          return;
+        }
         vue.$customMes.success(data.data.message);
-        // TODO Call Xdao API to check if Voted
-        this.haveVoted = false;
-        this.myVote = 'Yes';
-        this.myNumberOfVotes = 210;
       }
       console.log(data);
       console.log(evt);
     },
-    validTill() {
-      const expTime = this.timestamp + 60 * 60 * 1000; // 1 hour
-      return expTime;
-    },
     async register() {
-      // Todo call Flux Xdao Api to store proposal. sucess should return registration hash
-      this.registrationHash = this.signature;
+      const data = {
+        topic: this.proposalTopic,
+        description: this.proposalDescription,
+        grantValue: this.proposalGrantValue,
+        grantAddress: this.proposalGrantAddress,
+        nickName: this.proposalNickName,
+      };
+      const response = await axios.post('https://stats.runonflux.io/proposals/submitproposal', JSON.stringify(data));
+      console.log(response);
+      if (response.data.status === 'success') {
+        this.foundationAddress = response.data.data.address;
+        this.registrationHash = response.data.data.hash;
+        this.proposalPrice = response.data.data.amount;
+        this.validTill = response.data.data.paidTillDate;
+      } else {
+        vue.$customMes.error(response.data.data.message || response.data.data);
+      }
     },
-    async voteYes() {
-      // Todo call Flux Xdao Api to vote Yes
-    },
-    async voteNo() {
-      // Todo call Flux Xdao Api to vote No
+    async vote(myVote) {
+      const data = {
+        hash: this.proposalDetail.hash,
+        zelid: this.loginForm.zelid,
+        message: this.loginForm.loginPhrase,
+        signature: this.loginForm.signature,
+        vote: myVote,
+      };
+      console.log(data);
+      const response = await axios.post('https://stats.runonflux.io/proposals/voteProposal', JSON.stringify(data));
+      console.log(response);
+      if (response.data.status === 'success') {
+        vue.$customMes.success('Vote registered successful');
+        this.myVote = 'No';
+        if (myVote) {
+          this.myVote = 'Yes';
+        }
+        this.haveVoted = true;
+      } else {
+        vue.$customMes.error(response.data.data.message || response.data.data);
+      }
     },
   },
 };
