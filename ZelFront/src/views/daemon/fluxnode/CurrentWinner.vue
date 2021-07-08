@@ -16,7 +16,7 @@
         />
         <list-entry
           title="Added Height"
-          :data="callResponse.data[key].added_height"
+          :number="callResponse.data[key].added_height"
         />
         <list-entry
           title="Collateral"
@@ -24,15 +24,15 @@
         />
         <list-entry
           title="Last Paid Height"
-          :data="callResponse.data[key].last_paid_height.toFixed(0)"
+          :number="callResponse.data[key].last_paid_height"
         />
         <list-entry
           title="Confirmed Height"
-          :data="callResponse.data[key].confirmed_height.toFixed(0)"
+          :number="callResponse.data[key].confirmed_height"
         />
         <list-entry
           title="Last Confirmed Height"
-          :data="callResponse.data[key].last_confirmed_height.toFixed(0)"
+          :number="callResponse.data[key].last_confirmed_height"
         />
       </app-collapse-item>
     </app-collapse>
