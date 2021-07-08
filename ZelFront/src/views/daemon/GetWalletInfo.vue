@@ -1,19 +1,32 @@
 <template>
-  <b-card>
-    <b-form-textarea
-      v-if="callResponse.data"
-      plaintext
-      no-resize
-      rows="11"
-      :value="callResponse.data"
-    />
-  </b-card>
+  <b-overlay
+    :show="!callResponse.data"
+    variant="transparent"
+    blur="5px"
+  >
+    <b-card>
+      <b-card-title
+        v-if="!callResponse.data"
+      >
+        Loading...
+      </b-card-title>
+      <b-form-textarea
+        v-if="callResponse.data"
+        plaintext
+        no-resize
+        rows="11"
+        :value="callResponse.data"
+      />
+    </b-card>
+  </b-overlay>
 </template>
 
 <script>
 import {
   BCard,
+  BCardTitle,
   BFormTextarea,
+  BOverlay,
 } from 'bootstrap-vue'
 import DaemonService from '@/services/DaemonService'
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
@@ -21,7 +34,9 @@ import ToastificationContent from '@core/components/toastification/Toastificatio
 export default {
   components: {
     BCard,
+    BCardTitle,
     BFormTextarea,
+    BOverlay,
     // eslint-disable-next-line vue/no-unused-components
     ToastificationContent,
   },
