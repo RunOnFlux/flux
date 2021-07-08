@@ -21,7 +21,7 @@
       </b-link>
     </dd>
     <dd
-      v-if="click"
+      v-else-if="click"
       class="col-sm-9 mb-0"
       :class="`text-${variant}`"
       @click="$emit('click')"
