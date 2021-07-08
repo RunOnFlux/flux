@@ -10,7 +10,6 @@
           v-ripple.400="'rgba(255, 255, 255, 0.15)'"
           variant="outline-primary"
           size="md"
-          class="ml-1"
         >
           Download Debug File
         </b-button>
@@ -19,6 +18,15 @@
           class="mt-1 mb-0"
         >
           {{ (downloaded / 1e6).toFixed(2) + " / " + (total / 1e6).toFixed(2) }} MB - {{ ((downloaded / total) * 100).toFixed(2) + "%" }}
+          <b-button
+            v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+            variant="danger"
+            class="btn-icon ml-1"
+            size="sm"
+            @click="cancelDownload"
+          >
+            x
+          </b-button>
         </b-card-text>
         <b-popover
           ref="popover"
@@ -78,7 +86,6 @@
           v-ripple.400="'rgba(255, 255, 255, 0.15)'"
           variant="outline-primary"
           size="md"
-          class="ml-1"
         >
           Show Debug File
         </b-button>
