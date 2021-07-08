@@ -11,7 +11,7 @@
       v-ripple.400="'rgba(255, 255, 255, 0.15)'"
       variant="outline-primary"
       size="md"
-      class="ml-1 my-1"
+      class="my-1"
       @click="daemonGetRawTransaction"
     >
       Get Transaction
