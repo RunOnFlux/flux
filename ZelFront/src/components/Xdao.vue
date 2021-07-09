@@ -260,7 +260,7 @@
       <div v-if="haveVoted == null && proposalDetail.status !== 'Unpaid' && proposalDetail.status !== 'Rejected Unpaid'">
           <div class="loginSection">
             <p>
-              To vote, or check the status of your vote, log in using your ZelID
+              To check the status of your vote, or your voting power, use Zelcore to login with your ZelID
             </p>
             <div>
               <a
@@ -346,18 +346,54 @@
             </el-form>
           </div>
           <div v-else>
-            <p>You haven't voted yet! You have a total of {{ myNumberOfVotes }} available. After voting you won't be able to change your vote.</p>
-            <ElButton
-                @click="vote(true)"
+            <p>You haven't voted yet! You have a total of {{ myNumberOfVotes }} available.</p>
+            <div v-if="!signedMessage">
+              <p>
+                To vote you need to first sign a message with ZelCore with your ZelID
+              </p>
+              <div>
+                <a
+                  @click="initiateSignWS"
+                  :href="'zel:?action=sign&message=' + dataToSign + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FZelFront%2Fsrc%2Fassets%2Fimg%2FzelID.svg&callback=' + callbackValueSign"
+                >
+                  <img
+                    class="zelidLogin"
+                    src="@/assets/img/zelID.svg"
+                    alt="Zel ID"
+                    height="100%"
+                    width="100%"
+                  />
+                </a>
+              </div>
+              <br>
+              <ElForm
+                class="loginForm"
               >
-              Vote Yes
-            </ElButton>
-            &nbsp;
-            <ElButton
-                @click="vote(false)"
-              >
-              Vote No
-            </ElButton>
+                <ElFormItem>
+                  <ElInput
+                    type="text"
+                    name="message"
+                    placeholder="insert Login Phrase"
+                    v-model="dataToSign"
+                  >
+                    <template slot="prepend">Message: </template>
+                  </ElInput>
+                </ElFormItem>
+              </ElForm>
+            </div>
+            <div v-else>
+              <ElButton
+                  @click="vote(true)"
+                >
+                Vote Yes
+              </ElButton>
+              &nbsp;
+              <ElButton
+                  @click="vote(false)"
+                >
+                Vote No
+              </ElButton>
+            </div>
           </div>
       </div>
     </div>
@@ -407,6 +443,9 @@ export default {
       myVote: null,
       myNumberOfVotes: null,
       proposalPrice: 100,
+      signedMessage: false,
+      dataToSign: '',
+      signature: '',
     };
   },
   computed: {
@@ -416,6 +455,7 @@ export default {
       'xdaoSection',
     ]),
     callbackValueLogin() {
+      console.log('callbackValueLogin');
       const { protocol, hostname } = window.location;
       let mybackend = '';
       mybackend += protocol;
@@ -432,6 +472,26 @@ export default {
       }
       const backendURL = store.get('backendURL') || mybackend;
       const url = `${backendURL}/zelid/verifylogin`;
+      return encodeURI(url);
+    },
+    callbackValueSign() {
+      console.log('callbackValueSign');
+      const { protocol, hostname } = window.location;
+      let mybackend = '';
+      mybackend += protocol;
+      mybackend += '//';
+      const regex = /[A-Za-z]/g;
+      if (hostname.match(regex)) {
+        const names = hostname.split('.');
+        names[0] = 'api';
+        mybackend += names.join('.');
+      } else {
+        mybackend += this.userconfig.externalip;
+        mybackend += ':';
+        mybackend += this.config.apiPort;
+      }
+      const backendURL = store.get('backendURL') || mybackend;
+      const url = `${backendURL}/zelid/providesign`;
       return encodeURI(url);
     },
   },
@@ -464,6 +524,43 @@ export default {
           console.log('xdao Section: Unrecognized method'); // should not be seeable if all works correctly
       }
     },
+    getZelIdLoginPhrase() {
+      IDService.loginPhrase()
+        .then((response) => {
+          console.log(response);
+          if (response.data.status === 'error') {
+            if (JSON.stringify(response.data.data).includes('CONN')) {
+              // we can fix daemon, benchmark problems. But cannot fix mongo, docker issues (docker may be possible to fix in the future, mongo not)...
+              this.getEmergencyLoginPhrase();
+            } else {
+              this.errorMessage = response.data.data.message;
+            }
+          } else {
+            this.loginForm.loginPhrase = response.data.data;
+          }
+        })
+        .catch((error) => {
+          console.log(error);
+          vue.$customMes.error(error);
+          this.errorMessage = 'Error connecting to Flux';
+        });
+    },
+    getEmergencyLoginPhrase() {
+      IDService.emergencyLoginPhrase()
+        .then((response) => {
+          console.log(response);
+          if (response.data.status === 'error') {
+            this.errorMessage = response.data.data.message;
+          } else {
+            this.loginForm.loginPhrase = response.data.data;
+          }
+        })
+        .catch((error) => {
+          console.log(error);
+          vue.$customMes.error(error);
+          this.errorMessage = 'Error connecting to Flux';
+        });
+    },
     cleanProposalDetail() {
       this.proposalDetail = {};
       this.loginForm = {
@@ -474,6 +571,9 @@ export default {
       this.haveVoted = null;
       this.myVote = null;
       this.myNumberOfVotes = null;
+      this.signedMessage = false;
+      this.dataToSign = '';
+      this.signature = '';
     },
     cleanProposalSubmit() {
       this.proposalTopic = '';
@@ -534,6 +634,45 @@ export default {
       }
       this.proposalValid = true;
     },
+    initiateSignWS() {
+      console.log('initiateSignWS');
+      const self = this;
+      const { protocol, hostname } = window.location;
+      let mybackend = '';
+      mybackend += protocol;
+      mybackend += '//';
+      const regex = /[A-Za-z]/g;
+      if (hostname.match(regex)) {
+        const names = hostname.split('.');
+        names[0] = 'api';
+        mybackend += names.join('.');
+      } else {
+        mybackend += this.userconfig.externalip;
+        mybackend += ':';
+        mybackend += this.config.apiPort;
+      }
+      let backendURL = store.get('backendURL') || mybackend;
+      backendURL = backendURL.replace('https://', 'wss://');
+      backendURL = backendURL.replace('http://', 'ws://');
+      const wsuri = `${backendURL}/ws/sign/${this.dataToSign}`;
+      const websocket = new WebSocket(wsuri);
+      this.websocket = websocket;
+
+      websocket.onopen = (evt) => { self.onOpen(evt); };
+      websocket.onclose = (evt) => { self.onClose(evt); };
+      websocket.onmessage = (evt) => { self.onMessage(evt); };
+      websocket.onerror = (evt) => { self.onError(evt); };
+    },
+    onSignMessage(evt) {
+      console.log('onMessage');
+      const data = qs.parse(evt.data);
+      if (data.status === 'success' && data.data) {
+        this.signature = data.data.signature;
+        this.signedMessage = true;
+      }
+      console.log(data);
+      console.log(evt);
+    },
     onError(evt) {
       console.log(evt);
     },
@@ -542,43 +681,6 @@ export default {
     },
     onOpen(evt) {
       console.log(evt);
-    },
-    getZelIdLoginPhrase() {
-      IDService.loginPhrase()
-        .then((response) => {
-          console.log(response);
-          if (response.data.status === 'error') {
-            if (JSON.stringify(response.data.data).includes('CONN')) {
-              // we can fix daemon, benchmark problems. But cannot fix mongo, docker issues (docker may be possible to fix in the future, mongo not)...
-              this.getEmergencyLoginPhrase();
-            } else {
-              this.errorMessage = response.data.data.message;
-            }
-          } else {
-            this.loginForm.loginPhrase = response.data.data;
-          }
-        })
-        .catch((error) => {
-          console.log(error);
-          vue.$customMes.error(error);
-          this.errorMessage = 'Error connecting to Flux';
-        });
-    },
-    getEmergencyLoginPhrase() {
-      IDService.emergencyLoginPhrase()
-        .then((response) => {
-          console.log(response);
-          if (response.data.status === 'error') {
-            this.errorMessage = response.data.data.message;
-          } else {
-            this.loginForm.loginPhrase = response.data.data;
-          }
-        })
-        .catch((error) => {
-          console.log(error);
-          vue.$customMes.error(error);
-          this.errorMessage = 'Error connecting to Flux';
-        });
     },
     async login() {
       console.log(this.loginForm);
@@ -595,7 +697,14 @@ export default {
             console.log(responseApi);
             if (responseApi.data.status === 'success') {
               this.myNumberOfVotes = response.data.data.power;
-              this.haveVoted = false;
+              responseApi = await axios.get('https://stats.runonflux.io/general/messagephrase');
+              if (responseApi.data.status === 'success') {
+                this.dataToSign = responseApi.data.data;
+                this.haveVoted = false;
+              } else {
+                vue.$customMes.error(responseApi.data.data.message || responseApi.data.data);
+                return;
+              }
             } else {
               vue.$customMes.error(responseApi.data.data.message || responseApi.data.data);
               return;
@@ -669,7 +778,14 @@ export default {
             console.log(response);
             if (response.data.status === 'success') {
               this.myNumberOfVotes = response.data.data.power;
-              this.haveVoted = false;
+              response = await axios.get('https://stats.runonflux.io/general/messagephrase');
+              if (response.data.status === 'success') {
+                this.dataToSign = response.data.data;
+                this.haveVoted = false;
+              } else {
+                vue.$customMes.error(response.data.data.message || response.data.data);
+                return;
+              }
             } else {
               vue.$customMes.error(response.data.data.message || response.data.data);
               return;
@@ -716,8 +832,8 @@ export default {
       const data = {
         hash: this.proposalDetail.hash,
         zelid: this.loginForm.zelid,
-        message: this.loginForm.loginPhrase,
-        signature: this.loginForm.signature,
+        message: this.dataToSign,
+        signature: this.signature,
         vote: myVote,
       };
       console.log(data);
