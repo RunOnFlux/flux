@@ -2,7 +2,7 @@
   <div class="xdaoSection">
     <div v-if="xdaoSection === 'listproposals'">
       <el-table
-        :data="proprosalsTable.filter(x=> x.status != 'Unpaid' && x.status != 'Rejected Unpaid')"
+        :data="proprosalsTable.filter(x=> x.status != 'Unpaid' && x.status != 'Rejected Unpaid').sort((a, b) => (a.submitDate < b.submitDate) ? 1 : -1)"
         style="width: 100%"
       >
         <el-table-column
