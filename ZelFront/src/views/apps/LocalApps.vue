@@ -8,340 +8,364 @@
           active
           title="Running"
         >
-          <b-card>
-            <b-row>
-              <b-col cols="12">
-                <b-table
-                  class="apps-running-table"
-                  striped
-                  hover
-                  responsive
-                  :items="tableconfig.running.apps"
-                  :fields="isLoggedIn() ? tableconfig.running.loggedInFields : tableconfig.running.fields"
-                  show-empty
-                  empty-text="No Flux Apps running"
-                >
-                  <template #cell(Names)="row">
-                    {{ row.item.Names[0].startsWith('/flux') ? row.item.Names[0].substr(5, row.item.Names[0].length) : row.item.Names[0].substr(4, row.item.Names[0].length) }}
-                  </template>
-                  <template #cell(visit)="row">
-                    <b-button
-                      size="sm"
-                      class="mr-0"
-                      variant="danger"
-                      @click="openApp(row.item.Names[0].startsWith('/flux') ? row.item.Names[0].substr(5, row.item.Names[0].length) : row.item.Names[0].substr(4, row.item.Names[0].length))"
-                    >
-                      Visit
-                    </b-button>
-                  </template>
-                  <template #cell(actions)="row">
-                    <b-button
-                      :id="`stop-running-app-${row.item.Names[0]}`"
-                      size="sm"
-                      class="mr-0"
-                      variant="danger"
-                    >
-                      Stop
-                    </b-button>
-                    <confirm-dialog
-                      :target="`stop-running-app-${row.item.Names[0]}`"
-                      confirm-button="Stop App"
-                      @confirm="stopAll(row.item.Names[0].substr(1, row.item.Names[0].length))"
-                    />
-                  </template>
-                </b-table>
-              </b-col>
-            </b-row>
-          </b-card>
+          <b-overlay
+            :show="tableconfig.running.loading"
+            variant="transparent"
+            blur="5px"
+          >
+            <b-card>
+              <b-row>
+                <b-col cols="12">
+                  <b-table
+                    class="apps-running-table"
+                    striped
+                    hover
+                    responsive
+                    :items="tableconfig.running.apps"
+                    :fields="isLoggedIn() ? tableconfig.running.loggedInFields : tableconfig.running.fields"
+                    show-empty
+                    empty-text="No Flux Apps running"
+                  >
+                    <template #cell(Names)="row">
+                      {{ row.item.Names[0].startsWith('/flux') ? row.item.Names[0].substr(5, row.item.Names[0].length) : row.item.Names[0].substr(4, row.item.Names[0].length) }}
+                    </template>
+                    <template #cell(visit)="row">
+                      <b-button
+                        size="sm"
+                        class="mr-0"
+                        variant="danger"
+                        @click="openApp(row.item.Names[0].startsWith('/flux') ? row.item.Names[0].substr(5, row.item.Names[0].length) : row.item.Names[0].substr(4, row.item.Names[0].length))"
+                      >
+                        Visit
+                      </b-button>
+                    </template>
+                    <template #cell(actions)="row">
+                      <b-button
+                        :id="`stop-running-app-${row.item.Names[0]}`"
+                        size="sm"
+                        class="mr-0"
+                        variant="danger"
+                      >
+                        Stop
+                      </b-button>
+                      <confirm-dialog
+                        :target="`stop-running-app-${row.item.Names[0]}`"
+                        confirm-button="Stop App"
+                        @confirm="stopAll(row.item.Names[0].substr(1, row.item.Names[0].length))"
+                      />
+                    </template>
+                  </b-table>
+                </b-col>
+              </b-row>
+            </b-card>
+          </b-overlay>
         </b-tab>
         <b-tab
           title="Installed"
         >
-          <b-card>
-            <b-row>
-              <b-col cols="12">
-                <b-table
-                  class="apps-installed-table"
-                  striped
-                  hover
-                  responsive
-                  :items="tableconfig.installed.apps"
-                  :fields="isLoggedIn() ? tableconfig.installed.loggedInFields : tableconfig.installed.fields"
-                  show-empty
-                  empty-text="No Flux Apps installed"
-                >
-                  <template #cell(Name)="row">
-                    {{ getAppName(row.item.name) }}
-                  </template>
-                  <template #cell(ports)="row">
-                    {{ row.item.port || row.item.ports.toString() }}
-                  </template>
-                  <template #cell(cpu)="row">
-                    {{ resolveCpu(row.item) }}
-                  </template>
-                  <template #cell(ram)="row">
-                    {{ resolveRam(row.item) }}
-                  </template>
-                  <template #cell(hdd)="row">
-                    {{ resolveHdd(row.item) }}
-                  </template>
-                  <template #cell(actions)="row">
-                    <b-button
-                      :id="`start-installed-app-${row.item.name}`"
-                      size="sm"
-                      class="mr-1"
-                      variant="danger"
-                    >
-                      Start
-                    </b-button>
-                    <confirm-dialog
-                      :target="`start-installed-app-${row.item.name}`"
-                      confirm-button="Start App"
-                      @confirm="startApp(row.item.name)"
-                    />
-                    <b-button
-                      :id="`restart-installed-app-${row.item.name}`"
-                      size="sm"
-                      class="mr-0"
-                      variant="danger"
-                    >
-                      Restart
-                    </b-button>
-                    <confirm-dialog
-                      :target="`restart-installed-app-${row.item.name}`"
-                      confirm-button="Restart App"
-                      @confirm="restartApp(row.item.name)"
-                    />
-                  </template>
-                  <template #cell(remove)="row">
-                    <b-button
-                      :id="`remove-installed-app-${row.item.name}`"
-                      size="sm"
-                      class="mr-0"
-                      variant="danger"
-                    >
-                      Remove
-                    </b-button>
-                    <confirm-dialog
-                      :target="`remove-installed-app-${row.item.name}`"
-                      confirm-button="Remove App"
-                      @confirm="removeApp(row.item.name)"
-                    />
-                  </template>
-                  <template #cell(manage)="row">
-                    <b-button
-                      :id="`manage-installed-app-${row.item.name}`"
-                      size="sm"
-                      class="mr-0"
-                      variant="danger"
-                    >
-                      Manage
-                    </b-button>
-                    <confirm-dialog
-                      :target="`manage-installed-app-${row.item.name}`"
-                      confirm-button="Manage App"
-                      @confirm="openAppManagement(row.item.name)"
-                    />
-                  </template>
-                </b-table>
-              </b-col>
-            </b-row>
-          </b-card>
+          <b-overlay
+            :show="tableconfig.installed.loading"
+            variant="transparent"
+            blur="5px"
+          >
+            <b-card>
+              <b-row>
+                <b-col cols="12">
+                  <b-table
+                    class="apps-installed-table"
+                    striped
+                    hover
+                    responsive
+                    :items="tableconfig.installed.apps"
+                    :fields="isLoggedIn() ? tableconfig.installed.loggedInFields : tableconfig.installed.fields"
+                    show-empty
+                    empty-text="No Flux Apps installed"
+                  >
+                    <template #cell(Name)="row">
+                      {{ getAppName(row.item.name) }}
+                    </template>
+                    <template #cell(ports)="row">
+                      {{ row.item.port || row.item.ports.toString() }}
+                    </template>
+                    <template #cell(cpu)="row">
+                      {{ resolveCpu(row.item) }}
+                    </template>
+                    <template #cell(ram)="row">
+                      {{ resolveRam(row.item) }}
+                    </template>
+                    <template #cell(hdd)="row">
+                      {{ resolveHdd(row.item) }}
+                    </template>
+                    <template #cell(actions)="row">
+                      <b-button
+                        :id="`start-installed-app-${row.item.name}`"
+                        size="sm"
+                        class="mr-1"
+                        variant="danger"
+                      >
+                        Start
+                      </b-button>
+                      <confirm-dialog
+                        :target="`start-installed-app-${row.item.name}`"
+                        confirm-button="Start App"
+                        @confirm="startApp(row.item.name)"
+                      />
+                      <b-button
+                        :id="`restart-installed-app-${row.item.name}`"
+                        size="sm"
+                        class="mr-0"
+                        variant="danger"
+                      >
+                        Restart
+                      </b-button>
+                      <confirm-dialog
+                        :target="`restart-installed-app-${row.item.name}`"
+                        confirm-button="Restart App"
+                        @confirm="restartApp(row.item.name)"
+                      />
+                    </template>
+                    <template #cell(remove)="row">
+                      <b-button
+                        :id="`remove-installed-app-${row.item.name}`"
+                        size="sm"
+                        class="mr-0"
+                        variant="danger"
+                      >
+                        Remove
+                      </b-button>
+                      <confirm-dialog
+                        :target="`remove-installed-app-${row.item.name}`"
+                        confirm-button="Remove App"
+                        @confirm="removeApp(row.item.name)"
+                      />
+                    </template>
+                    <template #cell(manage)="row">
+                      <b-button
+                        :id="`manage-installed-app-${row.item.name}`"
+                        size="sm"
+                        class="mr-0"
+                        variant="danger"
+                      >
+                        Manage
+                      </b-button>
+                      <confirm-dialog
+                        :target="`manage-installed-app-${row.item.name}`"
+                        confirm-button="Manage App"
+                        @confirm="openAppManagement(row.item.name)"
+                      />
+                    </template>
+                  </b-table>
+                </b-col>
+              </b-row>
+            </b-card>
+          </b-overlay>
         </b-tab>
         <b-tab
           title="Available"
         >
-          <b-card>
-            <b-row>
-              <b-col cols="12">
-                <b-table
-                  class="apps-available-table"
-                  striped
-                  hover
-                  responsive
-                  :items="tableconfig.available.apps"
-                  :fields="isLoggedIn() ? tableconfig.available.loggedInFields : tableconfig.available.fields"
-                  show-empty
-                  empty-text="No Flux Apps available"
-                >
-                  <template #cell(show_details)="row">
-                    <a @click="showLocations(row, tableconfig.available.apps)">
-                      <v-icon
-                        v-if="!row.detailsShowing"
-                        name="chevron-down"
-                      />
-                      <v-icon
-                        v-if="row.detailsShowing"
-                        name="chevron-up"
-                      />
-                    </a>
-                  </template>
-                  <template #row-details="row">
-                    <b-card class="mx-2">
-                      <list-entry
-                        v-if="row.item.description"
-                        title="Description"
-                        :data="row.item.description"
-                      />
-                      <list-entry
-                        v-if="row.item.owner"
-                        title="Owner"
-                        :data="row.item.owner"
-                      />
-                      <list-entry
-                        v-if="row.item.hash"
-                        title="Hash"
-                        :data="row.item.hash"
-                      />
-                      <h4>Locations</h4>
-                      <b-table
-                        class="locations-table"
-                        striped
-                        hover
-                        :items="appLocations"
-                        :fields="appLocationFields"
+          <b-overlay
+            :show="tableconfig.available.loading"
+            variant="transparent"
+            blur="5px"
+          >
+            <b-card>
+              <b-row>
+                <b-col cols="12">
+                  <b-table
+                    class="apps-available-table"
+                    striped
+                    hover
+                    responsive
+                    :items="tableconfig.available.apps"
+                    :fields="isLoggedIn() ? tableconfig.available.loggedInFields : tableconfig.available.fields"
+                    show-empty
+                    empty-text="No Flux Apps available"
+                  >
+                    <template #cell(show_details)="row">
+                      <a @click="showLocations(row, tableconfig.available.apps)">
+                        <v-icon
+                          v-if="!row.detailsShowing"
+                          name="chevron-down"
+                        />
+                        <v-icon
+                          v-if="row.detailsShowing"
+                          name="chevron-up"
+                        />
+                      </a>
+                    </template>
+                    <template #row-details="row">
+                      <b-card class="mx-2">
+                        <list-entry
+                          v-if="row.item.description"
+                          title="Description"
+                          :data="row.item.description"
+                        />
+                        <list-entry
+                          v-if="row.item.owner"
+                          title="Owner"
+                          :data="row.item.owner"
+                        />
+                        <list-entry
+                          v-if="row.item.hash"
+                          title="Hash"
+                          :data="row.item.hash"
+                        />
+                        <h4>Locations</h4>
+                        <b-table
+                          class="locations-table"
+                          striped
+                          hover
+                          :items="appLocations"
+                          :fields="appLocationFields"
+                        >
+                          <template #cell(visit)="locationRow">
+                            <b-button
+                              size="sm"
+                              class="mr-0"
+                              variant="danger"
+                              @click="openApp(row.item.name, locationRow.item.ip, row.item.port || row.item.ports[0])"
+                            >
+                              Visit
+                            </b-button>
+                          </template>
+                        </b-table>
+                      </b-card>
+                    </template>
+                    <template #cell(Name)="row">
+                      {{ getAppName(row.item.name) }}
+                    </template>
+                    <template #cell(ports)="row">
+                      {{ row.item.port || row.item.ports.toString() }}
+                    </template>
+                    <template #cell(cpu)="row">
+                      {{ resolveCpu(row.item) }}
+                    </template>
+                    <template #cell(ram)="row">
+                      {{ resolveRam(row.item) }}
+                    </template>
+                    <template #cell(hdd)="row">
+                      {{ resolveHdd(row.item) }}
+                    </template>
+                    <template #cell(install)="row">
+                      <b-button
+                        :id="`install-app-${row.item.name}`"
+                        size="sm"
+                        class="mr-0"
+                        variant="danger"
                       >
-                        <template #cell(visit)="locationRow">
-                          <b-button
-                            size="sm"
-                            class="mr-0"
-                            variant="danger"
-                            @click="openApp(row.item.name, locationRow.item.ip, row.item.port || row.item.ports[0])"
-                          >
-                            Visit
-                          </b-button>
-                        </template>
-                      </b-table>
-                    </b-card>
-                  </template>
-                  <template #cell(Name)="row">
-                    {{ getAppName(row.item.name) }}
-                  </template>
-                  <template #cell(ports)="row">
-                    {{ row.item.port || row.item.ports.toString() }}
-                  </template>
-                  <template #cell(cpu)="row">
-                    {{ resolveCpu(row.item) }}
-                  </template>
-                  <template #cell(ram)="row">
-                    {{ resolveRam(row.item) }}
-                  </template>
-                  <template #cell(hdd)="row">
-                    {{ resolveHdd(row.item) }}
-                  </template>
-                  <template #cell(install)="row">
-                    <b-button
-                      :id="`install-app-${row.item.name}`"
-                      size="sm"
-                      class="mr-0"
-                      variant="danger"
-                    >
-                      Install
-                    </b-button>
-                    <confirm-dialog
-                      :target="`install-app-${row.item.name}`"
-                      confirm-button="Install App"
-                      @confirm="installTemporaryLocalApp(row.item.name)"
-                    />
-                  </template>
-                </b-table>
-              </b-col>
-            </b-row>
-          </b-card>
+                        Install
+                      </b-button>
+                      <confirm-dialog
+                        :target="`install-app-${row.item.name}`"
+                        confirm-button="Install App"
+                        @confirm="installTemporaryLocalApp(row.item.name)"
+                      />
+                    </template>
+                  </b-table>
+                </b-col>
+              </b-row>
+            </b-card>
+          </b-overlay>
         </b-tab>
         <b-tab
           title="My Local Apps"
         >
-          <b-card>
-            <b-row>
-              <b-col cols="12">
-                <b-table
-                  class="apps-local-table"
-                  striped
-                  hover
-                  responsive
-                  :items="tableconfig.local.apps"
-                  :fields="tableconfig.local.fields"
-                  show-empty
-                  empty-text="No Local Apps owned"
-                >
-                  <template #cell(Name)="row">
-                    {{ getAppName(row.item.name) }}
-                  </template>
-                  <template #cell(ports)="row">
-                    {{ row.item.port || row.item.ports.toString() }}
-                  </template>
-                  <template #cell(cpu)="row">
-                    {{ resolveCpu(row.item) }}
-                  </template>
-                  <template #cell(ram)="row">
-                    {{ resolveRam(row.item) }}
-                  </template>
-                  <template #cell(hdd)="row">
-                    {{ resolveHdd(row.item) }}
-                  </template>
-                  <template #cell(actions)="row">
-                    <b-button
-                      :id="`start-local-app-${row.item.name}`"
-                      size="sm"
-                      class="mr-1"
-                      variant="danger"
-                    >
-                      Start
-                    </b-button>
-                    <confirm-dialog
-                      :target="`start-local-app-${row.item.name}`"
-                      confirm-button="Start App"
-                      @confirm="startApp(row.item.name)"
-                    />
-                    <b-button
-                      :id="`restart-local-app-${row.item.name}`"
-                      size="sm"
-                      class="mr-0"
-                      variant="danger"
-                    >
-                      Restart
-                    </b-button>
-                    <confirm-dialog
-                      :target="`restart-local-app-${row.item.name}`"
-                      confirm-button="Restart App"
-                      @confirm="restartApp(row.item.name)"
-                    />
-                  </template>
-                  <template #cell(remove)="row">
-                    <b-button
-                      :id="`remove-local-app-${row.item.name}`"
-                      size="sm"
-                      class="mr-0"
-                      variant="danger"
-                    >
-                      Remove
-                    </b-button>
-                    <confirm-dialog
-                      :target="`remove-local-app-${row.item.name}`"
-                      confirm-button="Remove App"
-                      @confirm="removeApp(row.item.name)"
-                    />
-                  </template>
-                  <template #cell(manage)="row">
-                    <b-button
-                      :id="`manage-installed-app-${row.item.name}`"
-                      size="sm"
-                      class="mr-0"
-                      variant="danger"
-                    >
-                      Manage
-                    </b-button>
-                    <confirm-dialog
-                      :target="`manage-installed-app-${row.item.name}`"
-                      confirm-button="Manage App"
-                      @confirm="openAppManagement(row.item.name)"
-                    />
-                  </template>
-                </b-table>
-              </b-col>
-            </b-row>
-          </b-card>
+          <b-overlay
+            :show="tableconfig.installed.loading"
+            variant="transparent"
+            blur="5px"
+          >
+            <b-card>
+              <b-row>
+                <b-col cols="12">
+                  <b-table
+                    class="apps-local-table"
+                    striped
+                    hover
+                    responsive
+                    :items="myLocalApps"
+                    :fields="tableconfig.local.fields"
+                    show-empty
+                    empty-text="No Local Apps owned"
+                  >
+                    <template #cell(Name)="row">
+                      {{ getAppName(row.item.name) }}
+                    </template>
+                    <template #cell(ports)="row">
+                      {{ row.item.port || row.item.ports.toString() }}
+                    </template>
+                    <template #cell(cpu)="row">
+                      {{ resolveCpu(row.item) }}
+                    </template>
+                    <template #cell(ram)="row">
+                      {{ resolveRam(row.item) }}
+                    </template>
+                    <template #cell(hdd)="row">
+                      {{ resolveHdd(row.item) }}
+                    </template>
+                    <template #cell(actions)="row">
+                      <b-button
+                        :id="`start-local-app-${row.item.name}`"
+                        size="sm"
+                        class="mr-1"
+                        variant="danger"
+                      >
+                        Start
+                      </b-button>
+                      <confirm-dialog
+                        :target="`start-local-app-${row.item.name}`"
+                        confirm-button="Start App"
+                        @confirm="startApp(row.item.name)"
+                      />
+                      <b-button
+                        :id="`restart-local-app-${row.item.name}`"
+                        size="sm"
+                        class="mr-0"
+                        variant="danger"
+                      >
+                        Restart
+                      </b-button>
+                      <confirm-dialog
+                        :target="`restart-local-app-${row.item.name}`"
+                        confirm-button="Restart App"
+                        @confirm="restartApp(row.item.name)"
+                      />
+                    </template>
+                    <template #cell(remove)="row">
+                      <b-button
+                        :id="`remove-local-app-${row.item.name}`"
+                        size="sm"
+                        class="mr-0"
+                        variant="danger"
+                      >
+                        Remove
+                      </b-button>
+                      <confirm-dialog
+                        :target="`remove-local-app-${row.item.name}`"
+                        confirm-button="Remove App"
+                        @confirm="removeApp(row.item.name)"
+                      />
+                    </template>
+                    <template #cell(manage)="row">
+                      <b-button
+                        :id="`manage-installed-app-${row.item.name}`"
+                        size="sm"
+                        class="mr-0"
+                        variant="danger"
+                      >
+                        Manage
+                      </b-button>
+                      <confirm-dialog
+                        :target="`manage-installed-app-${row.item.name}`"
+                        confirm-button="Manage App"
+                        @confirm="openAppManagement(row.item.name)"
+                      />
+                    </template>
+                  </b-table>
+                </b-col>
+              </b-row>
+            </b-card>
+          </b-overlay>
         </b-tab>
       </b-tabs>
       <div
@@ -378,14 +402,9 @@ import {
   BTable,
   BCol,
   BCard,
-  // BCardText,
   BRow,
   BButton,
-  // BForm,
   BFormTextarea,
-  // BFormGroup,
-  // BFormInput,
-  // BFormCheckbox,
 } from 'bootstrap-vue'
 
 import Ripple from 'vue-ripple-directive'
@@ -399,6 +418,7 @@ import Management from '@/views/apps/Management.vue'
 
 const store = require('store')
 const timeoptions = require('@/libs/dateFormat')
+const qs = require('qs')
 
 export default {
   components: {
@@ -407,14 +427,9 @@ export default {
     BTable,
     BCol,
     BCard,
-    // BCardText,
     BRow,
     BButton,
-    // BForm,
     BFormTextarea,
-    // BFormGroup,
-    // BFormInput,
-    // BFormCheckbox,
     ConfirmDialog,
     ListEntry,
     Management,
@@ -444,6 +459,7 @@ export default {
             { key: 'Image', label: 'Image', sortable: true },
             { key: 'visit', label: 'Visit' },
           ],
+          loading: true,
         },
         installed: {
           apps: [],
@@ -465,6 +481,7 @@ export default {
             { key: 'ram', label: 'RAM', sortable: true },
             { key: 'hdd', label: 'HDD', sortable: true },
           ],
+          loading: true,
         },
         available: {
           apps: [],
@@ -486,9 +503,9 @@ export default {
             { key: 'ram', label: 'RAM', sortable: true },
             { key: 'hdd', label: 'HDD', sortable: true },
           ],
+          loading: true,
         },
         local: {
-          apps: [],
           status: '',
           fields: [
             { key: 'name', label: 'Name', sortable: true },
@@ -539,6 +556,14 @@ export default {
       }
       return false
     },
+    myLocalApps() {
+      const zelidauth = localStorage.getItem('zelidauth')
+      const auth = qs.parse(zelidauth)
+      if (this.tableconfig.installed.apps) {
+        return this.tableconfig.installed.apps.filter(app => app.owner === auth.zelid)
+      }
+      return []
+    },
   },
   mounted() {
     this.getZelNodeStatus()
@@ -554,22 +579,28 @@ export default {
       }
     },
     async appsGetInstalledApps() {
+      this.tableconfig.installed.loading = true
       const response = await AppsService.installedApps()
       console.log(response)
       this.tableconfig.installed.status = response.data.status
       this.tableconfig.installed.apps = response.data.data
+      this.tableconfig.installed.loading = false
     },
     async appsGetListRunningApps() {
+      this.tableconfig.running.loading = true
       const response = await AppsService.listRunningApps()
       console.log(response)
       this.tableconfig.running.status = response.data.status
       this.tableconfig.running.apps = response.data.data
+      this.tableconfig.running.loading = false
     },
     async appsGetAvailableApps() {
+      this.tableconfig.available.loading = true
       const response = await AppsService.availableApps()
       console.log(response)
       this.tableconfig.available.status = response.data.status
       this.tableconfig.available.apps = response.data.data
+      this.tableconfig.available.loading = false
     },
     openApp(name, _ip, _port) {
       console.log(name, _ip, _port)
