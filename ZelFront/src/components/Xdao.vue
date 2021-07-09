@@ -53,7 +53,7 @@
     </div>
     <div v-if="xdaoSection === 'submitproposal'">
       <p>
-        In this page you will be able to submit a proposal to flux xdao. Fields marked with * are mandatory. After submit/paid, proposal can't be changed. Thank you for using flux xdao.
+        In this page you will be able to submit a proposal to Flux Xdao. Fields marked with * are mandatory. After your submission is paid, the proposal can't be changed. Thank you for using Flux Xdao.
       </p>
       <el-form
         label-width="150px"
@@ -66,15 +66,15 @@
           </el-input>
         </el-form-item>
 
-        <el-form-item label="Grant Value">
+        <el-form-item label="Grant Amount">
           <el-input
-            placeholder="Grant Flux Value"
+            placeholder="Grant Flux Amount"
             v-model="proposalGrantValue"
           >
           </el-input>
         </el-form-item>
 
-        <el-form-item label="Grant Address">
+        <el-form-item label="Grant Pay to Address">
           <el-input
             placeholder="Flux Address to Receive Grant"
             v-model="proposalGrantAddress"
@@ -218,16 +218,16 @@
           </el-input>
         </el-form-item>
 
-        <el-form-item label="Grant Value">
+        <el-form-item label="Grant Amount">
           <el-input
-            placeholder="Grant Flux Value"
+            placeholder="Grant Flux Amount"
             v-model="proposalDetail.grantValue"
             disabled
           >
           </el-input>
         </el-form-item>
 
-        <el-form-item label="Grant Address">
+        <el-form-item label="Grant Pay to Address">
           <el-input
             placeholder="Flux Address to Receive Grant"
             v-model="proposalDetail.grantAddress"
@@ -613,11 +613,11 @@ export default {
         const isnum = /^\d+$/.test(this.proposalGrantValue);
         if (isnum === true) {
           if (this.proposalGrantValue !== '0' && this.proposalGrantAddress === '') {
-            vue.$customMes.error('Proposal Grant Address missing');
+            vue.$customMes.error('Proposal Grant Pay to Address missing');
             return;
           }
         } else {
-          vue.$customMes.error('Proposal Grant Value needs to be a Integer Number');
+          vue.$customMes.error('Proposal Grant Amount needs to be a Integer Number');
           return;
         }
       }
@@ -630,7 +630,7 @@ export default {
         return;
       }
       if (/\s/.test(this.proposalGrantAddress)) {
-        vue.$customMes.error('Proposal Grant Address Invalid, white space detected');
+        vue.$customMes.error('Proposal Grant Pay to Address Invalid, white space detected');
         return;
       }
       this.proposalValid = true;
