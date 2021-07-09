@@ -660,11 +660,11 @@ export default {
 
       websocket.onopen = (evt) => { self.onOpen(evt); };
       websocket.onclose = (evt) => { self.onClose(evt); };
-      websocket.onmessage = (evt) => { self.onMessage(evt); };
+      websocket.onmessage = (evt) => { self.onSignMessage(evt); };
       websocket.onerror = (evt) => { self.onError(evt); };
     },
     onSignMessage(evt) {
-      console.log('onMessage');
+      console.log('onSignMessage');
       const data = qs.parse(evt.data);
       if (data.status === 'success' && data.data) {
         this.signature = data.data.signature;
