@@ -382,6 +382,7 @@
               </ElForm>
             </div>
             <div v-else>
+              <p>Remember, you can't change your vote! After voting it could take around 5 minutes to see number of votes updated with your vote.</p>
               <ElButton
                   @click="vote(true)"
                 >
@@ -654,7 +655,8 @@ export default {
       let backendURL = store.get('backendURL') || mybackend;
       backendURL = backendURL.replace('https://', 'wss://');
       backendURL = backendURL.replace('http://', 'ws://');
-      const wsuri = `${backendURL}/ws/sign/${this.dataToSign}`;
+      const wsIdentifier = this.loginForm.zelid + this.dataToSign.substr(this.dataToSign.length - 13);
+      const wsuri = `${backendURL}/ws/sign/${wsIdentifier}`;
       const websocket = new WebSocket(wsuri);
       this.websocket = websocket;
 
