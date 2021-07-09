@@ -23,12 +23,26 @@
             >
               Download File
             </b-button>
-            <b-card-text
+            <div
               v-if="total[logType] && downloaded[logType]"
-              class="mt-1 mb-0"
+              class="d-flex"
+              style="width: 300px;"
             >
-              {{ (downloaded[logType] / 1e6).toFixed(2) + " / " + (total[logType] / 1e6).toFixed(2) }} MB - {{ ((downloaded[logType] / total[logType]) * 100).toFixed(2) + "%" }}
-            </b-card-text>
+              <b-card-text
+                class="mt-1 mb-0 mr-auto"
+              >
+                {{ (downloaded[logType] / 1e6).toFixed(2) + " / " + (total[logType] / 1e6).toFixed(2) }} MB - {{ ((downloaded[logType] / total[logType]) * 100).toFixed(2) + "%" }}
+              </b-card-text>
+              <b-button
+                v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                variant="danger"
+                class="btn-icon cancel-button"
+                size="sm"
+                @click="cancelDownload(logType)"
+              >
+                x
+              </b-button>
+            </div>
             <b-popover
               ref="popover"
               :target="`start-download-${logType}`"
@@ -203,7 +217,7 @@ export default {
   },
   methods: {
     cancelDownload(logType) {
-      this.abortToken.cancel('User download cancelled')
+      this.abortToken[logType].cancel('User download cancelled')
       this.downloaded[logType] = ''
       this.total[logType] = ''
     },
@@ -283,5 +297,8 @@ export default {
 </script>
 
 <style>
-
+.cancel-button {
+  padding: 0;
+  margin-top: 10px;
+}
 </style>
