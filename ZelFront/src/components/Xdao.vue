@@ -265,7 +265,7 @@
             <div>
               <a
                 @click="initiateLoginWS"
-                :href="'zel:?action=sign&message=' + loginPhrase + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FZelFront%2Fsrc%2Fassets%2Fimg%2FzelID.svg&callback=' + callbackValueLogin"
+                :href="'zel:?action=sign&message=' + loginForm.loginPhrase + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FZelFront%2Fsrc%2Fassets%2Fimg%2FzelID.svg&callback=' + callbackValueLogin"
               >
                 <img
                   class="zelidLogin"
@@ -589,15 +589,12 @@ export default {
         let responseApi = await axios.get(`https://stats.runonflux.io/proposals/voteInformation?hash=${this.proposalDetail.hash}&zelid=${this.loginForm.zelid}`);
         console.log(responseApi);
         if (responseApi.data.status === 'success') {
-          let votesInformantion = responseApi.data.data;
+          const votesInformantion = responseApi.data.data;
           if (this.proposalDetail.status === 'Open' && (votesInformantion == null || votesInformantion.length === 0)) {
-            responseApi = await axios.get(`https://stats.runonflux.io/proposals/getVotePower?zelid=${this.loginForm.zelid}`);
+            responseApi = await axios.get(`https://stats.runonflux.io/proposals/votepower?zelid=${this.loginForm.zelid}`);
             console.log(responseApi);
             if (responseApi.data.status === 'success') {
-              votesInformantion = responseApi.data.data;
-              votesInformantion.forEach((vote) => {
-                this.myNumberOfVotes += vote.numberOfVotes;
-              });
+              this.myNumberOfVotes = response.data.data.power;
               this.haveVoted = false;
             } else {
               vue.$customMes.error(responseApi.data.data.message || responseApi.data.data);
@@ -666,15 +663,12 @@ export default {
         let response = await axios.get(`https://stats.runonflux.io/proposals/voteInformation?hash=${this.proposalDetail.hash}&zelid=${this.loginForm.zelid}`);
         console.log(response);
         if (response.data.status === 'success') {
-          let votesInformantion = response.data.data;
+          const votesInformantion = response.data.data;
           if (this.proposalDetail.status === 'Open' && (votesInformantion == null || votesInformantion.length === 0)) {
-            response = await axios.get(`https://stats.runonflux.io/proposals/getVotePower?zelid=${this.loginForm.zelid}`);
+            response = await axios.get(`https://stats.runonflux.io/proposals/votepower?zelid=${this.loginForm.zelid}`);
             console.log(response);
             if (response.data.status === 'success') {
-              votesInformantion = response.data.data;
-              votesInformantion.forEach((vote) => {
-                this.myNumberOfVotes += vote.numberOfVotes;
-              });
+              this.myNumberOfVotes = response.data.data.power;
               this.haveVoted = false;
             } else {
               vue.$customMes.error(response.data.data.message || response.data.data);
@@ -727,7 +721,7 @@ export default {
         vote: myVote,
       };
       console.log(data);
-      const response = await axios.post('https://stats.runonflux.io/proposals/voteProposal', JSON.stringify(data));
+      const response = await axios.post('https://stats.runonflux.io/proposals/voteproposal', JSON.stringify(data));
       console.log(response);
       if (response.data.status === 'success') {
         vue.$customMes.success('Vote registered successful');
