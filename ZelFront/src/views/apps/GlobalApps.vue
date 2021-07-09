@@ -8,187 +8,199 @@
         active
         title="Active Apps"
       >
-        <b-card>
-          <b-row>
-            <b-col cols="12">
-              <b-table
-                class="apps-active-table"
-                striped
-                hover
-                responsive
-                :items="tableconfig.active.apps"
-                :fields="tableconfig.active.fields"
-                show-empty
-                empty-text="No Flux Apps are active"
-              >
-                <template #cell(show_details)="row">
-                  <a @click="showLocations(row, tableconfig.active.apps)">
-                    <v-icon
-                      v-if="!row.detailsShowing"
-                      name="chevron-down"
-                    />
-                    <v-icon
-                      v-if="row.detailsShowing"
-                      name="chevron-up"
-                    />
-                  </a>
-                </template>
-                <template #row-details="row">
-                  <b-card class="mx-2">
-                    <list-entry
-                      v-if="row.item.description"
-                      title="Description"
-                      :data="row.item.description"
-                    />
-                    <list-entry
-                      v-if="row.item.owner"
-                      title="Owner"
-                      :data="row.item.owner"
-                    />
-                    <list-entry
-                      v-if="row.item.hash"
-                      title="Hash"
-                      :data="row.item.hash"
-                    />
-                    <list-entry
-                      v-if="row.item.repotag"
-                      title="Repository"
-                      :data="row.item.repotag"
-                    />
-                    <h4>Locations</h4>
-                    <b-table
-                      class="locations-table"
-                      striped
-                      hover
-                      :items="appLocations"
-                      :fields="appLocationFields"
+        <b-overlay
+          :show="tableconfig.active.loading"
+          variant="transparent"
+          blur="5px"
+        >
+          <b-card>
+            <b-row>
+              <b-col cols="12">
+                <b-table
+                  class="apps-active-table"
+                  striped
+                  hover
+                  responsive
+                  :items="tableconfig.active.apps"
+                  :fields="tableconfig.active.fields"
+                  show-empty
+                  empty-text="No Flux Apps are active"
+                >
+                  <template #cell(show_details)="row">
+                    <a @click="showLocations(row, tableconfig.active.apps)">
+                      <v-icon
+                        v-if="!row.detailsShowing"
+                        name="chevron-down"
+                      />
+                      <v-icon
+                        v-if="row.detailsShowing"
+                        name="chevron-up"
+                      />
+                    </a>
+                  </template>
+                  <template #row-details="row">
+                    <b-card class="mx-2">
+                      <list-entry
+                        v-if="row.item.description"
+                        title="Description"
+                        :data="row.item.description"
+                      />
+                      <list-entry
+                        v-if="row.item.owner"
+                        title="Owner"
+                        :data="row.item.owner"
+                      />
+                      <list-entry
+                        v-if="row.item.hash"
+                        title="Hash"
+                        :data="row.item.hash"
+                      />
+                      <list-entry
+                        v-if="row.item.repotag"
+                        title="Repository"
+                        :data="row.item.repotag"
+                      />
+                      <h4>Locations</h4>
+                      <b-table
+                        class="locations-table"
+                        striped
+                        hover
+                        :items="appLocations"
+                        :fields="appLocationFields"
+                      >
+                        <template #cell(visit)="locationRow">
+                          <b-button
+                            size="sm"
+                            class="mr-0"
+                            variant="danger"
+                            @click="openApp(row.item.name, locationRow.item.ip, row.item.port || row.item.ports[0])"
+                          >
+                            Visit
+                          </b-button>
+                        </template>
+                      </b-table>
+                    </b-card>
+                  </template>
+                  <template #cell(visit)="row">
+                    <b-button
+                      size="sm"
+                      class="mr-0"
+                      variant="danger"
+                      @click="openGlobalApp(row.item.name)"
                     >
-                      <template #cell(visit)="locationRow">
-                        <b-button
-                          size="sm"
-                          class="mr-0"
-                          variant="danger"
-                          @click="openApp(row.item.name, locationRow.item.ip, row.item.port || row.item.ports[0])"
-                        >
-                          Visit
-                        </b-button>
-                      </template>
-                    </b-table>
-                  </b-card>
-                </template>
-                <template #cell(visit)="row">
-                  <b-button
-                    size="sm"
-                    class="mr-0"
-                    variant="danger"
-                    @click="openGlobalApp(row.item.name)"
-                  >
-                    Visit
-                  </b-button>
-                </template>
-              </b-table>
-            </b-col>
-          </b-row>
-        </b-card>
+                      Visit
+                    </b-button>
+                  </template>
+                </b-table>
+              </b-col>
+            </b-row>
+          </b-card>
+        </b-overlay>
       </b-tab>
       <b-tab title="My Apps">
-        <b-card>
-          <b-row>
-            <b-col cols="12">
-              <b-table
-                class="myapps-table"
-                striped
-                hover
-                responsive
-                :items="myGlobalApps"
-                :fields="tableconfig.my.fields"
-                show-empty
-                empty-text="No Global Apps are owned"
-              >
-                <template #cell(show_details)="row">
-                  <a @click="showLocations(row, myGlobalApps)">
-                    <v-icon
-                      v-if="!row.detailsShowing"
-                      name="chevron-down"
-                    />
-                    <v-icon
-                      v-if="row.detailsShowing"
-                      name="chevron-up"
-                    />
-                  </a>
-                </template>
-                <template #row-details="row">
-                  <b-card class="mx-2">
-                    <list-entry
-                      v-if="row.item.description"
-                      title="Description"
-                      :data="row.item.description"
-                    />
-                    <list-entry
-                      v-if="row.item.owner"
-                      title="Owner"
-                      :data="row.item.owner"
-                    />
-                    <list-entry
-                      v-if="row.item.hash"
-                      title="Hash"
-                      :data="row.item.hash"
-                    />
-                    <list-entry
-                      v-if="row.item.repotag"
-                      title="Repository"
-                      :data="row.item.repotag"
-                    />
-                    <h4>Locations</h4>
-                    <b-table
-                      class="locations-table"
-                      striped
-                      hover
-                      :items="appLocations"
-                      :fields="appLocationFields"
+        <b-overlay
+          :show="tableconfig.active.loading"
+          variant="transparent"
+          blur="5px"
+        >
+          <b-card>
+            <b-row>
+              <b-col cols="12">
+                <b-table
+                  class="myapps-table"
+                  striped
+                  hover
+                  responsive
+                  :items="myGlobalApps"
+                  :fields="tableconfig.my.fields"
+                  show-empty
+                  empty-text="No Global Apps are owned"
+                >
+                  <template #cell(show_details)="row">
+                    <a @click="showLocations(row, myGlobalApps)">
+                      <v-icon
+                        v-if="!row.detailsShowing"
+                        name="chevron-down"
+                      />
+                      <v-icon
+                        v-if="row.detailsShowing"
+                        name="chevron-up"
+                      />
+                    </a>
+                  </template>
+                  <template #row-details="row">
+                    <b-card class="mx-2">
+                      <list-entry
+                        v-if="row.item.description"
+                        title="Description"
+                        :data="row.item.description"
+                      />
+                      <list-entry
+                        v-if="row.item.owner"
+                        title="Owner"
+                        :data="row.item.owner"
+                      />
+                      <list-entry
+                        v-if="row.item.hash"
+                        title="Hash"
+                        :data="row.item.hash"
+                      />
+                      <list-entry
+                        v-if="row.item.repotag"
+                        title="Repository"
+                        :data="row.item.repotag"
+                      />
+                      <h4>Locations</h4>
+                      <b-table
+                        class="locations-table"
+                        striped
+                        hover
+                        :items="appLocations"
+                        :fields="appLocationFields"
+                      >
+                        <template #cell(visit)="locationRow">
+                          <b-button
+                            size="sm"
+                            class="mr-0"
+                            variant="danger"
+                            @click="openApp(row.item.name, locationRow.item.ip, row.item.port || row.item.ports[0])"
+                          >
+                            Visit
+                          </b-button>
+                        </template>
+                      </b-table>
+                    </b-card>
+                  </template>
+                  <template #cell(visit)="row">
+                    <b-button
+                      size="sm"
+                      class="mr-0"
+                      variant="danger"
+                      @click="openGlobalApp(row.item.name)"
                     >
-                      <template #cell(visit)="locationRow">
-                        <b-button
-                          size="sm"
-                          class="mr-0"
-                          variant="danger"
-                          @click="openApp(row.item.name, locationRow.item.ip, row.item.port || row.item.ports[0])"
-                        >
-                          Visit
-                        </b-button>
-                      </template>
-                    </b-table>
-                  </b-card>
-                </template>
-                <template #cell(visit)="row">
-                  <b-button
-                    size="sm"
-                    class="mr-0"
-                    variant="danger"
-                    @click="openGlobalApp(row.item.name)"
-                  >
-                    Visit
-                  </b-button>
-                </template>
-                <template #cell(manage)="row">
-                  <b-button
-                    :id="`manage-installed-app-${row.item.name}`"
-                    size="sm"
-                    class="mr-0"
-                    variant="danger"
-                  >
-                    Manage
-                  </b-button>
-                  <confirm-dialog
-                    :target="`manage-installed-app-${row.item.name}`"
-                    confirm-button="Manage App"
-                    @confirm="openAppManagement(row.item.name)"
-                  />
-                </template>
-              </b-table>
-            </b-col>
-          </b-row>
-        </b-card>
+                      Visit
+                    </b-button>
+                  </template>
+                  <template #cell(manage)="row">
+                    <b-button
+                      :id="`manage-installed-app-${row.item.name}`"
+                      size="sm"
+                      class="mr-0"
+                      variant="danger"
+                    >
+                      Manage
+                    </b-button>
+                    <confirm-dialog
+                      :target="`manage-installed-app-${row.item.name}`"
+                      confirm-button="Manage App"
+                      @confirm="openAppManagement(row.item.name)"
+                    />
+                  </template>
+                </b-table>
+              </b-col>
+            </b-row>
+          </b-card>
+        </b-overlay>
       </b-tab>
     </b-tabs>
     <div
@@ -265,6 +277,7 @@ export default {
             { key: 'description', label: 'Description', sortable: true },
             { key: 'visit', label: 'Visit' },
           ],
+          loading: true,
         },
         my: {
           apps: [],
@@ -301,10 +314,11 @@ export default {
       this.managedApplication = ''
     },
     async appsGetListGlobalApps() {
+      this.tableconfig.active.loading = true
       const response = await AppsService.globalAppSpecifications()
       console.log(response)
-      // this.globalAppSpecs.status = response.data.status
       this.tableconfig.active.apps = response.data.data
+      this.tableconfig.active.loading = false
     },
     openApp(name, _ip, _port) {
       console.log(name, _ip, _port)
