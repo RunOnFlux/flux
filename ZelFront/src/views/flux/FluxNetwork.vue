@@ -5,7 +5,7 @@
       title="Outgoing"
     >
       <b-overlay
-        :show="config.outgoing.connectedPeers.length === 0"
+        :show="config.outgoing.loading"
         variant="transparent"
         blur="5px"
       >
@@ -105,7 +105,7 @@
     </b-tab>
     <b-tab title="Incoming">
       <b-overlay
-        :show="config.incoming.incomingConnections.length === 0"
+        :show="config.incoming.loading"
         variant="transparent"
         blur="5px"
       >
@@ -268,6 +268,7 @@ export default {
           ],
           totalRows: 1,
           currentPage: 1,
+          loading: true,
         },
         incoming: {
           perPage: 10,
@@ -284,6 +285,7 @@ export default {
           ],
           totalRows: 1,
           currentPage: 1,
+          loading: true,
         },
       },
     }
@@ -312,6 +314,7 @@ export default {
           },
         })
       }
+      this.config.outgoing.loading = false
     },
     async fluxIncomingConnectionsInfo() {
       const response = await FluxService.incomingConnectionsInfo()
@@ -332,6 +335,7 @@ export default {
           },
         })
       }
+      this.config.incoming.loading = false
     },
     disconnectPeer(row) {
       const self = this
