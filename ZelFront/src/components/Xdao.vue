@@ -2,7 +2,7 @@
   <div class="xdaoSection">
     <div v-if="xdaoSection === 'listproposals'">
       <el-table
-        :data="proprosalsTable"
+        :data="proprosalsTable.filter(x=> x.status != 'Unpaid' && x.status != 'Rejected Unpaid')"
         style="width: 100%"
       >
         <el-table-column
