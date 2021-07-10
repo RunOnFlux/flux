@@ -55,9 +55,7 @@
           <template slot="prepend">Signature: </template>
         </ElInput>
       </ElFormItem>
-      <ElButton
-        @click="login()"
-      >
+      <ElButton @click="login()">
         Login
       </ElButton>
     </ElForm>

@@ -2,27 +2,37 @@
   <div class="xdaoSection">
     <div v-if="xdaoSection === 'listproposals'">
       <el-table
-        :data="proprosalsTable.filter(x=> x.status != 'Unpaid' && x.status != 'Rejected Unpaid').sort((a, b) => (a.submitDate < b.submitDate) ? 1 : -1)"
+        :data="filteredProposals"
+        :default-sort="{prop: 'submitDate', order: 'descending'}"
         style="width: 100%"
       >
+        <el-table-column type="expand">
+          <template slot-scope="props">
+            <p>Description: {{ props.row.description }}</p>
+          </template>
+        </el-table-column>
         <el-table-column
           label="Topic"
           prop="topic"
+          sortable
         >
         </el-table-column>
         <el-table-column
           label="Grant Value"
           prop="grantValue"
+          sortable
         >
         </el-table-column>
         <el-table-column
           label="Name/NickName"
           prop="nickName"
+          sortable
         >
         </el-table-column>
         <el-table-column
           label="Submit Date"
           prop="submitDate"
+          sortable
         >
           <template slot-scope="scope">
             {{ new Date(scope.row.submitDate).toLocaleString('en-GB', timeoptions) }}
@@ -31,6 +41,7 @@
         <el-table-column
           label="End Date"
           prop="voteEndDate"
+          sortable
         >
           <template slot-scope="scope">
             {{ new Date(scope.row.voteEndDate).toLocaleString('en-GB', timeoptions) }}
@@ -39,14 +50,29 @@
         <el-table-column
           label="Status"
           prop="status"
+          sortable
         >
         </el-table-column>
         <el-table-column align="right">
+          <template
+            slot="header"
+            slot-scope="scope"
+          >
+            <el-input
+              v-if="scope"
+              v-model="proposalFilter"
+              size="mini"
+              placeholder="Type to search"
+            />
+            <el-checkbox v-model="showUnpaid">Show Unpaid</el-checkbox>
+          </template>
           <template slot-scope="scope">
             <el-button
               size="mini"
-              @click="getProposalDetails(scope.$index)"
-            >Details</el-button>
+              @click="getProposalDetails(scope.row.hash)"
+            >
+              Details
+            </el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -55,9 +81,7 @@
       <p>
         In this page you will be able to submit a proposal to Flux Xdao. Fields marked with * are mandatory. After your submission is paid, the proposal can't be changed. Thank you for using Flux Xdao.
       </p>
-      <el-form
-        label-width="150px"
-      >
+      <el-form label-width="150px">
         <el-form-item label="Topic*">
           <el-input
             placeholder="Proposal Topic"
@@ -143,9 +167,7 @@
       <p>
         Proposal Details
       </p>
-      <el-form
-        label-width="150px"
-      >
+      <el-form label-width="150px">
         <el-form-item label="Status">
           <el-input
             placeholder="Proposal Status"
@@ -258,14 +280,101 @@
         </el-form-item>
       </el-form>
       <div v-if="haveVoted == null && proposalDetail.status !== 'Unpaid' && proposalDetail.status !== 'Rejected Unpaid'">
-          <div class="loginSection">
+        <div class="loginSection">
+          <p>
+            To check the status of your vote, or your voting power, use Zelcore to login with your ZelID
+          </p>
+          <div>
+            <a
+              @click="initiateLoginWS"
+              :href="'zel:?action=sign&message=' + loginForm.loginPhrase + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FZelFront%2Fsrc%2Fassets%2Fimg%2FzelID.svg&callback=' + callbackValueLogin"
+            >
+              <img
+                class="zelidLogin"
+                src="@/assets/img/zelID.svg"
+                alt="Zel ID"
+                height="100%"
+                width="100%"
+              />
+            </a>
+          </div>
+
+          <p>
+            or sign the following message with your ZelID.
+          </p>
+          <ElForm
+            :model="loginForm"
+            class="loginForm"
+          >
+            <ElFormItem>
+              <ElInput
+                type="text"
+                name="message"
+                placeholder="insert Login Phrase"
+                v-model="loginForm.loginPhrase"
+              >
+                <template slot="prepend">Message: </template>
+              </ElInput>
+            </ElFormItem>
+            <ElFormItem>
+              <ElInput
+                type="text"
+                name="address"
+                placeholder="insert ZelID"
+                v-model="loginForm.zelid"
+              >
+                <template slot="prepend">Address: </template>
+              </ElInput>
+            </ElFormItem>
+            <ElFormItem>
+              <ElInput
+                type="text"
+                name="signature"
+                placeholder="insert Signature"
+                v-model="loginForm.signature"
+              >
+                <template slot="prepend">Signature: </template>
+              </ElInput>
+            </ElFormItem>
+            <ElButton @click="login()">
+              Login
+            </ElButton>
+          </ElForm>
+        </div>
+      </div>
+      <div v-if="haveVoted != null">
+        <div v-if="haveVoted == true">
+          <el-form label-width="150px">
+            <el-form-item label="Your Vote">
+              <el-input
+                class="width100"
+                placeholder="Your Vote"
+                v-model="myVote"
+                disabled
+              >
+              </el-input>
+            </el-form-item>
+            <el-form-item label="Number of Votes">
+              <el-input
+                class="width100"
+                placeholder="Number of Votes"
+                v-model="myNumberOfVotes"
+                disabled
+              >
+              </el-input>
+            </el-form-item>
+          </el-form>
+        </div>
+        <div v-else>
+          <p>You haven't voted yet! You have a total of {{ myNumberOfVotes }} available.</p>
+          <div v-if="!signedMessage">
             <p>
-              To check the status of your vote, or your voting power, use Zelcore to login with your ZelID
+              To vote you need to first sign a message with ZelCore with your ZelID
             </p>
             <div>
               <a
-                @click="initiateLoginWS"
-                :href="'zel:?action=sign&message=' + loginForm.loginPhrase + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FZelFront%2Fsrc%2Fassets%2Fimg%2FzelID.svg&callback=' + callbackValueLogin"
+                @click="initiateSignWS"
+                :href="'zel:?action=sign&message=' + dataToSign + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FZelFront%2Fsrc%2Fassets%2Fimg%2FzelID.svg&callback=' + callbackValueSign"
               >
                 <img
                   class="zelidLogin"
@@ -276,126 +385,31 @@
                 />
               </a>
             </div>
-
-            <p>
-              or sign the following message with your ZelID.
-            </p>
-            <ElForm
-              :model="loginForm"
-              class="loginForm"
-            >
+            <br>
+            <ElForm class="loginForm">
               <ElFormItem>
                 <ElInput
                   type="text"
                   name="message"
                   placeholder="insert Login Phrase"
-                  v-model="loginForm.loginPhrase"
+                  v-model="dataToSign"
                 >
                   <template slot="prepend">Message: </template>
                 </ElInput>
               </ElFormItem>
-              <ElFormItem>
-                <ElInput
-                  type="text"
-                  name="address"
-                  placeholder="insert ZelID"
-                  v-model="loginForm.zelid"
-                >
-                  <template slot="prepend">Address: </template>
-                </ElInput>
-              </ElFormItem>
-              <ElFormItem>
-                <ElInput
-                  type="text"
-                  name="signature"
-                  placeholder="insert Signature"
-                  v-model="loginForm.signature"
-                >
-                  <template slot="prepend">Signature: </template>
-                </ElInput>
-              </ElFormItem>
-              <ElButton
-                @click="login()"
-              >
-                Login
-              </ElButton>
             </ElForm>
           </div>
-      </div>
-      <div v-if="haveVoted != null">
-          <div v-if="haveVoted == true">
-            <el-form label-width="150px">
-              <el-form-item label="Your Vote">
-                <el-input
-                  class="width100"
-                  placeholder="Your Vote"
-                  v-model="myVote"
-                  disabled
-                >
-                </el-input>
-              </el-form-item>
-              <el-form-item label="Number of Votes">
-                <el-input
-                  class="width100"
-                  placeholder="Number of Votes"
-                  v-model="myNumberOfVotes"
-                  disabled
-                >
-                </el-input>
-              </el-form-item>
-            </el-form>
-          </div>
           <div v-else>
-            <p>You haven't voted yet! You have a total of {{ myNumberOfVotes }} available.</p>
-            <div v-if="!signedMessage">
-              <p>
-                To vote you need to first sign a message with ZelCore with your ZelID
-              </p>
-              <div>
-                <a
-                  @click="initiateSignWS"
-                  :href="'zel:?action=sign&message=' + dataToSign + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FZelFront%2Fsrc%2Fassets%2Fimg%2FzelID.svg&callback=' + callbackValueSign"
-                >
-                  <img
-                    class="zelidLogin"
-                    src="@/assets/img/zelID.svg"
-                    alt="Zel ID"
-                    height="100%"
-                    width="100%"
-                  />
-                </a>
-              </div>
-              <br>
-              <ElForm
-                class="loginForm"
-              >
-                <ElFormItem>
-                  <ElInput
-                    type="text"
-                    name="message"
-                    placeholder="insert Login Phrase"
-                    v-model="dataToSign"
-                  >
-                    <template slot="prepend">Message: </template>
-                  </ElInput>
-                </ElFormItem>
-              </ElForm>
-            </div>
-            <div v-else>
-              <p>Remember, you can't change your vote! After voting it could take around 5 minutes to see number of votes updated with your vote.</p>
-              <ElButton
-                  @click="vote(true)"
-                >
-                Vote Yes
-              </ElButton>
-              &nbsp;
-              <ElButton
-                  @click="vote(false)"
-                >
-                Vote No
-              </ElButton>
-            </div>
+            <p>Remember, you can't change your vote! After voting it could take around 5 minutes to see number of votes updated with your vote.</p>
+            <ElButton @click="vote(true)">
+              Vote Yes
+            </ElButton>
+            &nbsp;
+            <ElButton @click="vote(false)">
+              Vote No
+            </ElButton>
           </div>
+        </div>
       </div>
     </div>
   </div>
@@ -447,6 +461,8 @@ export default {
       signedMessage: false,
       dataToSign: '',
       signature: '',
+      proposalFilter: '',
+      showUnpaid: false,
     };
   },
   computed: {
@@ -455,6 +471,12 @@ export default {
       'userconfig',
       'xdaoSection',
     ]),
+    filteredProposals() {
+      return this.proprosalsTable
+        .filter((data) => !this.proposalFilter || data.topic.toLowerCase().includes(this.proposalFilter.toLowerCase()) || data.description.toLowerCase().includes(this.proposalFilter.toLowerCase()))
+        .filter((x) => x.status !== 'Rejected Unpaid')
+        .filter((x) => this.showUnpaid || x.status !== 'Unpaid');
+    },
     callbackValueLogin() {
       console.log('callbackValueLogin');
       const { protocol, hostname } = window.location;
@@ -594,11 +616,15 @@ export default {
         vue.$customMes.error(response.data.data.message || response.data.data);
       }
     },
-    async getProposalDetails(index) {
-      this.proposalDetail = this.proprosalsTable[index];
-      console.log(this.proposalDetail);
-      this.getZelIdLoginPhrase();
-      this.$store.commit('setXdaoSection', 'proposaldetail');
+    async getProposalDetails(hash) {
+      this.proposalDetail = this.proprosalsTable.find((proposal) => proposal.hash === hash);
+      if (this.proposalDetail) {
+        console.log(this.proposalDetail);
+        this.getZelIdLoginPhrase();
+        this.$store.commit('setXdaoSection', 'proposaldetail');
+      } else {
+        vue.$customMes.error('Proposal not found');
+      }
     },
     validateProposal() {
       if (this.proposalTopic === '') {

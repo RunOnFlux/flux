@@ -64,17 +64,6 @@ ul {
   margin-top: 1rem !important;
 }
 
-input[type="checkbox"] {
-  margin: 5px;
-  vertical-align: top;
-  background-color: #000;
-}
-
-input[type="checkbox"]:checked + label,
-input[type="checkbox"]:checked + label a {
-  color: #97f597;
-}
-
 img {
   -webkit-app-region: no-drag;
   transition: 0.1s;
