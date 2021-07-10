@@ -33,6 +33,9 @@
       <div v-else-if="dashboardSection !== null">
         <Dashboard />
       </div>
+      <div v-else-if="xdaoSection !== null">
+        <Xdao />
+      </div>
     </div>
     <div
       v-else-if="loginPhrase === ''"
@@ -85,6 +88,9 @@
         <div v-else-if="dashboardSection !== null">
           <Dashboard />
         </div>
+        <div v-else-if="xdaoSection !== null">
+          <Xdao />
+        </div>
       </div>
       <Dashboard />
     </div>
@@ -119,6 +125,7 @@ const Admin = () => import('@/components/Admin');
 const Apps = () => import('@/components/Apps');
 const Explorer = () => import('@/components/Explorer');
 const Dashboard = () => import('@/components/Dashboard');
+const Xdao = () => import('@/components/Xdao');
 
 const qs = require('qs');
 
@@ -128,7 +135,7 @@ const vue = new Vue();
 export default {
   name: 'MainPage',
   components: {
-    Header, Footer, Login, Daemon, Benchmark, Node, Admin, Apps, Explorer, Dashboard,
+    Header, Footer, Login, Daemon, Benchmark, Node, Admin, Apps, Explorer, Dashboard, Xdao,
   },
   data() {
     return {
@@ -152,6 +159,7 @@ export default {
       'appsSection',
       'explorerSection',
       'dashboardSection',
+      'xdaoSection',
     ]),
   },
   mounted() {

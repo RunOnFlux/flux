@@ -240,7 +240,10 @@
           v-for="transaction in blocksWithTransaction[height].transactions"
           :key="transaction.txid"
         >
-          <Transaction :transaction="transaction" :height="getInfoResponse.data.blocks" />
+          <Transaction
+            :transaction="transaction"
+            :height="getInfoResponse.data.blocks"
+          />
           <br>
         </div>
         <div v-if="blocksWithTransaction[height].transactions">
@@ -314,7 +317,10 @@
           v-for="transaction in addressWithTransactions[address].fetchedTransactions"
           :key="transaction.txid"
         >
-          <Transaction :transaction="transaction" :height="getInfoResponse.data.blocks" />
+          <Transaction
+            :transaction="transaction"
+            :height="getInfoResponse.data.blocks"
+          />
           <br>
         </div>
         <div v-if="addressWithTransactions[address].fetchedTransactions">
@@ -345,7 +351,10 @@
         Loading Transaction...
       </el-row>
       <div v-if="transactionDetail.txid">
-        <Transaction :transaction="transactionDetail" :height="getInfoResponse.data.blocks" />
+        <Transaction
+          :transaction="transactionDetail"
+          :height="getInfoResponse.data.blocks"
+        />
       </div>
     </div>
     <div v-if="errorMessage !== ''">
