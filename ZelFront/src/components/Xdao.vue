@@ -64,7 +64,6 @@
               size="mini"
               placeholder="Type to search"
             />
-            <el-checkbox v-model="showUnpaid">Show Unpaid</el-checkbox>
           </template>
           <template slot-scope="scope">
             <el-button
@@ -168,6 +167,25 @@
         Proposal Details
       </p>
       <el-form label-width="150px">
+        <el-form-item label="Topic">
+          <el-input
+            placeholder="Proposal Topic"
+            v-model="proposalDetail.topic"
+            disabled
+          >
+          </el-input>
+        </el-form-item>
+
+        <el-form-item label="Proposal Description">
+          <el-input
+            type="textarea"
+            autosize
+            placeholder="Proposal Description"
+            v-model="proposalDetail.description"
+            disabled
+          >
+          </el-input>
+        </el-form-item>
         <el-form-item label="Status">
           <el-input
             placeholder="Proposal Status"
@@ -180,7 +198,7 @@
         <el-form-item label="Submit Date">
           <el-input
             placeholder="Proposal Submit Date"
-            v-model="proposalDetail.submitDate"
+            :value="new Date(proposalDetail.submitDate).toLocaleString('en-GB', timeoptions)"
             disabled
           >
           </el-input>
@@ -189,7 +207,7 @@
         <el-form-item label="Vote End Date">
           <el-input
             placeholder="Proposal Vote End Date"
-            v-model="proposalDetail.voteEndDate"
+            :value="new Date(proposalDetail.voteEndDate).toLocaleString('en-GB', timeoptions)"
             disabled
           >
           </el-input>
@@ -231,15 +249,6 @@
           </el-input>
         </el-form-item>
 
-        <el-form-item label="Topic">
-          <el-input
-            placeholder="Proposal Topic"
-            v-model="proposalDetail.topic"
-            disabled
-          >
-          </el-input>
-        </el-form-item>
-
         <el-form-item label="Grant Amount">
           <el-input
             placeholder="Grant Flux Amount"
@@ -258,17 +267,6 @@
           </el-input>
         </el-form-item>
 
-        <el-form-item label="Proposal Description">
-          <el-input
-            type="textarea"
-            autosize
-            placeholder="Proposal Description"
-            v-model="proposalDetail.description"
-            disabled
-          >
-          </el-input>
-        </el-form-item>
-
         <el-form-item label="Name/NickName">
           <el-input
             class="width100"
@@ -279,71 +277,11 @@
           </el-input>
         </el-form-item>
       </el-form>
-      <div v-if="haveVoted == null && proposalDetail.status !== 'Unpaid' && proposalDetail.status !== 'Rejected Unpaid'">
-        <div class="loginSection">
-          <p>
-            To check the status of your vote, or your voting power, use Zelcore to login with your ZelID
-          </p>
-          <div>
-            <a
-              @click="initiateLoginWS"
-              :href="'zel:?action=sign&message=' + loginForm.loginPhrase + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FZelFront%2Fsrc%2Fassets%2Fimg%2FzelID.svg&callback=' + callbackValueLogin"
-            >
-              <img
-                class="zelidLogin"
-                src="@/assets/img/zelID.svg"
-                alt="Zel ID"
-                height="100%"
-                width="100%"
-              />
-            </a>
-          </div>
-
-          <p>
-            or sign the following message with your ZelID.
-          </p>
-          <ElForm
-            :model="loginForm"
-            class="loginForm"
-          >
-            <ElFormItem>
-              <ElInput
-                type="text"
-                name="message"
-                placeholder="insert Login Phrase"
-                v-model="loginForm.loginPhrase"
-              >
-                <template slot="prepend">Message: </template>
-              </ElInput>
-            </ElFormItem>
-            <ElFormItem>
-              <ElInput
-                type="text"
-                name="address"
-                placeholder="insert ZelID"
-                v-model="loginForm.zelid"
-              >
-                <template slot="prepend">Address: </template>
-              </ElInput>
-            </ElFormItem>
-            <ElFormItem>
-              <ElInput
-                type="text"
-                name="signature"
-                placeholder="insert Signature"
-                v-model="loginForm.signature"
-              >
-                <template slot="prepend">Signature: </template>
-              </ElInput>
-            </ElFormItem>
-            <ElButton @click="login()">
-              Login
-            </ElButton>
-          </ElForm>
-        </div>
+      <div v-if="privilage === 'none'">
+        <Login />
       </div>
-      <div v-if="haveVoted != null">
-        <div v-if="haveVoted == true">
+      <div v-else>
+        <div v-if="haveVoted">
           <el-form label-width="150px">
             <el-form-item label="Your Vote">
               <el-input
@@ -367,9 +305,9 @@
         </div>
         <div v-else>
           <p>You haven't voted yet! You have a total of {{ myNumberOfVotes }} available.</p>
-          <div v-if="!signedMessage">
+          <div>
             <p>
-              To vote you need to first sign a message with ZelCore with your ZelID
+              To vote you need to first sign a message with ZelCore with your ZelID corresponding to your Flux Nodes.
             </p>
             <div>
               <a
@@ -391,23 +329,45 @@
                 <ElInput
                   type="text"
                   name="message"
-                  placeholder="insert Login Phrase"
+                  placeholder="Message to Sign"
+                  disabled
                   v-model="dataToSign"
                 >
                   <template slot="prepend">Message: </template>
                 </ElInput>
               </ElFormItem>
+              <ElFormItem>
+                <ElInput
+                  type="text"
+                  name="address"
+                  placeholder="insert ZelID"
+                  v-model="zelid"
+                >
+                  <template slot="prepend">Address: </template>
+                </ElInput>
+              </ElFormItem>
+              <ElFormItem>
+                <ElInput
+                  type="text"
+                  name="message"
+                  placeholder="insert your signature"
+                  v-model="signature"
+                >
+                  <template slot="prepend">Signature: </template>
+                </ElInput>
+              </ElFormItem>
             </ElForm>
           </div>
-          <div v-else>
+          <div v-if="signature">
             <p>Remember, you can't change your vote! After voting it could take around 5 minutes to see number of votes updated with your vote.</p>
-            <ElButton @click="vote(true)">
-              Vote Yes
-            </ElButton>
-            &nbsp;
             <ElButton @click="vote(false)">
               Vote No
             </ElButton>
+            &nbsp; &nbsp;
+            <ElButton @click="vote(true)">
+              Vote Yes
+            </ElButton>
+            <br><br>
           </div>
         </div>
       </div>
@@ -418,7 +378,8 @@
 <script>
 import Vuex, { mapState } from 'vuex';
 import Vue from 'vue';
-import IDService from '@/services/IDService';
+
+const Login = () => import('@/components/Login');
 
 const store = require('store');
 const qs = require('qs');
@@ -429,6 +390,9 @@ const vue = new Vue();
 
 export default {
   name: 'Xdao',
+  components: {
+    Login,
+  },
   data() {
     return {
       proposalTopic: '',
@@ -449,20 +413,14 @@ export default {
       },
       proprosalsTable: [],
       proposalDetail: {},
-      loginForm: {
-        zelid: '',
-        signature: '',
-        loginPhrase: '',
-      },
-      haveVoted: null,
+      haveVoted: false,
       myVote: null,
-      myNumberOfVotes: null,
+      myNumberOfVotes: 0,
       proposalPrice: 100,
-      signedMessage: false,
       dataToSign: '',
       signature: '',
+      zelid: '',
       proposalFilter: '',
-      showUnpaid: false,
     };
   },
   computed: {
@@ -470,32 +428,13 @@ export default {
       'config',
       'userconfig',
       'xdaoSection',
+      'privilage',
     ]),
     filteredProposals() {
       return this.proprosalsTable
         .filter((data) => !this.proposalFilter || data.topic.toLowerCase().includes(this.proposalFilter.toLowerCase()) || data.description.toLowerCase().includes(this.proposalFilter.toLowerCase()))
         .filter((x) => x.status !== 'Rejected Unpaid')
-        .filter((x) => this.showUnpaid || x.status !== 'Unpaid');
-    },
-    callbackValueLogin() {
-      console.log('callbackValueLogin');
-      const { protocol, hostname } = window.location;
-      let mybackend = '';
-      mybackend += protocol;
-      mybackend += '//';
-      const regex = /[A-Za-z]/g;
-      if (hostname.match(regex)) {
-        const names = hostname.split('.');
-        names[0] = 'api';
-        mybackend += names.join('.');
-      } else {
-        mybackend += this.userconfig.externalip;
-        mybackend += ':';
-        mybackend += this.config.apiPort;
-      }
-      const backendURL = store.get('backendURL') || mybackend;
-      const url = `${backendURL}/zelid/verifylogin`;
-      return encodeURI(url);
+        .filter((x) => x.status !== 'Unpaid');
     },
     callbackValueSign() {
       console.log('callbackValueSign');
@@ -523,8 +462,19 @@ export default {
       console.log(val, oldVal);
       this.switcher(val);
     },
+    privilage() {
+      const zelidauth = localStorage.getItem('zelidauth');
+      const auth = qs.parse(zelidauth);
+      console.log(auth);
+      this.zelid = auth.zelid;
+      this.loadVotes();
+    },
   },
   mounted() {
+    const zelidauth = localStorage.getItem('zelidauth');
+    const auth = qs.parse(zelidauth);
+    console.log(auth);
+    this.zelid = auth.zelid;
     this.switcher(this.xdaoSection);
   },
   methods: {
@@ -547,54 +497,11 @@ export default {
           console.log('xdao Section: Unrecognized method'); // should not be seeable if all works correctly
       }
     },
-    getZelIdLoginPhrase() {
-      IDService.loginPhrase()
-        .then((response) => {
-          console.log(response);
-          if (response.data.status === 'error') {
-            if (JSON.stringify(response.data.data).includes('CONN')) {
-              // we can fix daemon, benchmark problems. But cannot fix mongo, docker issues (docker may be possible to fix in the future, mongo not)...
-              this.getEmergencyLoginPhrase();
-            } else {
-              this.errorMessage = response.data.data.message;
-            }
-          } else {
-            this.loginForm.loginPhrase = response.data.data;
-          }
-        })
-        .catch((error) => {
-          console.log(error);
-          vue.$customMes.error(error);
-          this.errorMessage = 'Error connecting to Flux';
-        });
-    },
-    getEmergencyLoginPhrase() {
-      IDService.emergencyLoginPhrase()
-        .then((response) => {
-          console.log(response);
-          if (response.data.status === 'error') {
-            this.errorMessage = response.data.data.message;
-          } else {
-            this.loginForm.loginPhrase = response.data.data;
-          }
-        })
-        .catch((error) => {
-          console.log(error);
-          vue.$customMes.error(error);
-          this.errorMessage = 'Error connecting to Flux';
-        });
-    },
     cleanProposalDetail() {
       this.proposalDetail = {};
-      this.loginForm = {
-        zelid: '',
-        signature: '',
-        loginPhrase: '',
-      };
-      this.haveVoted = null;
+      this.haveVoted = false;
       this.myVote = null;
-      this.myNumberOfVotes = null;
-      this.signedMessage = false;
+      this.myNumberOfVotes = 0;
       this.dataToSign = '';
       this.signature = '';
     },
@@ -620,8 +527,9 @@ export default {
       this.proposalDetail = this.proprosalsTable.find((proposal) => proposal.hash === hash);
       if (this.proposalDetail) {
         console.log(this.proposalDetail);
-        this.getZelIdLoginPhrase();
+        this.dataToSign = await this.getMessagePhrase();
         this.$store.commit('setXdaoSection', 'proposaldetail');
+        this.loadVotes();
       } else {
         vue.$customMes.error('Proposal not found');
       }
@@ -635,10 +543,18 @@ export default {
         vue.$customMes.error('Proposal Description is Mandatory');
         return;
       }
-      if (this.proposalGrantValue !== '') {
+      if (this.proposalDescription.length < 50) {
+        vue.$customMes.error('Proposal Description needs to have more details');
+        return;
+      }
+      if (this.proposalTopic.length < 3) {
+        vue.$customMes.error('Proposal Topic needs to have more words');
+        return;
+      }
+      if (this.proposalGrantValue) {
         const isnum = /^\d+$/.test(this.proposalGrantValue);
         if (isnum === true) {
-          if (this.proposalGrantValue !== '0' && this.proposalGrantAddress === '') {
+          if (this.proposalGrantValue > 0 && !this.proposalGrantAddress) {
             vue.$customMes.error('Proposal Grant Pay to Address missing');
             return;
           }
@@ -647,17 +563,11 @@ export default {
           return;
         }
       }
-      if (this.proposalTopic.length < 3) {
-        vue.$customMes.error('Proposal Topic needs to have more words');
-        return;
-      }
-      if (this.proposalDescription.length < 50) {
-        vue.$customMes.error('Proposal Description needs to have more details');
-        return;
-      }
-      if (/\s/.test(this.proposalGrantAddress)) {
-        vue.$customMes.error('Proposal Grant Pay to Address Invalid, white space detected');
-        return;
+      if (this.proposalGrantAddress) {
+        if (/\s/.test(this.proposalGrantAddress)) {
+          vue.$customMes.error('Proposal Grant Pay to Address Invalid, white space detected');
+          return;
+        }
       }
       this.proposalValid = true;
     },
@@ -681,7 +591,7 @@ export default {
       let backendURL = store.get('backendURL') || mybackend;
       backendURL = backendURL.replace('https://', 'wss://');
       backendURL = backendURL.replace('http://', 'ws://');
-      const wsIdentifier = this.loginForm.zelid + this.dataToSign.substr(this.dataToSign.length - 13);
+      const wsIdentifier = this.zelid + this.dataToSign.substr(this.dataToSign.length - 13);
       const wsuri = `${backendURL}/ws/sign/${wsIdentifier}`;
       const websocket = new WebSocket(wsuri);
       this.websocket = websocket;
@@ -696,7 +606,6 @@ export default {
       const data = qs.parse(evt.data);
       if (data.status === 'success' && data.data) {
         this.signature = data.data.signature;
-        this.signedMessage = true;
       }
       console.log(data);
       console.log(evt);
@@ -710,34 +619,26 @@ export default {
     onOpen(evt) {
       console.log(evt);
     },
-    async login() {
-      console.log(this.loginForm);
-      const response = await IDService.verifyLogin(this.loginForm);
-      console.log(response);
+    async getMessagePhrase() {
+      const response = await axios.get('https://stats.runonflux.io/general/messagephrase');
       if (response.data.status === 'success') {
+        return response.data.data;
+      }
+      vue.$customMes.error(response.data.data.message || response.data.data);
+      return false;
+    },
+    async loadVotes() {
+      if (this.zelid) {
         this.myNumberOfVotes = 0;
-        let responseApi = await axios.get(`https://stats.runonflux.io/proposals/voteInformation?hash=${this.proposalDetail.hash}&zelid=${this.loginForm.zelid}`);
-        console.log(responseApi);
-        if (responseApi.data.status === 'success') {
-          const votesInformantion = responseApi.data.data;
+        const voteInformation = await this.getVoteInformation();
+        if (voteInformation.status === 'success') {
+          const votesInformantion = voteInformation.data;
           if (this.proposalDetail.status === 'Open' && (votesInformantion == null || votesInformantion.length === 0)) {
-            responseApi = await axios.get(`https://stats.runonflux.io/proposals/votepower?zelid=${this.loginForm.zelid}`);
-            console.log(responseApi);
-            if (responseApi.data.status === 'success') {
-              this.myNumberOfVotes = response.data.data.power;
-              responseApi = await axios.get('https://stats.runonflux.io/general/messagephrase');
-              if (responseApi.data.status === 'success') {
-                this.dataToSign = responseApi.data.data;
-                this.haveVoted = false;
-              } else {
-                vue.$customMes.error(responseApi.data.data.message || responseApi.data.data);
-                return;
-              }
-            } else {
-              vue.$customMes.error(responseApi.data.data.message || responseApi.data.data);
-              return;
-            }
+            await this.loadVotePower();
+            this.haveVoted = false;
+            this.dataToSign = await this.getMessagePhrase();
           } else {
+            console.log('HERE');
             votesInformantion.forEach((vote) => {
               this.myNumberOfVotes += vote.numberOfVotes;
             });
@@ -748,94 +649,23 @@ export default {
             this.haveVoted = true;
           }
         } else {
-          vue.$customMes.error(response.data.data.message || response.data.data);
-          return;
+          vue.$customMes.error(voteInformation.data.message || voteInformation.data);
         }
-        vue.$customMes.success(response.data.data.message);
-      } else {
-        vue.$customMes({
-          type: response.data.status,
-          message: response.data.data.message || response.data.data,
-        });
       }
     },
-    initiateLoginWS() {
-      const self = this;
-      const { protocol, hostname } = window.location;
-      let mybackend = '';
-      mybackend += protocol;
-      mybackend += '//';
-      const regex = /[A-Za-z]/g;
-      if (hostname.match(regex)) {
-        const names = hostname.split('.');
-        names[0] = 'api';
-        mybackend += names.join('.');
-      } else {
-        mybackend += this.userconfig.externalip;
-        mybackend += ':';
-        mybackend += this.config.apiPort;
-      }
-      let backendURL = store.get('backendURL') || mybackend;
-      backendURL = backendURL.replace('https://', 'wss://');
-      backendURL = backendURL.replace('http://', 'ws://');
-      const wsuri = `${backendURL}/ws/id/${this.loginForm.loginPhrase}`;
-      const websocket = new WebSocket(wsuri);
-      this.websocket = websocket;
-
-      websocket.onopen = (evt) => { self.onOpen(evt); };
-      websocket.onclose = (evt) => { self.onClose(evt); };
-      websocket.onmessage = (evt) => { self.onLoginMessage(evt); };
-      websocket.onerror = (evt) => { self.onError(evt); };
+    async getVoteInformation() {
+      const response = await axios.get(`https://stats.runonflux.io/proposals/voteInformation?hash=${this.proposalDetail.hash}&zelid=${this.zelid}`);
+      return response.data;
     },
-    async onLoginMessage(evt) {
-      console.log('onLoginMessage');
-      const data = qs.parse(evt.data);
-      if (data.status === 'success' && data.data) {
-        this.loginForm = {
-          zelid: data.data.zelid,
-          signature: data.data.signature,
-          loginPhrase: data.data.loginPhrase,
-        };
+    async loadVotePower() {
+      const responseApi = await axios.get(`https://stats.runonflux.io/proposals/votepower?zelid=${this.zelid}`);
+      console.log(responseApi);
+      if (responseApi.data.status === 'success') {
+        this.myNumberOfVotes = responseApi.data.data.power;
+      } else {
+        vue.$customMes.error(responseApi.data.data.message || responseApi.data.data);
         this.myNumberOfVotes = 0;
-        let response = await axios.get(`https://stats.runonflux.io/proposals/voteInformation?hash=${this.proposalDetail.hash}&zelid=${this.loginForm.zelid}`);
-        console.log(response);
-        if (response.data.status === 'success') {
-          const votesInformantion = response.data.data;
-          if (this.proposalDetail.status === 'Open' && (votesInformantion == null || votesInformantion.length === 0)) {
-            response = await axios.get(`https://stats.runonflux.io/proposals/votepower?zelid=${this.loginForm.zelid}`);
-            console.log(response);
-            if (response.data.status === 'success') {
-              this.myNumberOfVotes = response.data.data.power;
-              response = await axios.get('https://stats.runonflux.io/general/messagephrase');
-              if (response.data.status === 'success') {
-                this.dataToSign = response.data.data;
-                this.haveVoted = false;
-              } else {
-                vue.$customMes.error(response.data.data.message || response.data.data);
-                return;
-              }
-            } else {
-              vue.$customMes.error(response.data.data.message || response.data.data);
-              return;
-            }
-          } else {
-            votesInformantion.forEach((vote) => {
-              this.myNumberOfVotes += vote.numberOfVotes;
-            });
-            this.myVote = 'No';
-            if (votesInformantion[0].vote) {
-              this.myVote = 'Yes';
-            }
-            this.haveVoted = true;
-          }
-        } else {
-          vue.$customMes.error(response.data.data.message || response.data.data);
-          return;
-        }
-        vue.$customMes.success(data.data.message);
       }
-      console.log(data);
-      console.log(evt);
     },
     async register() {
       const data = {
@@ -859,7 +689,7 @@ export default {
     async vote(myVote) {
       const data = {
         hash: this.proposalDetail.hash,
-        zelid: this.loginForm.zelid,
+        zelid: this.zelid,
         message: this.dataToSign,
         signature: this.signature,
         vote: myVote,

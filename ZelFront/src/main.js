@@ -38,7 +38,6 @@ import {
   InputNumber,
   Main,
   Aside,
-  Checkbox,
 } from 'element-ui';
 import 'element-ui/lib/theme-chalk/index.css';
 import lang from 'element-ui/lib/locale/lang/en';
@@ -82,7 +81,6 @@ Vue.use(Switch);
 Vue.use(InputNumber);
 Vue.use(Main);
 Vue.use(Aside);
-Vue.use(Checkbox);
 Vue.use(Loading.directive);
 
 Vue.prototype.$notify = Notification;
