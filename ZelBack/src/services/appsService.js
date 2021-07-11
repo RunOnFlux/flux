@@ -2730,6 +2730,25 @@ async function availableApps(req, res) {
       hash: 'localSpecificationsVersion9', // hash of app message
       height: 680000, // height of tx on which it was
     },
+    {
+      version: 2,
+      name: 'KadenaChainWebData', // corresponds to docker name and this name is stored in apps mongo database
+      description: 'Kadena Chainweb Data is extension to Chainweb Node offering additional data about Kadena blockchain. Chainweb Data offers statistics, coins circulation and mainly transaction history and custom searching through transactions',
+      repotag: 'runonflux/kadena-chainweb-data:v1.0.0',
+      owner: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
+      ports: [30006],
+      containerPorts: [8888],
+      domains: [''],
+      tiered: false,
+      cpu: 1.2, // true resource registered for app. If not tiered only this is available
+      ram: 3000, // true resource registered for app
+      hdd: 50, // true resource registered for app
+      enviromentParameters: [],
+      commands: [],
+      containerData: '/var/lib/postgresql/data', // cannot be root todo in verification
+      hash: 'chainwebDataLocalSpecificationsVersion1', // hash of app message
+      height: 900000, // height of tx on which it was
+    },
     { // app specifications
       version: 2,
       name: 'FoldingAtHomeArm64',
@@ -3706,56 +3725,6 @@ async function updateAppGlobalyApi(req, res) {
   });
 }
 
-async function installTemporaryLocalApplication(req, res) {
-  try {
-    let { appname } = req.params;
-    appname = appname || req.query.appname;
-
-    if (!appname) {
-      throw new Error('No Flux App specified');
-    }
-    const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
-    if (authorized) {
-      const allApps = await availableApps();
-      const appSpecifications = allApps.find((app) => app.name === appname);
-      if (!appSpecifications) {
-        throw new Error('Application Specifications not found');
-      }
-
-      // get our tier and adjust true resource registered
-      if (appSpecifications.tiered) {
-        const tier = await nodeTier();
-        if (tier === 'basic') {
-          appSpecifications.cpu = appSpecifications.cpubasic || appSpecifications.cpu;
-          appSpecifications.ram = appSpecifications.rambasic || appSpecifications.ram;
-        } else if (tier === 'super') {
-          appSpecifications.cpu = appSpecifications.cpusuper || appSpecifications.cpu;
-          appSpecifications.ram = appSpecifications.ramsuper || appSpecifications.ram;
-        } else if (tier === 'bamf') {
-          appSpecifications.cpu = appSpecifications.cpubamf || appSpecifications.cpu;
-          appSpecifications.ram = appSpecifications.rambamf || appSpecifications.ram;
-        } else {
-          throw new Error('Unrecognised Flux Node tier');
-        }
-      }
-
-      res.setHeader('Content-Type', 'application/json');
-      registerAppLocally(appSpecifications, res); // can throw
-    } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
-      res.json(errMessage);
-    }
-  } catch (error) {
-    log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    res.json(errorResponse);
-  }
-}
-
 // where req can be equal to appname
 // shall be identical to listAllApps. But this is database response
 async function installedApps(req, res) {
@@ -3794,6 +3763,69 @@ async function installedApps(req, res) {
       error.code,
     );
     return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
+async function installTemporaryLocalApplication(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname;
+
+    if (!appname) {
+      throw new Error('No Flux App specified');
+    }
+    const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+    if (authorized) {
+      const allApps = await availableApps();
+      const appSpecifications = allApps.find((app) => app.name === appname);
+      if (!appSpecifications) {
+        throw new Error('Application Specifications not found');
+      }
+      if (appname === 'KadenaChainWebData') {
+        // this app can only be installed if KadenaChainWebNode is installed
+        // check if they are running?
+        const installedAppsRes = await installedApps();
+        if (installedAppsRes.status !== 'success') {
+          throw new Error('Failed to get installed Apps');
+        }
+        const appsInstalled = installedAppsRes.data;
+        const chainwebNode = appsInstalled.find((app) => app.name === 'KadenaChainWebNode');
+        if (!chainwebNode) {
+          throw new Error('KadenaChainWebNode must be installed first');
+        }
+      }
+
+      // get our tier and adjust true resource registered
+      if (appSpecifications.tiered) {
+        const tier = await nodeTier();
+        if (tier === 'basic') {
+          appSpecifications.cpu = appSpecifications.cpubasic || appSpecifications.cpu;
+          appSpecifications.ram = appSpecifications.rambasic || appSpecifications.ram;
+        } else if (tier === 'super') {
+          appSpecifications.cpu = appSpecifications.cpusuper || appSpecifications.cpu;
+          appSpecifications.ram = appSpecifications.ramsuper || appSpecifications.ram;
+        } else if (tier === 'bamf') {
+          appSpecifications.cpu = appSpecifications.cpubamf || appSpecifications.cpu;
+          appSpecifications.ram = appSpecifications.rambamf || appSpecifications.ram;
+        } else {
+          throw new Error('Unrecognised Flux Node tier');
+        }
+      }
+
+      res.setHeader('Content-Type', 'application/json');
+      registerAppLocally(appSpecifications, res); // can throw
+    } else {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
   }
 }
 
