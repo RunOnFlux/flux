@@ -2740,9 +2740,9 @@ async function availableApps(req, res) {
       containerPorts: [8888],
       domains: [''],
       tiered: false,
-      cpu: 1.2, // true resource registered for app. If not tiered only this is available
+      cpu: 1.5, // true resource registered for app. If not tiered only this is available
       ram: 3000, // true resource registered for app
-      hdd: 50, // true resource registered for app
+      hdd: 60, // true resource registered for app
       enviromentParameters: [],
       commands: [],
       containerData: '/var/lib/postgresql/data', // cannot be root todo in verification
