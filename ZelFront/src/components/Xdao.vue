@@ -658,7 +658,11 @@ export default {
       return response.data;
     },
     async loadVotePower() {
-      const responseApi = await axios.get(`https://stats.runonflux.io/proposals/votepower?zelid=${this.zelid}`);
+      let url = `https://stats.runonflux.io/proposals/votepower?zelid=${this.zelid}`;
+      if (this.proposalDetail.hash) {
+        url = `https://stats.runonflux.io/proposals/votepower?zelid=${this.zelid}&hash=${this.proposalDetail.hash}`;
+      }
+      const responseApi = await axios.get(url);
       console.log(responseApi);
       if (responseApi.data.status === 'success') {
         this.myNumberOfVotes = responseApi.data.data.power;
