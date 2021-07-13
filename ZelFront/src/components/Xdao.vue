@@ -416,7 +416,7 @@ export default {
       haveVoted: false,
       myVote: null,
       myNumberOfVotes: 0,
-      proposalPrice: 100,
+      proposalPrice: 500,
       dataToSign: '',
       signature: '',
       zelid: '',
@@ -484,6 +484,7 @@ export default {
           this.proprosalsTable = [];
           this.cleanProposalDetail();
           this.getXdaoProposals();
+          this.getXdaoPrice();
           break;
         case 'submitproposal':
           this.cleanProposalSubmit();
@@ -519,6 +520,15 @@ export default {
       console.log(response);
       if (response.data.status === 'success') {
         this.proprosalsTable = response.data.data;
+      } else {
+        vue.$customMes.error(response.data.data.message || response.data.data);
+      }
+    },
+    async getXdaoPrice() {
+      const response = await axios.get('https://stats.runonflux.io/proposals/price');
+      console.log(response);
+      if (response.data.status === 'success') {
+        this.proposalPrice = response.data.data;
       } else {
         vue.$customMes.error(response.data.data.message || response.data.data);
       }
