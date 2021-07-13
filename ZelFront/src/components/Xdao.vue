@@ -484,10 +484,10 @@ export default {
           this.proprosalsTable = [];
           this.cleanProposalDetail();
           this.getXdaoProposals();
-          this.getXdaoPrice();
           break;
         case 'submitproposal':
           this.cleanProposalSubmit();
+          this.getXdaoPrice();
           break;
         case 'proposaldetail':
           break;
