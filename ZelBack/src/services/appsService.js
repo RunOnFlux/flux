@@ -2730,6 +2730,25 @@ async function availableApps(req, res) {
       hash: 'localSpecificationsVersion9', // hash of app message
       height: 680000, // height of tx on which it was
     },
+    {
+      version: 2,
+      name: 'KadenaChainWebData', // corresponds to docker name and this name is stored in apps mongo database
+      description: 'Kadena Chainweb Data is extension to Chainweb Node offering additional data about Kadena blockchain. Chainweb Data offers statistics, coins circulation and mainly transaction history and custom searching through transactions',
+      repotag: 'runonflux/kadena-chainweb-data:v1.0.0',
+      owner: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
+      ports: [30006],
+      containerPorts: [8888],
+      domains: [''],
+      tiered: false,
+      cpu: 1.5, // true resource registered for app. If not tiered only this is available
+      ram: 3000, // true resource registered for app
+      hdd: 60, // true resource registered for app
+      enviromentParameters: [],
+      commands: [],
+      containerData: '/var/lib/postgresql/data', // cannot be root todo in verification
+      hash: 'chainwebDataLocalSpecificationsVersion1', // hash of app message
+      height: 900000, // height of tx on which it was
+    },
     { // app specifications
       version: 2,
       name: 'FoldingAtHomeArm64',
@@ -2814,7 +2833,7 @@ async function verifyRepository(repotag) {
   const splittedRepo = repotag.split(':');
   if (splittedRepo[0] && splittedRepo[1] && !splittedRepo[2]) {
     const resDocker = await serviceHelper.axiosGet(`https://hub.docker.com/v2/repositories/${splittedRepo[0]}/tags/${splittedRepo[1]}`).catch(() => {
-      throw new Error('Repository is not in valid format namespace/repository:tag');
+      throw new Error(`Repository ${repotag} is not found on docker hub in expected format`);
     });
     if (!resDocker) {
       throw new Error('Unable to communicate with Docker Hub! Try again later.');
@@ -2832,7 +2851,7 @@ async function verifyRepository(repotag) {
       throw new Error('Docker image size is over Flux limit');
     }
   } else {
-    throw new Error('Repository is not in valid format namespace/repository:tag');
+    throw new Error(`Repository ${repotag} is not in valid format namespace/repository:tag`);
   }
   return true;
 }
@@ -2855,7 +2874,7 @@ async function checkWhitelistedRepository(repotag) {
       throw new Error('Repository is not whitelisted. Please contact Flux Team.');
     }
   } else {
-    throw new Error('Repository is not in valid format namespace/repository:tag');
+    throw new Error(`Repository ${repotag} is not in valid format namespace/repository:tag`);
   }
   return true;
 }
@@ -3030,6 +3049,65 @@ async function checkApplicationNameConflicts(appSpecFormatted) {
   }
   return true;
 }
+
+async function checkAppMessageExistence(hash) {
+  try {
+    const dbopen = serviceHelper.databaseConnection();
+    const appsDatabase = dbopen.db(config.database.appsglobal.database);
+    const appsQuery = { hash };
+    const appsProjection = {};
+    // a permanent global zelappmessage looks like this:
+    // const permanentAppMessage = {
+    //   type: messageType,
+    //   version: typeVersion,
+    //   zelAppSpecifications: appSpecFormatted,
+    //   appSpecifications: appSpecFormatted,
+    //   hash: messageHASH,
+    //   timestamp,
+    //   signature,
+    //   txid,
+    //   height,
+    //   valueSat,
+    // };
+    const appResult = await serviceHelper.findOneInDatabase(appsDatabase, globalAppsMessages, appsQuery, appsProjection);
+    if (appResult) {
+      return appResult;
+    }
+    return false;
+  } catch (error) {
+    log.error(error);
+    return error;
+  }
+}
+
+async function checkAppTemporaryMessageExistence(hash) {
+  try {
+    const dbopen = serviceHelper.databaseConnection();
+    const appsDatabase = dbopen.db(config.database.appsglobal.database);
+    const appsQuery = { hash };
+    const appsProjection = {};
+    // a temporary zelappmessage looks like this:
+    // const newMessage = {
+    //   appSpecifications: message.appSpecifications,
+    //   type: message.type,
+    //   version: message.version,
+    //   hash: message.hash,
+    //   timestamp: message.timestamp,
+    //   signature: message.signature,
+    //   createdAt: new Date(message.timestamp),
+    //   expireAt: new Date(validTill),
+    // };
+    const appResult = await serviceHelper.findOneInDatabase(appsDatabase, globalAppsTempMessages, appsQuery, appsProjection);
+    if (appResult) {
+      return appResult;
+    }
+    return false;
+  } catch (error) {
+    log.error(error);
+    return error;
+  }
+}
+
 async function storeAppTemporaryMessage(message, furtherVerification = false) {
   /* message object
   * @param type string
@@ -3053,6 +3131,27 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
   console.log(serviceHelper.ensureString(message));
   myCache.set(serviceHelper.ensureString(message), message);
   const specifications = message.appSpecifications || message.zelAppSpecifications;
+
+  // check permanent app message storage
+  const appMessage = await checkAppMessageExistence(message.hash);
+  if (appMessage) {
+    // do not rebroadcast further
+    return false;
+  }
+  // check temporary message storage
+  const tempMessage = await checkAppTemporaryMessageExistence(message.hash);
+  if (tempMessage) {
+    // do not rebroadcast further
+    return false;
+  }
+
+  const db = serviceHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  const projection = {
+    projection: {
+      _id: 0,
+    },
+  };
   // data shall already be verified by the broadcasting node. But verify all again.
   if (furtherVerification) {
     if (message.type === 'zelappregister' || message.type === 'fluxappregister') {
@@ -3068,15 +3167,8 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
       await verifyAppHash(message);
       await ensureCorrectApplicationPort(specifications);
       // verify that app exists, does not change repotag and is signed by app owner.
-      const db = serviceHelper.databaseConnection();
-      const database = db.db(config.database.appsglobal.database);
       // may throw
       const query = { name: specifications.name };
-      const projection = {
-        projection: {
-          _id: 0,
-        },
-      };
       const appInfo = await serviceHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
       if (!appInfo) {
         throw new Error('Flux App update message received but application does not exists!');
@@ -3095,8 +3187,6 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
   const receivedAt = Date.now();
   const validTill = receivedAt + (60 * 60 * 1000); // 60 minutes
 
-  const db = serviceHelper.databaseConnection();
-  const database = db.db(config.database.appsglobal.database);
   const newMessage = {
     appSpecifications: specifications,
     type: message.type, // shall be fluxappregister, fluxappupdate
@@ -3108,13 +3198,7 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
     expireAt: new Date(validTill),
   };
   const value = newMessage;
-  const query = { hash: newMessage.hash };
-  const projection = {};
-  const result = await serviceHelper.findOneInDatabase(database, globalAppsTempMessages, query, projection);
-  if (result) {
-    // it is already stored
-    return false;
-  }
+  // message does not exist anywhere and is ok, store it
   await serviceHelper.insertOneToDatabase(database, globalAppsTempMessages, value);
   // it is stored and rebroadcasted
   return true;
@@ -3641,56 +3725,6 @@ async function updateAppGlobalyApi(req, res) {
   });
 }
 
-async function installTemporaryLocalApplication(req, res) {
-  try {
-    let { appname } = req.params;
-    appname = appname || req.query.appname;
-
-    if (!appname) {
-      throw new Error('No Flux App specified');
-    }
-    const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
-    if (authorized) {
-      const allApps = await availableApps();
-      const appSpecifications = allApps.find((app) => app.name === appname);
-      if (!appSpecifications) {
-        throw new Error('Application Specifications not found');
-      }
-
-      // get our tier and adjust true resource registered
-      if (appSpecifications.tiered) {
-        const tier = await nodeTier();
-        if (tier === 'basic') {
-          appSpecifications.cpu = appSpecifications.cpubasic || appSpecifications.cpu;
-          appSpecifications.ram = appSpecifications.rambasic || appSpecifications.ram;
-        } else if (tier === 'super') {
-          appSpecifications.cpu = appSpecifications.cpusuper || appSpecifications.cpu;
-          appSpecifications.ram = appSpecifications.ramsuper || appSpecifications.ram;
-        } else if (tier === 'bamf') {
-          appSpecifications.cpu = appSpecifications.cpubamf || appSpecifications.cpu;
-          appSpecifications.ram = appSpecifications.rambamf || appSpecifications.ram;
-        } else {
-          throw new Error('Unrecognised Flux Node tier');
-        }
-      }
-
-      res.setHeader('Content-Type', 'application/json');
-      registerAppLocally(appSpecifications, res); // can throw
-    } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
-      res.json(errMessage);
-    }
-  } catch (error) {
-    log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    res.json(errorResponse);
-  }
-}
-
 // where req can be equal to appname
 // shall be identical to listAllApps. But this is database response
 async function installedApps(req, res) {
@@ -3729,6 +3763,69 @@ async function installedApps(req, res) {
       error.code,
     );
     return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
+async function installTemporaryLocalApplication(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname;
+
+    if (!appname) {
+      throw new Error('No Flux App specified');
+    }
+    const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+    if (authorized) {
+      const allApps = await availableApps();
+      const appSpecifications = allApps.find((app) => app.name === appname);
+      if (!appSpecifications) {
+        throw new Error('Application Specifications not found');
+      }
+      if (appname === 'KadenaChainWebData') {
+        // this app can only be installed if KadenaChainWebNode is installed
+        // check if they are running?
+        const installedAppsRes = await installedApps();
+        if (installedAppsRes.status !== 'success') {
+          throw new Error('Failed to get installed Apps');
+        }
+        const appsInstalled = installedAppsRes.data;
+        const chainwebNode = appsInstalled.find((app) => app.name === 'KadenaChainWebNode');
+        if (!chainwebNode) {
+          throw new Error('KadenaChainWebNode must be installed first');
+        }
+      }
+
+      // get our tier and adjust true resource registered
+      if (appSpecifications.tiered) {
+        const tier = await nodeTier();
+        if (tier === 'basic') {
+          appSpecifications.cpu = appSpecifications.cpubasic || appSpecifications.cpu;
+          appSpecifications.ram = appSpecifications.rambasic || appSpecifications.ram;
+        } else if (tier === 'super') {
+          appSpecifications.cpu = appSpecifications.cpusuper || appSpecifications.cpu;
+          appSpecifications.ram = appSpecifications.ramsuper || appSpecifications.ram;
+        } else if (tier === 'bamf') {
+          appSpecifications.cpu = appSpecifications.cpubamf || appSpecifications.cpu;
+          appSpecifications.ram = appSpecifications.rambamf || appSpecifications.ram;
+        } else {
+          throw new Error('Unrecognised Flux Node tier');
+        }
+      }
+
+      res.setHeader('Content-Type', 'application/json');
+      registerAppLocally(appSpecifications, res); // can throw
+    } else {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
   }
 }
 
@@ -3882,64 +3979,6 @@ async function updateAppSpecsForRescanReindex(appSpecs) {
     await serviceHelper.updateOneInDatabase(database, globalAppsInformation, query, update, options);
   }
   return true;
-}
-
-async function checkAppMessageExistence(hash) {
-  try {
-    const dbopen = serviceHelper.databaseConnection();
-    const appsDatabase = dbopen.db(config.database.appsglobal.database);
-    const appsQuery = { hash };
-    const appsProjection = {};
-    // a permanent global zelappmessage looks like this:
-    // const permanentAppMessage = {
-    //   type: messageType,
-    //   version: typeVersion,
-    //   zelAppSpecifications: appSpecFormatted,
-    //   appSpecifications: appSpecFormatted,
-    //   hash: messageHASH,
-    //   timestamp,
-    //   signature,
-    //   txid,
-    //   height,
-    //   valueSat,
-    // };
-    const appResult = await serviceHelper.findOneInDatabase(appsDatabase, globalAppsMessages, appsQuery, appsProjection);
-    if (appResult) {
-      return appResult;
-    }
-    return false;
-  } catch (error) {
-    log.error(error);
-    return error;
-  }
-}
-
-async function checkAppTemporaryMessageExistence(hash) {
-  try {
-    const dbopen = serviceHelper.databaseConnection();
-    const appsDatabase = dbopen.db(config.database.appsglobal.database);
-    const appsQuery = { hash };
-    const appsProjection = {};
-    // a temporary zelappmessage looks like this:
-    // const newMessage = {
-    //   appSpecifications: message.appSpecifications,
-    //   type: message.type,
-    //   version: message.version,
-    //   hash: message.hash,
-    //   timestamp: message.timestamp,
-    //   signature: message.signature,
-    //   createdAt: new Date(message.timestamp),
-    //   expireAt: new Date(validTill),
-    // };
-    const appResult = await serviceHelper.findOneInDatabase(appsDatabase, globalAppsTempMessages, appsQuery, appsProjection);
-    if (appResult) {
-      return appResult;
-    }
-    return false;
-  } catch (error) {
-    log.error(error);
-    return error;
-  }
 }
 
 async function appHashHasMessage(hash) {
@@ -4664,6 +4703,7 @@ async function trySpawningGlobalApplication() {
     if (benchmarkResponse.status === 'success') {
       const benchmarkResponseData = JSON.parse(benchmarkResponse.data);
       if (benchmarkResponseData.ipaddress) {
+        log.info(`Gathered IP ${benchmarkResponseData.ipaddress}`);
         myIP = benchmarkResponseData.ipaddress.length > 5 ? benchmarkResponseData.ipaddress : null;
       }
     }
@@ -4737,6 +4777,7 @@ async function checkAndNotifyPeersOfRunningApps() {
     if (benchmarkResponse.status === 'success') {
       const benchmarkResponseData = JSON.parse(benchmarkResponse.data);
       if (benchmarkResponseData.ipaddress) {
+        log.info(`Gathered IP ${benchmarkResponseData.ipaddress}`);
         myIP = benchmarkResponseData.ipaddress.length > 5 ? benchmarkResponseData.ipaddress : null;
       }
     }

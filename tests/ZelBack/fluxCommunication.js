@@ -81,8 +81,8 @@ describe('getFluxMessageSignature', () => {
     });
     websocket.on('message', (msg) => {
       console.log(msg);
-      const msgFlux = msg.split(' ')[0];
-      expect(msgFlux).to.equal('Flux');
+      const msgFlux = msg[0];
+      expect(msgFlux).to.equal('{'); // ws is open, we can receive any message
       websocket.close(1000);
     });
   });

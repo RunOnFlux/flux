@@ -27,7 +27,8 @@
       <ElLink
         type="primary"
         href="https://github.com/runonflux/flux"
-        target="_blank" rel="noopener noreferrer"
+        target="_blank"
+        rel="noopener noreferrer"
       >Flux, Your Gateway to a Decentralized World</ElLink>
     </div>
     <div class="footer-right">

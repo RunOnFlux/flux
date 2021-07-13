@@ -139,11 +139,17 @@
           name="economics"
         >
           <div v-show="priceInformationLoading">
-              loading...
+            loading...
           </div>
-          <div v-show="!priceInformationLoading" id="priceChart" />
+          <div
+            v-show="!priceInformationLoading"
+            id="priceChart"
+          />
           <br><br>
-          <div v-show="!priceInformationLoading" class="gridThree">
+          <div
+            v-show="!priceInformationLoading"
+            class="gridThree"
+          >
             <div>
               <h2>Cumulus Rewards</h2>
               <h3>10k Flux Collateral</h3>
