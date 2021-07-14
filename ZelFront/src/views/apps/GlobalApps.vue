@@ -225,6 +225,7 @@ import {
   BCard,
   BRow,
   BButton,
+  BOverlay,
 } from 'bootstrap-vue'
 
 import Ripple from 'vue-ripple-directive'
@@ -245,6 +246,7 @@ export default {
     BCard,
     BRow,
     BButton,
+    BOverlay,
     ListEntry,
     ConfirmDialog,
     Management,
