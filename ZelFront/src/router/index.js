@@ -6,6 +6,7 @@ import benchmark from './routes/benchmark/benchmark'
 import flux from './routes/flux/flux'
 import apps from './routes/apps/apps'
 import fluxadmin from './routes/fluxadmin/fluxadmin'
+import xdao from './routes/xdao/xdao'
 
 Vue.use(VueRouter)
 
@@ -50,6 +51,7 @@ const router = new VueRouter({
     ...flux,
     ...apps,
     ...fluxadmin,
+    ...xdao,
     {
       path: '/error-404',
       name: 'error-404',

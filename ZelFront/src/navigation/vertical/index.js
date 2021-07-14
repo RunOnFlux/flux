@@ -4,6 +4,7 @@ import benchmark from './benchmark'
 import flux from './flux'
 import apps from './apps'
 import fluxadmin from './fluxadmin'
+import xdao from './xdao'
 
 export default [
   {
@@ -22,4 +23,5 @@ export default [
   ...flux,
   ...apps,
   ...fluxadmin,
+  ...xdao,
 ]
