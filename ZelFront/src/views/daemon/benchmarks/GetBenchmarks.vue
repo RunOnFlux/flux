@@ -31,7 +31,7 @@
     <list-entry
       v-if="callResponse.data.ssd"
       title="SSD"
-      :data="`${callResponse.data.status} GB`"
+      :data="`${callResponse.data.ssd} GB`"
     />
     <list-entry
       v-if="callResponse.data.hdd"
