@@ -87,52 +87,11 @@
               >
                 Log Out
               </b-button>
-              <b-popover
-                ref="popover"
+              <confirm-dialog
                 :target="`${row.item.loginPhrase}`"
-                triggers="click"
-                :show.sync="logoutPopoverShow[row.item.loginPhrase]"
-                placement="auto"
-                container="my-container"
-              >
-                <template v-slot:title>
-                  <div class="d-flex justify-content-between align-items-center">
-                    <span>Are You Sure?</span>
-                    <b-button
-                      v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                      class="close"
-                      variant="transparent"
-                      aria-label="Close"
-                      @click="onLogoutClose(row.item)"
-                    >
-                      <span
-                        class="d-inline-block text-white"
-                        aria-hidden="true"
-                      >&times;</span>
-                    </b-button>
-                  </div>
-                </template>
-
-                <div>
-                  <b-button
-                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                    size="sm"
-                    variant="danger"
-                    class="mr-1"
-                    @click="onLogoutClose(row.item)"
-                  >
-                    Cancel
-                  </b-button>
-                  <b-button
-                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                    size="sm"
-                    variant="primary"
-                    @click="onLogoutOK(row.item)"
-                  >
-                    Log Out!
-                  </b-button>
-                </div>
-              </b-popover>
+                confirm-button="Log Out!"
+                @confirm="onLogoutOK(row.item)"
+              />
             </template>
           </b-table>
         </b-col>
@@ -158,52 +117,11 @@
         >
           Log Out all Users
         </b-button>
-        <b-popover
-          ref="popover"
+        <confirm-dialog
           target="logout-all"
-          triggers="click"
-          :show.sync="logoutAllPopoverShow"
-          placement="auto"
-          container="my-container"
-        >
-          <template v-slot:title>
-            <div class="d-flex justify-content-between align-items-center">
-              <span>Are You Sure?</span>
-              <b-button
-                v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                class="close"
-                variant="transparent"
-                aria-label="Close"
-                @click="onLogoutAllClose()"
-              >
-                <span
-                  class="d-inline-block text-white"
-                  aria-hidden="true"
-                >&times;</span>
-              </b-button>
-            </div>
-          </template>
-
-          <div>
-            <b-button
-              v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-              size="sm"
-              variant="danger"
-              class="mr-1"
-              @click="onLogoutAllClose()"
-            >
-              Cancel
-            </b-button>
-            <b-button
-              v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-              size="sm"
-              variant="primary"
-              @click="onLogoutAllOK()"
-            >
-              Log Out All!
-            </b-button>
-          </div>
-        </b-popover>
+          confirm-button="Log Out All!"
+          @confirm="onLogoutAllOK()"
+        />
       </div>
     </b-card>
   </b-overlay>
@@ -223,10 +141,10 @@ import {
   BInputGroupAppend,
   BButton,
   VBTooltip,
-  BPopover,
   BOverlay,
 } from 'bootstrap-vue'
 import IDService from '@/services/IDService'
+import ConfirmDialog from '@/views/components/ConfirmDialog.vue'
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
 import Ripple from 'vue-ripple-directive'
 
@@ -245,10 +163,10 @@ export default {
     BFormInput,
     BInputGroupAppend,
     BButton,
-    BPopover,
     BOverlay,
     // eslint-disable-next-line vue/no-unused-components
     ToastificationContent,
+    ConfirmDialog,
   },
   directives: {
     'b-tooltip': VBTooltip,
@@ -271,8 +189,6 @@ export default {
       ],
       totalRows: 1,
       currentPage: 1,
-      logoutPopoverShow: {},
-      logoutAllPopoverShow: false,
       usersLoading: true,
     }
   },
@@ -332,11 +248,7 @@ export default {
       this.totalRows = filteredItems.length
       this.currentPage = 1
     },
-    onLogoutClose(row) {
-      this.logoutPopoverShow[row.loginPhrase] = false
-    },
     async onLogoutOK(row) {
-      this.logoutPopoverShow[row.loginPhrase] = false
       const zelidauth = localStorage.getItem('zelidauth')
       const auth = qs.parse(zelidauth)
       IDService.logoutSpecificSession(zelidauth, row.loginPhrase)
@@ -381,11 +293,7 @@ export default {
           })
         })
     },
-    onLogoutAllClose() {
-      this.logoutAllPopoverShow = false
-    },
     async onLogoutAllOK() {
-      this.logoutAllPopoverShow = false
       const zelidauth = localStorage.getItem('zelidauth')
       IDService.logoutAllUsers(zelidauth)
         .then(response => {
