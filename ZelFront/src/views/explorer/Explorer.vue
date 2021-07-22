@@ -183,8 +183,8 @@
       opacity="0.82"
     >
       <b-row
-        class="mt-2 match-height"
         :key="uniqueKeyAddress"
+        class="mt-2 match-height"
       >
         <b-col
           cols="12"
