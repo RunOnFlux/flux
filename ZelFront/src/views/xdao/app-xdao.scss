@@ -347,7 +347,10 @@ $email_details_header_height: 5rem;
           border-top-left-radius: $border-radius;
         }
       }
-      // ? Responsive Todo list in columns
+      .proposal-details {
+        width: 100%;
+      }
+          // ? Responsive Todo list in columns
       .proposal-title-wrapper {
         flex-direction: column;
         .title-wrapper {

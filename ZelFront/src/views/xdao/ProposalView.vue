@@ -72,14 +72,22 @@
             </div>
           </b-card>
         </b-col>
-        <b-col lg="4">
+        <b-col
+          lg="4"
+          md="6"
+          sm="12"
+        >
           <b-card title="Start Date">
             <p class="text-center date">
               {{ new Date(Number(proposalViewData.submitDate)).toLocaleString("en-GB", timeoptions.shortDate) }}
             </p>
           </b-card>
         </b-col>
-        <b-col lg="4">
+        <b-col
+          lg="4"
+          md="6"
+          sm="12"
+        >
           <b-card title="End Date">
             <p class="text-center date">
               {{ new Date(Number(proposalViewData.voteEndDate)).toLocaleString("en-GB", timeoptions.shortDate) }}
@@ -207,7 +215,10 @@
           v-if="!haveVoted"
           class="match-height"
         >
-          <b-col cols="3">
+          <b-col
+            xl="3"
+            md="5"
+          >
             <b-card
               title="Vote Now!"
             >
@@ -233,7 +244,10 @@
               </div>
             </b-card>
           </b-col>
-          <b-col cols="5">
+          <b-col
+            xl="5"
+            md="7"
+          >
             <b-card>
               <b-row class="mt-2">
                 <b-col
@@ -288,7 +302,10 @@
               </b-row>
             </b-card>
           </b-col>
-          <b-col cols="4">
+          <b-col
+            xl="4"
+            md="12"
+          >
             <b-card class="text-center">
               <b-overlay
                 :show="!signature"

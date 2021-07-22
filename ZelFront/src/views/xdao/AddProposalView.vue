@@ -27,7 +27,10 @@
       class="proposal-scroll-area scroll-area mt-2"
     >
       <b-row class="match-height">
-        <b-col cols="6">
+        <b-col
+          xl="6"
+          md="12"
+        >
           <b-card title="Topic">
             <b-form-input
               v-model="proposalTopic"
@@ -36,7 +39,10 @@
             />
           </b-card>
         </b-col>
-        <b-col cols="6">
+        <b-col
+          xl="6"
+          md="12"
+        >
           <b-card title="Grant">
             <b-form-group
               label-cols="4"
@@ -75,7 +81,10 @@
         </b-col>
       </b-row>
       <b-row class="match-height">
-        <b-col cols="6">
+        <b-col
+          xl="6"
+          md="12"
+        >
           <b-card title="Name/Nickname">
             <b-form-input
               v-model="proposalNickName"
@@ -84,7 +93,10 @@
             />
           </b-card>
         </b-col>
-        <b-col cols="6">
+        <b-col
+          xl="6"
+          md="12"
+        >
           <b-card
             title="Validate"
           >
@@ -125,7 +137,10 @@
         <b-col cols="12">
           <b-card title="Complete Transaction">
             <b-row>
-              <b-col cols="6">
+              <b-col
+                xl="6"
+                md="12"
+              >
                 <div class="text-center">
                   To finish registration, please make a transaction of {{ proposalPrice }} Flux to address
                   <b-link
@@ -143,7 +158,10 @@
                   The transaction must be mined by {{ new Date(validTill).toLocaleString('en-GB', timeoptions) }}
                 </div>
               </b-col>
-              <b-col cols="6">
+              <b-col
+                xl="6"
+                md="12"
+              >
                 <div class="text-center">
                   <p>
                     Pay with ZelCore
