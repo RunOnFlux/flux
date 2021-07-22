@@ -8,6 +8,14 @@
     }
   }
 
+  &.sidebar-xl {
+    width: 40rem;
+
+    @include media-breakpoint-down(xs) {
+      width: 20rem;
+    }
+  }
+
   // Fix sidebar close outline
   .b-sidebar-header .close {
     outline: none;

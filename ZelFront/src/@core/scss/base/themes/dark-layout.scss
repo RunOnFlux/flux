@@ -640,7 +640,7 @@
     .modal-header[class*='bg-'] {
       // why removed !important? Not working if added bg-COLOR class with modal-header
       // background-color: $theme-dark-card-bg !important;
-      background-color: $theme-dark-body-bg;
+      background-color: $theme-dark-modal-header-bg;
     }
 
     // close button
@@ -654,7 +654,7 @@
     .modal-content,
     .modal-body,
     .modal-footer {
-      background-color: $theme-dark-card-bg;
+      background-color: $theme-dark-modal-bg;
       border-color: $theme-dark-border-color;
     }
   }
