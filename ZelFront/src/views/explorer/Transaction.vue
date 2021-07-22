@@ -301,6 +301,7 @@ export default {
       return valueOut / 1e8
     },
     decodeMessage(asm) {
+      if (!asm) return ''
       const parts = asm.split('OP_RETURN ', 2)
       let message = ''
       if (parts[1]) {
