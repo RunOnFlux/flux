@@ -3,13 +3,8 @@ export default [
     header: 'XDAO',
   },
   {
-    title: 'List Proposals',
+    title: 'XDAO ',
     icon: 'clipboard-list',
-    route: 'xdao-listproposals',
-  },
-  {
-    title: 'Submit Proposal',
-    icon: 'comments-dollar',
-    route: 'xdao-submitproposal',
+    route: 'xdao-app',
   },
 ]
