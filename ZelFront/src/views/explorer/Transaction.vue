@@ -85,8 +85,8 @@
                   No Inputs (Newly generated coins)
                 </div>
                 <b-card
-                  :key="transaction.senders[i - 1].value || transaction.senders[i - 1]"
                   v-else-if="typeof transaction.senders[i - 1] === 'object'"
+                  :key="transaction.senders[i - 1].value || transaction.senders[i - 1]"
                   border-variant="success"
                   class="tx"
                   no-body
