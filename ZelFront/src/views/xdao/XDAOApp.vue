@@ -131,7 +131,7 @@
               </div>
               <div class="proposal-progress-area">
                 <h6 class="text-nowrap text-muted mr-1">
-                  Required Votes: {{ proposal.votesRequired }}
+                  Required Votes: {{ Number(proposal.votesRequired).toLocaleString() }}
                 </h6>
                 <b-progress
                   :max="proposal.votesRequired"
@@ -140,27 +140,37 @@
                   class="proposal-progress"
                 >
                   <b-progress-bar
+                    :id="`progressbar-no-${proposal.hash}`"
                     variant="danger"
                     :value="proposal.votesNo"
                     show-progress
                   >
                     No: {{ Number(proposal.votesNo).toLocaleString() }}
                   </b-progress-bar>
+                  <b-tooltip
+                    ref="tooltip"
+                    :target="`progressbar-no-${proposal.hash}`"
+                    :disabled="proposal.votesNo / proposal.votesRequired > 0.25"
+                  >
+                    <span>No: {{ Number(proposal.votesNo).toLocaleString() }}</span>
+                  </b-tooltip>
                   <b-progress-bar
+                    :id="`progressbar-yes-${proposal.hash}`"
                     variant="success"
                     :value="proposal.votesYes"
                     show-progress
                   >
                     Yes: {{ Number(proposal.votesYes).toLocaleString() }}
                   </b-progress-bar>
+                  <b-tooltip
+                    ref="tooltip"
+                    :target="`progressbar-yes-${proposal.hash}`"
+                    :disabled="proposal.votesYes / proposal.votesRequired > 0.25"
+                  >
+                    <span>Yes: {{ Number(proposal.votesYes).toLocaleString() }}</span>
+                  </b-tooltip>
                 </b-progress>
               </div>
-              <!-- <div class="proposal-title-area">
-                <div class="title-wrapper">
-                  <span class="proposal-description">{{ proposal.description }}</span>
-                </div>
-              </div> -->
-
             </b-media-body>
           </b-media>
         </ul>
@@ -215,6 +225,7 @@ import {
   BProgressBar,
   BMedia,
   BMediaBody,
+  BTooltip,
 } from 'bootstrap-vue'
 
 import {
@@ -250,6 +261,7 @@ export default {
     BAvatar,
     BProgress,
     BProgressBar,
+    BTooltip,
 
     AddProposalView,
     ProposalView,

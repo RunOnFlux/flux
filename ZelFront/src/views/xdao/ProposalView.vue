@@ -307,33 +307,47 @@
             md="12"
           >
             <b-card class="text-center">
-              <b-overlay
-                :show="!signature"
-                variant="transparent"
-                blur="3px"
-              >
-                <p>Remember, you can't change your vote! After voting it could take around 5 minutes to see the number of votes updated with your vote.</p>
+              <p>Remember, you can't change your vote! After voting it could take around 5 minutes to see the number of votes updated with your vote.</p>
+              <div id="vote-yes-button">
                 <b-button
                   v-ripple.400="'rgba(255, 255, 255, 0.15)'"
                   variant="success"
                   size="lg"
                   pill
                   class="vote-button d-block mt-2"
+                  :disabled="!signature"
                   @click="vote(true)"
                 >
                   YES
                 </b-button>
+              </div>
+              <b-tooltip
+                ref="tooltip"
+                :disabled="signature"
+                target="vote-yes-button"
+              >
+                <span>Please enter a Signature</span>
+              </b-tooltip>
+              <div id="vote-no-button">
                 <b-button
                   v-ripple.400="'rgba(255, 255, 255, 0.15)'"
                   variant="danger"
                   size="lg"
                   pill
                   class="vote-button d-block mt-2"
+                  :disabled="!signature"
                   @click="vote(false)"
                 >
                   NO
                 </b-button>
-              </b-overlay>
+              </div>
+              <b-tooltip
+                ref="tooltip"
+                :disabled="signature"
+                target="vote-no-button"
+              >
+                <span>Please enter a Signature</span>
+              </b-tooltip>
             </b-card>
           </b-col>
         </b-row>
@@ -371,8 +385,8 @@ import {
   BFormInput,
   BFormTextarea,
   BLink,
-  BOverlay,
   BRow,
+  BTooltip,
 } from 'bootstrap-vue'
 import VuePerfectScrollbar from 'vue-perfect-scrollbar'
 import VueApexCharts from 'vue-apexcharts'
@@ -405,8 +419,8 @@ export default {
     BFormInput,
     BFormTextarea,
     BLink,
-    BOverlay,
     BRow,
+    BTooltip,
 
     // eslint-disable-next-line vue/no-unused-components
     ToastificationContent,
@@ -465,6 +479,8 @@ export default {
     const myVote = ref('No')
     const haveVoted = ref(false)
     const signature = ref(null)
+
+    const hasSignature = computed(() => signature.value !== null)
 
     const loadVotePower = async () => {
       let url = `https://stats.runonflux.io/proposals/votepower?zelid=${props.zelid}`
@@ -798,6 +814,7 @@ export default {
       myNumberOfVotes,
       dataToSign,
       signature,
+      hasSignature,
 
       onError,
       onOpen,
