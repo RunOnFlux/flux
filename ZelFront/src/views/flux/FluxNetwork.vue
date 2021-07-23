@@ -298,10 +298,7 @@ export default {
     async fluxConnectedPeersInfo() {
       const response = await FluxService.connectedPeersInfo()
       if (response.data.status === 'success') {
-        const self = this
-        response.data.data.forEach(item => {
-          self.config.outgoing.connectedPeers.push(item)
-        })
+        this.config.outgoing.connectedPeers = response.data.data
         this.config.outgoing.totalRows = this.config.outgoing.connectedPeers.length
         this.config.outgoing.currentPage = 1
       } else {
@@ -319,10 +316,7 @@ export default {
     async fluxIncomingConnectionsInfo() {
       const response = await FluxService.incomingConnectionsInfo()
       if (response.data.status === 'success') {
-        const self = this
-        response.data.data.forEach(item => {
-          self.config.incoming.incomingConnections.push(item)
-        })
+        this.config.incoming.incomingConnections = response.data.data
         this.config.incoming.totalRows = this.config.incoming.incomingConnections.length
         this.config.incoming.currentPage = 1
       } else {
