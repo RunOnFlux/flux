@@ -76,7 +76,6 @@ export default {
     document.documentElement.setAttribute('dir', isRTL ? 'rtl' : 'ltr')
   },
   created() {
-    this.loadSession()
     this.getZelIdLoginPhrase()
   },
   setup() {
@@ -111,24 +110,6 @@ export default {
     }
   },
   methods: {
-    async loadSession() {
-      const zelidauth = localStorage.getItem('zelidauth')
-      const auth = qs.parse(zelidauth)
-      this.$store.commit('flux/setPrivilege', 'none')
-      if (auth && auth.zelid && auth.signature) {
-        try {
-          const response = await IDService.checkUserLogged(auth.zelid, auth.signature)
-          console.log(response)
-          const privilege = response.data.data.message
-          this.$store.commit('flux/setPrivilege', privilege)
-          if (privilege === 'none') {
-            localStorage.removeItem('zelidauth')
-          }
-        } catch (error) {
-          console.log(error)
-        }
-      }
-    },
     getZelIdLoginPhrase() {
       IDService.loginPhrase()
         .then(response => {

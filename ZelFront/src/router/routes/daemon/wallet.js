@@ -14,6 +14,7 @@ export default [
           active: true,
         },
       ],
+      privilege: ['user', 'admin', 'fluxteam'],
     },
   },
 ]

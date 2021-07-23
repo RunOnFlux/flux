@@ -57,6 +57,7 @@ export default [
           active: true,
         },
       ],
+      privilege: ['admin', 'fluxteam'],
     },
   },
   {
@@ -77,6 +78,7 @@ export default [
           active: true,
         },
       ],
+      privilege: ['admin', 'fluxteam'],
     },
   },
 ]
