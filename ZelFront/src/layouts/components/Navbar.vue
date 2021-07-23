@@ -17,7 +17,7 @@
     </ul>
 
     <!-- Left Col -->
-    <div class="bookmark-wrapper align-items-center flex-grow-1 d-none d-lg-flex">
+    <div class="bookmark-wrapper align-items-center flex-grow-1 d-none d-md-flex">
       <b-dropdown
         v-ripple.400="'rgba(113, 102, 240, 0.15)'"
         :text="backendURL"
@@ -35,7 +35,7 @@
     </div>
 
     <b-navbar-nav class="nav align-items-center ml-auto">
-      <dark-Toggler class="d-none d-lg-block" />
+      <dark-Toggler class="d-block" />
       <b-button
         v-if="privilege !== 'none'"
         variant="outline-primary"

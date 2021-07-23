@@ -149,49 +149,47 @@
         />
       </template>
       <template #cell(actions)="data">
-        <b-button
-          :id="`download-${data.item.name}`"
-          v-b-tooltip.hover.bottom="data.item.isFile ? 'Download' : 'Download zip of folder'"
-          v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-          variant="outline-secondary"
-          class="btn-icon action-icon"
-        >
-          <v-icon :name="data.item.isFile ? 'file-download' : 'file-archive'" />
-        </b-button>
+        <b-button-group size="sm">
+          <b-button
+            :id="`download-${data.item.name}`"
+            v-b-tooltip.hover.bottom="data.item.isFile ? 'Download' : 'Download zip of folder'"
+            v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+            variant="outline-secondary"
+          >
+            <v-icon :name="data.item.isFile ? 'file-download' : 'file-archive'" />
+          </b-button>
+          <b-button
+            :id="`rename-${data.item.name}`"
+            v-b-tooltip.hover.bottom="'Rename'"
+            v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+            variant="outline-secondary"
+            @click="rename(data.item.name)"
+          >
+            <v-icon name="edit" />
+          </b-button>
+          <b-button
+            :id="`share-${data.item.name}`"
+            v-b-tooltip.hover.bottom="data.item.shareToken ? 'Unshare file' : 'Share file'"
+            v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+            :variant="data.item.shareToken ? 'gradient-primary' : 'outline-secondary'"
+            @click="data.item.shareToken ? unshareFile(data.item.name) : shareFile(data.item.name)"
+          >
+            <v-icon name="share-alt" />
+          </b-button>
+          <b-button
+            v-if="data.item.shareToken"
+            :id="`sharelink-${data.item.name}`"
+            v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+            variant="outline-secondary"
+          >
+            <v-icon name="envelope" />
+          </b-button>
+        </b-button-group>
         <confirm-dialog
           :target="`download-${data.item.name}`"
           :confirm-button="data.item.isFile ? 'Download File' : 'Download Folder'"
           @confirm="data.item.isFile ? download(data.item.name) : download(data.item.name, true, data.item.size)"
         />
-        <b-button
-          :id="`rename-${data.item.name}`"
-          v-b-tooltip.hover.bottom="'Rename'"
-          v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-          variant="outline-secondary"
-          class="btn-icon action-icon"
-          @click="rename(data.item.name)"
-        >
-          <v-icon name="edit" />
-        </b-button>
-        <b-button
-          :id="`share-${data.item.name}`"
-          v-b-tooltip.hover.bottom="data.item.shareToken ? 'Unshare file' : 'Share file'"
-          v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-          :variant="data.item.shareToken ? 'gradient-primary' : 'outline-secondary'"
-          class="btn-icon action-icon"
-          @click="data.item.shareToken ? unshareFile(data.item.name) : shareFile(data.item.name)"
-        >
-          <v-icon name="share-alt" />
-        </b-button>
-        <b-button
-          v-if="data.item.shareToken"
-          :id="`sharelink-${data.item.name}`"
-          v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-          variant="outline-secondary"
-          class="btn-icon action-icon"
-        >
-          <v-icon name="envelope" />
-        </b-button>
         <b-popover
           v-if="data.item.shareToken"
           :target="`sharelink-${data.item.name}`"

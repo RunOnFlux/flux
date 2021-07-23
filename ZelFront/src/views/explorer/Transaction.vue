@@ -122,14 +122,26 @@
             >
               <b-card-body
                 v-if="transaction.vout[i - 1].scriptPubKey.addresses"
-                class="d-flex tx-body"
+                class="tx-body"
               >
-                <p class="flex-grow-1">
-                  {{ transaction.vout[i - 1].scriptPubKey.addresses[0] }}
-                </p>
-                <p>
-                  {{ transaction.vout[i - 1].value }} FLUX
-                </p>
+                <b-row>
+                  <b-col
+                    lg="8"
+                    xs="12"
+                  >
+                    <p class="flex-grow-1">
+                      {{ transaction.vout[i - 1].scriptPubKey.addresses[0] }}
+                    </p>
+                  </b-col>
+                  <b-col
+                    lg="4"
+                    xs="12"
+                  >
+                    <p>
+                      {{ transaction.vout[i - 1].value }} FLUX
+                    </p>
+                  </b-col>
+                </b-row>
               </b-card-body>
               <b-card-body v-else>
                 {{ decodeMessage(transaction.vout[i - 1].asm) }}
@@ -332,6 +344,7 @@ export default {
 }
 .tx-body p {
   margin-bottom: 0 !important;
+  overflow: hidden;
 }
 .skinny-list-entry {
   margin-top: 2px !important;

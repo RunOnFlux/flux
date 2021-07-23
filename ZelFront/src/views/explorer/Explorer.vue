@@ -143,6 +143,7 @@
               v-for="tx in selectedBlockTransactions"
               :key="tx.txid"
               :title="`TXID: ${tx.txid}`"
+              class="txid-title"
             >
               <Transaction
                 :transaction="tx"
@@ -682,9 +683,12 @@ export default {
 }
 </script>
 
-<style scoped>
+<style>
 .skinny-list-entry {
   margin-top: 2px !important;
   margin-bottom: 2px !important;
+}
+.txid-title .card-header .collapse-title {
+  overflow: auto !important;
 }
 </style>
