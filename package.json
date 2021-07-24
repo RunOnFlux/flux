@@ -44,8 +44,6 @@
     "ciconfig": "cp sampleUserConfig.js config/userconfig.js && mkdir ~/.zelcash && cp sampleDaemonConfig.conf ~/.zelcash/zelcash.conf"
   },
   "dependencies": {
-    "@amcharts/amcharts4": "^4.10.15",
-    "@amcharts/amcharts4-geodata": "^4.1.19",
     "@casl/ability": "4.1.6",
     "@casl/vue": "1.1.1",
     "@vue/composition-api": "1.0.0-beta.22",
