@@ -1,3 +1,5 @@
+const { join } = require('path');
+
 module.exports = {
   root: true,
   env: {
@@ -12,7 +14,7 @@ module.exports = {
     'no-console': 'off',
 
     semi: ['error', 'never'],
-    "import/no-extraneous-dependencies": ["error", {"devDependencies": true, "optionalDependencies": true, "peerDependencies": false, "packageDir": __dirname}],
+    "import/no-extraneous-dependencies": ["error", {"devDependencies": true, "optionalDependencies": true, "peerDependencies": false, "packageDir": join(__dirname,"/..")}],
     'max-len': 'off',
     'linebreak-style': 'off',
     camelcase: ['error', { properties: 'never', ignoreDestructuring: true, ignoreImports: true }],
