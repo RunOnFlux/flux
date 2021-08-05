@@ -143,6 +143,8 @@ export default {
             // SHOULD NEVER HAPPEN. Do not show any message.
           } else {
             this.showToast('success', response.data.data.message)
+            // Redirect to home page
+            this.$router.push({ name: 'home' })
           }
         })
         .catch(e => {
