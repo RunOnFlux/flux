@@ -347,7 +347,7 @@ export default {
     }
   },
   computed: {
-    ...mapState([
+    ...mapState('flux', [
       'userconfig',
     ]),
     percentage() {
