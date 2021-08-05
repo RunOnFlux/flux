@@ -86,6 +86,9 @@
                     Disconnect
                   </b-button>
                 </template>
+                <template #cell(lastPingTime)="data">
+                  {{ new Date(data.item.lastPingTime).toLocaleString('en-GB', timeoptions) }}
+                </template>
               </b-table>
             </b-col>
 
