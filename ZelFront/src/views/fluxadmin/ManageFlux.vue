@@ -522,6 +522,7 @@ export default {
   },
   mounted() {
     this.getKadenaAccount()
+    this.getLatestFluxVersion()
   },
   methods: {
     async getKadenaAccount() {
@@ -533,6 +534,22 @@ export default {
         this.kadenaAccountInput = account
         this.kadenaChainIDInput = Number(chainID)
       }
+    },
+    getLatestFluxVersion() {
+      const self = this
+      axios.get('https://raw.githubusercontent.com/runonflux/flux/master/package.json')
+        .then(response => {
+          console.log(response)
+          if (response.data.version !== self.fluxVersion) {
+            this.showToast('warning', 'Flux requires an update!')
+          } else {
+            this.showToast('success', 'Flux is up to date')
+          }
+        })
+        .catch(error => {
+          console.log(error)
+          this.showToast('danger', 'Error verifying recent version')
+        })
     },
     async adjustKadena() {
       const account = this.kadenaAccountInput
