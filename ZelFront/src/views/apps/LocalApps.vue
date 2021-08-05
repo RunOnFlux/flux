@@ -405,6 +405,7 @@ import {
   BRow,
   BButton,
   BFormTextarea,
+  BOverlay,
 } from 'bootstrap-vue'
 
 import Ripple from 'vue-ripple-directive'
@@ -430,6 +431,7 @@ export default {
     BRow,
     BButton,
     BFormTextarea,
+    BOverlay,
     ConfirmDialog,
     ListEntry,
     Management,
@@ -543,6 +545,7 @@ export default {
   },
   computed: {
     ...mapState('flux', [
+      'config',
       'userconfig',
       'privilege',
     ]),
