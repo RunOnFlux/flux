@@ -249,9 +249,10 @@ $email_details_header_height: 5rem;
       height: calc(100% - #{$email_details_header_height});
 
       .badge {
-        font-size: 2rem;
+        font-size: 1.6rem;
         padding-left: 2rem;
         padding-right: 2rem;
+        white-space: normal;
       }
       .vote-badge {
         font-size: 4rem;

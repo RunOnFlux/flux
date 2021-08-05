@@ -57,7 +57,10 @@
         />
       </b-card>
       <b-row class="mt-1 match-height">
-        <b-col lg="4">
+        <b-col
+          xxl="4"
+          lg="12"
+        >
           <b-card
             title="Status"
           >
@@ -73,7 +76,7 @@
           </b-card>
         </b-col>
         <b-col
-          lg="4"
+          xxl="4"
           md="6"
           sm="12"
         >
@@ -84,7 +87,7 @@
           </b-card>
         </b-col>
         <b-col
-          lg="4"
+          xxl="4"
           md="6"
           sm="12"
         >
