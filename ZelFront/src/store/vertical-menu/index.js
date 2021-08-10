@@ -3,7 +3,7 @@ import { $themeConfig } from '@themeConfig'
 export default {
   namespaced: true,
   state: {
-    isVerticalMenuCollapsed: localStorage.getItem('menu-isCollapsed') || $themeConfig.layout.menu.isCollapsed,
+    isVerticalMenuCollapsed: localStorage.getItem('menu-isCollapsed') === 'true' || $themeConfig.layout.menu.isCollapsed,
   },
   getters: {},
   mutations: {
