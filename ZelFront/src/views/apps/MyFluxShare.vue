@@ -571,7 +571,7 @@ export default {
         if (response.data.status === 'error') {
           this.showToast('danger', response.data.data.message || response.data.data)
         } else {
-          this.loadFolder(this.currentFolder, true)
+          this.refreshFolder()
           this.showToast('success', `${name} deleted`)
         }
       } catch (error) {
