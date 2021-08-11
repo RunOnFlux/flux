@@ -101,6 +101,7 @@
                 size="sm"
                 class="my-0"
               />
+              <span class="table-total">Total: {{ config.outgoing.totalRows }}</span>
             </b-col>
           </b-row>
         </b-card>
@@ -201,6 +202,7 @@
                 size="sm"
                 class="my-0"
               />
+              <span class="table-total">Total: {{ config.incoming.totalRows }}</span>
             </b-col>
           </b-row>
         </b-card>

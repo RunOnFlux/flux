@@ -146,6 +146,7 @@
             size="sm"
             class="my-0"
           />
+          <span class="table-total">Total: {{ totalRows }}</span>
         </b-col>
       </b-row>
       <div class="text-center">
