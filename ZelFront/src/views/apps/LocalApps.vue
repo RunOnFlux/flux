@@ -1,7 +1,7 @@
 <template>
   <div>
     <div
-      v-if="!managedApplication"
+      :class="managedApplication ? 'd-none' : ''"
     >
       <b-tabs>
         <b-tab
