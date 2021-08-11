@@ -589,13 +589,16 @@ export default {
       this.tableconfig.installed.apps = response.data.data
       this.tableconfig.installed.loading = false
     },
-    async appsGetListRunningApps() {
+    async appsGetListRunningApps(timeout = 0) {
       this.tableconfig.running.loading = true
-      const response = await AppsService.listRunningApps()
-      console.log(response)
-      this.tableconfig.running.status = response.data.status
-      this.tableconfig.running.apps = response.data.data
-      this.tableconfig.running.loading = false
+      const self = this
+      setTimeout(async () => {
+        const response = await AppsService.listRunningApps()
+        console.log(response)
+        self.tableconfig.running.status = response.data.status
+        self.tableconfig.running.apps = response.data.data
+        self.tableconfig.running.loading = false
+      }, timeout)
     },
     async appsGetAvailableApps() {
       this.tableconfig.available.loading = true
@@ -638,8 +641,7 @@ export default {
       } else {
         this.showToast('danger', response.data.data.message || response.data.data)
       }
-      this.appsGetListAllApps()
-      this.appsGetListRunningApps()
+      this.appsGetListRunningApps(15000)
       console.log(response)
     },
     async startApp(app) {
@@ -652,8 +654,7 @@ export default {
       } else {
         this.showToast('danger', response.data.data.message || response.data.data)
       }
-      this.appsGetListRunningApps()
-      this.appsGetListAllApps()
+      this.appsGetListRunningApps(30000)
       console.log(response)
     },
     async restartApp(app) {
@@ -666,8 +667,7 @@ export default {
       } else {
         this.showToast('danger', response.data.data.message || response.data.data)
       }
-      this.appsGetListAllApps()
-      this.appsGetListRunningApps()
+      this.appsGetListRunningApps(30000)
       console.log(response)
     },
     async pauseApp(app) {
@@ -680,7 +680,6 @@ export default {
       } else {
         this.showToast('danger', response.data.data.message || response.data.data)
       }
-      this.appsGetListAllApps()
       console.log(response)
     },
     async unpauseApp(app) {
@@ -693,7 +692,6 @@ export default {
       } else {
         this.showToast('danger', response.data.data.message || response.data.data)
       }
-      this.appsGetListAllApps()
       console.log(response)
     },
     redeployAppSoft(app) {
