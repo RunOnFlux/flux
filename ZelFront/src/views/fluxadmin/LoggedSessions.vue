@@ -83,56 +83,14 @@
                 size="sm"
                 class="mr-0"
                 variant="danger"
-                @click="logoutPopoverShow[row.item.loginPhrase] = true"
               >
                 Log Out
               </b-button>
-              <b-popover
-                ref="popover"
+              <confirm-dialog
                 :target="`${row.item.loginPhrase}`"
-                triggers="click"
-                :show.sync="logoutPopoverShow[row.item.loginPhrase]"
-                placement="auto"
-                container="my-container"
-              >
-                <template v-slot:title>
-                  <div class="d-flex justify-content-between align-items-center">
-                    <span>Are You Sure?</span>
-                    <b-button
-                      v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                      class="close"
-                      variant="transparent"
-                      aria-label="Close"
-                      @click="onLogoutClose(row.item)"
-                    >
-                      <span
-                        class="d-inline-block text-white"
-                        aria-hidden="true"
-                      >&times;</span>
-                    </b-button>
-                  </div>
-                </template>
-
-                <div>
-                  <b-button
-                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                    size="sm"
-                    variant="danger"
-                    class="mr-1"
-                    @click="onLogoutClose(row.item)"
-                  >
-                    Cancel
-                  </b-button>
-                  <b-button
-                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                    size="sm"
-                    variant="primary"
-                    @click="onLogoutOK(row.item)"
-                  >
-                    Log Out!
-                  </b-button>
-                </div>
-              </b-popover>
+                confirm-button="Log Out!"
+                @confirm="onLogoutOK(row.item)"
+              />
             </template>
           </b-table>
         </b-col>
@@ -159,52 +117,11 @@
         >
           Logout all sessions
         </b-button>
-        <b-popover
-          ref="popover"
+        <confirm-dialog
           target="logout-all"
-          triggers="click"
-          :show.sync="logoutAllPopoverShow"
-          placement="auto"
-          container="my-container"
-        >
-          <template v-slot:title>
-            <div class="d-flex justify-content-between align-items-center">
-              <span>Are You Sure?</span>
-              <b-button
-                v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                class="close"
-                variant="transparent"
-                aria-label="Close"
-                @click="onLogoutAllClose()"
-              >
-                <span
-                  class="d-inline-block text-white"
-                  aria-hidden="true"
-                >&times;</span>
-              </b-button>
-            </div>
-          </template>
-
-          <div>
-            <b-button
-              v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-              size="sm"
-              variant="danger"
-              class="mr-1"
-              @click="onLogoutAllClose()"
-            >
-              Cancel
-            </b-button>
-            <b-button
-              v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-              size="sm"
-              variant="primary"
-              @click="onLogoutAllOK()"
-            >
-              Log Out All!
-            </b-button>
-          </div>
-        </b-popover>
+          confirm-button="Log Out All!"
+          @confirm="onLogoutAllOK()"
+        />
       </div>
     </b-card>
   </b-overlay>
@@ -224,12 +141,12 @@ import {
   BInputGroupAppend,
   BButton,
   VBTooltip,
-  BPopover,
   BOverlay,
 } from 'bootstrap-vue'
 import IDService from '@/services/IDService'
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
 import Ripple from 'vue-ripple-directive'
+import ConfirmDialog from '@/views/components/ConfirmDialog.vue'
 
 const qs = require('qs')
 
@@ -246,8 +163,8 @@ export default {
     BFormInput,
     BInputGroupAppend,
     BButton,
-    BPopover,
     BOverlay,
+    ConfirmDialog,
     // eslint-disable-next-line vue/no-unused-components
     ToastificationContent,
   },
@@ -272,8 +189,6 @@ export default {
       ],
       totalRows: 1,
       currentPage: 1,
-      logoutPopoverShow: {},
-      logoutAllPopoverShow: false,
       sessionsLoading: true,
     }
   },
@@ -304,14 +219,7 @@ export default {
         .then(async response => {
           console.log(response)
           if (response.data.status === 'error') {
-            this.$toast({
-              component: ToastificationContent,
-              props: {
-                title: response.data.data.message || response.data.data,
-                icon: 'InfoIcon',
-                variant: 'danger',
-              },
-            })
+            this.showToast('danger', response.data.data.message || response.data.data)
           } else {
             this.items = response.data.data
             this.totalRows = this.items.length
@@ -321,14 +229,7 @@ export default {
         })
         .catch(e => {
           console.log(e)
-          this.$toast({
-            component: ToastificationContent,
-            props: {
-              title: e.toString(),
-              icon: 'InfoIcon',
-              variant: 'danger',
-            },
-          })
+          this.showToast('danger', e.toString())
           this.sessionsLoading = false
         })
     },
@@ -337,11 +238,7 @@ export default {
       this.totalRows = filteredItems.length
       this.currentPage = 1
     },
-    onLogoutClose(row) {
-      this.logoutPopoverShow[row.loginPhrase] = false
-    },
     async onLogoutOK(row) {
-      this.logoutPopoverShow[row.loginPhrase] = false
       // const self = this
       const zelidauth = localStorage.getItem('zelidauth')
       const auth = qs.parse(zelidauth)
@@ -349,23 +246,9 @@ export default {
         .then(response => {
           console.log(response)
           if (response.data.status === 'error') {
-            this.$toast({
-              component: ToastificationContent,
-              props: {
-                title: response.data.data.message || response.data.data,
-                icon: 'InfoIcon',
-                variant: 'danger',
-              },
-            })
+            this.showToast('danger', response.data.data.message || response.data.data)
           } else {
-            this.$toast({
-              component: ToastificationContent,
-              props: {
-                title: response.data.data.message || response.data.data,
-                icon: 'InfoIcon',
-                variant: 'success',
-              },
-            })
+            this.showToast('success', response.data.data.message || response.data.data)
             if (row.loginPhrase === auth.loginPhrase) {
               localStorage.removeItem('zelidauth')
               this.$store.commit('flux/setPrivilege', 'none')
@@ -378,60 +261,38 @@ export default {
         })
         .catch(e => {
           console.log(e)
-          this.$toast({
-            component: ToastificationContent,
-            props: {
-              title: e.toString(),
-              icon: 'InfoIcon',
-              variant: 'danger',
-            },
-          })
+          this.showToast('danger', e.toString())
         })
     },
-    onLogoutAllClose() {
-      this.logoutAllPopoverShow = false
-    },
     async onLogoutAllOK() {
-      this.logoutAllPopoverShow = false
       const zelidauth = localStorage.getItem('zelidauth')
       IDService.logoutAllSessions(zelidauth)
         .then(response => {
           console.log(response)
           if (response.data.status === 'error') {
-            this.$toast({
-              component: ToastificationContent,
-              props: {
-                title: response.data.data.message || response.data.data,
-                icon: 'InfoIcon',
-                variant: 'danger',
-              },
-            })
+            this.showToast('danger', response.data.data.message || response.data.data)
           } else {
             localStorage.removeItem('zelidauth')
             this.$store.commit('flux/setPrivilege', 'none')
             // Navigate back to the home screen
             this.$router.replace('/')
-            this.$toast({
-              component: ToastificationContent,
-              props: {
-                title: response.data.data.message || response.data.data,
-                icon: 'InfoIcon',
-                variant: 'success',
-              },
-            })
+            this.showToast('success', response.data.data.message || response.data.data)
           }
         })
         .catch(e => {
           console.log(e)
-          this.$toast({
-            component: ToastificationContent,
-            props: {
-              title: e.toString(),
-              icon: 'InfoIcon',
-              variant: 'danger',
-            },
-          })
+          this.showToast('danger', e.toString())
         })
+    },
+    showToast(variant, title, icon = 'InfoIcon') {
+      this.$toast({
+        component: ToastificationContent,
+        props: {
+          title,
+          icon,
+          variant,
+        },
+      })
     },
   },
 }
