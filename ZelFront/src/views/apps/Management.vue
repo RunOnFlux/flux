@@ -828,53 +828,121 @@
         </div>
       </b-tab>
       <b-tab title="Running Instances">
-        <b-table
-          class="app-instances-table"
-          striped
-          hover
-          responsive
-          :items="instances.data"
-          :fields="instances.fields"
-          show-empty
-          :empty-text="`No instances of ${appName}`"
-        >
-          <template #cell(show_details)="row">
-            <a @click="row.toggleDetails">
-              <v-icon
-                v-if="!row.detailsShowing"
-                name="chevron-down"
+        <b-row>
+          <b-col
+            md="4"
+            sm="4"
+            class="my-1"
+          >
+            <b-form-group class="mb-0">
+              <label class="d-inline-block text-left mr-50">Per page</label>
+              <b-form-select
+                id="perPageSelect"
+                v-model="instances.perPage"
+                size="sm"
+                :options="instances.pageOptions"
+                class="w-50"
               />
-              <v-icon
-                v-if="row.detailsShowing"
-                name="chevron-up"
-              />
-            </a>
-          </template>
-          <template #row-details="row">
-            <b-card class="mx-2">
-              <list-entry
-                v-if="row.item.broadcastedAt"
-                title="Broadcast"
-                :data="new Date(row.item.broadcastedAt).toLocaleString('en-GB', timeoptions.shortDate)"
-              />
-              <list-entry
-                v-if="row.item.expireAt"
-                title="Expires"
-                :data="new Date(row.item.expireAt).toLocaleString('en-GB', timeoptions.shortDate)"
-              />
-            </b-card>
-          </template>
-          <template #cell(visit)="row">
-            <b-button
-              size="sm"
-              class="mr-0"
-              variant="danger"
-              @click="openApp(row.item.name, row.item.ip, callBResponse.data.port || callBResponse.data.ports[0])"
+            </b-form-group>
+          </b-col>
+          <b-col
+            md="8"
+            class="my-1"
+          >
+            <b-form-group
+              label="Filter"
+              label-cols-sm="1"
+              label-align-sm="right"
+              label-for="filterInput"
+              class="mb-0"
             >
-              Visit
-            </b-button>
-          </template>
-        </b-table>
+              <b-input-group size="sm">
+                <b-form-input
+                  id="filterInput"
+                  v-model="instances.filter"
+                  type="search"
+                  placeholder="Type to Search"
+                />
+                <b-input-group-append>
+                  <b-button
+                    :disabled="!instances.filter"
+                    @click="instances.filter = ''"
+                  >
+                    Clear
+                  </b-button>
+                </b-input-group-append>
+              </b-input-group>
+            </b-form-group>
+          </b-col>
+
+          <b-col cols="12">
+            <b-table
+              class="app-instances-table"
+              striped
+              hover
+              responsive
+              :per-page="instances.perPage"
+              :current-page="instances.currentPage"
+              :items="instances.data"
+              :fields="instances.fields"
+              :sort-by.sync="instances.sortBy"
+              :sort-desc.sync="instances.sortDesc"
+              :sort-direction="instances.sortDirection"
+              :filter="instances.filter"
+              :filter-included-fields="instances.filterOn"
+              show-empty
+              :empty-text="`No instances of ${appName}`"
+            >
+              <template #cell(show_details)="row">
+                <a @click="row.toggleDetails">
+                  <v-icon
+                    v-if="!row.detailsShowing"
+                    name="chevron-down"
+                  />
+                  <v-icon
+                    v-if="row.detailsShowing"
+                    name="chevron-up"
+                  />
+                </a>
+              </template>
+              <template #row-details="row">
+                <b-card class="mx-2">
+                  <list-entry
+                    v-if="row.item.broadcastedAt"
+                    title="Broadcast"
+                    :data="new Date(row.item.broadcastedAt).toLocaleString('en-GB', timeoptions.shortDate)"
+                  />
+                  <list-entry
+                    v-if="row.item.expireAt"
+                    title="Expires"
+                    :data="new Date(row.item.expireAt).toLocaleString('en-GB', timeoptions.shortDate)"
+                  />
+                </b-card>
+              </template>
+              <template #cell(visit)="row">
+                <b-button
+                  size="sm"
+                  class="mr-0"
+                  variant="danger"
+                  @click="openApp(row.item.name, row.item.ip, callBResponse.data.port || callBResponse.data.ports[0])"
+                >
+                  Visit
+                </b-button>
+              </template>
+            </b-table>
+          </b-col>
+          <b-col cols="12">
+            <b-pagination
+              v-model="instances.currentPage"
+              :total-rows="instances.totalRows"
+              :per-page="instances.perPage"
+              align="center"
+              size="sm"
+              class="my-0"
+            />
+            <span class="table-total">Total: {{ instances.totalRows }}</span>
+          </b-col>
+        </b-row>
       </b-tab>
       <b-tab title="Update Specifications">
         <div
@@ -1361,6 +1429,10 @@ import {
   BFormGroup,
   BFormInput,
   BFormCheckbox,
+  BFormSelect,
+  BInputGroup,
+  BInputGroupAppend,
+  BPagination,
 } from 'bootstrap-vue'
 
 import Ripple from 'vue-ripple-directive'
@@ -1393,6 +1465,10 @@ export default {
     BFormGroup,
     BFormInput,
     BFormCheckbox,
+    BFormSelect,
+    BInputGroup,
+    BInputGroupAppend,
+    BPagination,
     ConfirmDialog,
     ListEntry,
     // eslint-disable-next-line vue/no-unused-components
@@ -1482,6 +1558,15 @@ export default {
           { key: 'hash', label: 'Hash', sortable: true },
           { key: 'visit', label: 'Visit' },
         ],
+        perPage: 10,
+        pageOptions: [10, 25, 50, 100],
+        sortBy: '',
+        sortDesc: false,
+        sortDirection: 'asc',
+        filter: '',
+        filterOn: [],
+        totalRows: 1,
+        currentPage: 1,
       },
       total: '',
       downloaded: '',
@@ -2224,6 +2309,7 @@ export default {
         this.showToast('danger', response.data.data.message || response.data.data)
       } else {
         this.instances.data = response.data.data
+        this.instances.totalRows = this.instances.data.length
       }
     },
     async getAppOwner() {

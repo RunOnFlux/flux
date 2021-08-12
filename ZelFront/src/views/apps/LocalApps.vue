@@ -211,24 +211,87 @@
                           :data="row.item.hash"
                         />
                         <h4>Locations</h4>
-                        <b-table
-                          class="locations-table"
-                          striped
-                          hover
-                          :items="appLocations"
-                          :fields="appLocationFields"
-                        >
-                          <template #cell(visit)="locationRow">
-                            <b-button
-                              size="sm"
-                              class="mr-0"
-                              variant="danger"
-                              @click="openApp(row.item.name, locationRow.item.ip, row.item.port || row.item.ports[0])"
+                        <b-row>
+                          <b-col
+                            md="4"
+                            sm="4"
+                            class="my-1"
+                          >
+                            <b-form-group class="mb-0">
+                              <label class="d-inline-block text-left mr-50">Per page</label>
+                              <b-form-select
+                                id="perPageSelect"
+                                v-model="appLocationOptions.perPage"
+                                size="sm"
+                                :options="appLocationOptions.pageOptions"
+                                class="w-50"
+                              />
+                            </b-form-group>
+                          </b-col>
+                          <b-col
+                            md="8"
+                            class="my-1"
+                          >
+                            <b-form-group
+                              label="Filter"
+                              label-cols-sm="1"
+                              label-align-sm="right"
+                              label-for="filterInput"
+                              class="mb-0"
                             >
-                              Visit
-                            </b-button>
-                          </template>
-                        </b-table>
+                              <b-input-group size="sm">
+                                <b-form-input
+                                  id="filterInput"
+                                  v-model="appLocationOptions.filter"
+                                  type="search"
+                                  placeholder="Type to Search"
+                                />
+                                <b-input-group-append>
+                                  <b-button
+                                    :disabled="!appLocationOptions.filter"
+                                    @click="appLocationOptions.filter = ''"
+                                  >
+                                    Clear
+                                  </b-button>
+                                </b-input-group-append>
+                              </b-input-group>
+                            </b-form-group>
+                          </b-col>
+
+                          <b-col cols="12">
+                            <b-table
+                              class="locations-table"
+                              striped
+                              hover
+                              :per-page="appLocationOptions.perPage"
+                              :current-page="appLocationOptions.currentPage"
+                              :items="appLocations"
+                              :fields="appLocationFields"
+                            >
+                              <template #cell(visit)="locationRow">
+                                <b-button
+                                  size="sm"
+                                  class="mr-0"
+                                  variant="danger"
+                                  @click="openApp(row.item.name, locationRow.item.ip, row.item.port || row.item.ports[0])"
+                                >
+                                  Visit
+                                </b-button>
+                              </template>
+                            </b-table>
+                          </b-col>
+                          <b-col cols="12">
+                            <b-pagination
+                              v-model="appLocationOptions.currentPage"
+                              :total-rows="appLocationOptions.totalRows"
+                              :per-page="appLocationOptions.perPage"
+                              align="center"
+                              size="sm"
+                              class="my-0"
+                            />
+                            <span class="table-total">Total: {{ appLocationOptions.totalRows }}</span>
+                          </b-col>
+                        </b-row>
                       </b-card>
                     </template>
                     <template #cell(Name)="row">
@@ -277,16 +340,70 @@
           >
             <b-card>
               <b-row>
+                <b-col
+                  md="4"
+                  sm="4"
+                  class="my-1"
+                >
+                  <b-form-group class="mb-0">
+                    <label class="d-inline-block text-left mr-50">Per page</label>
+                    <b-form-select
+                      id="perPageSelect"
+                      v-model="tableconfig.local.perPage"
+                      size="sm"
+                      :options="tableconfig.local.pageOptions"
+                      class="w-50"
+                    />
+                  </b-form-group>
+                </b-col>
+                <b-col
+                  md="8"
+                  class="my-1"
+                >
+                  <b-form-group
+                    label="Filter"
+                    label-cols-sm="1"
+                    label-align-sm="right"
+                    label-for="filterInput"
+                    class="mb-0"
+                  >
+                    <b-input-group size="sm">
+                      <b-form-input
+                        id="filterInput"
+                        v-model="tableconfig.local.filter"
+                        type="search"
+                        placeholder="Type to Search"
+                      />
+                      <b-input-group-append>
+                        <b-button
+                          :disabled="!tableconfig.local.filter"
+                          @click="tableconfig.local.filter = ''"
+                        >
+                          Clear
+                        </b-button>
+                      </b-input-group-append>
+                    </b-input-group>
+                  </b-form-group>
+                </b-col>
+
                 <b-col cols="12">
                   <b-table
                     class="apps-local-table"
                     striped
                     hover
                     responsive
-                    :items="myLocalApps"
+                    :per-page="tableconfig.local.perPage"
+                    :current-page="tableconfig.local.currentPage"
+                    :items="tableconfig.local.apps"
                     :fields="tableconfig.local.fields"
+                    :sort-by.sync="tableconfig.local.sortBy"
+                    :sort-desc.sync="tableconfig.local.sortDesc"
+                    :sort-direction="tableconfig.local.sortDirection"
+                    :filter="tableconfig.local.filter"
+                    :filter-included-fields="tableconfig.local.filterOn"
                     show-empty
                     empty-text="No Local Apps owned"
+                    @filtered="onFilteredLocal"
                   >
                     <template #cell(Name)="row">
                       {{ getAppName(row.item.name) }}
@@ -363,6 +480,17 @@
                     </template>
                   </b-table>
                 </b-col>
+                <b-col cols="12">
+                  <b-pagination
+                    v-model="tableconfig.local.currentPage"
+                    :total-rows="tableconfig.local.totalRows"
+                    :per-page="tableconfig.local.perPage"
+                    align="center"
+                    size="sm"
+                    class="my-0"
+                  />
+                  <span class="table-total">Total: {{ tableconfig.local.totalRows }}</span>
+                </b-col>
               </b-row>
             </b-card>
           </b-overlay>
@@ -404,8 +532,14 @@ import {
   BCard,
   BRow,
   BButton,
+  BFormGroup,
+  BFormInput,
+  BFormSelect,
+  BInputGroup,
+  BInputGroupAppend,
   BFormTextarea,
   BOverlay,
+  BPagination,
 } from 'bootstrap-vue'
 
 import Ripple from 'vue-ripple-directive'
@@ -430,8 +564,14 @@ export default {
     BCard,
     BRow,
     BButton,
+    BFormGroup,
+    BFormInput,
+    BFormSelect,
+    BInputGroup,
+    BInputGroupAppend,
     BFormTextarea,
     BOverlay,
+    BPagination,
     ConfirmDialog,
     ListEntry,
     Management,
@@ -508,6 +648,7 @@ export default {
           loading: true,
         },
         local: {
+          apps: [],
           status: '',
           fields: [
             { key: 'name', label: 'Name', sortable: true },
@@ -519,6 +660,16 @@ export default {
             { key: 'remove', label: 'Remove' },
             { key: 'manage', label: 'Manage' },
           ],
+          perPage: 10,
+          pageOptions: [10, 25, 50, 100],
+          sortBy: '',
+          sortDesc: false,
+          sortDirection: 'asc',
+          connectedPeers: [],
+          filter: '',
+          filterOn: [],
+          currentPage: 1,
+          totalRows: 1,
         },
         instances: {
           data: [],
@@ -534,9 +685,15 @@ export default {
       tier: '',
       appLocations: [],
       appLocationFields: [
-        { key: 'ip', label: 'IP Address' },
+        { key: 'ip', label: 'IP Address', sortable: true },
         { key: 'visit', label: '' },
       ],
+      appLocationOptions: {
+        perPage: 10,
+        pageOptions: [10, 25, 50, 100],
+        currentPage: 1,
+        totalRows: 1,
+      },
       callResponse: { // general
         status: '',
         data: '',
@@ -559,14 +716,6 @@ export default {
       }
       return false
     },
-    myLocalApps() {
-      const zelidauth = localStorage.getItem('zelidauth')
-      const auth = qs.parse(zelidauth)
-      if (this.tableconfig.installed.apps) {
-        return this.tableconfig.installed.apps.filter(app => app.owner === auth.zelid)
-      }
-      return []
-    },
   },
   mounted() {
     this.getZelNodeStatus()
@@ -588,6 +737,11 @@ export default {
       this.tableconfig.installed.status = response.data.status
       this.tableconfig.installed.apps = response.data.data
       this.tableconfig.installed.loading = false
+
+      const zelidauth = localStorage.getItem('zelidauth')
+      const auth = qs.parse(zelidauth)
+      this.tableconfig.local.apps = this.tableconfig.installed.apps.filter(app => app.owner === auth.zelid)
+      this.tableconfig.local.totalRows = this.tableconfig.local.apps.length
     },
     async appsGetListRunningApps(timeout = 0) {
       this.tableconfig.running.loading = true
@@ -871,6 +1025,7 @@ export default {
       if (response.data.status === 'success') {
         const appLocations = response.data.data
         this.appLocations = appLocations
+        this.appLocationOptions.totalRows = this.appLocations.length
       }
     },
     openAppManagement(appName) {
@@ -880,6 +1035,11 @@ export default {
       this.managedApplication = ''
       this.appsGetInstalledApps()
       this.appsGetListRunningApps()
+    },
+    onFilteredLocal(filteredItems) {
+      // Trigger pagination to update the number of buttons/pages due to filtering
+      this.tableconfig.local.totalRows = filteredItems.length
+      this.tableconfig.local.currentPage = 1
     },
     stringOutput() {
       let string = ''
