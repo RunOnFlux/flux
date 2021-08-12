@@ -1122,16 +1122,7 @@ async function checkMyFluxAvailability(nodelist) {
         const benchMyIP = benchIpResponse.data.length > 5 ? benchIpResponse.data : null;
         if (benchMyIP && benchMyIP !== myIP) {
           myIP = benchMyIP;
-          const restartNodeResponse = await daemonService.restartNodeBenchmarks();
-          if (restartNodeResponse.status !== 'success') {
-            dosMessage = benchIpResponse.data;
-            dosState += 10;
-          }
-          await serviceHelper.delay(2 * 60 * 1000); // lets wait two minutes
-          setTimeout(() => {
-            // it will try to create a confirmation transaction after 10 minutes of ask bench to restart, should be enough to restart and finish the bench.
-            daemonService.createConfirmationTransaction(); // on my pi for reference, running restarnodebench on micro sd card takes 5 minutes to finish
-          }, 8 * 60 * 1000);
+          daemonService.createConfirmationTransaction();
           return;
         }
       } else {
