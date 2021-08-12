@@ -16,5 +16,6 @@ export default [
     title: 'Debug',
     icon: 'bug',
     route: 'flux-debug',
+    privilege: ['admin', 'fluxteam'],
   },
 ]
