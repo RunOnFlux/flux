@@ -78,13 +78,18 @@
               >
                 <template #cell(disconnect)="row">
                   <b-button
+                    :id="`disconnect-peer-${row.item.ip}`"
                     size="sm"
                     class="mr-0"
                     variant="danger"
-                    @click="disconnectPeer(row)"
                   >
                     Disconnect
                   </b-button>
+                  <confirm-dialog
+                    :target="`disconnect-peer-${row.item.ip}`"
+                    confirm-button="Disconnect Peer"
+                    @confirm="disconnectPeer(row)"
+                  />
                 </template>
                 <template #cell(lastPingTime)="data">
                   {{ new Date(data.item.lastPingTime).toLocaleString('en-GB', timeoptions) }}
@@ -182,13 +187,18 @@
               >
                 <template #cell(disconnect)="row">
                   <b-button
+                    :id="`disconnect-incoming-${row.item.ip}`"
                     size="sm"
                     class="mr-0"
                     variant="danger"
-                    @click="disconnectIncoming(row)"
                   >
                     Disconnect
                   </b-button>
+                  <confirm-dialog
+                    :target="`disconnect-incoming-${row.item.ip}`"
+                    confirm-button="Disconnect Incoming"
+                    @confirm="disconnectIncoming(row)"
+                  />
                 </template>
               </b-table>
             </b-col>
@@ -230,6 +240,7 @@ import {
 } from 'bootstrap-vue'
 import FluxService from '@/services/FluxService'
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
+import ConfirmDialog from '@/views/components/ConfirmDialog.vue'
 
 const timeoptions = require('@/libs/dateFormat')
 
@@ -249,6 +260,7 @@ export default {
     BButton,
     BPagination,
     BOverlay,
+    ConfirmDialog,
     // eslint-disable-next-line vue/no-unused-components
     ToastificationContent,
   },
@@ -301,20 +313,15 @@ export default {
   },
   methods: {
     async fluxConnectedPeersInfo() {
+      this.config.outgoing.loading = true
       const response = await FluxService.connectedPeersInfo()
+      console.log(response)
       if (response.data.status === 'success') {
         this.config.outgoing.connectedPeers = response.data.data
         this.config.outgoing.totalRows = this.config.outgoing.connectedPeers.length
         this.config.outgoing.currentPage = 1
       } else {
-        this.$toast({
-          component: ToastificationContent,
-          props: {
-            title: response.data.data.message || response.data.data,
-            icon: 'InfoIcon',
-            variant: 'danger',
-          },
-        })
+        this.showToast('danger', response.data.data.message || response.data.data)
       }
       this.config.outgoing.loading = false
     },
@@ -325,75 +332,41 @@ export default {
         this.config.incoming.totalRows = this.config.incoming.incomingConnections.length
         this.config.incoming.currentPage = 1
       } else {
-        this.$toast({
-          component: ToastificationContent,
-          props: {
-            title: response.data.data.message || response.data.data,
-            icon: 'InfoIcon',
-            variant: 'danger',
-          },
-        })
+        this.showToast('danger', response.data.data.message || response.data.data)
       }
       this.config.incoming.loading = false
     },
-    disconnectPeer(row) {
+    async disconnectPeer(row) {
       const self = this
       const zelidauth = localStorage.getItem('zelidauth')
-      FluxService.removePeer(zelidauth, row.item.ip)
-        .then(response => {
-          console.log(response)
-          this.$toast({
-            component: ToastificationContent,
-            props: {
-              title: response.data.data.message || response.data.data,
-              icon: 'InfoIcon',
-              variant: response.data.status,
-            },
-          })
-          setTimeout(() => {
-            self.fluxConnectedPeersInfo()
-          }, 2000)
-        })
-        .catch(e => {
-          console.log(e)
-          this.$toast({
-            component: ToastificationContent,
-            props: {
-              title: e.toString(),
-              icon: 'InfoIcon',
-              variant: 'danger',
-            },
-          })
-        })
+      const response = await FluxService.removePeer(zelidauth, row.item.ip).catch(error => {
+        this.showToast('danger', error.message || error)
+      })
+      console.log(response)
+      if (response.data.status === 'success') {
+        this.showToast(response.data.status, response.data.data.message || response.data.data)
+        setTimeout(() => {
+          self.fluxConnectedPeersInfo()
+        }, 5000)
+      } else {
+        this.fluxConnectedPeersInfo()
+      }
     },
-    disconnectIncoming(row) {
+    async disconnectIncoming(row) {
       const self = this
       const zelidauth = localStorage.getItem('zelidauth')
-      FluxService.removeIncomingPeer(zelidauth, row.item.ip)
-        .then(response => {
-          this.$toast({
-            component: ToastificationContent,
-            props: {
-              title: response.data.data.message || response.data.data,
-              icon: 'InfoIcon',
-              variant: response.data.status,
-            },
-          })
-          setTimeout(() => {
-            self.fluxIncomingConnectionsInfo()
-          }, 2000)
-        })
-        .catch(e => {
-          console.log(e)
-          this.$toast({
-            component: ToastificationContent,
-            props: {
-              title: e.toString(),
-              icon: 'InfoIcon',
-              variant: 'danger',
-            },
-          })
-        })
+      const response = await FluxService.removeIncomingPeer(zelidauth, row.item.ip).catch(error => {
+        this.showToast('danger', error.message || error)
+      })
+      console.log(response)
+      if (response.data.status === 'success') {
+        this.showToast(response.data.status, response.data.data.message || response.data.data)
+        setTimeout(() => {
+          self.fluxIncomingConnectionsInfo()
+        }, 5000)
+      } else {
+        self.fluxIncomingConnectionsInfo()
+      }
     },
     onFilteredOutgoing(filteredItems) {
       // Trigger pagination to update the number of buttons/pages due to filtering
@@ -404,6 +377,16 @@ export default {
       // Trigger pagination to update the number of buttons/pages due to filtering
       this.config.incoming.totalRows = filteredItems.length
       this.config.incoming.currentPage = 1
+    },
+    showToast(variant, title, icon = 'InfoIcon') {
+      this.$toast({
+        component: ToastificationContent,
+        props: {
+          title,
+          icon,
+          variant,
+        },
+      })
     },
   },
 }
