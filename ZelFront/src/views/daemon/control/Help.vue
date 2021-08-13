@@ -37,10 +37,10 @@
 import {
   BCard,
 } from 'bootstrap-vue'
-import DaemonService from '@/services/DaemonService'
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
 import AppCollapse from '@core/components/app-collapse/AppCollapse.vue'
 import AppCollapseItem from '@core/components/app-collapse/AppCollapseItem.vue'
+import DaemonService from '@/services/DaemonService'
 
 export default {
   components: {

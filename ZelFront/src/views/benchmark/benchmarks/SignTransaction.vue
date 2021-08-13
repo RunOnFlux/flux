@@ -22,8 +22,8 @@
         Sign Transaction
       </b-button>
       <div
-        class="ml-1 mt-1"
         v-if="callResponse.status === 'success'"
+        class="ml-1 mt-1"
       >
         <p>
           Status: {{ callResponse.data.status }}
@@ -102,9 +102,9 @@ import {
   BFormTextarea,
   BOverlay,
 } from 'bootstrap-vue'
-import BenchmarkService from '@/services/BenchmarkService'
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
 import Ripple from 'vue-ripple-directive'
+import BenchmarkService from '@/services/BenchmarkService'
 
 export default {
   components: {

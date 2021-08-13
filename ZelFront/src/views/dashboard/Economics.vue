@@ -276,11 +276,11 @@ import {
 } from 'bootstrap-vue'
 import AppTimeline from '@core/components/app-timeline/AppTimeline.vue'
 import AppTimelineItem from '@core/components/app-timeline/AppTimelineItem.vue'
-import DashboardService from '@/services/DashboardService'
 import Ripple from 'vue-ripple-directive'
 import VueApexCharts from 'vue-apexcharts'
 
 import { $themeColors } from '@themeConfig'
+import DashboardService from '@/services/DashboardService'
 
 const axios = require('axios')
 

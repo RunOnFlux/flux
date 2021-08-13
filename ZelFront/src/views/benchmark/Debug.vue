@@ -161,9 +161,9 @@ import {
   BFormTextarea,
   BCardText,
 } from 'bootstrap-vue'
-import BenchmarkService from '@/services/BenchmarkService'
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
 import Ripple from 'vue-ripple-directive'
+import BenchmarkService from '@/services/BenchmarkService'
 
 export default {
   components: {

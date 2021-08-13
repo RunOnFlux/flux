@@ -174,9 +174,9 @@ import {
   BButton,
   BOverlay,
 } from 'bootstrap-vue'
+import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
 import ListEntry from '@/views/components/ListEntry.vue'
 import DaemonService from '@/services/DaemonService'
-import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
 
 const timeoptions = require('@/libs/dateFormat')
 

@@ -28,8 +28,8 @@ import {
   BFormTextarea,
   BOverlay,
 } from 'bootstrap-vue'
-import DaemonService from '@/services/DaemonService'
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
+import DaemonService from '@/services/DaemonService'
 
 export default {
   components: {

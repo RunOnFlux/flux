@@ -244,9 +244,9 @@ import AddProposalView from './AddProposalView.vue'
 import ProposalView from './ProposalView.vue'
 import ProposalSidebar from './ProposalSidebar.vue'
 
-const timeoptions = require('@/libs/dateFormat')
 const qs = require('qs')
 const axios = require('axios')
+const timeoptions = require('@/libs/dateFormat')
 
 export default {
   components: {

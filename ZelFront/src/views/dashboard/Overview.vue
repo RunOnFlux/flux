@@ -200,10 +200,10 @@ import {
   BAvatar,
   BProgress,
 } from 'bootstrap-vue'
-import DashboardService from '@/services/DashboardService'
 import VueApexCharts from 'vue-apexcharts'
 import tierColors from '@/libs/colors'
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
+import DashboardService from '@/services/DashboardService'
 
 const axios = require('axios')
 

@@ -229,11 +229,11 @@ import {
 } from 'bootstrap-vue'
 
 import Ripple from 'vue-ripple-directive'
-import AppsService from '@/services/AppsService'
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
 import ListEntry from '@/views/components/ListEntry.vue'
 import ConfirmDialog from '@/views/components/ConfirmDialog.vue'
 import Management from '@/views/apps/Management.vue'
+import AppsService from '@/services/AppsService'
 
 const qs = require('qs')
 

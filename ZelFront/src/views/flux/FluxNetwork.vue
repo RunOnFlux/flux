@@ -238,9 +238,9 @@ import {
   BPagination,
   BOverlay,
 } from 'bootstrap-vue'
-import FluxService from '@/services/FluxService'
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
 import ConfirmDialog from '@/views/components/ConfirmDialog.vue'
+import FluxService from '@/services/FluxService'
 
 const timeoptions = require('@/libs/dateFormat')
 

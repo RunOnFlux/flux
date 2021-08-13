@@ -544,16 +544,16 @@ import {
 
 import Ripple from 'vue-ripple-directive'
 import { mapState } from 'vuex'
-import AppsService from '@/services/AppsService'
-import DaemonService from '@/services/DaemonService'
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
 import ConfirmDialog from '@/views/components/ConfirmDialog.vue'
 import ListEntry from '@/views/components/ListEntry.vue'
 import Management from '@/views/apps/Management.vue'
+import AppsService from '@/services/AppsService'
+import DaemonService from '@/services/DaemonService'
 
 const store = require('store')
-const timeoptions = require('@/libs/dateFormat')
 const qs = require('qs')
+const timeoptions = require('@/libs/dateFormat')
 
 export default {
   components: {

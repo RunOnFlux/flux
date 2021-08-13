@@ -61,8 +61,8 @@
 import {
   BCard,
 } from 'bootstrap-vue'
-import DaemonService from '@/services/DaemonService'
 import ListEntry from '@/views/components/ListEntry.vue'
+import DaemonService from '@/services/DaemonService'
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
 
 const timeoptions = require('@/libs/dateFormat')

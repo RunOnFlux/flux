@@ -209,8 +209,8 @@ import {
   ref,
 } from '@vue/composition-api'
 
-const timeoptions = require('@/libs/dateFormat')
 const axios = require('axios')
+const timeoptions = require('@/libs/dateFormat')
 
 export default {
   components: {

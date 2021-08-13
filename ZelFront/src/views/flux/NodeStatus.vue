@@ -86,9 +86,9 @@ import {
   BCard,
 } from 'bootstrap-vue'
 import { mapState } from 'vuex'
-import DaemonService from '@/services/DaemonService'
 import ListEntry from '@/views/components/ListEntry.vue'
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
+import DaemonService from '@/services/DaemonService'
 
 const timeoptions = require('@/libs/dateFormat')
 

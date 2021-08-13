@@ -34,9 +34,9 @@ import {
   BFormInput,
   BFormTextarea,
 } from 'bootstrap-vue'
-import DaemonService from '@/services/DaemonService'
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
 import Ripple from 'vue-ripple-directive'
+import DaemonService from '@/services/DaemonService'
 
 export default {
   components: {

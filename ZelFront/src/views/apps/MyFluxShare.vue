@@ -265,11 +265,11 @@ import {
 
 import { mapState } from 'vuex'
 import Ripple from 'vue-ripple-directive'
-import AppsService from '@/services/AppsService'
 import ConfirmDialog from '@/views/components/ConfirmDialog.vue'
 import FileUpload from '@/views/components/FileUpload.vue'
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
 import axios from 'axios'
+import AppsService from '@/services/AppsService'
 
 const store = require('store')
 

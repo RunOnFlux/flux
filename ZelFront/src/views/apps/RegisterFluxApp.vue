@@ -475,9 +475,9 @@ import {
 
 import { mapState } from 'vuex'
 import Ripple from 'vue-ripple-directive'
-import AppsService from '@/services/AppsService'
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
 import fluxapps from '@/libs/fluxApps'
+import AppsService from '@/services/AppsService'
 
 const qs = require('qs')
 const store = require('store')

@@ -17,8 +17,8 @@
 import { mapState } from 'vuex'
 import { BLink } from 'bootstrap-vue'
 import axios from 'axios'
-import FluxService from '@/services/FluxService'
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
+import FluxService from '@/services/FluxService'
 
 export default {
   components: {

@@ -236,8 +236,8 @@ import {
   BAvatar,
 } from 'bootstrap-vue'
 import VueApexCharts from 'vue-apexcharts'
-import tierColors from '@/libs/colors'
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
+import tierColors from '@/libs/colors'
 
 const axios = require('axios')
 
