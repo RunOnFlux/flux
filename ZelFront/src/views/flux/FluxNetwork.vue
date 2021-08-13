@@ -326,6 +326,7 @@ export default {
       this.config.outgoing.loading = false
     },
     async fluxIncomingConnectionsInfo() {
+      this.config.incoming.loading = true
       const response = await FluxService.incomingConnectionsInfo()
       if (response.data.status === 'success') {
         this.config.incoming.incomingConnections = response.data.data
@@ -345,9 +346,10 @@ export default {
       console.log(response)
       if (response.data.status === 'success') {
         this.showToast(response.data.status, response.data.data.message || response.data.data)
+        this.config.outgoing.loading = true
         setTimeout(() => {
           self.fluxConnectedPeersInfo()
-        }, 5000)
+        }, 2500)
       } else {
         this.fluxConnectedPeersInfo()
       }
@@ -361,9 +363,10 @@ export default {
       console.log(response)
       if (response.data.status === 'success') {
         this.showToast(response.data.status, response.data.data.message || response.data.data)
+        this.config.incoming.loading = true
         setTimeout(() => {
           self.fluxIncomingConnectionsInfo()
-        }, 5000)
+        }, 2500)
       } else {
         self.fluxIncomingConnectionsInfo()
       }

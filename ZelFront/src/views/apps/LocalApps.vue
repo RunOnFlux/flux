@@ -795,7 +795,7 @@ export default {
       } else {
         this.showToast('danger', response.data.data.message || response.data.data)
       }
-      this.appsGetListRunningApps(15000)
+      this.appsGetListRunningApps(5000)
       console.log(response)
     },
     async startApp(app) {
@@ -808,7 +808,7 @@ export default {
       } else {
         this.showToast('danger', response.data.data.message || response.data.data)
       }
-      this.appsGetListRunningApps(30000)
+      this.appsGetListRunningApps(15000)
       console.log(response)
     },
     async restartApp(app) {
@@ -821,7 +821,7 @@ export default {
       } else {
         this.showToast('danger', response.data.data.message || response.data.data)
       }
-      this.appsGetListRunningApps(30000)
+      this.appsGetListRunningApps(15000)
       console.log(response)
     },
     async pauseApp(app) {
