@@ -16,7 +16,7 @@ export default {
   },
 
   loggedSessions(zelidauthHeader) {
-    return Api().get('/id/loggedsessions', {
+    return Api().get(`/id/loggedsessions?timestamp=${new Date().getTime()}`, {
       headers: {
         zelidauth: zelidauthHeader,
       },
@@ -24,7 +24,7 @@ export default {
   },
 
   loggedUsers(zelidauthHeader) {
-    return Api().get('/id/loggedusers', {
+    return Api().get(`/id/loggedusers?timestamp=${new Date().getTime()}`, {
       headers: {
         zelidauth: zelidauthHeader,
       },
