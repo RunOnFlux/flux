@@ -216,14 +216,7 @@ export default {
       IDService.loggedUsers(zelidauth)
         .then(response => {
           if (response.data.status === 'error') {
-            this.$toast({
-              component: ToastificationContent,
-              props: {
-                title: response.data.data.message || response.data.data,
-                icon: 'InfoIcon',
-                variant: 'danger',
-              },
-            })
+            this.showToast('danger', response.data.data.message || response.data.data)
           } else {
             this.items = response.data.data
             this.totalRows = this.items.length
@@ -233,14 +226,7 @@ export default {
         })
         .catch(e => {
           console.log(e)
-          this.$toast({
-            component: ToastificationContent,
-            props: {
-              title: e.toString(),
-              icon: 'InfoIcon',
-              variant: 'danger',
-            },
-          })
+          this.showToast('danger', e.toString())
           this.usersLoading = false
         })
     },
@@ -255,23 +241,9 @@ export default {
       IDService.logoutSpecificSession(zelidauth, row.loginPhrase)
         .then(response => {
           if (response.data.status === 'error') {
-            this.$toast({
-              component: ToastificationContent,
-              props: {
-                title: response.data.data.message || response.data.data,
-                icon: 'InfoIcon',
-                variant: 'danger',
-              },
-            })
+            this.showToast('danger', response.data.data.message || response.data.data)
           } else {
-            this.$toast({
-              component: ToastificationContent,
-              props: {
-                title: response.data.data.message || response.data.data,
-                icon: 'InfoIcon',
-                variant: 'success',
-              },
-            })
+            this.showToast('success', response.data.data.message || response.data.data)
             if (row.loginPhrase === auth.loginPhrase) {
               localStorage.removeItem('zelidauth')
               this.$store.commit('flux/setPrivilege', 'none')
@@ -284,14 +256,7 @@ export default {
         })
         .catch(e => {
           console.log(e)
-          this.$toast({
-            component: ToastificationContent,
-            props: {
-              title: e.toString(),
-              icon: 'InfoIcon',
-              variant: 'danger',
-            },
-          })
+          this.showToast('danger', e.toString())
         })
     },
     async onLogoutAllOK() {
@@ -299,40 +264,29 @@ export default {
       IDService.logoutAllUsers(zelidauth)
         .then(response => {
           if (response.data.status === 'error') {
-            this.$toast({
-              component: ToastificationContent,
-              props: {
-                title: response.data.data.message || response.data.data,
-                icon: 'InfoIcon',
-                variant: 'danger',
-              },
-            })
+            this.showToast('danger', response.data.data.message || response.data.data)
           } else {
             localStorage.removeItem('zelidauth')
             this.$store.commit('flux/setPrivilege', 'none')
             // Navigate back to the home screen
             this.$router.replace('/')
-            this.$toast({
-              component: ToastificationContent,
-              props: {
-                title: response.data.data.message || response.data.data,
-                icon: 'InfoIcon',
-                variant: 'success',
-              },
-            })
+            this.showToast('success', response.data.data.message || response.data.data)
           }
         })
         .catch(e => {
           console.log(e)
-          this.$toast({
-            component: ToastificationContent,
-            props: {
-              title: e.toString(),
-              icon: 'InfoIcon',
-              variant: 'danger',
-            },
-          })
+          this.showToast('danger', e.toString())
         })
+    },
+    showToast(variant, title, icon = 'InfoIcon') {
+      this.$toast({
+        component: ToastificationContent,
+        props: {
+          title,
+          icon,
+          variant,
+        },
+      })
     },
   },
 }
