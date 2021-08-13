@@ -501,7 +501,7 @@ export default {
         const cumuluses = zelnodecounts['cumulus-enabled'];
         const resKDAEligible = await axios.get('https://stats.runonflux.io/kadena/eligiblestats/7');
         const kdaData = resKDAEligible.data.data;
-        const kdaCoins = 5749.77;
+        const kdaCoins = 2800;
         const totalNimbuss = kdaData.nimbus;
         const totalStratuss = kdaData.stratus;
         const overallTotal = totalNimbuss + (4 * totalStratuss);
