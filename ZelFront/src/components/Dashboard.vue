@@ -327,8 +327,6 @@
 import Vuex, { mapState } from 'vuex';
 import Vue from 'vue';
 
-import DashboardService from '@/services/DashboardService';
-
 import * as am4charts from '@amcharts/amcharts4/charts';
 import * as am4core from '@amcharts/amcharts4/core';
 import * as am4maps from '@amcharts/amcharts4/maps';
@@ -336,6 +334,8 @@ import * as am4maps from '@amcharts/amcharts4/maps';
 import am4geodata_worldLow from '@amcharts/amcharts4-geodata/worldLow';
 // eslint-disable-next-line camelcase
 import am4themes_dark from '@amcharts/amcharts4/themes/dark';
+
+import DashboardService from '@/services/DashboardService';
 
 const axios = require('axios');
 
