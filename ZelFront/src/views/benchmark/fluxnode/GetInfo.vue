@@ -24,8 +24,8 @@
 import {
   BCard,
 } from 'bootstrap-vue'
-import ListEntry from '@/views/components/ListEntry.vue'
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
+import ListEntry from '@/views/components/ListEntry.vue'
 import BenchmarkService from '@/services/BenchmarkService'
 
 const timeoptions = require('@/libs/dateFormat')

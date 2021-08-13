@@ -263,13 +263,13 @@ import {
   BOverlay,
 } from 'bootstrap-vue'
 
-import ListEntry from '@/views/components/ListEntry.vue'
-import Transaction from '@/views/explorer/Transaction.vue'
-import FluxTransaction from '@/views/explorer/FluxTransaction.vue'
 import Ripple from 'vue-ripple-directive'
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
 import AppCollapse from '@core/components/app-collapse/AppCollapse.vue'
 import AppCollapseItem from '@core/components/app-collapse/AppCollapseItem.vue'
+import ListEntry from '@/views/components/ListEntry.vue'
+import Transaction from '@/views/explorer/Transaction.vue'
+import FluxTransaction from '@/views/explorer/FluxTransaction.vue'
 
 import DaemonService from '@/services/DaemonService'
 import ExplorerService from '@/services/ExplorerService'
