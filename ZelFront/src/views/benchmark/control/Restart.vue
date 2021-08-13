@@ -10,52 +10,11 @@
       >
         Restart Benchmark
       </b-button>
-      <b-popover
-        ref="popover"
+      <confirm-dialog
         target="restart-benchmark"
-        triggers="click"
-        :show.sync="popoverShow"
-        placement="auto"
-        container="my-container"
-      >
-        <template v-slot:title>
-          <div class="d-flex justify-content-between align-items-center">
-            <span>Are You Sure?</span>
-            <b-button
-              v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-              class="close"
-              variant="transparent"
-              aria-label="Close"
-              @click="onClose"
-            >
-              <span
-                class="d-inline-block text-white"
-                aria-hidden="true"
-              >&times;</span>
-            </b-button>
-          </div>
-        </template>
-
-        <div>
-          <b-button
-            v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-            size="sm"
-            variant="danger"
-            class="mr-1"
-            @click="onClose"
-          >
-            Cancel
-          </b-button>
-          <b-button
-            v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-            size="sm"
-            variant="primary"
-            @click="onOk"
-          >
-            Restart Benchmark
-          </b-button>
-        </div>
-      </b-popover>
+        confirm-button="Restart Benchmark"
+        @confirm="onOk"
+      />
       <b-modal
         id="modal-center"
         v-model="modalShow"
@@ -76,11 +35,11 @@
 import {
   BCard,
   BButton,
-  BPopover,
   BModal,
   BCardText,
 } from 'bootstrap-vue'
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
+import ConfirmDialog from '@/views/components/ConfirmDialog.vue'
 import Ripple from 'vue-ripple-directive'
 import BenchmarkService from '@/services/BenchmarkService'
 
@@ -88,9 +47,9 @@ export default {
   components: {
     BCard,
     BButton,
-    BPopover,
     BModal,
     BCardText,
+    ConfirmDialog,
     // eslint-disable-next-line vue/no-unused-components
     ToastificationContent,
   },
@@ -99,39 +58,30 @@ export default {
   },
   data() {
     return {
-      popoverShow: false,
       modalShow: false,
     }
   },
   methods: {
-    onClose() {
-      this.popoverShow = false
-    },
     onOk() {
-      this.popoverShow = false
       this.modalShow = true
       const zelidauth = localStorage.getItem('zelidauth')
       BenchmarkService.restart(zelidauth)
         .then(response => {
-          this.$toast({
-            component: ToastificationContent,
-            props: {
-              title: response.data.data.message || response.data.data,
-              icon: 'InfoIcon',
-              variant: 'success',
-            },
-          })
+          this.showToast('success', response.data.data.message || response.data.data)
         })
         .catch(() => {
-          this.$toast({
-            component: ToastificationContent,
-            props: {
-              title: 'Error while trying to restart Benchmark',
-              icon: 'InfoIcon',
-              variant: 'danger',
-            },
-          })
+          this.showToast('danger', 'Error while trying to restart Benchmark')
         })
+    },
+    showToast(variant, title, icon = 'InfoIcon') {
+      this.$toast({
+        component: ToastificationContent,
+        props: {
+          title,
+          icon,
+          variant,
+        },
+      })
     },
   },
 }
