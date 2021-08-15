@@ -76,7 +76,7 @@
           label="Resources"
           name="resources"
         >
-          <div class="gridThree">
+          <div class="gridFour">
             <div
               v-show="!cpuLoading"
               id="cpucurrent"
@@ -96,6 +96,13 @@
               id="ssdcurrent"
             />
             <div v-show="ssdLoading">
+              loading...
+            </div>
+            <div
+              v-show="!hddLoading"
+              id="hddcurrent"
+            />
+            <div v-show="hddLoading">
               loading...
             </div>
           </div>
@@ -327,8 +334,6 @@
 import Vuex, { mapState } from 'vuex';
 import Vue from 'vue';
 
-import DashboardService from '@/services/DashboardService';
-
 import * as am4charts from '@amcharts/amcharts4/charts';
 import * as am4core from '@amcharts/amcharts4/core';
 import * as am4maps from '@amcharts/amcharts4/maps';
@@ -336,6 +341,8 @@ import * as am4maps from '@amcharts/amcharts4/maps';
 import am4geodata_worldLow from '@amcharts/amcharts4-geodata/worldLow';
 // eslint-disable-next-line camelcase
 import am4themes_dark from '@amcharts/amcharts4/themes/dark';
+
+import DashboardService from '@/services/DashboardService';
 
 const axios = require('axios');
 
@@ -383,6 +390,7 @@ export default {
       fluxHistoryLoading: true,
       supplyLoading: true,
       ssdLoading: true,
+      hddLoading: true,
       ramLoading: true,
       cpuLoading: true,
       ssdHistoryLoading: true,
@@ -406,9 +414,12 @@ export default {
       cumulusRamValue: 0,
       nimbusRamValue: 0,
       stratusRamValue: 0,
-      cumulusStorageValue: 0,
-      nimbusStorageValue: 0,
-      stratusStorageValue: 0,
+      cumulusSSDStorageValue: 0,
+      nimbusSSDStorageValue: 0,
+      stratusSSDStorageValue: 0,
+      cumulusHDDStorageValue: 0,
+      nimbusHDDStorageValue: 0,
+      stratusHDDStorageValue: 0,
     };
   },
   computed: {
@@ -501,7 +512,7 @@ export default {
         const cumuluses = zelnodecounts['cumulus-enabled'];
         const resKDAEligible = await axios.get('https://stats.runonflux.io/kadena/eligiblestats/7');
         const kdaData = resKDAEligible.data.data;
-        const kdaCoins = 5749.77;
+        const kdaCoins = 2800;
         const totalNimbuss = kdaData.nimbus;
         const totalStratuss = kdaData.stratus;
         const overallTotal = totalNimbuss + (4 * totalStratuss);
@@ -655,35 +666,39 @@ export default {
           this.cumulusCpuValue += node.benchmark.bench.cores === 0 ? 2 : node.benchmark.bench.cores;
           this.cumulusRamValue += node.benchmark.bench.ram < 4 ? 4 : Math.round(node.benchmark.bench.ram);
           // const auxStorage = Number.isNaN(node.benchmark.bench.ssd) || Number.isNaN(node.benchmark.bench.hdd) ? 0 : node.benchmark.bench.ssd + node.benchmark.bench.hdd;
-          this.cumulusStorageValue += node.benchmark.bench.ssd + node.benchmark.bench.hdd < 50 ? 50 : node.benchmark.bench.ssd + node.benchmark.bench.hdd;
+          this.cumulusSSDStorageValue += node.benchmark.bench.ssd;
+          this.cumulusHDDStorageValue += node.benchmark.bench.hdd;
         } else if (node.tier === 'CUMULUS') {
           this.cumulusCpuValue += 2;
           this.cumulusRamValue += 4;
-          this.cumulusStorageValue += 50;
+          this.cumulusHDDStorageValue += 50;
         } else if (node.tier === 'NIMBUS' && node.benchmark && node.benchmark.bench) {
           this.nimbusCpuValue += node.benchmark.bench.cores === 0 ? 4 : node.benchmark.bench.cores;
           this.nimbusRamValue += node.benchmark.bench.ram < 8 ? 8 : Math.round(node.benchmark.bench.ram);
           // const auxStorage = Number.isNaN(node.benchmark.bench.ssd) || Number.isNaN(node.benchmark.bench.hdd) ? 0 : node.benchmark.bench.ssd + node.benchmark.bench.hdd;
-          this.nimbusStorageValue += node.benchmark.bench.ssd + node.benchmark.bench.hdd < 150 ? 150 : node.benchmark.bench.ssd + node.benchmark.bench.hdd;
+          this.nimbusSSDStorageValue += node.benchmark.bench.ssd;
+          this.nimbusHDDStorageValue += node.benchmark.bench.hdd;
         } else if (node.tier === 'NIMBUS') {
           this.nimbusCpuValue += 4;
           this.nimbusRamValue += 8;
-          this.nimbusStorageValue += 150;
+          this.nimbusSSDStorageValue += 150;
         } else if (node.tier === 'STRATUS' && node.benchmark && node.benchmark.bench) {
           this.stratusCpuValue += node.benchmark.bench.cores === 0 ? 8 : node.benchmark.bench.cores;
           this.stratusRamValue += node.benchmark.bench.ram < 32 ? 32 : Math.round(node.benchmark.bench.ram);
           // const auxStorage = Number.isNaN(node.benchmark.bench.ssd) || Number.isNaN(node.benchmark.bench.hdd) ? 0 : node.benchmark.bench.ssd + node.benchmark.bench.hdd;
-          this.stratusStorageValue += node.benchmark.bench.ssd + node.benchmark.bench.hdd < 600 ? 600 : node.benchmark.bench.ssd + node.benchmark.bench.hdd;
+          this.stratusSSDStorageValue += node.benchmark.bench.ssd;
+          this.stratusHDDStorageValue += node.benchmark.bench.hdd;
         } else if (node.tier === 'STRATUS') {
           this.stratusCpuValue += 8;
           this.stratusRamValue += 32;
-          this.stratusStorageValue += 600;
+          this.stratusSSDStorageValue += 600;
         }
       });
 
       this.generateCPU();
       this.generateRAM();
       this.generateSSD();
+      this.generateHDD();
     },
     generateCPU() {
       am4core.useTheme(am4themes_dark);
@@ -792,21 +807,21 @@ export default {
       // Create chart instance
       const chart = am4core.create('ssdcurrent', am4charts.XYChart);
 
-      const total = this.stratusStorageValue + this.nimbusStorageValue + this.cumulusStorageValue;
+      const total = this.stratusSSDStorageValue + this.nimbusSSDStorageValue + this.cumulusSSDStorageValue;
 
       // Add data
       chart.data = [
         {
           category: 'Cumulus',
-          value: this.cumulusStorageValue,
+          value: this.cumulusSSDStorageValue,
         },
         {
           category: 'Nimbus',
-          value: this.nimbusStorageValue,
+          value: this.nimbusSSDStorageValue,
         },
         {
           category: 'Stratus',
-          value: this.stratusStorageValue,
+          value: this.stratusSSDStorageValue,
         },
       ];
 
@@ -834,6 +849,56 @@ export default {
       const self = this;
       setTimeout(() => {
         self.ssdLoading = false;
+      }, 1000);
+    },
+    generateHDD() {
+      am4core.useTheme(am4themes_dark);
+      am4core.useTheme(am4themes_myTheme);
+      // Create chart instance
+      const chart = am4core.create('hddcurrent', am4charts.XYChart);
+
+      const total = this.stratusHDDStorageValue + this.nimbusHDDStorageValue + this.cumulusHDDStorageValue;
+
+      // Add data
+      chart.data = [
+        {
+          category: 'Cumulus',
+          value: this.cumulusHDDStorageValue,
+        },
+        {
+          category: 'Nimbus',
+          value: this.nimbusHDDStorageValue,
+        },
+        {
+          category: 'Stratus',
+          value: this.stratusHDDStorageValue,
+        },
+      ];
+
+      // Create axes
+      const categoryAxis = chart.xAxes.push(new am4charts.CategoryAxis());
+      categoryAxis.dataFields.category = 'category';
+      categoryAxis.renderer.grid.template.location = 0;
+      categoryAxis.renderer.minGridDistance = 30;
+
+      const valueAxis = chart.yAxes.push(new am4charts.ValueAxis());
+
+      valueAxis.title.text = 'HDD (GB)';
+
+      // Create series
+      const series = chart.series.push(new am4charts.ColumnSeries());
+      series.dataFields.valueY = 'value';
+      series.dataFields.categoryX = 'category';
+      series.tooltipText = '{category}: [bold]{value}[/]';
+      // Add cursor
+      chart.cursor = new am4charts.XYCursor();
+      const title = chart.titles.create();
+      title.text = `Total HDD: ${this.beautifyValue(total / 1000)} TB`;
+      title.fontSize = 20;
+      title.marginBottom = 15;
+      const self = this;
+      setTimeout(() => {
+        self.hddLoading = false;
       }, 1000);
     },
     generateCPUHistory() {
@@ -1072,7 +1137,7 @@ export default {
       chart.legend = new am4charts.Legend();
       chart.legend.position = 'top';
       const title = chart.titles.create();
-      title.text = 'SSD History (Based min. req. specs)';
+      title.text = 'Storage History (Based min. req. specs)';
       title.fontSize = 20;
       title.marginBottom = 15;
       const self = this;
@@ -1602,6 +1667,15 @@ export default {
   align-items: center;
 }
 
+.gridFour {
+  text-align: center;
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
+  grid-template-rows: 1fr;
+  justify-items: center;
+  align-items: center;
+}
+
 @media (max-width: 699px) {
   .gridTwo {
     text-align: center;
@@ -1620,6 +1694,15 @@ export default {
     justify-items: center;
     align-items: center;
   }
+
+  .gridFour {
+    text-align: center;
+    display: grid;
+    grid-template-columns: auto;
+    grid-template-rows: auto auto auto auto;
+    justify-items: center;
+    align-items: center;
+  }
 }
 
 #mapchart {
@@ -1635,6 +1718,7 @@ export default {
 #cpucurrent,
 #ramcurrent,
 #ssdcurrent,
+#hddcurrent,
 #cpuhistory,
 #ramhistory,
 #ssdhistory,

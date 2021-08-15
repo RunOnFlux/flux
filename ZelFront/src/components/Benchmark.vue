@@ -109,6 +109,9 @@
           Status: {{ callResponse.data.status }}
         </p>
         <p>
+          Architecture: {{ callResponse.data.architecture }}
+        </p>
+        <p>
           Time: {{ new Date(callResponse.data.time * 1000).toLocaleString('en-GB', timeoptions) }}
         </p>
         <p>
@@ -127,10 +130,13 @@
           HDD (GB): {{ callResponse.data.hdd }}
         </p>
         <p>
-          Write Speed (MB/s): {{ callResponse.data.ddwrite }}
+          Best Write Speed (MB/s): {{ callResponse.data.ddwrite }}
         </p>
         <p>
-          CPU Speed (eps): {{ callResponse.data.eps }}
+          CPU Speed (EPS): {{ callResponse.data.eps }}
+        </p>
+        <p>
+          Error: {{ callResponse.data.error }}
         </p>
       </div>
     </div>
