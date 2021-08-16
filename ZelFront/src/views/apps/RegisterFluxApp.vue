@@ -597,6 +597,7 @@ export default {
   mounted() {
     this.getRandomPort()
     this.registrationInformation()
+    this.appRegistrationSpecification.owner = this.userconfig.zelid
   },
   methods: {
     async checkFluxSpecificationsAndFormatMessage() {
