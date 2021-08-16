@@ -3,7 +3,9 @@
     <div
       :class="managedApplication ? 'd-none' : ''"
     >
-      <b-tabs>
+      <b-tabs
+        @activate-tab="output = ''; downloading = false"
+      >
         <b-tab
           active
           title="Running"
@@ -497,17 +499,41 @@
         </b-tab>
       </b-tabs>
       <div
-        v-if="output"
+        v-if="output.length > 0"
         class="actionCenter"
       >
         <br>
-        <b-form-textarea
-          plaintext
-          no-resize
-          :rows="output.length"
-          :value="stringOutput()"
-          class="mt-1"
-        />
+        <b-row>
+          <b-col cols="9">
+            <b-form-textarea
+              plaintext
+              no-resize
+              :rows="output.length + 1"
+              :value="stringOutput()"
+              class="mt-1"
+            />
+          </b-col>
+          <b-col
+            v-if="downloading"
+            cols="3"
+          >
+            <h3>Downloads</h3>
+            <div
+              v-for="download in downloadOutput"
+              :key="download.id"
+            >
+              <h4> {{ download.id }}</h4>
+              <b-progress
+                :value="download.detail.current / download.detail.total * 100"
+                max="100"
+                striped
+                height="1rem"
+                :variant="download.variant"
+              />
+              <br>
+            </div>
+          </b-col>
+        </b-row>
       </div>
     </div>
     <div
@@ -540,6 +566,7 @@ import {
   BFormTextarea,
   BOverlay,
   BPagination,
+  BProgress,
 } from 'bootstrap-vue'
 
 import Ripple from 'vue-ripple-directive'
@@ -572,6 +599,7 @@ export default {
     BFormTextarea,
     BOverlay,
     BPagination,
+    BProgress,
     ConfirmDialog,
     ListEntry,
     Management,
@@ -584,7 +612,10 @@ export default {
   data() {
     return {
       timeoptions,
-      output: '',
+      output: [],
+      downloading: false,
+      downloadOutput: {
+      },
       managedApplication: '',
       tableconfig: {
         running: {
@@ -914,7 +945,9 @@ export default {
     async installTemporaryLocalApp(app) { // todo rewrite to installApp later
       const appName = app
       const self = this
-      this.output = ''
+      this.output = []
+      this.downloadOutput = {}
+      this.downloading = true
       this.showToast('warning', `Installing ${this.getAppName(app)}`)
       const zelidauth = localStorage.getItem('zelidauth')
       // const response = await AppsService.installTemporaryLocalApp(zelidauth, app);
@@ -1044,7 +1077,41 @@ export default {
     stringOutput() {
       let string = ''
       this.output.forEach(output => {
-        string += `${JSON.stringify(output)}\r\n`
+        if (output.status === 'success') {
+          string += `${output.data.message || output.data}\r\n`
+        } else if (output.status === 'Downloading') {
+          this.downloadOutput[output.id] = ({
+            id: output.id,
+            detail: output.progressDetail,
+            variant: 'danger',
+          })
+        } else if (output.status === 'Verifying Checksum') {
+          this.downloadOutput[output.id] = ({
+            id: output.id,
+            detail: { current: 1, total: 1 },
+            variant: 'warning',
+          })
+        } else if (output.status === 'Download complete') {
+          this.downloadOutput[output.id] = ({
+            id: output.id,
+            detail: { current: 1, total: 1 },
+            variant: 'info',
+          })
+        } else if (output.status === 'Extracting') {
+          this.downloadOutput[output.id] = ({
+            id: output.id,
+            detail: output.progressDetail,
+            variant: 'primary',
+          })
+        } else if (output.status === 'Pull complete') {
+          this.downloadOutput[output.id] = ({
+            id: output.id,
+            detail: { current: 1, total: 1 },
+            variant: 'success',
+          })
+        } else {
+          string += `${output.status}\r\n`
+        }
       })
       return string
     },
