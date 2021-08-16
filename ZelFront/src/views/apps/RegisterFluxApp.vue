@@ -82,72 +82,102 @@
         xl="6"
       >
         <b-card title="Environment">
-          <b-form-group
-            label-cols="2"
-            label="Ports"
-            label-for="ports"
-          >
-            <b-form-input
-              id="ports"
-              v-model="appRegistrationSpecification.ports"
-              placeholder="Array of Ports on which application will be available"
-            />
-          </b-form-group>
-          <b-form-group
-            label-cols="2"
-            label="Domains"
-            label-for="domains"
-          >
-            <b-form-input
-              id="domains"
-              v-model="appRegistrationSpecification.domains"
-              placeholder="Array of strings of Domains managed by Flux Domain Manager (FDM). Length must correspond to available ports. Use empty strings for no domains"
-            />
-          </b-form-group>
-          <b-form-group
-            label-cols="2"
-            label="Environment"
-            label-for="enviromentParameters"
-          >
-            <b-form-input
-              id="enviromentParameters"
-              v-model="appRegistrationSpecification.enviromentParameters"
-              placeholder="Array of strings of Environmental Parameters"
-            />
-          </b-form-group>
-          <b-form-group
-            label-cols="2"
-            label="Commands"
-            label-for="commands"
-          >
-            <b-form-input
-              id="commands"
-              v-model="appRegistrationSpecification.commands"
-              placeholder="Array of strings of Commands"
-            />
-          </b-form-group>
-          <b-form-group
-            label-cols="2"
-            label="Cont. Ports"
-            label-for="containerPorts"
-          >
-            <b-form-input
-              id="containerPorts"
-              v-model="appRegistrationSpecification.containerPorts"
-              placeholder="Container Ports - Array of ports which your container has"
-            />
-          </b-form-group>
-          <b-form-group
-            label-cols="2"
-            label="Cont. Data"
-            label-for="containerData"
-          >
-            <b-form-input
-              id="containerData"
-              v-model="appRegistrationSpecification.containerData"
-              placeholder="Data folder that is shared by application to App volume"
-            />
-          </b-form-group>
+          <div class="form-row form-group">
+            <label class="col-3 col-form-label">
+              Ports
+              <v-icon
+                v-b-tooltip.hover.top="'Array of Ports on which application will be available'"
+                name="info-circle"
+                class="mr-1"
+              />
+            </label>
+            <div class="col">
+              <b-form-input
+                id="ports"
+                v-model="appRegistrationSpecification.ports"
+              />
+            </div>
+          </div>
+          <div class="form-row form-group">
+            <label class="col-3 col-form-label">
+              Domains
+              <v-icon
+                v-b-tooltip.hover.top="'Array of strings of Domains managed by Flux Domain Manager (FDM). Length must correspond to available ports. Use empty strings for no domains'"
+                name="info-circle"
+                class="mr-1"
+              />
+            </label>
+            <div class="col">
+              <b-form-input
+                id="domains"
+                v-model="appRegistrationSpecification.domains"
+              />
+            </div>
+          </div>
+          <div class="form-row form-group">
+            <label class="col-3 col-form-label">
+              Environment
+              <v-icon
+                v-b-tooltip.hover.top="'Array of strings of Environmental Parameters'"
+                name="info-circle"
+                class="mr-1"
+              />
+            </label>
+            <div class="col">
+              <b-form-input
+                id="enviromentParameters"
+                v-model="appRegistrationSpecification.enviromentParameters"
+              />
+            </div>
+          </div>
+          <div class="form-row form-group">
+            <label class="col-3 col-form-label">
+              Commands
+              <v-icon
+                v-b-tooltip.hover.top="'Array of strings of Commands'"
+                name="info-circle"
+                class="mr-1"
+              />
+            </label>
+            <div class="col">
+              <b-form-input
+                id="commands"
+                v-model="appRegistrationSpecification.commands"
+              />
+            </div>
+          </div>
+          <div class="form-row form-group">
+            <label class="col-3 col-form-label">
+              Cont. Ports
+              <v-icon
+                v-b-tooltip.hover.top="'Container Ports - Array of ports which your container has'"
+                name="info-circle"
+                class="mr-1"
+              />
+            </label>
+            <div class="col">
+              <b-form-input
+                id="containerPorts"
+                v-model="appRegistrationSpecification.containerPorts"
+              />
+            </div>
+          </div>
+          <div class="form-row form-group">
+            <label class="col-3 col-form-label">
+              Cont. Data
+              <v-icon
+                v-b-tooltip.hover.top="'Data folder that is shared by application to App volume'"
+                name="info-circle"
+                class="mr-1"
+              />
+            </label>
+            <div class="col">
+              <b-form-input
+                id="containerData"
+                v-model="appRegistrationSpecification.containerData"
+              />
+            </div>
+          </div>
         </b-card>
       </b-col>
     </b-row>
@@ -471,6 +501,7 @@ import {
   BFormInput,
   BFormTextarea,
   BLink,
+  VBTooltip,
 } from 'bootstrap-vue'
 
 import { mapState } from 'vuex'
@@ -499,6 +530,7 @@ export default {
     ToastificationContent,
   },
   directives: {
+    'b-tooltip': VBTooltip,
     Ripple,
   },
   data() {
