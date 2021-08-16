@@ -302,7 +302,7 @@ export default {
         }
       }
       if (proposalGrantAddress.value) {
-        if (/\s/.test(this.proposalGrantAddress)) {
+        if (/\s/.test(proposalGrantAddress.value)) {
           showToast('danger', 'Proposal Grant Pay to Address Invalid, white space detected')
           return
         }
