@@ -9,6 +9,11 @@
       :data="callResponse.data.status"
     />
     <list-entry
+      v-if="callResponse.data.architecture"
+      title="Architecture"
+      :data="callResponse.data.architecture"
+    />
+    <list-entry
       v-if="callResponse.data.time"
       title="Time"
       :data="new Date(callResponse.data.time * 1000).toLocaleString('en-GB', timeoptions.short)"
@@ -40,7 +45,7 @@
     />
     <list-entry
       v-if="callResponse.data.ddwrite"
-      title="Write Speed"
+      title="Best Write Speed"
       :data="`${callResponse.data.ddwrite.toFixed(2)} MB/s`"
     />
     <list-entry
@@ -49,9 +54,9 @@
       :data="`${callResponse.data.eps.toFixed(2)} eps`"
     />
     <list-entry
-      v-if="callResponse.data.errors"
+      v-if="callResponse.data.error"
       title="Error"
-      :data="callResponse.data.errors"
+      :data="callResponse.data.error"
       variant="danger"
     />
   </b-card>

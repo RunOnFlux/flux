@@ -2,9 +2,9 @@
   <div>
     <b-row>
       <b-col
-        md="12"
+        md="6"
         sm="12"
-        lg="4"
+        lg="3"
       >
         <b-overlay
           :show="fluxListLoading"
@@ -40,7 +40,7 @@
       <b-col
         md="6"
         sm="12"
-        lg="4"
+        lg="3"
       >
         <b-overlay
           :show="fluxListLoading"
@@ -76,7 +76,7 @@
       <b-col
         md="6"
         sm="12"
-        lg="4"
+        lg="3"
       >
         <b-overlay
           :show="fluxListLoading"
@@ -104,6 +104,42 @@
                 height="400"
                 :options="ssdData.chartOptions"
                 :series="ssdData.series"
+              />
+            </b-card-body>
+          </b-card>
+        </b-overlay>
+      </b-col>
+      <b-col
+        md="6"
+        sm="12"
+        lg="3"
+      >
+        <b-overlay
+          :show="fluxListLoading"
+          variant="transparent"
+          blur="5px"
+        >
+          <b-card no-body>
+            <b-card-body
+              class="mr-2"
+            >
+              <b-avatar
+                size="48"
+                variant="light-success"
+              >
+                <feather-icon
+                  size="24"
+                  icon="HardDriveIcon"
+                />
+              </b-avatar>
+              <h2 class="mt-1">
+                Total HDD: {{ beautifyValue(totalHDD / 1000, 2) }} TB
+              </h2>
+              <vue-apex-charts
+                type="bar"
+                height="400"
+                :options="hddData.chartOptions"
+                :series="hddData.series"
               />
             </b-card-body>
           </b-card>
@@ -209,7 +245,7 @@
                 />
               </b-avatar>
               <h2 class="mt-1">
-                SSD History
+                Storage History
               </h2>
             </b-card-body>
             <vue-apex-charts
@@ -267,15 +303,19 @@ export default {
       totalCores: 0,
       totalRAM: 0,
       totalSSD: 0,
+      totalHDD: 0,
       cumulusCpuValue: 0,
       nimbusCpuValue: 0,
       stratusCpuValue: 0,
       cumulusRamValue: 0,
       nimbusRamValue: 0,
       stratusRamValue: 0,
-      cumulusStorageValue: 0,
-      nimbusStorageValue: 0,
-      stratusStorageValue: 0,
+      cumulusSSDStorageValue: 0,
+      cumulusHDDStorageValue: 0,
+      nimbusSSDStorageValue: 0,
+      nimbusHDDStorageValue: 0,
+      stratusSSDStorageValue: 0,
+      stratusHDDStorageValue: 0,
       cpuData: {
         series: [],
         chartOptions: {
@@ -610,6 +650,53 @@ export default {
           },
         },
       },
+      hddData: {
+        series: [],
+        chartOptions: {
+          colors: [tierColors.cumulus, tierColors.nimbus, tierColors.stratus],
+          plotOptions: {
+            bar: {
+              columnWidth: '85%',
+              distributed: true,
+            },
+          },
+          dataLabels: {
+            enabled: false,
+          },
+          legend: {
+            show: false,
+          },
+          xaxis: {
+            labels: {
+              categories: ['Cumulus', 'Nimbus', 'Stratus'],
+              style: {
+                colors: [tierColors.cumulus, tierColors.nimbus, tierColors.stratus],
+                fontSize: '14px',
+                fontFamily: 'Montserrat',
+              },
+            },
+          },
+          yaxis: {
+            labels: {
+              style: {
+                colors: '#888',
+                fontSize: '14px',
+                fontFamily: 'Montserrat',
+              },
+              formatter: value => `${this.beautifyValue(value / 1000, 0)}`,
+            },
+          },
+          tooltip: {
+            y: {
+              formatter: value => `${this.beautifyValue(value / 1000, 2)} TB`,
+            },
+          },
+          stroke: {
+            lineCap: 'round',
+          },
+          labels: ['Cumulus', 'Nimbus', 'Stratus'],
+        },
+      },
       historyStatsLoading: true,
       fluxHistoryStats: [],
     }
@@ -626,27 +713,30 @@ export default {
         if (node.tier === 'CUMULUS' && node.benchmark && node.benchmark.bench) {
           this.cumulusCpuValue += node.benchmark.bench.cores === 0 ? 2 : node.benchmark.bench.cores
           this.cumulusRamValue += node.benchmark.bench.ram < 4 ? 4 : Math.round(node.benchmark.bench.ram)
-          this.cumulusStorageValue += node.benchmark.bench.ssd + node.benchmark.bench.hdd < 50 ? 50 : node.benchmark.bench.ssd + node.benchmark.bench.hdd
+          this.cumulusSSDStorageValue += node.benchmark.bench.ssd
+          this.cumulusHDDStorageValue += node.benchmark.bench.hdd
         } else if (node.tier === 'CUMULUS') {
           this.cumulusCpuValue += 2
           this.cumulusRamValue += 4
-          this.cumulusStorageValue += 50
+          this.cumulusHDDStorageValue += 50
         } else if (node.tier === 'NIMBUS' && node.benchmark && node.benchmark.bench) {
           this.nimbusCpuValue += node.benchmark.bench.cores === 0 ? 4 : node.benchmark.bench.cores
           this.nimbusRamValue += node.benchmark.bench.ram < 8 ? 8 : Math.round(node.benchmark.bench.ram)
-          this.nimbusStorageValue += node.benchmark.bench.ssd + node.benchmark.bench.hdd < 150 ? 150 : node.benchmark.bench.ssd + node.benchmark.bench.hdd
+          this.nimbusSSDStorageValue += node.benchmark.bench.ssd
+          this.nimbusHDDStorageValue += node.benchmark.bench.hdd
         } else if (node.tier === 'NIMBUS') {
           this.nimbusCpuValue += 4
           this.nimbusRamValue += 8
-          this.nimbusStorageValue += 150
+          this.nimbusSSDStorageValue += 150
         } else if (node.tier === 'STRATUS' && node.benchmark && node.benchmark.bench) {
           this.stratusCpuValue += node.benchmark.bench.cores === 0 ? 8 : node.benchmark.bench.cores
           this.stratusRamValue += node.benchmark.bench.ram < 32 ? 32 : Math.round(node.benchmark.bench.ram)
-          this.stratusStorageValue += node.benchmark.bench.ssd + node.benchmark.bench.hdd < 600 ? 600 : node.benchmark.bench.ssd + node.benchmark.bench.hdd
+          this.stratusSSDStorageValue += node.benchmark.bench.ssd
+          this.stratusHDDStorageValue += node.benchmark.bench.hdd
         } else if (node.tier === 'STRATUS') {
           this.stratusCpuValue += 8
           this.stratusRamValue += 32
-          this.stratusStorageValue += 600
+          this.stratusSSDStorageValue += 600
         }
       })
 
@@ -656,8 +746,11 @@ export default {
       this.totalRAM = this.cumulusRamValue + this.nimbusRamValue + this.stratusRamValue
       this.ramData.series = [{ name: 'RAM', data: [this.cumulusRamValue, this.nimbusRamValue, this.stratusRamValue] }]
 
-      this.totalSSD = this.cumulusStorageValue + this.nimbusStorageValue + this.stratusStorageValue
-      this.ssdData.series = [{ name: 'SSD', data: [this.cumulusStorageValue, this.nimbusStorageValue, this.stratusStorageValue] }]
+      this.totalSSD = this.cumulusSSDStorageValue + this.nimbusSSDStorageValue + this.stratusSSDStorageValue
+      this.ssdData.series = [{ name: 'SSD', data: [this.cumulusSSDStorageValue, this.nimbusSSDStorageValue, this.stratusSSDStorageValue] }]
+
+      this.totalHDD = this.cumulusHDDStorageValue + this.nimbusHDDStorageValue + this.stratusHDDStorageValue
+      this.hddData.series = [{ name: 'HDD', data: [this.cumulusHDDStorageValue, this.nimbusHDDStorageValue, this.stratusHDDStorageValue] }]
 
       this.fluxListLoading = false
     },
