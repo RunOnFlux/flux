@@ -542,6 +542,7 @@ export default {
       dataToSign: '',
       timestamp: '',
       signature: '',
+      registrationHash: '',
       registrationtype: 'fluxappregister',
       appRegistrationSpecification: {
         version: 2,
