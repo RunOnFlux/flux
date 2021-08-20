@@ -11,6 +11,7 @@ const util = require('util');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const daemonService = require('./daemonService');
+const benchmarkService = require('./benchmarkService');
 const userconfig = require('../../../config/userconfig');
 
 const outgoingConnections = []; // websocket list
@@ -21,6 +22,8 @@ const incomingPeers = []; // array of objects containing ip
 
 let dosState = 0; // we can start at bigger number later
 let dosMessage = null;
+
+const minimumFluxBenchAllowedVersion = 223;
 
 // my external Flux IP from benchmark
 let myFluxIP = null;
@@ -1051,9 +1054,41 @@ async function removeIncomingPeer(req, res, expressWS) {
   return res.json(response);
 }
 
+async function checkFluxbenchVersionAllowed() {
+  try {
+    const benchmarkInfoResponse = await benchmarkService.getInfo();
+    if (benchmarkInfoResponse.status === 'success') {
+      log.info(benchmarkInfoResponse);
+      let benchmarkVersion = benchmarkInfoResponse.data.version;
+      benchmarkVersion = benchmarkVersion.replace(/\./g, '');
+      if (benchmarkVersion >= minimumFluxBenchAllowedVersion) {
+        return true;
+      }
+      dosState += 2;
+      dosMessage = `Fluxbench Version Error. Current lower version allowed is v${minimumFluxBenchAllowedVersion} found v${benchmarkVersion}`;
+      log.error(dosMessage);
+      return false;
+    }
+    dosState += 2;
+    dosMessage = 'Fluxbench Version Error. Error obtaining Flux Version.';
+    log.error(dosMessage);
+    return false;
+  } catch (err) {
+    log.error(err);
+    log.error(`Error on checkFluxBenchVersion: ${err.message}`);
+    dosState += 2;
+    dosMessage = 'Fluxbench Version Error. Error obtaining Flux Version.';
+    return false;
+  }
+}
+
 async function checkMyFluxAvailability(nodelist) {
   // run if at least 10 available nodes
   if (nodelist.length > 10) {
+    const fluxBenchVersionAllowed = await checkFluxbenchVersionAllowed();
+    if (!fluxBenchVersionAllowed) {
+      return;
+    }
     let askingIP = await getRandomConnection();
     if (typeof askingIP !== 'string' || typeof myFluxIP !== 'string' || myFluxIP === askingIP) {
       return;
@@ -1087,16 +1122,7 @@ async function checkMyFluxAvailability(nodelist) {
         const benchMyIP = benchIpResponse.data.length > 5 ? benchIpResponse.data : null;
         if (benchMyIP && benchMyIP !== myIP) {
           myIP = benchMyIP;
-          const restartNodeResponse = await daemonService.restartNodeBenchmarks();
-          if (restartNodeResponse.status !== 'success') {
-            dosMessage = benchIpResponse.data;
-            dosState += 10;
-          }
-          await serviceHelper.delay(2 * 60 * 1000); // lets wait two minutes
-          setTimeout(() => {
-            // it will try to create a confirmation transaction after 10 minutes of ask bench to restart, should be enough to restart and finish the bench.
-            daemonService.createConfirmationTransaction(); // on my pi for reference, running restarnodebench on micro sd card takes 5 minutes to finish
-          }, 8 * 60 * 1000);
+          daemonService.createConfirmationTransaction();
           return;
         }
       } else {
