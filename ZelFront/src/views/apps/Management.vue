@@ -2048,8 +2048,8 @@ export default {
 
         // check ports is within range
         appSpecFormatted.ports.forEach(port => {
-          if (port < fluxapps.apps.portMin || port > fluxapps.apps.portMax) {
-            throw new Error(`Assigned port ${port} is not within Apps range ${fluxapps.apps.portMin}-${fluxapps.apps.portMax}`)
+          if (port < fluxapps.portMin || port > fluxapps.portMax) {
+            throw new Error(`Assigned port ${port} is not within Apps range ${fluxapps.portMin}-${fluxapps.portMax}`)
           }
         })
 
@@ -2222,13 +2222,13 @@ export default {
       let price
       if (specifications.tiered) {
         const cpuTotalCount = specifications.cpubasic + specifications.cpusuper + specifications.cpubamf
-        const cpuPrice = cpuTotalCount * fluxapps.apps.price.cpu * 10 // 0.1 core cost cpu price
+        const cpuPrice = cpuTotalCount * fluxapps.price.cpu * 10 // 0.1 core cost cpu price
         const cpuTotal = cpuPrice / 3
         const ramTotalCount = specifications.rambasic + specifications.ramsuper + specifications.rambamf
-        const ramPrice = (ramTotalCount * fluxapps.apps.price.ram) / 100
+        const ramPrice = (ramTotalCount * fluxapps.price.ram) / 100
         const ramTotal = ramPrice / 3
         const hddTotalCount = specifications.hddbasic + specifications.hddsuper + specifications.hddbamf
-        const hddPrice = hddTotalCount * fluxapps.apps.price.hdd
+        const hddPrice = hddTotalCount * fluxapps.price.hdd
         const hddTotal = hddPrice / 3
         const totalPrice = cpuTotal + ramTotal + hddTotal
         price = Number(Math.ceil(totalPrice * 100) / 100)
@@ -2237,9 +2237,9 @@ export default {
         }
         return price
       }
-      const cpuTotal = specifications.cpu * fluxapps.apps.price.cpu * 10
-      const ramTotal = (specifications.ram * fluxapps.apps.price.ram) / 100
-      const hddTotal = specifications.hdd * fluxapps.apps.price.hdd
+      const cpuTotal = specifications.cpu * fluxapps.price.cpu * 10
+      const ramTotal = (specifications.ram * fluxapps.price.ram) / 100
+      const hddTotal = specifications.hdd * fluxapps.price.hdd
       const totalPrice = cpuTotal + ramTotal + hddTotal
       price = Number(Math.ceil(totalPrice * 100) / 100)
       if (price < 1) {
