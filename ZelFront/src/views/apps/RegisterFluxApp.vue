@@ -630,7 +630,9 @@ export default {
   mounted() {
     this.getRandomPort()
     this.registrationInformation()
-    this.appRegistrationSpecification.owner = this.userconfig.zelid
+    const zelidauth = localStorage.getItem('zelidauth')
+    const auth = qs.parse(zelidauth)
+    this.appRegistrationSpecification.owner = auth.zelid
   },
   methods: {
     async checkFluxSpecificationsAndFormatMessage() {
