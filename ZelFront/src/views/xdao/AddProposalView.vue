@@ -273,7 +273,7 @@ export default {
     }
 
     const getXdaoPrice = async () => {
-      const response = await axios.get('https://stats.runonflux.io/proposals/price');
+      const response = await axios.get('https://stats.runonflux.io/proposals/price')
       console.log(response)
       if (response.data.status === 'success') {
         proposalPrice.value = response.data.data
