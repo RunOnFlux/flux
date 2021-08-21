@@ -458,7 +458,7 @@
           <b-card>
             <b-card-text>
               To finish the application update, please make a transaction of {{ appPricePerMonth }} FLUX to address
-              '{{ fluxapps.address }}'
+              '{{ fluxapps.apps.address }}'
               with the following message:
               '{{ registrationHash }}'
             </b-card-text>
@@ -473,7 +473,7 @@
           lg="4"
         >
           <b-card title="Pay with ZelCore">
-            <a :href="'zel:?action=pay&coin=zelcash&address=' + fluxapps.address + '&amount=' + appPricePerMonth + '&message=' + registrationHash + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FZelFront%2Fsrc%2Fassets%2Fimg%2Fflux_banner.png'">
+            <a :href="'zel:?action=pay&coin=zelcash&address=' + fluxapps.apps.address + '&amount=' + appPricePerMonth + '&message=' + registrationHash + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FZelFront%2Fsrc%2Fassets%2Fimg%2Fflux_banner.png'">
               <img
                 class="zelidLogin"
                 src="@/assets/images/zelID.svg"
@@ -802,8 +802,8 @@ export default {
 
         // check ports is within range
         appSpecFormatted.ports.forEach(port => {
-          if (port < fluxapps.portMin || port > fluxapps.portMax) {
-            throw new Error(`Assigned port ${port} is not within Apps range ${fluxapps.portMin}-${fluxapps.portMax}`)
+          if (port < fluxapps.apps.portMin || port > fluxapps.apps.portMax) {
+            throw new Error(`Assigned port ${port} is not within Apps range ${fluxapps.apps.portMin}-${fluxapps.apps.portMax}`)
           }
         })
 
@@ -931,13 +931,13 @@ export default {
       const response = await AppsService.appsRegInformation()
       const { data } = response.data
       if (response.data.status === 'success') {
-        fluxapps.price.cpu = data.price.cpu
-        fluxapps.price.hdd = data.price.hdd
-        fluxapps.price.ram = data.price.ram
-        fluxapps.address = data.address
-        fluxapps.epochstart = data.epochstart
-        fluxapps.portMin = data.portMin
-        fluxapps.portMax = data.portMax
+        fluxapps.apps.price.cpu = data.price.cpu
+        fluxapps.apps.price.hdd = data.price.hdd
+        fluxapps.apps.price.ram = data.price.ram
+        fluxapps.apps.address = data.address
+        fluxapps.apps.epochstart = data.epochstart
+        fluxapps.apps.portMin = data.portMin
+        fluxapps.apps.portMax = data.portMax
       } else {
         this.showToast('danger', response.data.data.message || response.data.data)
       }
