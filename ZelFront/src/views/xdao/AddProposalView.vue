@@ -276,7 +276,7 @@ export default {
       const response = await axios.get('https://stats.runonflux.io/proposals/price');
       console.log(response)
       if (response.data.status === 'success') {
-        this.proposalPrice = response.data.data
+        proposalPrice.value = response.data.data
       } else {
         showToast('danger', response.data.data.message || response.data.data)
       }
