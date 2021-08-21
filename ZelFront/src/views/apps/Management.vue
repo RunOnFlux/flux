@@ -1368,7 +1368,7 @@
               <b-card>
                 <b-card-text>
                   To finish the application update, please make a transaction of {{ appPricePerMonthForUpdate }} FLUX to address
-                  '{{ fluxapps.address }}'
+                  '{{ foundationAddress }}'
                   with the following message:
                   '{{ updateHash }}'
                 </b-card-text>
@@ -1383,7 +1383,7 @@
               lg="4"
             >
               <b-card title="Pay with ZelCore">
-                <a :href="'zel:?action=pay&coin=zelcash&address=' + fluxapps.address + '&amount=' + appPricePerMonthForUpdate + '&message=' + updateHash + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FZelFront%2Fsrc%2Fassets%2Fimg%2Fflux_banner.png'">
+                <a :href="'zel:?action=pay&coin=zelcash&address=' + foundationAddress + '&amount=' + appPricePerMonthForUpdate + '&message=' + updateHash + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FZelFront%2Fsrc%2Fassets%2Fimg%2Fflux_banner.png'">
                   <img
                     class="zelidLogin"
                     src="@/assets/images/zelID.svg"
@@ -1572,6 +1572,7 @@ export default {
       total: '',
       downloaded: '',
       abortToken: {},
+      foundationAddress: 't1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6',
     }
   },
   computed: {
