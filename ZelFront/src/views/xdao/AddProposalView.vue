@@ -272,6 +272,16 @@ export default {
       })
     }
 
+    const getXdaoPrice = async () => {
+      const response = await axios.get('https://stats.runonflux.io/proposals/price');
+      console.log(response)
+      if (response.data.status === 'success') {
+        this.proposalPrice = response.data.data
+      } else {
+        showToast('danger', response.data.data.message || response.data.data)
+      }
+    }
+
     const validateProposal = () => {
       if (proposalTopic.value === '') {
         showToast('danger', 'Proposal Topic is Mandatory')
@@ -307,6 +317,7 @@ export default {
           return
         }
       }
+      getXdaoPrice()
       proposalValid.value = true
     }
 
