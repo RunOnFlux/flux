@@ -61,6 +61,9 @@
             Load More Blocks
           </b-button>
         </div>
+        <div class="syncstatus">
+          {{ 'Synced: ' + scannedHeight + '/' + getInfoResponse.data.blocks}}
+        </div>
       </b-col>
     </b-row>
     <b-row
@@ -690,5 +693,10 @@ export default {
 }
 .txid-title .card-header .collapse-title {
   overflow: auto !important;
+}
+.syncstatus {
+  padding-left: 10px;
+  position: absolute;
+  margin-top: -50px;
 }
 </style>
