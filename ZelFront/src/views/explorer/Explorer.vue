@@ -62,7 +62,7 @@
           </b-button>
         </div>
         <div class="syncstatus">
-          {{ 'Synced: ' + scannedHeight + '/' + getInfoResponse.data.blocks}}
+          {{ 'Synced: ' + scannedHeight + '/' + getInfoResponse.data.blocks }}
         </div>
       </b-col>
     </b-row>

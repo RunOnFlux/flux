@@ -2,10 +2,6 @@ export default [
   {
     header: 'Dashboard',
   },
-  // {
-  //  title: 'Dashboard',
-  //  icon: 'GridIcon',
-  //  children: [
   {
     title: 'Overview',
     icon: 'chart-pie',
@@ -31,6 +27,4 @@ export default [
     icon: 'list-ul',
     route: 'dashboard-list',
   },
-  //  ],
-  // },
 ]
