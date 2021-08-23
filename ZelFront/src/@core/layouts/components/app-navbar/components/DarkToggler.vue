@@ -1,5 +1,8 @@
 <template>
-  <b-nav-item @click="skin = isDark ? 'light' : 'dark'">
+  <b-nav-item
+    v-b-tooltip.hover title="Toggle Dark Mode"
+    @click="skin = isDark ? 'light' : 'dark'"
+  >
     <feather-icon
       size="21"
       :icon="`${isDark ? 'Sun' : 'Moon'}Icon`"
@@ -10,11 +13,17 @@
 <script>
 import useAppConfig from '@core/app-config/useAppConfig'
 import { computed } from '@vue/composition-api'
-import { BNavItem } from 'bootstrap-vue'
+import {
+  BNavItem,
+  VBTooltip,
+} from 'bootstrap-vue'
 
 export default {
   components: {
     BNavItem,
+  },
+  directives: {
+    'b-tooltip': VBTooltip,
   },
   setup() {
     const { skin } = useAppConfig()
