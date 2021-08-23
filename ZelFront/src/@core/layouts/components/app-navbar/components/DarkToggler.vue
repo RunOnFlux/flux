@@ -1,6 +1,7 @@
 <template>
   <b-nav-item
-    v-b-tooltip.hover title="Toggle Dark Mode"
+    v-b-tooltip.hover
+    title="Toggle Dark Mode"
     @click="skin = isDark ? 'light' : 'dark'"
   >
     <feather-icon

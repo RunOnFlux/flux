@@ -1,6 +1,7 @@
 <template>
   <b-nav-item
-    v-b-tooltip.hover title="Toggle Menu Style"
+    v-b-tooltip.hover
+    title="Toggle Menu Style"
     @click="isNavMenuCollapsed = isCollapsed ? false : true"
     class="menu-toggler"
   >
