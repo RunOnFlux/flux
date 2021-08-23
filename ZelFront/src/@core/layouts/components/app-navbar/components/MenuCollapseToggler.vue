@@ -2,8 +2,8 @@
   <b-nav-item
     v-b-tooltip.hover
     title="Toggle Menu Style"
-    @click="isNavMenuCollapsed = isCollapsed ? false : true"
     class="menu-toggler"
+    @click="isNavMenuCollapsed = isCollapsed ? false : true"
   >
     <v-icon
       size="21"
