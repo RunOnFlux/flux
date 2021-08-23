@@ -1,18 +1,27 @@
 <template>
   <li
-    v-if="canViewVerticalNavMenuGroup(item)"
+    v-if="hasPrivilegeLevel(item) && canViewVerticalNavMenuGroup(item)"
     class="nav-item has-sub"
     :class="{
       'open': isOpen,
       'disabled': item.disabled,
       'sidebar-group-active': isActive,
+      'sidebar-group-spacing': item.spacing,
     }"
   >
     <b-link
       class="d-flex align-items-center"
       @click="() => updateGroupOpen(!isOpen)"
     >
-      <v-icon :name="item.icon || 'regular/circle'" />
+      <v-icon
+        v-if="item.icon"
+        :name="item.icon || 'regular/circle'"
+      />
+      <b-img
+        v-if="item.image"
+        :src="item.image"
+        class="sidebar-menu-image"
+      />
       <span class="menu-title text-truncate">{{ t(item.title) }}</span>
       <b-badge
         v-if="item.tag"
@@ -40,10 +49,16 @@
 </template>
 
 <script>
-import { BLink, BBadge, BCollapse } from 'bootstrap-vue'
+import {
+  BLink,
+  BBadge,
+  BCollapse,
+  BImg,
+} from 'bootstrap-vue'
 import { resolveVerticalNavMenuItemComponent as resolveNavItemComponent } from '@core/layouts/utils'
 import { useUtils as useI18nUtils } from '@core/libs/i18n'
 import { useUtils as useAclUtils } from '@core/libs/acl'
+import { mapState } from 'vuex'
 import VerticalNavMenuHeader from '../vertical-nav-menu-header'
 import VerticalNavMenuLink from '../vertical-nav-menu-link/VerticalNavMenuLink.vue'
 
@@ -59,12 +74,26 @@ export default {
     BLink,
     BBadge,
     BCollapse,
+    BImg,
   },
   mixins: [mixinVerticalNavMenuGroup],
   props: {
     item: {
       type: Object,
       required: true,
+    },
+  },
+  computed: {
+    ...mapState('flux', [
+      'privilege',
+    ]),
+  },
+  methods: {
+    hasPrivilegeLevel(item) {
+      if (item.privilege) {
+        return item.privilege.some(value => value === this.privilege)
+      }
+      return true
     },
   },
   setup(props) {
@@ -96,5 +125,11 @@ export default {
 </script>
 
 <style>
-
+.sidebar-group-spacing {
+  margin-top: 1rem;
+}
+.sidebar-menu-image {
+  width: 20px;
+  margin-right: 1.1rem;
+}
 </style>

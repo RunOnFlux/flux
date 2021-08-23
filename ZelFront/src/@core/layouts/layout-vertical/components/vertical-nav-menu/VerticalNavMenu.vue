@@ -73,7 +73,8 @@
       @ps-scroll-y="evt => { shallShadowBottom = evt.srcElement.scrollTop > 0 }"
     >
       <vertical-nav-menu-items
-        :items="navMenuItems"
+        :key="isNavMenuCollapsed"
+        :items="isNavMenuCollapsed ? navMenuItemsCollapsed : navMenuItems"
         class="navigation navigation-main"
       />
     </vue-perfect-scrollbar>
@@ -84,10 +85,15 @@
 <script>
 import VuePerfectScrollbar from 'vue-perfect-scrollbar'
 import { BLink, BImg } from 'bootstrap-vue'
-import { provide, computed, ref } from '@vue/composition-api'
+import {
+  provide,
+  computed,
+  ref,
+} from '@vue/composition-api'
 import useAppConfig from '@core/app-config/useAppConfig'
 import { $themeConfig } from '@themeConfig'
 import navMenuItems from '@/navigation/vertical'
+import navMenuItemsCollapsed from '@/navigation/vertical/index_collapsed'
 import VerticalNavMenuItems from './components/vertical-nav-menu-items/VerticalNavMenuItems.vue'
 import useVerticalNavMenu from './useVerticalNavMenu'
 
@@ -117,7 +123,10 @@ export default {
       updateMouseHovered,
     } = useVerticalNavMenu(props)
 
-    const { skin } = useAppConfig()
+    const {
+      isNavMenuCollapsed,
+      skin,
+    } = useAppConfig()
 
     // Shadow bottom is UI specific and can be removed by user => It's not in `useVerticalNavMenu`
     const shallShadowBottom = ref(false)
@@ -136,6 +145,7 @@ export default {
 
     return {
       navMenuItems,
+      navMenuItemsCollapsed,
       perfectScrollbarSettings,
       isVerticalMenuCollapsed,
       collapseTogglerIcon,
@@ -149,6 +159,7 @@ export default {
 
       // Skin
       skin,
+      isNavMenuCollapsed,
 
       // App Name
       appName,
