@@ -24,6 +24,7 @@ export const $themeConfig = {
     menu: {
       hidden: false,
       isCollapsed: false,
+      itemsCollapsed: true,
     },
     navbar: {
       // ? For horizontal menu, navbar type will work for navMenu type

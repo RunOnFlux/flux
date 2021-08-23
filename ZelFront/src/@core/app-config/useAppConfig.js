@@ -91,6 +91,16 @@ export default function usAppConfig() {
     },
   })
 
+  // ------------------------------------------------
+  // isNavMenuCollapsed
+  // ------------------------------------------------
+  const isNavMenuCollapsed = computed({
+    get: () => store.state.appConfig.layout.menu.collapsed,
+    set: val => {
+      store.commit('appConfig/UPDATE_MENU_COLLAPSED', val)
+    },
+  })
+
   // *===============================================---*
   // *--------- NAVBAR ---------------------------------------*
   // *===============================================---*
@@ -138,5 +148,6 @@ export default function usAppConfig() {
     layoutType,
     contentWidth,
     isNavMenuHidden,
+    isNavMenuCollapsed,
   }
 }

@@ -11,6 +11,7 @@ export default {
       contentWidth: $themeConfig.layout.contentWidth,
       menu: {
         hidden: $themeConfig.layout.menu.hidden,
+        collapsed: localStorage.getItem('menu-itemsCollapsed') === 'true' || $themeConfig.layout.menu.itemsCollapsed,
       },
       navbar: {
         type: $themeConfig.layout.navbar.type,
@@ -54,6 +55,10 @@ export default {
     },
     UPDATE_FOOTER_CONFIG(state, obj) {
       Object.assign(state.layout.footer, obj)
+    },
+    UPDATE_MENU_COLLAPSED(state, val) {
+      state.layout.menu.collapsed = val
+      localStorage.setItem('menu-itemsCollapsed', val)
     },
   },
   actions: {},
