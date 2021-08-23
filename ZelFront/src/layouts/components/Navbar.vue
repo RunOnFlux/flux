@@ -36,6 +36,7 @@
 
     <b-navbar-nav class="nav align-items-center ml-auto">
       <dark-Toggler class="d-block" />
+      <menu-Collapse-Toggler class="d-block" />
       <b-button
         v-if="privilege !== 'none'"
         variant="outline-primary"
@@ -54,6 +55,7 @@ import {
   BLink, BDropdown, BDropdownItemButton, BDropdownDivider, BNavbarNav, BButton, // BNavItemDropdown, BDropdownItem, BDropdownDivider, BAvatar,
 } from 'bootstrap-vue'
 import DarkToggler from '@core/layouts/components/app-navbar/components/DarkToggler.vue'
+import MenuCollapseToggler from '@core/layouts/components/app-navbar/components/MenuCollapseToggler.vue'
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
 import Ripple from 'vue-ripple-directive'
 
@@ -73,6 +75,7 @@ export default {
     BButton,
     // Navbar Components
     DarkToggler,
+    MenuCollapseToggler,
     // eslint-disable-next-line vue/no-unused-components
     ToastificationContent,
   },
