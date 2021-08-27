@@ -280,7 +280,7 @@ import Ripple from 'vue-ripple-directive'
 import VueApexCharts from 'vue-apexcharts'
 
 import { $themeColors } from '@themeConfig'
-import DashboardService from '@/services/DashboardService'
+// import DashboardService from '@/services/DashboardService'
 
 const axios = require('axios')
 
@@ -398,15 +398,26 @@ export default {
     },
     async getZelNodeCount() {
       try {
-        const resCount = await DashboardService.zelnodeCount()
-        const counts = resCount.data.data
+        const result = await axios.get('https://stats.runonflux.io/fluxhistorystats')
+        const fluxHistoryStats = result.data.data
+        const timePoints = Object.keys(fluxHistoryStats)
+        const max = Math.max(...timePoints)
+        const { cumulus, nimbus, stratus } = fluxHistoryStats[max]
+
+        // const resCount = await DashboardService.zelnodeCount()
+        // const counts = resCount.data.data
         // const stratuses = counts['stratus-enabled']
         // const nimbuses = counts['nimbus-enabled']
         // const cumuluses = counts['cumulus-enabled']
-        console.log(resCount)
-        // const supply = stratuses * 100000 + nimbuses * 25000 + cumuluses * 10000
-        // this.lockedSupply = supply
-        // this.lockedSupplyPerc = Number(((supply / this.circulatingSupply) * 100).toFixed(2))
+        // console.log(resCount)
+        const counts = {}
+        counts['stratus-enabled'] = stratus
+        counts['bamf-enabled'] = stratus
+        counts['nimbus-enabled'] = nimbus
+        counts['super-enabled'] = nimbus
+        counts['cumulus-enabled'] = cumulus
+        counts['basic-enabled'] = cumulus
+
         this.generateEconomics(counts)
       } catch (error) {
         console.log(error)
