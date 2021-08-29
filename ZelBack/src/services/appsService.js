@@ -2734,7 +2734,7 @@ async function availableApps(req, res) {
       version: 2,
       name: 'KadenaChainWebData', // corresponds to docker name and this name is stored in apps mongo database
       description: 'Kadena Chainweb Data is extension to Chainweb Node offering additional data about Kadena blockchain. Chainweb Data offers statistics, coins circulation and mainly transaction history and custom searching through transactions',
-      repotag: 'runonflux/kadena-chainweb-data:v1.0.0',
+      repotag: 'runonflux/kadena-chainweb-data:v1.1.0',
       owner: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
       ports: [30006],
       containerPorts: [8888],
@@ -2746,7 +2746,7 @@ async function availableApps(req, res) {
       enviromentParameters: [],
       commands: [],
       containerData: '/var/lib/postgresql/data', // cannot be root todo in verification
-      hash: 'chainwebDataLocalSpecificationsVersion1', // hash of app message
+      hash: 'chainwebDataLocalSpecificationsVersion2', // hash of app message
       height: 900000, // height of tx on which it was
     },
     { // app specifications
