@@ -4,6 +4,7 @@ const bitcoinjs = require('bitcoinjs-lib');
 const config = require('config');
 const cmd = require('node-cmd');
 const LRU = require('lru-cache');
+const os = require('os');
 const fs = require('fs').promises;
 const path = require('path');
 // eslint-disable-next-line import/no-extraneous-dependencies
@@ -12,6 +13,7 @@ const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const daemonService = require('./daemonService');
 const benchmarkService = require('./benchmarkService');
+const appsService = require('./appsService');
 const userconfig = require('../../../config/userconfig');
 
 const outgoingConnections = []; // websocket list
@@ -22,6 +24,7 @@ const incomingPeers = []; // array of objects containing ip
 
 let dosState = 0; // we can start at bigger number later
 let dosMessage = null;
+let nodeHardwareSpecsGood = true;
 
 const minimumFluxBenchAllowedVersion = 223;
 
@@ -362,7 +365,6 @@ async function handleAppMessages(message, fromIP) {
     // if not in database, rebroadcast to all connections
     // do furtherVerification of message
     // eslint-disable-next-line global-require
-    const appsService = require('./appsService');
     const rebroadcastToPeers = await appsService.storeAppTemporaryMessage(message.data, true);
     if (rebroadcastToPeers === true) {
       const messageString = serviceHelper.ensureString(message);
@@ -383,7 +385,6 @@ async function handleAppRunningMessage(message, fromIP) {
     // if not in database, rebroadcast to all connections
     // do furtherVerification of message
     // eslint-disable-next-line global-require
-    const appsService = require('./appsService');
     const rebroadcastToPeers = await appsService.storeAppRunningMessage(message.data);
     if (rebroadcastToPeers === true) {
       const messageString = serviceHelper.ensureString(message);
@@ -415,7 +416,6 @@ async function respondWithAppMessage(message, ws) {
   try {
     // check if we have it database of permanent appMessages
     // eslint-disable-next-line global-require
-    const appsService = require('./appsService');
     const tempMesResponse = myMessageCache.get(serviceHelper.ensureString(message));
     if (tempMesResponse) {
       sendMessageToWS(tempMesResponse, ws);
@@ -1240,6 +1240,7 @@ async function checkDeterministicNodesCollisions() {
 async function getDOSState(req, res) {
   const data = {
     dosState,
+    nodeHardwareSpecsGood,
     dosMessage,
   };
   response = serviceHelper.createDataMessage(data);
@@ -1425,6 +1426,56 @@ async function adjustGitRepository() {
   }
 }
 
+async function confirmNodeTierHardware() {
+  try {
+    const tier = await appsService.nodeTier();
+    const nodeRam = os.totalmem() / 1024 / 1024 / 1024;
+    const nodeCpuCores = os.cpus().length;
+    log.info(`Node Tier: ${tier}`);
+    log.info(`Node Total Ram: ${nodeRam}`);
+    log.info(`Node Cpu Cores: ${nodeCpuCores}`);
+    if (tier === 'bamf') {
+      if (nodeRam < 32) {
+        log.error(`Node Total Ram (${nodeRam}) below Stratus requirements`);
+        nodeHardwareSpecsGood = false;
+        return;
+      }
+      if (nodeCpuCores < 8) {
+        log.error(`Node Cpu Cores (${nodeCpuCores}) below Stratus requirements`);
+        nodeHardwareSpecsGood = false;
+        return;
+      }
+    } else if (tier === 'super') {
+      if (nodeRam < 8) {
+        log.error(`Node Total Ram (${nodeRam}) below Nimbus requirements`);
+        nodeHardwareSpecsGood = false;
+        return;
+      }
+      if (nodeCpuCores < 4) {
+        log.error(`Node Cpu Cores (${nodeCpuCores}) below Nimbus requirements`);
+        nodeHardwareSpecsGood = false;
+        return;
+      }
+    } else {
+      if (nodeRam < 4) {
+        log.error(`Node Total Ram (${nodeRam}) below Cumulus requirements`);
+        nodeHardwareSpecsGood = false;
+        return;
+      }
+      if (nodeCpuCores < 2) {
+        log.error(`Node Cpu Cores (${nodeCpuCores}) below Cumulus requirements`);
+        nodeHardwareSpecsGood = false;
+        return;
+      }
+    }
+    log.info('Hardware specs check result ok');
+    nodeHardwareSpecsGood = true;
+  } catch (error) {
+    log.error(error);
+    nodeHardwareSpecsGood = false;
+  }
+}
+
 module.exports = {
   getFluxMessageSignature,
   verifyOriginalFluxBroadcast,
@@ -1462,4 +1513,5 @@ module.exports = {
   adjustFirewall,
   checkDeterministicNodesCollisions,
   adjustGitRepository,
+  confirmNodeTierHardware,
 };
