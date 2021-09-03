@@ -161,18 +161,18 @@ import {
   BButton,
   BFormSpinbutton,
   // VBTooltip,
-} from 'bootstrap-vue'
-import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
-import Ripple from 'vue-ripple-directive'
-import axios from 'axios'
-import ConfirmDialog from '@/views/components/ConfirmDialog.vue'
+} from 'bootstrap-vue';
+import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
+import Ripple from 'vue-ripple-directive';
+import axios from 'axios';
+import ConfirmDialog from '@/views/components/ConfirmDialog.vue';
 
-import DaemonService from '@/services/DaemonService'
-import FluxService from '@/services/FluxService'
+import DaemonService from '@/services/DaemonService';
+import FluxService from '@/services/FluxService';
 // import ExplorerService from '@/services/ExplorerService'
 // import AppsService from '@/services/AppsService'
 
-const qs = require('qs')
+const qs = require('qs');
 
 export default {
   components: {
@@ -193,155 +193,155 @@ export default {
   data() {
     return {
       rescanDaemonHeight: 0,
-    }
+    };
   },
   mounted() {
-    this.checkDaemonVersion()
+    this.checkDaemonVersion();
   },
   methods: {
     checkDaemonVersion() {
       DaemonService.getInfo()
-        .then(daemonResponse => {
-          console.log(daemonResponse)
-          const daemonVersion = daemonResponse.data.data.version
+        .then((daemonResponse) => {
+          console.log(daemonResponse);
+          const daemonVersion = daemonResponse.data.data.version;
           axios.get('https://raw.githubusercontent.com/runonflux/flux/master/helpers/daemoninfo.json')
-            .then(response => {
-              console.log(response)
+            .then((response) => {
+              console.log(response);
               if (response.data.version !== daemonVersion) {
-                this.showToast('warning', 'Daemon requires an update!')
+                this.showToast('warning', 'Daemon requires an update!');
               } else {
-                this.showToast('success', 'Daemon is up to date.')
+                this.showToast('success', 'Daemon is up to date.');
               }
             })
-            .catch(error => {
-              console.log(error)
-              this.showToast('danger', 'Error verifying recent version')
-            })
+            .catch((error) => {
+              console.log(error);
+              this.showToast('danger', 'Error verifying recent version');
+            });
         })
-        .catch(error => {
-          console.log(error)
-          this.showToast('danger', 'Error connecting to Daemon')
-        })
+        .catch((error) => {
+          console.log(error);
+          this.showToast('danger', 'Error connecting to Daemon');
+        });
     },
     updateDaemon() {
       DaemonService.getInfo()
-        .then(daemonResponse => {
-          console.log(daemonResponse)
-          const daemonVersion = daemonResponse.data.data.version
+        .then((daemonResponse) => {
+          console.log(daemonResponse);
+          const daemonVersion = daemonResponse.data.data.version;
           axios.get('https://raw.githubusercontent.com/runonflux/flux/master/helpers/daemoninfo.json')
-            .then(response => {
-              console.log(response)
+            .then((response) => {
+              console.log(response);
               if (response.data.version !== daemonVersion) {
-                const zelidauth = localStorage.getItem('zelidauth')
-                const auth = qs.parse(zelidauth)
-                console.log(auth)
-                this.showToast('warning', 'Daemon is now updating in the background')
+                const zelidauth = localStorage.getItem('zelidauth');
+                const auth = qs.parse(zelidauth);
+                console.log(auth);
+                this.showToast('warning', 'Daemon is now updating in the background');
                 FluxService.updateDaemon(zelidauth)
-                  .then(responseUpdateDaemon => {
-                    console.log(responseUpdateDaemon)
+                  .then((responseUpdateDaemon) => {
+                    console.log(responseUpdateDaemon);
                     if (responseUpdateDaemon.data.status === 'error') {
-                      this.showToast('danger', responseUpdateDaemon.data.data.message || responseUpdateDaemon.data.data)
+                      this.showToast('danger', responseUpdateDaemon.data.data.message || responseUpdateDaemon.data.data);
                     }
                   })
-                  .catch(e => {
-                    console.log(e)
-                    console.log(e.code)
-                    this.showToast('danger', e.toString())
-                  })
+                  .catch((e) => {
+                    console.log(e);
+                    console.log(e.code);
+                    this.showToast('danger', e.toString());
+                  });
               } else {
-                this.showToast('success', 'Daemon is already up to date')
+                this.showToast('success', 'Daemon is already up to date');
               }
             })
-            .catch(error => {
-              console.log(error)
-              this.showToast('danger', 'Error verifying recent version')
-            })
+            .catch((error) => {
+              console.log(error);
+              this.showToast('danger', 'Error verifying recent version');
+            });
         })
-        .catch(error => {
-          console.log(error)
-          this.showToast('danger', 'Error connecting to Daemon')
-        })
+        .catch((error) => {
+          console.log(error);
+          this.showToast('danger', 'Error connecting to Daemon');
+        });
     },
     startDaemon() {
-      this.showToast('warning', 'Daemon will start')
-      const zelidauth = localStorage.getItem('zelidauth')
+      this.showToast('warning', 'Daemon will start');
+      const zelidauth = localStorage.getItem('zelidauth');
       DaemonService.start(zelidauth)
-        .then(response => {
+        .then((response) => {
           if (response.data.status === 'error') {
-            this.showToast('danger', response.data.data.message || response.data.data)
+            this.showToast('danger', response.data.data.message || response.data.data);
           } else {
-            this.showToast('success', response.data.data.message || response.data.data)
+            this.showToast('success', response.data.data.message || response.data.data);
           }
         })
-        .catch(error => {
-          console.log(error)
-          this.showToast('danger', 'Error while trying to start Daemon')
-        })
+        .catch((error) => {
+          console.log(error);
+          this.showToast('danger', 'Error while trying to start Daemon');
+        });
     },
     stopDaemon() {
-      this.showToast('warning', 'Daemon will be stopped')
-      const zelidauth = localStorage.getItem('zelidauth')
+      this.showToast('warning', 'Daemon will be stopped');
+      const zelidauth = localStorage.getItem('zelidauth');
       DaemonService.stopDaemon(zelidauth)
-        .then(response => {
+        .then((response) => {
           if (response.data.status === 'error') {
-            this.showToast('danger', response.data.data.message || response.data.data)
+            this.showToast('danger', response.data.data.message || response.data.data);
           } else {
-            this.showToast('success', response.data.data.message || response.data.data)
+            this.showToast('success', response.data.data.message || response.data.data);
           }
         })
-        .catch(error => {
-          console.log(error)
-          this.showToast('danger', 'Error while trying to stop Daemon')
-        })
+        .catch((error) => {
+          console.log(error);
+          this.showToast('danger', 'Error while trying to stop Daemon');
+        });
     },
     restartDaemon() {
-      this.showToast('warning', 'Daemon will now restart')
-      const zelidauth = localStorage.getItem('zelidauth')
+      this.showToast('warning', 'Daemon will now restart');
+      const zelidauth = localStorage.getItem('zelidauth');
       DaemonService.restart(zelidauth)
-        .then(response => {
+        .then((response) => {
           if (response.data.status === 'error') {
-            this.showToast('danger', response.data.data.message || response.data.data)
+            this.showToast('danger', response.data.data.message || response.data.data);
           } else {
-            this.showToast('success', response.data.data.message || response.data.data)
+            this.showToast('success', response.data.data.message || response.data.data);
           }
         })
-        .catch(error => {
-          console.log(error)
-          this.showToast('danger', 'Error while trying to restart Daemon')
-        })
+        .catch((error) => {
+          console.log(error);
+          this.showToast('danger', 'Error while trying to restart Daemon');
+        });
     },
     rescanDaemon() {
-      this.showToast('warning', 'Daemon will now rescan. This will take up to an hour.')
-      const zelidauth = localStorage.getItem('zelidauth')
-      const blockheight = this.rescanDaemonHeight > 0 ? this.rescanDaemonHeight : 0
+      this.showToast('warning', 'Daemon will now rescan. This will take up to an hour.');
+      const zelidauth = localStorage.getItem('zelidauth');
+      const blockheight = this.rescanDaemonHeight > 0 ? this.rescanDaemonHeight : 0;
       DaemonService.rescanDaemon(zelidauth, blockheight)
-        .then(response => {
+        .then((response) => {
           if (response.data.status === 'error') {
-            this.showToast('danger', response.data.data.message || response.data.data)
+            this.showToast('danger', response.data.data.message || response.data.data);
           } else {
-            this.showToast('success', response.data.data.message || response.data.data)
+            this.showToast('success', response.data.data.message || response.data.data);
           }
         })
-        .catch(error => {
-          console.log(error)
-          this.showToast('danger', 'Error while trying to rescan Daemon')
-        })
+        .catch((error) => {
+          console.log(error);
+          this.showToast('danger', 'Error while trying to rescan Daemon');
+        });
     },
     reindexDaemon() {
-      this.showToast('warning', 'Daemon will now reindex. This will take several hours.')
-      const zelidauth = localStorage.getItem('zelidauth')
+      this.showToast('warning', 'Daemon will now reindex. This will take several hours.');
+      const zelidauth = localStorage.getItem('zelidauth');
       FluxService.reindexDaemon(zelidauth)
-        .then(response => {
+        .then((response) => {
           if (response.data.status === 'error') {
-            this.showToast('danger', response.data.data.message || response.data.data)
+            this.showToast('danger', response.data.data.message || response.data.data);
           } else {
-            this.showToast('success', response.data.data.message || response.data.data)
+            this.showToast('success', response.data.data.message || response.data.data);
           }
         })
-        .catch(error => {
-          console.log(error)
-          this.showToast('danger', 'Error while trying to reindex Daemon')
-        })
+        .catch((error) => {
+          console.log(error);
+          this.showToast('danger', 'Error while trying to reindex Daemon');
+        });
     },
     showToast(variant, title, icon = 'InfoIcon') {
       this.$toast({
@@ -351,10 +351,10 @@ export default {
           icon,
           variant,
         },
-      })
+      });
     },
   },
-}
+};
 </script>
 
 <style>

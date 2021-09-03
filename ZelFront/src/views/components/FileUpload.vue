@@ -87,10 +87,10 @@ import {
   BCol,
   BProgress,
   BButton,
-} from 'bootstrap-vue'
+} from 'bootstrap-vue';
 
-import { $themeColors } from '@themeConfig'
-import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
+import { $themeColors } from '@themeConfig';
+import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 
 export default {
   components: {
@@ -116,121 +116,121 @@ export default {
       files: [],
       primaryColor: $themeColors.primary,
       secondaryColor: $themeColors.secondary,
-    }
+    };
   },
   computed: {
     cssProps() {
       return {
         '--primary-color': this.primaryColor,
         '--secondary-color': this.secondaryColor,
-      }
+      };
     },
     filesToUpload() {
-      return this.files.length > 0 && this.files.some(file => !file.uploading && !file.uploaded && file.progress === 0)
+      return this.files.length > 0 && this.files.some((file) => !file.uploading && !file.uploaded && file.progress === 0);
     },
   },
   methods: {
     selectFiles() {
-      console.log('select files')
-      this.$refs.fileselector.click()
+      console.log('select files');
+      this.$refs.fileselector.click();
     },
     handleFiles(ev) {
-      const { files } = ev.target
-      if (!files) return
-      console.log(files)
-      this.addFiles(([...files]))
+      const { files } = ev.target;
+      if (!files) return;
+      console.log(files);
+      this.addFiles(([...files]));
     },
     addFile(e) {
-      const droppedFiles = e.dataTransfer.files
-      if (!droppedFiles) return
-      this.addFiles(([...droppedFiles]))
+      const droppedFiles = e.dataTransfer.files;
+      if (!droppedFiles) return;
+      this.addFiles(([...droppedFiles]));
     },
     addFiles(filesToAdd) {
-      filesToAdd.forEach(f => {
-        const existingFiles = this.files.some(file => file.file.name === f.name)
-        console.log(existingFiles)
+      filesToAdd.forEach((f) => {
+        const existingFiles = this.files.some((file) => file.file.name === f.name);
+        console.log(existingFiles);
         if (existingFiles) {
-          this.showToast('warning', `'${f.name}' is already in the upload queue`)
+          this.showToast('warning', `'${f.name}' is already in the upload queue`);
         } else {
           this.files.push({
             file: f,
             uploading: false,
             uploaded: false,
             progress: 0,
-          })
+          });
         }
-      })
+      });
     },
     removeFile(file) {
-      this.files = this.files.filter(f => f.file.name !== file.file.name)
+      this.files = this.files.filter((f) => f.file.name !== file.file.name);
     },
     startUpload() {
-      console.log(this.uploadFolder)
-      console.log(this.files)
-      this.files.forEach(f => {
-        console.log(f)
+      console.log(this.uploadFolder);
+      console.log(this.files);
+      this.files.forEach((f) => {
+        console.log(f);
         if (!f.uploaded && !f.uploading) {
-          this.upload(f)
+          this.upload(f);
         }
-      })
+      });
     },
     /* eslint no-param-reassign: ["error", { "props": false }] */
     upload(file) {
-      const self = this
+      const self = this;
       if (typeof XMLHttpRequest === 'undefined') {
-        return
+        return;
       }
 
-      const xhr = new XMLHttpRequest()
-      const action = this.uploadFolder
+      const xhr = new XMLHttpRequest();
+      const action = this.uploadFolder;
 
       if (xhr.upload) {
         xhr.upload.onprogress = function progress(e) {
-          console.log(e)
+          console.log(e);
           if (e.total > 0) {
-            e.percent = (e.loaded / e.total) * 100
+            e.percent = (e.loaded / e.total) * 100;
           }
-          file.progress = e.percent
-        }
+          file.progress = e.percent;
+        };
       }
 
-      const formData = new FormData()
+      const formData = new FormData();
 
-      formData.append(file.file.name, file.file)
-      file.uploading = true
+      formData.append(file.file.name, file.file);
+      file.uploading = true;
 
       xhr.onerror = function error(e) {
-        console.log(e)
-        self.showToast('danger', `An error occurred while uploading '${file.file.name}' - ${e}`)
-      }
+        console.log(e);
+        self.showToast('danger', `An error occurred while uploading '${file.file.name}' - ${e}`);
+      };
 
       xhr.onload = function onload() {
         if (xhr.status < 200 || xhr.status >= 300) {
-          console.log('error')
-          console.log(xhr.status)
-          self.showToast('danger', `An error occurred while uploading '${file.file.name}' - Status code: ${xhr.status}`)
-          return
+          console.log('error');
+          console.log(xhr.status);
+          self.showToast('danger', `An error occurred while uploading '${file.file.name}' - Status code: ${xhr.status}`);
+          return;
         }
 
-        file.uploaded = true
-        file.uploading = false
-        self.$emit('complete')
+        file.uploaded = true;
+        file.uploading = false;
+        self.$emit('complete');
 
-        self.showToast('success', `'${file.file.name}' has been uploaded`)
-      }
+        self.showToast('success', `'${file.file.name}' has been uploaded`);
+      };
 
-      xhr.open('post', action, true)
+      xhr.open('post', action, true);
 
-      const headers = this.headers || {}
+      const headers = this.headers || {};
 
-      const headerKeys = Object.keys(headers)
+      const headerKeys = Object.keys(headers);
       for (let i = 0; i < headerKeys.length; i += 1) {
-        const item = headerKeys[i]
+        const item = headerKeys[i];
         if (Object.prototype.hasOwnProperty.call(headers, item) && headers[item] !== null) {
-          xhr.setRequestHeader(item, headers[item])
+          xhr.setRequestHeader(item, headers[item]);
         }
       }
-      xhr.send(formData)
+      xhr.send(formData);
     },
     showToast(variant, title, icon = 'InfoIcon') {
       this.$toast({
@@ -240,10 +240,10 @@ export default {
           icon,
           variant,
         },
-      })
+      });
     },
   },
-}
+};
 
 </script>
 

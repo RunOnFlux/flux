@@ -7,7 +7,6 @@
     />
     <div class="xdao-proposal-list">
       <div class="app-fixed-search d-flex align-items-center">
-
         <div class="sidebar-toggle d-block d-lg-none ml-1">
           <feather-icon
             icon="MenuIcon"
@@ -72,12 +71,12 @@
           class="xdao-media-list"
         >
           <b-media
-            v-for="proposal in filteredProposals"
-            :key="proposal.hash"
+            v-for="singleProposal in filteredProposals"
+            :key="singleProposal.hash"
             tag="li"
             no-body
             class="proposal-item"
-            @click="handleProposalClick(proposal)"
+            @click="handleProposalClick(singleProposal)"
           >
             <!-- <feather-icon
               icon="MoreVerticalIcon"
@@ -87,25 +86,25 @@
               <div class="proposal-title-wrapper">
                 <div class="proposal-title-area">
                   <div class="title-wrapper">
-                    <span class="proposal-title"><h4>{{ proposal.topic }}</h4></span>
+                    <span class="proposal-title"><h4>{{ singleProposal.topic }}</h4></span>
                   </div>
                 </div>
                 <div class="proposal-item-action">
                   <div class="badge-wrapper mr-1">
                     <b-badge
                       pill
-                      :variant="`light-${resolveTagVariant(proposal.status)}`"
+                      :variant="`light-${resolveTagVariant(singleProposal.status)}`"
                       class="text-capitalize"
                     >
-                      {{ proposal.status }}
+                      {{ singleProposal.status }}
                     </b-badge>
                   </div>
                   <!-- <small class="text-nowrap text-muted mr-1">{{ formatDate(task.dueDate, { month: 'short', day: 'numeric'}) }}</small> -->
                   <b-avatar
-                    v-if="proposal.nickName"
+                    v-if="singleProposal.nickName"
                     size="32"
-                    :variant="`light-${resolveAvatarVariant(proposal.status)}`"
-                    :text="avatarText(proposal.nickName)"
+                    :variant="`light-${resolveAvatarVariant(singleProposal.status)}`"
+                    :text="avatarText(singleProposal.nickName)"
                   />
                   <b-avatar
                     v-else
@@ -122,52 +121,52 @@
               <div class="proposal-title-area">
                 <div class="title-wrapper">
                   <h6 class="text-nowrap text-muted mr-1">
-                    Submitted: {{ new Date(proposal.submitDate).toLocaleString('en-GB', timeoptions.shortDate) }}
+                    Submitted: {{ new Date(singleProposal.submitDate).toLocaleString('en-GB', timeoptions.shortDate) }}
                   </h6>
                   <h6 class="text-nowrap text-muted mr-1">
-                    End Date: {{ new Date(proposal.voteEndDate).toLocaleString('en-GB', timeoptions.shortDate) }}
+                    End Date: {{ new Date(singleProposal.voteEndDate).toLocaleString('en-GB', timeoptions.shortDate) }}
                   </h6>
                 </div>
               </div>
               <div class="proposal-progress-area">
                 <h6 class="text-nowrap text-muted mr-1">
-                  Required Votes: {{ Number(proposal.votesRequired).toLocaleString() }}
+                  Required Votes: {{ Number(singleProposal.votesRequired).toLocaleString() }}
                 </h6>
                 <b-progress
-                  :max="proposal.votesRequired"
+                  :max="singleProposal.votesRequired"
                   striped
                   animated
                   class="proposal-progress"
                 >
                   <b-progress-bar
-                    :id="`progressbar-no-${proposal.hash}`"
+                    :id="`progressbar-no-${singleProposal.hash}`"
                     variant="danger"
-                    :value="proposal.votesNo"
+                    :value="singleProposal.votesNo"
                     show-progress
                   >
-                    No: {{ Number(proposal.votesNo).toLocaleString() }}
+                    No: {{ Number(singleProposal.votesNo).toLocaleString() }}
                   </b-progress-bar>
                   <b-tooltip
                     ref="tooltip"
-                    :target="`progressbar-no-${proposal.hash}`"
-                    :disabled="proposal.votesNo / proposal.votesRequired > 0.25"
+                    :target="`progressbar-no-${singleProposal.hash}`"
+                    :disabled="singleProposal.votesNo / singleProposal.votesRequired > 0.25"
                   >
-                    <span>No: {{ Number(proposal.votesNo).toLocaleString() }}</span>
+                    <span>No: {{ Number(singleProposal.votesNo).toLocaleString() }}</span>
                   </b-tooltip>
                   <b-progress-bar
-                    :id="`progressbar-yes-${proposal.hash}`"
+                    :id="`progressbar-yes-${singleProposal.hash}`"
                     variant="success"
-                    :value="proposal.votesYes"
+                    :value="singleProposal.votesYes"
                     show-progress
                   >
-                    Yes: {{ Number(proposal.votesYes).toLocaleString() }}
+                    Yes: {{ Number(singleProposal.votesYes).toLocaleString() }}
                   </b-progress-bar>
                   <b-tooltip
                     ref="tooltip"
-                    :target="`progressbar-yes-${proposal.hash}`"
-                    :disabled="proposal.votesYes / proposal.votesRequired > 0.25"
+                    :target="`progressbar-yes-${singleProposal.hash}`"
+                    :disabled="singleProposal.votesYes / singleProposal.votesRequired > 0.25"
                   >
-                    <span>Yes: {{ Number(proposal.votesYes).toLocaleString() }}</span>
+                    <span>Yes: {{ Number(singleProposal.votesYes).toLocaleString() }}</span>
                   </b-tooltip>
                 </b-progress>
               </div>
@@ -226,27 +225,27 @@ import {
   BMedia,
   BMediaBody,
   BTooltip,
-} from 'bootstrap-vue'
+} from 'bootstrap-vue';
 
 import {
   ref, computed, watch, onMounted,
-} from '@vue/composition-api'
+} from '@vue/composition-api';
 
-import { avatarText } from '@core/utils/filter'
-import { useRouter } from '@core/utils/utils'
-import { useResponsiveAppLeftSidebarVisibility } from '@core/comp-functions/ui/app'
-import Ripple from 'vue-ripple-directive'
-import { useToast } from 'vue-toastification/composition'
-import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
-import VuePerfectScrollbar from 'vue-perfect-scrollbar'
+import { avatarText } from '@core/utils/filter';
+import { useRouter } from '@core/utils/utils';
+import { useResponsiveAppLeftSidebarVisibility } from '@core/comp-functions/ui/app';
+import Ripple from 'vue-ripple-directive';
+import { useToast } from 'vue-toastification/composition';
+import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
+import VuePerfectScrollbar from 'vue-perfect-scrollbar';
 
-import AddProposalView from './AddProposalView.vue'
-import ProposalView from './ProposalView.vue'
-import ProposalSidebar from './ProposalSidebar.vue'
+import AddProposalView from './AddProposalView.vue';
+import ProposalView from './ProposalView.vue';
+import ProposalSidebar from './ProposalSidebar.vue';
 
-const qs = require('qs')
-const axios = require('axios')
-const timeoptions = require('@/libs/dateFormat')
+const qs = require('qs');
+const axios = require('axios');
+const timeoptions = require('@/libs/dateFormat');
 
 export default {
   components: {
@@ -275,56 +274,56 @@ export default {
     Ripple,
   },
   setup() {
-    const proposalListRef = ref(null)
-    const zelid = ref(null)
+    const proposalListRef = ref(null);
+    const zelid = ref(null);
 
     // Use toast
-    const toast = useToast()
+    const toast = useToast();
 
     onMounted(() => {
-      const zelidauth = localStorage.getItem('zelidauth')
-      const auth = qs.parse(zelidauth)
-      zelid.value = auth.zelid
-    })
+      const zelidauth = localStorage.getItem('zelidauth');
+      const auth = qs.parse(zelidauth);
+      zelid.value = auth.zelid;
+    });
 
-    const { showDetailSidebar } = useResponsiveAppLeftSidebarVisibility()
+    const { showDetailSidebar } = useResponsiveAppLeftSidebarVisibility();
     // eslint-disable-next-line no-unused-vars
-    const { route, router } = useRouter()
+    const { route, router } = useRouter();
     // eslint-disable-next-line no-unused-vars
-    const routeSortBy = computed(() => route.value.query.sort)
+    const routeSortBy = computed(() => route.value.query.sort);
     // eslint-disable-next-line no-unused-vars
-    const routeQuery = computed(() => route.value.query.q)
+    const routeQuery = computed(() => route.value.query.q);
     // eslint-disable-next-line no-unused-vars
-    const routeParams = computed(() => route.value.params)
+    const routeParams = computed(() => route.value.params);
     watch(routeParams, () => {
       // eslint-disable-next-line no-use-before-define
-      fetchProposals()
-    })
+      fetchProposals();
+    });
 
-    const filteredProposals = ref([])
+    const filteredProposals = ref([]);
 
     const sortOptions = [
       'latest',
       'title-asc',
       'title-desc',
       'end-date',
-    ]
+    ];
 
-    const sortBy = ref(routeSortBy.value)
-    watch(routeSortBy, val => {
-      if (sortOptions.includes(val)) sortBy.value = val
-      else sortBy.value = val
-    })
+    const sortBy = ref(routeSortBy.value);
+    watch(routeSortBy, (val) => {
+      if (sortOptions.includes(val)) sortBy.value = val;
+      else sortBy.value = val;
+    });
 
     const resetSortAndNavigate = () => {
-      const currentRouteQuery = JSON.parse(JSON.stringify(route.value.query))
+      const currentRouteQuery = JSON.parse(JSON.stringify(route.value.query));
 
-      delete currentRouteQuery.sort
+      delete currentRouteQuery.sort;
 
-      router.replace({ name: route.name, query: currentRouteQuery }).catch(() => {})
-    }
+      router.replace({ name: route.name, query: currentRouteQuery }).catch(() => {});
+    };
 
-    const proposal = ref({})
+    const proposal = ref({});
 
     const showToast = (variant, title, icon = 'InfoIcon') => {
       toast({
@@ -334,105 +333,105 @@ export default {
           icon,
           variant,
         },
-      })
-    }
+      });
+    };
 
-    const resolveTagVariant = status => {
-      if (status === 'Open') return 'warning'
-      if (status === 'Passed') return 'success'
-      if (status === 'Unpaid') return 'info'
-      if (status.startsWith('Rejected')) return 'danger'
-      return 'primary'
-    }
+    const resolveTagVariant = (status) => {
+      if (status === 'Open') return 'warning';
+      if (status === 'Passed') return 'success';
+      if (status === 'Unpaid') return 'info';
+      if (status.startsWith('Rejected')) return 'danger';
+      return 'primary';
+    };
 
-    const resolveAvatarVariant = status => {
-      if (status === 'Open') return 'warning'
-      if (status === 'Passed') return 'success'
-      if (status === 'Unpaid') return 'info'
-      if (status.startsWith('Rejected')) return 'danger'
-      return 'primary'
-    }
+    const resolveAvatarVariant = (status) => {
+      if (status === 'Open') return 'warning';
+      if (status === 'Passed') return 'success';
+      if (status === 'Unpaid') return 'info';
+      if (status.startsWith('Rejected')) return 'danger';
+      return 'primary';
+    };
 
     // Search Query
-    const searchQuery = ref(routeQuery.value)
-    watch(routeQuery, val => {
-      searchQuery.value = val
-    })
+    const searchQuery = ref(routeQuery.value);
+    watch(routeQuery, (val) => {
+      searchQuery.value = val;
+    });
     // eslint-disable-next-line no-use-before-define
-    watch([searchQuery, sortBy], () => fetchProposals())
-    const updateRouteQuery = val => {
-      const currentRouteQuery = JSON.parse(JSON.stringify(route.value.query))
+    watch([searchQuery, sortBy], () => fetchProposals());
+    const updateRouteQuery = (val) => {
+      const currentRouteQuery = JSON.parse(JSON.stringify(route.value.query));
 
-      if (val) currentRouteQuery.q = val
-      else delete currentRouteQuery.q
+      if (val) currentRouteQuery.q = val;
+      else delete currentRouteQuery.q;
 
-      router.replace({ name: route.name, query: currentRouteQuery })
-    }
+      router.replace({ name: route.name, query: currentRouteQuery });
+    };
 
     const fetchProposals = async () => {
-      const response = await axios.get('https://stats.runonflux.io/proposals/listProposals')
+      const response = await axios.get('https://stats.runonflux.io/proposals/listProposals');
       // console.log(response)
       if (response.data.status === 'success') {
         /* console.log(response.data.data)
         console.log(router.currentRoute.params.filter)
         console.log(searchQuery.value)
         console.log(sortBy.value) */
-        filteredProposals.value = response.data.data
+        filteredProposals.value = response.data.data;
         if (router.currentRoute.params.filter) {
           // Filter
           if (router.currentRoute.params.filter === 'open') {
-            filteredProposals.value = filteredProposals.value.filter(proposalData => proposalData.status === 'Open')
+            filteredProposals.value = filteredProposals.value.filter((proposalData) => proposalData.status === 'Open');
           }
           if (router.currentRoute.params.filter === 'passed') {
-            filteredProposals.value = filteredProposals.value.filter(proposalData => proposalData.status === 'Passed')
+            filteredProposals.value = filteredProposals.value.filter((proposalData) => proposalData.status === 'Passed');
           }
           if (router.currentRoute.params.filter === 'unpaid') {
-            filteredProposals.value = filteredProposals.value.filter(proposalData => proposalData.status === 'Unpaid')
+            filteredProposals.value = filteredProposals.value.filter((proposalData) => proposalData.status === 'Unpaid');
           }
           if (router.currentRoute.params.filter === 'rejected') {
-            filteredProposals.value = filteredProposals.value.filter(proposalData => (proposalData.status === 'Rejected' || proposalData.status === 'Rejected Unpaid' || proposalData.status === 'Rejected Not Enough Votes'))
+            filteredProposals.value = filteredProposals.value.filter((proposalData) => (proposalData.status === 'Rejected' || proposalData.status === 'Rejected Unpaid' || proposalData.status === 'Rejected Not Enough Votes'));
           }
         }
         if (searchQuery.value) {
-          filteredProposals.value = filteredProposals.value.filter(proposalData => {
-            if (proposalData.topic.toLowerCase().includes(searchQuery.value)) return true
-            if (proposalData.description.toLowerCase().includes(searchQuery.value)) return true
-            if (proposalData.nickName.toLowerCase().includes(searchQuery.value)) return true
-            return false
-          })
+          filteredProposals.value = filteredProposals.value.filter((proposalData) => {
+            if (proposalData.topic.toLowerCase().includes(searchQuery.value)) return true;
+            if (proposalData.description.toLowerCase().includes(searchQuery.value)) return true;
+            if (proposalData.nickName.toLowerCase().includes(searchQuery.value)) return true;
+            return false;
+          });
         }
         if (sortBy.value) {
           filteredProposals.value.sort((a, b) => {
             if (sortBy.value === 'title-asc') {
-              return a.topic.localeCompare(b.topic)
+              return a.topic.localeCompare(b.topic);
             }
             if (sortBy.value === 'title-desc') {
-              return b.topic.localeCompare(a.topic)
+              return b.topic.localeCompare(a.topic);
             }
             if (sortBy.value === 'end-date') {
-              return a.voteEndDate - b.voteEndDate
+              return a.voteEndDate - b.voteEndDate;
             }
-            return 0
-          })
+            return 0;
+          });
         }
       } else {
-        showToast('danger', response.data.data.message || response.data.data)
+        showToast('danger', response.data.data.message || response.data.data);
       }
-    }
+    };
 
-    fetchProposals()
+    fetchProposals();
 
-    const isProposalViewActive = ref(false)
-    const isAddProposalViewActive = ref(false)
+    const isProposalViewActive = ref(false);
+    const isAddProposalViewActive = ref(false);
 
-    const handleProposalClick = proposalData => {
-      proposal.value = proposalData
-      isProposalViewActive.value = true
-    }
+    const handleProposalClick = (proposalData) => {
+      proposal.value = proposalData;
+      isProposalViewActive.value = true;
+    };
 
     const perfectScrollbarSettings = {
       maxScrollbarLength: 150,
-    }
+    };
 
     return {
       // route,
@@ -454,9 +453,9 @@ export default {
       isProposalViewActive,
       isAddProposalViewActive,
       showDetailSidebar,
-    }
+    };
   },
-}
+};
 </script>
 
 <style lang="scss">

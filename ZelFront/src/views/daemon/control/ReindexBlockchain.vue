@@ -18,7 +18,7 @@
         placement="auto"
         container="my-container"
       >
-        <template v-slot:title>
+        <template #title>
           <div class="d-flex justify-content-between align-items-center">
             <span>Are You Sure?</span>
             <b-button
@@ -79,10 +79,10 @@ import {
   BPopover,
   BModal,
   BCardText,
-} from 'bootstrap-vue'
-import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
-import Ripple from 'vue-ripple-directive'
-import DaemonService from '@/services/DaemonService'
+} from 'bootstrap-vue';
+import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
+import Ripple from 'vue-ripple-directive';
+import DaemonService from '@/services/DaemonService';
 
 export default {
   components: {
@@ -101,18 +101,18 @@ export default {
     return {
       popoverShow: false,
       modalShow: false,
-    }
+    };
   },
   methods: {
     onClose() {
-      this.popoverShow = false
+      this.popoverShow = false;
     },
     onOk() {
-      this.popoverShow = false
-      this.modalShow = true
-      const zelidauth = localStorage.getItem('zelidauth')
+      this.popoverShow = false;
+      this.modalShow = true;
+      const zelidauth = localStorage.getItem('zelidauth');
       DaemonService.reindexDaemon(zelidauth)
-        .then(response => {
+        .then((response) => {
           this.$toast({
             component: ToastificationContent,
             props: {
@@ -120,7 +120,7 @@ export default {
               icon: 'InfoIcon',
               variant: 'success',
             },
-          })
+          });
         })
         .catch(() => {
           this.$toast({
@@ -130,11 +130,11 @@ export default {
               icon: 'InfoIcon',
               variant: 'danger',
             },
-          })
-        })
+          });
+        });
     },
   },
-}
+};
 </script>
 
 <style>

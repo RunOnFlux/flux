@@ -6,19 +6,19 @@
 </template>
 
 <script>
-import { BImg } from 'bootstrap-vue'
-import useAppConfig from '@core/app-config/useAppConfig'
-import { $themeConfig } from '@themeConfig'
+import { BImg } from 'bootstrap-vue';
+import useAppConfig from '@core/app-config/useAppConfig';
+import { $themeConfig } from '@themeConfig';
 
 export default {
   components: {
     BImg,
   },
   setup() {
-    const { skin } = useAppConfig()
+    const { skin } = useAppConfig();
 
     // App Name
-    const { appName, appLogoImageDark, appLogoImage } = $themeConfig.app
+    const { appName, appLogoImageDark, appLogoImage } = $themeConfig.app;
 
     return {
       // Skin
@@ -28,9 +28,9 @@ export default {
       appName,
       appLogoImage,
       appLogoImageDark,
-    }
+    };
   },
-}
+};
 </script>
 
 <style>

@@ -43,7 +43,7 @@
         placement="auto"
         container="my-container"
       >
-        <template v-slot:title>
+        <template #title>
           <div class="d-flex justify-content-between align-items-center">
             <span>Are You Sure?</span>
             <b-button
@@ -101,10 +101,10 @@ import {
   BFormInput,
   BFormTextarea,
   BOverlay,
-} from 'bootstrap-vue'
-import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
-import Ripple from 'vue-ripple-directive'
-import BenchmarkService from '@/services/BenchmarkService'
+} from 'bootstrap-vue';
+import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
+import Ripple from 'vue-ripple-directive';
+import BenchmarkService from '@/services/BenchmarkService';
 
 export default {
   components: {
@@ -131,14 +131,14 @@ export default {
       },
       hexFluxTransaction: '',
       signingInProgress: false,
-    }
+    };
   },
   methods: {
     onClose() {
-      this.popoverShow = false
+      this.popoverShow = false;
     },
     signFluxTransaction() {
-      this.popoverShow = false
+      this.popoverShow = false;
       if (!this.hexFluxTransaction) {
         this.$toast({
           component: ToastificationContent,
@@ -147,14 +147,14 @@ export default {
             icon: 'InfoIcon',
             variant: 'danger',
           },
-        })
-        return
+        });
+        return;
       }
-      this.signingInProgress = true
-      const zelidauth = localStorage.getItem('zelidauth')
+      this.signingInProgress = true;
+      const zelidauth = localStorage.getItem('zelidauth');
       BenchmarkService.signFluxTransaction(zelidauth, this.hexFluxTransaction)
-        .then(response => {
-          console.log(response)
+        .then((response) => {
+          console.log(response);
           if (response.data.status === 'error') {
             this.$toast({
               component: ToastificationContent,
@@ -163,15 +163,15 @@ export default {
                 icon: 'InfoIcon',
                 variant: 'danger',
               },
-            })
+            });
           } else {
-            this.callResponse.status = response.data.status
-            this.callResponse.data = response.data.data
+            this.callResponse.status = response.data.status;
+            this.callResponse.data = response.data.data;
           }
-          this.signingInProgress = false
+          this.signingInProgress = false;
         })
-        .catch(error => {
-          console.log(error)
+        .catch((error) => {
+          console.log(error);
           this.$toast({
             component: ToastificationContent,
             props: {
@@ -179,12 +179,12 @@ export default {
               icon: 'InfoIcon',
               variant: 'danger',
             },
-          })
-          this.signingInProgress = false
-        })
+          });
+          this.signingInProgress = false;
+        });
     },
   },
-}
+};
 </script>
 
 <style>

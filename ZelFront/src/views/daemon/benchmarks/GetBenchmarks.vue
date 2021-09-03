@@ -60,12 +60,12 @@
 <script>
 import {
   BCard,
-} from 'bootstrap-vue'
-import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
-import ListEntry from '@/views/components/ListEntry.vue'
-import DaemonService from '@/services/DaemonService'
+} from 'bootstrap-vue';
+import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
+import ListEntry from '@/views/components/ListEntry.vue';
+import DaemonService from '@/services/DaemonService';
 
-const timeoptions = require('@/libs/dateFormat')
+const timeoptions = require('@/libs/dateFormat');
 
 export default {
   components: {
@@ -81,14 +81,14 @@ export default {
         status: '',
         data: '',
       },
-    }
+    };
   },
   mounted() {
-    this.daemonGetBenchmarks()
+    this.daemonGetBenchmarks();
   },
   methods: {
     async daemonGetBenchmarks() {
-      const response = await DaemonService.getBenchmarks()
+      const response = await DaemonService.getBenchmarks();
       if (response.data.status === 'error') {
         this.$toast({
           component: ToastificationContent,
@@ -97,14 +97,14 @@ export default {
             icon: 'InfoIcon',
             variant: 'danger',
           },
-        })
+        });
       } else {
-        this.callResponse.status = response.data.status
-        this.callResponse.data = JSON.parse(response.data.data)
+        this.callResponse.status = response.data.status;
+        this.callResponse.data = JSON.parse(response.data.data);
       }
     },
   },
-}
+};
 </script>
 
 <style>

@@ -270,12 +270,12 @@ import {
   BRow,
   BCol,
   BAvatar,
-} from 'bootstrap-vue'
-import VueApexCharts from 'vue-apexcharts'
-import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
-import tierColors from '@/libs/colors'
+} from 'bootstrap-vue';
+import VueApexCharts from 'vue-apexcharts';
+import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
+import tierColors from '@/libs/colors';
 
-const axios = require('axios')
+const axios = require('axios');
 
 export default {
   components: {
@@ -349,7 +349,7 @@ export default {
                 fontSize: '14px',
                 fontFamily: 'Montserrat',
               },
-              formatter: value => this.beautifyValue(value, 0),
+              formatter: (value) => this.beautifyValue(value, 0),
             },
           },
           stroke: {
@@ -416,10 +416,10 @@ export default {
           ],
           tooltip: {
             x: {
-              formatter: value => new Date(value).toLocaleString('en-GB', this.timeoptions),
+              formatter: (value) => new Date(value).toLocaleString('en-GB', this.timeoptions),
             },
             y: {
-              formatter: value => this.beautifyValue(value, 0),
+              formatter: (value) => this.beautifyValue(value, 0),
             },
           },
         },
@@ -457,12 +457,12 @@ export default {
                 fontSize: '14px',
                 fontFamily: 'Montserrat',
               },
-              formatter: value => `${this.beautifyValue(value / 1024, 0)}`,
+              formatter: (value) => `${this.beautifyValue(value / 1024, 0)}`,
             },
           },
           tooltip: {
             y: {
-              formatter: value => `${this.beautifyValue(value / 1024, 2)} TB`,
+              formatter: (value) => `${this.beautifyValue(value / 1024, 2)} TB`,
             },
           },
           stroke: {
@@ -529,10 +529,10 @@ export default {
           ],
           tooltip: {
             x: {
-              formatter: value => new Date(value).toLocaleString('en-GB', this.timeoptions),
+              formatter: (value) => new Date(value).toLocaleString('en-GB', this.timeoptions),
             },
             y: {
-              formatter: value => `${this.beautifyValue(value / 1024, 2)} TB`,
+              formatter: (value) => `${this.beautifyValue(value / 1024, 2)} TB`,
             },
           },
         },
@@ -570,12 +570,12 @@ export default {
                 fontSize: '14px',
                 fontFamily: 'Montserrat',
               },
-              formatter: value => `${this.beautifyValue(value / 1000, 0)}`,
+              formatter: (value) => `${this.beautifyValue(value / 1000, 0)}`,
             },
           },
           tooltip: {
             y: {
-              formatter: value => `${this.beautifyValue(value / 1000, 2)} TB`,
+              formatter: (value) => `${this.beautifyValue(value / 1000, 2)} TB`,
             },
           },
           stroke: {
@@ -642,10 +642,10 @@ export default {
           ],
           tooltip: {
             x: {
-              formatter: value => new Date(value).toLocaleString('en-GB', this.timeoptions),
+              formatter: (value) => new Date(value).toLocaleString('en-GB', this.timeoptions),
             },
             y: {
-              formatter: value => `${this.beautifyValue(value / 1000, 2)} TB`,
+              formatter: (value) => `${this.beautifyValue(value / 1000, 2)} TB`,
             },
           },
         },
@@ -683,12 +683,12 @@ export default {
                 fontSize: '14px',
                 fontFamily: 'Montserrat',
               },
-              formatter: value => `${this.beautifyValue(value / 1000, 0)}`,
+              formatter: (value) => `${this.beautifyValue(value / 1000, 0)}`,
             },
           },
           tooltip: {
             y: {
-              formatter: value => `${this.beautifyValue(value / 1000, 2)} TB`,
+              formatter: (value) => `${this.beautifyValue(value / 1000, 2)} TB`,
             },
           },
           stroke: {
@@ -699,71 +699,71 @@ export default {
       },
       historyStatsLoading: true,
       fluxHistoryStats: [],
-    }
+    };
   },
   mounted() {
-    this.generateResources()
-    this.getHistoryStats()
+    this.generateResources();
+    this.getHistoryStats();
   },
   methods: {
     async generateResources() {
-      const fluxTierBench = await axios.get('https://stats.runonflux.io/fluxinfo?projection=tier,benchmark')
-      const fluxTierBenchList = fluxTierBench.data.data
-      fluxTierBenchList.forEach(node => {
+      const fluxTierBench = await axios.get('https://stats.runonflux.io/fluxinfo?projection=tier,benchmark');
+      const fluxTierBenchList = fluxTierBench.data.data;
+      fluxTierBenchList.forEach((node) => {
         if (node.tier === 'CUMULUS' && node.benchmark && node.benchmark.bench) {
-          this.cumulusCpuValue += node.benchmark.bench.cores === 0 ? 2 : node.benchmark.bench.cores
-          this.cumulusRamValue += node.benchmark.bench.ram < 4 ? 4 : Math.round(node.benchmark.bench.ram)
-          this.cumulusSSDStorageValue += node.benchmark.bench.ssd
-          this.cumulusHDDStorageValue += node.benchmark.bench.hdd
+          this.cumulusCpuValue += node.benchmark.bench.cores === 0 ? 2 : node.benchmark.bench.cores;
+          this.cumulusRamValue += node.benchmark.bench.ram < 4 ? 4 : Math.round(node.benchmark.bench.ram);
+          this.cumulusSSDStorageValue += node.benchmark.bench.ssd;
+          this.cumulusHDDStorageValue += node.benchmark.bench.hdd;
         } else if (node.tier === 'CUMULUS') {
-          this.cumulusCpuValue += 2
-          this.cumulusRamValue += 4
-          this.cumulusHDDStorageValue += 50
+          this.cumulusCpuValue += 2;
+          this.cumulusRamValue += 4;
+          this.cumulusHDDStorageValue += 50;
         } else if (node.tier === 'NIMBUS' && node.benchmark && node.benchmark.bench) {
-          this.nimbusCpuValue += node.benchmark.bench.cores === 0 ? 4 : node.benchmark.bench.cores
-          this.nimbusRamValue += node.benchmark.bench.ram < 8 ? 8 : Math.round(node.benchmark.bench.ram)
-          this.nimbusSSDStorageValue += node.benchmark.bench.ssd
-          this.nimbusHDDStorageValue += node.benchmark.bench.hdd
+          this.nimbusCpuValue += node.benchmark.bench.cores === 0 ? 4 : node.benchmark.bench.cores;
+          this.nimbusRamValue += node.benchmark.bench.ram < 8 ? 8 : Math.round(node.benchmark.bench.ram);
+          this.nimbusSSDStorageValue += node.benchmark.bench.ssd;
+          this.nimbusHDDStorageValue += node.benchmark.bench.hdd;
         } else if (node.tier === 'NIMBUS') {
-          this.nimbusCpuValue += 4
-          this.nimbusRamValue += 8
-          this.nimbusSSDStorageValue += 150
+          this.nimbusCpuValue += 4;
+          this.nimbusRamValue += 8;
+          this.nimbusSSDStorageValue += 150;
         } else if (node.tier === 'STRATUS' && node.benchmark && node.benchmark.bench) {
-          this.stratusCpuValue += node.benchmark.bench.cores === 0 ? 8 : node.benchmark.bench.cores
-          this.stratusRamValue += node.benchmark.bench.ram < 32 ? 32 : Math.round(node.benchmark.bench.ram)
-          this.stratusSSDStorageValue += node.benchmark.bench.ssd
-          this.stratusHDDStorageValue += node.benchmark.bench.hdd
+          this.stratusCpuValue += node.benchmark.bench.cores === 0 ? 8 : node.benchmark.bench.cores;
+          this.stratusRamValue += node.benchmark.bench.ram < 32 ? 32 : Math.round(node.benchmark.bench.ram);
+          this.stratusSSDStorageValue += node.benchmark.bench.ssd;
+          this.stratusHDDStorageValue += node.benchmark.bench.hdd;
         } else if (node.tier === 'STRATUS') {
-          this.stratusCpuValue += 8
-          this.stratusRamValue += 32
-          this.stratusSSDStorageValue += 600
+          this.stratusCpuValue += 8;
+          this.stratusRamValue += 32;
+          this.stratusSSDStorageValue += 600;
         }
-      })
+      });
 
-      this.totalCores = this.cumulusCpuValue + this.nimbusCpuValue + this.stratusCpuValue
-      this.cpuData.series = [{ name: 'CPU Cores', data: [this.cumulusCpuValue, this.nimbusCpuValue, this.stratusCpuValue] }]
+      this.totalCores = this.cumulusCpuValue + this.nimbusCpuValue + this.stratusCpuValue;
+      this.cpuData.series = [{ name: 'CPU Cores', data: [this.cumulusCpuValue, this.nimbusCpuValue, this.stratusCpuValue] }];
 
-      this.totalRAM = this.cumulusRamValue + this.nimbusRamValue + this.stratusRamValue
-      this.ramData.series = [{ name: 'RAM', data: [this.cumulusRamValue, this.nimbusRamValue, this.stratusRamValue] }]
+      this.totalRAM = this.cumulusRamValue + this.nimbusRamValue + this.stratusRamValue;
+      this.ramData.series = [{ name: 'RAM', data: [this.cumulusRamValue, this.nimbusRamValue, this.stratusRamValue] }];
 
-      this.totalSSD = this.cumulusSSDStorageValue + this.nimbusSSDStorageValue + this.stratusSSDStorageValue
-      this.ssdData.series = [{ name: 'SSD', data: [this.cumulusSSDStorageValue, this.nimbusSSDStorageValue, this.stratusSSDStorageValue] }]
+      this.totalSSD = this.cumulusSSDStorageValue + this.nimbusSSDStorageValue + this.stratusSSDStorageValue;
+      this.ssdData.series = [{ name: 'SSD', data: [this.cumulusSSDStorageValue, this.nimbusSSDStorageValue, this.stratusSSDStorageValue] }];
 
-      this.totalHDD = this.cumulusHDDStorageValue + this.nimbusHDDStorageValue + this.stratusHDDStorageValue
-      this.hddData.series = [{ name: 'HDD', data: [this.cumulusHDDStorageValue, this.nimbusHDDStorageValue, this.stratusHDDStorageValue] }]
+      this.totalHDD = this.cumulusHDDStorageValue + this.nimbusHDDStorageValue + this.stratusHDDStorageValue;
+      this.hddData.series = [{ name: 'HDD', data: [this.cumulusHDDStorageValue, this.nimbusHDDStorageValue, this.stratusHDDStorageValue] }];
 
-      this.fluxListLoading = false
+      this.fluxListLoading = false;
     },
     async getHistoryStats() {
       try {
-        this.historyStatsLoading = true
-        const result = await axios.get('https://stats.runonflux.io/fluxhistorystats')
+        this.historyStatsLoading = true;
+        const result = await axios.get('https://stats.runonflux.io/fluxhistorystats');
         if (result.data.data) {
-          this.fluxHistoryStats = result.data.data
-          this.generateCPUHistory()
-          this.generateRAMHistory()
-          this.generateSSDHistory()
-          this.historyStatsLoading = false
+          this.fluxHistoryStats = result.data.data;
+          this.generateCPUHistory();
+          this.generateRAMHistory();
+          this.generateSSDHistory();
+          this.historyStatsLoading = false;
         } else {
           this.$toast({
             component: ToastificationContent,
@@ -772,32 +772,32 @@ export default {
               icon: 'InfoIcon',
               variant: 'danger',
             },
-          })
+          });
         }
       } catch (error) {
-        console.log(error)
+        console.log(error);
       }
     },
     generateCPUHistory() {
-      this.cpuHistoryData.series = this.generateHistory(2, 4, 8)
+      this.cpuHistoryData.series = this.generateHistory(2, 4, 8);
     },
     generateRAMHistory() {
-      this.ramHistoryData.series = this.generateHistory(4, 8, 32)
+      this.ramHistoryData.series = this.generateHistory(4, 8, 32);
     },
     generateSSDHistory() {
-      this.ssdHistoryData.series = this.generateHistory(40, 150, 600)
+      this.ssdHistoryData.series = this.generateHistory(40, 150, 600);
     },
     generateHistory(cumulus, nimbus, stratus) {
-      const cumulusData = []
-      const nimbusData = []
-      const stratusData = []
+      const cumulusData = [];
+      const nimbusData = [];
+      const stratusData = [];
 
-      const timePoints = Object.keys(this.fluxHistoryStats)
-      timePoints.forEach(time => {
-        cumulusData.push([Number(time), (this.fluxHistoryStats[time].cumulus) * cumulus])
-        nimbusData.push([Number(time), (this.fluxHistoryStats[time].nimbus) * nimbus])
-        stratusData.push([Number(time), (this.fluxHistoryStats[time].stratus) * stratus])
-      })
+      const timePoints = Object.keys(this.fluxHistoryStats);
+      timePoints.forEach((time) => {
+        cumulusData.push([Number(time), (this.fluxHistoryStats[time].cumulus) * cumulus]);
+        nimbusData.push([Number(time), (this.fluxHistoryStats[time].nimbus) * nimbus]);
+        stratusData.push([Number(time), (this.fluxHistoryStats[time].stratus) * stratus]);
+      });
       return [
         {
           name: 'Cumulus',
@@ -811,14 +811,14 @@ export default {
           name: 'Stratus',
           data: stratusData,
         },
-      ]
+      ];
     },
     beautifyValue(value, places = 2) {
-      const fixedValue = value.toFixed(places)
-      return fixedValue.replace(/(\d)(?=(\d{3})+(?!\d))/g, '$1,')
+      const fixedValue = value.toFixed(places);
+      return fixedValue.replace(/(\d)(?=(\d{3})+(?!\d))/g, '$1,');
     },
   },
-}
+};
 </script>
 
 <style>

@@ -227,11 +227,11 @@
 import {
   BCard,
   BCardBody,
-} from 'bootstrap-vue'
+} from 'bootstrap-vue';
 
-import ListEntry from '@/views/components/ListEntry.vue'
+import ListEntry from '@/views/components/ListEntry.vue';
 
-const timeoptions = require('@/libs/dateFormat')
+const timeoptions = require('@/libs/dateFormat');
 
 export default {
   components: {
@@ -243,7 +243,7 @@ export default {
     transaction: {
       type: Object,
       default() {
-        return { version: 0 }
+        return { version: 0 };
       },
     },
     currentHeight: {
@@ -254,81 +254,81 @@ export default {
   data() {
     return {
       timeoptions,
-    }
+    };
   },
   mounted() {
-    this.processTransaction()
+    this.processTransaction();
   },
   methods: {
     async processTransaction() {
-      this.calculateTxFee()
+      this.calculateTxFee();
     },
     getValueHexBuffer(hex) {
-      const buf = Buffer.from(hex, 'hex').reverse()
-      return buf.toString('hex')
+      const buf = Buffer.from(hex, 'hex').reverse();
+      return buf.toString('hex');
     },
     getCollateralIndex(hex) {
-      const buf = Buffer.from(hex, 'hex').reverse()
-      return parseInt(buf.toString('hex'), 16)
+      const buf = Buffer.from(hex, 'hex').reverse();
+      return parseInt(buf.toString('hex'), 16);
     },
     calculateTxFee() {
       if (this.transaction.version === 5) {
-        return 0
+        return 0;
       }
       if (this.transaction.vin[0]) {
         if (this.transaction.vin[0].coinbase) {
-          return 0
+          return 0;
         }
       }
-      const value = this.transaction.valueBalanceZat || 0
-      let valueOut = 0
-      let valueIn = 0
-      this.transaction.senders.forEach(sender => {
+      const value = this.transaction.valueBalanceZat || 0;
+      let valueOut = 0;
+      let valueIn = 0;
+      this.transaction.senders.forEach((sender) => {
         if (typeof sender === 'object') {
-          valueIn += sender.valueSat
+          valueIn += sender.valueSat;
         }
-      })
-      this.transaction.vout.forEach(vout => {
-        valueOut += vout.valueSat
-      })
-      this.transaction.vJoinSplit.forEach(tx => {
-        valueIn += tx.vpub_newZat
-        valueOut += tx.vpub_oldZat
-      })
-      const fee = (value - valueOut + valueIn) / 1e8
-      return fee
+      });
+      this.transaction.vout.forEach((vout) => {
+        valueOut += vout.valueSat;
+      });
+      this.transaction.vJoinSplit.forEach((tx) => {
+        valueIn += tx.vpub_newZat;
+        valueOut += tx.vpub_oldZat;
+      });
+      const fee = (value - valueOut + valueIn) / 1e8;
+      return fee;
     },
     calculateJoinSplitInput(joinsplit) {
-      let valueIn = 0
-      joinsplit.forEach(tx => {
-        valueIn += tx.vpub_newZat
-      })
-      return valueIn / 1e8
+      let valueIn = 0;
+      joinsplit.forEach((tx) => {
+        valueIn += tx.vpub_newZat;
+      });
+      return valueIn / 1e8;
     },
     calculateJoinSplitOutput(joinsplit) {
-      let valueOut = 0
-      joinsplit.forEach(tx => {
-        valueOut += tx.vpub_oldZat
-      })
-      return valueOut / 1e8
+      let valueOut = 0;
+      joinsplit.forEach((tx) => {
+        valueOut += tx.vpub_oldZat;
+      });
+      return valueOut / 1e8;
     },
     decodeMessage(asm) {
-      if (!asm) return ''
-      const parts = asm.split('OP_RETURN ', 2)
-      let message = ''
+      if (!asm) return '';
+      const parts = asm.split('OP_RETURN ', 2);
+      let message = '';
       if (parts[1]) {
-        const encodedMessage = parts[1]
-        const hexx = encodedMessage.toString() // force conversion
+        const encodedMessage = parts[1];
+        const hexx = encodedMessage.toString(); // force conversion
         for (let k = 0; k < hexx.length && hexx.substr(k, 2) !== '00'; k += 2) {
           message += String.fromCharCode(
             parseInt(hexx.substr(k, 2), 16),
-          )
+          );
         }
       }
-      return message
+      return message;
     },
   },
-}
+};
 </script>
 
 <style scoped>

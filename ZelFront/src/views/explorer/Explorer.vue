@@ -264,20 +264,20 @@ import {
   BFormInput,
   BTable,
   BOverlay,
-} from 'bootstrap-vue'
+} from 'bootstrap-vue';
 
-import Ripple from 'vue-ripple-directive'
-import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
-import AppCollapse from '@core/components/app-collapse/AppCollapse.vue'
-import AppCollapseItem from '@core/components/app-collapse/AppCollapseItem.vue'
-import ListEntry from '@/views/components/ListEntry.vue'
-import Transaction from '@/views/explorer/Transaction.vue'
-import FluxTransaction from '@/views/explorer/FluxTransaction.vue'
+import Ripple from 'vue-ripple-directive';
+import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
+import AppCollapse from '@core/components/app-collapse/AppCollapse.vue';
+import AppCollapseItem from '@core/components/app-collapse/AppCollapseItem.vue';
+import ListEntry from '@/views/components/ListEntry.vue';
+import Transaction from '@/views/explorer/Transaction.vue';
+import FluxTransaction from '@/views/explorer/FluxTransaction.vue';
 
-import DaemonService from '@/services/DaemonService'
-import ExplorerService from '@/services/ExplorerService'
+import DaemonService from '@/services/DaemonService';
+import ExplorerService from '@/services/ExplorerService';
 
-const timeoptions = require('@/libs/dateFormat')
+const timeoptions = require('@/libs/dateFormat');
 
 export default {
   components: {
@@ -329,21 +329,21 @@ export default {
       lastBlock: 0,
       selectedBlock: {},
       selectedBlockTransactions: [],
-    }
+    };
   },
   watch: {
     searchBar(val) {
       if (parseInt(val, 10) > 0 && parseInt(val, 10).toString().length === val.length) {
-        this.getBlock(val)
+        this.getBlock(val);
       } else if (val.length === 64) {
-        this.getBlock(val)
+        this.getBlock(val);
       } else if (val.length >= 30 && val.length < 38) {
-        this.getAddress(val)
+        this.getAddress(val);
       }
     },
     selectedBlock: {
       handler(block) {
-        this.selectedBlockTransactions = block.transactions
+        this.selectedBlockTransactions = block.transactions;
       },
       deep: true,
       immediate: true,
@@ -357,118 +357,118 @@ export default {
     },
   },
   mounted() {
-    this.daemonGetInfo()
-    this.getSyncedHeight()
+    this.daemonGetInfo();
+    this.getSyncedHeight();
   },
   methods: {
     async daemonGetInfo() {
-      const response = await DaemonService.getInfo()
-      this.getInfoResponse.status = response.data.status
+      const response = await DaemonService.getInfo();
+      this.getInfoResponse.status = response.data.status;
       if (typeof response.data.data.blocks === 'number') {
         if ((response.data.data.blocks > this.getInfoResponse.data.blocks) || !this.getInfoResponse.data.blocks) {
-          this.getInfoResponse.data = response.data.data
-          this.lastBlock = this.getInfoResponse.data.blocks
-          this.getBlocks(this.getInfoResponse.data.blocks)
+          this.getInfoResponse.data = response.data.data;
+          this.lastBlock = this.getInfoResponse.data.blocks;
+          this.getBlocks(this.getInfoResponse.data.blocks);
         }
       } else {
-        this.errorMessage = 'Unable to communicate with Flux Daemon'
-        this.showToast('danger', this.errorMessage)
+        this.errorMessage = 'Unable to communicate with Flux Daemon';
+        this.showToast('danger', this.errorMessage);
       }
     },
     async getSyncedHeight() {
-      const response = await ExplorerService.getScannedHeight()
+      const response = await ExplorerService.getScannedHeight();
       if (response.data.status === 'success') {
-        this.scannedHeight = response.data.data.generalScannedHeight
+        this.scannedHeight = response.data.data.generalScannedHeight;
       } else {
-        this.scannedHeight = 'ERROR'
+        this.scannedHeight = 'ERROR';
       }
     },
     async getBlocks(height, targetHeight) {
       // fetch information about last 20 blocks
-      const verbosity = 1
-      const startingBlockHeight = height - (targetHeight ? 1 : 20)
-      const blocksToFetch = []
+      const verbosity = 1;
+      const startingBlockHeight = height - (targetHeight ? 1 : 20);
+      const blocksToFetch = [];
       for (let i = startingBlockHeight; i <= height; i += 1) {
-        blocksToFetch.push(i)
+        blocksToFetch.push(i);
       }
-      const blockHashes = []
-      this.blocks.forEach(block => {
-        blockHashes.push(block.hash)
-      })
+      const blockHashes = [];
+      this.blocks.forEach((block) => {
+        blockHashes.push(block.hash);
+      });
       // parallel may result in error 500
-      await Promise.all(blocksToFetch.map(async blockIndex => {
-        const blockContent = await DaemonService.getBlock(blockIndex, verbosity)
+      await Promise.all(blocksToFetch.map(async (blockIndex) => {
+        const blockContent = await DaemonService.getBlock(blockIndex, verbosity);
         if (blockContent.data.status === 'success') {
           if (!blockHashes.includes(blockContent.data.data.hash)) {
-            this.blocks.push(blockContent.data.data)
+            this.blocks.push(blockContent.data.data);
             if (targetHeight && targetHeight === blockContent.data.data.height) {
-              this.selectedBlock = blockContent.data.data
+              this.selectedBlock = blockContent.data.data;
             }
             if (blockContent.data.data.height < this.lastBlock) {
-              this.lastBlock = blockContent.data.data.height
+              this.lastBlock = blockContent.data.data.height;
             }
           }
         }
-      }))
+      }));
     },
 
     loadMoreBlocks() {
-      this.getBlocks(this.lastBlock)
+      this.getBlocks(this.lastBlock);
     },
 
     async getBlock(heightOrHash) {
-      const verbosity = 1
-      this.height = -1
+      const verbosity = 1;
+      this.height = -1;
       if (!this.blocksWithTransaction[heightOrHash]) {
-        const response = await DaemonService.getBlock(heightOrHash, verbosity)
+        const response = await DaemonService.getBlock(heightOrHash, verbosity);
         if (response.data.status === 'success') {
-          this.height = response.data.data.height
-          this.selectBlock(response.data.data)
+          this.height = response.data.data.height;
+          this.selectBlock(response.data.data);
         } else {
-          this.getTransaction(heightOrHash)
+          this.getTransaction(heightOrHash);
         }
       } else {
-        this.height = heightOrHash
+        this.height = heightOrHash;
       }
     },
 
     async getAddress(address) {
-      this.address = 'dummyAddress'
-      this.addressView = true
-      this.explorerView = false
+      this.address = 'dummyAddress';
+      this.addressView = true;
+      this.explorerView = false;
       if (!this.addressWithTransactions[address]) {
-        const responseAddr = await ExplorerService.getAddressTransactions(address)
-        const responseBalance = await ExplorerService.getAddressBalance(address)
-        console.log(responseAddr)
-        console.log(responseBalance)
+        const responseAddr = await ExplorerService.getAddressTransactions(address);
+        const responseBalance = await ExplorerService.getAddressBalance(address);
+        console.log(responseAddr);
+        console.log(responseBalance);
         if (responseAddr.data.status === 'success' && responseBalance.data.status === 'success' && responseAddr.data.data !== null) {
-          this.address = address
-          this.addressWithTransactions[address] = {}
-          this.addressWithTransactions[address].transactions = responseAddr.data.data
-          this.addressWithTransactions[address].address = address
-          this.addressWithTransactions[address].balance = responseBalance.data.data
-          this.addressWithTransactions[address].fluxTxs = []
-          this.getAddressTransactions(responseAddr.data.data, address)
-          const responseFluxTxs = await ExplorerService.getFluxTransactions(address)
-          console.log(responseFluxTxs)
+          this.address = address;
+          this.addressWithTransactions[address] = {};
+          this.addressWithTransactions[address].transactions = responseAddr.data.data;
+          this.addressWithTransactions[address].address = address;
+          this.addressWithTransactions[address].balance = responseBalance.data.data;
+          this.addressWithTransactions[address].fluxTxs = [];
+          this.getAddressTransactions(responseAddr.data.data, address);
+          const responseFluxTxs = await ExplorerService.getFluxTransactions(address);
+          console.log(responseFluxTxs);
           if (responseFluxTxs.data.status === 'success') {
-            this.addressWithTransactions[address].fluxTxs = responseFluxTxs.data.data
-            this.uniqueKeyAddress += 1
+            this.addressWithTransactions[address].fluxTxs = responseFluxTxs.data.data;
+            this.uniqueKeyAddress += 1;
           }
         } else {
-          this.showToast('warning', 'Address not found')
-          this.addressView = false
-          this.explorerView = true
+          this.showToast('warning', 'Address not found');
+          this.addressView = false;
+          this.explorerView = true;
         }
       } else {
-        this.address = address
+        this.address = address;
       }
     },
     async getAddressTransactions(transactionArray, address) {
-      this.addressWithTransactions[address].fetchedTransactions = []
-      this.uniqueKeyAddress += 1
-      const verbose = 1
-      let i = 0
+      this.addressWithTransactions[address].fetchedTransactions = [];
+      this.uniqueKeyAddress += 1;
+      const verbose = 1;
+      let i = 0;
       // parallel is not possible as daemon will result in error 500
       // await Promise.all(transactionArray.map(async (transaction) => {
       //   const txContent = await DaemonService.getRawTransaction(transaction, verbose);
@@ -479,95 +479,95 @@ export default {
       // eslint-disable-next-line no-restricted-syntax
       for (const transaction of transactionArray) {
         // eslint-disable-next-line no-await-in-loop
-        const txContent = await DaemonService.getRawTransaction(transaction.txid, verbose)
+        const txContent = await DaemonService.getRawTransaction(transaction.txid, verbose);
         if (txContent.data.status === 'success') {
-          const transactionDetail = txContent.data.data
-          transactionDetail.senders = []
-          this.addressWithTransactions[address].fetchedTransactions.push(transactionDetail)
-          this.uniqueKeyAddress += 1
+          const transactionDetail = txContent.data.data;
+          transactionDetail.senders = [];
+          this.addressWithTransactions[address].fetchedTransactions.push(transactionDetail);
+          this.uniqueKeyAddress += 1;
           // fetching of senders
           if (transactionDetail.version < 5 && transactionDetail.version > 0) {
-            const sendersToFetch = []
-            transactionDetail.vin.forEach(vin => {
+            const sendersToFetch = [];
+            transactionDetail.vin.forEach((vin) => {
               if (!vin.coinbase) {
-                sendersToFetch.push(vin)
+                sendersToFetch.push(vin);
               }
-            })
+            });
             // eslint-disable-next-line no-restricted-syntax
             for (const sender of sendersToFetch) {
               // eslint-disable-next-line no-await-in-loop
-              const senderInformation = await this.getSenderForBlockOrAddress(sender.txid, sender.vout)
-              this.addressWithTransactions[address].fetchedTransactions[i].senders.push(senderInformation)
-              this.uniqueKeyAddress += 1
+              const senderInformation = await this.getSenderForBlockOrAddress(sender.txid, sender.vout);
+              this.addressWithTransactions[address].fetchedTransactions[i].senders.push(senderInformation);
+              this.uniqueKeyAddress += 1;
             }
-            this.uniqueKeyAddress += 1
+            this.uniqueKeyAddress += 1;
           }
         }
-        i += 1
-        this.uniqueKeyAddress += 1
+        i += 1;
+        this.uniqueKeyAddress += 1;
       }
     },
 
     async getTransaction(hash) {
-      this.transactionDetail = {}
-      this.txView = true
-      this.explorerView = false
-      const verbose = 1
-      const txContent = await DaemonService.getRawTransaction(hash, verbose)
-      console.log(txContent)
+      this.transactionDetail = {};
+      this.txView = true;
+      this.explorerView = false;
+      const verbose = 1;
+      const txContent = await DaemonService.getRawTransaction(hash, verbose);
+      console.log(txContent);
       if (txContent.data.status === 'success') {
         if (txContent.data.data.version < 5 && txContent.data.data.version > 0) {
-          const txA = txContent.data.data
-          txA.senders = []
-          this.transactionDetail = txA
-          const sendersToFetch = []
-          txContent.data.data.vin.forEach(vin => {
+          const txA = txContent.data.data;
+          txA.senders = [];
+          this.transactionDetail = txA;
+          const sendersToFetch = [];
+          txContent.data.data.vin.forEach((vin) => {
             if (!vin.coinbase) {
-              sendersToFetch.push(vin)
+              sendersToFetch.push(vin);
             }
-          })
-          const senders = []
+          });
+          const senders = [];
           // eslint-disable-next-line no-restricted-syntax
           for (const sender of sendersToFetch) {
             // eslint-disable-next-line no-await-in-loop
-            const senderInformation = await this.getSender(sender.txid, sender.vout)
-            senders.push(senderInformation)
-            const txDetail = txContent.data.data
-            txDetail.senders = senders
-            this.transactionDetail = txDetail
-            this.uniqueKey += 1
+            const senderInformation = await this.getSender(sender.txid, sender.vout);
+            senders.push(senderInformation);
+            const txDetail = txContent.data.data;
+            txDetail.senders = senders;
+            this.transactionDetail = txDetail;
+            this.uniqueKey += 1;
           }
         } else {
-          this.transactionDetail = txContent.data.data
-          this.uniqueKey += 1
+          this.transactionDetail = txContent.data.data;
+          this.uniqueKey += 1;
         }
       } else {
-        this.showToast('warning', 'Transaction not found')
-        this.txView = false
-        this.explorerView = true
+        this.showToast('warning', 'Transaction not found');
+        this.txView = false;
+        this.explorerView = true;
       }
-      console.log(this.transactionDetail)
+      console.log(this.transactionDetail);
     },
 
     async getSender(txid, vout) {
-      const verbose = 1
-      const txContent = await DaemonService.getRawTransaction(txid, verbose)
-      console.log(txContent)
+      const verbose = 1;
+      const txContent = await DaemonService.getRawTransaction(txid, verbose);
+      console.log(txContent);
       if (txContent.data.status === 'success') {
-        const sender = txContent.data.data.vout[vout]
-        return sender
+        const sender = txContent.data.data.vout[vout];
+        return sender;
       }
-      return 'Sender not found'
+      return 'Sender not found';
     },
     async getSenderForBlockOrAddress(txid, vout) {
-      const verbose = 1
-      const txContent = await DaemonService.getRawTransaction(txid, verbose)
-      console.log(txContent)
+      const verbose = 1;
+      const txContent = await DaemonService.getRawTransaction(txid, verbose);
+      console.log(txContent);
       if (txContent.data.status === 'success') {
-        const sender = txContent.data.data.vout[vout]
-        return sender
+        const sender = txContent.data.data.vout[vout];
+        return sender;
       }
-      return 'Sender not found'
+      return 'Sender not found';
     },
 
     formatTimeAgo(timeCreated) {
@@ -577,43 +577,43 @@ export default {
         day: 24 * 60 * 60 * 1000,
         hour: 60 * 60 * 1000,
         minute: 60 * 1000,
-      }
-      const diff = new Date().getTime() - (timeCreated * 1000)
+      };
+      const diff = new Date().getTime() - (timeCreated * 1000);
 
       if (diff > periods.month) {
         // it was at least a month ago
-        return `${Math.floor(diff / periods.month)} months ago`
+        return `${Math.floor(diff / periods.month)} months ago`;
       }
       if (diff > periods.week) {
-        return `${Math.floor(diff / periods.week)} weeks ago`
+        return `${Math.floor(diff / periods.week)} weeks ago`;
       }
       if (diff > periods.day) {
-        return `${Math.floor(diff / periods.day)} days ago`
+        return `${Math.floor(diff / periods.day)} days ago`;
       }
       if (diff > periods.hour) {
-        return `${Math.floor(diff / periods.hour)} hours ago`
+        return `${Math.floor(diff / periods.hour)} hours ago`;
       }
       if (diff > periods.minute) {
-        return `${Math.floor(diff / periods.minute)} minutes ago`
+        return `${Math.floor(diff / periods.minute)} minutes ago`;
       }
-      return 'Just now'
+      return 'Just now';
     },
 
     selectBlock(item) {
-      console.log(item)
-      this.selectedBlock = item
-      this.explorerView = false
-      this.blockView = true
-      this.txView = false
-      this.addressView = false
-      this.selectedBlock.transactions = []
-      this.getBlockTransactions(this.selectedBlock)
+      console.log(item);
+      this.selectedBlock = item;
+      this.explorerView = false;
+      this.blockView = true;
+      this.txView = false;
+      this.addressView = false;
+      this.selectedBlock.transactions = [];
+      this.getBlockTransactions(this.selectedBlock);
     },
     async getBlockTransactions(block) {
       // this.blocksWithTransaction[height].transactions = [];
       // this.uniqueKeyBlock += 1;
       // const verbose = 1;
-      let i = 0
+      let i = 0;
       // parallel is not possible as daemon will result in error 500
       // await Promise.all(transactionArray.map(async (transaction) => {
       //   const txContent = await DaemonService.getRawTransaction(transaction, verbose);
@@ -624,52 +624,52 @@ export default {
       // eslint-disable-next-line no-restricted-syntax
       for (const transaction of block.tx) {
         // eslint-disable-next-line no-await-in-loop
-        const txContent = await DaemonService.getRawTransaction(transaction, 1)
+        const txContent = await DaemonService.getRawTransaction(transaction, 1);
         if (txContent.data.status === 'success') {
-          const transactionDetail = txContent.data.data
-          transactionDetail.senders = []
-          block.transactions.push(transactionDetail)
+          const transactionDetail = txContent.data.data;
+          transactionDetail.senders = [];
+          block.transactions.push(transactionDetail);
           // this.uniqueKeyAddress += 1;
           // fetching of senders
           if (transactionDetail.version < 5 && transactionDetail.version > 0) {
-            const sendersToFetch = []
-            transactionDetail.vin.forEach(vin => {
+            const sendersToFetch = [];
+            transactionDetail.vin.forEach((vin) => {
               if (!vin.coinbase) {
-                sendersToFetch.push(vin)
+                sendersToFetch.push(vin);
               }
-            })
+            });
             // eslint-disable-next-line no-restricted-syntax
             for (const sender of sendersToFetch) {
               // eslint-disable-next-line no-await-in-loop
-              const senderInformation = await this.getSenderForBlockOrAddress(sender.txid, sender.vout)
-              block.transactions[i].senders.push(senderInformation)
+              const senderInformation = await this.getSenderForBlockOrAddress(sender.txid, sender.vout);
+              block.transactions[i].senders.push(senderInformation);
               // this.uniqueKeyBlock += 1
             }
             // this.uniqueKeyBlock += 1
           }
         }
-        i += 1
+        i += 1;
         // this.uniqueKeyBlock += 1;
       }
-      console.log(block)
+      console.log(block);
     },
 
     selectPreviousBlock() {
-      const targetBlockHeight = this.selectedBlock.height - 1
+      const targetBlockHeight = this.selectedBlock.height - 1;
       for (let i = 0; i < this.blocks.length; i += 1) {
         if (this.blocks[i].height === targetBlockHeight) {
-          this.selectBlock(this.blocks[i])
-          return
+          this.selectBlock(this.blocks[i]);
+          return;
         }
       }
-      this.getBlock(targetBlockHeight)
+      this.getBlock(targetBlockHeight);
     },
 
     goBackToExplorer() {
-      this.explorerView = true
-      this.blockView = false
-      this.txView = false
-      this.addressView = false
+      this.explorerView = true;
+      this.blockView = false;
+      this.txView = false;
+      this.addressView = false;
     },
 
     showToast(variant, title, icon = 'InfoIcon') {
@@ -680,10 +680,10 @@ export default {
           icon,
           variant,
         },
-      })
+      });
     },
   },
-}
+};
 </script>
 
 <style>

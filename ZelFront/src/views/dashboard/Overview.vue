@@ -199,13 +199,13 @@ import {
   BCol,
   BAvatar,
   BProgress,
-} from 'bootstrap-vue'
-import VueApexCharts from 'vue-apexcharts'
-import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
-import tierColors from '@/libs/colors'
-import DashboardService from '@/services/DashboardService'
+} from 'bootstrap-vue';
+import VueApexCharts from 'vue-apexcharts';
+import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
+import tierColors from '@/libs/colors';
+import DashboardService from '@/services/DashboardService';
 
-const axios = require('axios')
+const axios = require('axios');
 
 export default {
   components: {
@@ -242,7 +242,7 @@ export default {
           colors: [tierColors.cumulus, tierColors.nimbus, tierColors.stratus],
           tooltip: {
             y: {
-              formatter: value => this.beautifyValue(value, 0),
+              formatter: (value) => this.beautifyValue(value, 0),
             },
           },
         },
@@ -307,7 +307,7 @@ export default {
           ],
           tooltip: {
             x: {
-              formatter: value => new Date(value).toLocaleString('en-GB', this.timeoptions),
+              formatter: (value) => new Date(value).toLocaleString('en-GB', this.timeoptions),
             },
           },
         },
@@ -329,7 +329,7 @@ export default {
           colors: [tierColors.cumulus, tierColors.nimbus, tierColors.stratus],
           tooltip: {
             y: {
-              formatter: value => this.beautifyValue(value, 0),
+              formatter: (value) => this.beautifyValue(value, 0),
             },
           },
         },
@@ -340,48 +340,48 @@ export default {
       lockedSupplyPerc: 0,
       circulatingSupply: 0,
       circulatingSupplyPerc: 0,
-    }
+    };
   },
   mounted() {
-    this.getHistoryStats()
-    this.getCircSupply()
+    this.getHistoryStats();
+    this.getCircSupply();
   },
   methods: {
     async getCircSupply() {
-      this.supplyLoading = true
-      const result = await axios.get('https://explorer.runonflux.io/api/statistics/circulating-supply') // we want just one chain
-      this.circulatingSupply = result.data
-      this.circulatingSupplyPerc = Number(((this.circulatingSupply / 440000000) * 100).toFixed(2))
-      await this.getZelNodeCount()
-      this.supplyLoading = false
+      this.supplyLoading = true;
+      const result = await axios.get('https://explorer.runonflux.io/api/statistics/circulating-supply'); // we want just one chain
+      this.circulatingSupply = result.data;
+      this.circulatingSupplyPerc = Number(((this.circulatingSupply / 440000000) * 100).toFixed(2));
+      await this.getZelNodeCount();
+      this.supplyLoading = false;
     },
     async getHistoryStats() {
       try {
-        this.historyStatsLoading = true
-        const result = await axios.get('https://stats.runonflux.io/fluxhistorystats')
-        this.fluxHistoryStats = result.data.data
-        this.historyStatsLoading = false
+        this.historyStatsLoading = true;
+        const result = await axios.get('https://stats.runonflux.io/fluxhistorystats');
+        this.fluxHistoryStats = result.data.data;
+        this.historyStatsLoading = false;
         // this.generateFluxPieChart()
         // this.generateFluxHistory()
         // this.generateLockedSupplyPercList()
-        const timePoints = Object.keys(this.fluxHistoryStats)
-        const max = Math.max(...timePoints)
-        const cumulusS = (this.fluxHistoryStats[max].cumulus) * 10000
-        const nimbusS = (this.fluxHistoryStats[max].nimbus) * 25000
-        const stratusS = (this.fluxHistoryStats[max].stratus) * 100000
+        const timePoints = Object.keys(this.fluxHistoryStats);
+        const max = Math.max(...timePoints);
+        const cumulusS = (this.fluxHistoryStats[max].cumulus) * 10000;
+        const nimbusS = (this.fluxHistoryStats[max].nimbus) * 25000;
+        const stratusS = (this.fluxHistoryStats[max].stratus) * 100000;
 
-        const cumulusHistory = []
-        const nimbusHistory = []
-        const stratusHistory = []
-        timePoints.forEach(time => {
-          cumulusHistory.push([Number(time), this.fluxHistoryStats[time].cumulus])
-          nimbusHistory.push([Number(time), this.fluxHistoryStats[time].nimbus])
-          stratusHistory.push([Number(time), this.fluxHistoryStats[time].stratus])
-        })
+        const cumulusHistory = [];
+        const nimbusHistory = [];
+        const stratusHistory = [];
+        timePoints.forEach((time) => {
+          cumulusHistory.push([Number(time), this.fluxHistoryStats[time].cumulus]);
+          nimbusHistory.push([Number(time), this.fluxHistoryStats[time].nimbus]);
+          stratusHistory.push([Number(time), this.fluxHistoryStats[time].stratus]);
+        });
 
-        this.totalNodes = this.fluxHistoryStats[max].cumulus + this.fluxHistoryStats[max].nimbus + this.fluxHistoryStats[max].stratus
-        this.lockedSupplyData.series = [cumulusS, nimbusS, stratusS]
-        this.nodeData.series = [this.fluxHistoryStats[max].cumulus, this.fluxHistoryStats[max].nimbus, this.fluxHistoryStats[max].stratus]
+        this.totalNodes = this.fluxHistoryStats[max].cumulus + this.fluxHistoryStats[max].nimbus + this.fluxHistoryStats[max].stratus;
+        this.lockedSupplyData.series = [cumulusS, nimbusS, stratusS];
+        this.nodeData.series = [this.fluxHistoryStats[max].cumulus, this.fluxHistoryStats[max].nimbus, this.fluxHistoryStats[max].stratus];
         this.nodeHistoryData.series = [
           {
             name: 'Cumulus',
@@ -395,9 +395,9 @@ export default {
             name: 'Stratus',
             data: stratusHistory,
           },
-        ]
+        ];
       } catch (error) {
-        console.log(error)
+        console.log(error);
         this.$toast({
           component: ToastificationContent,
           props: {
@@ -405,29 +405,29 @@ export default {
             icon: 'InfoIcon',
             variant: 'danger',
           },
-        })
+        });
       }
     },
     async getZelNodeCount() {
       try {
-        const resCount = await DashboardService.zelnodeCount()
-        const counts = resCount.data.data
-        const stratuses = counts['stratus-enabled']
-        const nimbuses = counts['nimbus-enabled']
-        const cumuluses = counts['cumulus-enabled']
-        const supply = stratuses * 100000 + nimbuses * 25000 + cumuluses * 10000
-        this.lockedSupply = supply
-        this.lockedSupplyPerc = Number(((supply / this.circulatingSupply) * 100).toFixed(2))
+        const resCount = await DashboardService.zelnodeCount();
+        const counts = resCount.data.data;
+        const stratuses = counts['stratus-enabled'];
+        const nimbuses = counts['nimbus-enabled'];
+        const cumuluses = counts['cumulus-enabled'];
+        const supply = stratuses * 100000 + nimbuses * 25000 + cumuluses * 10000;
+        this.lockedSupply = supply;
+        this.lockedSupplyPerc = Number(((supply / this.circulatingSupply) * 100).toFixed(2));
       } catch (error) {
-        console.log(error)
+        console.log(error);
       }
     },
     beautifyValue(value, places = 2) {
-      const fixedValue = value.toFixed(places)
-      return fixedValue.replace(/(\d)(?=(\d{3})+(?!\d))/g, '$1,')
+      const fixedValue = value.toFixed(places);
+      return fixedValue.replace(/(\d)(?=(\d{3})+(?!\d))/g, '$1,');
     },
   },
-}
+};
 </script>
 
 <style>

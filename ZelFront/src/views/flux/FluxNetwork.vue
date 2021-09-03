@@ -237,12 +237,12 @@ import {
   BButton,
   BPagination,
   BOverlay,
-} from 'bootstrap-vue'
-import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
-import ConfirmDialog from '@/views/components/ConfirmDialog.vue'
-import FluxService from '@/services/FluxService'
+} from 'bootstrap-vue';
+import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
+import ConfirmDialog from '@/views/components/ConfirmDialog.vue';
+import FluxService from '@/services/FluxService';
 
-const timeoptions = require('@/libs/dateFormat')
+const timeoptions = require('@/libs/dateFormat');
 
 export default {
   components: {
@@ -305,81 +305,81 @@ export default {
           loading: true,
         },
       },
-    }
+    };
   },
   mounted() {
-    this.fluxConnectedPeersInfo()
-    this.fluxIncomingConnectionsInfo()
+    this.fluxConnectedPeersInfo();
+    this.fluxIncomingConnectionsInfo();
   },
   methods: {
     async fluxConnectedPeersInfo() {
-      this.config.outgoing.loading = true
-      const response = await FluxService.connectedPeersInfo()
-      console.log(response)
+      this.config.outgoing.loading = true;
+      const response = await FluxService.connectedPeersInfo();
+      console.log(response);
       if (response.data.status === 'success') {
-        this.config.outgoing.connectedPeers = response.data.data
-        this.config.outgoing.totalRows = this.config.outgoing.connectedPeers.length
-        this.config.outgoing.currentPage = 1
+        this.config.outgoing.connectedPeers = response.data.data;
+        this.config.outgoing.totalRows = this.config.outgoing.connectedPeers.length;
+        this.config.outgoing.currentPage = 1;
       } else {
-        this.showToast('danger', response.data.data.message || response.data.data)
+        this.showToast('danger', response.data.data.message || response.data.data);
       }
-      this.config.outgoing.loading = false
+      this.config.outgoing.loading = false;
     },
     async fluxIncomingConnectionsInfo() {
-      this.config.incoming.loading = true
-      const response = await FluxService.incomingConnectionsInfo()
+      this.config.incoming.loading = true;
+      const response = await FluxService.incomingConnectionsInfo();
       if (response.data.status === 'success') {
-        this.config.incoming.incomingConnections = response.data.data
-        this.config.incoming.totalRows = this.config.incoming.incomingConnections.length
-        this.config.incoming.currentPage = 1
+        this.config.incoming.incomingConnections = response.data.data;
+        this.config.incoming.totalRows = this.config.incoming.incomingConnections.length;
+        this.config.incoming.currentPage = 1;
       } else {
-        this.showToast('danger', response.data.data.message || response.data.data)
+        this.showToast('danger', response.data.data.message || response.data.data);
       }
-      this.config.incoming.loading = false
+      this.config.incoming.loading = false;
     },
     async disconnectPeer(row) {
-      const self = this
-      const zelidauth = localStorage.getItem('zelidauth')
-      const response = await FluxService.removePeer(zelidauth, row.item.ip).catch(error => {
-        this.showToast('danger', error.message || error)
-      })
-      console.log(response)
+      const self = this;
+      const zelidauth = localStorage.getItem('zelidauth');
+      const response = await FluxService.removePeer(zelidauth, row.item.ip).catch((error) => {
+        this.showToast('danger', error.message || error);
+      });
+      console.log(response);
       if (response.data.status === 'success') {
-        this.showToast(response.data.status, response.data.data.message || response.data.data)
-        this.config.outgoing.loading = true
+        this.showToast(response.data.status, response.data.data.message || response.data.data);
+        this.config.outgoing.loading = true;
         setTimeout(() => {
-          self.fluxConnectedPeersInfo()
-        }, 2500)
+          self.fluxConnectedPeersInfo();
+        }, 2500);
       } else {
-        this.fluxConnectedPeersInfo()
+        this.fluxConnectedPeersInfo();
       }
     },
     async disconnectIncoming(row) {
-      const self = this
-      const zelidauth = localStorage.getItem('zelidauth')
-      const response = await FluxService.removeIncomingPeer(zelidauth, row.item.ip).catch(error => {
-        this.showToast('danger', error.message || error)
-      })
-      console.log(response)
+      const self = this;
+      const zelidauth = localStorage.getItem('zelidauth');
+      const response = await FluxService.removeIncomingPeer(zelidauth, row.item.ip).catch((error) => {
+        this.showToast('danger', error.message || error);
+      });
+      console.log(response);
       if (response.data.status === 'success') {
-        this.showToast(response.data.status, response.data.data.message || response.data.data)
-        this.config.incoming.loading = true
+        this.showToast(response.data.status, response.data.data.message || response.data.data);
+        this.config.incoming.loading = true;
         setTimeout(() => {
-          self.fluxIncomingConnectionsInfo()
-        }, 2500)
+          self.fluxIncomingConnectionsInfo();
+        }, 2500);
       } else {
-        self.fluxIncomingConnectionsInfo()
+        self.fluxIncomingConnectionsInfo();
       }
     },
     onFilteredOutgoing(filteredItems) {
       // Trigger pagination to update the number of buttons/pages due to filtering
-      this.config.outgoing.totalRows = filteredItems.length
-      this.config.outgoing.currentPage = 1
+      this.config.outgoing.totalRows = filteredItems.length;
+      this.config.outgoing.currentPage = 1;
     },
     onFilteredIncoming(filteredItems) {
       // Trigger pagination to update the number of buttons/pages due to filtering
-      this.config.incoming.totalRows = filteredItems.length
-      this.config.incoming.currentPage = 1
+      this.config.incoming.totalRows = filteredItems.length;
+      this.config.incoming.currentPage = 1;
     },
     showToast(variant, title, icon = 'InfoIcon') {
       this.$toast({
@@ -389,10 +389,10 @@ export default {
           icon,
           variant,
         },
-      })
+      });
     },
   },
-}
+};
 </script>
 
 <style>

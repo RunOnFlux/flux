@@ -114,7 +114,6 @@
                 </b-button>
               </b-col>
             </b-row>
-
           </b-form>
         </dd>
       </dl>
@@ -125,16 +124,16 @@
 <script>
 import {
   BCard, BCardText, BCardTitle, BButton, BForm, BCol, BRow, BFormInput, BFormGroup,
-} from 'bootstrap-vue'
-import { mapState } from 'vuex'
-import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
-import ListEntry from '@/views/components/ListEntry.vue'
+} from 'bootstrap-vue';
+import { mapState } from 'vuex';
+import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
+import ListEntry from '@/views/components/ListEntry.vue';
 
-import DaemonService from '@/services/DaemonService'
-import IDService from '@/services/IDService'
+import DaemonService from '@/services/DaemonService';
+import IDService from '@/services/IDService';
 
-const qs = require('qs')
-const store = require('store')
+const qs = require('qs');
+const store = require('store');
 
 export default {
   components: {
@@ -171,7 +170,7 @@ export default {
         signature: '',
         loginPhrase: '',
       },
-    }
+    };
   },
   computed: {
     ...mapState('flux', [
@@ -180,95 +179,95 @@ export default {
       'privilege',
     ]),
     callbackValue() {
-      const backendURL = this.backendURL()
-      const url = `${backendURL}/zelid/verifylogin`
-      return encodeURI(url)
+      const backendURL = this.backendURL();
+      const url = `${backendURL}/zelid/verifylogin`;
+      return encodeURI(url);
     },
   },
   mounted() {
-    this.daemonGetInfo()
-    this.daemonWelcomeGetZelNodeStatus()
-    this.getZelIdLoginPhrase()
+    this.daemonGetInfo();
+    this.daemonWelcomeGetZelNodeStatus();
+    this.getZelIdLoginPhrase();
   },
   methods: {
     backendURL() {
-      const { protocol, hostname } = window.location
-      let mybackend = ''
-      mybackend += protocol
-      mybackend += '//'
-      const regex = /[A-Za-z]/g
+      const { protocol, hostname } = window.location;
+      let mybackend = '';
+      mybackend += protocol;
+      mybackend += '//';
+      const regex = /[A-Za-z]/g;
       if (hostname.match(regex)) {
-        const names = hostname.split('.')
-        names[0] = 'api'
-        mybackend += names.join('.')
+        const names = hostname.split('.');
+        names[0] = 'api';
+        mybackend += names.join('.');
       } else {
-        mybackend += this.userconfig.externalip
-        mybackend += ':'
-        mybackend += this.config.apiPort
+        mybackend += this.userconfig.externalip;
+        mybackend += ':';
+        mybackend += this.config.apiPort;
       }
-      return store.get('backendURL') || mybackend
+      return store.get('backendURL') || mybackend;
     },
     async daemonGetInfo() {
-      const response = await DaemonService.getInfo()
-      this.getInfoResponse.status = response.data.status
-      this.getInfoResponse.message = response.data.data
+      const response = await DaemonService.getInfo();
+      this.getInfoResponse.status = response.data.status;
+      this.getInfoResponse.message = response.data.data;
     },
     async daemonWelcomeGetZelNodeStatus() {
-      const response = await DaemonService.getZelNodeStatus()
-      this.getNodeStatusResponse.status = response.data.status
-      this.getNodeStatusResponse.data = response.data.data
+      const response = await DaemonService.getZelNodeStatus();
+      this.getNodeStatusResponse.status = response.data.status;
+      this.getNodeStatusResponse.data = response.data.data;
       if (this.getNodeStatusResponse.data) {
         if (this.getNodeStatusResponse.data.status === 'CONFIRMED' || this.getNodeStatusResponse.data.location === 'CONFIRMED') {
-          this.getNodeStatusResponse.nodeStatus = 'Flux is working correctly'
-          this.getNodeStatusResponse.class = 'success'
+          this.getNodeStatusResponse.nodeStatus = 'Flux is working correctly';
+          this.getNodeStatusResponse.class = 'success';
         } else if (this.getNodeStatusResponse.data.status === 'STARTED' || this.getNodeStatusResponse.data.location === 'STARTED') {
-          this.getNodeStatusResponse.nodeStatus = 'Flux has just been started. Flux is running with limited capabilities.'
-          this.getNodeStatusResponse.class = 'warning'
+          this.getNodeStatusResponse.nodeStatus = 'Flux has just been started. Flux is running with limited capabilities.';
+          this.getNodeStatusResponse.class = 'warning';
         } else {
-          this.getNodeStatusResponse.nodeStatus = 'Flux is not confirmed. Flux is running with limited capabilities.'
-          this.getNodeStatusResponse.class = 'danger'
+          this.getNodeStatusResponse.nodeStatus = 'Flux is not confirmed. Flux is running with limited capabilities.';
+          this.getNodeStatusResponse.class = 'danger';
         }
       }
     },
     initiateLoginWS() {
-      const self = this
-      let backendURL = this.backendURL()
-      backendURL = backendURL.replace('https://', 'wss://')
-      backendURL = backendURL.replace('http://', 'ws://')
-      const wsuri = `${backendURL}/ws/id/${this.loginPhrase}`
-      const websocket = new WebSocket(wsuri)
-      this.websocket = websocket
+      const self = this;
+      let backendURL = this.backendURL();
+      backendURL = backendURL.replace('https://', 'wss://');
+      backendURL = backendURL.replace('http://', 'ws://');
+      const wsuri = `${backendURL}/ws/id/${this.loginPhrase}`;
+      const websocket = new WebSocket(wsuri);
+      this.websocket = websocket;
 
-      websocket.onopen = evt => { self.onOpen(evt) }
-      websocket.onclose = evt => { self.onClose(evt) }
-      websocket.onmessage = evt => { self.onMessage(evt) }
-      websocket.onerror = evt => { self.onError(evt) }
+      websocket.onopen = (evt) => { self.onOpen(evt); };
+      websocket.onclose = (evt) => { self.onClose(evt); };
+      websocket.onmessage = (evt) => { self.onMessage(evt); };
+      websocket.onerror = (evt) => { self.onError(evt); };
     },
     onError(evt) {
-      console.log(evt)
+      console.log(evt);
     },
     onMessage(evt) {
-      const data = qs.parse(evt.data)
-      console.log(data)
+      const data = qs.parse(evt.data);
+      console.log(data);
       if (data.status === 'success' && data.data) {
         // user is now signed. Store their values
         const zelidauth = {
           zelid: data.data.zelid,
           signature: data.data.signature,
           loginPhrase: data.data.loginPhrase,
-        }
-        this.$store.commit('flux/setPrivilege', data.data.privilage)
-        localStorage.setItem('zelidauth', qs.stringify(zelidauth))
-        this.showToast('success', data.data.message)
+        };
+        this.$store.commit('flux/setPrivilege', data.data.privilage);
+        localStorage.setItem('zelidauth', qs.stringify(zelidauth));
+        this.showToast('success', data.data.message);
       }
-      console.log(data)
-      console.log(evt)
+      console.log(data);
+      console.log(evt);
     },
     onClose(evt) {
-      console.log(evt)
+      console.log(evt);
     },
     onOpen(evt) {
-      console.log(evt)
+      console.log(evt);
     },
     showToast(variant, title) {
       this.$toast({
@@ -278,80 +277,80 @@ export default {
           icon: 'BellIcon',
           variant,
         },
-      })
+      });
     },
     getZelIdLoginPhrase() {
       IDService.loginPhrase()
-        .then(response => {
-          console.log(response)
+        .then((response) => {
+          console.log(response);
           if (response.data.status === 'error') {
             if (JSON.stringify(response.data.data).includes('CONN')) {
               // we can fix daemon, benchmark problems. But cannot fix mongo, docker issues (docker may be possible to fix in the future, mongo not)...
-              this.getEmergencyLoginPhrase()
+              this.getEmergencyLoginPhrase();
             } else {
-              this.showToast('danger', response.data.data.message)
+              this.showToast('danger', response.data.data.message);
             }
           } else {
-            this.loginPhrase = response.data.data
-            this.loginForm.loginPhrase = response.data.data
+            this.loginPhrase = response.data.data;
+            this.loginForm.loginPhrase = response.data.data;
           }
         })
-        .catch(error => {
-          console.log(error)
-          this.showToast('danger', error)
-        })
+        .catch((error) => {
+          console.log(error);
+          this.showToast('danger', error);
+        });
     },
     getEmergencyLoginPhrase() {
       IDService.emergencyLoginPhrase()
-        .then(response => {
-          console.log(response)
+        .then((response) => {
+          console.log(response);
           if (response.data.status === 'error') {
-            this.showToast('danger', response.data.data.message)
+            this.showToast('danger', response.data.data.message);
           } else {
-            this.loginPhrase = response.data.data
-            this.loginForm.loginPhrase = response.data.data
+            this.loginPhrase = response.data.data;
+            this.loginForm.loginPhrase = response.data.data;
           }
         })
-        .catch(error => {
-          console.log(error)
-          this.showToast('danger', error)
-        })
+        .catch((error) => {
+          console.log(error);
+          this.showToast('danger', error);
+        });
     },
     getVariant(status) {
       if (status === 'error') {
-        return 'danger'
+        return 'danger';
       }
       if (status === 'message') {
-        return 'info'
+        return 'info';
       }
-      return status
+      return status;
     },
     login() {
-      console.log(this.loginForm)
+      console.log(this.loginForm);
       IDService.verifyLogin(this.loginForm)
-        .then(response => {
-          console.log(response)
+        .then((response) => {
+          console.log(response);
           if (response.data.status === 'success') {
             // user is  now signed. Store their values
             const zelidauth = {
               zelid: this.loginForm.zelid,
               signature: this.loginForm.signature,
               loginPhrase: this.loginForm.loginPhrase,
-            }
-            this.$store.commit('flux/setPrivilege', response.data.data.privilage)
-            localStorage.setItem('zelidauth', qs.stringify(zelidauth))
-            this.showToast('success', response.data.data.message)
+            };
+            this.$store.commit('flux/setPrivilege', response.data.data.privilage);
+            localStorage.setItem('zelidauth', qs.stringify(zelidauth));
+            this.showToast('success', response.data.data.message);
           } else {
-            this.showToast(this.getVariant(response.data.status), response.data.data.message || response.data.data)
+            this.showToast(this.getVariant(response.data.status), response.data.data.message || response.data.data);
           }
         })
-        .catch(e => {
-          console.log(e)
-          this.showToast('danger', e.toString())
-        })
+        .catch((e) => {
+          console.log(e);
+          this.showToast('danger', e.toString());
+        });
     },
   },
-}
+};
 </script>
 
 <style>

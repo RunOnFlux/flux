@@ -46,10 +46,10 @@
 <script>
 import {
   BCard,
-} from 'bootstrap-vue'
-import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
-import DaemonService from '@/services/DaemonService'
-import ListEntry from '@/views/components/ListEntry.vue'
+} from 'bootstrap-vue';
+import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
+import DaemonService from '@/services/DaemonService';
+import ListEntry from '@/views/components/ListEntry.vue';
 
 export default {
   components: {
@@ -64,14 +64,14 @@ export default {
         status: '',
         data: '',
       },
-    }
+    };
   },
   mounted() {
-    this.daemonGetZelNodeCount()
+    this.daemonGetZelNodeCount();
   },
   methods: {
     async daemonGetZelNodeCount() {
-      const response = await DaemonService.getZelNodeCount()
+      const response = await DaemonService.getZelNodeCount();
       if (response.data.status === 'error') {
         this.$toast({
           component: ToastificationContent,
@@ -80,15 +80,15 @@ export default {
             icon: 'InfoIcon',
             variant: 'danger',
           },
-        })
+        });
       } else {
-        this.callResponse.status = response.data.status
-        this.callResponse.data = response.data.data
-        console.log(response.data)
+        this.callResponse.status = response.data.status;
+        this.callResponse.data = response.data.data;
+        console.log(response.data);
       }
     },
   },
-}
+};
 </script>
 
 <style>

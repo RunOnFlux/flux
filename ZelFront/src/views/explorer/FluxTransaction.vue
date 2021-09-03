@@ -52,9 +52,9 @@
 <script>
 import {
   BCard,
-} from 'bootstrap-vue'
+} from 'bootstrap-vue';
 
-import ListEntry from '@/views/components/ListEntry.vue'
+import ListEntry from '@/views/components/ListEntry.vue';
 
 export default {
   components: {
@@ -65,19 +65,19 @@ export default {
     transaction: {
       type: Object,
       default() {
-        return { version: 0 }
+        return { version: 0 };
       },
     },
   },
   data() {
     return {
-    }
+    };
   },
   mounted() {
   },
   methods: {
   },
-}
+};
 </script>
 
 <style scoped>

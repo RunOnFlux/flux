@@ -143,13 +143,13 @@ import {
   BButton,
   VBTooltip,
   BOverlay,
-} from 'bootstrap-vue'
-import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
-import Ripple from 'vue-ripple-directive'
-import ConfirmDialog from '@/views/components/ConfirmDialog.vue'
-import IDService from '@/services/IDService'
+} from 'bootstrap-vue';
+import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
+import Ripple from 'vue-ripple-directive';
+import ConfirmDialog from '@/views/components/ConfirmDialog.vue';
+import IDService from '@/services/IDService';
 
-const qs = require('qs')
+const qs = require('qs');
 
 export default {
   components: {
@@ -191,92 +191,92 @@ export default {
       totalRows: 1,
       currentPage: 1,
       usersLoading: true,
-    }
+    };
   },
   computed: {
     sortOptions() {
       // Create an options list from our fields
       return this.fields
-        .filter(f => f.sortable)
-        .map(f => ({ text: f.label, value: f.key }))
+        .filter((f) => f.sortable)
+        .map((f) => ({ text: f.label, value: f.key }));
     },
     currentLoginPhrase() {
-      const zelidauth = localStorage.getItem('zelidauth')
-      const auth = qs.parse(zelidauth)
-      return auth.loginPhrase
+      const zelidauth = localStorage.getItem('zelidauth');
+      const auth = qs.parse(zelidauth);
+      return auth.loginPhrase;
     },
   },
   mounted() {
-    this.loggedUsers()
+    this.loggedUsers();
   },
   methods: {
     async loggedUsers() {
-      this.usersLoading = true
-      const zelidauth = localStorage.getItem('zelidauth')
+      this.usersLoading = true;
+      const zelidauth = localStorage.getItem('zelidauth');
       IDService.loggedUsers(zelidauth)
-        .then(response => {
+        .then((response) => {
           if (response.data.status === 'error') {
-            this.showToast('danger', response.data.data.message || response.data.data)
+            this.showToast('danger', response.data.data.message || response.data.data);
           } else {
-            this.items = response.data.data
-            this.totalRows = this.items.length
-            this.currentPage = 1
+            this.items = response.data.data;
+            this.totalRows = this.items.length;
+            this.currentPage = 1;
           }
-          this.usersLoading = false
+          this.usersLoading = false;
         })
-        .catch(e => {
-          console.log(e)
-          this.showToast('danger', e.toString())
-          this.usersLoading = false
-        })
+        .catch((e) => {
+          console.log(e);
+          this.showToast('danger', e.toString());
+          this.usersLoading = false;
+        });
     },
     onFiltered(filteredItems) {
       // Trigger pagination to update the number of buttons/pages due to filtering
-      this.totalRows = filteredItems.length
-      this.currentPage = 1
+      this.totalRows = filteredItems.length;
+      this.currentPage = 1;
     },
     async onLogoutOK(row) {
-      const zelidauth = localStorage.getItem('zelidauth')
-      const auth = qs.parse(zelidauth)
+      const zelidauth = localStorage.getItem('zelidauth');
+      const auth = qs.parse(zelidauth);
       IDService.logoutSpecificSession(zelidauth, row.loginPhrase)
-        .then(response => {
+        .then((response) => {
           if (response.data.status === 'error') {
-            this.showToast('danger', response.data.data.message || response.data.data)
+            this.showToast('danger', response.data.data.message || response.data.data);
           } else {
-            this.showToast('success', response.data.data.message || response.data.data)
+            this.showToast('success', response.data.data.message || response.data.data);
             if (row.loginPhrase === auth.loginPhrase) {
-              localStorage.removeItem('zelidauth')
-              this.$store.commit('flux/setPrivilege', 'none')
+              localStorage.removeItem('zelidauth');
+              this.$store.commit('flux/setPrivilege', 'none');
               // Navigate back to the home screen
-              this.$router.replace('/')
+              this.$router.replace('/');
             } else {
-              this.loggedUsers()
+              this.loggedUsers();
             }
           }
         })
-        .catch(e => {
-          console.log(e)
-          this.showToast('danger', e.toString())
-        })
+        .catch((e) => {
+          console.log(e);
+          this.showToast('danger', e.toString());
+        });
     },
     async onLogoutAllOK() {
-      const zelidauth = localStorage.getItem('zelidauth')
+      const zelidauth = localStorage.getItem('zelidauth');
       IDService.logoutAllUsers(zelidauth)
-        .then(response => {
+        .then((response) => {
           if (response.data.status === 'error') {
-            this.showToast('danger', response.data.data.message || response.data.data)
+            this.showToast('danger', response.data.data.message || response.data.data);
           } else {
-            localStorage.removeItem('zelidauth')
-            this.$store.commit('flux/setPrivilege', 'none')
+            localStorage.removeItem('zelidauth');
+            this.$store.commit('flux/setPrivilege', 'none');
             // Navigate back to the home screen
-            this.$router.replace('/')
-            this.showToast('success', response.data.data.message || response.data.data)
+            this.$router.replace('/');
+            this.showToast('success', response.data.data.message || response.data.data);
           }
         })
-        .catch(e => {
-          console.log(e)
-          this.showToast('danger', e.toString())
-        })
+        .catch((e) => {
+          console.log(e);
+          this.showToast('danger', e.toString());
+        });
     },
     showToast(variant, title, icon = 'InfoIcon') {
       this.$toast({
@@ -286,10 +286,10 @@ export default {
           icon,
           variant,
         },
-      })
+      });
     },
   },
-}
+};
 </script>
 
 <style>

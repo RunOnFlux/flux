@@ -36,11 +36,11 @@
 <script>
 import {
   BCard,
-} from 'bootstrap-vue'
-import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
-import AppCollapse from '@core/components/app-collapse/AppCollapse.vue'
-import AppCollapseItem from '@core/components/app-collapse/AppCollapseItem.vue'
-import BenchmarkService from '@/services/BenchmarkService'
+} from 'bootstrap-vue';
+import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
+import AppCollapse from '@core/components/app-collapse/AppCollapse.vue';
+import AppCollapseItem from '@core/components/app-collapse/AppCollapseItem.vue';
+import BenchmarkService from '@/services/BenchmarkService';
 
 export default {
   components: {
@@ -58,22 +58,22 @@ export default {
       },
       activeHelpNames: '',
       currentHelpResponse: '',
-    }
+    };
   },
   computed: {
     helpResponse() {
       if (this.callResponse.data) {
-        return this.callResponse.data.split('\n').filter(el => el !== '').map(el => (el.startsWith('=') ? el : el.split(' ')[0]))
+        return this.callResponse.data.split('\n').filter((el) => el !== '').map((el) => (el.startsWith('=') ? el : el.split(' ')[0]));
       }
-      return []
+      return [];
     },
   },
   mounted() {
-    this.daemonHelp()
+    this.daemonHelp();
   },
   methods: {
     async daemonHelp() {
-      const response = await BenchmarkService.help()
+      const response = await BenchmarkService.help();
       if (response.data.status === 'error') {
         this.$toast({
           component: ToastificationContent,
@@ -82,21 +82,21 @@ export default {
             icon: 'InfoIcon',
             variant: 'danger',
           },
-        })
+        });
       } else {
-        this.callResponse.status = response.data.status
-        this.callResponse.data = response.data.data
+        this.callResponse.status = response.data.status;
+        this.callResponse.data = response.data.data;
       }
     },
     updateActiveHelpNames(_, name) {
-      this.activeHelpNames = name
-      this.benchmarkHelpSpecific()
+      this.activeHelpNames = name;
+      this.benchmarkHelpSpecific();
     },
     async benchmarkHelpSpecific() {
-      this.currentHelpResponse = ''
-      console.log(this.activeHelpNames)
-      const response = await BenchmarkService.helpSpecific(this.activeHelpNames)
-      console.log(response)
+      this.currentHelpResponse = '';
+      console.log(this.activeHelpNames);
+      const response = await BenchmarkService.helpSpecific(this.activeHelpNames);
+      console.log(response);
       if (response.data.status === 'error') {
         this.$toast({
           component: ToastificationContent,
@@ -105,40 +105,40 @@ export default {
             icon: 'InfoIcon',
             variant: 'danger',
           },
-        })
+        });
       } else {
-        const modifiedHelp = response.data.data.split('\n')
-        const ml = modifiedHelp.length
-        let spaces = 0
+        const modifiedHelp = response.data.data.split('\n');
+        const ml = modifiedHelp.length;
+        let spaces = 0;
         for (let i = 0; i < ml; i += 1) {
-          let whiteSpaceAdd = ''
+          let whiteSpaceAdd = '';
           if (modifiedHelp[i].trim() === '{' || modifiedHelp[i].trim() === '[') {
-            spaces += 4
+            spaces += 4;
             for (let j = 0; j < spaces; j += 1) {
-              whiteSpaceAdd += '\u00A0'
+              whiteSpaceAdd += '\u00A0';
             }
-            modifiedHelp[i] = whiteSpaceAdd + modifiedHelp[i]
-            spaces += 4
+            modifiedHelp[i] = whiteSpaceAdd + modifiedHelp[i];
+            spaces += 4;
           } else if (modifiedHelp[i].trim() === '}' || modifiedHelp[i].trim() === ']') {
-            spaces -= 4
+            spaces -= 4;
             for (let j = 0; j < spaces; j += 1) {
-              whiteSpaceAdd += '\u00A0'
+              whiteSpaceAdd += '\u00A0';
             }
-            modifiedHelp[i] = whiteSpaceAdd + modifiedHelp[i]
-            spaces -= 4
+            modifiedHelp[i] = whiteSpaceAdd + modifiedHelp[i];
+            spaces -= 4;
           } else {
             for (let j = 0; j < spaces; j += 1) {
-              whiteSpaceAdd += '\u00A0'
+              whiteSpaceAdd += '\u00A0';
             }
-            modifiedHelp[i] = whiteSpaceAdd + modifiedHelp[i]
+            modifiedHelp[i] = whiteSpaceAdd + modifiedHelp[i];
           }
         }
-        this.currentHelpResponse = modifiedHelp.join('\n')
-        console.log(this.currentHelpResponse)
+        this.currentHelpResponse = modifiedHelp.join('\n');
+        console.log(this.currentHelpResponse);
       }
     },
   },
-}
+};
 </script>
 
 <style>

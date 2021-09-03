@@ -185,14 +185,16 @@
       <b-col xs="12">
         <b-card>
           <b-card-title>
-            Resources &nbsp;&nbsp;&nbsp;<h6 class="inline text-small">(Tiered:
+            Resources &nbsp;&nbsp;&nbsp;<h6 class="inline text-small">
+              (Tiered:
               <b-form-checkbox
                 id="tiered"
                 v-model="appRegistrationSpecification.tiered"
                 switch
                 class="custom-control-primary inline"
               />
-              )</h6>
+              )
+            </h6>
           </b-card-title>
           <b-form-group
             label-cols="2"
@@ -502,17 +504,17 @@ import {
   BFormTextarea,
   BLink,
   VBTooltip,
-} from 'bootstrap-vue'
+} from 'bootstrap-vue';
 
-import { mapState } from 'vuex'
-import Ripple from 'vue-ripple-directive'
-import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
-import fluxapps from '@/libs/fluxApps'
-import AppsService from '@/services/AppsService'
+import { mapState } from 'vuex';
+import Ripple from 'vue-ripple-directive';
+import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
+import fluxapps from '@/libs/fluxApps';
+import AppsService from '@/services/AppsService';
 
-const qs = require('qs')
-const store = require('store')
-const timeoptions = require('@/libs/dateFormat')
+const qs = require('qs');
+const store = require('store');
+const timeoptions = require('@/libs/dateFormat');
 
 export default {
   components: {
@@ -571,7 +573,7 @@ export default {
         hddbamf: 285,
       },
       dataForAppRegistration: {},
-    }
+    };
   },
   computed: {
     ...mapState('flux', [
@@ -580,146 +582,146 @@ export default {
       'privilege',
     ]),
     appPricePerMonth() {
-      const price = fluxapps.appPricePerMonthMethod(this.dataForAppRegistration)
-      return price
+      const price = fluxapps.appPricePerMonthMethod(this.dataForAppRegistration);
+      return price;
     },
     validTill() {
-      const expTime = this.timestamp + 60 * 60 * 1000 // 1 hour
-      return expTime
+      const expTime = this.timestamp + 60 * 60 * 1000; // 1 hour
+      return expTime;
     },
     subscribedTill() {
-      const expTime = this.timestamp + 30 * 24 * 60 * 60 * 1000 + 60 * 60 * 1000 // 1 month
-      return expTime
+      const expTime = this.timestamp + 30 * 24 * 60 * 60 * 1000 + 60 * 60 * 1000; // 1 month
+      return expTime;
     },
     callbackValue() {
-      const { protocol, hostname } = window.location
-      let mybackend = ''
-      mybackend += protocol
-      mybackend += '//'
-      const regex = /[A-Za-z]/g
+      const { protocol, hostname } = window.location;
+      let mybackend = '';
+      mybackend += protocol;
+      mybackend += '//';
+      const regex = /[A-Za-z]/g;
       if (hostname.match(regex)) {
-        const names = hostname.split('.')
-        names[0] = 'api'
-        mybackend += names.join('.')
+        const names = hostname.split('.');
+        names[0] = 'api';
+        mybackend += names.join('.');
       } else {
-        mybackend += this.userconfig.externalip
-        mybackend += ':'
-        mybackend += this.config.apiPort
+        mybackend += this.userconfig.externalip;
+        mybackend += ':';
+        mybackend += this.config.apiPort;
       }
-      const backendURL = store.get('backendURL') || mybackend
-      const url = `${backendURL}/zelid/providesign`
-      return encodeURI(url)
+      const backendURL = store.get('backendURL') || mybackend;
+      const url = `${backendURL}/zelid/providesign`;
+      return encodeURI(url);
     },
   },
   watch: {
     appRegistrationSpecification: {
       handler() {
-        this.dataToSign = ''
-        this.signature = ''
-        this.timestamp = null
-        this.dataForAppRegistration = {}
-        this.registrationHash = ''
+        this.dataToSign = '';
+        this.signature = '';
+        this.timestamp = null;
+        this.dataForAppRegistration = {};
+        this.registrationHash = '';
         if (this.websocket !== null) {
-          this.websocket.close()
-          this.websocket = null
+          this.websocket.close();
+          this.websocket = null;
         }
       },
       deep: true,
     },
   },
   mounted() {
-    this.getRandomPort()
-    this.registrationInformation()
-    const zelidauth = localStorage.getItem('zelidauth')
-    const auth = qs.parse(zelidauth)
-    this.appRegistrationSpecification.owner = auth.zelid
+    this.getRandomPort();
+    this.registrationInformation();
+    const zelidauth = localStorage.getItem('zelidauth');
+    const auth = qs.parse(zelidauth);
+    this.appRegistrationSpecification.owner = auth.zelid;
   },
   methods: {
     async checkFluxSpecificationsAndFormatMessage() {
       try {
-        let appSpecification = this.appRegistrationSpecification
-        console.log(appSpecification)
-        appSpecification = this.ensureObject(appSpecification)
-        let { version } = appSpecification // shall be 2
-        let { name } = appSpecification
-        let { description } = appSpecification
-        let { repotag } = appSpecification
-        let { owner } = appSpecification
-        let { ports } = appSpecification
-        let { domains } = appSpecification
-        let { enviromentParameters } = appSpecification
-        let { commands } = appSpecification
-        let { containerPorts } = appSpecification
-        let { containerData } = appSpecification
-        let { cpu } = appSpecification
-        let { ram } = appSpecification
-        let { hdd } = appSpecification
-        const { tiered } = appSpecification
+        let appSpecification = this.appRegistrationSpecification;
+        console.log(appSpecification);
+        appSpecification = this.ensureObject(appSpecification);
+        let { version } = appSpecification; // shall be 2
+        let { name } = appSpecification;
+        let { description } = appSpecification;
+        let { repotag } = appSpecification;
+        let { owner } = appSpecification;
+        let { ports } = appSpecification;
+        let { domains } = appSpecification;
+        let { enviromentParameters } = appSpecification;
+        let { commands } = appSpecification;
+        let { containerPorts } = appSpecification;
+        let { containerData } = appSpecification;
+        let { cpu } = appSpecification;
+        let { ram } = appSpecification;
+        let { hdd } = appSpecification;
+        const { tiered } = appSpecification;
         // check if signature of received data is correct
         if (!version || !name || !description || !repotag || !owner || !ports || !domains || !enviromentParameters || !commands || !containerPorts || !containerData || !cpu || !ram || !hdd) {
-          throw new Error('Missing App specification parameter')
+          throw new Error('Missing App specification parameter');
         }
-        version = this.ensureNumber(version)
-        name = this.ensureString(name)
-        description = this.ensureString(description)
-        repotag = this.ensureString(repotag)
-        owner = this.ensureString(owner)
-        ports = this.ensureObject(ports)
-        const portsCorrect = []
+        version = this.ensureNumber(version);
+        name = this.ensureString(name);
+        description = this.ensureString(description);
+        repotag = this.ensureString(repotag);
+        owner = this.ensureString(owner);
+        ports = this.ensureObject(ports);
+        const portsCorrect = [];
         if (Array.isArray(ports)) {
-          ports.forEach(parameter => {
-            const param = this.ensureString(parameter) // todo ensureNumber
-            portsCorrect.push(param)
-          })
+          ports.forEach((parameter) => {
+            const param = this.ensureString(parameter); // todo ensureNumber
+            portsCorrect.push(param);
+          });
         } else {
-          throw new Error('Ports parameters for App are invalid')
+          throw new Error('Ports parameters for App are invalid');
         }
-        domains = this.ensureObject(domains)
-        const domainsCorrect = []
+        domains = this.ensureObject(domains);
+        const domainsCorrect = [];
         if (Array.isArray(domains)) {
-          domains.forEach(parameter => {
-            const param = this.ensureString(parameter)
-            domainsCorrect.push(param)
-          })
+          domains.forEach((parameter) => {
+            const param = this.ensureString(parameter);
+            domainsCorrect.push(param);
+          });
         } else {
-          throw new Error('Domains for Flux App are invalid')
+          throw new Error('Domains for Flux App are invalid');
         }
-        enviromentParameters = this.ensureObject(enviromentParameters)
-        const envParamsCorrected = []
+        enviromentParameters = this.ensureObject(enviromentParameters);
+        const envParamsCorrected = [];
         if (Array.isArray(enviromentParameters)) {
-          enviromentParameters.forEach(parameter => {
-            const param = this.ensureString(parameter)
-            envParamsCorrected.push(param)
-          })
+          enviromentParameters.forEach((parameter) => {
+            const param = this.ensureString(parameter);
+            envParamsCorrected.push(param);
+          });
         } else {
-          throw new Error('Enviromental parameters for App are invalid')
+          throw new Error('Enviromental parameters for App are invalid');
         }
-        commands = this.ensureObject(commands)
-        const commandsCorrected = []
+        commands = this.ensureObject(commands);
+        const commandsCorrected = [];
         if (Array.isArray(commands)) {
-          commands.forEach(command => {
-            const cmm = this.ensureString(command)
-            commandsCorrected.push(cmm)
-          })
+          commands.forEach((command) => {
+            const cmm = this.ensureString(command);
+            commandsCorrected.push(cmm);
+          });
         } else {
-          throw new Error('App commands are invalid')
+          throw new Error('App commands are invalid');
         }
-        containerPorts = this.ensureObject(containerPorts)
-        const containerportsCorrect = []
+        containerPorts = this.ensureObject(containerPorts);
+        const containerportsCorrect = [];
         if (Array.isArray(containerPorts)) {
-          containerPorts.forEach(parameter => {
-            const param = this.ensureString(parameter) // todo ensureNumber
-            containerportsCorrect.push(param)
-          })
+          containerPorts.forEach((parameter) => {
+            const param = this.ensureString(parameter); // todo ensureNumber
+            containerportsCorrect.push(param);
+          });
         } else {
-          throw new Error('Container Ports parameters for App are invalid')
+          throw new Error('Container Ports parameters for App are invalid');
         }
-        containerData = this.ensureString(containerData)
-        cpu = this.ensureNumber(cpu)
-        ram = this.ensureNumber(ram)
-        hdd = this.ensureNumber(hdd)
+        containerData = this.ensureString(containerData);
+        cpu = this.ensureNumber(cpu);
+        ram = this.ensureNumber(ram);
+        hdd = this.ensureNumber(hdd);
         if (typeof tiered !== 'boolean') {
-          throw new Error('Invalid tiered value obtained. Only boolean as true or false allowed.')
+          throw new Error('Invalid tiered value obtained. Only boolean as true or false allowed.');
         }
 
         // finalised parameters that will get stored in global database
@@ -739,246 +741,246 @@ export default {
           ram, // integer 100 step (mb)
           hdd, // integer 1 step
           tiered, // boolean
-        }
+        };
 
         if (tiered) {
-          let { cpubasic } = appSpecification
-          let { cpusuper } = appSpecification
-          let { cpubamf } = appSpecification
-          let { rambasic } = appSpecification
-          let { ramsuper } = appSpecification
-          let { rambamf } = appSpecification
-          let { hddbasic } = appSpecification
-          let { hddsuper } = appSpecification
-          let { hddbamf } = appSpecification
+          let { cpubasic } = appSpecification;
+          let { cpusuper } = appSpecification;
+          let { cpubamf } = appSpecification;
+          let { rambasic } = appSpecification;
+          let { ramsuper } = appSpecification;
+          let { rambamf } = appSpecification;
+          let { hddbasic } = appSpecification;
+          let { hddsuper } = appSpecification;
+          let { hddbamf } = appSpecification;
           if (!cpubasic || !cpusuper || !cpubamf || !rambasic || !ramsuper || !rambamf || !hddbasic || !hddsuper || !hddbamf) {
-            throw new Error('App was requested as tiered setup but specifications are missing')
+            throw new Error('App was requested as tiered setup but specifications are missing');
           }
-          cpubasic = this.ensureNumber(cpubasic)
-          cpusuper = this.ensureNumber(cpusuper)
-          cpubamf = this.ensureNumber(cpubamf)
-          rambasic = this.ensureNumber(rambasic)
-          ramsuper = this.ensureNumber(ramsuper)
-          rambamf = this.ensureNumber(rambamf)
-          hddbasic = this.ensureNumber(hddbasic)
-          hddsuper = this.ensureNumber(hddsuper)
-          hddbamf = this.ensureNumber(hddbamf)
+          cpubasic = this.ensureNumber(cpubasic);
+          cpusuper = this.ensureNumber(cpusuper);
+          cpubamf = this.ensureNumber(cpubamf);
+          rambasic = this.ensureNumber(rambasic);
+          ramsuper = this.ensureNumber(ramsuper);
+          rambamf = this.ensureNumber(rambamf);
+          hddbasic = this.ensureNumber(hddbasic);
+          hddsuper = this.ensureNumber(hddsuper);
+          hddbamf = this.ensureNumber(hddbamf);
 
-          appSpecFormatted.cpubasic = cpubasic
-          appSpecFormatted.cpusuper = cpusuper
-          appSpecFormatted.cpubamf = cpubamf
-          appSpecFormatted.rambasic = rambasic
-          appSpecFormatted.ramsuper = ramsuper
-          appSpecFormatted.rambamf = rambamf
-          appSpecFormatted.hddbasic = hddbasic
-          appSpecFormatted.hddsuper = hddsuper
-          appSpecFormatted.hddbamf = hddbamf
+          appSpecFormatted.cpubasic = cpubasic;
+          appSpecFormatted.cpusuper = cpusuper;
+          appSpecFormatted.cpubamf = cpubamf;
+          appSpecFormatted.rambasic = rambasic;
+          appSpecFormatted.ramsuper = ramsuper;
+          appSpecFormatted.rambamf = rambamf;
+          appSpecFormatted.hddbasic = hddbasic;
+          appSpecFormatted.hddsuper = hddsuper;
+          appSpecFormatted.hddbamf = hddbamf;
         }
         // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper port, repotag exists, string lengths, specs are ok
         if (version !== 2) {
-          throw new Error('App message version specification is invalid')
+          throw new Error('App message version specification is invalid');
         }
         if (name.length > 32) {
-          throw new Error('App name is too long')
+          throw new Error('App name is too long');
         }
         // furthermore name cannot contain any special character
         if (!name.match(/^[a-zA-Z0-9]+$/)) {
-          throw new Error('App name contains special characters. Only a-z, A-Z and 0-9 are allowed')
+          throw new Error('App name contains special characters. Only a-z, A-Z and 0-9 are allowed');
         }
         if (name.startsWith('zel')) {
-          throw new Error('App name can not start with zel')
+          throw new Error('App name can not start with zel');
         }
         if (name.startsWith('flux')) {
-          throw new Error('App name can not start with flux')
+          throw new Error('App name can not start with flux');
         }
         if (description.length > 256) {
-          throw new Error('Description is too long. Maximum of 256 characters is allowed')
+          throw new Error('Description is too long. Maximum of 256 characters is allowed');
         }
-        const parameters = fluxapps.checkHWParameters(appSpecFormatted)
+        const parameters = fluxapps.checkHWParameters(appSpecFormatted);
         if (parameters !== true) {
-          const errorMessage = parameters
-          throw new Error(errorMessage)
+          const errorMessage = parameters;
+          throw new Error(errorMessage);
         }
 
         // check ports is within range
-        appSpecFormatted.ports.forEach(port => {
+        appSpecFormatted.ports.forEach((port) => {
           if (port < fluxapps.apps.portMin || port > fluxapps.apps.portMax) {
-            throw new Error(`Assigned port ${port} is not within Apps range ${fluxapps.apps.portMin}-${fluxapps.apps.portMax}`)
+            throw new Error(`Assigned port ${port} is not within Apps range ${fluxapps.apps.portMin}-${fluxapps.apps.portMax}`);
           }
-        })
+        });
 
         // check if containerPorts makes sense
-        appSpecFormatted.containerPorts.forEach(port => {
+        appSpecFormatted.containerPorts.forEach((port) => {
           if (port < 0 || port > 65535) {
-            throw new Error(`Container Port ${port} is not within system limits 0-65535`)
+            throw new Error(`Container Port ${port} is not within system limits 0-65535`);
           }
-        })
+        });
 
         if (appSpecFormatted.containerPorts.length !== appSpecFormatted.ports.length) {
-          throw new Error('Ports specifications do not match')
+          throw new Error('Ports specifications do not match');
         }
 
         if (appSpecFormatted.domains.length !== appSpecFormatted.ports.length) {
-          throw new Error('Domains specifications do not match available ports')
+          throw new Error('Domains specifications do not match available ports');
         }
 
         if (appSpecFormatted.ports.length > 5) {
-          throw new Error('Too many ports defined. Maximum of 5 allowed.')
+          throw new Error('Too many ports defined. Maximum of 5 allowed.');
         }
 
         // check wheter shared Folder is not root
         if (containerData.length < 2) {
-          throw new Error('App container data folder not specified. If no data folder is required, use /tmp')
+          throw new Error('App container data folder not specified. If no data folder is required, use /tmp');
         }
 
         // check repotag if available for download
-        const splittedRepo = appSpecFormatted.repotag.split(':')
-        console.log(splittedRepo)
+        const splittedRepo = appSpecFormatted.repotag.split(':');
+        console.log(splittedRepo);
         if (splittedRepo[0] && splittedRepo[1] && !splittedRepo[2]) {
-          const zelidauth = localStorage.getItem('zelidauth')
+          const zelidauth = localStorage.getItem('zelidauth');
           const data = {
             repotag: appSpecFormatted.repotag,
-          }
-          const resDocker = await AppsService.checkDockerExistance(zelidauth, data).catch(error => {
-            this.showToast('danger', error.message || error)
-          })
-          console.log(resDocker)
+          };
+          const resDocker = await AppsService.checkDockerExistance(zelidauth, data).catch((error) => {
+            this.showToast('danger', error.message || error);
+          });
+          console.log(resDocker);
           if (resDocker.data.status === 'error') {
-            throw resDocker.data.data
+            throw resDocker.data.data;
           }
         } else {
-          throw new Error('Repository is not in valid format "namespace/repository:tag"')
+          throw new Error('Repository is not in valid format "namespace/repository:tag"');
         }
-        this.timestamp = new Date().getTime()
-        this.dataForAppRegistration = appSpecFormatted
-        this.dataToSign = this.registrationtype + this.version + JSON.stringify(appSpecFormatted) + this.timestamp
+        this.timestamp = new Date().getTime();
+        this.dataForAppRegistration = appSpecFormatted;
+        this.dataToSign = this.registrationtype + this.version + JSON.stringify(appSpecFormatted) + this.timestamp;
       } catch (error) {
-        console.log(error)
-        this.showToast('danger', error.message || error)
+        console.log(error);
+        this.showToast('danger', error.message || error);
       }
     },
 
     initiateSignWS() {
-      const self = this
-      const { protocol, hostname } = window.location
-      let mybackend = ''
-      mybackend += protocol
-      mybackend += '//'
-      const regex = /[A-Za-z]/g
+      const self = this;
+      const { protocol, hostname } = window.location;
+      let mybackend = '';
+      mybackend += protocol;
+      mybackend += '//';
+      const regex = /[A-Za-z]/g;
       if (hostname.match(regex)) {
-        const names = hostname.split('.')
-        names[0] = 'api'
-        mybackend += names.join('.')
+        const names = hostname.split('.');
+        names[0] = 'api';
+        mybackend += names.join('.');
       } else {
-        mybackend += this.userconfig.externalip
-        mybackend += ':'
-        mybackend += this.config.apiPort
+        mybackend += this.userconfig.externalip;
+        mybackend += ':';
+        mybackend += this.config.apiPort;
       }
-      let backendURL = store.get('backendURL') || mybackend
-      backendURL = backendURL.replace('https://', 'wss://')
-      backendURL = backendURL.replace('http://', 'ws://')
-      const signatureMessage = this.appRegistrationSpecification.owner + this.timestamp
-      const wsuri = `${backendURL}/ws/sign/${signatureMessage}`
-      const websocket = new WebSocket(wsuri)
-      this.websocket = websocket
+      let backendURL = store.get('backendURL') || mybackend;
+      backendURL = backendURL.replace('https://', 'wss://');
+      backendURL = backendURL.replace('http://', 'ws://');
+      const signatureMessage = this.appRegistrationSpecification.owner + this.timestamp;
+      const wsuri = `${backendURL}/ws/sign/${signatureMessage}`;
+      const websocket = new WebSocket(wsuri);
+      this.websocket = websocket;
 
-      websocket.onopen = evt => { self.onOpen(evt) }
-      websocket.onclose = evt => { self.onClose(evt) }
-      websocket.onmessage = evt => { self.onMessage(evt) }
-      websocket.onerror = evt => { self.onError(evt) }
+      websocket.onopen = (evt) => { self.onOpen(evt); };
+      websocket.onclose = (evt) => { self.onClose(evt); };
+      websocket.onmessage = (evt) => { self.onMessage(evt); };
+      websocket.onerror = (evt) => { self.onError(evt); };
     },
     onError(evt) {
-      console.log(evt)
+      console.log(evt);
     },
     onMessage(evt) {
-      const data = qs.parse(evt.data)
+      const data = qs.parse(evt.data);
       if (data.status === 'success' && data.data) {
         // user is now signed. Store their values
-        this.signature = data.data.signature
+        this.signature = data.data.signature;
       }
-      console.log(data)
-      console.log(evt)
+      console.log(data);
+      console.log(evt);
     },
     onClose(evt) {
-      console.log(evt)
+      console.log(evt);
     },
     onOpen(evt) {
-      console.log(evt)
+      console.log(evt);
     },
 
     async register() {
-      const zelidauth = localStorage.getItem('zelidauth')
+      const zelidauth = localStorage.getItem('zelidauth');
       const data = {
         type: this.registrationtype,
         version: this.version,
         appSpecification: this.dataForAppRegistration,
         timestamp: this.timestamp,
         signature: this.signature,
-      }
-      const response = await AppsService.registerApp(zelidauth, data).catch(error => {
-        this.showToast('danger', error.message || error)
-      })
-      console.log(response)
+      };
+      const response = await AppsService.registerApp(zelidauth, data).catch((error) => {
+        this.showToast('danger', error.message || error);
+      });
+      console.log(response);
       if (response.data.status === 'success') {
-        this.registrationHash = response.data.data
-        this.showToast('success', response.data.data.message || response.data.data)
+        this.registrationHash = response.data.data;
+        this.showToast('success', response.data.data.message || response.data.data);
       } else {
-        this.showToast('danger', response.data.data.message || response.data.data)
+        this.showToast('danger', response.data.data.message || response.data.data);
       }
     },
 
     async registrationInformation() {
-      const response = await AppsService.appsRegInformation()
-      const { data } = response.data
+      const response = await AppsService.appsRegInformation();
+      const { data } = response.data;
       if (response.data.status === 'success') {
-        fluxapps.apps.price.cpu = data.price.cpu
-        fluxapps.apps.price.hdd = data.price.hdd
-        fluxapps.apps.price.ram = data.price.ram
-        fluxapps.apps.address = data.address
-        fluxapps.apps.epochstart = data.epochstart
-        fluxapps.apps.portMin = data.portMin
-        fluxapps.apps.portMax = data.portMax
+        fluxapps.apps.price.cpu = data.price.cpu;
+        fluxapps.apps.price.hdd = data.price.hdd;
+        fluxapps.apps.price.ram = data.price.ram;
+        fluxapps.apps.address = data.address;
+        fluxapps.apps.epochstart = data.epochstart;
+        fluxapps.apps.portMin = data.portMin;
+        fluxapps.apps.portMax = data.portMax;
       } else {
-        this.showToast('danger', response.data.data.message || response.data.data)
+        this.showToast('danger', response.data.data.message || response.data.data);
       }
     },
 
     getRandomPort() {
-      const min = 31001
-      const max = 39998
-      const portsArray = []
-      const port = Math.floor(Math.random() * (max - min) + min)
-      portsArray.push(port)
-      this.appRegistrationSpecification.ports = JSON.stringify(portsArray)
+      const min = 31001;
+      const max = 39998;
+      const portsArray = [];
+      const port = Math.floor(Math.random() * (max - min) + min);
+      portsArray.push(port);
+      this.appRegistrationSpecification.ports = JSON.stringify(portsArray);
     },
 
     ensureBoolean(parameter) {
-      let param
+      let param;
       if (parameter === 'false' || parameter === 0 || parameter === '0' || parameter === false) {
-        param = false
+        param = false;
       }
       if (parameter === 'true' || parameter === 1 || parameter === '1' || parameter === true) {
-        param = true
+        param = true;
       }
-      return param
+      return param;
     },
     ensureNumber(parameter) {
-      return typeof parameter === 'number' ? parameter : Number(parameter)
+      return typeof parameter === 'number' ? parameter : Number(parameter);
     },
     ensureObject(parameter) {
       if (typeof parameter === 'object') {
-        return parameter
+        return parameter;
       }
-      let param
+      let param;
       try {
-        param = JSON.parse(parameter)
+        param = JSON.parse(parameter);
       } catch (e) {
-        param = qs.parse(parameter)
+        param = qs.parse(parameter);
       }
-      return param
+      return param;
     },
     ensureString(parameter) {
-      return typeof parameter === 'string' ? parameter : JSON.stringify(parameter)
+      return typeof parameter === 'string' ? parameter : JSON.stringify(parameter);
     },
 
     showToast(variant, title, icon = 'InfoIcon') {
@@ -989,10 +991,10 @@ export default {
           icon,
           variant,
         },
-      })
+      });
     },
   },
-}
+};
 </script>
 
 <style scoped>

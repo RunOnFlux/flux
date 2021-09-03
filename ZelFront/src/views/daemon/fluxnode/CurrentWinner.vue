@@ -42,12 +42,12 @@
 <script>
 import {
   BCard,
-} from 'bootstrap-vue'
-import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
-import AppCollapse from '@core/components/app-collapse/AppCollapse.vue'
-import AppCollapseItem from '@core/components/app-collapse/AppCollapseItem.vue'
-import ListEntry from '@/views/components/ListEntry.vue'
-import DaemonService from '@/services/DaemonService'
+} from 'bootstrap-vue';
+import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
+import AppCollapse from '@core/components/app-collapse/AppCollapse.vue';
+import AppCollapseItem from '@core/components/app-collapse/AppCollapseItem.vue';
+import ListEntry from '@/views/components/ListEntry.vue';
+import DaemonService from '@/services/DaemonService';
 
 export default {
   components: {
@@ -64,14 +64,14 @@ export default {
         status: '',
         data: '',
       },
-    }
+    };
   },
   mounted() {
-    this.daemonFluxCurrentWinner()
+    this.daemonFluxCurrentWinner();
   },
   methods: {
     async daemonFluxCurrentWinner() {
-      const response = await DaemonService.fluxCurrentWinner()
+      const response = await DaemonService.fluxCurrentWinner();
       if (response.data.status === 'error') {
         this.$toast({
           component: ToastificationContent,
@@ -80,25 +80,25 @@ export default {
             icon: 'InfoIcon',
             variant: 'danger',
           },
-        })
+        });
       } else {
-        this.callResponse.status = response.data.status
-        this.callResponse.data = response.data.data
-        console.log(response)
+        this.callResponse.status = response.data.status;
+        this.callResponse.data = response.data.data;
+        console.log(response);
       }
     },
     toPascalCase(str) {
-      const arr = str.split(/\s|_/)
-      let i
-      let l
+      const arr = str.split(/\s|_/);
+      let i;
+      let l;
       for (i = 0, l = arr.length; i < l; i += 1) {
         arr[i] = arr[i].substr(0, 1).toUpperCase()
-                 + (arr[i].length > 1 ? arr[i].substr(1).toLowerCase() : '')
+                 + (arr[i].length > 1 ? arr[i].substr(1).toLowerCase() : '');
       }
-      return arr.join(' ')
+      return arr.join(' ');
     },
   },
-}
+};
 </script>
 
 <style>

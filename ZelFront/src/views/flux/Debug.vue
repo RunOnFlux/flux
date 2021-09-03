@@ -51,7 +51,7 @@
               placement="auto"
               container="my-container"
             >
-              <template v-slot:title>
+              <template #title>
                 <div class="d-flex justify-content-between align-items-center">
                   <span>Are You Sure?</span>
                   <b-button
@@ -107,7 +107,7 @@
               placement="auto"
               container="my-container"
             >
-              <template v-slot:title>
+              <template #title>
                 <div class="d-flex justify-content-between align-items-center">
                   <span>Are You Sure?</span>
                   <b-button
@@ -172,11 +172,11 @@ import {
   BCardText,
   BCol,
   BRow,
-} from 'bootstrap-vue'
-import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
-import Ripple from 'vue-ripple-directive'
-import axios from 'axios'
-import FluxService from '@/services/FluxService'
+} from 'bootstrap-vue';
+import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
+import Ripple from 'vue-ripple-directive';
+import axios from 'axios';
+import FluxService from '@/services/FluxService';
 
 export default {
   components: {
@@ -205,64 +205,64 @@ export default {
         data: {},
       },
       logTypes: ['error', 'warn', 'info', 'debug'],
-    }
+    };
   },
   computed: {
     fluxLogTail() {
       if (this.callResponse.data.message) {
-        return this.callResponse.data.message.split('\n').reverse().filter(el => el !== '').join('\n')
+        return this.callResponse.data.message.split('\n').reverse().filter((el) => el !== '').join('\n');
       }
-      return this.callResponse.data
+      return this.callResponse.data;
     },
   },
   methods: {
     cancelDownload(logType) {
-      this.abortToken[logType].cancel('User download cancelled')
-      this.downloaded[logType] = ''
-      this.total[logType] = ''
+      this.abortToken[logType].cancel('User download cancelled');
+      this.downloaded[logType] = '';
+      this.total[logType] = '';
     },
     onDownloadClose(logType) {
-      this.downloadPopoverShow[logType] = false
+      this.downloadPopoverShow[logType] = false;
     },
     async onDownloadOk(logType) {
-      const self = this
+      const self = this;
       if (self.abortToken[logType]) {
-        self.abortToken[logType].cancel()
+        self.abortToken[logType].cancel();
       }
-      this.downloadPopoverShow[logType] = false
-      const sourceCancelToken = axios.CancelToken
-      const cancelToken = sourceCancelToken.source()
-      this.abortToken[logType] = cancelToken
+      this.downloadPopoverShow[logType] = false;
+      const sourceCancelToken = axios.CancelToken;
+      const cancelToken = sourceCancelToken.source();
+      this.abortToken[logType] = cancelToken;
 
-      const zelidauth = localStorage.getItem('zelidauth')
+      const zelidauth = localStorage.getItem('zelidauth');
       const axiosConfig = {
         headers: {
           zelidauth,
         },
         responseType: 'blob',
         onDownloadProgress(progressEvent) {
-          self.downloaded[logType] = progressEvent.loaded
-          self.total[logType] = progressEvent.total
-          self.$forceUpdate()
+          self.downloaded[logType] = progressEvent.loaded;
+          self.total[logType] = progressEvent.total;
+          self.$forceUpdate();
         },
         cancelToken: self.abortToken[logType].token,
-      }
-      const response = await FluxService.justAPI().get(`/flux/${logType}log`, axiosConfig)
-      const url = window.URL.createObjectURL(new Blob([response.data]))
-      const link = document.createElement('a')
-      link.href = url
-      link.setAttribute('download', `${logType}.log`)
-      document.body.appendChild(link)
-      link.click()
+      };
+      const response = await FluxService.justAPI().get(`/flux/${logType}log`, axiosConfig);
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `${logType}.log`);
+      document.body.appendChild(link);
+      link.click();
     },
     onTailClose(logType) {
-      this.tailPopoverShow[logType] = false
+      this.tailPopoverShow[logType] = false;
     },
     async onTailOk(logType) {
-      this.tailPopoverShow[logType] = false
-      const zelidauth = localStorage.getItem('zelidauth')
+      this.tailPopoverShow[logType] = false;
+      const zelidauth = localStorage.getItem('zelidauth');
       FluxService.tailFluxLog(logType, zelidauth)
-        .then(response => {
+        .then((response) => {
           if (response.data.status === 'error') {
             this.$toast({
               component: ToastificationContent,
@@ -271,13 +271,13 @@ export default {
                 icon: 'InfoIcon',
                 variant: 'danger',
               },
-            })
+            });
           } else {
-            this.callResponse.status = response.data.status
-            this.callResponse.data = response.data.data
+            this.callResponse.status = response.data.status;
+            this.callResponse.data = response.data.data;
           }
         })
-        .catch(error => {
+        .catch((error) => {
           this.$toast({
             component: ToastificationContent,
             props: {
@@ -285,15 +285,15 @@ export default {
               icon: 'InfoIcon',
               variant: 'danger',
             },
-          })
-          console.log(error)
-        })
+          });
+          console.log(error);
+        });
     },
     capitalizeWord(word) {
-      return word[0].toUpperCase() + word.substr(1)
+      return word[0].toUpperCase() + word.substr(1);
     },
   },
-}
+};
 </script>
 
 <style>

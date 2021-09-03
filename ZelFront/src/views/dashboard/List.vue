@@ -93,10 +93,10 @@
 import {
   BCard, BTable, BRow, BCol, BFormGroup, BFormSelect, BPagination, BInputGroup, BFormInput, BInputGroupAppend, BButton,
   BOverlay,
-} from 'bootstrap-vue'
-import DashboardService from '@/services/DashboardService'
+} from 'bootstrap-vue';
+import DashboardService from '@/services/DashboardService';
 
-const axios = require('axios')
+const axios = require('axios');
 
 export default {
   components: {
@@ -151,55 +151,55 @@ export default {
       ],
       totalRows: 1,
       currentPage: 1,
-    }
+    };
   },
   computed: {
     sortOptions() {
       // Create an options list from our fields
       return this.fields
-        .filter(f => f.sortable)
-        .map(f => ({ text: f.label, value: f.key }))
+        .filter((f) => f.sortable)
+        .map((f) => ({ text: f.label, value: f.key }));
     },
   },
   mounted() {
-    this.getFluxList()
+    this.getFluxList();
   },
   methods: {
     formatTableEntry(value) {
       if (!value) {
-        return 'Unknown'
+        return 'Unknown';
       }
-      return value
+      return value;
     },
     async getFluxList() {
       try {
-        this.fluxListLoading = true
-        const resLoc = await axios.get('https://stats.runonflux.io/fluxlocations')
-        const locations = resLoc.data.data
-        const resList = await DashboardService.listZelNodes()
-        const fluxList = resList.data.data
-        const adjustedFluxList = []
-        fluxList.forEach(node => {
-          const adjustedNode = node
-          adjustedNode.location = locations.find(location => location.ip === adjustedNode.ip)
-          adjustedFluxList.push(adjustedNode)
-        })
-        this.items = adjustedFluxList.filter(node => node.ip)
-        this.totalRows = this.items.length
-        this.currentPage = 1
-        this.fluxListLoading = false
-        console.log(this.items)
+        this.fluxListLoading = true;
+        const resLoc = await axios.get('https://stats.runonflux.io/fluxlocations');
+        const locations = resLoc.data.data;
+        const resList = await DashboardService.listZelNodes();
+        const fluxList = resList.data.data;
+        const adjustedFluxList = [];
+        fluxList.forEach((node) => {
+          const adjustedNode = node;
+          adjustedNode.location = locations.find((location) => location.ip === adjustedNode.ip);
+          adjustedFluxList.push(adjustedNode);
+        });
+        this.items = adjustedFluxList.filter((node) => node.ip);
+        this.totalRows = this.items.length;
+        this.currentPage = 1;
+        this.fluxListLoading = false;
+        console.log(this.items);
       } catch (error) {
-        console.log(error)
+        console.log(error);
       }
     },
     onFiltered(filteredItems) {
       // Trigger pagination to update the number of buttons/pages due to filtering
-      this.totalRows = filteredItems.length
-      this.currentPage = 1
+      this.totalRows = filteredItems.length;
+      this.currentPage = 1;
     },
   },
-}
+};
 </script>
 
 <style>

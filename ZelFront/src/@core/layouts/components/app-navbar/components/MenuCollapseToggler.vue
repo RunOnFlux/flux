@@ -13,12 +13,12 @@
 </template>
 
 <script>
-import useAppConfig from '@core/app-config/useAppConfig'
-import { computed } from '@vue/composition-api'
+import useAppConfig from '@core/app-config/useAppConfig';
+import { computed } from '@vue/composition-api';
 import {
   BNavItem,
   VBTooltip,
-} from 'bootstrap-vue'
+} from 'bootstrap-vue';
 
 export default {
   components: {
@@ -28,13 +28,13 @@ export default {
     'b-tooltip': VBTooltip,
   },
   setup() {
-    const { isNavMenuCollapsed } = useAppConfig()
+    const { isNavMenuCollapsed } = useAppConfig();
 
-    const isCollapsed = computed(() => isNavMenuCollapsed.value === true)
+    const isCollapsed = computed(() => isNavMenuCollapsed.value === true);
 
-    return { isNavMenuCollapsed, isCollapsed }
+    return { isNavMenuCollapsed, isCollapsed };
   },
-}
+};
 </script>
 
 <style scoped>

@@ -33,10 +33,10 @@ import {
   BButton,
   BFormInput,
   BFormTextarea,
-} from 'bootstrap-vue'
-import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
-import Ripple from 'vue-ripple-directive'
-import DaemonService from '@/services/DaemonService'
+} from 'bootstrap-vue';
+import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
+import Ripple from 'vue-ripple-directive';
+import DaemonService from '@/services/DaemonService';
 
 export default {
   components: {
@@ -58,11 +58,11 @@ export default {
         status: '',
         data: '',
       },
-    }
+    };
   },
   methods: {
     async daemonGetRawTransaction() {
-      const response = await DaemonService.getRawTransaction(this.txid, 1)
+      const response = await DaemonService.getRawTransaction(this.txid, 1);
       if (response.data.status === 'error') {
         this.$toast({
           component: ToastificationContent,
@@ -71,14 +71,14 @@ export default {
             icon: 'InfoIcon',
             variant: 'danger',
           },
-        })
+        });
       } else {
-        this.callResponse.status = response.data.status
-        this.callResponse.data = JSON.stringify(response.data.data, null, 4)
+        this.callResponse.status = response.data.status;
+        this.callResponse.data = JSON.stringify(response.data.data, null, 4);
       }
     },
   },
-}
+};
 </script>
 
 <style>

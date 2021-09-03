@@ -37,11 +37,11 @@ import {
   BButton,
   BModal,
   BCardText,
-} from 'bootstrap-vue'
-import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
-import Ripple from 'vue-ripple-directive'
-import ConfirmDialog from '@/views/components/ConfirmDialog.vue'
-import BenchmarkService from '@/services/BenchmarkService'
+} from 'bootstrap-vue';
+import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
+import Ripple from 'vue-ripple-directive';
+import ConfirmDialog from '@/views/components/ConfirmDialog.vue';
+import BenchmarkService from '@/services/BenchmarkService';
 
 export default {
   components: {
@@ -59,19 +59,19 @@ export default {
   data() {
     return {
       modalShow: false,
-    }
+    };
   },
   methods: {
     onOk() {
-      this.modalShow = true
-      const zelidauth = localStorage.getItem('zelidauth')
+      this.modalShow = true;
+      const zelidauth = localStorage.getItem('zelidauth');
       BenchmarkService.restart(zelidauth)
-        .then(response => {
-          this.showToast('success', response.data.data.message || response.data.data)
+        .then((response) => {
+          this.showToast('success', response.data.data.message || response.data.data);
         })
         .catch(() => {
-          this.showToast('danger', 'Error while trying to restart Benchmark')
-        })
+          this.showToast('danger', 'Error while trying to restart Benchmark');
+        });
     },
     showToast(variant, title, icon = 'InfoIcon') {
       this.$toast({
@@ -81,10 +81,10 @@ export default {
           icon,
           variant,
         },
-      })
+      });
     },
   },
-}
+};
 </script>
 
 <style>

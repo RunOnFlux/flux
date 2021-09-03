@@ -27,9 +27,9 @@ import {
   BCardTitle,
   BFormTextarea,
   BOverlay,
-} from 'bootstrap-vue'
-import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
-import DaemonService from '@/services/DaemonService'
+} from 'bootstrap-vue';
+import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
+import DaemonService from '@/services/DaemonService';
 
 export default {
   components: {
@@ -46,15 +46,15 @@ export default {
         status: '',
         data: '',
       },
-    }
+    };
   },
   mounted() {
-    this.daemonGetWalletInfo()
+    this.daemonGetWalletInfo();
   },
   methods: {
     async daemonGetWalletInfo() {
-      const zelidauth = localStorage.getItem('zelidauth')
-      const response = await DaemonService.getWalletInfo(zelidauth)
+      const zelidauth = localStorage.getItem('zelidauth');
+      const response = await DaemonService.getWalletInfo(zelidauth);
       if (response.data.status === 'error') {
         this.$toast({
           component: ToastificationContent,
@@ -63,14 +63,14 @@ export default {
             icon: 'InfoIcon',
             variant: 'danger',
           },
-        })
+        });
       } else {
-        this.callResponse.status = response.data.status
-        this.callResponse.data = JSON.stringify(response.data.data, null, 4)
+        this.callResponse.status = response.data.status;
+        this.callResponse.data = JSON.stringify(response.data.data, null, 4);
       }
     },
   },
-}
+};
 </script>
 
 <style>

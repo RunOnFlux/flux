@@ -31,19 +31,13 @@
 </template>
 
 <script>
-import { BNavItemDropdown, BDropdownItem, BImg } from 'bootstrap-vue'
+import { BNavItemDropdown, BDropdownItem, BImg } from 'bootstrap-vue';
 
 export default {
   components: {
     BNavItemDropdown,
     BDropdownItem,
     BImg,
-  },
-  // ! Need to move this computed property to comp function once we get to Vue 3
-  computed: {
-    currentLocale() {
-      return this.locales.find(l => l.locale === this.$i18n.locale)
-    },
   },
   setup() {
     /* eslint-disable global-require */
@@ -68,14 +62,20 @@ export default {
         img: require('@/assets/images/flags/pt.png'),
         name: 'Portuguese',
       },
-    ]
+    ];
     /* eslint-disable global-require */
 
     return {
       locales,
-    }
+    };
   },
-}
+  // ! Need to move this computed property to comp function once we get to Vue 3
+  computed: {
+    currentLocale() {
+      return this.locales.find((l) => l.locale === this.$i18n.locale);
+    },
+  },
+};
 </script>
 
 <style>

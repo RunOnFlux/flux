@@ -226,16 +226,16 @@ import {
   BRow,
   BButton,
   BOverlay,
-} from 'bootstrap-vue'
+} from 'bootstrap-vue';
 
-import Ripple from 'vue-ripple-directive'
-import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
-import ListEntry from '@/views/components/ListEntry.vue'
-import ConfirmDialog from '@/views/components/ConfirmDialog.vue'
-import Management from '@/views/apps/Management.vue'
-import AppsService from '@/services/AppsService'
+import Ripple from 'vue-ripple-directive';
+import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
+import ListEntry from '@/views/components/ListEntry.vue';
+import ConfirmDialog from '@/views/components/ConfirmDialog.vue';
+import Management from '@/views/apps/Management.vue';
+import AppsService from '@/services/AppsService';
 
-const qs = require('qs')
+const qs = require('qs');
 
 export default {
   components: {
@@ -293,109 +293,109 @@ export default {
           ],
         },
       },
-    }
+    };
   },
   computed: {
     myGlobalApps() {
-      const zelidauth = localStorage.getItem('zelidauth')
-      const auth = qs.parse(zelidauth)
+      const zelidauth = localStorage.getItem('zelidauth');
+      const auth = qs.parse(zelidauth);
       if (this.tableconfig.active.apps) {
-        return this.tableconfig.active.apps.filter(app => app.owner === auth.zelid)
+        return this.tableconfig.active.apps.filter((app) => app.owner === auth.zelid);
       }
-      return []
+      return [];
     },
   },
   mounted() {
-    this.appsGetListGlobalApps()
+    this.appsGetListGlobalApps();
   },
   methods: {
     openAppManagement(appName) {
-      this.managedApplication = appName
+      this.managedApplication = appName;
     },
     clearManagedApplication() {
-      this.managedApplication = ''
+      this.managedApplication = '';
     },
     async appsGetListGlobalApps() {
-      this.tableconfig.active.loading = true
-      const response = await AppsService.globalAppSpecifications()
-      console.log(response)
-      this.tableconfig.active.apps = response.data.data
-      this.tableconfig.active.loading = false
+      this.tableconfig.active.loading = true;
+      const response = await AppsService.globalAppSpecifications();
+      console.log(response);
+      this.tableconfig.active.apps = response.data.data;
+      this.tableconfig.active.loading = false;
     },
     openApp(name, _ip, _port) {
-      console.log(name, _ip, _port)
+      console.log(name, _ip, _port);
       if (_port && _ip) {
-        const ip = _ip
-        const port = _port
-        let url = `http://${ip}:${port}`
+        const ip = _ip;
+        const port = _port;
+        let url = `http://${ip}:${port}`;
         if (name === 'KadenaChainWebNode') {
-          url = `https://${ip}:${port}/chainweb/0.0/mainnet01/cut`
+          url = `https://${ip}:${port}/chainweb/0.0/mainnet01/cut`;
         }
-        this.openSite(url)
+        this.openSite(url);
       } else {
-        this.showToast('danger', 'Unable to open App :(')
+        this.showToast('danger', 'Unable to open App :(');
       }
     },
     async openGlobalApp(appName) {
-      const response = await AppsService.getAppLocation(appName).catch(error => {
-        this.showToast('danger', error.message || error)
-      })
-      console.log(response)
+      const response = await AppsService.getAppLocation(appName).catch((error) => {
+        this.showToast('danger', error.message || error);
+      });
+      console.log(response);
       if (response.data.status === 'success') {
-        const appLocations = response.data.data
-        const location = appLocations[0]
+        const appLocations = response.data.data;
+        const location = appLocations[0];
         if (!location) {
-          this.showToast('danger', 'Application is awaiting launching...')
+          this.showToast('danger', 'Application is awaiting launching...');
         } else {
-          const { ip } = location
-          const appSpecs = this.tableconfig.active.apps.find(app => app.name === appName)
-          const { port } = appSpecs
-          const { ports } = appSpecs
+          const { ip } = location;
+          const appSpecs = this.tableconfig.active.apps.find((app) => app.name === appName);
+          const { port } = appSpecs;
+          const { ports } = appSpecs;
           if (port) {
-            const url = `http://${ip}:${port}`
-            this.openSite(url)
+            const url = `http://${ip}:${port}`;
+            this.openSite(url);
           } else {
-            const url = `http://${ip}:${ports[0]}`
-            this.openSite(url)
+            const url = `http://${ip}:${ports[0]}`;
+            this.openSite(url);
           }
         }
       } else {
-        this.showToast('danger', response.data.data.message || response.data.data)
+        this.showToast('danger', response.data.data.message || response.data.data);
       }
     },
     openSite(url) {
-      const win = window.open(url, '_blank')
-      win.focus()
+      const win = window.open(url, '_blank');
+      win.focus();
     },
     tabChanged() {
-      this.tableconfig.active.apps.forEach(item => {
-        this.$set(item, '_showDetails', false)
-      })
-      this.appLocations = []
+      this.tableconfig.active.apps.forEach((item) => {
+        this.$set(item, '_showDetails', false);
+      });
+      this.appLocations = [];
     },
     showLocations(row, items) {
       if (row.detailsShowing) {
-        row.toggleDetails()
+        row.toggleDetails();
       } else {
-        items.forEach(item => {
-          this.$set(item, '_showDetails', false)
-        })
+        items.forEach((item) => {
+          this.$set(item, '_showDetails', false);
+        });
         this.$nextTick(() => {
-          row.toggleDetails()
-          this.loadLocations(row)
-        })
+          row.toggleDetails();
+          this.loadLocations(row);
+        });
       }
     },
     async loadLocations(row) {
-      console.log(row)
-      this.appLocations = []
-      const response = await AppsService.getAppLocation(row.item.name).catch(error => {
-        this.showToast('danger', error.message || error)
-      })
-      console.log(response)
+      console.log(row);
+      this.appLocations = [];
+      const response = await AppsService.getAppLocation(row.item.name).catch((error) => {
+        this.showToast('danger', error.message || error);
+      });
+      console.log(response);
       if (response.data.status === 'success') {
-        const appLocations = response.data.data
-        this.appLocations = appLocations
+        const appLocations = response.data.data;
+        this.appLocations = appLocations;
       }
     },
     showToast(variant, title, icon = 'InfoIcon') {
@@ -406,10 +406,10 @@ export default {
           icon,
           variant,
         },
-      })
+      });
     },
   },
-}
+};
 </script>
 
 <style>

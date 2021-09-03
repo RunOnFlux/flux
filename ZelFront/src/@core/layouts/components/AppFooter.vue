@@ -14,11 +14,11 @@
 </template>
 
 <script>
-import { mapState } from 'vuex'
-import { BLink } from 'bootstrap-vue'
-import axios from 'axios'
-import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
-import FluxService from '@/services/FluxService'
+import { mapState } from 'vuex';
+import { BLink } from 'bootstrap-vue';
+import axios from 'axios';
+import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
+import FluxService from '@/services/FluxService';
 
 export default {
   components: {
@@ -34,35 +34,35 @@ export default {
     ]),
   },
   mounted() {
-    const self = this
+    const self = this;
     FluxService.getFluxVersion()
-      .then(response => {
+      .then((response) => {
         // console.log(response)
-        const version = response.data.data
-        this.$store.commit('flux/setFluxVersion', version)
-        self.getLatestFluxVersion()
+        const version = response.data.data;
+        this.$store.commit('flux/setFluxVersion', version);
+        self.getLatestFluxVersion();
       })
-      .catch(e => {
-        console.log(e)
-        console.log(e.code)
-        this.showToast('danger', e.toString())
-      })
+      .catch((e) => {
+        console.log(e);
+        console.log(e.code);
+        this.showToast('danger', e.toString());
+      });
   },
   methods: {
     getLatestFluxVersion() {
-      const self = this
+      const self = this;
       axios.get('https://raw.githubusercontent.com/runonflux/flux/master/package.json')
-        .then(response => {
+        .then((response) => {
           if (response.data.version !== self.fluxVersion) {
-            this.showToast('danger', 'Flux needs to be updated!')
+            this.showToast('danger', 'Flux needs to be updated!');
           } else {
-            this.showToast('success', 'Flux is up to date')
+            this.showToast('success', 'Flux is up to date');
           }
         })
-        .catch(error => {
-          console.log(error)
-          this.showToast('danger', 'Error verifying recent version')
-        })
+        .catch((error) => {
+          console.log(error);
+          this.showToast('danger', 'Error verifying recent version');
+        });
     },
     showToast(variant, title) {
       this.$toast({
@@ -72,8 +72,8 @@ export default {
           icon: 'BellIcon',
           variant,
         },
-      })
+      });
     },
   },
-}
+};
 </script>

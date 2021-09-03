@@ -31,7 +31,7 @@
         placement="auto"
         container="my-container"
       >
-        <template v-slot:title>
+        <template #title>
           <div class="d-flex justify-content-between align-items-center">
             <span>Are You Sure?</span>
             <b-button
@@ -93,10 +93,10 @@ import {
   BPopover,
   BModal,
   BCardText,
-} from 'bootstrap-vue'
-import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
-import Ripple from 'vue-ripple-directive'
-import DaemonService from '@/services/DaemonService'
+} from 'bootstrap-vue';
+import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
+import Ripple from 'vue-ripple-directive';
+import DaemonService from '@/services/DaemonService';
 
 export default {
   components: {
@@ -118,14 +118,14 @@ export default {
       rescanDaemonHeight: 0,
       popoverShow: false,
       modalShow: false,
-    }
+    };
   },
   mounted() {
-    this.daemonGetInfo()
+    this.daemonGetInfo();
   },
   methods: {
     async daemonGetInfo() {
-      const response = await DaemonService.getInfo()
+      const response = await DaemonService.getInfo();
       if (response.data.status === 'error') {
         this.$toast({
           component: ToastificationContent,
@@ -134,21 +134,21 @@ export default {
             icon: 'InfoIcon',
             variant: 'danger',
           },
-        })
+        });
       } else {
-        this.blockHeight = response.data.data.blocks
+        this.blockHeight = response.data.data.blocks;
       }
     },
     onClose() {
-      this.popoverShow = false
+      this.popoverShow = false;
     },
     onOk() {
-      this.popoverShow = false
-      this.modalShow = true
-      const zelidauth = localStorage.getItem('zelidauth')
-      const blockheight = this.rescanDaemonHeight > 0 ? this.rescanDaemonHeight : 0
+      this.popoverShow = false;
+      this.modalShow = true;
+      const zelidauth = localStorage.getItem('zelidauth');
+      const blockheight = this.rescanDaemonHeight > 0 ? this.rescanDaemonHeight : 0;
       DaemonService.rescanDaemon(zelidauth, blockheight)
-        .then(response => {
+        .then((response) => {
           this.$toast({
             component: ToastificationContent,
             props: {
@@ -156,7 +156,7 @@ export default {
               icon: 'InfoIcon',
               variant: 'success',
             },
-          })
+          });
         })
         .catch(() => {
           this.$toast({
@@ -166,11 +166,11 @@ export default {
               icon: 'InfoIcon',
               variant: 'danger',
             },
-          })
-        })
+          });
+        });
     },
   },
-}
+};
 </script>
 
 <style>

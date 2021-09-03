@@ -119,16 +119,16 @@ import {
   BCol,
   BCardText,
   BButton,
-} from 'bootstrap-vue'
-import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
-import Ripple from 'vue-ripple-directive'
-import axios from 'axios'
-import ConfirmDialog from '@/views/components/ConfirmDialog.vue'
+} from 'bootstrap-vue';
+import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
+import Ripple from 'vue-ripple-directive';
+import axios from 'axios';
+import ConfirmDialog from '@/views/components/ConfirmDialog.vue';
 
-import FluxService from '@/services/FluxService'
-import BenchmarkService from '@/services/BenchmarkService'
+import FluxService from '@/services/FluxService';
+import BenchmarkService from '@/services/BenchmarkService';
 
-const qs = require('qs')
+const qs = require('qs');
 
 export default {
   components: {
@@ -145,136 +145,136 @@ export default {
     Ripple,
   },
   mounted() {
-    this.checkBenchmarkVersion()
+    this.checkBenchmarkVersion();
   },
   methods: {
     checkBenchmarkVersion() {
       BenchmarkService.getInfo()
-        .then(benchmarkResponse => {
-          console.log(benchmarkResponse)
-          const benchmarkVersion = benchmarkResponse.data.data.version
+        .then((benchmarkResponse) => {
+          console.log(benchmarkResponse);
+          const benchmarkVersion = benchmarkResponse.data.data.version;
           axios.get('https://raw.githubusercontent.com/runonflux/flux/master/helpers/benchmarkinfo.json')
-            .then(response => {
-              console.log(response)
+            .then((response) => {
+              console.log(response);
               if (response.data.version !== benchmarkVersion) {
-                this.showToast('warning', 'Benchmark requires an update!')
+                this.showToast('warning', 'Benchmark requires an update!');
               } else {
-                this.showToast('success', 'Benchmark is up to date')
+                this.showToast('success', 'Benchmark is up to date');
               }
             })
-            .catch(error => {
-              console.log(error)
-              this.showToast('danger', 'Error verifying recent version')
-            })
+            .catch((error) => {
+              console.log(error);
+              this.showToast('danger', 'Error verifying recent version');
+            });
         })
-        .catch(error => {
-          console.log(error)
-          this.showToast('danger', 'Error connecting to Benchmark')
-        })
+        .catch((error) => {
+          console.log(error);
+          this.showToast('danger', 'Error connecting to Benchmark');
+        });
     },
     updateBenchmark() {
       BenchmarkService.getInfo()
-        .then(benchmarkResponse => {
-          console.log(benchmarkResponse)
-          const benchmarkVersion = benchmarkResponse.data.data.version
+        .then((benchmarkResponse) => {
+          console.log(benchmarkResponse);
+          const benchmarkVersion = benchmarkResponse.data.data.version;
           axios.get('https://raw.githubusercontent.com/runonflux/flux/master/helpers/benchmarkinfo.json')
-            .then(response => {
-              console.log(response)
+            .then((response) => {
+              console.log(response);
               if (response.data.version !== benchmarkVersion) {
-                const zelidauth = localStorage.getItem('zelidauth')
-                const auth = qs.parse(zelidauth)
-                console.log(auth)
-                this.showToast('success', 'Benchmark is now updating in the background')
+                const zelidauth = localStorage.getItem('zelidauth');
+                const auth = qs.parse(zelidauth);
+                console.log(auth);
+                this.showToast('success', 'Benchmark is now updating in the background');
                 FluxService.updateBenchmark(zelidauth)
-                  .then(responseUpdateBenchmark => {
-                    console.log(responseUpdateBenchmark)
+                  .then((responseUpdateBenchmark) => {
+                    console.log(responseUpdateBenchmark);
                     if (responseUpdateBenchmark.data.status === 'error') {
-                      this.showToast('danger', responseUpdateBenchmark.data.data.message || responseUpdateBenchmark.data.data)
+                      this.showToast('danger', responseUpdateBenchmark.data.data.message || responseUpdateBenchmark.data.data);
                     }
                   })
-                  .catch(e => {
-                    console.log(e)
-                    console.log(e.code)
-                    this.showToast('danger', e.toString())
-                  })
+                  .catch((e) => {
+                    console.log(e);
+                    console.log(e.code);
+                    this.showToast('danger', e.toString());
+                  });
               } else {
-                this.showToast('success', 'Benchmark is already up to date')
+                this.showToast('success', 'Benchmark is already up to date');
               }
             })
-            .catch(error => {
-              console.log(error)
-              this.showToast('danger', 'Error verifying recent version')
-            })
+            .catch((error) => {
+              console.log(error);
+              this.showToast('danger', 'Error verifying recent version');
+            });
         })
-        .catch(error => {
-          console.log(error)
-          this.showToast('danger', 'Error connecting to Benchmark')
-        })
+        .catch((error) => {
+          console.log(error);
+          this.showToast('danger', 'Error connecting to Benchmark');
+        });
     },
     startBenchmark() {
-      this.showToast('warning', 'Benchmark will start')
-      const zelidauth = localStorage.getItem('zelidauth')
+      this.showToast('warning', 'Benchmark will start');
+      const zelidauth = localStorage.getItem('zelidauth');
       BenchmarkService.start(zelidauth)
-        .then(response => {
+        .then((response) => {
           if (response.data.status === 'error') {
-            this.showToast('danger', response.data.data.message || response.data.data)
+            this.showToast('danger', response.data.data.message || response.data.data);
           } else {
-            this.showToast('success', response.data.data.message || response.data.data)
+            this.showToast('success', response.data.data.message || response.data.data);
           }
         })
-        .catch(error => {
-          console.log(error)
-          this.showToast('danger', 'Error while trying to start Benchmark')
-        })
+        .catch((error) => {
+          console.log(error);
+          this.showToast('danger', 'Error while trying to start Benchmark');
+        });
     },
     stopBenchmark() {
-      this.showToast('warning', 'Benchmark will be stopped')
-      const zelidauth = localStorage.getItem('zelidauth')
+      this.showToast('warning', 'Benchmark will be stopped');
+      const zelidauth = localStorage.getItem('zelidauth');
       BenchmarkService.stop(zelidauth)
-        .then(response => {
+        .then((response) => {
           if (response.data.status === 'error') {
-            this.showToast('danger', response.data.data.message || response.data.data)
+            this.showToast('danger', response.data.data.message || response.data.data);
           } else {
-            this.showToast('success', response.data.data.message || response.data.data)
+            this.showToast('success', response.data.data.message || response.data.data);
           }
         })
-        .catch(error => {
-          console.log(error)
-          this.showToast('danger', 'Error while trying to stop Benchmark')
-        })
+        .catch((error) => {
+          console.log(error);
+          this.showToast('danger', 'Error while trying to stop Benchmark');
+        });
     },
     restartBenchmark() {
-      this.showToast('warning', 'Benchmark will now restart')
-      const zelidauth = localStorage.getItem('zelidauth')
+      this.showToast('warning', 'Benchmark will now restart');
+      const zelidauth = localStorage.getItem('zelidauth');
       BenchmarkService.restart(zelidauth)
-        .then(response => {
+        .then((response) => {
           if (response.data.status === 'error') {
-            this.showToast('danger', response.data.data.message || response.data.data)
+            this.showToast('danger', response.data.data.message || response.data.data);
           } else {
-            this.showToast('success', response.data.data.message || response.data.data)
+            this.showToast('success', response.data.data.message || response.data.data);
           }
         })
-        .catch(error => {
-          console.log(error)
-          this.showToast('danger', 'Error while trying to restart Benchmark')
-        })
+        .catch((error) => {
+          console.log(error);
+          this.showToast('danger', 'Error while trying to restart Benchmark');
+        });
     },
     restartBenchmarks() {
-      this.showToast('warning', 'Initiating new benchmarks')
-      const zelidauth = localStorage.getItem('zelidauth')
+      this.showToast('warning', 'Initiating new benchmarks');
+      const zelidauth = localStorage.getItem('zelidauth');
       BenchmarkService.restartNodeBenchmarks(zelidauth)
-        .then(response => {
-          console.log(response)
+        .then((response) => {
+          console.log(response);
           if (response.data.status === 'error') {
-            this.showToast('danger', response.data.data.message || response.data.data)
+            this.showToast('danger', response.data.data.message || response.data.data);
           } else {
-            this.showToast('success', response.data.data.message || response.data.data)
+            this.showToast('success', response.data.data.message || response.data.data);
           }
         })
-        .catch(error => {
-          console.log(error)
-          this.showToast('danger', 'Error while trying to run new benchmarks')
-        })
+        .catch((error) => {
+          console.log(error);
+          this.showToast('danger', 'Error while trying to run new benchmarks');
+        });
     },
     showToast(variant, title, icon = 'InfoIcon') {
       this.$toast({
@@ -284,10 +284,10 @@ export default {
           icon,
           variant,
         },
-      })
+      });
     },
   },
-}
+};
 </script>
 
 <style>

@@ -65,12 +65,12 @@
 <script>
 import {
   BCard,
-} from 'bootstrap-vue'
-import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
-import ListEntry from '@/views/components/ListEntry.vue'
-import BenchmarkService from '@/services/BenchmarkService'
+} from 'bootstrap-vue';
+import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
+import ListEntry from '@/views/components/ListEntry.vue';
+import BenchmarkService from '@/services/BenchmarkService';
 
-const timeoptions = require('@/libs/dateFormat')
+const timeoptions = require('@/libs/dateFormat');
 
 export default {
   components: {
@@ -86,14 +86,14 @@ export default {
         status: '',
         data: '',
       },
-    }
+    };
   },
   mounted() {
-    this.benchmarkGetBenchmarks()
+    this.benchmarkGetBenchmarks();
   },
   methods: {
     async benchmarkGetBenchmarks() {
-      const response = await BenchmarkService.getBenchmarks()
+      const response = await BenchmarkService.getBenchmarks();
       if (response.data.status === 'error') {
         this.$toast({
           component: ToastificationContent,
@@ -102,14 +102,14 @@ export default {
             icon: 'InfoIcon',
             variant: 'danger',
           },
-        })
+        });
       } else {
-        this.callResponse.status = response.data.status
-        this.callResponse.data = response.data.data
+        this.callResponse.status = response.data.status;
+        this.callResponse.data = response.data.data;
       }
     },
   },
-}
+};
 </script>
 
 <style>

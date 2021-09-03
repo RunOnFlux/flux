@@ -40,10 +40,10 @@ import {
   BFormInput,
   BFormTextarea,
   BOverlay,
-} from 'bootstrap-vue'
-import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
-import Ripple from 'vue-ripple-directive'
-import DaemonService from '@/services/DaemonService'
+} from 'bootstrap-vue';
+import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
+import Ripple from 'vue-ripple-directive';
+import DaemonService from '@/services/DaemonService';
 
 export default {
   components: {
@@ -67,13 +67,13 @@ export default {
         data: '',
       },
       addressLoading: false,
-    }
+    };
   },
   methods: {
     async fluxValidateAddress() {
-      this.addressLoading = true
-      const zelidauth = localStorage.getItem('zelidauth')
-      const response = await DaemonService.validateAddress(zelidauth, this.address)
+      this.addressLoading = true;
+      const zelidauth = localStorage.getItem('zelidauth');
+      const response = await DaemonService.validateAddress(zelidauth, this.address);
       if (response.data.status === 'error') {
         this.$toast({
           component: ToastificationContent,
@@ -82,15 +82,15 @@ export default {
             icon: 'InfoIcon',
             variant: 'danger',
           },
-        })
+        });
       } else {
-        this.callResponse.status = response.data.status
-        this.callResponse.data = JSON.stringify(response.data.data, undefined, 4)
+        this.callResponse.status = response.data.status;
+        this.callResponse.data = JSON.stringify(response.data.data, undefined, 4);
       }
-      this.addressLoading = false
+      this.addressLoading = false;
     },
   },
-}
+};
 </script>
 
 <style>

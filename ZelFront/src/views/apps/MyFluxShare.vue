@@ -261,17 +261,17 @@ import {
   BFormInput,
   BPopover,
   BLink,
-} from 'bootstrap-vue'
+} from 'bootstrap-vue';
 
-import { mapState } from 'vuex'
-import Ripple from 'vue-ripple-directive'
-import axios from 'axios'
-import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
-import ConfirmDialog from '@/views/components/ConfirmDialog.vue'
-import FileUpload from '@/views/components/FileUpload.vue'
-import AppsService from '@/services/AppsService'
+import { mapState } from 'vuex';
+import Ripple from 'vue-ripple-directive';
+import axios from 'axios';
+import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
+import ConfirmDialog from '@/views/components/ConfirmDialog.vue';
+import FileUpload from '@/views/components/FileUpload.vue';
+import AppsService from '@/services/AppsService';
 
-const store = require('store')
+const store = require('store');
 
 export default {
   components: {
@@ -344,353 +344,353 @@ export default {
       uploadTimeStart: '',
       currentUploadTime: '',
       uploadFiles: [],
-    }
+    };
   },
   computed: {
     ...mapState('flux', [
       'userconfig',
     ]),
     percentage() {
-      const perc = (this.storage.used / this.storage.total) * 100
-      return Number(perc.toFixed(2))
+      const perc = (this.storage.used / this.storage.total) * 100;
+      return Number(perc.toFixed(2));
     },
     zelidHeader() {
-      const zelidauth = localStorage.getItem('zelidauth')
+      const zelidauth = localStorage.getItem('zelidauth');
       const headers = {
         zelidauth,
-      }
-      return headers
+      };
+      return headers;
     },
     ipAddress() {
-      const backendURL = store.get('backendURL')
+      const backendURL = store.get('backendURL');
       if (backendURL) {
-        return `${store.get('backendURL').split(':')[0]}:${store.get('backendURL').split(':')[1]}`
+        return `${store.get('backendURL').split(':')[0]}:${store.get('backendURL').split(':')[1]}`;
       }
-      return `http://${this.userconfig.externalip}`
+      return `http://${this.userconfig.externalip}`;
     },
     folderContentFilter() {
-      const filteredFolder = this.folderView.filter(data => JSON.stringify(data.name).toLowerCase().includes(this.filterFolder.toLowerCase()))
-      return filteredFolder.filter(data => data.name !== '.gitkeep')
+      const filteredFolder = this.folderView.filter((data) => JSON.stringify(data.name).toLowerCase().includes(this.filterFolder.toLowerCase()));
+      return filteredFolder.filter((data) => data.name !== '.gitkeep');
     },
     getUploadFolder() {
       if (this.currentFolder) {
-        const folder = encodeURIComponent(this.currentFolder)
-        return `${this.ipAddress}:16127/apps/fluxshare/uploadfile/${folder}`
+        const folder = encodeURIComponent(this.currentFolder);
+        return `${this.ipAddress}:16127/apps/fluxshare/uploadfile/${folder}`;
       }
-      return `${this.ipAddress}:16127/apps/fluxshare/uploadfile`
+      return `${this.ipAddress}:16127/apps/fluxshare/uploadfile`;
     },
   },
   mounted() {
-    this.loadingFolder = true
-    this.loadFolder(this.currentFolder) // empty string for main folder
-    this.storageStats()
+    this.loadingFolder = true;
+    this.loadFolder(this.currentFolder); // empty string for main folder
+    this.storageStats();
   },
   methods: {
     sortNameFolder(a, b) {
-      return (a.isDirectory ? `..${a.name}` : a.name).localeCompare(b.isDirectory ? `..${b.name}` : b.name)
+      return (a.isDirectory ? `..${a.name}` : a.name).localeCompare(b.isDirectory ? `..${b.name}` : b.name);
     },
     sortTypeFolder(a, b) {
-      if (a.isDirectory && b.isFile) return -1
-      if (a.isFile && b.isDirectory) return 1
-      return 0
+      if (a.isDirectory && b.isFile) return -1;
+      if (a.isFile && b.isDirectory) return 1;
+      return 0;
     },
     sort(a, b, key, sortDesc) {
       if (key === 'name') {
-        return this.sortNameFolder(a, b, sortDesc)
+        return this.sortNameFolder(a, b, sortDesc);
       }
       if (key === 'type') {
-        return this.sortTypeFolder(a, b, sortDesc)
+        return this.sortTypeFolder(a, b, sortDesc);
       }
       if (key === 'modifiedAt') {
-        if (a.modifiedAt > b.modifiedAt) return -1
-        if (a.modifiedAt < b.modifiedAt) return 1
-        return 0
+        if (a.modifiedAt > b.modifiedAt) return -1;
+        if (a.modifiedAt < b.modifiedAt) return 1;
+        return 0;
       }
       if (key === 'size') {
-        if (a.size > b.size) return -1
-        if (a.size < b.size) return 1
-        return 0
+        if (a.size > b.size) return -1;
+        if (a.size < b.size) return 1;
+        return 0;
       }
-      return 0
+      return 0;
     },
     async storageStats() {
       try {
-        const response = await AppsService.storageStats(this.zelidHeader.zelidauth)
-        console.log(response)
+        const response = await AppsService.storageStats(this.zelidHeader.zelidauth);
+        console.log(response);
         if (response.data.status === 'success') {
-          this.storage.total = response.data.data.total
-          this.storage.used = response.data.data.used
-          this.storage.available = response.data.data.available
+          this.storage.total = response.data.data.total;
+          this.storage.used = response.data.data.used;
+          this.storage.available = response.data.data.available;
         } else {
-          this.showToast('danger', response.data.data.message || response.data.data)
+          this.showToast('danger', response.data.data.message || response.data.data);
         }
       } catch (error) {
-        this.showToast('danger', error.message || error)
+        this.showToast('danger', error.message || error);
       }
     },
     changeFolder(name) {
       if (name === '..') {
-        const folderArrray = this.currentFolder.split('/')
-        folderArrray.pop()
-        this.currentFolder = folderArrray.join('/')
+        const folderArrray = this.currentFolder.split('/');
+        folderArrray.pop();
+        this.currentFolder = folderArrray.join('/');
       } else if (this.currentFolder === '') {
-        this.currentFolder = name
+        this.currentFolder = name;
       } else {
-        this.currentFolder = `${this.currentFolder}/${name}`
+        this.currentFolder = `${this.currentFolder}/${name}`;
       }
-      this.loadFolder(this.currentFolder)
+      this.loadFolder(this.currentFolder);
     },
     async loadFolder(path, soft = false) {
       try {
-        this.filterFolder = ''
+        this.filterFolder = '';
         if (!soft) {
-          this.folderView = []
+          this.folderView = [];
         }
-        this.loadingFolder = true
-        const response = await AppsService.getFolder(this.zelidHeader.zelidauth, encodeURIComponent(path))
-        this.loadingFolder = false
+        this.loadingFolder = true;
+        const response = await AppsService.getFolder(this.zelidHeader.zelidauth, encodeURIComponent(path));
+        this.loadingFolder = false;
         if (response.data.status === 'success') {
-          this.folderView = response.data.data
-          console.log(this.folderView)
+          this.folderView = response.data.data;
+          console.log(this.folderView);
         } else {
-          this.showToast('danger', response.data.data.message || response.data.data)
+          this.showToast('danger', response.data.data.message || response.data.data);
         }
       } catch (error) {
-        this.loadingFolder = false
-        console.log(error.message)
-        this.showToast('danger', error.message || error)
+        this.loadingFolder = false;
+        console.log(error.message);
+        this.showToast('danger', error.message || error);
       }
     },
     async createFolder(path) {
       try {
-        let folderPath = path
+        let folderPath = path;
         if (this.currentFolder !== '') {
-          folderPath = `${this.currentFolder}/${path}`
+          folderPath = `${this.currentFolder}/${path}`;
         }
-        const response = await AppsService.createFolder(this.zelidHeader.zelidauth, encodeURIComponent(folderPath))
+        const response = await AppsService.createFolder(this.zelidHeader.zelidauth, encodeURIComponent(folderPath));
         if (response.data.status === 'error') {
           if (response.data.data.code === 'EEXIST') {
-            this.showToast('danger', `Folder ${path} already exists`)
+            this.showToast('danger', `Folder ${path} already exists`);
           } else {
-            this.showToast('danger', response.data.data.message || response.data.data)
+            this.showToast('danger', response.data.data.message || response.data.data);
           }
         } else {
-          this.loadFolder(this.currentFolder, true)
-          this.createDirectoryDialogVisible = false
+          this.loadFolder(this.currentFolder, true);
+          this.createDirectoryDialogVisible = false;
         }
       } catch (error) {
-        this.loadingFolder = false
-        console.log(error.message)
-        this.showToast('danger', error.message || error)
+        this.loadingFolder = false;
+        console.log(error.message);
+        this.showToast('danger', error.message || error);
       }
     },
     cancelDownload(name) {
-      this.abortToken[name].cancel(`Download of ${name} cancelled`)
-      this.downloaded[name] = ''
-      this.total[name] = ''
+      this.abortToken[name].cancel(`Download of ${name} cancelled`);
+      this.downloaded[name] = '';
+      this.total[name] = '';
     },
     async download(name, isFolder = false, maxTotalSize = 0) {
       try {
-        const self = this
+        const self = this;
         if (self.abortToken[name]) {
-          self.abortToken[name].cancel()
+          self.abortToken[name].cancel();
         }
-        const sourceCancelToken = axios.CancelToken
-        const cancelToken = sourceCancelToken.source()
-        this.$set(this.abortToken, name, cancelToken)
-        const folder = this.currentFolder
-        const fileName = folder ? `${folder}/${name}` : name
-        let initialTime
+        const sourceCancelToken = axios.CancelToken;
+        const cancelToken = sourceCancelToken.source();
+        this.$set(this.abortToken, name, cancelToken);
+        const folder = this.currentFolder;
+        const fileName = folder ? `${folder}/${name}` : name;
+        let initialTime;
         const axiosConfig = {
           headers: this.zelidHeader,
           responseType: 'blob',
           onDownloadProgress(progressEvent) {
             if (!initialTime) {
-              initialTime = progressEvent.timeStamp
+              initialTime = progressEvent.timeStamp;
             }
-            self.$set(self.downloaded, name, progressEvent.loaded)
+            self.$set(self.downloaded, name, progressEvent.loaded);
             if (progressEvent.total) {
-              self.$set(self.total, name, progressEvent.total)
+              self.$set(self.total, name, progressEvent.total);
             } else if (progressEvent.target && progressEvent.target.response && progressEvent.target.response.size) {
-              self.$set(self.total, name, progressEvent.target.response.size)
+              self.$set(self.total, name, progressEvent.target.response.size);
             } else {
-              self.$set(self.total, name, maxTotalSize)
+              self.$set(self.total, name, maxTotalSize);
             }
-            self.$set(self.timeStamp, name, progressEvent.timeStamp - initialTime)
+            self.$set(self.timeStamp, name, progressEvent.timeStamp - initialTime);
           },
           cancelToken: self.abortToken[name].token,
-        }
-        let response
+        };
+        let response;
         if (isFolder) {
-          response = await AppsService.justAPI().get(`/apps/fluxshare/downloadfolder/${encodeURIComponent(fileName)}`, axiosConfig)
+          response = await AppsService.justAPI().get(`/apps/fluxshare/downloadfolder/${encodeURIComponent(fileName)}`, axiosConfig);
         } else {
-          response = await AppsService.justAPI().get(`/apps/fluxshare/getfile/${encodeURIComponent(fileName)}`, axiosConfig)
+          response = await AppsService.justAPI().get(`/apps/fluxshare/getfile/${encodeURIComponent(fileName)}`, axiosConfig);
         }
-        console.log(response)
+        console.log(response);
         if (response.data.status === 'error') {
-          this.showToast('danger', response.data.data.message || response.data.data)
+          this.showToast('danger', response.data.data.message || response.data.data);
         } else {
-          const url = window.URL.createObjectURL(new Blob([response.data]))
-          const link = document.createElement('a')
-          link.href = url
+          const url = window.URL.createObjectURL(new Blob([response.data]));
+          const link = document.createElement('a');
+          link.href = url;
           if (isFolder) {
-            link.setAttribute('download', `${name}.zip`)
+            link.setAttribute('download', `${name}.zip`);
           } else {
-            link.setAttribute('download', name)
+            link.setAttribute('download', name);
           }
-          document.body.appendChild(link)
-          link.click()
+          document.body.appendChild(link);
+          link.click();
         }
       } catch (error) {
-        console.log(error.message)
+        console.log(error.message);
         if (error.message) {
           if (!error.message.startsWith('Download')) {
-            this.showToast('danger', error.message)
+            this.showToast('danger', error.message);
           }
         } else {
-          this.showToast('danger', error)
+          this.showToast('danger', error);
         }
       }
     },
     beautifyValue(valueInText) {
-      const str = valueInText.split('.')
+      const str = valueInText.split('.');
       if (str[0].length >= 4) {
-        str[0] = str[0].replace(/(\d)(?=(\d{3})+$)/g, '$1,')
+        str[0] = str[0].replace(/(\d)(?=(\d{3})+$)/g, '$1,');
       }
-      return str.join('.')
+      return str.join('.');
     },
     refreshFolder() {
-      this.loadFolder(this.currentFolder, true)
-      this.storageStats()
+      this.loadFolder(this.currentFolder, true);
+      this.storageStats();
     },
     async deleteFile(name) {
       try {
-        const folder = this.currentFolder
-        const fileName = folder ? `${folder}/${name}` : name
-        const response = await AppsService.removeFile(this.zelidHeader.zelidauth, encodeURIComponent(fileName))
+        const folder = this.currentFolder;
+        const fileName = folder ? `${folder}/${name}` : name;
+        const response = await AppsService.removeFile(this.zelidHeader.zelidauth, encodeURIComponent(fileName));
         if (response.data.status === 'error') {
-          this.showToast('danger', response.data.data.message || response.data.data)
+          this.showToast('danger', response.data.data.message || response.data.data);
         } else {
-          this.refreshFolder()
-          this.showToast('success', `${name} deleted`)
+          this.refreshFolder();
+          this.showToast('success', `${name} deleted`);
         }
       } catch (error) {
-        this.showToast('danger', error.message || error)
+        this.showToast('danger', error.message || error);
       }
     },
     async shareFile(name) {
       try {
-        const folder = this.currentFolder
-        const fileName = folder ? `${folder}/${name}` : name
-        const response = await AppsService.shareFile(this.zelidHeader.zelidauth, encodeURIComponent(fileName))
+        const folder = this.currentFolder;
+        const fileName = folder ? `${folder}/${name}` : name;
+        const response = await AppsService.shareFile(this.zelidHeader.zelidauth, encodeURIComponent(fileName));
         if (response.data.status === 'error') {
-          this.showToast('danger', response.data.data.message || response.data.data)
+          this.showToast('danger', response.data.data.message || response.data.data);
         } else {
-          this.loadFolder(this.currentFolder, true)
-          this.showToast('success', `${name} shared`)
+          this.loadFolder(this.currentFolder, true);
+          this.showToast('success', `${name} shared`);
         }
       } catch (error) {
-        this.showToast('danger', error.message || error)
+        this.showToast('danger', error.message || error);
       }
     },
     async unshareFile(name) {
       try {
-        const folder = this.currentFolder
-        const fileName = folder ? `${folder}/${name}` : name
-        const response = await AppsService.unshareFile(this.zelidHeader.zelidauth, encodeURIComponent(fileName))
+        const folder = this.currentFolder;
+        const fileName = folder ? `${folder}/${name}` : name;
+        const response = await AppsService.unshareFile(this.zelidHeader.zelidauth, encodeURIComponent(fileName));
         if (response.data.status === 'error') {
-          this.showToast('danger', response.data.data.message || response.data.data)
+          this.showToast('danger', response.data.data.message || response.data.data);
         } else {
-          this.loadFolder(this.currentFolder, true)
-          this.showToast('success', `${name} unshared`)
+          this.loadFolder(this.currentFolder, true);
+          this.showToast('success', `${name} unshared`);
         }
       } catch (error) {
-        this.showToast('danger', error.message || error)
+        this.showToast('danger', error.message || error);
       }
     },
     async deleteFolder(foldername) {
       try {
-        let folderPath = foldername
+        let folderPath = foldername;
         if (this.currentFolder !== '') {
-          folderPath = `${this.currentFolder}/${foldername}`
+          folderPath = `${this.currentFolder}/${foldername}`;
         }
-        const response = await AppsService.removeFolder(this.zelidHeader.zelidauth, encodeURIComponent(folderPath))
-        console.log(response.data)
+        const response = await AppsService.removeFolder(this.zelidHeader.zelidauth, encodeURIComponent(folderPath));
+        console.log(response.data);
         if (response.data.status === 'error') {
           if (response.data.data.code === 'ENOTEMPTY') {
-            this.showToast('danger', `Directory ${foldername} is not empty!`)
+            this.showToast('danger', `Directory ${foldername} is not empty!`);
           } else {
-            this.showToast('danger', response.data.data.message || response.data.data)
+            this.showToast('danger', response.data.data.message || response.data.data);
           }
         } else {
-          this.loadFolder(this.currentFolder, true)
-          this.showToast('success', `${foldername} deleted`)
+          this.loadFolder(this.currentFolder, true);
+          this.showToast('success', `${foldername} deleted`);
         }
       } catch (error) {
-        this.showToast('danger', error.message || error)
+        this.showToast('danger', error.message || error);
       }
     },
     beforeUpload(file) {
       // check if file already exists
       if (this.storage.available <= 0) {
-        this.showToast('danger', 'Storage space is full')
-        return false
+        this.showToast('danger', 'Storage space is full');
+        return false;
       }
-      const fileExists = this.folderView.find(currentFile => currentFile.name === file.name)
+      const fileExists = this.folderView.find((currentFile) => currentFile.name === file.name);
       if (fileExists) {
-        this.showToast('info', `File ${file.name} already exists`)
-        return false
+        this.showToast('info', `File ${file.name} already exists`);
+        return false;
       }
-      return true
+      return true;
     },
     createfluxshareLink(name, token) {
-      return `${this.ipAddress}:16127/apps/fluxshare/getfile/${name}?token=${token}`
+      return `${this.ipAddress}:16127/apps/fluxshare/getfile/${name}?token=${token}`;
     },
     copyLinkToClipboard(link) {
-      const el = document.createElement('textarea')
-      el.value = link
-      el.setAttribute('readonly', '')
-      el.style.position = 'absolute'
-      el.style.left = '-9999px'
-      document.body.appendChild(el)
-      el.select()
-      document.execCommand('copy')
-      document.body.removeChild(el)
-      this.showToast('success', 'Link copied to Clipboard')
+      const el = document.createElement('textarea');
+      el.value = link;
+      el.setAttribute('readonly', '');
+      el.style.position = 'absolute';
+      el.style.left = '-9999px';
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand('copy');
+      document.body.removeChild(el);
+      this.showToast('success', 'Link copied to Clipboard');
     },
     rename(name) {
-      this.renameDialogVisible = true
-      let folderPath = name
+      this.renameDialogVisible = true;
+      let folderPath = name;
       if (this.currentFolder !== '') {
-        folderPath = `${this.currentFolder}/${name}`
+        folderPath = `${this.currentFolder}/${name}`;
       }
-      this.fileRenaming = folderPath
-      this.newName = name
+      this.fileRenaming = folderPath;
+      this.newName = name;
     },
     async confirmRename() {
-      this.renameDialogVisible = false
+      this.renameDialogVisible = false;
       try {
-        const oldpath = this.fileRenaming
-        const newname = this.newName
-        const response = await AppsService.renameFileFolder(this.zelidHeader.zelidauth, encodeURIComponent(oldpath), newname)
-        console.log(response)
+        const oldpath = this.fileRenaming;
+        const newname = this.newName;
+        const response = await AppsService.renameFileFolder(this.zelidHeader.zelidauth, encodeURIComponent(oldpath), newname);
+        console.log(response);
         if (response.data.status === 'error') {
-          this.showToast('danger', response.data.data.message || response.data.data)
+          this.showToast('danger', response.data.data.message || response.data.data);
         } else {
           if (oldpath.includes('/')) {
-            this.showToast('success', `${oldpath.split('/').pop()} renamed to ${newname}`)
+            this.showToast('success', `${oldpath.split('/').pop()} renamed to ${newname}`);
           } else {
-            this.showToast('success', `${oldpath} renamed to ${newname}`)
+            this.showToast('success', `${oldpath} renamed to ${newname}`);
           }
-          this.loadFolder(this.currentFolder, true)
+          this.loadFolder(this.currentFolder, true);
         }
       } catch (error) {
-        this.showToast('danger', error.message || error)
+        this.showToast('danger', error.message || error);
       }
     },
     upFolder() {
-      this.changeFolder('..')
-      this.sortTableByNameManual()
+      this.changeFolder('..');
+      this.sortTableByNameManual();
     },
     showToast(variant, title, icon = 'InfoIcon') {
       this.$toast({
@@ -700,10 +700,10 @@ export default {
           icon,
           variant,
         },
-      })
+      });
     },
   },
-}
+};
 </script>
 
 <style>

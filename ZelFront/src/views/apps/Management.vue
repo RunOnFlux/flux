@@ -1433,22 +1433,22 @@ import {
   BInputGroup,
   BInputGroupAppend,
   BPagination,
-} from 'bootstrap-vue'
+} from 'bootstrap-vue';
 
-import Ripple from 'vue-ripple-directive'
-import { mapState } from 'vuex'
-import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
-import ConfirmDialog from '@/views/components/ConfirmDialog.vue'
-import ListEntry from '@/views/components/ListEntry.vue'
+import Ripple from 'vue-ripple-directive';
+import { mapState } from 'vuex';
+import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
+import ConfirmDialog from '@/views/components/ConfirmDialog.vue';
+import ListEntry from '@/views/components/ListEntry.vue';
 
-import AppsService from '@/services/AppsService'
-import DaemonService from '@/services/DaemonService'
+import AppsService from '@/services/AppsService';
+import DaemonService from '@/services/DaemonService';
 
-import fluxapps from '@/libs/fluxApps'
+import fluxapps from '@/libs/fluxApps';
 
-const qs = require('qs')
-const store = require('store')
-const timeoptions = require('@/libs/dateFormat')
+const qs = require('qs');
+const store = require('store');
+const timeoptions = require('@/libs/dateFormat');
 
 export default {
   components: {
@@ -1573,7 +1573,7 @@ export default {
       downloaded: '',
       abortToken: {},
       foundationAddress: 't1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6',
-    }
+    };
   },
   computed: {
     ...mapState('flux', [
@@ -1582,385 +1582,385 @@ export default {
       'privilege',
     ]),
     callbackValue() {
-      const { protocol, hostname } = window.location
-      let mybackend = ''
-      mybackend += protocol
-      mybackend += '//'
-      const regex = /[A-Za-z]/g
+      const { protocol, hostname } = window.location;
+      let mybackend = '';
+      mybackend += protocol;
+      mybackend += '//';
+      const regex = /[A-Za-z]/g;
       if (hostname.match(regex)) {
-        const names = hostname.split('.')
-        names[0] = 'api'
-        mybackend += names.join('.')
+        const names = hostname.split('.');
+        names[0] = 'api';
+        mybackend += names.join('.');
       } else {
-        mybackend += this.userconfig.externalip
-        mybackend += ':'
-        mybackend += this.config.apiPort
+        mybackend += this.userconfig.externalip;
+        mybackend += ':';
+        mybackend += this.config.apiPort;
       }
-      const backendURL = store.get('backendURL') || mybackend
-      const url = `${backendURL}/zelid/providesign`
-      return encodeURI(url)
+      const backendURL = store.get('backendURL') || mybackend;
+      const url = `${backendURL}/zelid/providesign`;
+      return encodeURI(url);
     },
     stringifiedResponse() {
       if (!this.callResponse || !this.callResponse.data) {
-        return ''
+        return '';
       }
-      const json = JSON.stringify(this.callResponse.data, null, 4)
-      return json
+      const json = JSON.stringify(this.callResponse.data, null, 4);
+      return json;
     },
     appPricePerMonthForUpdate() {
-      const appInfo = this.callBResponse.data
-      let actualPriceToPay = this.appPricePerMonthMethod(this.dataForAppUpdate)
-      console.log(actualPriceToPay)
+      const appInfo = this.callBResponse.data;
+      let actualPriceToPay = this.appPricePerMonthMethod(this.dataForAppUpdate);
+      console.log(actualPriceToPay);
       if (appInfo) {
-        const previousSpecsPrice = this.appPricePerMonthMethod(appInfo)
-        console.log(previousSpecsPrice)
+        const previousSpecsPrice = this.appPricePerMonthMethod(appInfo);
+        console.log(previousSpecsPrice);
         // what is the height difference
-        const daemonHeight = this.currentHeight
-        const heightDifference = daemonHeight - appInfo.height // has to be lower than 22000
-        const perc = (22000 - heightDifference) / 22000
+        const daemonHeight = this.currentHeight;
+        const heightDifference = daemonHeight - appInfo.height; // has to be lower than 22000
+        const perc = (22000 - heightDifference) / 22000;
         if (perc > 0) {
-          actualPriceToPay -= (perc * previousSpecsPrice)
+          actualPriceToPay -= (perc * previousSpecsPrice);
         }
       }
       if (actualPriceToPay < 1) {
-        actualPriceToPay = 1
+        actualPriceToPay = 1;
       }
-      actualPriceToPay = Number(Math.ceil(actualPriceToPay * 100) / 100)
-      return actualPriceToPay
+      actualPriceToPay = Number(Math.ceil(actualPriceToPay * 100) / 100);
+      return actualPriceToPay;
     },
     validTill() {
-      const expTime = this.timestamp + 60 * 60 * 1000 // 1 hour
-      return expTime
+      const expTime = this.timestamp + 60 * 60 * 1000; // 1 hour
+      return expTime;
     },
     subscribedTill() {
-      const expTime = this.timestamp + 30 * 24 * 60 * 60 * 1000 + 60 * 60 * 1000 // 1 month
-      return expTime
+      const expTime = this.timestamp + 30 * 24 * 60 * 60 * 1000 + 60 * 60 * 1000; // 1 month
+      return expTime;
     },
     isApplicationInstalledLocally() {
       if (this.installedApps) {
-        const installed = this.installedApps.find(app => app.name === this.appName)
+        const installed = this.installedApps.find((app) => app.name === this.appName);
         if (installed) {
-          return true
+          return true;
         }
-        return false
+        return false;
       }
-      return false
+      return false;
     },
     applicationManagementAndStatus() {
-      console.log(this.getAllAppsResponse)
-      const foundAppInfo = this.getAllAppsResponse.data.find(app => app.Names[0] === this.getAppDockerNameIdentifier()) || {}
+      console.log(this.getAllAppsResponse);
+      const foundAppInfo = this.getAllAppsResponse.data.find((app) => app.Names[0] === this.getAppDockerNameIdentifier()) || {};
       const appInfo = {
         name: this.appName,
         state: foundAppInfo.State || 'Unknown state',
         status: foundAppInfo.Status || 'Unknown status',
-      }
-      appInfo.state = appInfo.state.charAt(0).toUpperCase() + appInfo.state.slice(1)
-      appInfo.status = appInfo.status.charAt(0).toUpperCase() + appInfo.status.slice(1)
-      const niceString = `${appInfo.name} - ${appInfo.state} - ${appInfo.status}`
-      return niceString
+      };
+      appInfo.state = appInfo.state.charAt(0).toUpperCase() + appInfo.state.slice(1);
+      appInfo.status = appInfo.status.charAt(0).toUpperCase() + appInfo.status.slice(1);
+      const niceString = `${appInfo.name} - ${appInfo.state} - ${appInfo.status}`;
+      return niceString;
     },
     asciiResponse() {
       if (typeof this.callResponse.data === 'string') {
-        return this.callResponse.data.replace(/[^\x20-\x7E\t\r\n\v\f]/g, '')
+        return this.callResponse.data.replace(/[^\x20-\x7E\t\r\n\v\f]/g, '');
       }
-      return ''
+      return '';
     },
   },
   watch: {
     appUpdateSpecification: {
       handler() {
-        this.dataToSign = ''
-        this.signature = ''
-        this.timestamp = null
-        this.dataForAppUpdate = {}
-        this.updateHash = ''
+        this.dataToSign = '';
+        this.signature = '';
+        this.timestamp = null;
+        this.dataForAppUpdate = {};
+        this.updateHash = '';
         if (this.websocket !== null) {
-          this.websocket.close()
-          this.websocket = null
+          this.websocket.close();
+          this.websocket = null;
         }
       },
       deep: true,
     },
   },
   mounted() {
-    this.callBResponse.data = ''
-    this.callBResponse.status = ''
-    this.callResponse.data = ''
-    this.callResponse.status = ''
-    this.appExec.cmd = ''
-    this.appExec.env = ''
-    this.checkFluxCommunication()
-    this.getAppOwner()
-    this.getDaemonInfo()
-    this.getGlobalApplicationSpecifics()
-    this.appsGetListAllApps()
+    this.callBResponse.data = '';
+    this.callBResponse.status = '';
+    this.callResponse.data = '';
+    this.callResponse.status = '';
+    this.appExec.cmd = '';
+    this.appExec.env = '';
+    this.checkFluxCommunication();
+    this.getAppOwner();
+    this.getDaemonInfo();
+    this.getGlobalApplicationSpecifics();
+    this.appsGetListAllApps();
     if (!global) {
-      this.getInstalledApplicationSpecifics()
+      this.getInstalledApplicationSpecifics();
     }
   },
   methods: {
     updateManagementTab(index) {
-      this.callResponse.data = ''
-      this.callResponse.status = ''
+      this.callResponse.data = '';
+      this.callResponse.status = '';
       // do not reset global application specifics obtained
-      this.appExec.cmd = ''
-      this.appExec.env = ''
-      this.output = ''
+      this.appExec.cmd = '';
+      this.appExec.env = '';
+      this.output = '';
       switch (index) {
         case 1:
-          this.getInstalledApplicationSpecifics()
-          this.getGlobalApplicationSpecifics()
-          break
+          this.getInstalledApplicationSpecifics();
+          this.getGlobalApplicationSpecifics();
+          break;
         case 2:
-          this.getApplicationInspect()
-          break
+          this.getApplicationInspect();
+          break;
         case 3:
-          this.getApplicationStats()
-          break
+          this.getApplicationStats();
+          break;
         case 4:
-          this.getApplicationChanges()
-          break
+          this.getApplicationChanges();
+          break;
         case 5:
-          this.getApplicationProcesses()
-          break
+          this.getApplicationProcesses();
+          break;
         case 6:
-          this.getApplicationLogs()
-          break
+          this.getApplicationLogs();
+          break;
         case 10:
-          this.getGlobalApplicationSpecifics()
-          break
+          this.getGlobalApplicationSpecifics();
+          break;
         case 11:
-          this.getApplicationLocations()
-          break
+          this.getApplicationLocations();
+          break;
         case 12:
-          this.getGlobalApplicationSpecifics()
-          this.getDaemonInfo()
-          break
+          this.getGlobalApplicationSpecifics();
+          this.getDaemonInfo();
+          break;
         default:
-          break
+          break;
       }
     },
     async appsGetListAllApps() {
-      const response = await AppsService.listAllApps()
-      console.log(response)
-      this.getAllAppsResponse.status = response.data.status
-      this.getAllAppsResponse.data = response.data.data
+      const response = await AppsService.listAllApps();
+      console.log(response);
+      this.getAllAppsResponse.status = response.data.status;
+      this.getAllAppsResponse.data = response.data.data;
     },
     goBackToApps() {
-      this.$emit('back')
+      this.$emit('back');
     },
     initiateSignWSUpdate() {
-      const self = this
-      const { protocol, hostname } = window.location
-      let mybackend = ''
-      mybackend += protocol
-      mybackend += '//'
-      const regex = /[A-Za-z]/g
+      const self = this;
+      const { protocol, hostname } = window.location;
+      let mybackend = '';
+      mybackend += protocol;
+      mybackend += '//';
+      const regex = /[A-Za-z]/g;
       if (hostname.match(regex)) {
-        const names = hostname.split('.')
-        names[0] = 'api'
-        mybackend += names.join('.')
+        const names = hostname.split('.');
+        names[0] = 'api';
+        mybackend += names.join('.');
       } else {
-        mybackend += this.userconfig.externalip
-        mybackend += ':'
-        mybackend += this.config.apiPort
+        mybackend += this.userconfig.externalip;
+        mybackend += ':';
+        mybackend += this.config.apiPort;
       }
-      let backendURL = store.get('backendURL') || mybackend
-      backendURL = backendURL.replace('https://', 'wss://')
-      backendURL = backendURL.replace('http://', 'ws://')
-      const signatureMessage = this.appUpdateSpecification.owner + this.timestamp
-      const wsuri = `${backendURL}/ws/sign/${signatureMessage}`
-      const websocket = new WebSocket(wsuri)
-      this.websocket = websocket
+      let backendURL = store.get('backendURL') || mybackend;
+      backendURL = backendURL.replace('https://', 'wss://');
+      backendURL = backendURL.replace('http://', 'ws://');
+      const signatureMessage = this.appUpdateSpecification.owner + this.timestamp;
+      const wsuri = `${backendURL}/ws/sign/${signatureMessage}`;
+      const websocket = new WebSocket(wsuri);
+      this.websocket = websocket;
 
-      websocket.onopen = evt => { self.onOpen(evt) }
-      websocket.onclose = evt => { self.onClose(evt) }
-      websocket.onmessage = evt => { self.onMessage(evt) }
-      websocket.onerror = evt => { self.onError(evt) }
+      websocket.onopen = (evt) => { self.onOpen(evt); };
+      websocket.onclose = (evt) => { self.onClose(evt); };
+      websocket.onmessage = (evt) => { self.onMessage(evt); };
+      websocket.onerror = (evt) => { self.onError(evt); };
     },
     onError(evt) {
-      console.log(evt)
+      console.log(evt);
     },
     onMessage(evt) {
-      const data = qs.parse(evt.data)
+      const data = qs.parse(evt.data);
       if (data.status === 'success' && data.data) {
         // user is now signed. Store their values
-        this.signature = data.data.signature
+        this.signature = data.data.signature;
       }
-      console.log(data)
-      console.log(evt)
+      console.log(data);
+      console.log(evt);
     },
     onClose(evt) {
-      console.log(evt)
+      console.log(evt);
     },
     onOpen(evt) {
-      console.log(evt)
+      console.log(evt);
     },
 
     async getInstalledApplicationSpecifics() {
-      const response = await AppsService.getInstalledAppSpecifics(this.appName)
-      console.log(response)
+      const response = await AppsService.getInstalledAppSpecifics(this.appName);
+      console.log(response);
       if (response.data.status === 'error' || !response.data.data[0]) {
-        this.showToast('danger', response.data.data.message || response.data.data)
+        this.showToast('danger', response.data.data.message || response.data.data);
       } else {
-        this.callResponse.status = response.data.status
-        this.callResponse.data = response.data.data[0]
+        this.callResponse.status = response.data.status;
+        this.callResponse.data = response.data.data[0];
       }
     },
     async getGlobalApplicationSpecifics() {
-      const response = await AppsService.getAppSpecifics(this.appName)
-      console.log(response)
+      const response = await AppsService.getAppSpecifics(this.appName);
+      console.log(response);
       if (response.data.status === 'error') {
-        this.showToast('danger', response.data.data.message || response.data.data)
-        this.callBResponse.status = response.data.status
+        this.showToast('danger', response.data.data.message || response.data.data);
+        this.callBResponse.status = response.data.status;
       } else {
-        this.callBResponse.status = response.data.status
-        this.callBResponse.data = response.data.data
-        const specs = response.data.data
-        console.log(specs)
-        this.appUpdateSpecification.version = specs.version
-        this.appUpdateSpecification.name = specs.name
-        this.appUpdateSpecification.description = specs.description
-        this.appUpdateSpecification.repotag = specs.repotag
-        this.appUpdateSpecification.owner = specs.owner
-        this.appUpdateSpecification.ports = specs.port || this.ensureString(specs.ports) // v1 compatibility
-        this.appUpdateSpecification.domains = this.ensureString(specs.domains)
-        this.appUpdateSpecification.enviromentParameters = this.ensureString(specs.enviromentParameters)
-        this.appUpdateSpecification.commands = this.ensureString(specs.commands)
-        this.appUpdateSpecification.containerPorts = specs.containerPort || this.ensureString(specs.containerPorts) // v1 compatibility
-        this.appUpdateSpecification.containerData = specs.containerData
-        this.appUpdateSpecification.cpu = specs.cpu
-        this.appUpdateSpecification.ram = specs.ram
-        this.appUpdateSpecification.hdd = specs.hdd
-        this.appUpdateSpecification.tiered = specs.tiered
-        this.appUpdateSpecification.cpubasic = specs.cpubasic
-        this.appUpdateSpecification.rambasic = specs.rambasic
-        this.appUpdateSpecification.hddbasic = specs.hddbasic
-        this.appUpdateSpecification.cpusuper = specs.cpusuper
-        this.appUpdateSpecification.ramsuper = specs.ramsuper
-        this.appUpdateSpecification.hddsuper = specs.hddsuper
-        this.appUpdateSpecification.cpubamf = specs.cpubamf
-        this.appUpdateSpecification.rambamf = specs.rambamf
-        this.appUpdateSpecification.hddbamf = specs.hddbamf
+        this.callBResponse.status = response.data.status;
+        this.callBResponse.data = response.data.data;
+        const specs = response.data.data;
+        console.log(specs);
+        this.appUpdateSpecification.version = specs.version;
+        this.appUpdateSpecification.name = specs.name;
+        this.appUpdateSpecification.description = specs.description;
+        this.appUpdateSpecification.repotag = specs.repotag;
+        this.appUpdateSpecification.owner = specs.owner;
+        this.appUpdateSpecification.ports = specs.port || this.ensureString(specs.ports); // v1 compatibility
+        this.appUpdateSpecification.domains = this.ensureString(specs.domains);
+        this.appUpdateSpecification.enviromentParameters = this.ensureString(specs.enviromentParameters);
+        this.appUpdateSpecification.commands = this.ensureString(specs.commands);
+        this.appUpdateSpecification.containerPorts = specs.containerPort || this.ensureString(specs.containerPorts); // v1 compatibility
+        this.appUpdateSpecification.containerData = specs.containerData;
+        this.appUpdateSpecification.cpu = specs.cpu;
+        this.appUpdateSpecification.ram = specs.ram;
+        this.appUpdateSpecification.hdd = specs.hdd;
+        this.appUpdateSpecification.tiered = specs.tiered;
+        this.appUpdateSpecification.cpubasic = specs.cpubasic;
+        this.appUpdateSpecification.rambasic = specs.rambasic;
+        this.appUpdateSpecification.hddbasic = specs.hddbasic;
+        this.appUpdateSpecification.cpusuper = specs.cpusuper;
+        this.appUpdateSpecification.ramsuper = specs.ramsuper;
+        this.appUpdateSpecification.hddsuper = specs.hddsuper;
+        this.appUpdateSpecification.cpubamf = specs.cpubamf;
+        this.appUpdateSpecification.rambamf = specs.rambamf;
+        this.appUpdateSpecification.hddbamf = specs.hddbamf;
       }
     },
 
     async update() {
-      const zelidauth = localStorage.getItem('zelidauth')
+      const zelidauth = localStorage.getItem('zelidauth');
       const data = {
         type: this.updatetype,
         version: this.version,
         appSpecification: this.dataForAppUpdate,
         timestamp: this.timestamp,
         signature: this.signature,
-      }
-      const response = await AppsService.updateApp(zelidauth, data).catch(error => {
-        this.showToast('danger', error.message || error)
-      })
-      console.log(response)
+      };
+      const response = await AppsService.updateApp(zelidauth, data).catch((error) => {
+        this.showToast('danger', error.message || error);
+      });
+      console.log(response);
       if (response.data.status === 'success') {
-        this.updateHash = response.data.data
-        console.log(this.updateHash)
-        this.showToast('success', response.data.data.message || response.data.data)
+        this.updateHash = response.data.data;
+        console.log(this.updateHash);
+        this.showToast('success', response.data.data.message || response.data.data);
       } else {
-        this.showToast('danger', response.data.data.message || response.data.data)
+        this.showToast('danger', response.data.data.message || response.data.data);
       }
     },
     async checkFluxCommunication() {
-      const response = await AppsService.checkCommunication()
+      const response = await AppsService.checkCommunication();
       if (response.data.status === 'success') {
-        this.fluxCommunication = true
+        this.fluxCommunication = true;
       } else {
-        this.showToast('danger', response.data.data.message || response.data.data)
+        this.showToast('danger', response.data.data.message || response.data.data);
       }
     },
 
     async checkFluxUpdateSpecificationsAndFormatMessage() {
       try {
-        let appSpecification = this.appUpdateSpecification
-        console.log(appSpecification)
-        appSpecification = this.ensureObject(appSpecification)
-        let { version } = appSpecification // shall be 2
-        let { name } = appSpecification
-        let { description } = appSpecification
-        let { repotag } = appSpecification
-        let { owner } = appSpecification
-        let { ports } = appSpecification
-        let { domains } = appSpecification
-        let { enviromentParameters } = appSpecification
-        let { commands } = appSpecification
-        let { containerPorts } = appSpecification
-        let { containerData } = appSpecification
-        let { cpu } = appSpecification
-        let { ram } = appSpecification
-        let { hdd } = appSpecification
-        const { tiered } = appSpecification
+        let appSpecification = this.appUpdateSpecification;
+        console.log(appSpecification);
+        appSpecification = this.ensureObject(appSpecification);
+        let { version } = appSpecification; // shall be 2
+        let { name } = appSpecification;
+        let { description } = appSpecification;
+        let { repotag } = appSpecification;
+        let { owner } = appSpecification;
+        let { ports } = appSpecification;
+        let { domains } = appSpecification;
+        let { enviromentParameters } = appSpecification;
+        let { commands } = appSpecification;
+        let { containerPorts } = appSpecification;
+        let { containerData } = appSpecification;
+        let { cpu } = appSpecification;
+        let { ram } = appSpecification;
+        let { hdd } = appSpecification;
+        const { tiered } = appSpecification;
         // check if signature of received data is correct
         if (!version || !name || !description || !repotag || !owner || !ports || !domains || !enviromentParameters || !commands || !containerPorts || !containerData || !cpu || !ram || !hdd) {
-          throw new Error('Missing App specification parameter')
+          throw new Error('Missing App specification parameter');
         }
-        version = this.ensureNumber(version)
-        name = this.ensureString(name)
-        description = this.ensureString(description)
-        repotag = this.ensureString(repotag)
-        owner = this.ensureString(owner)
-        ports = this.ensureObject(ports)
-        ports = this.ensureObject(ports)
-        const portsCorrect = []
+        version = this.ensureNumber(version);
+        name = this.ensureString(name);
+        description = this.ensureString(description);
+        repotag = this.ensureString(repotag);
+        owner = this.ensureString(owner);
+        ports = this.ensureObject(ports);
+        ports = this.ensureObject(ports);
+        const portsCorrect = [];
         if (Array.isArray(ports)) {
-          ports.forEach(parameter => {
-            const param = this.ensureString(parameter) // todo ensureNumber
-            portsCorrect.push(param)
-          })
+          ports.forEach((parameter) => {
+            const param = this.ensureString(parameter); // todo ensureNumber
+            portsCorrect.push(param);
+          });
         } else {
-          throw new Error('Ports parameters for App are invalid')
+          throw new Error('Ports parameters for App are invalid');
         }
-        domains = this.ensureObject(domains)
-        const domainsCorrect = []
+        domains = this.ensureObject(domains);
+        const domainsCorrect = [];
         if (Array.isArray(domains)) {
-          domains.forEach(parameter => {
-            const param = this.ensureString(parameter)
-            domainsCorrect.push(param)
-          })
+          domains.forEach((parameter) => {
+            const param = this.ensureString(parameter);
+            domainsCorrect.push(param);
+          });
         } else {
-          throw new Error('Enviromental parameters for App are invalid')
+          throw new Error('Enviromental parameters for App are invalid');
         }
-        enviromentParameters = this.ensureObject(enviromentParameters)
-        const envParamsCorrected = []
+        enviromentParameters = this.ensureObject(enviromentParameters);
+        const envParamsCorrected = [];
         if (Array.isArray(enviromentParameters)) {
-          enviromentParameters.forEach(parameter => {
-            const param = this.ensureString(parameter)
-            envParamsCorrected.push(param)
-          })
+          enviromentParameters.forEach((parameter) => {
+            const param = this.ensureString(parameter);
+            envParamsCorrected.push(param);
+          });
         } else {
-          throw new Error('Enviromental parameters for App are invalid')
+          throw new Error('Enviromental parameters for App are invalid');
         }
-        commands = this.ensureObject(commands)
-        const commandsCorrected = []
+        commands = this.ensureObject(commands);
+        const commandsCorrected = [];
         if (Array.isArray(commands)) {
-          commands.forEach(command => {
-            const cmm = this.ensureString(command)
-            commandsCorrected.push(cmm)
-          })
+          commands.forEach((command) => {
+            const cmm = this.ensureString(command);
+            commandsCorrected.push(cmm);
+          });
         } else {
-          throw new Error('App commands are invalid')
+          throw new Error('App commands are invalid');
         }
-        containerPorts = this.ensureObject(containerPorts)
-        const containerportsCorrect = []
+        containerPorts = this.ensureObject(containerPorts);
+        const containerportsCorrect = [];
         if (Array.isArray(containerPorts)) {
-          containerPorts.forEach(parameter => {
-            const param = this.ensureString(parameter) // todo ensureNumber
-            containerportsCorrect.push(param)
-          })
+          containerPorts.forEach((parameter) => {
+            const param = this.ensureString(parameter); // todo ensureNumber
+            containerportsCorrect.push(param);
+          });
         } else {
-          throw new Error('Container Ports parameters for App are invalid')
+          throw new Error('Container Ports parameters for App are invalid');
         }
-        containerData = this.ensureString(containerData)
-        cpu = this.ensureNumber(cpu)
-        ram = this.ensureNumber(ram)
-        hdd = this.ensureNumber(hdd)
+        containerData = this.ensureString(containerData);
+        cpu = this.ensureNumber(cpu);
+        ram = this.ensureNumber(ram);
+        hdd = this.ensureNumber(hdd);
         if (typeof tiered !== 'boolean') {
-          throw new Error('Invalid tiered value obtained. Only boolean as true or false allowed.')
+          throw new Error('Invalid tiered value obtained. Only boolean as true or false allowed.');
         }
 
         // finalised parameters that will get stored in global database
@@ -1980,537 +1980,537 @@ export default {
           ram, // integer 100 step (mb)
           hdd, // integer 1 step
           tiered, // boolean
-        }
+        };
 
         if (tiered) {
-          let { cpubasic } = appSpecification
-          let { cpusuper } = appSpecification
-          let { cpubamf } = appSpecification
-          let { rambasic } = appSpecification
-          let { ramsuper } = appSpecification
-          let { rambamf } = appSpecification
-          let { hddbasic } = appSpecification
-          let { hddsuper } = appSpecification
-          let { hddbamf } = appSpecification
+          let { cpubasic } = appSpecification;
+          let { cpusuper } = appSpecification;
+          let { cpubamf } = appSpecification;
+          let { rambasic } = appSpecification;
+          let { ramsuper } = appSpecification;
+          let { rambamf } = appSpecification;
+          let { hddbasic } = appSpecification;
+          let { hddsuper } = appSpecification;
+          let { hddbamf } = appSpecification;
           if (!cpubasic || !cpusuper || !cpubamf || !rambasic || !ramsuper || !rambamf || !hddbasic || !hddsuper || !hddbamf) {
-            throw new Error('App was requested as tiered setup but specifications are missing')
+            throw new Error('App was requested as tiered setup but specifications are missing');
           }
-          cpubasic = this.ensureNumber(cpubasic)
-          cpusuper = this.ensureNumber(cpusuper)
-          cpubamf = this.ensureNumber(cpubamf)
-          rambasic = this.ensureNumber(rambasic)
-          ramsuper = this.ensureNumber(ramsuper)
-          rambamf = this.ensureNumber(rambamf)
-          hddbasic = this.ensureNumber(hddbasic)
-          hddsuper = this.ensureNumber(hddsuper)
-          hddbamf = this.ensureNumber(hddbamf)
+          cpubasic = this.ensureNumber(cpubasic);
+          cpusuper = this.ensureNumber(cpusuper);
+          cpubamf = this.ensureNumber(cpubamf);
+          rambasic = this.ensureNumber(rambasic);
+          ramsuper = this.ensureNumber(ramsuper);
+          rambamf = this.ensureNumber(rambamf);
+          hddbasic = this.ensureNumber(hddbasic);
+          hddsuper = this.ensureNumber(hddsuper);
+          hddbamf = this.ensureNumber(hddbamf);
 
-          appSpecFormatted.cpubasic = cpubasic
-          appSpecFormatted.cpusuper = cpusuper
-          appSpecFormatted.cpubamf = cpubamf
-          appSpecFormatted.rambasic = rambasic
-          appSpecFormatted.ramsuper = ramsuper
-          appSpecFormatted.rambamf = rambamf
-          appSpecFormatted.hddbasic = hddbasic
-          appSpecFormatted.hddsuper = hddsuper
-          appSpecFormatted.hddbamf = hddbamf
+          appSpecFormatted.cpubasic = cpubasic;
+          appSpecFormatted.cpusuper = cpusuper;
+          appSpecFormatted.cpubamf = cpubamf;
+          appSpecFormatted.rambasic = rambasic;
+          appSpecFormatted.ramsuper = ramsuper;
+          appSpecFormatted.rambamf = rambamf;
+          appSpecFormatted.hddbasic = hddbasic;
+          appSpecFormatted.hddsuper = hddsuper;
+          appSpecFormatted.hddbamf = hddbamf;
         }
         // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
         if (version !== 2) {
-          throw new Error('App message version specification is invalid')
+          throw new Error('App message version specification is invalid');
         }
         if (name.length > 32) {
-          throw new Error('App name is too long')
+          throw new Error('App name is too long');
         }
         // furthermore name cannot contain any special character
         if (!name.match(/^[a-zA-Z0-9]+$/)) {
-          throw new Error('App name contains special characters. Only a-z, A-Z and 0-9 are allowed')
+          throw new Error('App name contains special characters. Only a-z, A-Z and 0-9 are allowed');
         }
         if (name.startsWith('zel')) {
-          throw new Error('App name can not start with zel')
+          throw new Error('App name can not start with zel');
         }
         if (name.startsWith('flux')) {
-          throw new Error('App name can not start with flux')
+          throw new Error('App name can not start with flux');
         }
         if (name !== this.callBResponse.data.name) {
-          throw new Error('App name can not be changed')
+          throw new Error('App name can not be changed');
         }
         if (repotag !== this.callBResponse.data.repotag) {
-          throw new Error('Repository can not be changed')
+          throw new Error('Repository can not be changed');
         }
         if (description.length > 256) {
-          throw new Error('Description is too long. Maximum of 256 characters is allowed')
+          throw new Error('Description is too long. Maximum of 256 characters is allowed');
         }
-        const parameters = this.checkHWParameters(appSpecFormatted)
+        const parameters = this.checkHWParameters(appSpecFormatted);
         if (parameters !== true) {
-          const errorMessage = parameters
-          throw new Error(errorMessage)
+          const errorMessage = parameters;
+          throw new Error(errorMessage);
         }
 
         // check ports is within range
-        appSpecFormatted.ports.forEach(port => {
+        appSpecFormatted.ports.forEach((port) => {
           if (port < fluxapps.apps.portMin || port > fluxapps.apps.portMax) {
-            throw new Error(`Assigned port ${port} is not within Apps range ${fluxapps.apps.portMin}-${fluxapps.apps.portMax}`)
+            throw new Error(`Assigned port ${port} is not within Apps range ${fluxapps.apps.portMin}-${fluxapps.apps.portMax}`);
           }
-        })
+        });
 
         // check if containerPorts makes sense
-        appSpecFormatted.containerPorts.forEach(port => {
+        appSpecFormatted.containerPorts.forEach((port) => {
           if (port < 0 || port > 65535) {
-            throw new Error(`Container Port ${port} is not within system limits 0-65535`)
+            throw new Error(`Container Port ${port} is not within system limits 0-65535`);
           }
-        })
+        });
 
         if (appSpecFormatted.containerPorts.length !== appSpecFormatted.ports.length) {
-          throw new Error('Ports specifications do not match')
+          throw new Error('Ports specifications do not match');
         }
 
         if (appSpecFormatted.domains.length !== appSpecFormatted.ports.length) {
-          throw new Error('Domains specifications do not match available ports')
+          throw new Error('Domains specifications do not match available ports');
         }
 
         if (appSpecFormatted.ports.length > 5) {
-          throw new Error('Too many ports defined. Maximum of 5 allowed.')
+          throw new Error('Too many ports defined. Maximum of 5 allowed.');
         }
 
         // check wheter shared Folder is not root
         if (containerData.length < 2) {
-          throw new Error('App container data folder not specified. If no data folder is required, use /tmp')
+          throw new Error('App container data folder not specified. If no data folder is required, use /tmp');
         }
 
         // check repotag if available for download
-        const splittedRepo = appSpecFormatted.repotag.split(':')
+        const splittedRepo = appSpecFormatted.repotag.split(':');
         if (splittedRepo[0] && splittedRepo[1] && !splittedRepo[2]) {
-          const zelidauth = localStorage.getItem('zelidauth')
+          const zelidauth = localStorage.getItem('zelidauth');
           const data = {
             repotag: appSpecFormatted.repotag,
-          }
-          const resDocker = await AppsService.checkDockerExistance(zelidauth, data).catch(error => {
-            this.showToast('danger', error.message || error)
-          })
-          console.log(resDocker)
+          };
+          const resDocker = await AppsService.checkDockerExistance(zelidauth, data).catch((error) => {
+            this.showToast('danger', error.message || error);
+          });
+          console.log(resDocker);
           if (resDocker.data.status === 'error') {
-            throw resDocker.data.data
+            throw resDocker.data.data;
           }
         } else {
-          throw new Error('Repository is not in valid format namespace/repository:tag')
+          throw new Error('Repository is not in valid format namespace/repository:tag');
         }
-        this.timestamp = new Date().getTime()
-        this.dataForAppUpdate = appSpecFormatted
-        this.dataToSign = this.updatetype + this.version + JSON.stringify(appSpecFormatted) + this.timestamp
+        this.timestamp = new Date().getTime();
+        this.dataForAppUpdate = appSpecFormatted;
+        this.dataToSign = this.updatetype + this.version + JSON.stringify(appSpecFormatted) + this.timestamp;
       } catch (error) {
-        console.log(error.message)
-        console.error(error)
-        this.showToast('danger', error.message || error)
+        console.log(error.message);
+        console.error(error);
+        this.showToast('danger', error.message || error);
       }
     },
 
     checkHWParameters(appSpecs) {
       // check specs parameters. JS precision
       if ((appSpecs.cpu * 10) % 1 !== 0 || (appSpecs.cpu * 10) > (fluxapps.fluxSpecifics.cpu.bamf - fluxapps.lockedSystemResources.cpu) || appSpecs.cpu < 0.1) {
-        return new Error('CPU badly assigned')
+        return new Error('CPU badly assigned');
       }
       if (appSpecs.ram % 100 !== 0 || appSpecs.ram > (fluxapps.fluxSpecifics.ram.bamf - fluxapps.lockedSystemResources.ram) || appSpecs.ram < 100) {
-        return new Error('RAM badly assigned')
+        return new Error('RAM badly assigned');
       }
       if (appSpecs.hdd % 1 !== 0 || appSpecs.hdd > (fluxapps.fluxSpecifics.hdd.bamf - fluxapps.lockedSystemResources.hdd) || appSpecs.hdd < 1) {
-        return new Error('SSD badly assigned')
+        return new Error('SSD badly assigned');
       }
       if (appSpecs.tiered) {
         if ((appSpecs.cpubasic * 10) % 1 !== 0 || (appSpecs.cpubasic * 10) > (fluxapps.fluxSpecifics.cpu.basic - fluxapps.lockedSystemResources.cpu) || appSpecs.cpubasic < 0.1) {
-          return new Error('CPU for Cumulus badly assigned')
+          return new Error('CPU for Cumulus badly assigned');
         }
         if (appSpecs.rambasic % 100 !== 0 || appSpecs.rambasic > (fluxapps.fluxSpecifics.ram.basic - fluxapps.lockedSystemResources.ram) || appSpecs.rambasic < 100) {
-          return new Error('RAM for Cumulus badly assigned')
+          return new Error('RAM for Cumulus badly assigned');
         }
         if (appSpecs.hddbasic % 1 !== 0 || appSpecs.hddbasic > (fluxapps.fluxSpecifics.hdd.basic - fluxapps.lockedSystemResources.hdd) || appSpecs.hddbasic < 1) {
-          return new Error('SSD for Cumulus badly assigned')
+          return new Error('SSD for Cumulus badly assigned');
         }
         if ((appSpecs.cpusuper * 10) % 1 !== 0 || (appSpecs.cpusuper * 10) > (fluxapps.fluxSpecifics.cpu.super - fluxapps.lockedSystemResources.cpu) || appSpecs.cpusuper < 0.1) {
-          return new Error('CPU for Nimbus badly assigned')
+          return new Error('CPU for Nimbus badly assigned');
         }
         if (appSpecs.ramsuper % 100 !== 0 || appSpecs.ramsuper > (fluxapps.fluxSpecifics.ram.super - fluxapps.lockedSystemResources.ram) || appSpecs.ramsuper < 100) {
-          return new Error('RAM for Nimbus badly assigned')
+          return new Error('RAM for Nimbus badly assigned');
         }
         if (appSpecs.hddsuper % 1 !== 0 || appSpecs.hddsuper > (fluxapps.fluxSpecifics.hdd.super - fluxapps.lockedSystemResources.hdd) || appSpecs.hddsuper < 1) {
-          return new Error('SSD for Nimbus badly assigned')
+          return new Error('SSD for Nimbus badly assigned');
         }
         if ((appSpecs.cpubamf * 10) % 1 !== 0 || (appSpecs.cpubamf * 10) > (fluxapps.fluxSpecifics.cpu.bamf - fluxapps.lockedSystemResources.cpu) || appSpecs.cpubamf < 0.1) {
-          return new Error('CPU for Stratus badly assigned')
+          return new Error('CPU for Stratus badly assigned');
         }
         if (appSpecs.rambamf % 100 !== 0 || appSpecs.rambamf > (fluxapps.fluxSpecifics.ram.bamf - fluxapps.lockedSystemResources.ram) || appSpecs.rambamf < 100) {
-          return new Error('RAM for Stratus badly assigned')
+          return new Error('RAM for Stratus badly assigned');
         }
         if (appSpecs.hddbamf % 1 !== 0 || appSpecs.hddbamf > (fluxapps.fluxSpecifics.hdd.bamf - fluxapps.lockedSystemResources.hdd) || appSpecs.hddbamf < 1) {
-          return new Error('SSD for Stratus badly assigned')
+          return new Error('SSD for Stratus badly assigned');
         }
       }
-      return true
+      return true;
     },
 
     async appExecute() {
-      const zelidauth = localStorage.getItem('zelidauth')
+      const zelidauth = localStorage.getItem('zelidauth');
       if (!this.appExec.cmd) {
-        this.showToast('danger', 'No commands specified')
-        return
+        this.showToast('danger', 'No commands specified');
+        return;
       }
-      const env = this.appExec.env ? this.appExec.env : '[]'
-      const { cmd } = this.appExec
-      this.commandExecuting = true
-      const response = await AppsService.getAppExec(zelidauth, this.appName, cmd, env)
-      console.log(response)
-      this.commandExecuting = false
-      this.callResponse.status = response.status
-      this.callResponse.data = response.data
+      const env = this.appExec.env ? this.appExec.env : '[]';
+      const { cmd } = this.appExec;
+      this.commandExecuting = true;
+      const response = await AppsService.getAppExec(zelidauth, this.appName, cmd, env);
+      console.log(response);
+      this.commandExecuting = false;
+      this.callResponse.status = response.status;
+      this.callResponse.data = response.data;
       if (response.data.status === 'error') {
-        this.showToast('danger', response.data.data.message || response.data.data)
+        this.showToast('danger', response.data.data.message || response.data.data);
       }
     },
 
     cancelDownload() {
-      this.abortToken.cancel('User download cancelled')
-      this.downloaded = ''
-      this.total = ''
+      this.abortToken.cancel('User download cancelled');
+      this.downloaded = '';
+      this.total = '';
     },
     async downloadApplicationLog() {
-      const self = this
-      this.downloaded = ''
-      this.total = ''
-      this.abortToken = DaemonService.cancelToken()
-      const zelidauth = localStorage.getItem('zelidauth')
+      const self = this;
+      this.downloaded = '';
+      this.total = '';
+      this.abortToken = DaemonService.cancelToken();
+      const zelidauth = localStorage.getItem('zelidauth');
       const axiosConfig = {
         headers: {
           zelidauth,
         },
         responseType: 'blob',
         onDownloadProgress(progressEvent) {
-          self.downloaded = progressEvent.loaded
-          self.total = progressEvent.total
+          self.downloaded = progressEvent.loaded;
+          self.total = progressEvent.total;
         },
         // cancelToken: self.abortToken.token,
-      }
-      const response = await DaemonService.justAPI().get(`/apps/applog/${this.appName}`, axiosConfig)
-      const url = window.URL.createObjectURL(new Blob([response.data]))
-      const link = document.createElement('a')
-      link.href = url
-      link.setAttribute('download', 'app.log')
-      document.body.appendChild(link)
-      link.click()
+      };
+      const response = await DaemonService.justAPI().get(`/apps/applog/${this.appName}`, axiosConfig);
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', 'app.log');
+      document.body.appendChild(link);
+      link.click();
     },
 
     getAppIdentifier() {
       // this id is used for volumes, docker names so we know it reall belongs to flux
       if (this.appName && this.appName.startsWith('zel')) {
-        return this.appName
+        return this.appName;
       }
       if (this.appName && this.appName.startsWith('flux')) {
-        return this.appName
+        return this.appName;
       }
       if (this.appName === 'KadenaChainWebNode' || this.appName === 'FoldingAtHomeB') {
-        return `zel${this.appName}`
+        return `zel${this.appName}`;
       }
-      return `flux${this.appName}`
+      return `flux${this.appName}`;
     },
     getAppDockerNameIdentifier() {
       // this id is used for volumes, docker names so we know it reall belongs to flux
-      const name = this.getAppIdentifier()
+      const name = this.getAppIdentifier();
       if (name && name.startsWith('/')) {
-        return name
+        return name;
       }
-      return `/${name}`
+      return `/${name}`;
     },
     appPricePerMonthMethod(specifications) {
-      let price
+      let price;
       if (specifications.tiered) {
-        const cpuTotalCount = specifications.cpubasic + specifications.cpusuper + specifications.cpubamf
-        const cpuPrice = cpuTotalCount * fluxapps.apps.price.cpu * 10 // 0.1 core cost cpu price
-        const cpuTotal = cpuPrice / 3
-        const ramTotalCount = specifications.rambasic + specifications.ramsuper + specifications.rambamf
-        const ramPrice = (ramTotalCount * fluxapps.apps.price.ram) / 100
-        const ramTotal = ramPrice / 3
-        const hddTotalCount = specifications.hddbasic + specifications.hddsuper + specifications.hddbamf
-        const hddPrice = hddTotalCount * fluxapps.apps.price.hdd
-        const hddTotal = hddPrice / 3
-        const totalPrice = cpuTotal + ramTotal + hddTotal
-        price = Number(Math.ceil(totalPrice * 100) / 100)
+        const cpuTotalCount = specifications.cpubasic + specifications.cpusuper + specifications.cpubamf;
+        const cpuPrice = cpuTotalCount * fluxapps.apps.price.cpu * 10; // 0.1 core cost cpu price
+        const cpuTotal = cpuPrice / 3;
+        const ramTotalCount = specifications.rambasic + specifications.ramsuper + specifications.rambamf;
+        const ramPrice = (ramTotalCount * fluxapps.apps.price.ram) / 100;
+        const ramTotal = ramPrice / 3;
+        const hddTotalCount = specifications.hddbasic + specifications.hddsuper + specifications.hddbamf;
+        const hddPrice = hddTotalCount * fluxapps.apps.price.hdd;
+        const hddTotal = hddPrice / 3;
+        const totalPrice = cpuTotal + ramTotal + hddTotal;
+        price = Number(Math.ceil(totalPrice * 100) / 100);
         if (price < 1) {
-          price = 1
+          price = 1;
         }
-        return price
+        return price;
       }
-      const cpuTotal = specifications.cpu * fluxapps.apps.price.cpu * 10
-      const ramTotal = (specifications.ram * fluxapps.apps.price.ram) / 100
-      const hddTotal = specifications.hdd * fluxapps.apps.price.hdd
-      const totalPrice = cpuTotal + ramTotal + hddTotal
-      price = Number(Math.ceil(totalPrice * 100) / 100)
+      const cpuTotal = specifications.cpu * fluxapps.apps.price.cpu * 10;
+      const ramTotal = (specifications.ram * fluxapps.apps.price.ram) / 100;
+      const hddTotal = specifications.hdd * fluxapps.apps.price.hdd;
+      const totalPrice = cpuTotal + ramTotal + hddTotal;
+      price = Number(Math.ceil(totalPrice * 100) / 100);
       if (price < 1) {
-        price = 1
+        price = 1;
       }
-      return price
+      return price;
     },
 
     async getApplicationInspect() {
-      const zelidauth = localStorage.getItem('zelidauth')
-      const response = await AppsService.getAppInspect(zelidauth, this.appName)
-      console.log(response)
+      const zelidauth = localStorage.getItem('zelidauth');
+      const response = await AppsService.getAppInspect(zelidauth, this.appName);
+      console.log(response);
       if (response.data.status === 'error') {
-        this.showToast('danger', response.data.data.message || response.data.data)
+        this.showToast('danger', response.data.data.message || response.data.data);
       } else {
-        this.callResponse.status = response.data.status
-        this.callResponse.data = response.data.data
+        this.callResponse.status = response.data.status;
+        this.callResponse.data = response.data.data;
       }
     },
     async getApplicationStats() {
-      const zelidauth = localStorage.getItem('zelidauth')
-      const response = await AppsService.getAppStats(zelidauth, this.appName)
-      console.log(response)
+      const zelidauth = localStorage.getItem('zelidauth');
+      const response = await AppsService.getAppStats(zelidauth, this.appName);
+      console.log(response);
       if (response.data.status === 'error') {
-        this.showToast('danger', response.data.data.message || response.data.data)
+        this.showToast('danger', response.data.data.message || response.data.data);
       } else {
-        this.callResponse.status = response.data.status
-        this.callResponse.data = response.data.data
+        this.callResponse.status = response.data.status;
+        this.callResponse.data = response.data.data;
       }
     },
     async getApplicationChanges() {
-      const zelidauth = localStorage.getItem('zelidauth')
-      const response = await AppsService.getAppChanges(zelidauth, this.appName)
-      console.log(response)
+      const zelidauth = localStorage.getItem('zelidauth');
+      const response = await AppsService.getAppChanges(zelidauth, this.appName);
+      console.log(response);
       if (response.data.status === 'error') {
-        this.showToast('danger', response.data.data.message || response.data.data)
+        this.showToast('danger', response.data.data.message || response.data.data);
       } else {
-        this.callResponse.status = response.data.status
-        this.callResponse.data = response.data.data
+        this.callResponse.status = response.data.status;
+        this.callResponse.data = response.data.data;
       }
     },
     async getApplicationProcesses() {
-      const zelidauth = localStorage.getItem('zelidauth')
-      const response = await AppsService.getAppTop(zelidauth, this.appName)
-      console.log(response)
+      const zelidauth = localStorage.getItem('zelidauth');
+      const response = await AppsService.getAppTop(zelidauth, this.appName);
+      console.log(response);
       if (response.data.status === 'error') {
-        this.showToast('danger', response.data.data.message || response.data.data)
+        this.showToast('danger', response.data.data.message || response.data.data);
       } else {
-        this.callResponse.status = response.data.status
-        this.callResponse.data = response.data.data
+        this.callResponse.status = response.data.status;
+        this.callResponse.data = response.data.data;
       }
     },
     async getApplicationLogs() {
-      const zelidauth = localStorage.getItem('zelidauth')
-      const response = await AppsService.getAppLogsTail(zelidauth, this.appName)
-      console.log(response)
+      const zelidauth = localStorage.getItem('zelidauth');
+      const response = await AppsService.getAppLogsTail(zelidauth, this.appName);
+      console.log(response);
       if (response.data.status === 'error') {
-        this.showToast('danger', response.data.data.message || response.data.data)
+        this.showToast('danger', response.data.data.message || response.data.data);
       } else {
-        this.callResponse.status = response.data.status
-        this.callResponse.data = response.data.data
+        this.callResponse.status = response.data.status;
+        this.callResponse.data = response.data.data;
       }
     },
     async getApplicationLocations() {
-      const response = await AppsService.getAppLocation(this.appName)
-      console.log(response)
+      const response = await AppsService.getAppLocation(this.appName);
+      console.log(response);
       if (response.data.status === 'error') {
-        this.showToast('danger', response.data.data.message || response.data.data)
+        this.showToast('danger', response.data.data.message || response.data.data);
       } else {
-        this.instances.data = response.data.data
-        this.instances.totalRows = this.instances.data.length
+        this.instances.data = response.data.data;
+        this.instances.totalRows = this.instances.data.length;
       }
     },
     async getAppOwner() {
-      const response = await AppsService.getAppOwner(this.appName)
-      console.log(response)
+      const response = await AppsService.getAppOwner(this.appName);
+      console.log(response);
       if (response.data.status === 'error') {
-        this.showToast('danger', response.data.data.message || response.data.data)
+        this.showToast('danger', response.data.data.message || response.data.data);
       }
-      this.selectedAppOwner = response.data.data
+      this.selectedAppOwner = response.data.data;
     },
     async getDaemonInfo() {
-      const daemonGetInfo = await DaemonService.getInfo()
+      const daemonGetInfo = await DaemonService.getInfo();
       if (daemonGetInfo.data.status === 'error') {
-        this.showToast('danger', daemonGetInfo.data.data.message || daemonGetInfo.data.data)
+        this.showToast('danger', daemonGetInfo.data.data.message || daemonGetInfo.data.data);
       } else {
-        this.currentHeight = daemonGetInfo.data.data.blocks
+        this.currentHeight = daemonGetInfo.data.data.blocks;
       }
     },
 
     async stopAll(app) {
-      this.output = ''
-      this.showToast('warning', `Stopping ${app}`)
-      const zelidauth = localStorage.getItem('zelidauth')
-      const response = await AppsService.stopAll(zelidauth, app)
+      this.output = '';
+      this.showToast('warning', `Stopping ${app}`);
+      const zelidauth = localStorage.getItem('zelidauth');
+      const response = await AppsService.stopAll(zelidauth, app);
       if (response.data.status === 'success') {
-        this.showToast('success', response.data.data.message || response.data.data)
+        this.showToast('success', response.data.data.message || response.data.data);
       } else {
-        this.showToast('danger', response.data.data.message || response.data.data)
+        this.showToast('danger', response.data.data.message || response.data.data);
       }
-      this.appsGetListAllApps()
-      console.log(response)
+      this.appsGetListAllApps();
+      console.log(response);
     },
     async startApp(app) {
-      this.output = ''
-      this.showToast('warning', `Starting ${app}`)
-      const zelidauth = localStorage.getItem('zelidauth')
-      const response = await AppsService.startApp(zelidauth, app)
+      this.output = '';
+      this.showToast('warning', `Starting ${app}`);
+      const zelidauth = localStorage.getItem('zelidauth');
+      const response = await AppsService.startApp(zelidauth, app);
       if (response.data.status === 'success') {
-        this.showToast('success', response.data.data.message || response.data.data)
+        this.showToast('success', response.data.data.message || response.data.data);
       } else {
-        this.showToast('danger', response.data.data.message || response.data.data)
+        this.showToast('danger', response.data.data.message || response.data.data);
       }
-      this.appsGetListAllApps()
-      console.log(response)
+      this.appsGetListAllApps();
+      console.log(response);
     },
     async restartApp(app) {
-      this.output = ''
-      this.showToast('warning', `Restarting ${app}`)
-      const zelidauth = localStorage.getItem('zelidauth')
-      const response = await AppsService.restartApp(zelidauth, app)
+      this.output = '';
+      this.showToast('warning', `Restarting ${app}`);
+      const zelidauth = localStorage.getItem('zelidauth');
+      const response = await AppsService.restartApp(zelidauth, app);
       if (response.data.status === 'success') {
-        this.showToast('success', response.data.data.message || response.data.data)
+        this.showToast('success', response.data.data.message || response.data.data);
       } else {
-        this.showToast('danger', response.data.data.message || response.data.data)
+        this.showToast('danger', response.data.data.message || response.data.data);
       }
-      this.appsGetListAllApps()
-      console.log(response)
+      this.appsGetListAllApps();
+      console.log(response);
     },
     async pauseApp(app) {
-      this.output = ''
-      this.showToast('warning', `Pausing ${app}`)
-      const zelidauth = localStorage.getItem('zelidauth')
-      const response = await AppsService.pauseApp(zelidauth, app)
+      this.output = '';
+      this.showToast('warning', `Pausing ${app}`);
+      const zelidauth = localStorage.getItem('zelidauth');
+      const response = await AppsService.pauseApp(zelidauth, app);
       if (response.data.status === 'success') {
-        this.showToast('success', response.data.data.message || response.data.data)
+        this.showToast('success', response.data.data.message || response.data.data);
       } else {
-        this.showToast('danger', response.data.data.message || response.data.data)
+        this.showToast('danger', response.data.data.message || response.data.data);
       }
-      this.appsGetListAllApps()
-      console.log(response)
+      this.appsGetListAllApps();
+      console.log(response);
     },
     async unpauseApp(app) {
-      this.output = ''
-      this.showToast('warning', `Unpausing ${app}`)
-      const zelidauth = localStorage.getItem('zelidauth')
-      const response = await AppsService.unpauseApp(zelidauth, app)
+      this.output = '';
+      this.showToast('warning', `Unpausing ${app}`);
+      const zelidauth = localStorage.getItem('zelidauth');
+      const response = await AppsService.unpauseApp(zelidauth, app);
       if (response.data.status === 'success') {
-        this.showToast('success', response.data.data.message || response.data.data)
+        this.showToast('success', response.data.data.message || response.data.data);
       } else {
-        this.showToast('danger', response.data.data.message || response.data.data)
+        this.showToast('danger', response.data.data.message || response.data.data);
       }
-      this.appsGetListAllApps()
-      console.log(response)
+      this.appsGetListAllApps();
+      console.log(response);
     },
     redeployAppSoft(app) {
-      this.redeployApp(app, false)
+      this.redeployApp(app, false);
     },
     redeployAppHard(app) {
-      this.redeployApp(app, true)
+      this.redeployApp(app, true);
     },
     async redeployApp(app, force) {
-      const self = this
-      this.output = ''
-      this.showToast('warning', `Redeploying ${app}`)
-      const zelidauth = localStorage.getItem('zelidauth')
+      const self = this;
+      this.output = '';
+      this.showToast('warning', `Redeploying ${app}`);
+      const zelidauth = localStorage.getItem('zelidauth');
       const axiosConfig = {
         headers: {
           zelidauth,
         },
         onDownloadProgress(progressEvent) {
-          console.log(progressEvent.target.response)
-          self.output = JSON.parse(`[${progressEvent.target.response.replace(/}{/g, '},{')}]`)
+          console.log(progressEvent.target.response);
+          self.output = JSON.parse(`[${progressEvent.target.response.replace(/}{/g, '},{')}]`);
         },
-      }
-      const response = await AppsService.justAPI().get(`/apps/redeploy/${app}/${force}`, axiosConfig)
+      };
+      const response = await AppsService.justAPI().get(`/apps/redeploy/${app}/${force}`, axiosConfig);
       if (response.data.status === 'error') {
-        this.showToast('danger', response.data.data.message || response.data.data)
+        this.showToast('danger', response.data.data.message || response.data.data);
       } else {
-        this.output = JSON.parse(`[${response.data.replace(/}{/g, '},{')}]`)
+        this.output = JSON.parse(`[${response.data.replace(/}{/g, '},{')}]`);
         if (this.output[this.output.length - 1].status === 'error') {
-          this.showToast('danger', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data)
+          this.showToast('danger', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         } else {
-          this.showToast('success', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data)
+          this.showToast('success', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         }
       }
     },
     async removeApp(app) {
-      const self = this
-      this.output = ''
-      this.showToast('warning', `Removing ${app}`)
-      const zelidauth = localStorage.getItem('zelidauth')
+      const self = this;
+      this.output = '';
+      this.showToast('warning', `Removing ${app}`);
+      const zelidauth = localStorage.getItem('zelidauth');
       const axiosConfig = {
         headers: {
           zelidauth,
         },
         onDownloadProgress(progressEvent) {
-          console.log(progressEvent.target.response)
-          self.output = JSON.parse(`[${progressEvent.target.response.replace(/}{/g, '},{')}]`)
+          console.log(progressEvent.target.response);
+          self.output = JSON.parse(`[${progressEvent.target.response.replace(/}{/g, '},{')}]`);
         },
-      }
-      const response = await AppsService.justAPI().get(`/apps/appremove/${app}`, axiosConfig)
+      };
+      const response = await AppsService.justAPI().get(`/apps/appremove/${app}`, axiosConfig);
       if (response.data.status === 'error') {
-        this.showToast('danger', response.data.data.message || response.data.data)
+        this.showToast('danger', response.data.data.message || response.data.data);
       } else {
-        this.output = JSON.parse(`[${response.data.replace(/}{/g, '},{')}]`)
+        this.output = JSON.parse(`[${response.data.replace(/}{/g, '},{')}]`);
         if (this.output[this.output.length - 1].status === 'error') {
-          this.showToast('danger', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data)
+          this.showToast('danger', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         } else {
-          this.showToast('success', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data)
+          this.showToast('success', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         }
         setTimeout(() => {
-          self.managedApplication = ''
-        }, 5000)
+          self.managedApplication = '';
+        }, 5000);
       }
     },
     openApp(name, _ip, _port) {
-      console.log(name, _ip, _port)
+      console.log(name, _ip, _port);
       if ((_port && _ip)) {
-        const ip = _ip
-        const port = _port
-        let url = `http://${ip}:${port}`
+        const ip = _ip;
+        const port = _port;
+        let url = `http://${ip}:${port}`;
         if (name === 'KadenaChainWebNode') {
-          url = `https://${ip}:${port}/chainweb/0.0/mainnet01/cut`
+          url = `https://${ip}:${port}/chainweb/0.0/mainnet01/cut`;
         }
-        this.openSite(url)
+        this.openSite(url);
       } else {
-        this.showToast('danger', 'Unable to open App :(')
+        this.showToast('danger', 'Unable to open App :(');
       }
     },
     openSite(url) {
-      const win = window.open(url, '_blank')
-      win.focus()
+      const win = window.open(url, '_blank');
+      win.focus();
     },
 
     ensureBoolean(parameter) {
-      let param
+      let param;
       if (parameter === 'false' || parameter === 0 || parameter === '0' || parameter === false) {
-        param = false
+        param = false;
       }
       if (parameter === 'true' || parameter === 1 || parameter === '1' || parameter === true) {
-        param = true
+        param = true;
       }
-      return param
+      return param;
     },
     ensureNumber(parameter) {
-      return typeof parameter === 'number' ? parameter : Number(parameter)
+      return typeof parameter === 'number' ? parameter : Number(parameter);
     },
     ensureObject(parameter) {
       if (typeof parameter === 'object') {
-        return parameter
+        return parameter;
       }
-      let param
+      let param;
       try {
-        param = JSON.parse(parameter)
+        param = JSON.parse(parameter);
       } catch (e) {
-        param = qs.parse(parameter)
+        param = qs.parse(parameter);
       }
-      return param
+      return param;
     },
     ensureString(parameter) {
-      return typeof parameter === 'string' ? parameter : JSON.stringify(parameter)
+      return typeof parameter === 'string' ? parameter : JSON.stringify(parameter);
     },
 
     stringOutput() {
-      let string = ''
-      this.output.forEach(output => {
-        string += `${JSON.stringify(output)}\r\n`
-      })
-      return string
+      let string = '';
+      this.output.forEach((output) => {
+        string += `${JSON.stringify(output)}\r\n`;
+      });
+      return string;
     },
 
     showToast(variant, title, icon = 'InfoIcon') {
@@ -2521,10 +2521,10 @@ export default {
           icon,
           variant,
         },
-      })
+      });
     },
   },
-}
+};
 </script>
 
 <style>

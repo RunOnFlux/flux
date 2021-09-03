@@ -43,7 +43,7 @@
 <script>
 import {
   BLink,
-} from 'bootstrap-vue'
+} from 'bootstrap-vue';
 
 export default {
   components: {
@@ -85,7 +85,7 @@ export default {
       default: false,
     },
   },
-}
+};
 </script>
 
 <style>

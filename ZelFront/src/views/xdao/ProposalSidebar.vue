@@ -34,7 +34,6 @@
                 <span class="align-text-bottom line-height-1">{{ filter.title }}</span>
               </b-list-group-item>
             </b-list-group>
-
           </vue-perfect-scrollbar>
         </div>
       </div>
@@ -43,10 +42,10 @@
 </template>
 
 <script>
-import VuePerfectScrollbar from 'vue-perfect-scrollbar'
-import { BButton, BListGroup, BListGroupItem } from 'bootstrap-vue'
-import { isDynamicRouteActive } from '@core/utils/utils'
-import Ripple from 'vue-ripple-directive'
+import VuePerfectScrollbar from 'vue-perfect-scrollbar';
+import { BButton, BListGroup, BListGroupItem } from 'bootstrap-vue';
+import { isDynamicRouteActive } from '@core/utils/utils';
+import Ripple from 'vue-ripple-directive';
 
 export default {
   directives: {
@@ -63,7 +62,7 @@ export default {
   setup() {
     const perfectScrollbarSettings = {
       maxScrollbarLength: 60,
-    }
+    };
 
     const taskFilters = [
       { title: 'All Proposals', icon: 'MailIcon', route: { name: 'xdao-app' } },
@@ -71,15 +70,15 @@ export default {
       { title: 'Passed', icon: 'CheckIcon', route: { name: 'xdao-app-filter', params: { filter: 'passed' } } },
       { title: 'Unpaid', icon: 'StarIcon', route: { name: 'xdao-app-filter', params: { filter: 'unpaid' } } },
       { title: 'Rejected', icon: 'TrashIcon', route: { name: 'xdao-app-filter', params: { filter: 'rejected' } } },
-    ]
+    ];
 
     return {
       perfectScrollbarSettings,
       taskFilters,
       isDynamicRouteActive,
-    }
+    };
   },
-}
+};
 </script>
 
 <style>

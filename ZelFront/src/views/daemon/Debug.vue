@@ -41,7 +41,7 @@
           placement="auto"
           container="my-container"
         >
-          <template v-slot:title>
+          <template #title>
             <div class="d-flex justify-content-between align-items-center">
               <span>Are You Sure?</span>
               <b-button
@@ -110,7 +110,7 @@
           placement="auto"
           container="my-container"
         >
-          <template v-slot:title>
+          <template #title>
             <div class="d-flex justify-content-between align-items-center">
               <span>Are You Sure?</span>
               <b-button
@@ -160,10 +160,10 @@ import {
   BPopover,
   BFormTextarea,
   BCardText,
-} from 'bootstrap-vue'
-import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
-import Ripple from 'vue-ripple-directive'
-import DaemonService from '@/services/DaemonService'
+} from 'bootstrap-vue';
+import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
+import Ripple from 'vue-ripple-directive';
+import DaemonService from '@/services/DaemonService';
 
 export default {
   components: {
@@ -189,49 +189,49 @@ export default {
         status: '',
         data: {},
       },
-    }
+    };
   },
   methods: {
     cancelDownload() {
-      this.abortToken.cancel('User download cancelled')
-      this.downloaded = ''
-      this.total = ''
+      this.abortToken.cancel('User download cancelled');
+      this.downloaded = '';
+      this.total = '';
     },
     onDownloadClose() {
-      this.downloadPopoverShow = false
+      this.downloadPopoverShow = false;
     },
     async onDownloadOk() {
-      const self = this
-      this.downloadPopoverShow = false
-      this.abortToken = DaemonService.cancelToken()
-      const zelidauth = localStorage.getItem('zelidauth')
+      const self = this;
+      this.downloadPopoverShow = false;
+      this.abortToken = DaemonService.cancelToken();
+      const zelidauth = localStorage.getItem('zelidauth');
       const axiosConfig = {
         headers: {
           zelidauth,
         },
         responseType: 'blob',
         onDownloadProgress(progressEvent) {
-          self.downloaded = progressEvent.loaded
-          self.total = progressEvent.total
+          self.downloaded = progressEvent.loaded;
+          self.total = progressEvent.total;
         },
         cancelToken: self.abortToken.token,
-      }
-      const response = await DaemonService.justAPI().get('/flux/daemondebug', axiosConfig)
-      const url = window.URL.createObjectURL(new Blob([response.data]))
-      const link = document.createElement('a')
-      link.href = url
-      link.setAttribute('download', 'debug.log')
-      document.body.appendChild(link)
-      link.click()
+      };
+      const response = await DaemonService.justAPI().get('/flux/daemondebug', axiosConfig);
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', 'debug.log');
+      document.body.appendChild(link);
+      link.click();
     },
     onTailClose() {
-      this.tailPopoverShow = false
+      this.tailPopoverShow = false;
     },
     async onTailOk() {
-      this.tailPopoverShow = false
-      const zelidauth = localStorage.getItem('zelidauth')
+      this.tailPopoverShow = false;
+      const zelidauth = localStorage.getItem('zelidauth');
       DaemonService.tailDaemonDebug(zelidauth)
-        .then(response => {
+        .then((response) => {
           if (response.data.status === 'error') {
             this.$toast({
               component: ToastificationContent,
@@ -240,13 +240,13 @@ export default {
                 icon: 'InfoIcon',
                 variant: 'danger',
               },
-            })
+            });
           } else {
-            this.callResponse.status = response.data.status
-            this.callResponse.data = response.data.data
+            this.callResponse.status = response.data.status;
+            this.callResponse.data = response.data.data;
           }
         })
-        .catch(error => {
+        .catch((error) => {
           this.$toast({
             component: ToastificationContent,
             props: {
@@ -254,12 +254,12 @@ export default {
               icon: 'InfoIcon',
               variant: 'danger',
             },
-          })
-          console.log(error)
-        })
+          });
+          console.log(error);
+        });
     },
   },
-}
+};
 </script>
 
 <style>

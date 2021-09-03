@@ -567,20 +567,20 @@ import {
   BOverlay,
   BPagination,
   BProgress,
-} from 'bootstrap-vue'
+} from 'bootstrap-vue';
 
-import Ripple from 'vue-ripple-directive'
-import { mapState } from 'vuex'
-import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
-import ConfirmDialog from '@/views/components/ConfirmDialog.vue'
-import ListEntry from '@/views/components/ListEntry.vue'
-import Management from '@/views/apps/Management.vue'
-import AppsService from '@/services/AppsService'
-import DaemonService from '@/services/DaemonService'
+import Ripple from 'vue-ripple-directive';
+import { mapState } from 'vuex';
+import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
+import ConfirmDialog from '@/views/components/ConfirmDialog.vue';
+import ListEntry from '@/views/components/ListEntry.vue';
+import Management from '@/views/apps/Management.vue';
+import AppsService from '@/services/AppsService';
+import DaemonService from '@/services/DaemonService';
 
-const store = require('store')
-const qs = require('qs')
-const timeoptions = require('@/libs/dateFormat')
+const store = require('store');
+const qs = require('qs');
+const timeoptions = require('@/libs/dateFormat');
 
 export default {
   components: {
@@ -729,7 +729,7 @@ export default {
         status: '',
         data: '',
       },
-    }
+    };
   },
   computed: {
     ...mapState('flux', [
@@ -739,381 +739,381 @@ export default {
     ]),
     isApplicationInstalledLocally() {
       if (this.tableconfig.installed.apps) {
-        const installed = this.tableconfig.installed.apps.find(app => app.name === this.managedApplication)
+        const installed = this.tableconfig.installed.apps.find((app) => app.name === this.managedApplication);
         if (installed) {
-          return true
+          return true;
         }
-        return false
+        return false;
       }
-      return false
+      return false;
     },
   },
   mounted() {
-    this.getZelNodeStatus()
-    this.appsGetAvailableApps()
-    this.appsGetListRunningApps()
-    this.appsGetInstalledApps()
+    this.getZelNodeStatus();
+    this.appsGetAvailableApps();
+    this.appsGetListRunningApps();
+    this.appsGetInstalledApps();
   },
   methods: {
     async getZelNodeStatus() {
-      const response = await DaemonService.getZelNodeStatus()
+      const response = await DaemonService.getZelNodeStatus();
       if (response.data.status === 'success') {
-        this.tier = response.data.data.tier
+        this.tier = response.data.data.tier;
       }
     },
     async appsGetInstalledApps() {
-      this.tableconfig.installed.loading = true
-      const response = await AppsService.installedApps()
-      console.log(response)
-      this.tableconfig.installed.status = response.data.status
-      this.tableconfig.installed.apps = response.data.data
-      this.tableconfig.installed.loading = false
+      this.tableconfig.installed.loading = true;
+      const response = await AppsService.installedApps();
+      console.log(response);
+      this.tableconfig.installed.status = response.data.status;
+      this.tableconfig.installed.apps = response.data.data;
+      this.tableconfig.installed.loading = false;
 
-      const zelidauth = localStorage.getItem('zelidauth')
-      const auth = qs.parse(zelidauth)
-      this.tableconfig.local.apps = this.tableconfig.installed.apps.filter(app => app.owner === auth.zelid)
-      this.tableconfig.local.totalRows = this.tableconfig.local.apps.length
+      const zelidauth = localStorage.getItem('zelidauth');
+      const auth = qs.parse(zelidauth);
+      this.tableconfig.local.apps = this.tableconfig.installed.apps.filter((app) => app.owner === auth.zelid);
+      this.tableconfig.local.totalRows = this.tableconfig.local.apps.length;
     },
     async appsGetListRunningApps(timeout = 0) {
-      this.tableconfig.running.loading = true
-      const self = this
+      this.tableconfig.running.loading = true;
+      const self = this;
       setTimeout(async () => {
-        const response = await AppsService.listRunningApps()
-        console.log(response)
-        self.tableconfig.running.status = response.data.status
-        self.tableconfig.running.apps = response.data.data
-        self.tableconfig.running.loading = false
-      }, timeout)
+        const response = await AppsService.listRunningApps();
+        console.log(response);
+        self.tableconfig.running.status = response.data.status;
+        self.tableconfig.running.apps = response.data.data;
+        self.tableconfig.running.loading = false;
+      }, timeout);
     },
     async appsGetAvailableApps() {
-      this.tableconfig.available.loading = true
-      const response = await AppsService.availableApps()
-      console.log(response)
-      this.tableconfig.available.status = response.data.status
-      this.tableconfig.available.apps = response.data.data
-      this.tableconfig.available.loading = false
+      this.tableconfig.available.loading = true;
+      const response = await AppsService.availableApps();
+      console.log(response);
+      this.tableconfig.available.status = response.data.status;
+      this.tableconfig.available.apps = response.data.data;
+      this.tableconfig.available.loading = false;
     },
     openApp(name, _ip, _port) {
-      console.log(name, _ip, _port)
-      const appInfo = this.installedApp(name)
+      console.log(name, _ip, _port);
+      const appInfo = this.installedApp(name);
       if (appInfo || (_port && _ip)) {
-        const backendURL = store.get('backendURL') || `http://${this.userconfig.externalip}:${this.config.apiPort}`
-        const ip = _ip || backendURL.split(':')[1].split('//')[1]
-        const port = _port || appInfo.port || appInfo.ports[0]
-        let url = `http://${ip}:${port}`
+        const backendURL = store.get('backendURL') || `http://${this.userconfig.externalip}:${this.config.apiPort}`;
+        const ip = _ip || backendURL.split(':')[1].split('//')[1];
+        const port = _port || appInfo.port || appInfo.ports[0];
+        let url = `http://${ip}:${port}`;
         if (name === 'KadenaChainWebNode') {
-          url = `https://${ip}:${port}/chainweb/0.0/mainnet01/cut`
+          url = `https://${ip}:${port}/chainweb/0.0/mainnet01/cut`;
         }
-        this.openSite(url)
+        this.openSite(url);
       } else {
-        this.showToast('danger', 'Unable to open App :(')
+        this.showToast('danger', 'Unable to open App :(');
       }
     },
     installedApp(appName) {
-      return this.tableconfig.installed.apps.find(app => app.name === appName)
+      return this.tableconfig.installed.apps.find((app) => app.name === appName);
     },
     openSite(url) {
-      const win = window.open(url, '_blank')
-      win.focus()
+      const win = window.open(url, '_blank');
+      win.focus();
     },
     async stopAll(app) {
-      this.output = ''
-      this.showToast('warning', `Stopping ${this.getAppName(app)}`)
-      const zelidauth = localStorage.getItem('zelidauth')
-      const response = await AppsService.stopAll(zelidauth, app)
+      this.output = '';
+      this.showToast('warning', `Stopping ${this.getAppName(app)}`);
+      const zelidauth = localStorage.getItem('zelidauth');
+      const response = await AppsService.stopAll(zelidauth, app);
       if (response.data.status === 'success') {
-        this.showToast('success', response.data.data.message || response.data.data)
+        this.showToast('success', response.data.data.message || response.data.data);
       } else {
-        this.showToast('danger', response.data.data.message || response.data.data)
+        this.showToast('danger', response.data.data.message || response.data.data);
       }
-      this.appsGetListRunningApps(5000)
-      console.log(response)
+      this.appsGetListRunningApps(5000);
+      console.log(response);
     },
     async startApp(app) {
-      this.output = ''
-      this.showToast('warning', `Starting ${this.getAppName(app)}`)
-      const zelidauth = localStorage.getItem('zelidauth')
-      const response = await AppsService.startApp(zelidauth, app)
+      this.output = '';
+      this.showToast('warning', `Starting ${this.getAppName(app)}`);
+      const zelidauth = localStorage.getItem('zelidauth');
+      const response = await AppsService.startApp(zelidauth, app);
       if (response.data.status === 'success') {
-        this.showToast('success', response.data.data.message || response.data.data)
+        this.showToast('success', response.data.data.message || response.data.data);
       } else {
-        this.showToast('danger', response.data.data.message || response.data.data)
+        this.showToast('danger', response.data.data.message || response.data.data);
       }
-      this.appsGetListRunningApps(15000)
-      console.log(response)
+      this.appsGetListRunningApps(15000);
+      console.log(response);
     },
     async restartApp(app) {
-      this.output = ''
-      this.showToast('warning', `Restarting ${this.getAppName(app)}`)
-      const zelidauth = localStorage.getItem('zelidauth')
-      const response = await AppsService.restartApp(zelidauth, app)
+      this.output = '';
+      this.showToast('warning', `Restarting ${this.getAppName(app)}`);
+      const zelidauth = localStorage.getItem('zelidauth');
+      const response = await AppsService.restartApp(zelidauth, app);
       if (response.data.status === 'success') {
-        this.showToast('success', response.data.data.message || response.data.data)
+        this.showToast('success', response.data.data.message || response.data.data);
       } else {
-        this.showToast('danger', response.data.data.message || response.data.data)
+        this.showToast('danger', response.data.data.message || response.data.data);
       }
-      this.appsGetListRunningApps(15000)
-      console.log(response)
+      this.appsGetListRunningApps(15000);
+      console.log(response);
     },
     async pauseApp(app) {
-      this.output = ''
-      this.showToast('warning', `Pausing ${this.getAppName(app)}`)
-      const zelidauth = localStorage.getItem('zelidauth')
-      const response = await AppsService.pauseApp(zelidauth, app)
+      this.output = '';
+      this.showToast('warning', `Pausing ${this.getAppName(app)}`);
+      const zelidauth = localStorage.getItem('zelidauth');
+      const response = await AppsService.pauseApp(zelidauth, app);
       if (response.data.status === 'success') {
-        this.showToast('success', response.data.data.message || response.data.data)
+        this.showToast('success', response.data.data.message || response.data.data);
       } else {
-        this.showToast('danger', response.data.data.message || response.data.data)
+        this.showToast('danger', response.data.data.message || response.data.data);
       }
-      console.log(response)
+      console.log(response);
     },
     async unpauseApp(app) {
-      this.output = ''
-      this.showToast('warning', `Unpausing ${this.getAppName(app)}`)
-      const zelidauth = localStorage.getItem('zelidauth')
-      const response = await AppsService.unpauseApp(zelidauth, app)
+      this.output = '';
+      this.showToast('warning', `Unpausing ${this.getAppName(app)}`);
+      const zelidauth = localStorage.getItem('zelidauth');
+      const response = await AppsService.unpauseApp(zelidauth, app);
       if (response.data.status === 'success') {
-        this.showToast('success', response.data.data.message || response.data.data)
+        this.showToast('success', response.data.data.message || response.data.data);
       } else {
-        this.showToast('danger', response.data.data.message || response.data.data)
+        this.showToast('danger', response.data.data.message || response.data.data);
       }
-      console.log(response)
+      console.log(response);
     },
     redeployAppSoft(app) {
-      this.redeployApp(app, false)
+      this.redeployApp(app, false);
     },
     redeployAppHard(app) {
-      this.redeployApp(app, true)
+      this.redeployApp(app, true);
     },
     async redeployApp(app, force) {
-      const self = this
-      this.output = ''
-      this.showToast('warning', `Redeploying ${this.getAppName(app)}`)
-      const zelidauth = localStorage.getItem('zelidauth')
+      const self = this;
+      this.output = '';
+      this.showToast('warning', `Redeploying ${this.getAppName(app)}`);
+      const zelidauth = localStorage.getItem('zelidauth');
       const axiosConfig = {
         headers: {
           zelidauth,
         },
         onDownloadProgress(progressEvent) {
-          console.log(progressEvent.target.response)
-          self.output = JSON.parse(`[${progressEvent.target.response.replace(/}{/g, '},{')}]`)
+          console.log(progressEvent.target.response);
+          self.output = JSON.parse(`[${progressEvent.target.response.replace(/}{/g, '},{')}]`);
         },
-      }
-      const response = await AppsService.justAPI().get(`/apps/redeploy/${app}/${force}`, axiosConfig)
+      };
+      const response = await AppsService.justAPI().get(`/apps/redeploy/${app}/${force}`, axiosConfig);
       if (response.data.status === 'error') {
-        this.showToast('danger', response.data.data.message || response.data.data)
+        this.showToast('danger', response.data.data.message || response.data.data);
       } else {
-        this.output = JSON.parse(`[${response.data.replace(/}{/g, '},{')}]`)
+        this.output = JSON.parse(`[${response.data.replace(/}{/g, '},{')}]`);
         if (this.output[this.output.length - 1].status === 'error') {
-          this.showToast('danger', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data)
+          this.showToast('danger', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         } else {
-          this.showToast('success', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data)
+          this.showToast('success', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         }
       }
     },
     async removeApp(app) {
-      const self = this
-      this.output = ''
-      this.showToast('warning', `Removing ${this.getAppName(app)}`)
-      const zelidauth = localStorage.getItem('zelidauth')
+      const self = this;
+      this.output = '';
+      this.showToast('warning', `Removing ${this.getAppName(app)}`);
+      const zelidauth = localStorage.getItem('zelidauth');
       const axiosConfig = {
         headers: {
           zelidauth,
         },
         onDownloadProgress(progressEvent) {
-          console.log(progressEvent.target.response)
-          self.output = JSON.parse(`[${progressEvent.target.response.replace(/}{/g, '},{')}]`)
+          console.log(progressEvent.target.response);
+          self.output = JSON.parse(`[${progressEvent.target.response.replace(/}{/g, '},{')}]`);
         },
-      }
-      const response = await AppsService.justAPI().get(`/apps/appremove/${app}`, axiosConfig)
+      };
+      const response = await AppsService.justAPI().get(`/apps/appremove/${app}`, axiosConfig);
       if (response.data.status === 'error') {
-        this.showToast('danger', response.data.data.message || response.data.data)
+        this.showToast('danger', response.data.data.message || response.data.data);
       } else {
-        this.appsGetInstalledApps()
-        this.appsGetListRunningApps()
-        this.output = JSON.parse(`[${response.data.replace(/}{/g, '},{')}]`)
+        this.appsGetInstalledApps();
+        this.appsGetListRunningApps();
+        this.output = JSON.parse(`[${response.data.replace(/}{/g, '},{')}]`);
         if (this.output[this.output.length - 1].status === 'error') {
-          this.showToast('danger', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data)
+          this.showToast('danger', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         } else {
-          this.showToast('success', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data)
+          this.showToast('success', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         }
         setTimeout(() => {
-          self.managedApplication = ''
-        }, 5000)
+          self.managedApplication = '';
+        }, 5000);
       }
     },
     async installTemporaryLocalApp(app) { // todo rewrite to installApp later
-      const appName = app
-      const self = this
-      this.output = []
-      this.downloadOutput = {}
-      this.downloading = true
-      this.showToast('warning', `Installing ${this.getAppName(app)}`)
-      const zelidauth = localStorage.getItem('zelidauth')
+      const appName = app;
+      const self = this;
+      this.output = [];
+      this.downloadOutput = {};
+      this.downloading = true;
+      this.showToast('warning', `Installing ${this.getAppName(app)}`);
+      const zelidauth = localStorage.getItem('zelidauth');
       // const response = await AppsService.installTemporaryLocalApp(zelidauth, app);
       const axiosConfig = {
         headers: {
           zelidauth,
         },
         onDownloadProgress(progressEvent) {
-          console.log(progressEvent.target.response)
-          self.output = JSON.parse(`[${progressEvent.target.response.replace(/}{/g, '},{')}]`)
+          console.log(progressEvent.target.response);
+          self.output = JSON.parse(`[${progressEvent.target.response.replace(/}{/g, '},{')}]`);
         },
-      }
-      const response = await AppsService.justAPI().get(`/apps/installtemporarylocalapp/${appName}`, axiosConfig)
+      };
+      const response = await AppsService.justAPI().get(`/apps/installtemporarylocalapp/${appName}`, axiosConfig);
       if (response.data.status === 'error') {
-        this.showToast('danger', response.data.data.message || response.data.data)
+        this.showToast('danger', response.data.data.message || response.data.data);
       } else {
-        console.log(response)
-        this.output = JSON.parse(`[${response.data.replace(/}{/g, '},{')}]`)
-        console.log(this.output)
+        console.log(response);
+        this.output = JSON.parse(`[${response.data.replace(/}{/g, '},{')}]`);
+        console.log(this.output);
         for (let i = 0; i < this.output.length; i += 1) {
           if (this.output[i] && this.output[i].data && this.output[i].data.message && this.output[i].data.message.includes('Error occured')) {
             // error is defined one line above
             if (this.output[i - 1] && this.output[i - 1].data) {
-              this.showToast('danger', this.output[i - 1].data.message || this.output[i - 1].data)
-              return
+              this.showToast('danger', this.output[i - 1].data.message || this.output[i - 1].data);
+              return;
             }
           }
         }
         if (this.output[this.output.length - 1].status === 'error') {
-          this.showToast('danger', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data)
+          this.showToast('danger', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         } else {
-          this.showToast('success', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data)
+          this.showToast('success', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         }
-        this.appsGetInstalledApps()
-        this.appsGetListRunningApps()
+        this.appsGetInstalledApps();
+        this.appsGetListRunningApps();
       }
     },
     resolveCpu(app) {
-      console.log(this.tier)
+      console.log(this.tier);
       if (this.tier === 'BASIC' || this.tier === 'CUMULUS') {
-        return (`${app.cpubasic || app.cpu} cores`)
+        return (`${app.cpubasic || app.cpu} cores`);
       }
       if (this.tier === 'SUPER' || this.tier === 'NIMBUS') {
-        return (`${app.cpusuper || app.cpu} cores`)
+        return (`${app.cpusuper || app.cpu} cores`);
       }
       if (this.tier === 'BAMF' || this.tier === 'STRATUS') {
-        return (`${app.cpubamf || app.cpu} cores`)
+        return (`${app.cpubamf || app.cpu} cores`);
       }
-      return (`${app.cpu} cores`)
+      return (`${app.cpu} cores`);
     },
     resolveRam(app) {
       if (this.tier === 'BASIC' || this.tier === 'CUMULUS') {
-        return (`${app.rambasic || app.ram} MB`)
+        return (`${app.rambasic || app.ram} MB`);
       }
       if (this.tier === 'SUPER' || this.tier === 'NIMBUS') {
-        return (`${app.ramsuper || app.ram} MB`)
+        return (`${app.ramsuper || app.ram} MB`);
       }
       if (this.tier === 'BAMF' || this.tier === 'STRATUS') {
-        return (`${app.rambamf || app.ram} MB`)
+        return (`${app.rambamf || app.ram} MB`);
       }
-      return (`${app.ram} MB`)
+      return (`${app.ram} MB`);
     },
     resolveHdd(app) {
       if (this.tier === 'BASIC' || this.tier === 'CUMULUS') {
-        return (`${app.hddbasic || app.hdd} GB`)
+        return (`${app.hddbasic || app.hdd} GB`);
       }
       if (this.tier === 'SUPER' || this.tier === 'NIMBUS') {
-        return (`${app.hddsuper || app.hdd} GB`)
+        return (`${app.hddsuper || app.hdd} GB`);
       }
       if (this.tier === 'BAMF' || this.tier === 'STRATUS') {
-        return (`${app.hddbamf || app.hdd} GB`)
+        return (`${app.hddbamf || app.hdd} GB`);
       }
-      return (`${app.hdd} GB`)
+      return (`${app.hdd} GB`);
     },
     getAppName(appName) {
       // this id is used for volumes, docker names so we know it reall belongs to flux
       if (appName && appName.startsWith('zel')) {
-        return appName.substr(3, appName.length)
+        return appName.substr(3, appName.length);
       }
       if (appName && appName.startsWith('flux')) {
-        return appName.substr(4, appName.length)
+        return appName.substr(4, appName.length);
       }
-      return appName
+      return appName;
     },
     isLoggedIn() {
-      return (this.privilege === 'fluxteam' || this.privilege === 'admin')
+      return (this.privilege === 'fluxteam' || this.privilege === 'admin');
     },
     showLocations(row, items) {
       if (row.detailsShowing) {
-        row.toggleDetails()
+        row.toggleDetails();
       } else {
-        items.forEach(item => {
-          this.$set(item, '_showDetails', false)
-        })
+        items.forEach((item) => {
+          this.$set(item, '_showDetails', false);
+        });
         this.$nextTick(() => {
-          row.toggleDetails()
-          this.loadLocations(row)
-        })
+          row.toggleDetails();
+          this.loadLocations(row);
+        });
       }
     },
     async loadLocations(row) {
-      console.log(row)
-      this.appLocations = []
-      const response = await AppsService.getAppLocation(row.item.name).catch(error => {
-        this.showToast('danger', error.message || error)
-      })
-      console.log(response)
+      console.log(row);
+      this.appLocations = [];
+      const response = await AppsService.getAppLocation(row.item.name).catch((error) => {
+        this.showToast('danger', error.message || error);
+      });
+      console.log(response);
       if (response.data.status === 'success') {
-        const appLocations = response.data.data
-        this.appLocations = appLocations
-        this.appLocationOptions.totalRows = this.appLocations.length
+        const appLocations = response.data.data;
+        this.appLocations = appLocations;
+        this.appLocationOptions.totalRows = this.appLocations.length;
       }
     },
     openAppManagement(appName) {
-      this.managedApplication = appName
+      this.managedApplication = appName;
     },
     clearManagedApplication() {
-      this.managedApplication = ''
-      this.appsGetInstalledApps()
-      this.appsGetListRunningApps()
+      this.managedApplication = '';
+      this.appsGetInstalledApps();
+      this.appsGetListRunningApps();
     },
     onFilteredLocal(filteredItems) {
       // Trigger pagination to update the number of buttons/pages due to filtering
-      this.tableconfig.local.totalRows = filteredItems.length
-      this.tableconfig.local.currentPage = 1
+      this.tableconfig.local.totalRows = filteredItems.length;
+      this.tableconfig.local.currentPage = 1;
     },
     stringOutput() {
-      let string = ''
-      this.output.forEach(output => {
+      let string = '';
+      this.output.forEach((output) => {
         if (output.status === 'success') {
-          string += `${output.data.message || output.data}\r\n`
+          string += `${output.data.message || output.data}\r\n`;
         } else if (output.status === 'Downloading') {
           this.downloadOutput[output.id] = ({
             id: output.id,
             detail: output.progressDetail,
             variant: 'danger',
-          })
+          });
         } else if (output.status === 'Verifying Checksum') {
           this.downloadOutput[output.id] = ({
             id: output.id,
             detail: { current: 1, total: 1 },
             variant: 'warning',
-          })
+          });
         } else if (output.status === 'Download complete') {
           this.downloadOutput[output.id] = ({
             id: output.id,
             detail: { current: 1, total: 1 },
             variant: 'info',
-          })
+          });
         } else if (output.status === 'Extracting') {
           this.downloadOutput[output.id] = ({
             id: output.id,
             detail: output.progressDetail,
             variant: 'primary',
-          })
+          });
         } else if (output.status === 'Pull complete') {
           this.downloadOutput[output.id] = ({
             id: output.id,
             detail: { current: 1, total: 1 },
             variant: 'success',
-          })
+          });
         } else {
-          string += `${output.status}\r\n`
+          string += `${output.status}\r\n`;
         }
-      })
-      return string
+      });
+      return string;
     },
     showToast(variant, title, icon = 'InfoIcon') {
       this.$toast({
@@ -1123,10 +1123,10 @@ export default {
           icon,
           variant,
         },
-      })
+      });
     },
   },
-}
+};
 </script>
 
 <style>

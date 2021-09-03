@@ -1,6 +1,5 @@
 <template>
   <div class="navbar-container d-flex content align-items-center">
-
     <!-- Nav Menu Toggler -->
     <ul class="nav navbar-nav d-xl-none">
       <li class="nav-item">
@@ -50,20 +49,20 @@
 </template>
 
 <script>
-import { mapState } from 'vuex'
+import { mapState } from 'vuex';
 import {
   BLink, BDropdown, BDropdownItemButton, BDropdownDivider, BNavbarNav, BButton, // BNavItemDropdown, BDropdownItem, BDropdownDivider, BAvatar,
-} from 'bootstrap-vue'
-import DarkToggler from '@core/layouts/components/app-navbar/components/DarkToggler.vue'
-import MenuCollapseToggler from '@core/layouts/components/app-navbar/components/MenuCollapseToggler.vue'
-import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
-import Ripple from 'vue-ripple-directive'
+} from 'bootstrap-vue';
+import DarkToggler from '@core/layouts/components/app-navbar/components/DarkToggler.vue';
+import MenuCollapseToggler from '@core/layouts/components/app-navbar/components/MenuCollapseToggler.vue';
+import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
+import Ripple from 'vue-ripple-directive';
 
-import IDService from '@/services/IDService'
+import IDService from '@/services/IDService';
 
-const qs = require('qs')
+const qs = require('qs');
 
-const store = require('store')
+const store = require('store');
 
 export default {
   components: {
@@ -91,7 +90,7 @@ export default {
   data() {
     return {
       backendURL: '',
-    }
+    };
   },
   computed: {
     ...mapState('flux', [
@@ -101,26 +100,26 @@ export default {
     ]),
   },
   mounted() {
-    const { protocol, hostname } = window.location
-    let mybackend = ''
-    mybackend += protocol
-    mybackend += '//'
-    const regex = /[A-Za-z]/g
+    const { protocol, hostname } = window.location;
+    let mybackend = '';
+    mybackend += protocol;
+    mybackend += '//';
+    const regex = /[A-Za-z]/g;
     if (hostname.match(regex)) {
-      const names = hostname.split('.')
-      names[0] = 'api'
-      mybackend += names.join('.')
+      const names = hostname.split('.');
+      names[0] = 'api';
+      mybackend += names.join('.');
     } else {
-      mybackend += this.userconfig.externalip
-      mybackend += ':'
-      mybackend += this.config.apiPort
+      mybackend += this.userconfig.externalip;
+      mybackend += ':';
+      mybackend += this.config.apiPort;
     }
-    this.backendURL = store.get('backendURL') || mybackend
+    this.backendURL = store.get('backendURL') || mybackend;
   },
   methods: {
     changeBackendURL(value) {
-      store.set('backendURL', value)
-      this.backendURL = value
+      store.set('backendURL', value);
+      this.backendURL = value;
     },
     showToast(variant, title) {
       this.$toast({
@@ -130,31 +129,31 @@ export default {
           icon: 'BellIcon',
           variant,
         },
-      })
+      });
     },
     logout() {
-      const zelidauth = localStorage.getItem('zelidauth')
-      const auth = qs.parse(zelidauth)
-      localStorage.removeItem('zelidauth')
-      this.$store.commit('flux/setPrivilege', 'none')
-      console.log(auth)
+      const zelidauth = localStorage.getItem('zelidauth');
+      const auth = qs.parse(zelidauth);
+      localStorage.removeItem('zelidauth');
+      this.$store.commit('flux/setPrivilege', 'none');
+      console.log(auth);
       IDService.logoutCurrentSession(zelidauth)
-        .then(response => {
-          console.log(response)
+        .then((response) => {
+          console.log(response);
           if (response.data.status === 'error') {
-            console.log(response.data.data.message)
+            console.log(response.data.data.message);
             // SHOULD NEVER HAPPEN. Do not show any message.
           } else {
-            this.showToast('success', response.data.data.message)
+            this.showToast('success', response.data.data.message);
             // Redirect to home page
-            this.$router.push({ name: 'home' })
+            this.$router.push({ name: 'home' });
           }
         })
-        .catch(e => {
-          console.log(e)
-          this.showToast('danger', e.toString())
-        })
+        .catch((e) => {
+          console.log(e);
+          this.showToast('danger', e.toString());
+        });
     },
   },
-}
+};
 </script>

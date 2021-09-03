@@ -1,9 +1,7 @@
 <template>
   <div class="proposal-details">
-
     <!-- Email Header -->
     <div class="proposal-detail-header">
-
       <!-- Header: Left -->
       <div class="proposal-header-left d-flex align-items-center">
         <span class="go-back mr-1">
@@ -18,7 +16,6 @@
           Add Proposal
         </h4>
       </div>
-
     </div>
 
     <!-- Email Details -->
@@ -199,18 +196,18 @@ import {
   BFormTextarea,
   BLink,
   BRow,
-} from 'bootstrap-vue'
-import VuePerfectScrollbar from 'vue-perfect-scrollbar'
-import Ripple from 'vue-ripple-directive'
-import { useToast } from 'vue-toastification/composition'
-import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
+} from 'bootstrap-vue';
+import VuePerfectScrollbar from 'vue-perfect-scrollbar';
+import Ripple from 'vue-ripple-directive';
+import { useToast } from 'vue-toastification/composition';
+import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 
 import {
   ref,
-} from '@vue/composition-api'
+} from '@vue/composition-api';
 
-const axios = require('axios')
-const timeoptions = require('@/libs/dateFormat')
+const axios = require('axios');
+const timeoptions = require('@/libs/dateFormat');
 
 export default {
   components: {
@@ -241,25 +238,25 @@ export default {
   },
   setup() {
     // Use toast
-    const toast = useToast()
+    const toast = useToast();
 
-    const proposalTopic = ref('')
-    const proposalDescription = ref('')
-    const proposalGrantValue = ref(0)
-    const proposalGrantAddress = ref('')
-    const proposalNickName = ref('')
+    const proposalTopic = ref('');
+    const proposalDescription = ref('');
+    const proposalGrantValue = ref(0);
+    const proposalGrantAddress = ref('');
+    const proposalNickName = ref('');
 
-    const proposalValid = ref(false)
+    const proposalValid = ref(false);
 
-    const proposalPrice = ref(500)
+    const proposalPrice = ref(500);
 
-    const registrationHash = ref(null)
-    const foundationAddress = ref('')
-    const validTill = ref(0)
+    const registrationHash = ref(null);
+    const foundationAddress = ref('');
+    const validTill = ref(0);
 
     const perfectScrollbarSettings = {
       maxScrollbarLength: 150,
-    }
+    };
 
     const showToast = (variant, title, icon = 'InfoIcon') => {
       toast({
@@ -269,57 +266,57 @@ export default {
           icon,
           variant,
         },
-      })
-    }
+      });
+    };
 
     const getXdaoPrice = async () => {
-      const response = await axios.get('https://stats.runonflux.io/proposals/price')
-      console.log(response)
+      const response = await axios.get('https://stats.runonflux.io/proposals/price');
+      console.log(response);
       if (response.data.status === 'success') {
-        proposalPrice.value = response.data.data
+        proposalPrice.value = response.data.data;
       } else {
-        showToast('danger', response.data.data.message || response.data.data)
+        showToast('danger', response.data.data.message || response.data.data);
       }
-    }
+    };
 
     const validateProposal = () => {
       if (proposalTopic.value === '') {
-        showToast('danger', 'Proposal Topic is Mandatory')
-        return
+        showToast('danger', 'Proposal Topic is Mandatory');
+        return;
       }
       if (proposalDescription.value === '') {
-        showToast('danger', 'Proposal Description is Mandatory')
-        return
+        showToast('danger', 'Proposal Description is Mandatory');
+        return;
       }
       if (proposalDescription.value.length < 50) {
-        showToast('danger', 'Proposal Description is too short')
-        return
+        showToast('danger', 'Proposal Description is too short');
+        return;
       }
       if (proposalTopic.value.length < 3) {
-        showToast('danger', 'Proposal Topic is too short')
-        return
+        showToast('danger', 'Proposal Topic is too short');
+        return;
       }
       if (proposalGrantValue.value) {
-        const isnum = /^\d+$/.test(proposalGrantValue.value)
+        const isnum = /^\d+$/.test(proposalGrantValue.value);
         if (isnum === true) {
           if (proposalGrantValue.value > 0 && !proposalGrantAddress.value) {
-            showToast('danger', 'Proposal Grant Pay to Address missing')
-            return
+            showToast('danger', 'Proposal Grant Pay to Address missing');
+            return;
           }
         } else {
-          showToast('danger', 'Proposal Grant Amount needs to be an Integer Number')
-          return
+          showToast('danger', 'Proposal Grant Amount needs to be an Integer Number');
+          return;
         }
       }
       if (proposalGrantAddress.value) {
         if (/\s/.test(proposalGrantAddress.value)) {
-          showToast('danger', 'Proposal Grant Pay to Address Invalid, white space detected')
-          return
+          showToast('danger', 'Proposal Grant Pay to Address Invalid, white space detected');
+          return;
         }
       }
-      getXdaoPrice()
-      proposalValid.value = true
-    }
+      getXdaoPrice();
+      proposalValid.value = true;
+    };
 
     const register = async () => {
       const data = {
@@ -328,18 +325,18 @@ export default {
         grantValue: proposalGrantValue.value,
         grantAddress: proposalGrantAddress.value,
         nickName: proposalNickName.value,
-      }
-      const response = await axios.post('https://stats.runonflux.io/proposals/submitproposal', JSON.stringify(data))
-      console.log(response)
+      };
+      const response = await axios.post('https://stats.runonflux.io/proposals/submitproposal', JSON.stringify(data));
+      console.log(response);
       if (response.data.status === 'success') {
-        foundationAddress.value = response.data.data.address
-        registrationHash.value = response.data.data.hash
-        proposalPrice.value = response.data.data.amount
-        validTill.value = response.data.data.paidTillDate
+        foundationAddress.value = response.data.data.address;
+        registrationHash.value = response.data.data.hash;
+        proposalPrice.value = response.data.data.amount;
+        validTill.value = response.data.data.paidTillDate;
       } else {
-        showToast('danger', response.data.data.message || response.data.data)
+        showToast('danger', response.data.data.message || response.data.data);
       }
-    }
+    };
 
     return {
 
@@ -364,9 +361,9 @@ export default {
       foundationAddress,
 
       register,
-    }
+    };
   },
-}
+};
 </script>
 
 <style>

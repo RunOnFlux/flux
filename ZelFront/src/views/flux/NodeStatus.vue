@@ -84,13 +84,13 @@
 <script>
 import {
   BCard,
-} from 'bootstrap-vue'
-import { mapState } from 'vuex'
-import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
-import ListEntry from '@/views/components/ListEntry.vue'
-import DaemonService from '@/services/DaemonService'
+} from 'bootstrap-vue';
+import { mapState } from 'vuex';
+import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
+import ListEntry from '@/views/components/ListEntry.vue';
+import DaemonService from '@/services/DaemonService';
 
-const timeoptions = require('@/libs/dateFormat')
+const timeoptions = require('@/libs/dateFormat');
 
 export default {
   components: {
@@ -117,7 +117,7 @@ export default {
       connectedPeers: [],
       incomingConnections: [],
       filterConnectedPeer: '',
-    }
+    };
   },
   computed: {
     ...mapState('flux', [
@@ -127,24 +127,24 @@ export default {
     ]),
     fluxLogTail() {
       if (this.callResponse.data.message) {
-        return this.callResponse.data.message.split('\n').reverse().filter(el => el !== '').join('\n')
+        return this.callResponse.data.message.split('\n').reverse().filter((el) => el !== '').join('\n');
       }
-      return this.callResponse.data
+      return this.callResponse.data;
     },
     connectedPeersFilter() {
-      return this.connectedPeers.filter(data => !this.filterConnectedPeer || data.ip.toLowerCase().includes(this.filterConnectedPeer.toLowerCase()))
+      return this.connectedPeers.filter((data) => !this.filterConnectedPeer || data.ip.toLowerCase().includes(this.filterConnectedPeer.toLowerCase()));
     },
     incomingConnectionsFilter() {
-      return this.incomingConnections.filter(data => !this.filterConnectedPeer || data.ip.toLowerCase().includes(this.filterConnectedPeer.toLowerCase()))
+      return this.incomingConnections.filter((data) => !this.filterConnectedPeer || data.ip.toLowerCase().includes(this.filterConnectedPeer.toLowerCase()));
     },
   },
   mounted() {
-    this.daemonGetInfo()
-    this.daemonGetNodeStatus()
+    this.daemonGetInfo();
+    this.daemonGetNodeStatus();
   },
   methods: {
     async daemonGetInfo() {
-      const response = await DaemonService.getInfo()
+      const response = await DaemonService.getInfo();
       if (response.data.status === 'error') {
         this.$toast({
           component: ToastificationContent,
@@ -153,14 +153,14 @@ export default {
             icon: 'InfoIcon',
             variant: 'danger',
           },
-        })
+        });
       } else {
-        this.getInfoResponse.status = response.data.status
-        this.getInfoResponse.data = response.data.data
+        this.getInfoResponse.status = response.data.status;
+        this.getInfoResponse.data = response.data.data;
       }
     },
     async daemonGetNodeStatus() {
-      const response = await DaemonService.getZelNodeStatus()
+      const response = await DaemonService.getZelNodeStatus();
       if (response.data.status === 'error') {
         this.$toast({
           component: ToastificationContent,
@@ -169,24 +169,24 @@ export default {
             icon: 'InfoIcon',
             variant: 'danger',
           },
-        })
+        });
       } else {
-        this.getNodeStatusResponse.status = response.data.status
-        this.getNodeStatusResponse.data = response.data.data
+        this.getNodeStatusResponse.status = response.data.status;
+        this.getNodeStatusResponse.data = response.data.data;
         if (this.getNodeStatusResponse.data.status === 'CONFIRMED' || this.getNodeStatusResponse.data.location === 'CONFIRMED') {
-          this.getNodeStatusResponse.nodeStatus = 'Flux is working correctly'
-          this.getNodeStatusResponse.class = 'success'
+          this.getNodeStatusResponse.nodeStatus = 'Flux is working correctly';
+          this.getNodeStatusResponse.class = 'success';
         } else if (this.getNodeStatusResponse.data.status === 'STARTED' || this.getNodeStatusResponse.data.location === 'STARTED') {
-          this.getNodeStatusResponse.nodeStatus = 'Flux has just been started. Flux is running with limited capabilities.'
-          this.getNodeStatusResponse.class = 'warning'
+          this.getNodeStatusResponse.nodeStatus = 'Flux has just been started. Flux is running with limited capabilities.';
+          this.getNodeStatusResponse.class = 'warning';
         } else {
-          this.getNodeStatusResponse.nodeStatus = 'Flux is not confirmed. Flux is running with limited capabilities.'
-          this.getNodeStatusResponse.class = 'danger'
+          this.getNodeStatusResponse.nodeStatus = 'Flux is not confirmed. Flux is running with limited capabilities.';
+          this.getNodeStatusResponse.class = 'danger';
         }
       }
     },
   },
-}
+};
 </script>
 
 <style>

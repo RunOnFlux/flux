@@ -1,9 +1,7 @@
 <template>
   <div class="proposal-details">
-
     <!-- Email Header -->
     <div class="proposal-detail-header">
-
       <!-- Header: Left -->
       <div class="proposal-header-left d-flex align-items-center">
         <span class="go-back mr-1">
@@ -390,25 +388,25 @@ import {
   BLink,
   BRow,
   BTooltip,
-} from 'bootstrap-vue'
-import VuePerfectScrollbar from 'vue-perfect-scrollbar'
-import VueApexCharts from 'vue-apexcharts'
-import Ripple from 'vue-ripple-directive'
-import { useToast } from 'vue-toastification/composition'
-import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
+} from 'bootstrap-vue';
+import VuePerfectScrollbar from 'vue-perfect-scrollbar';
+import VueApexCharts from 'vue-apexcharts';
+import Ripple from 'vue-ripple-directive';
+import { useToast } from 'vue-toastification/composition';
+import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 
-import { $themeColors } from '@themeConfig'
+import { $themeColors } from '@themeConfig';
 
 import {
   ref,
   watch,
   computed,
-} from '@vue/composition-api'
+} from '@vue/composition-api';
 
-const axios = require('axios')
-const qs = require('qs')
-const store = require('store')
-const timeoptions = require('@/libs/dateFormat')
+const axios = require('axios');
+const qs = require('qs');
+const store = require('store');
+const timeoptions = require('@/libs/dateFormat');
 
 export default {
   components: {
@@ -455,184 +453,184 @@ export default {
     },
   },
   setup(props, ctx) {
-    const config = computed(() => ctx.root.$store.state.flux.config)
-    const userconfig = computed(() => ctx.root.$store.state.flux.userconfig)
+    const config = computed(() => ctx.root.$store.state.flux.config);
+    const userconfig = computed(() => ctx.root.$store.state.flux.userconfig);
 
     // Use toast
-    const toast = useToast()
+    const toast = useToast();
 
-    const resolveTagVariant = status => {
-      if (status === 'Open') return 'warning'
-      if (status === 'Passed') return 'success'
-      if (status === 'Unpaid') return 'info'
-      if (status && status.startsWith('Rejected')) return 'danger'
-      return 'primary'
-    }
+    const resolveTagVariant = (status) => {
+      if (status === 'Open') return 'warning';
+      if (status === 'Passed') return 'success';
+      if (status === 'Unpaid') return 'info';
+      if (status && status.startsWith('Rejected')) return 'danger';
+      return 'primary';
+    };
 
     const getMessagePhrase = async () => {
-      const response = await axios.get('https://stats.runonflux.io/general/messagephrase')
+      const response = await axios.get('https://stats.runonflux.io/general/messagephrase');
       if (response.data.status === 'success') {
-        return response.data.data
+        return response.data.data;
       }
-      return false
-    }
+      return false;
+    };
 
-    const myNumberOfVotes = ref(0)
-    const dataToSign = ref('')
-    const myVote = ref('No')
-    const haveVoted = ref(false)
-    const signature = ref(null)
+    const myNumberOfVotes = ref(0);
+    const dataToSign = ref('');
+    const myVote = ref('No');
+    const haveVoted = ref(false);
+    const signature = ref(null);
 
-    const hasSignature = computed(() => signature.value !== null)
+    const hasSignature = computed(() => signature.value !== null);
 
     const loadVotePower = async () => {
-      let url = `https://stats.runonflux.io/proposals/votepower?zelid=${props.zelid}`
+      let url = `https://stats.runonflux.io/proposals/votepower?zelid=${props.zelid}`;
       if (props.proposalViewData.hash) {
-        url = `https://stats.runonflux.io/proposals/votepower?zelid=${props.zelid}&hash=${props.proposalViewData.hash}`
+        url = `https://stats.runonflux.io/proposals/votepower?zelid=${props.zelid}&hash=${props.proposalViewData.hash}`;
       }
-      const responseApi = await axios.get(url)
-      console.log(responseApi)
+      const responseApi = await axios.get(url);
+      console.log(responseApi);
       if (responseApi.data.status === 'success') {
-        myNumberOfVotes.value = responseApi.data.data.power
+        myNumberOfVotes.value = responseApi.data.data.power;
       } else {
         // vue.$customMes.error(responseApi.data.data.message || responseApi.data.data)
-        myNumberOfVotes.value = 0
+        myNumberOfVotes.value = 0;
       }
-    }
+    };
 
     const getVoteInformation = async () => {
-      const response = await axios.get(`https://stats.runonflux.io/proposals/voteInformation?hash=${props.proposalViewData.hash}&zelid=${props.zelid}`)
-      return response.data
-    }
+      const response = await axios.get(`https://stats.runonflux.io/proposals/voteInformation?hash=${props.proposalViewData.hash}&zelid=${props.zelid}`);
+      return response.data;
+    };
 
     const loadVotes = async () => {
       if (props.zelid) {
-        myNumberOfVotes.value = 0
-        const voteInformation = await getVoteInformation()
+        myNumberOfVotes.value = 0;
+        const voteInformation = await getVoteInformation();
         if (voteInformation.status === 'success') {
-          const votesInformation = voteInformation.data
+          const votesInformation = voteInformation.data;
           if (props.proposalViewData.status === 'Open') {
             if (votesInformation == null || votesInformation.length === 0) {
-              await loadVotePower()
-              haveVoted.value = false
+              await loadVotePower();
+              haveVoted.value = false;
               // dataToSign.value = await getMessagePhrase()
             } else {
-              votesInformation.forEach(vote => {
-                myNumberOfVotes.value += vote.numberOfVotes
-              })
-              myVote.value = 'No'
+              votesInformation.forEach((vote) => {
+                myNumberOfVotes.value += vote.numberOfVotes;
+              });
+              myVote.value = 'No';
               if (votesInformation[0].vote) {
-                myVote.value = 'Yes'
+                myVote.value = 'Yes';
               }
-              haveVoted.value = true
+              haveVoted.value = true;
             }
           }
         } else {
           // vue.$customMes.error(voteInformation.data.message || voteInformation.data);
         }
       }
-    }
+    };
 
     const callbackValueSign = () => {
-      const { protocol, hostname } = window.location
-      let mybackend = ''
-      mybackend += protocol
-      mybackend += '//'
-      const regex = /[A-Za-z]/g
+      const { protocol, hostname } = window.location;
+      let mybackend = '';
+      mybackend += protocol;
+      mybackend += '//';
+      const regex = /[A-Za-z]/g;
       if (hostname.match(regex)) {
-        const names = hostname.split('.')
-        names[0] = 'api'
-        mybackend += names.join('.')
+        const names = hostname.split('.');
+        names[0] = 'api';
+        mybackend += names.join('.');
       } else {
-        mybackend += userconfig.value.externalip
-        mybackend += ':'
-        mybackend += config.value.apiPort
+        mybackend += userconfig.value.externalip;
+        mybackend += ':';
+        mybackend += config.value.apiPort;
       }
-      const backendURL = store.get('backendURL') || mybackend
-      const url = `${backendURL}/zelid/providesign`
-      return encodeURI(url)
-    }
+      const backendURL = store.get('backendURL') || mybackend;
+      const url = `${backendURL}/zelid/providesign`;
+      return encodeURI(url);
+    };
 
-    const onError = evt => {
-      console.log(evt)
-    }
-    const onOpen = evt => {
-      console.log(evt)
-    }
-    const onMessage = evt => {
-      const data = qs.parse(evt.data)
+    const onError = (evt) => {
+      console.log(evt);
+    };
+    const onOpen = (evt) => {
+      console.log(evt);
+    };
+    const onMessage = (evt) => {
+      const data = qs.parse(evt.data);
       if (data.status === 'success' && data.data) {
         // user is now signed. Store their values
-        signature.value = data.data.signature
+        signature.value = data.data.signature;
       }
-      console.log(data)
-      console.log(evt)
-    }
-    const onClose = evt => {
-      console.log(evt)
-    }
+      console.log(data);
+      console.log(evt);
+    };
+    const onClose = (evt) => {
+      console.log(evt);
+    };
 
     const initiateSignWS = () => {
-      const { protocol, hostname } = window.location
-      let mybackend = ''
-      mybackend += protocol
-      mybackend += '//'
-      const regex = /[A-Za-z]/g
+      const { protocol, hostname } = window.location;
+      let mybackend = '';
+      mybackend += protocol;
+      mybackend += '//';
+      const regex = /[A-Za-z]/g;
       if (hostname.match(regex)) {
-        const names = hostname.split('.')
-        names[0] = 'api'
-        mybackend += names.join('.')
+        const names = hostname.split('.');
+        names[0] = 'api';
+        mybackend += names.join('.');
       } else {
-        mybackend += userconfig.value.externalip
-        mybackend += ':'
-        mybackend += config.value.apiPort
+        mybackend += userconfig.value.externalip;
+        mybackend += ':';
+        mybackend += config.value.apiPort;
       }
-      let backendURL = store.get('backendURL') || mybackend
-      backendURL = backendURL.replace('https://', 'wss://')
-      backendURL = backendURL.replace('http://', 'ws://')
-      const signatureMessage = props.zelid + dataToSign.value.substr(dataToSign.value.length - 13)
-      const wsuri = `${backendURL}/ws/sign/${signatureMessage}`
-      const websocket = new WebSocket(wsuri)
+      let backendURL = store.get('backendURL') || mybackend;
+      backendURL = backendURL.replace('https://', 'wss://');
+      backendURL = backendURL.replace('http://', 'ws://');
+      const signatureMessage = props.zelid + dataToSign.value.substr(dataToSign.value.length - 13);
+      const wsuri = `${backendURL}/ws/sign/${signatureMessage}`;
+      const websocket = new WebSocket(wsuri);
       // const websocket = websocket
 
-      websocket.onopen = evt => { onOpen(evt) }
-      websocket.onclose = evt => { onClose(evt) }
-      websocket.onmessage = evt => { onMessage(evt) }
-      websocket.onerror = evt => { onError(evt) }
-    }
+      websocket.onopen = (evt) => { onOpen(evt); };
+      websocket.onclose = (evt) => { onClose(evt); };
+      websocket.onmessage = (evt) => { onMessage(evt); };
+      websocket.onerror = (evt) => { onError(evt); };
+    };
 
     const getProposalDetails = async () => {
-      dataToSign.value = await getMessagePhrase()
-      loadVotes()
-    }
+      dataToSign.value = await getMessagePhrase();
+      loadVotes();
+    };
 
     const perfectScrollbarSettings = {
       maxScrollbarLength: 150,
-    }
+    };
 
     const voteOverview = ref({
       series: [],
-    })
+    });
     const voteBreakdown = ref({
       series: [],
-    })
+    });
 
     watch(() => props.proposalViewData, () => {
-      console.log(props.proposalViewData)
+      console.log(props.proposalViewData);
       voteOverview.value = {
         series: [((props.proposalViewData.votesTotal / props.proposalViewData.votesRequired) * 100).toFixed(1)],
-      }
+      };
       if (props.proposalViewData.votesTotal !== 0) {
         voteBreakdown.value = {
           series: [((props.proposalViewData.votesYes / (props.proposalViewData.votesTotal)) * 100).toFixed(0)],
-        }
+        };
       } else {
         voteBreakdown.value = {
           series: [0],
-        }
+        };
       }
-      getProposalDetails()
-    })
+      getProposalDetails();
+    });
 
     const showToast = (variant, title, icon = 'InfoIcon') => {
       toast({
@@ -642,28 +640,28 @@ export default {
           icon,
           variant,
         },
-      })
-    }
+      });
+    };
 
-    const vote = async voteType => {
+    const vote = async (voteType) => {
       const data = {
         hash: props.proposalViewData.hash,
         zelid: props.zelid,
         message: dataToSign.value,
         signature: signature.value,
         vote: voteType,
-      }
-      console.log(data)
-      const response = await axios.post('https://stats.runonflux.io/proposals/voteproposal', JSON.stringify(data))
-      console.log(response)
+      };
+      console.log(data);
+      const response = await axios.post('https://stats.runonflux.io/proposals/voteproposal', JSON.stringify(data));
+      console.log(response);
       if (response.data.status === 'success') {
-        showToast('success', 'Vote registered successfully')
-        myVote.value = voteType ? 'Yes' : 'No'
-        haveVoted.value = true
+        showToast('success', 'Vote registered successfully');
+        myVote.value = voteType ? 'Yes' : 'No';
+        haveVoted.value = true;
       } else {
-        showToast('danger', response.data.data.message || response.data.data)
+        showToast('danger', response.data.data.message || response.data.data);
       }
-    }
+    };
 
     const voteOverviewRadialBar = {
       chart: {
@@ -726,7 +724,7 @@ export default {
           bottom: 30,
         },
       },
-    }
+    };
     const voteBreakdownRadialBar = {
       chart: {
         height: 200,
@@ -792,7 +790,7 @@ export default {
           bottom: 30,
         },
       },
-    }
+    };
 
     return {
 
@@ -823,9 +821,9 @@ export default {
       onOpen,
       onClose,
       onMessage,
-    }
+    };
   },
-}
+};
 </script>
 
 <style>

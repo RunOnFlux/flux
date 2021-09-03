@@ -57,26 +57,26 @@ import {
   BCard,
   BRow,
   BCol,
-} from 'bootstrap-vue'
-import { Icon } from 'leaflet'
+} from 'bootstrap-vue';
+import { Icon } from 'leaflet';
 import {
   LMap, LTileLayer, LMarker, LPopup,
-} from 'vue2-leaflet'
-import VueApexCharts from 'vue-apexcharts'
-import DashboardService from '@/services/DashboardService'
-import 'leaflet/dist/leaflet.css'
+} from 'vue2-leaflet';
+import VueApexCharts from 'vue-apexcharts';
+import DashboardService from '@/services/DashboardService';
+import 'leaflet/dist/leaflet.css';
 
 /* eslint-disable global-require */
 // eslint-disable-next-line no-underscore-dangle
-delete Icon.Default.prototype._getIconUrl
+delete Icon.Default.prototype._getIconUrl;
 Icon.Default.mergeOptions({
   iconRetinaUrl: require('leaflet/dist/images/marker-icon-2x.png'),
   iconUrl: require('leaflet/dist/images/marker-icon.png'),
   shadowUrl: require('leaflet/dist/images/marker-shadow.png'),
-})
+});
 /* eslint-enable global-require */
 
-const axios = require('axios')
+const axios = require('axios');
 
 export default {
   components: {
@@ -142,100 +142,100 @@ export default {
           plotOptions: { pie: { donut: { size: '40%' } } },
         },
       },
-    }
+    };
   },
   mounted() {
-    this.getFluxList()
+    this.getFluxList();
   },
   methods: {
     async getFluxList() {
       try {
-        this.fluxListLoading = true
-        const resLoc = await axios.get('https://stats.runonflux.io/fluxlocations')
-        const locations = resLoc.data.data
-        const resList = await DashboardService.listZelNodes()
-        const fluxList = resList.data.data
-        const adjustedFluxList = []
-        fluxList.forEach(node => {
-          const adjustedNode = node
-          adjustedNode.location = locations.find(location => location.ip === adjustedNode.ip)
-          adjustedFluxList.push(adjustedNode)
-        })
-        this.fluxList = adjustedFluxList.filter(node => node.ip)
-        this.fluxListLoading = false
-        await this.generateMap()
-        await this.generateGeographicPie()
-        await this.generateProviderPie()
+        this.fluxListLoading = true;
+        const resLoc = await axios.get('https://stats.runonflux.io/fluxlocations');
+        const locations = resLoc.data.data;
+        const resList = await DashboardService.listZelNodes();
+        const fluxList = resList.data.data;
+        const adjustedFluxList = [];
+        fluxList.forEach((node) => {
+          const adjustedNode = node;
+          adjustedNode.location = locations.find((location) => location.ip === adjustedNode.ip);
+          adjustedFluxList.push(adjustedNode);
+        });
+        this.fluxList = adjustedFluxList.filter((node) => node.ip);
+        this.fluxListLoading = false;
+        await this.generateMap();
+        await this.generateGeographicPie();
+        await this.generateProviderPie();
       } catch (error) {
-        console.log(error)
+        console.log(error);
       }
     },
     async generateMap() {
-      const nodeData = []
-      this.fluxList.forEach(flux => {
+      const nodeData = [];
+      this.fluxList.forEach((flux) => {
         if (flux.location) {
-          const existingPoint = nodeData.find(node => (node.latitude === flux.location.lat && node.longitude === flux.location.lon))
+          const existingPoint = nodeData.find((node) => (node.latitude === flux.location.lat && node.longitude === flux.location.lon));
           if (existingPoint) {
             if (existingPoint.title.split(['-']).length % 6) {
-              existingPoint.title += `   ${flux.ip} - ${flux.tier}   `
+              existingPoint.title += `   ${flux.ip} - ${flux.tier}   `;
             } else {
-              existingPoint.title += `   ${flux.ip} - ${flux.tier}   \n`
+              existingPoint.title += `   ${flux.ip} - ${flux.tier}   \n`;
             }
           } else {
             const point = {
               latitude: flux.location.lat,
               longitude: flux.location.lon,
               title: `   ${flux.ip} - ${flux.tier}   `,
-            }
-            nodeData.push(point)
+            };
+            nodeData.push(point);
           }
         }
-      })
-      this.mapData.markers = []
+      });
+      this.mapData.markers = [];
       nodeData.forEach((node, index) => {
         this.mapData.markers.push({
           id: index,
           label: node.title,
           data: [node.latitude, node.longitude, { draggable: 'false' }],
-        })
-      })
+        });
+      });
     },
     async generateGeographicPie() {
-      const labels = []
-      const data = []
-      const nodeData = []
-      this.fluxList.forEach(flux => {
+      const labels = [];
+      const data = [];
+      const nodeData = [];
+      this.fluxList.forEach((flux) => {
         if (flux.location) {
-          const existingPoint = nodeData.find(node => (node.country === flux.location.country))
+          const existingPoint = nodeData.find((node) => (node.country === flux.location.country));
           if (existingPoint) {
-            existingPoint.amount += 1
+            existingPoint.amount += 1;
           } else {
             const point = {
               country: flux.location.country || 'Unknown',
               amount: 1,
-            }
-            nodeData.push(point)
+            };
+            nodeData.push(point);
           }
         } else {
-          const existingPoint = nodeData.find(node => (node.country === 'Unknown'))
+          const existingPoint = nodeData.find((node) => (node.country === 'Unknown'));
           if (existingPoint) {
-            existingPoint.amount += 1
+            existingPoint.amount += 1;
           } else {
             const point = {
               country: 'Unknown',
               amount: 1,
-            }
-            nodeData.push(point)
+            };
+            nodeData.push(point);
           }
         }
-      })
+      });
 
-      nodeData.sort((a, b) => b.amount - a.amount)
-      this.geographicData.series = []
-      nodeData.forEach(node => {
-        labels.push(`${node.country} (${node.amount})`)
-        data.push(node.amount)
-      })
+      nodeData.sort((a, b) => b.amount - a.amount);
+      this.geographicData.series = [];
+      nodeData.forEach((node) => {
+        labels.push(`${node.country} (${node.amount})`);
+        data.push(node.amount);
+      });
       this.geographicData.chartOptions = {
         labels,
         legend: {
@@ -243,62 +243,62 @@ export default {
           position: 'bottom',
           height: 100,
         },
-      }
-      this.geographicData.series = data
+      };
+      this.geographicData.series = data;
     },
     getLocationCount() {
       if (this.geographicData.series && this.geographicData.series.length > 1) {
-        return this.geographicData.series.length
+        return this.geographicData.series.length;
       }
-      return 0
+      return 0;
     },
     async generateProviderPie() {
-      const labels = []
-      const data = []
-      const nodeData = []
-      this.fluxList.forEach(flux => {
+      const labels = [];
+      const data = [];
+      const nodeData = [];
+      this.fluxList.forEach((flux) => {
         if (flux.location) {
-          const existingPoint = nodeData.find(node => (node.org === flux.location.org))
+          const existingPoint = nodeData.find((node) => (node.org === flux.location.org));
           if (existingPoint) {
-            existingPoint.amount += 1
+            existingPoint.amount += 1;
           } else if (flux.location.org) {
             const point = {
               org: flux.location.org,
               amount: 1,
-            }
-            nodeData.push(point)
+            };
+            nodeData.push(point);
           } else {
-            const existingPoint2 = nodeData.find(node => (node.org === 'Unknown'))
+            const existingPoint2 = nodeData.find((node) => (node.org === 'Unknown'));
             if (existingPoint2) {
-              existingPoint2.amount += 1
+              existingPoint2.amount += 1;
             } else {
               const point = {
                 org: 'Unknown',
                 amount: 1,
-              }
-              nodeData.push(point)
+              };
+              nodeData.push(point);
             }
           }
         } else {
-          const existingPoint = nodeData.find(node => (node.org === 'Unknown'))
+          const existingPoint = nodeData.find((node) => (node.org === 'Unknown'));
           if (existingPoint) {
-            existingPoint.amount += 1
+            existingPoint.amount += 1;
           } else {
             const point = {
               org: 'Unknown',
               amount: 1,
-            }
-            nodeData.push(point)
+            };
+            nodeData.push(point);
           }
         }
-      })
+      });
 
-      nodeData.sort((a, b) => b.amount - a.amount)
-      this.providerData.series = []
-      nodeData.forEach(node => {
-        labels.push(`${node.org} (${node.amount})`)
-        data.push(node.amount)
-      })
+      nodeData.sort((a, b) => b.amount - a.amount);
+      this.providerData.series = [];
+      nodeData.forEach((node) => {
+        labels.push(`${node.org} (${node.amount})`);
+        data.push(node.amount);
+      });
       this.providerData.chartOptions = {
         labels,
         legend: {
@@ -306,22 +306,22 @@ export default {
           position: 'bottom',
           height: 100,
         },
-      }
-      this.providerData.series = data
+      };
+      this.providerData.series = data;
     },
     getProviderCount() {
       if (this.providerData.series && this.providerData.series.length > 1) {
-        return this.providerData.series.length
+        return this.providerData.series.length;
       }
-      return 0
+      return 0;
     },
     beautifyValue(value, places = 2) {
-      const fixedValue = value.toFixed(places)
-      return fixedValue.replace(/(\d)(?=(\d{3})+(?!\d))/g, '$1,')
+      const fixedValue = value.toFixed(places);
+      return fixedValue.replace(/(\d)(?=(\d{3})+(?!\d))/g, '$1,');
     },
 
   },
-}
+};
 </script>
 
 <style lang="scss">

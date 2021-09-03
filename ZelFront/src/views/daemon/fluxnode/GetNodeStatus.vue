@@ -82,12 +82,12 @@
 <script>
 import {
   BCard,
-} from 'bootstrap-vue'
-import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
-import DaemonService from '@/services/DaemonService'
-import ListEntry from '@/views/components/ListEntry.vue'
+} from 'bootstrap-vue';
+import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
+import DaemonService from '@/services/DaemonService';
+import ListEntry from '@/views/components/ListEntry.vue';
 
-const timeoptions = require('@/libs/dateFormat')
+const timeoptions = require('@/libs/dateFormat');
 
 export default {
   components: {
@@ -103,14 +103,14 @@ export default {
         status: '',
         data: '',
       },
-    }
+    };
   },
   mounted() {
-    this.daemonGetNodeStatus()
+    this.daemonGetNodeStatus();
   },
   methods: {
     async daemonGetNodeStatus() {
-      const response = await DaemonService.getZelNodeStatus()
+      const response = await DaemonService.getZelNodeStatus();
       if (response.data.status === 'error') {
         this.$toast({
           component: ToastificationContent,
@@ -119,15 +119,15 @@ export default {
             icon: 'InfoIcon',
             variant: 'danger',
           },
-        })
+        });
       } else {
-        this.callResponse.status = response.data.status
-        this.callResponse.data = response.data.data
-        console.log(response.data)
+        this.callResponse.status = response.data.status;
+        this.callResponse.data = response.data.data;
+        console.log(response.data);
       }
     },
   },
-}
+};
 </script>
 
 <style>

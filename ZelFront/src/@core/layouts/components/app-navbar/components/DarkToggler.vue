@@ -12,12 +12,12 @@
 </template>
 
 <script>
-import useAppConfig from '@core/app-config/useAppConfig'
-import { computed } from '@vue/composition-api'
+import useAppConfig from '@core/app-config/useAppConfig';
+import { computed } from '@vue/composition-api';
 import {
   BNavItem,
   VBTooltip,
-} from 'bootstrap-vue'
+} from 'bootstrap-vue';
 
 export default {
   components: {
@@ -27,11 +27,11 @@ export default {
     'b-tooltip': VBTooltip,
   },
   setup() {
-    const { skin } = useAppConfig()
+    const { skin } = useAppConfig();
 
-    const isDark = computed(() => skin.value === 'dark')
+    const isDark = computed(() => skin.value === 'dark');
 
-    return { skin, isDark }
+    return { skin, isDark };
   },
-}
+};
 </script>

@@ -238,7 +238,8 @@
       >
         <b-card title="Rescanning">
           <b-card-text class="mb-2">
-            Options to rescan Flux databases from a given blockheight and rebuild them since. Rescanning may take several hours and shall be used only when an unrecoverable error is present in databases with a known blockheight. Rescanning Flux databases is a deeper option than just explorer databases and so while rescanning entire Flux databases, explorer parts will be rescanned as well.
+            Options to rescan Flux databases from a given blockheight and rebuild them since. Rescanning may take several hours and shall be used only when an unrecoverable error is present in databases with a known blockheight.
+            Rescanning Flux databases is a deeper option than just explorer databases and so while rescanning entire Flux databases, explorer parts will be rescanned as well.
           </b-card-text>
           <div
             style="display: flex; justify-content: center; align-items: center;"
@@ -308,7 +309,8 @@
       >
         <b-card title="Reindexing Global Apps">
           <b-card-text class="mb-1">
-            Options to rescan Flux Global Application Database from a given blockheight and rebuild them since. Rescanning may take several hours and shall be used only when an unrecoverable error is present in databases with a known blockheight. If remove Last Information is wished. The current specifics will be dropped instead making it more deep option.
+            Options to rescan Flux Global Application Database from a given blockheight and rebuild them since. Rescanning may take several hours and shall be used only when an unrecoverable error is present in databases with a known blockheight.
+            If remove Last Information is wished. The current specifics will be dropped instead making it more deep option.
           </b-card-text>
           <div
             style="display: flex; justify-content: center; align-items: center;"
@@ -450,7 +452,7 @@
 </template>
 
 <script>
-import { mapState } from 'vuex'
+import { mapState } from 'vuex';
 import {
   BCard,
   BRow,
@@ -463,17 +465,17 @@ import {
   VBTooltip,
   BModal,
   BProgress,
-} from 'bootstrap-vue'
-import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
-import Ripple from 'vue-ripple-directive'
-import axios from 'axios'
-import ConfirmDialog from '@/views/components/ConfirmDialog.vue'
+} from 'bootstrap-vue';
+import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
+import Ripple from 'vue-ripple-directive';
+import axios from 'axios';
+import ConfirmDialog from '@/views/components/ConfirmDialog.vue';
 
-import FluxService from '@/services/FluxService'
-import ExplorerService from '@/services/ExplorerService'
-import AppsService from '@/services/AppsService'
+import FluxService from '@/services/FluxService';
+import ExplorerService from '@/services/ExplorerService';
+import AppsService from '@/services/AppsService';
 
-const qs = require('qs')
+const qs = require('qs');
 
 export default {
   components: {
@@ -505,7 +507,7 @@ export default {
       removeLastInformation: false,
       updateDialogVisible: false,
       updateProgress: 0,
-    }
+    };
   },
   computed: {
     ...mapState('flux', [
@@ -515,307 +517,307 @@ export default {
       'privilege',
     ]),
     currentLoginPhrase() {
-      const zelidauth = localStorage.getItem('zelidauth')
-      const auth = qs.parse(zelidauth)
-      return auth.loginPhrase
+      const zelidauth = localStorage.getItem('zelidauth');
+      const auth = qs.parse(zelidauth);
+      return auth.loginPhrase;
     },
   },
   mounted() {
-    this.getKadenaAccount()
-    this.getLatestFluxVersion()
+    this.getKadenaAccount();
+    this.getLatestFluxVersion();
   },
   methods: {
     async getKadenaAccount() {
-      const response = await FluxService.getKadenaAccount()
+      const response = await FluxService.getKadenaAccount();
       if (response.data.status === 'success' && response.data.data) {
-        const acc = response.data.data.split('?chainid=')
-        const chainID = acc.pop()
-        const account = acc.join('?chainid=').substr(7)
-        this.kadenaAccountInput = account
-        this.kadenaChainIDInput = Number(chainID)
+        const acc = response.data.data.split('?chainid=');
+        const chainID = acc.pop();
+        const account = acc.join('?chainid=').substr(7);
+        this.kadenaAccountInput = account;
+        this.kadenaChainIDInput = Number(chainID);
       }
     },
     getLatestFluxVersion() {
-      const self = this
+      const self = this;
       axios.get('https://raw.githubusercontent.com/runonflux/flux/master/package.json')
-        .then(response => {
-          console.log(response)
+        .then((response) => {
+          console.log(response);
           if (response.data.version !== self.fluxVersion) {
-            this.showToast('warning', 'Flux requires an update!')
+            this.showToast('warning', 'Flux requires an update!');
           } else {
-            this.showToast('success', 'Flux is up to date')
+            this.showToast('success', 'Flux is up to date');
           }
         })
-        .catch(error => {
-          console.log(error)
-          this.showToast('danger', 'Error verifying recent version')
-        })
+        .catch((error) => {
+          console.log(error);
+          this.showToast('danger', 'Error verifying recent version');
+        });
     },
     async adjustKadena() {
-      const account = this.kadenaAccountInput
-      const chainid = this.kadenaChainIDInput
-      const zelidauth = localStorage.getItem('zelidauth')
+      const account = this.kadenaAccountInput;
+      const chainid = this.kadenaChainIDInput;
+      const zelidauth = localStorage.getItem('zelidauth');
       try {
-        const cruxIDResponse = await FluxService.adjustKadena(zelidauth, account, chainid)
+        const cruxIDResponse = await FluxService.adjustKadena(zelidauth, account, chainid);
         if (cruxIDResponse.data.status === 'error') {
-          this.showToast('danger', cruxIDResponse.data.data.message || cruxIDResponse.data.data)
+          this.showToast('danger', cruxIDResponse.data.data.message || cruxIDResponse.data.data);
         } else {
-          this.showToast('success', cruxIDResponse.data.data.message || cruxIDResponse.data.data)
+          this.showToast('success', cruxIDResponse.data.data.message || cruxIDResponse.data.data);
         }
       } catch (error) {
-        this.showToast('danger', error.message || error)
+        this.showToast('danger', error.message || error);
       }
     },
     rebuildHome() {
-      const zelidauth = localStorage.getItem('zelidauth')
-      const auth = qs.parse(zelidauth)
-      console.log(auth)
-      this.showToast('warning', 'Flux Home is now rebuilding in the background')
+      const zelidauth = localStorage.getItem('zelidauth');
+      const auth = qs.parse(zelidauth);
+      console.log(auth);
+      this.showToast('warning', 'Flux Home is now rebuilding in the background');
       FluxService.rebuildHome(zelidauth)
-        .then(response => {
-          console.log(response)
+        .then((response) => {
+          console.log(response);
           if (response.data.status === 'error') {
-            this.showToast('danger', response.data.data.message || response.data.data)
+            this.showToast('danger', response.data.data.message || response.data.data);
           }
         })
-        .catch(e => {
-          console.log(e)
-          console.log(e.code)
-          this.showToast('danger', e.toString())
-        })
+        .catch((e) => {
+          console.log(e);
+          console.log(e.code);
+          this.showToast('danger', e.toString());
+        });
     },
     rescanExplorer() {
-      this.showToast('warning', 'Explorer will now rescan')
-      const zelidauth = localStorage.getItem('zelidauth')
-      const blockheight = this.rescanExplorerHeight > 0 ? this.rescanExplorerHeight : 0
+      this.showToast('warning', 'Explorer will now rescan');
+      const zelidauth = localStorage.getItem('zelidauth');
+      const blockheight = this.rescanExplorerHeight > 0 ? this.rescanExplorerHeight : 0;
       ExplorerService.rescanExplorer(zelidauth, blockheight)
-        .then(response => {
+        .then((response) => {
           if (response.data.status === 'error') {
-            this.showToast('danger', response.data.data.message || response.data.data)
+            this.showToast('danger', response.data.data.message || response.data.data);
           } else {
-            this.showToast('success', response.data.data.message || response.data.data)
+            this.showToast('success', response.data.data.message || response.data.data);
           }
         })
-        .catch(error => {
-          console.log(error)
-          this.showToast('danger', 'Error while trying to rescan Explorer')
-        })
+        .catch((error) => {
+          console.log(error);
+          this.showToast('danger', 'Error while trying to rescan Explorer');
+        });
     },
     rescanFlux() {
-      this.showToast('warning', 'Flux will now rescan')
-      const zelidauth = localStorage.getItem('zelidauth')
-      const blockheight = this.rescanFluxHeight > 0 ? this.rescanFluxHeight : 0
+      this.showToast('warning', 'Flux will now rescan');
+      const zelidauth = localStorage.getItem('zelidauth');
+      const blockheight = this.rescanFluxHeight > 0 ? this.rescanFluxHeight : 0;
       ExplorerService.rescanFlux(zelidauth, blockheight)
-        .then(response => {
+        .then((response) => {
           if (response.data.status === 'error') {
-            this.showToast('danger', response.data.data.message || response.data.data)
+            this.showToast('danger', response.data.data.message || response.data.data);
           } else {
-            this.showToast('success', response.data.data.message || response.data.data)
+            this.showToast('success', response.data.data.message || response.data.data);
           }
         })
-        .catch(error => {
-          console.log(error)
-          this.showToast('danger', 'Error while trying to rescan Flux')
-        })
+        .catch((error) => {
+          console.log(error);
+          this.showToast('danger', 'Error while trying to rescan Flux');
+        });
     },
     reindexExplorer() {
-      const zelidauth = localStorage.getItem('zelidauth')
-      const auth = qs.parse(zelidauth)
-      console.log(auth)
-      this.showToast('warning', 'Explorer databases will begin to reindex soon')
+      const zelidauth = localStorage.getItem('zelidauth');
+      const auth = qs.parse(zelidauth);
+      console.log(auth);
+      this.showToast('warning', 'Explorer databases will begin to reindex soon');
       ExplorerService.reindexExplorer(zelidauth)
-        .then(response => {
-          console.log(response)
+        .then((response) => {
+          console.log(response);
           if (response.data.status === 'error') {
-            this.showToast('danger', response.data.data.message || response.data.data)
+            this.showToast('danger', response.data.data.message || response.data.data);
           }
           if (response.data.status === 'success') {
-            this.showToast('success', response.data.data.message || response.data.data)
+            this.showToast('success', response.data.data.message || response.data.data);
           }
         })
-        .catch(e => {
-          console.log(e)
-          console.log(e.code)
-          this.showToast('danger', e.toString())
-        })
+        .catch((e) => {
+          console.log(e);
+          console.log(e.code);
+          this.showToast('danger', e.toString());
+        });
     },
     reindexFlux() {
-      const zelidauth = localStorage.getItem('zelidauth')
-      const auth = qs.parse(zelidauth)
-      console.log(auth)
-      this.showToast('warning', 'Flux databases will begin to reindex soon')
+      const zelidauth = localStorage.getItem('zelidauth');
+      const auth = qs.parse(zelidauth);
+      console.log(auth);
+      this.showToast('warning', 'Flux databases will begin to reindex soon');
       ExplorerService.reindexFlux(zelidauth)
-        .then(response => {
-          console.log(response)
+        .then((response) => {
+          console.log(response);
           if (response.data.status === 'error') {
-            this.showToast('danger', response.data.data.message || response.data.data)
+            this.showToast('danger', response.data.data.message || response.data.data);
           }
           if (response.data.status === 'success') {
-            this.showToast('success', response.data.data.message || response.data.data)
+            this.showToast('success', response.data.data.message || response.data.data);
           }
         })
-        .catch(e => {
-          console.log(e)
-          console.log(e.code)
-          this.showToast('danger', e.toString())
-        })
+        .catch((e) => {
+          console.log(e);
+          console.log(e.code);
+          this.showToast('danger', e.toString());
+        });
     },
     reindexGlobalApps() {
-      const zelidauth = localStorage.getItem('zelidauth')
-      const auth = qs.parse(zelidauth)
-      console.log(auth)
-      this.showToast('warning', 'Global Applications information will reindex soon')
+      const zelidauth = localStorage.getItem('zelidauth');
+      const auth = qs.parse(zelidauth);
+      console.log(auth);
+      this.showToast('warning', 'Global Applications information will reindex soon');
       AppsService.reindexGlobalApps(zelidauth)
-        .then(response => {
-          console.log(response)
+        .then((response) => {
+          console.log(response);
           if (response.data.status === 'error') {
-            this.showToast('danger', response.data.data.message || response.data.data)
+            this.showToast('danger', response.data.data.message || response.data.data);
           }
           if (response.data.status === 'success') {
-            this.showToast('succeess', response.data.data.message || response.data.data)
+            this.showToast('succeess', response.data.data.message || response.data.data);
           }
         })
-        .catch(e => {
-          console.log(e)
-          console.log(e.code)
-          this.showToast('danger', e.toString())
-        })
+        .catch((e) => {
+          console.log(e);
+          console.log(e.code);
+          this.showToast('danger', e.toString());
+        });
     },
     reindexLocations() {
-      const zelidauth = localStorage.getItem('zelidauth')
-      this.showToast('warning', 'Global Applications location will reindex soon')
+      const zelidauth = localStorage.getItem('zelidauth');
+      this.showToast('warning', 'Global Applications location will reindex soon');
       AppsService.reindexLocations(zelidauth)
-        .then(response => {
-          console.log(response)
+        .then((response) => {
+          console.log(response);
           if (response.data.status === 'error') {
-            this.showToast('danger', response.data.data.message || response.data.data)
+            this.showToast('danger', response.data.data.message || response.data.data);
           }
           if (response.data.status === 'success') {
-            this.showToast('success', response.data.data.message || response.data.data)
+            this.showToast('success', response.data.data.message || response.data.data);
           }
         })
-        .catch(e => {
-          this.showToast('danger', e.toString())
-        })
+        .catch((e) => {
+          this.showToast('danger', e.toString());
+        });
     },
     rescanGlobalApps() {
-      const zelidauth = localStorage.getItem('zelidauth')
-      const auth = qs.parse(zelidauth)
-      console.log(auth)
-      this.showToast('warning', 'Global Applications information will reindex soon')
-      const blockheight = this.rescanExplorerHeight > 0 ? this.rescanExplorerHeight : 0
+      const zelidauth = localStorage.getItem('zelidauth');
+      const auth = qs.parse(zelidauth);
+      console.log(auth);
+      this.showToast('warning', 'Global Applications information will reindex soon');
+      const blockheight = this.rescanExplorerHeight > 0 ? this.rescanExplorerHeight : 0;
       AppsService.rescanGlobalApps(zelidauth, blockheight, this.removeLastInformation)
-        .then(response => {
-          console.log(response)
+        .then((response) => {
+          console.log(response);
           if (response.data.status === 'error') {
-            this.showToast('danger', response.data.data.message || response.data.data)
+            this.showToast('danger', response.data.data.message || response.data.data);
           }
           if (response.data.status === 'success') {
-            this.showToast('success', response.data.data.message || response.data.data)
+            this.showToast('success', response.data.data.message || response.data.data);
           }
         })
-        .catch(e => {
-          console.log(e)
-          console.log(e.code)
-          this.showToast('danger', e.toString())
-        })
+        .catch((e) => {
+          console.log(e);
+          console.log(e.code);
+          this.showToast('danger', e.toString());
+        });
     },
     restartBlockProcessing() {
-      const zelidauth = localStorage.getItem('zelidauth')
-      this.showToast('warning', 'Restarting block processing')
+      const zelidauth = localStorage.getItem('zelidauth');
+      this.showToast('warning', 'Restarting block processing');
       ExplorerService.restartBlockProcessing(zelidauth)
-        .then(response => {
-          console.log(response)
+        .then((response) => {
+          console.log(response);
           if (response.data.status === 'error') {
-            this.showToast('danger', response.data.data.message || response.data.data)
+            this.showToast('danger', response.data.data.message || response.data.data);
           }
           if (response.data.status === 'success') {
-            this.showToast('success', response.data.data.message || response.data.data)
+            this.showToast('success', response.data.data.message || response.data.data);
           }
         })
-        .catch(e => {
-          this.showToast('danger', e.toString())
-        })
+        .catch((e) => {
+          this.showToast('danger', e.toString());
+        });
     },
     stopBlockProcessing() {
-      const zelidauth = localStorage.getItem('zelidauth')
-      this.showToast('warning', 'Stopping block processing')
+      const zelidauth = localStorage.getItem('zelidauth');
+      this.showToast('warning', 'Stopping block processing');
       ExplorerService.stopBlockProcessing(zelidauth)
-        .then(response => {
-          console.log(response)
+        .then((response) => {
+          console.log(response);
           if (response.data.status === 'error') {
-            this.showToast('danger', response.data.data.message || response.data.data)
+            this.showToast('danger', response.data.data.message || response.data.data);
           }
           if (response.data.status === 'success') {
-            this.showToast('success', response.data.data.message || response.data.data)
+            this.showToast('success', response.data.data.message || response.data.data);
           }
         })
-        .catch(e => {
-          this.showToast('danger', e.toString())
-        })
+        .catch((e) => {
+          this.showToast('danger', e.toString());
+        });
     },
     updateFlux() {
-      const zelidauth = localStorage.getItem('zelidauth')
-      const auth = qs.parse(zelidauth)
-      console.log(auth)
-      const self = this
+      const zelidauth = localStorage.getItem('zelidauth');
+      const auth = qs.parse(zelidauth);
+      console.log(auth);
+      const self = this;
       axios.get('https://raw.githubusercontent.com/runonflux/flux/master/package.json')
-        .then(response => {
-          console.log(response)
+        .then((response) => {
+          console.log(response);
           if (response.data.version !== self.fluxVersion) {
-            this.showToast('warning', 'Flux is now updating in the background')
-            self.updateDialogVisible = true
-            self.updateProgress = 5
+            this.showToast('warning', 'Flux is now updating in the background');
+            self.updateDialogVisible = true;
+            self.updateProgress = 5;
             const interval = setInterval(() => {
               if (self.updateProgress === 99) {
-                self.updateProgress += 1
+                self.updateProgress += 1;
               } else {
-                self.updateProgress += 2
+                self.updateProgress += 2;
               }
               if (self.updateProgress >= 100) {
-                clearInterval(interval)
-                this.showToast('success', 'Update completed. Flux will now reload')
+                clearInterval(interval);
+                this.showToast('success', 'Update completed. Flux will now reload');
                 setTimeout(() => {
                   if (self.updateDialogVisible) {
-                    window.location.reload(true)
+                    window.location.reload(true);
                   }
-                }, 5000)
+                }, 5000);
               }
               if (!self.updateDialogVisible) {
-                clearInterval(interval)
-                self.updateProgress = 0
+                clearInterval(interval);
+                self.updateProgress = 0;
               }
-            }, 1000)
+            }, 1000);
             FluxService.updateFlux(zelidauth)
-              .then(responseB => {
-                console.log(responseB)
+              .then((responseB) => {
+                console.log(responseB);
                 if (responseB.data.status === 'error') {
-                  this.showToast('danger', responseB.data.data.message || responseB.data.data)
+                  this.showToast('danger', responseB.data.data.message || responseB.data.data);
                 }
                 if (responseB.data.data.code === 401) {
-                  self.updateDialogVisible = false
-                  self.updateProgress = 0
+                  self.updateDialogVisible = false;
+                  self.updateProgress = 0;
                 }
               })
-              .catch(e => {
-                console.log(e)
-                console.log(e.code)
+              .catch((e) => {
+                console.log(e);
+                console.log(e.code);
                 if (e.toString() === 'Error: Network Error') {
-                  self.updateProgress = 50
+                  self.updateProgress = 50;
                 } else {
-                  self.updateDialogVisible = false
-                  self.updateProgress = 0
-                  this.showToast('danger', e.toString())
+                  self.updateDialogVisible = false;
+                  self.updateProgress = 0;
+                  this.showToast('danger', e.toString());
                 }
-              })
+              });
           } else {
-            this.showToast('success', 'Flux is already up to date.')
+            this.showToast('success', 'Flux is already up to date.');
           }
         })
-        .catch(error => {
-          console.log(error)
-          this.showToast('danger', 'Error verifying recent version')
-        })
+        .catch((error) => {
+          console.log(error);
+          this.showToast('danger', 'Error verifying recent version');
+        });
     },
     showToast(variant, title, icon = 'InfoIcon') {
       this.$toast({
@@ -825,10 +827,10 @@ export default {
           icon,
           variant,
         },
-      })
+      });
     },
   },
-}
+};
 </script>
 
 <style>

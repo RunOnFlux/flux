@@ -8,7 +8,7 @@
     container="my-container"
     :custom-class="`confirm-dialog-${width}`"
   >
-    <template v-slot:title>
+    <template #title>
       <div class="d-flex justify-content-between align-items-center">
         <span>{{ title }}</span>
         <b-button
@@ -46,15 +46,14 @@
       </b-button>
     </div>
   </b-popover>
-
 </template>
 
 <script>
 import {
   BButton,
   BPopover,
-} from 'bootstrap-vue'
-import Ripple from 'vue-ripple-directive'
+} from 'bootstrap-vue';
+import Ripple from 'vue-ripple-directive';
 
 export default {
   components: {
@@ -92,15 +91,15 @@ export default {
   data() {
     return {
       show: false,
-    }
+    };
   },
   methods: {
     confirm() {
-      this.show = false
-      this.$emit('confirm')
+      this.show = false;
+      this.$emit('confirm');
     },
   },
-}
+};
 </script>
 
 <style>

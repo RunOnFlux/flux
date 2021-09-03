@@ -153,12 +153,12 @@ import {
   BInputGroupAppend,
   BButton,
   BOverlay,
-} from 'bootstrap-vue'
-import ToastificationContent from '@core/components/toastification/ToastificationContent.vue'
-import ListEntry from '@/views/components/ListEntry.vue'
-import DaemonService from '@/services/DaemonService'
+} from 'bootstrap-vue';
+import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
+import ListEntry from '@/views/components/ListEntry.vue';
+import DaemonService from '@/services/DaemonService';
 
-const timeoptions = require('@/libs/dateFormat')
+const timeoptions = require('@/libs/dateFormat');
 
 export default {
   components: {
@@ -203,22 +203,22 @@ export default {
       totalRows: 1,
       currentPage: 1,
       fluxListLoading: true,
-    }
+    };
   },
   computed: {
     sortOptions() {
       // Create an options list from our fields
       return this.fields
-        .filter(f => f.sortable)
-        .map(f => ({ text: f.label, value: f.key }))
+        .filter((f) => f.sortable)
+        .map((f) => ({ text: f.label, value: f.key }));
     },
   },
   mounted() {
-    this.daemonListZelNodes()
+    this.daemonListZelNodes();
   },
   methods: {
     async daemonListZelNodes() {
-      const response = await DaemonService.listZelNodes()
+      const response = await DaemonService.listZelNodes();
       if (response.data.status === 'error') {
         this.$toast({
           component: ToastificationContent,
@@ -227,24 +227,24 @@ export default {
             icon: 'InfoIcon',
             variant: 'danger',
           },
-        })
+        });
       } else {
-        const self = this
-        response.data.data.forEach(item => {
-          self.items.push(item)
-        })
-        this.totalRows = this.items.length
-        this.currentPage = 1
+        const self = this;
+        response.data.data.forEach((item) => {
+          self.items.push(item);
+        });
+        this.totalRows = this.items.length;
+        this.currentPage = 1;
       }
-      this.fluxListLoading = false
+      this.fluxListLoading = false;
     },
     onFiltered(filteredItems) {
       // Trigger pagination to update the number of buttons/pages due to filtering
-      this.totalRows = filteredItems.length
-      this.currentPage = 1
+      this.totalRows = filteredItems.length;
+      this.currentPage = 1;
     },
   },
-}
+};
 </script>
 
 <style>
