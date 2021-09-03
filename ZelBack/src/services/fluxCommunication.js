@@ -13,7 +13,6 @@ const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const daemonService = require('./daemonService');
 const benchmarkService = require('./benchmarkService');
-const appsService = require('./appsService');
 const userconfig = require('../../../config/userconfig');
 
 const outgoingConnections = []; // websocket list
@@ -365,6 +364,7 @@ async function handleAppMessages(message, fromIP) {
     // if not in database, rebroadcast to all connections
     // do furtherVerification of message
     // eslint-disable-next-line global-require
+    const appsService = require('./appsService');
     const rebroadcastToPeers = await appsService.storeAppTemporaryMessage(message.data, true);
     if (rebroadcastToPeers === true) {
       const messageString = serviceHelper.ensureString(message);
@@ -385,6 +385,7 @@ async function handleAppRunningMessage(message, fromIP) {
     // if not in database, rebroadcast to all connections
     // do furtherVerification of message
     // eslint-disable-next-line global-require
+    const appsService = require('./appsService');
     const rebroadcastToPeers = await appsService.storeAppRunningMessage(message.data);
     if (rebroadcastToPeers === true) {
       const messageString = serviceHelper.ensureString(message);
@@ -416,6 +417,7 @@ async function respondWithAppMessage(message, ws) {
   try {
     // check if we have it database of permanent appMessages
     // eslint-disable-next-line global-require
+    const appsService = require('./appsService');
     const tempMesResponse = myMessageCache.get(serviceHelper.ensureString(message));
     if (tempMesResponse) {
       sendMessageToWS(tempMesResponse, ws);
@@ -1428,6 +1430,8 @@ async function adjustGitRepository() {
 
 async function confirmNodeTierHardware() {
   try {
+    // eslint-disable-next-line global-require
+    const appsService = require('./appsService');
     const tier = await appsService.nodeTier();
     const nodeRam = os.totalmem() / 1024 / 1024 / 1024;
     const nodeCpuCores = os.cpus().length;
