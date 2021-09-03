@@ -1,119 +1,119 @@
-import Api, { sourceCancelToken } from '@/services/Api';
+import Api, { sourceCancelToken } from '@/services/Api'
 
 export default {
   help() {
-    return Api().get('/daemon/help');
+    return Api().get('/daemon/help')
   },
   helpSpecific(command) {
-    return Api().get(`/daemon/help/${command}`);
+    return Api().get(`/daemon/help/${command}`)
   },
   getInfo() {
-    return Api().get('/daemon/getinfo');
+    return Api().get('/daemon/getinfo')
   },
   getZelNodeStatus() {
-    return Api().get('/daemon/getzelnodestatus');
+    return Api().get('/daemon/getzelnodestatus')
   },
   getRawTransaction(txid, verbose) {
-    return Api().get(`/daemon/getrawtransaction/${txid}/${verbose}`);
+    return Api().get(`/daemon/getrawtransaction/${txid}/${verbose}`)
   },
   listZelNodes() {
-    return Api().get('/daemon/listzelnodes');
+    return Api().get('/daemon/listzelnodes')
   },
   viewDeterministicZelNodeList() {
-    return Api().get('/daemon/viewdeterministiczelnodelist');
+    return Api().get('/daemon/viewdeterministiczelnodelist')
   },
   getZelNodeCount() {
-    return Api().get('/daemon/getzelnodecount');
+    return Api().get('/daemon/getzelnodecount')
   },
   getStartList() {
-    return Api().get('/daemon/getstartlist');
+    return Api().get('/daemon/getstartlist')
   },
   getDOSList() {
-    return Api().get('/daemon/getdoslist');
+    return Api().get('/daemon/getdoslist')
   },
-  zelnodeCurrentWinner() {
-    return Api().get('/daemon/zelnodecurrentwinner');
+  fluxCurrentWinner() {
+    return Api().get('/daemon/fluxcurrentwinner')
   },
   getBenchmarks() {
-    return Api().get('/daemon/getbenchmarks');
+    return Api().get('/daemon/getbenchmarks')
   },
   getBenchStatus() {
-    return Api().get('/daemon/getbenchstatus');
+    return Api().get('/daemon/getbenchstatus')
   },
   startBenchmark(zelidauthHeader) {
     return Api().get('/daemon/startbenchmark', {
       headers: {
         zelidauth: zelidauthHeader,
       },
-    });
+    })
   },
   stopBenchmark(zelidauthHeader) {
     return Api().get('/daemon/stopbenchmark', {
       headers: {
         zelidauth: zelidauthHeader,
       },
-    });
+    })
   },
   getBlockchainInfo() {
-    return Api().get('/daemon/getblockchaininfo');
+    return Api().get('/daemon/getblockchaininfo')
   },
   getMiningInfo() {
-    return Api().get('/daemon/getmininginfo');
+    return Api().get('/daemon/getmininginfo')
   },
   getNetworkInfo() {
-    return Api().get('/daemon/getnetworkinfo');
+    return Api().get('/daemon/getnetworkinfo')
   },
   validateAddress(zelidauthHeader, address) {
     return Api().get(`/daemon/validateaddress/${address}`, {
       headers: {
         zelidauth: zelidauthHeader,
       },
-    });
+    })
   },
   getWalletInfo(zelidauthHeader) {
     return Api().get('/daemon/getwalletinfo', {
       headers: {
         zelidauth: zelidauthHeader,
       },
-    });
+    })
   },
   listZelNodeConf(zelidauthHeader) {
     return Api().get('/daemon/listzelnodeconf', {
       headers: {
         zelidauth: zelidauthHeader,
       },
-    });
+    })
   },
   start(zelidauthHeader) {
     return Api().get('/daemon/start', {
       headers: {
         zelidauth: zelidauthHeader,
       },
-    });
+    })
   },
   restart(zelidauthHeader) {
     return Api().get('/daemon/restart', {
       headers: {
         zelidauth: zelidauthHeader,
       },
-    });
+    })
   },
   stopDaemon(zelidauthHeader) {
     return Api().get('/daemon/stop', {
       headers: {
         zelidauth: zelidauthHeader,
       },
-    });
+    })
   },
   rescanDaemon(zelidauthHeader, height) {
-    return Api().get(`/daemon/rescan/${height}`, {
+    return Api().get(`/daemon/rescanblockchain/${height}`, {
       headers: {
         zelidauth: zelidauthHeader,
       },
-    });
+    })
   },
   getBlock(height, verbosity) {
-    return Api().get(`/daemon/getblock/${height}/${verbosity}`);
+    return Api().get(`/daemon/getblock/${height}/${verbosity}`)
   },
   // DEBUG
   tailDaemonDebug(zelidauthHeader) {
@@ -121,14 +121,14 @@ export default {
       headers: {
         zelidauth: zelidauthHeader,
       },
-    });
+    })
   },
   // just api
   justAPI() {
-    return Api();
+    return Api()
   },
   // cancelToken
   cancelToken() {
-    return sourceCancelToken;
+    return sourceCancelToken
   },
-};
+}
