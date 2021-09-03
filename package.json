@@ -124,7 +124,7 @@
     "postcss-rtl": "^1.7.3",
     "prismjs": "^1.24.1",
     "sass": "^1.39.0",
-    "sass-loader": "^12.1.0",
+    "sass-loader": "^10.0.2",
     "supertest": "^5.0.0",
     "uuid": "^8.3.2",
     "vee-validate": "^3.4.12",
