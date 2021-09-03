@@ -23,4 +23,4 @@ export default [
     route: 'apps-fluxsharestorage',
     privilege: ['admin'],
   },
-]
+];

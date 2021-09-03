@@ -4,4 +4,4 @@ export default [
     icon: 'check-double',
     route: 'daemon-util-validateaddress',
   },
-]
+];

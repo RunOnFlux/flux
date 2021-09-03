@@ -4,4 +4,4 @@ export default [
     icon: 'network-wired',
     route: 'daemon-network-getnetworkinfo',
   },
-]
+];

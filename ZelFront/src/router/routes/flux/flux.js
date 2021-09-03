@@ -51,4 +51,4 @@ export default [
       privilege: ['admin', 'fluxteam'],
     },
   },
-]
+];

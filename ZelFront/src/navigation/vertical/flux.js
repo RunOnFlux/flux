@@ -18,4 +18,4 @@ export default [
     route: 'flux-debug',
     privilege: ['admin', 'fluxteam'],
   },
-]
+];

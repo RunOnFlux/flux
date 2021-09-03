@@ -5,4 +5,4 @@ export default [
     route: 'daemon-wallet-getwalletinfo',
     privilege: ['user', 'admin', 'fluxteam'],
   },
-]
+];

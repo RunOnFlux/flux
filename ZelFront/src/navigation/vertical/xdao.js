@@ -7,4 +7,4 @@ export default [
     icon: 'clipboard-list',
     route: 'xdao-app',
   },
-]
+];

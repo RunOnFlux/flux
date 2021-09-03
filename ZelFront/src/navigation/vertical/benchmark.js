@@ -1,6 +1,6 @@
-import control from './benchmark/control'
-import zelnode from './benchmark/fluxnode'
-import benchmarks from './benchmark/benchmarks'
+import control from './benchmark/control';
+import zelnode from './benchmark/fluxnode';
+import benchmarks from './benchmark/benchmarks';
 
 export default [
   {
@@ -16,4 +16,4 @@ export default [
     id: 'benchmark-debug',
     privilege: ['admin', 'fluxteam'],
   },
-]
+];

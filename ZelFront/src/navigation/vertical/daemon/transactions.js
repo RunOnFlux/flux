@@ -4,4 +4,4 @@ export default [
     icon: 'code',
     route: 'daemon-transaction-getrawtransaction',
   },
-]
+];

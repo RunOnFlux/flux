@@ -4,4 +4,4 @@ export default [
     icon: 'gem',
     route: 'daemon-mining-getmininginfo',
   },
-]
+];

@@ -1,4 +1,4 @@
-const fluxLogo = require('@/assets/images/logo/logo.png')
+const fluxLogo = require('@/assets/images/logo/logo.png');
 
 export default [
   {
@@ -24,4 +24,4 @@ export default [
       },
     ],
   },
-]
+];

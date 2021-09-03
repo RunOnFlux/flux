@@ -1,6 +1,6 @@
-import control from './control'
-import fluxnode from './fluxnode'
-import benchmarks from './benchmarks'
+import control from './control';
+import fluxnode from './fluxnode';
+import benchmarks from './benchmarks';
 
 export default [
   ...control,
@@ -24,4 +24,4 @@ export default [
       privilege: ['admin', 'fluxteam'],
     },
   },
-]
+];

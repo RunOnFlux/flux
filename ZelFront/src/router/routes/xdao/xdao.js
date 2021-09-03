@@ -18,8 +18,8 @@ export default [
       navActiveLink: 'xdao-app',
     },
     beforeEnter(to, _, next) {
-      if (['open', 'passed', 'unpaid', 'rejected'].includes(to.params.filter)) next()
-      else next({ name: 'error-404' })
+      if (['open', 'passed', 'unpaid', 'rejected'].includes(to.params.filter)) next();
+      else next({ name: 'error-404' });
     },
   },
   {
@@ -32,8 +32,8 @@ export default [
       navActiveLink: 'xdao-app',
     },
     beforeEnter(to, _, next) {
-      if (['team', 'low', 'medium', 'high', 'update'].includes(to.params.tag)) next()
-      else next({ name: 'error-404' })
+      if (['team', 'low', 'medium', 'high', 'update'].includes(to.params.tag)) next();
+      else next({ name: 'error-404' });
     },
   },
-]
+];

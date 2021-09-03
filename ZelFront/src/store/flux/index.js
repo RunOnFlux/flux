@@ -1,5 +1,5 @@
-import config from 'ZelBack/config/default'
-import userconfig from 'Config/userconfig'
+import config from 'ZelBack/config/default';
+import userconfig from 'Config/userconfig';
 
 export default {
   namespaced: true,
@@ -21,11 +21,11 @@ export default {
   getters: {},
   mutations: {
     setPrivilege(state, privilege) {
-      state.privilege = privilege
+      state.privilege = privilege;
     },
     setFluxVersion(state, version) {
-      state.fluxVersion = version
+      state.fluxVersion = version;
     },
   },
   actions: {},
-}
+};

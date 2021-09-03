@@ -4,4 +4,4 @@ export default [
     icon: 'link',
     route: 'daemon-blockchain-getchaininfo',
   },
-]
+];

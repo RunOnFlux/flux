@@ -27,4 +27,4 @@ export default [
     icon: 'list-ul',
     route: 'dashboard-list',
   },
-]
+];
