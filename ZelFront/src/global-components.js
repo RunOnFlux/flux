@@ -4,4 +4,4 @@ import Icon from 'vue-awesome/components/Icon';
 import 'vue-awesome/icons';
 
 Vue.component(FeatherIcon.name, FeatherIcon);
-Vue.component('v-icon', Icon);
+Vue.component('VIcon', Icon);

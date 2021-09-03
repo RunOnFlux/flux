@@ -19,10 +19,6 @@ module.exports = {
       },
     ],
     'no-console': 'off',
-    'import/extensions': [
-      'error',
-      'never',
-    ],
     'linebreak-style': [
       'error',
       'unix',
@@ -31,6 +27,8 @@ module.exports = {
     'import/no-extraneous-dependencies': ['error', {
       devDependencies: true, optionalDependencies: true, peerDependencies: false,
     }],
+    camelcase: ['error', { properties: 'never', ignoreDestructuring: true, ignoreImports: true }],
+    'import/extensions': ['error', 'ignorePackages', { vue: 'always', js: 'never' }],
   },
   parserOptions: {
     parser: 'babel-eslint',
