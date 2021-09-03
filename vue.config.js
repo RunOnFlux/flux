@@ -1,6 +1,6 @@
 const path = require('path');
 const CopyPlugin = require('copy-webpack-plugin');
-const CompressionPlugin = require('compression-webpack-plugin');
+// const CompressionPlugin = require('compression-webpack-plugin');
 // ideally https://github.com/webpack-contrib/compression-webpack-plugin#using-brotli from nodejs 11.7.0
 // const BrotliPlugin = require('brotli-webpack-plugin');
 // const zopfli = require('@gfx/zopfli');
@@ -10,7 +10,7 @@ const CompressionPlugin = require('compression-webpack-plugin');
 const plugins = [
   new CopyPlugin({
     patterns: [
-      { from: path.resolve(__dirname, "ZelFront", "public"), },
+      { from: path.resolve(__dirname, 'ZelFront', 'public') },
     ],
   }),
 ];
@@ -53,8 +53,8 @@ module.exports = {
         '@core': path.resolve(__dirname, './ZelFront/src/@core'),
         '@validations': path.resolve(__dirname, './ZelFront/src/@core/utils/validations/validations.js'),
         '@axios': path.resolve(__dirname, './ZelFront/src/libs/axios'),
-        'ZelBack': path.resolve(__dirname, './ZelBack'),
-        'Config': path.resolve(__dirname, './config'),
+        ZelBack: path.resolve(__dirname, './ZelBack'),
+        Config: path.resolve(__dirname, './config'),
       },
     },
     plugins,
@@ -68,12 +68,12 @@ module.exports = {
       ignored: /node_modules/,
     },
   },
-  chainWebpack: config => {
+  chainWebpack: (config) => {
     config.module
       .rule('vue')
       .use('vue-loader')
       .loader('vue-loader')
-      .tap(options => {
+      .tap((options) => {
         // eslint-disable-next-line no-param-reassign
         options.transformAssetUrls = {
           img: 'src',
@@ -86,9 +86,9 @@ module.exports = {
           'b-card-img-lazy': ['src', 'blank-src'],
           'b-carousel-slide': 'img-src',
           'b-embed': 'src',
-        }
-        return options
-      })
+        };
+        return options;
+      });
   },
   transpileDependencies: ['resize-detector'],
   outputDir: path.join(__dirname, './ZelFront/dist'),

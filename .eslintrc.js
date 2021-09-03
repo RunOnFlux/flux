@@ -6,7 +6,7 @@ module.exports = {
     mocha: true,
   },
   extends: [
-    'plugin:vue/essential',
+    'plugin:vue/recommended',
     '@vue/airbnb',
   ],
   rules: {
@@ -27,6 +27,10 @@ module.exports = {
       'error',
       'unix',
     ],
+    'prefer-destructuring': ['error', { object: true, array: false }],
+    'import/no-extraneous-dependencies': ['error', {
+      devDependencies: true, optionalDependencies: true, peerDependencies: false,
+    }],
   },
   parserOptions: {
     parser: 'babel-eslint',
