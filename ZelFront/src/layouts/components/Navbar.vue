@@ -30,6 +30,15 @@
         <b-dropdown-item-button @click="changeBackendURL('https://api.runonflux.io')">
           https://api.runonflux.io
         </b-dropdown-item-button>
+        <b-dropdown-divider />
+        <b-form-input
+          id="dropdown-form-custom"
+          v-model="customBackend"
+          type="text"
+          size="sm"
+          placeholder="Custom Backend"
+          @input="changeBackendURL(customBackend)"
+        />
       </b-dropdown>
     </div>
 
@@ -51,7 +60,7 @@
 <script>
 import { mapState } from 'vuex';
 import {
-  BLink, BDropdown, BDropdownItemButton, BDropdownDivider, BNavbarNav, BButton, // BNavItemDropdown, BDropdownItem, BDropdownDivider, BAvatar,
+  BLink, BDropdown, BDropdownItemButton, BDropdownDivider, BNavbarNav, BButton, BFormInput, // BNavItemDropdown, BDropdownItem, BDropdownDivider, BAvatar,
 } from 'bootstrap-vue';
 import DarkToggler from '@core/layouts/components/app-navbar/components/DarkToggler.vue';
 import MenuCollapseToggler from '@core/layouts/components/app-navbar/components/MenuCollapseToggler.vue';
@@ -72,6 +81,7 @@ export default {
     BDropdownItemButton,
     BDropdownDivider,
     BButton,
+    BFormInput,
     // Navbar Components
     DarkToggler,
     MenuCollapseToggler,
@@ -84,12 +94,13 @@ export default {
   props: {
     toggleVerticalMenuActive: {
       type: Function,
-      default: () => {},
+      default: () => { },
     },
   },
   data() {
     return {
       backendURL: '',
+      customBackend: '',
     };
   },
   computed: {
@@ -118,6 +129,7 @@ export default {
   },
   methods: {
     changeBackendURL(value) {
+      console.log(value);
       store.set('backendURL', value);
       this.backendURL = value;
     },

@@ -22,12 +22,10 @@ if (hostname.match(regex)) {
   mybackend += port;
 }
 
-const backendURL = store.get('backendURL') || mybackend;
-
 const sourceCancelToken = axios.CancelToken.source();
 
 export { sourceCancelToken };
 
 export default () => axios.create({
-  baseURL: backendURL,
+  baseURL: store.get('backendURL') || mybackend,
 });
