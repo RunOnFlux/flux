@@ -98,11 +98,17 @@ function ensureObject(parameter) {
   if (typeof parameter === 'object') {
     return parameter;
   }
+  if (!parameter) {
+    return {};
+  }
   let param;
   try {
     param = JSON.parse(parameter);
   } catch (e) {
     param = qs.parse(parameter);
+  }
+  if (typeof param !== 'object') {
+    return {};
   }
   return param;
 }
