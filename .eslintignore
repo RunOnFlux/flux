@@ -1,4 +1,5 @@
 /ZelFront/dist/
+/ZelFront/build/
 /config/userconfig.js
 /lib/zelcashrpc/
 /lib/daemonrpc/

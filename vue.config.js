@@ -91,7 +91,7 @@ module.exports = {
       });
   },
   transpileDependencies: ['resize-detector'],
-  outputDir: path.join(__dirname, './ZelFront/dist'),
+  outputDir: path.join(__dirname, './ZelFront/build'),
   pages: {
     index: {
       // entry for the page
