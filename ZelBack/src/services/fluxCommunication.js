@@ -1442,7 +1442,7 @@ async function confirmNodeTierHardware() {
     log.info(`Node Total Ram: ${nodeRam}`);
     log.info(`Node Cpu Cores: ${nodeCpuCores}`);
     if (tier === 'bamf') {
-      if (nodeRam < 32) {
+      if (nodeRam < 31) {
         log.error(`Node Total Ram (${nodeRam}) below Stratus requirements`);
         nodeHardwareSpecsGood = false;
         return;
@@ -1453,7 +1453,7 @@ async function confirmNodeTierHardware() {
         return;
       }
     } else if (tier === 'super') {
-      if (nodeRam < 8) {
+      if (nodeRam < 7) {
         log.error(`Node Total Ram (${nodeRam}) below Nimbus requirements`);
         nodeHardwareSpecsGood = false;
         return;
@@ -1464,7 +1464,7 @@ async function confirmNodeTierHardware() {
         return;
       }
     } else {
-      if (nodeRam < 4) {
+      if (nodeRam < 3) {
         log.error(`Node Total Ram (${nodeRam}) below Cumulus requirements`);
         nodeHardwareSpecsGood = false;
         return;
