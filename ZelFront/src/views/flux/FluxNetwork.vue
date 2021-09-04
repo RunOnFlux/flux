@@ -76,7 +76,10 @@
                 empty-text="No Connected Nodes"
                 @filtered="onFilteredOutgoing"
               >
-                <template #cell(disconnect)="row">
+                <template
+                  v-if="privilege === 'admin' || privilege === 'fluxteam'"
+                  #cell(disconnect)="row"
+                >
                   <b-button
                     :id="`disconnect-peer-${row.item.ip}`"
                     size="sm"
@@ -185,7 +188,10 @@
                 empty-text="No Incoming Connections"
                 @filtered="onFilteredIncoming"
               >
-                <template #cell(disconnect)="row">
+                <template
+                  v-if="privilege === 'admin' || privilege === 'fluxteam'"
+                  #cell(disconnect)="row"
+                >
                   <b-button
                     :id="`disconnect-incoming-${row.item.ip}`"
                     size="sm"
@@ -238,6 +244,7 @@ import {
   BPagination,
   BOverlay,
 } from 'bootstrap-vue';
+import { mapState } from 'vuex';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 import ConfirmDialog from '@/views/components/ConfirmDialog.vue';
 import FluxService from '@/services/FluxService';
@@ -306,6 +313,11 @@ export default {
         },
       },
     };
+  },
+  computed: {
+    ...mapState('flux', [
+      'privilege',
+    ]),
   },
   mounted() {
     this.fluxConnectedPeersInfo();

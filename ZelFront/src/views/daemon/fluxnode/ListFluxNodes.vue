@@ -81,6 +81,9 @@
                 />
               </a>
             </template>
+            <template #cell(payment_address)="row">
+              {{ row.item.payment_address || 'Node Expired' }}
+            </template>
             <template #row-details="row">
               <b-card class="mx-2">
                 <list-entry
