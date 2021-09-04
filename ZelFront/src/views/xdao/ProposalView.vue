@@ -211,7 +211,7 @@
           </b-card>
         </b-col>
       </b-row>
-      <div v-if="zelid && proposalViewData.status === 'Open'">
+      <div v-if="proposalViewData.status === 'Open'">
         <b-row
           v-if="!haveVoted"
           class="match-height"
@@ -279,7 +279,7 @@
                   >
                     <b-form-input
                       id="h-address"
-                      v-model="zelid"
+                      v-model="userZelid"
                       placeholder="Insert ZelID"
                     />
                   </b-form-group>
@@ -316,7 +316,7 @@
                   size="lg"
                   pill
                   class="vote-button d-block mt-2"
-                  :disabled="!signature"
+                  :disabled="!signature ? true : false"
                   @click="vote(true)"
                 >
                   YES
@@ -324,7 +324,7 @@
               </div>
               <b-tooltip
                 ref="tooltip"
-                :disabled="signature"
+                :disabled="signature ? true : false"
                 target="vote-yes-button"
               >
                 <span>Please enter a Signature</span>
@@ -336,7 +336,7 @@
                   size="lg"
                   pill
                   class="vote-button d-block mt-2"
-                  :disabled="!signature"
+                  :disabled="!signature ? true : false"
                   @click="vote(false)"
                 >
                   NO
@@ -344,7 +344,7 @@
               </div>
               <b-tooltip
                 ref="tooltip"
-                :disabled="signature"
+                :disabled="signature ? true : false"
                 target="vote-no-button"
               >
                 <span>Please enter a Signature</span>
@@ -480,13 +480,15 @@ export default {
     const myVote = ref('No');
     const haveVoted = ref(false);
     const signature = ref(null);
+    const userZelid = ref('');
+    userZelid.value = props.zelid;
 
     const hasSignature = computed(() => signature.value !== null);
 
     const loadVotePower = async () => {
-      let url = `https://stats.runonflux.io/proposals/votepower?zelid=${props.zelid}`;
+      let url = `https://stats.runonflux.io/proposals/votepower?zelid=${userZelid.value}`;
       if (props.proposalViewData.hash) {
-        url = `https://stats.runonflux.io/proposals/votepower?zelid=${props.zelid}&hash=${props.proposalViewData.hash}`;
+        url = `https://stats.runonflux.io/proposals/votepower?zelid=${userZelid.value}&hash=${props.proposalViewData.hash}`;
       }
       const responseApi = await axios.get(url);
       console.log(responseApi);
@@ -499,12 +501,12 @@ export default {
     };
 
     const getVoteInformation = async () => {
-      const response = await axios.get(`https://stats.runonflux.io/proposals/voteInformation?hash=${props.proposalViewData.hash}&zelid=${props.zelid}`);
+      const response = await axios.get(`https://stats.runonflux.io/proposals/voteInformation?hash=${props.proposalViewData.hash}&zelid=${userZelid.value}`);
       return response.data;
     };
 
     const loadVotes = async () => {
-      if (props.zelid) {
+      if (userZelid.value) {
         myNumberOfVotes.value = 0;
         const voteInformation = await getVoteInformation();
         if (voteInformation.status === 'success') {
@@ -588,7 +590,7 @@ export default {
       let backendURL = store.get('backendURL') || mybackend;
       backendURL = backendURL.replace('https://', 'wss://');
       backendURL = backendURL.replace('http://', 'ws://');
-      const signatureMessage = props.zelid + dataToSign.value.substr(dataToSign.value.length - 13);
+      const signatureMessage = userZelid.value + dataToSign.value.substr(dataToSign.value.length - 13);
       const wsuri = `${backendURL}/ws/sign/${signatureMessage}`;
       const websocket = new WebSocket(wsuri);
       // const websocket = websocket
@@ -646,7 +648,7 @@ export default {
     const vote = async (voteType) => {
       const data = {
         hash: props.proposalViewData.hash,
-        zelid: props.zelid,
+        zelid: userZelid.value,
         message: dataToSign.value,
         signature: signature.value,
         vote: voteType,
@@ -821,6 +823,8 @@ export default {
       onOpen,
       onClose,
       onMessage,
+
+      userZelid,
     };
   },
 };
