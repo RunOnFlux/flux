@@ -8,7 +8,6 @@ yarn-error.log*
 /test/e2e/reports/
 selenium-debug.log
 ZelFront/node_modules/
-ZelFront/dist/
 ZelFront/npm-debug.log*
 ZelFront/yarn-debug.log*
 ZelFront/yarn-error.log*
