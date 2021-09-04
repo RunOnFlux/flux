@@ -5,7 +5,7 @@ const compression = require('compression');
 const path = require('path');
 const express = require('express');
 
-const home = path.join(__dirname, './ZelFront/dist');
+const home = path.join(__dirname, './ZelFront/build');
 
 const homeApp = express();
 homeApp.use(compression());
