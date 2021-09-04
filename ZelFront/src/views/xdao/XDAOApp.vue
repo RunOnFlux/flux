@@ -228,7 +228,7 @@ import {
 } from 'bootstrap-vue';
 
 import {
-  ref, computed, watch, onMounted,
+  ref, computed, watch, onBeforeMount,
 } from '@vue/composition-api';
 
 import { avatarText } from '@core/utils/filter';
@@ -280,7 +280,7 @@ export default {
     // Use toast
     const toast = useToast();
 
-    onMounted(() => {
+    onBeforeMount(() => {
       const zelidauth = localStorage.getItem('zelidauth');
       const auth = qs.parse(zelidauth);
       zelid.value = auth.zelid;
