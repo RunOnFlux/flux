@@ -3,7 +3,7 @@
     <span class="float-md-left d-block d-md-inline-block mt-25">
       <b-link
         class="ml-25"
-        href="https://github.com/zelcash/zelflux"
+        href="https://github.com/runonflux/flux"
         target="_blank"
       >Flux, Your Gateway to a Decentralized World</b-link>
     </span>
