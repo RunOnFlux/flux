@@ -91,8 +91,9 @@ async function getMyFluxIP() {
       myIP = benchmarkResponseData.ipaddress.length > 5 ? benchmarkResponseData.ipaddress : null;
     }
   } else {
-    dosMessage = benchmarkResponse.data;
-    dosState += 10;
+    dosMessage = 'Error getting fluxIp from FluxBench';
+    dosState += 15;
+    log.error(dosMessage);
   }
   myFluxIP = myIP;
   return myIP;
@@ -1084,68 +1085,65 @@ async function checkFluxbenchVersionAllowed() {
   }
 }
 
-async function checkMyFluxAvailability(nodelist) {
-  // run if at least 10 available nodes
-  if (nodelist.length > 10) {
-    const fluxBenchVersionAllowed = await checkFluxbenchVersionAllowed();
-    if (!fluxBenchVersionAllowed) {
-      return;
+async function checkMyFluxAvailability() {
+  const fluxBenchVersionAllowed = await checkFluxbenchVersionAllowed();
+  if (!fluxBenchVersionAllowed) {
+    return false;
+  }
+  let askingIP = await getRandomConnection();
+  if (typeof askingIP !== 'string' || typeof myFluxIP !== 'string' || myFluxIP === askingIP) {
+    return false;
+  }
+  if (askingIP.includes(':')) {
+    // it is ipv6
+    askingIP = `[${askingIP}]`;
+  }
+  let myIP = myFluxIP;
+  if (myIP.includes(':')) {
+    myIP = `[${myIP}]`;
+  }
+  let availabilityError = null;
+  const resMyAvailability = await serviceHelper.axiosGet(`http://${askingIP}:${config.server.apiport}/flux/checkfluxavailability/${myIP}`).catch((error) => {
+    log.error(`${askingIP} is not reachable`);
+    log.error(error);
+    availabilityError = true;
+  });
+  if (!resMyAvailability || availabilityError) {
+    dosState += 1.5;
+    if (dosState > 10) {
+      dosMessage = dosMessage || 'Flux communication is limited';
+      log.error(dosMessage);
     }
-    let askingIP = await getRandomConnection();
-    if (typeof askingIP !== 'string' || typeof myFluxIP !== 'string' || myFluxIP === askingIP) {
-      return;
-    }
-    if (askingIP.includes(':')) {
-      // it is ipv6
-      askingIP = `[${askingIP}]`;
-    }
-    let myIP = myFluxIP;
-    if (myIP.includes(':')) {
-      myIP = `[${myIP}]`;
-    }
-    const resMyAvailability = await serviceHelper.axiosGet(`http://${askingIP}:${config.server.apiport}/flux/checkfluxavailability/${myIP}`).catch((error) => {
-      log.error(`${askingIP} is not reachable`);
-      log.error(error);
-    });
-    if (!resMyAvailability) {
-      dosState += 0.5;
-      if (dosState > 10) {
-        dosMessage = dosMessage || 'Flux communication is limited';
-        log.error(dosMessage);
-      }
-      checkMyFluxAvailability(nodelist);
-      return;
-    }
-    if (resMyAvailability.data.status === 'error' || resMyAvailability.data.data.message.includes('not')) {
-      log.error(`My Flux unavailability detected from ${askingIP}`);
-      // Asked Flux cannot reach me lets check if ip changed
-      const benchIpResponse = await daemonService.getPublicIp();
-      if (benchIpResponse.status === 'success') {
-        const benchMyIP = benchIpResponse.data.length > 5 ? benchIpResponse.data : null;
-        if (benchMyIP && benchMyIP !== myIP) {
-          myIP = benchMyIP;
-          daemonService.createConfirmationTransaction();
-          return;
-        }
-      } else {
-        dosMessage = benchIpResponse.data;
-        dosState += 10;
-      }
-      dosState += 1.5;
-      if (dosState > 10) {
-        dosMessage = dosMessage || 'Flux is not available for outside communication';
-        log.error(dosMessage);
-      } else {
-        checkMyFluxAvailability(nodelist);
+    return false;
+  }
+  if (resMyAvailability.data.status === 'error' || resMyAvailability.data.data.message.includes('not')) {
+    log.error(`My Flux unavailability detected from ${askingIP}`);
+    // Asked Flux cannot reach me lets check if ip changed
+    const benchIpResponse = await daemonService.getPublicIp();
+    if (benchIpResponse.status === 'success') {
+      const benchMyIP = benchIpResponse.data.length > 5 ? benchIpResponse.data : null;
+      if (benchMyIP && benchMyIP !== myIP) {
+        myIP = benchMyIP;
+        daemonService.createConfirmationTransaction();
+        await serviceHelper.delay(4 * 60 * 1000); // lets wait 2 blocks time for the transaction to be mined
+        return true;
       }
     } else {
-      dosState = 0;
-      dosMessage = null;
+      dosMessage = 'Error getting publicIp from FluxBench';
+      dosState += 15;
+      log.error(dosMessage);
+      return false;
     }
-  } else {
-    dosState = 0;
-    dosMessage = null;
+    dosState += 1.5;
+    if (dosState > 10) {
+      dosMessage = dosMessage || 'Flux is not available for outside communication';
+      log.error(dosMessage);
+    }
+    return false;
   }
+  dosState = 0;
+  dosMessage = null;
+  return true;
 }
 
 async function adjustExternalIP(ip) {
@@ -1188,6 +1186,9 @@ async function checkDeterministicNodesCollisions() {
     if (myIP) {
       const syncStatus = await daemonService.isDaemonSynced();
       if (!syncStatus.data.synced) {
+        setTimeout(() => {
+          checkDeterministicNodesCollisions();
+        }, 120 * 1000);
         return;
       }
       const nodeList = await deterministicFluxList();
@@ -1219,8 +1220,10 @@ async function checkDeterministicNodesCollisions() {
           }
         }
       }
-      checkMyFluxAvailability(nodeList);
-      adjustExternalIP(myIP);
+      const availabilityOk = await checkMyFluxAvailability();
+      if (availabilityOk) {
+        adjustExternalIP(myIP);
+      }
     } else {
       dosState += 1;
       if (dosState > 10) {
