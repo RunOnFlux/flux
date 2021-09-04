@@ -2,16 +2,16 @@ import Api from '@/services/Api';
 
 export default {
   listRunningApps() {
-    return Api().get('/apps/listrunningapps');
+    return Api().get(`/apps/listrunningapps?timestamp=${new Date().getTime()}`);
   },
   listAllApps() {
-    return Api().get('/apps/listallapps');
+    return Api().get(`/apps/listallapps?timestamp=${new Date().getTime()}`);
   },
   installedApps() {
-    return Api().get('/apps/installedapps');
+    return Api().get(`/apps/installedapps?timestamp=${new Date().getTime()}`);
   },
   availableApps() {
-    return Api().get('/apps/availableapps');
+    return Api().get(`/apps/availableapps?timestamp=${new Date().getTime()}`);
   },
   stopAll(zelidauthHeader, app) {
     const axiosConfig = {

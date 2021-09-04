@@ -6,7 +6,7 @@ const compression = require('compression');
 // const https = require('https');
 const path = require('path');
 const express = require('express');
-const app = require('./ZelBack/src/lib/server.js');
+const app = require('./ZelBack/src/lib/server');
 const log = require('./ZelBack/src/lib/log');
 const serviceManager = require('./ZelBack/src/services/serviceManager');
 

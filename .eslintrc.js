@@ -6,7 +6,7 @@ module.exports = {
     mocha: true,
   },
   extends: [
-    'plugin:vue/essential',
+    'plugin:vue/recommended',
     '@vue/airbnb',
   ],
   rules: {
@@ -19,14 +19,16 @@ module.exports = {
       },
     ],
     'no-console': 'off',
-    'import/extensions': [
-      'error',
-      'never',
-    ],
     'linebreak-style': [
       'error',
       'unix',
     ],
+    'prefer-destructuring': ['error', { object: true, array: false }],
+    'import/no-extraneous-dependencies': ['error', {
+      devDependencies: true, optionalDependencies: true, peerDependencies: false,
+    }],
+    camelcase: ['error', { properties: 'never', ignoreDestructuring: true, ignoreImports: true }],
+    'import/extensions': ['error', 'ignorePackages', { vue: 'always', js: 'never' }],
   },
   parserOptions: {
     parser: 'babel-eslint',

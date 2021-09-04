@@ -1,9 +1,8 @@
 import axios from 'axios';
+import config from 'ZelBack/config/default';
+import userconfig from 'Config/userconfig';
 
 const store = require('store');
-
-const config = require('../../../ZelBack/config/default');
-const userconfig = require('../../../config/userconfig');
 
 const port = config.server.apiport;
 const externalip = userconfig.initial.ipaddress;
@@ -23,12 +22,10 @@ if (hostname.match(regex)) {
   mybackend += port;
 }
 
-const backendURL = store.get('backendURL') || mybackend;
-
 const sourceCancelToken = axios.CancelToken.source();
 
 export { sourceCancelToken };
 
 export default () => axios.create({
-  baseURL: backendURL,
+  baseURL: store.get('backendURL') || mybackend,
 });

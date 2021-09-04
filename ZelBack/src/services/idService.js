@@ -23,10 +23,13 @@ async function loginPhrase(req, res) {
       return;
     }
     if (dosState.status === 'success') {
-      if (dosState.data.dosState > 10 || dosState.data.dosMessage !== null) {
+      if (dosState.data.dosState > 10 || dosState.data.dosMessage !== null || dosState.data.nodeHardwareSpecsGood === false) {
         let errMessage = serviceHelper.createErrorMessage(dosState.data.dosMessage, 'DOS', dosState.data.dosState);
         if (dosState.data.dosMessage !== 'Flux IP detection failed' && dosState.data.dosMessage !== 'Flux collision detection') {
           errMessage = serviceHelper.createErrorMessage(dosState.data.dosMessage, 'CONNERROR', dosState.data.dosState);
+        }
+        if (dosState.data.nodeHardwareSpecsGood === false) {
+          errMessage = serviceHelper.createErrorMessage('Minimum hardware required for FluxNode tier not met', 'DOS', 100);
         }
         res.json(errMessage);
         return;
