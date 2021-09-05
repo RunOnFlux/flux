@@ -58,7 +58,7 @@
     "start": "npm install --production && node init.js && npm run flux",
     "dev": "node init.js && concurrently \"npm run fluxdev\" \"npm run homedev\"",
     "updateflux": "git pull; npm install --production",
-    "hardupdateflux": "rm -rf node_modules; rm -rf ZelFront/dist; rm -rf HomeUI/dist; rm -f package-lock.json; git reset --hard; git pull; npm run start",
+    "hardupdateflux": "rm -f ./.git/index.lock; rm -rf ZelFront/dist; rm -rf HomeUI/dist; rm -rf node_modules; rm -f package-lock.json; git reset --hard; git pull; npm run start",
     "ciconfig": "cp sampleUserConfig.js config/userconfig.js && mkdir ~/.zelcash && cp sampleDaemonConfig.conf ~/.zelcash/zelcash.conf"
   },
   "dependencies": {
