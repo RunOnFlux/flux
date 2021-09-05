@@ -1119,14 +1119,20 @@ async function checkMyFluxAvailability() {
   if (resMyAvailability.data.status === 'error' || resMyAvailability.data.data.message.includes('not')) {
     log.error(`My Flux unavailability detected from ${askingIP}`);
     // Asked Flux cannot reach me lets check if ip changed
+    log.info('Getting publicIp from FluxBench');
     const benchIpResponse = await daemonService.getPublicIp();
     if (benchIpResponse.status === 'success') {
       const benchMyIP = benchIpResponse.data.length > 5 ? benchIpResponse.data : null;
       if (benchMyIP && benchMyIP !== myIP) {
+        log.info('New public Ip detected, updating the FluxNode info in the network');
         myIP = benchMyIP;
         daemonService.createConfirmationTransaction();
         await serviceHelper.delay(4 * 60 * 1000); // lets wait 2 blocks time for the transaction to be mined
         return true;
+      } if (benchMyIP && benchMyIP === myIP) {
+        log.info('FluxBench reported the same Ip that was already in use');
+      } else {
+        log.error('FluxBench wasnt able to detect flux node public ip');
       }
     } else {
       dosMessage = 'Error getting publicIp from FluxBench';
