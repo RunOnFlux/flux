@@ -1578,7 +1578,6 @@ export default {
   computed: {
     ...mapState('flux', [
       'config',
-      'userconfig',
       'privilege',
     ]),
     callbackValue() {
@@ -1592,7 +1591,10 @@ export default {
         names[0] = 'api';
         mybackend += names.join('.');
       } else {
-        mybackend += this.userconfig.externalip;
+        if (typeof hostname === 'string') {
+          this.$store.commit('setUserIp', hostname);
+        }
+        mybackend += hostname;
         mybackend += ':';
         mybackend += this.config.apiPort;
       }
@@ -1761,7 +1763,10 @@ export default {
         names[0] = 'api';
         mybackend += names.join('.');
       } else {
-        mybackend += this.userconfig.externalip;
+        if (typeof hostname === 'string') {
+          this.$store.commit('setUserIp', hostname);
+        }
+        mybackend += hostname;
         mybackend += ':';
         mybackend += this.config.apiPort;
       }

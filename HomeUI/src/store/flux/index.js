@@ -1,15 +1,11 @@
 import config from 'ZelBack/config/default';
-import userconfig from 'Config/userconfig';
 
 export default {
   namespaced: true,
   state: {
     userconfig: {
-      zelid: userconfig.initial.zelid,
-      externalip: userconfig.initial.ipaddress,
-      cruxid: userconfig.initial.cruxid,
-      kadena: userconfig.initial.kadena,
-      testnet: userconfig.initial.testnet,
+      zelid: '',
+      externalip: '',
     },
     config: {
       apiPort: config.server.apiport,
@@ -25,6 +21,12 @@ export default {
     },
     setFluxVersion(state, version) {
       state.fluxVersion = version;
+    },
+    setUserZelid(state, zelid) {
+      state.userconfig.zelid = zelid;
+    },
+    setUserIp(state, externalip) {
+      state.userconfig.externalip = externalip;
     },
   },
   actions: {},

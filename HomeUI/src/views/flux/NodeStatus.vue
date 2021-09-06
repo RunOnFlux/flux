@@ -89,6 +89,7 @@ import { mapState } from 'vuex';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 import ListEntry from '@/views/components/ListEntry.vue';
 import DaemonService from '@/services/DaemonService';
+import FluxService from '@/services/FluxService';
 
 const timeoptions = require('@/libs/dateFormat');
 
@@ -141,8 +142,16 @@ export default {
   mounted() {
     this.daemonGetInfo();
     this.daemonGetNodeStatus();
+    this.getOwnerZelid();
   },
   methods: {
+    async getOwnerZelid() {
+      const response = await FluxService.getZelid();
+      const obtainedZelid = response.data.data;
+      if (response.data.status === 'success' && typeof obtainedZelid === 'string') {
+        this.$store.commit('setUserZelid', obtainedZelid);
+      }
+    },
     async daemonGetInfo() {
       const response = await DaemonService.getInfo();
       if (response.data.status === 'error') {

@@ -512,9 +512,6 @@ export default {
   computed: {
     ...mapState('flux', [
       'fluxVersion',
-      'config',
-      'userconfig',
-      'privilege',
     ]),
     currentLoginPhrase() {
       const zelidauth = localStorage.getItem('zelidauth');

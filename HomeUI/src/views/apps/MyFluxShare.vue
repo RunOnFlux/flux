@@ -1,8 +1,6 @@
 <template>
   <div>
-    <div
-      class="mb-2"
-    >
+    <div class="mb-2">
       <h6 class="progress-label">
         {{ storage.used.toFixed(2) + ' / ' + storage.total.toFixed(2) }} GB
       </h6>
@@ -100,9 +98,7 @@
       </template>
       <template #cell(name)="data">
         <div v-if="data.item.isDirectory">
-          <b-link
-            @click="changeFolder(data.item.name)"
-          >
+          <b-link @click="changeFolder(data.item.name)">
             {{ data.item.name }}
           </b-link>
         </div>
@@ -214,9 +210,7 @@
             Share Link
           </template>
           <div>
-            <b-link
-              :href="createfluxshareLink(data.item.shareFile, data.item.shareToken)"
-            >
+            <b-link :href="createfluxshareLink(data.item.shareFile, data.item.shareToken)">
               {{ createfluxshareLink(data.item.shareFile, data.item.shareToken) }}
             </b-link>
           </div>
@@ -348,7 +342,6 @@ export default {
   },
   computed: {
     ...mapState('flux', [
-      'userconfig',
     ]),
     percentage() {
       const perc = (this.storage.used / this.storage.total) * 100;
@@ -366,7 +359,8 @@ export default {
       if (backendURL) {
         return `${store.get('backendURL').split(':')[0]}:${store.get('backendURL').split(':')[1]}`;
       }
-      return `http://${this.userconfig.externalip}`;
+      const { hostname } = window.location;
+      return `http://${hostname}`;
     },
     folderContentFilter() {
       const filteredFolder = this.folderView.filter((data) => JSON.stringify(data.name).toLowerCase().includes(this.filterFolder.toLowerCase()));
@@ -741,5 +735,4 @@ export default {
 .fluxshare-table th:nth-child(6) {
   width: 50px;
 }
-
 </style>

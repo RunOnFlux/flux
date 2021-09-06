@@ -1,11 +1,7 @@
 <template>
   <div>
-    <div
-      :class="managedApplication ? 'd-none' : ''"
-    >
-      <b-tabs
-        @activate-tab="output = ''; downloading = false"
-      >
+    <div :class="managedApplication ? 'd-none' : ''">
+      <b-tabs @activate-tab="output = ''; downloading = false">
         <b-tab
           active
           title="Running"
@@ -62,9 +58,7 @@
             </b-card>
           </b-overlay>
         </b-tab>
-        <b-tab
-          title="Installed"
-        >
+        <b-tab title="Installed">
           <b-overlay
             :show="tableconfig.installed.loading"
             variant="transparent"
@@ -162,9 +156,7 @@
             </b-card>
           </b-overlay>
         </b-tab>
-        <b-tab
-          title="Available"
-        >
+        <b-tab title="Available">
           <b-overlay
             :show="tableconfig.available.loading"
             variant="transparent"
@@ -332,9 +324,7 @@
             </b-card>
           </b-overlay>
         </b-tab>
-        <b-tab
-          title="My Local Apps"
-        >
+        <b-tab title="My Local Apps">
           <b-overlay
             :show="tableconfig.installed.loading"
             variant="transparent"
@@ -536,9 +526,7 @@
         </b-row>
       </div>
     </div>
-    <div
-      v-if="managedApplication"
-    >
+    <div v-if="managedApplication">
       <management
         :app-name="managedApplication"
         :global="false"
@@ -753,6 +741,13 @@ export default {
     this.appsGetAvailableApps();
     this.appsGetListRunningApps();
     this.appsGetInstalledApps();
+    const { hostname } = window.location;
+    const regex = /[A-Za-z]/g;
+    if (!hostname.match(regex)) {
+      if (typeof hostname === 'string') {
+        this.$store.commit('setUserIp', hostname);
+      }
+    }
   },
   methods: {
     async getZelNodeStatus() {

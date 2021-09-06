@@ -43,9 +43,7 @@
       :settings="perfectScrollbarSettings"
       class="proposal-scroll-area scroll-area"
     >
-      <b-card
-        :title="`Proposed By ${proposalViewData.nickName}`"
-      >
+      <b-card :title="`Proposed By ${proposalViewData.nickName}`">
         <b-form-textarea
           id="textarea-rows"
           rows="10"
@@ -59,9 +57,7 @@
           xxl="4"
           lg="12"
         >
-          <b-card
-            title="Status"
-          >
+          <b-card title="Status">
             <div class="text-center badge-wrapper mr-1">
               <b-badge
                 pill
@@ -220,9 +216,7 @@
             xl="3"
             md="5"
           >
-            <b-card
-              title="Vote Now!"
-            >
+            <b-card title="Vote Now!">
               <p>You haven't voted yet! You have a total of {{ myNumberOfVotes }} available.</p>
               <div>
                 <p>
@@ -354,9 +348,7 @@
         </b-row>
         <b-row v-else>
           <b-col cols="12">
-            <b-card
-              title="Your Vote"
-            >
+            <b-card title="Your Vote">
               <div class="text-center badge-wrapper mr-1">
                 <b-badge
                   pill
@@ -454,7 +446,6 @@ export default {
   },
   setup(props, ctx) {
     const config = computed(() => ctx.root.$store.state.flux.config);
-    const userconfig = computed(() => ctx.root.$store.state.flux.userconfig);
 
     // Use toast
     const toast = useToast();
@@ -544,7 +535,10 @@ export default {
         names[0] = 'api';
         mybackend += names.join('.');
       } else {
-        mybackend += userconfig.value.externalip;
+        if (typeof hostname === 'string') {
+          this.$store.commit('setUserIp', hostname);
+        }
+        mybackend += hostname;
         mybackend += ':';
         mybackend += config.value.apiPort;
       }
@@ -583,7 +577,10 @@ export default {
         names[0] = 'api';
         mybackend += names.join('.');
       } else {
-        mybackend += userconfig.value.externalip;
+        if (typeof hostname === 'string') {
+          this.$store.commit('setUserIp', hostname);
+        }
+        mybackend += hostname;
         mybackend += ':';
         mybackend += config.value.apiPort;
       }
@@ -831,7 +828,6 @@ export default {
 </script>
 
 <style>
-
 </style>
 <style scoped>
 .inline {

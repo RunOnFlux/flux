@@ -28,8 +28,6 @@ export default {
   },
   computed: {
     ...mapState('flux', [
-      'userconfig',
-      'config',
       'fluxVersion',
     ]),
   },

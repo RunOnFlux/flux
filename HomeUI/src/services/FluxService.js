@@ -108,6 +108,9 @@ export default {
   getKadenaAccount() {
     return Api().get('/flux/kadena');
   },
+  getZelid() {
+    return Api().get('/flux/zelid');
+  },
   // DEBUG
   tailFluxLog(name, zelidauthHeader) {
     return Api().get(`/flux/tail${name}log`, {

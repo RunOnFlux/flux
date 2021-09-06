@@ -1,11 +1,9 @@
 import axios from 'axios';
 import config from 'ZelBack/config/default';
-import userconfig from 'Config/userconfig';
 
 const store = require('store');
 
 const port = config.server.apiport;
-const externalip = userconfig.initial.ipaddress;
 
 const { protocol, hostname } = window.location;
 let mybackend = '';
@@ -17,7 +15,7 @@ if (hostname.match(regex)) {
   names[0] = 'api';
   mybackend += names.join('.');
 } else {
-  mybackend += externalip;
+  mybackend += hostname;
   mybackend += ':';
   mybackend += port;
 }

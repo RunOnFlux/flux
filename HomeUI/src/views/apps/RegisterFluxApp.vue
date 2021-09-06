@@ -256,9 +256,7 @@
         </b-card>
       </b-col>
     </b-row>
-    <b-row
-      v-if="appRegistrationSpecification.tiered"
-    >
+    <b-row v-if="appRegistrationSpecification.tiered">
       <b-col
         xs="12"
         md="6"
@@ -578,7 +576,6 @@ export default {
   computed: {
     ...mapState('flux', [
       'config',
-      'userconfig',
       'privilege',
     ]),
     appPricePerMonth() {
@@ -604,7 +601,10 @@ export default {
         names[0] = 'api';
         mybackend += names.join('.');
       } else {
-        mybackend += this.userconfig.externalip;
+        if (typeof hostname === 'string') {
+          this.$store.commit('setUserIp', hostname);
+        }
+        mybackend += hostname;
         mybackend += ':';
         mybackend += this.config.apiPort;
       }
@@ -872,7 +872,10 @@ export default {
         names[0] = 'api';
         mybackend += names.join('.');
       } else {
-        mybackend += this.userconfig.externalip;
+        if (typeof hostname === 'string') {
+          this.$store.commit('setUserIp', hostname);
+        }
+        mybackend += hostname;
         mybackend += ':';
         mybackend += this.config.apiPort;
       }
