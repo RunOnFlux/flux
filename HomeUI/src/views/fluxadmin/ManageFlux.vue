@@ -48,20 +48,20 @@
           <b-col lg="12">
             <b-card title="Flux UI">
               <b-card-text>
-                This option rebuilds the Flux Home User Interface. Only use this option when the UI does not rebuild properly to the latest Flux version.
+                Forcefully update Flux. Only use this option when something is not working correctly!
               </b-card-text>
               <div class="text-center">
                 <b-button
-                  id="rebuild-home-a"
+                  id="update-hardway-a"
                   v-ripple.400="'rgba(255, 255, 255, 0.15)'"
                   variant="success"
-                  aria-label="Rebuild Home"
+                  aria-label="Forcefully Update"
                 >
-                  Rebuild Home
+                  Forcefully Update
                 </b-button>
                 <confirm-dialog
-                  target="rebuild-home-a"
-                  confirm-button="Rebuild Home"
+                  target="update-hardway-a"
+                  confirm-button="Update Flux Forcefully"
                   @confirm="rebuildHome()"
                 />
               </div>
@@ -167,21 +167,21 @@
       >
         <b-card title="Flux UI">
           <b-card-text>
-            This option rebuilds the Flux Home User Interface. Only use this option when the UI does not rebuild properly to the latest Flux version.
+            Forcefully update Flux. Only use this option when something is not working correctly!
           </b-card-text>
           <div class="text-center">
             <b-button
-              id="rebuild-home-b"
+              id="update-hardway-b"
               v-ripple.400="'rgba(255, 255, 255, 0.15)'"
               variant="success"
-              aria-label="Rebuild Home"
+              aria-label="Forcefully Update"
             >
-              Rebuild Home
+              Forcefully Update
             </b-button>
             <confirm-dialog
-              target="rebuild-home-b"
-              confirm-button="Rebuild Home"
-              @confirm="rebuildHome()"
+              target="update-hardway-b"
+              confirm-button="Forcefully Update"
+              @confirm="updateHardWay()"
             />
           </div>
         </b-card>
@@ -568,12 +568,12 @@ export default {
         this.showToast('danger', error.message || error);
       }
     },
-    rebuildHome() {
+    updateHardWay() {
       const zelidauth = localStorage.getItem('zelidauth');
       const auth = qs.parse(zelidauth);
       console.log(auth);
-      this.showToast('warning', 'Flux Home is now rebuilding in the background');
-      FluxService.rebuildHome(zelidauth)
+      this.showToast('warning', 'Flux is now being forcefully updated in the background');
+      FluxService.hardUpdateFlux(zelidauth)
         .then((response) => {
           console.log(response);
           if (response.data.status === 'error') {

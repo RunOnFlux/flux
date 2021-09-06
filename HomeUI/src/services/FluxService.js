@@ -8,6 +8,13 @@ export default {
       },
     });
   },
+  hardUpdateFlux(zelidauthHeader) {
+    return Api().get('/flux/hardupdateflux', {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    });
+  },
   rebuildHome(zelidauthHeader) {
     return Api().get('/flux/rebuildhome', {
       headers: {
