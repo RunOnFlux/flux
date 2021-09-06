@@ -30,7 +30,9 @@
               :href="'https://explorer.runonflux.io/block-index/' + getNodeStatusResponse.data.added_height"
               target="_blank"
               rel="noopener noreferrer"
-            >{{ getNodeStatusResponse.data.added_height }}</ElLink>
+            >
+              {{ getNodeStatusResponse.data.added_height }}
+            </ElLink>
           </h4>
           <h4>
             Confirmed Height: <ElLink
@@ -38,7 +40,9 @@
               :href="'https://explorer.runonflux.io/block-index/' + getNodeStatusResponse.data.confirmed_height"
               target="_blank"
               rel="noopener noreferrer"
-            >{{ getNodeStatusResponse.data.confirmed_height }}</ElLink>
+            >
+              {{ getNodeStatusResponse.data.confirmed_height }}
+            </ElLink>
           </h4>
           <h4>
             Last Confirmed Height: <ElLink
@@ -46,7 +50,9 @@
               :href="'https://explorer.runonflux.io/block-index/' + getNodeStatusResponse.data.last_confirmed_height"
               target="_blank"
               rel="noopener noreferrer"
-            >{{ getNodeStatusResponse.data.last_confirmed_height }}</ElLink>
+            >
+              {{ getNodeStatusResponse.data.last_confirmed_height }}
+            </ElLink>
           </h4>
           <h4>
             Last Paid Height: <ElLink
@@ -54,7 +60,9 @@
               :href="'https://explorer.runonflux.io/block-index/' + getNodeStatusResponse.data.last_paid_height"
               target="_blank"
               rel="noopener noreferrer"
-            >{{ getNodeStatusResponse.data.last_paid_height }}</ElLink>
+            >
+              {{ getNodeStatusResponse.data.last_paid_height }}
+            </ElLink>
           </h4>
           <h4>
             <ElLink
@@ -62,7 +70,9 @@
               :href="'https://explorer.runonflux.io/tx/' + getNodeStatusResponse.data.txhash"
               target="_blank"
               rel="noopener noreferrer"
-            >Show Locked transaction</ElLink>
+            >
+              Show Locked transaction
+            </ElLink>
           </h4>
         </div>
       </div>
@@ -99,20 +109,17 @@
               label="IP address"
               prop="ip"
               sortable
-            >
-            </el-table-column>
+            />
             <el-table-column
               label="Latency"
               prop="latency"
               sortable
-            >
-            </el-table-column>
+            />
             <el-table-column
               label="Last Ping"
               prop="lastPingTime"
               sortable
-            >
-            </el-table-column>
+            />
             <el-table-column align="right">
               <template
                 slot="header"
@@ -130,20 +137,24 @@
                   size="mini"
                   type="danger"
                   @click="disconnectPeer(scope.$index, scope.row)"
-                >Disconnect</el-button>
+                >
+                  Disconnect
+                </el-button>
               </template>
             </el-table-column>
           </el-table>
-          <el-divider></el-divider>
+          <el-divider />
           Force a connection to a peer
           <ElForm class="loginForm">
             <ElFormItem>
               <ElInput
+                v-model="connectPeerIP"
                 type="text"
                 placeholder="insert IP address"
-                v-model="connectPeerIP"
               >
-                <template slot="prepend">IP: </template>
+                <template slot="prepend">
+                  IP:
+                </template>
               </ElInput>
             </ElFormItem>
 
@@ -165,8 +176,7 @@
               label="IP address"
               prop="ip"
               sortable
-            >
-            </el-table-column>
+            />
             <el-table-column align="right">
               <template
                 slot="header"
@@ -184,7 +194,9 @@
                   size="mini"
                   type="danger"
                   @click="disconnectIncoming(scope.$index, scope.row)"
-                >Disconnect</el-button>
+                >
+                  Disconnect
+                </el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -197,15 +209,15 @@
       </div>
       <el-row :gutter="20">
         <el-col
-          :span="6"
-          :key="logType"
           v-for="logType in logTypes"
+          :key="logType"
+          :span="6"
         >
           <el-popconfirm
-            :confirmButtonText="`Download ${logType}.log`"
-            cancelButtonText='No, Thanks'
+            :confirm-button-text="`Download ${logType}.log`"
+            cancel-button-text="No, Thanks"
             icon="el-icon-info"
-            iconColor="orange"
+            icon-color="orange"
             :title="`Download Flux ${logType}.log file?`"
             @onConfirm="downloadFluxLogFile(logType)"
             @confirm="downloadFluxLogFile(logType)"
@@ -230,7 +242,7 @@
                 circle
                 size="mini"
                 @click="cancelDownload(logType)"
-              ></el-button>
+              />
             </el-tooltip>
           </p>
           <p
@@ -243,10 +255,10 @@
           <br>
           <div>
             <el-popconfirm
-              :confirmButtonText="`Show ${logType}.log`"
-              cancelButtonText='No, Thanks'
+              :confirm-button-text="`Show ${logType}.log`"
+              cancel-button-text="No, Thanks"
               icon="el-icon-info"
-              iconColor="orange"
+              icon-color="orange"
               :title="`Show Flux ${logType}.log file?`"
               @onConfirm="tailFluxLog(logType)"
               @confirm="tailFluxLog(logType)"
@@ -261,11 +273,10 @@
       </el-row>
       <el-input
         v-if="callResponse.data.message"
+        v-model="fluxLogTail"
         type="textarea"
         autosize
-        v-model="fluxLogTail"
-      >
-      </el-input>
+      />
     </div>
   </div>
 </template>

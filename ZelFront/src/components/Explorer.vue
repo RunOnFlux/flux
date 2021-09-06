@@ -1,11 +1,10 @@
 <template>
   <div>
     <ElInput
+      v-model="searchBar"
       type="text"
       placeholder="Search for block, transaction or address"
-      v-model="searchBar"
-    >
-    </ElInput>
+    />
     <br><br>
     <div v-if="explorerSection === 'explorer'">
       <el-table
@@ -41,8 +40,8 @@
       </el-table>
     </div>
     <div
-      :key="uniqueKeyBlock"
       v-if="explorerSection === 'block'"
+      :key="uniqueKeyBlock"
     >
       <el-row v-if="!blocksWithTransaction[height]">
         Loading Block...
@@ -255,8 +254,8 @@
     </div>
 
     <div
-      :key="uniqueKeyAddress"
       v-if="explorerSection === 'address'"
+      :key="uniqueKeyAddress"
     >
       <el-row v-if="!addressWithTransactions[address]">
         Loading Address...
@@ -344,8 +343,8 @@
     </div>
 
     <div
-      :key="uniqueKey"
       v-if="explorerSection === 'transaction'"
+      :key="uniqueKey"
     >
       <el-row v-if="!transactionDetail.txid">
         Loading Transaction...

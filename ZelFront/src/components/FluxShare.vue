@@ -6,7 +6,7 @@
         :percentage="percentage"
         :color="customColors"
         :stroke-width="20"
-      ></el-progress>
+      />
       {{ storage.used.toFixed(2) + ' / ' + storage.total.toFixed(2) }} GB
     </p>
     <el-table
@@ -18,7 +18,7 @@
     >
       <div slot="empty">
         <p v-if="loadingFolder">
-          Loading folder <i class="el-icon-loading"></i>
+          Loading folder <i class="el-icon-loading" />
         </p>
         <p v-else-if="filterFolder">
           No files found
@@ -42,8 +42,7 @@
             type="info"
             size="mini"
             @click="changeFolder('..'); sortTableByNameManual();"
-          >
-          </el-button>
+          />
           Name
         </template>
         <template slot-scope="scope">
@@ -132,7 +131,7 @@
                 size="mini"
                 type="info"
                 @click="download(scope.row.name)"
-              ></el-button>
+              />
             </el-tooltip>
             <el-tooltip
               content="Download zip of folder"
@@ -147,7 +146,7 @@
                 size="mini"
                 type="info"
                 @click="download(scope.row.name, true, scope.row.size)"
-              ></el-button>
+              />
             </el-tooltip>
             <el-tooltip
               content="Rename"
@@ -160,7 +159,7 @@
                 circle
                 size="mini"
                 @click="rename(scope.row.name)"
-              ></el-button>
+              />
             </el-tooltip>
             <el-tooltip
               content="Unshare file"
@@ -174,7 +173,7 @@
                 circle
                 size="mini"
                 @click="unshareFile(scope.row.name)"
-              ></el-button>
+              />
             </el-tooltip>
             <el-tooltip
               content="Share file"
@@ -188,7 +187,7 @@
                 circle
                 size="mini"
                 @click="shareFile(scope.row.name)"
-              ></el-button>
+              />
             </el-tooltip>
             <el-popover
               :key="scope.row.shareToken"
@@ -199,12 +198,12 @@
             >
               <el-button
                 v-if="scope.row.shareToken"
+                slot="reference"
                 type="info"
                 icon="el-icon-message"
                 circle
                 size="mini"
-                slot="reference"
-              ></el-button>
+              />
             </el-popover>
             <p v-if="total[scope.row.name] && downloaded[scope.row.name]">
               {{ (downloaded[scope.row.name] / 1e6).toFixed(2) + " / " + (total[scope.row.name] / 1e6).toFixed(2) }} MB
@@ -215,7 +214,7 @@
               <i
                 v-if="total[scope.row.name] && downloaded[scope.row.name] && total[scope.row.name] === downloaded[scope.row.name]"
                 class="el-icon-success"
-              ></i>
+              />
               <el-tooltip
                 v-if="total[scope.row.name] && downloaded[scope.row.name] && total[scope.row.name] !== downloaded[scope.row.name]"
                 content="Cancel Download"
@@ -229,7 +228,7 @@
                   circle
                   size="mini"
                   @click="cancelDownload(scope.row.name)"
-                ></el-button>
+                />
               </el-tooltip>
             </p>
           </div>
@@ -252,8 +251,7 @@
                 circle
                 type="info"
                 @click="uploadFilesDialog = true"
-              >
-              </el-button>
+              />
             </el-tooltip>
             <el-tooltip
               content="Create folder"
@@ -267,8 +265,7 @@
                 size="mini"
                 type="info"
                 @click="createDirectoryDialogVisible = true"
-              >
-              </el-button>
+              />
             </el-tooltip>
           </p>
         </template>
@@ -281,13 +278,13 @@
             >
               <el-popconfirm
                 v-if="scope.row.isFile"
-                confirmButtonText='Delete'
-                cancelButtonText='No, Thanks'
+                confirm-button-text="Delete"
+                cancel-button-text="No, Thanks"
                 icon="el-icon-delete"
-                iconColor="red"
+                icon-color="red"
                 title="Permanently delete file?"
-                confirmButtonType="danger"
-                cancelButtonType="info"
+                confirm-button-type="danger"
+                cancel-button-type="info"
                 @onConfirm="deleteFile(scope.row.name)"
                 @confirm="deleteFile(scope.row.name)"
               >
@@ -297,8 +294,7 @@
                   circle
                   size="mini"
                   type="danger"
-                >
-                </el-button>
+                />
               </el-popconfirm>
             </el-tooltip>
             <el-tooltip
@@ -308,25 +304,23 @@
             >
               <el-popconfirm
                 v-if="scope.row.isDirectory"
-                confirmButtonText='Delete'
-                cancelButtonText='No, Thanks'
+                confirm-button-text="Delete"
+                cancel-button-text="No, Thanks"
                 icon="el-icon-delete"
-                iconColor="red"
+                icon-color="red"
                 title="Only empty directories can be deleted for security reasons. Delete directory?"
-                confirmButtonType="danger"
-                cancelButtonType="info"
+                confirm-button-type="danger"
+                cancel-button-type="info"
                 @onConfirm="deleteFolder(scope.row.name)"
                 @confirm="deleteFolder(scope.row.name)"
               >
-
                 <el-button
                   slot="reference"
                   icon="el-icon-delete"
                   circle
                   size="mini"
                   type="danger"
-                >
-                </el-button>
+                />
               </el-popconfirm>
             </el-tooltip>
           </p>
@@ -339,8 +333,8 @@
       :show-close="true"
       title="Upload files"
       :visible.sync="uploadFilesDialog"
-      @close="uploadClose"
       width="75%"
+      @close="uploadClose"
     >
       <el-upload
         drag
@@ -353,12 +347,16 @@
         thumbnail-mode="true"
         multiple
       >
-        <i class="el-icon-upload"></i>
-        <div class="el-upload__text">Drop file here or <em>click to upload</em></div>
+        <i class="el-icon-upload" />
+        <div class="el-upload__text">
+          Drop file here or <em>click to upload</em>
+        </div>
         <div
-          class="el-upload__tip"
           slot="tip"
-        >File size is limited to 5GB</div>
+          class="el-upload__tip"
+        >
+          File size is limited to 5GB
+        </div>
         <div v-if="uploadTotal">
           {{ (uploadUploaded / 1e6).toFixed(2) + " / " + (uploadTotal / 1e6).toFixed(2) }} MB
           <br>
@@ -378,11 +376,13 @@
       @close="newDirName = ''"
     >
       <ElInput
+        v-model="newDirName"
         type="text"
         placeholder="Write new direcotry name..."
-        v-model="newDirName"
       >
-        <template slot="prepend">Directory Name</template>
+        <template slot="prepend">
+          Directory Name
+        </template>
       </ElInput>
       <br><br>
       <el-button
@@ -401,11 +401,13 @@
       width="75%"
     >
       <ElInput
+        v-model="newName"
         type="text"
         placeholder="Write new name..."
-        v-model="newName"
       >
-        <template slot="prepend">Name</template>
+        <template slot="prepend">
+          Name
+        </template>
       </ElInput>
       <br><br>
       <el-button
@@ -431,7 +433,7 @@ Vue.use(Vuex);
 const vue = new Vue();
 
 export default {
-  name: 'fluxshare',
+  name: 'Fluxshare',
   data() {
     return {
       timeoptions: {

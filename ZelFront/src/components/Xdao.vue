@@ -15,20 +15,17 @@
           label="Topic"
           prop="topic"
           sortable
-        >
-        </el-table-column>
+        />
         <el-table-column
           label="Grant Value"
           prop="grantValue"
           sortable
-        >
-        </el-table-column>
+        />
         <el-table-column
           label="Name/NickName"
           prop="nickName"
           sortable
-        >
-        </el-table-column>
+        />
         <el-table-column
           label="Submit Date"
           prop="submitDate"
@@ -51,8 +48,7 @@
           label="Status"
           prop="status"
           sortable
-        >
-        </el-table-column>
+        />
         <el-table-column align="right">
           <template
             slot="header"
@@ -83,45 +79,40 @@
       <el-form label-width="150px">
         <el-form-item label="Topic*">
           <el-input
-            placeholder="Proposal Topic"
             v-model="proposalTopic"
-          >
-          </el-input>
+            placeholder="Proposal Topic"
+          />
         </el-form-item>
 
         <el-form-item label="Grant Amount">
           <el-input
-            placeholder="Grant Flux Amount"
             v-model="proposalGrantValue"
-          >
-          </el-input>
+            placeholder="Grant Flux Amount"
+          />
         </el-form-item>
 
         <el-form-item label="Grant Pay to Address">
           <el-input
-            placeholder="Flux Address to Receive Grant"
             v-model="proposalGrantAddress"
-          >
-          </el-input>
+            placeholder="Flux Address to Receive Grant"
+          />
         </el-form-item>
 
         <el-form-item label="Proposal Description*">
           <el-input
+            v-model="proposalDescription"
             type="textarea"
             autosize
             placeholder="Proposal Description"
-            v-model="proposalDescription"
-          >
-          </el-input>
+          />
         </el-form-item>
 
         <el-form-item label="Name/NickName">
           <el-input
+            v-model="proposalNickName"
             class="width100"
             placeholder="Name/NickName of Proposal Owner"
-            v-model="proposalNickName"
-          >
-          </el-input>
+          />
         </el-form-item>
       </el-form>
       <div v-if="!proposalValid">
@@ -133,14 +124,14 @@
         <br>
         <p>Proposal is Valid</p>
         <br>
-        Proposal Price: {{proposalPrice}} FLUX
+        Proposal Price: {{ proposalPrice }} FLUX
         <br>
         <ElButton @click="register">
           Register Flux XDAO Proposal
         </ElButton>
         <br><br>
         <div v-if="registrationHash">
-          To finish registration, please do a transaction of {{proposalPrice}} Flux to address
+          To finish registration, please do a transaction of {{ proposalPrice }} Flux to address
           {{ foundationAddress }}
           with following message:
           {{ registrationHash }}
@@ -157,7 +148,7 @@
               src="@/assets/img/zelID.svg"
               height="100%"
               width="100%"
-            />
+            >
           </a>
         </div>
       </div>
@@ -169,30 +160,27 @@
       <el-form label-width="150px">
         <el-form-item label="Topic">
           <el-input
-            placeholder="Proposal Topic"
             v-model="proposalDetail.topic"
+            placeholder="Proposal Topic"
             disabled
-          >
-          </el-input>
+          />
         </el-form-item>
 
         <el-form-item label="Proposal Description">
           <el-input
+            v-model="proposalDetail.description"
             type="textarea"
             autosize
             placeholder="Proposal Description"
-            v-model="proposalDetail.description"
             disabled
-          >
-          </el-input>
+          />
         </el-form-item>
         <el-form-item label="Status">
           <el-input
-            placeholder="Proposal Status"
             v-model="proposalDetail.status"
+            placeholder="Proposal Status"
             disabled
-          >
-          </el-input>
+          />
         </el-form-item>
 
         <el-form-item label="Submit Date">
@@ -200,8 +188,7 @@
             placeholder="Proposal Submit Date"
             :value="new Date(proposalDetail.submitDate).toLocaleString('en-GB', timeoptions)"
             disabled
-          >
-          </el-input>
+          />
         </el-form-item>
 
         <el-form-item label="Vote End Date">
@@ -209,72 +196,64 @@
             placeholder="Proposal Vote End Date"
             :value="new Date(proposalDetail.voteEndDate).toLocaleString('en-GB', timeoptions)"
             disabled
-          >
-          </el-input>
+          />
         </el-form-item>
 
         <el-form-item label="Total Votes Required">
           <el-input
-            placeholder="Total Votes Required"
             v-model="proposalDetail.votesRequired"
+            placeholder="Total Votes Required"
             disabled
-          >
-          </el-input>
+          />
         </el-form-item>
 
         <el-form-item label="Total Votes">
           <el-input
-            placeholder="Total Votes"
             v-model="proposalDetail.votesTotal"
+            placeholder="Total Votes"
             disabled
-          >
-          </el-input>
+          />
         </el-form-item>
 
         <el-form-item label="Votes Yes">
           <el-input
-            placeholder="Votes Yes"
             v-model="proposalDetail.votesYes"
+            placeholder="Votes Yes"
             disabled
-          >
-          </el-input>
+          />
         </el-form-item>
 
         <el-form-item label="Votes No">
           <el-input
-            placeholder="Votes No"
             v-model="proposalDetail.votesNo"
+            placeholder="Votes No"
             disabled
-          >
-          </el-input>
+          />
         </el-form-item>
 
         <el-form-item label="Grant Amount">
           <el-input
-            placeholder="Grant Flux Amount"
             v-model="proposalDetail.grantValue"
+            placeholder="Grant Flux Amount"
             disabled
-          >
-          </el-input>
+          />
         </el-form-item>
 
         <el-form-item label="Grant Pay to Address">
           <el-input
-            placeholder="Flux Address to Receive Grant"
             v-model="proposalDetail.grantAddress"
+            placeholder="Flux Address to Receive Grant"
             disabled
-          >
-          </el-input>
+          />
         </el-form-item>
 
         <el-form-item label="Name/NickName">
           <el-input
+            v-model="proposalDetail.nickName"
             class="width100"
             placeholder="Name/NickName of Proposal Owner"
-            v-model="proposalDetail.nickName"
             disabled
-          >
-          </el-input>
+          />
         </el-form-item>
       </el-form>
       <div v-if="privilage === 'none'">
@@ -285,21 +264,19 @@
           <el-form label-width="150px">
             <el-form-item label="Your Vote">
               <el-input
+                v-model="myVote"
                 class="width100"
                 placeholder="Your Vote"
-                v-model="myVote"
                 disabled
-              >
-              </el-input>
+              />
             </el-form-item>
             <el-form-item label="Number of Votes">
               <el-input
+                v-model="myNumberOfVotes"
                 class="width100"
                 placeholder="Number of Votes"
-                v-model="myNumberOfVotes"
                 disabled
-              >
-              </el-input>
+              />
             </el-form-item>
           </el-form>
         </div>
@@ -311,8 +288,8 @@
             </p>
             <div>
               <a
-                @click="initiateSignWS"
                 :href="'zel:?action=sign&message=' + dataToSign + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FZelFront%2Fsrc%2Fassets%2Fimg%2FzelID.svg&callback=' + callbackValueSign"
+                @click="initiateSignWS"
               >
                 <img
                   class="zelidLogin"
@@ -320,40 +297,46 @@
                   alt="Zel ID"
                   height="100%"
                   width="100%"
-                />
+                >
               </a>
             </div>
             <br>
             <ElForm class="loginForm">
               <ElFormItem>
                 <ElInput
+                  v-model="dataToSign"
                   type="text"
                   name="message"
                   placeholder="Message to Sign"
                   disabled
-                  v-model="dataToSign"
                 >
-                  <template slot="prepend">Message: </template>
+                  <template slot="prepend">
+                    Message:
+                  </template>
                 </ElInput>
               </ElFormItem>
               <ElFormItem>
                 <ElInput
+                  v-model="zelid"
                   type="text"
                   name="address"
                   placeholder="insert ZelID"
-                  v-model="zelid"
                 >
-                  <template slot="prepend">Address: </template>
+                  <template slot="prepend">
+                    Address:
+                  </template>
                 </ElInput>
               </ElFormItem>
               <ElFormItem>
                 <ElInput
+                  v-model="signature"
                   type="text"
                   name="message"
                   placeholder="insert your signature"
-                  v-model="signature"
                 >
-                  <template slot="prepend">Signature: </template>
+                  <template slot="prepend">
+                    Signature:
+                  </template>
                 </ElInput>
               </ElFormItem>
             </ElForm>

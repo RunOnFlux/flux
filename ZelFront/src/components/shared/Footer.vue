@@ -7,20 +7,18 @@
         :label="backendURL"
         filterable
         allow-create
-        @change=changeBackendURL
+        @change="changeBackendURL"
       >
         <el-option
           key="Default"
           :label="`http://${userconfig.externalip}:${config.apiPort}`"
           :value="`http://${userconfig.externalip}:${config.apiPort}`"
-        >
-        </el-option>
+        />
         <el-option
           key="HTTPS"
           label="https://api.runonflux.io"
           value="https://api.runonflux.io"
-        >
-        </el-option>
+        />
       </el-select>
     </div>
     <div class="footer-middle">
@@ -29,10 +27,12 @@
         href="https://github.com/runonflux/flux"
         target="_blank"
         rel="noopener noreferrer"
-      >Flux, Your Gateway to a Decentralized World</ElLink>
+      >
+        Flux, Your Gateway to a Decentralized World
+      </ElLink>
     </div>
     <div class="footer-right">
-      Flux {{ 'v' + fluxVersion}}
+      Flux {{ 'v' + fluxVersion }}
     </div>
   </div>
 </template>

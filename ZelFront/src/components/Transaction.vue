@@ -168,7 +168,7 @@
         </el-col>
         <el-col :span="2">
           <div class="grid-content bg-purple">
-            <i class="el-icon-arrow-right"></i>
+            <i class="el-icon-arrow-right" />
           </div>
         </el-col>
         <el-col :span="11">
@@ -196,9 +196,9 @@
         </el-col>
         <el-col :span="4">
           <div class="grid-content bg-purple">
-            <i class="el-icon-arrow-right"></i>
+            <i class="el-icon-arrow-right" />
             JoinSplits {{ transactionDetail.vJoinSplit.length }}
-            <i class="el-icon-arrow-right"></i>
+            <i class="el-icon-arrow-right" />
           </div>
         </el-col>
         <el-col :span="10">
@@ -225,8 +225,8 @@
                   Newly generated coins
                 </div>
                 <div
-                  :key="transactionDetail.senders[i - 1].value || transactionDetail.senders[i - 1]"
                   v-else-if="typeof transactionDetail.senders[i - 1] === 'object'"
+                  :key="transactionDetail.senders[i - 1].value || transactionDetail.senders[i - 1]"
                 >
                   {{ transactionDetail.senders[i - 1].value }} FLUX
                   {{ transactionDetail.senders[i - 1].scriptPubKey.addresses[0] }}
@@ -240,7 +240,7 @@
         </el-col>
         <el-col :span="2">
           <div class="grid-content bg-purple">
-            <i class="el-icon-arrow-right"></i>
+            <i class="el-icon-arrow-right" />
           </div>
         </el-col>
         <el-col :span="11">

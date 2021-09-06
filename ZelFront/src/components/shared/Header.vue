@@ -4,16 +4,16 @@
       :default-active="activeIndex"
       :collapse="isMobile"
       :mode="windowWidth < 846 ? 'vertical' : 'horizontal'"
-      @select="handleSelect"
-      :unique-opened=true
+      :unique-opened="true"
       :class="{ mobilemenu: isMobile, hidden: !showMenu }"
       background-color="#333333"
       text-color="#fff"
       active-text-color="#ffd04b"
+      @select="handleSelect"
     >
       <el-menu-item index="0">
-        <div class='header-logo'>
-          <span class="helper"></span>
+        <div class="header-logo">
+          <span class="helper" />
           <img
             src="@/assets/img/flux_white_logo.svg"
             alt="Logo"
@@ -22,122 +22,176 @@
       </el-menu-item>
       <el-submenu
         index="1"
-        :popper-append-to-body=true
+        :popper-append-to-body="true"
       >
-        <template slot="title">Daemon</template>
+        <template slot="title">
+          Daemon
+        </template>
         <el-submenu
-          :popper-append-to-body=true
+          :popper-append-to-body="true"
           index="1-1"
         >
-          <template slot="title">Control</template>
-          <el-menu-item index="1-1-1">Get Info</el-menu-item>
-          <el-menu-item index="1-1-2">Help</el-menu-item>
+          <template slot="title">
+            Control
+          </template>
+          <el-menu-item index="1-1-1">
+            Get Info
+          </el-menu-item>
+          <el-menu-item index="1-1-2">
+            Help
+          </el-menu-item>
           <el-menu-item
-            index="1-1-3"
             v-if="privilage === 'admin'"
+            index="1-1-3"
           >
             <!-- part of Wallet as well -->
             Rescan BlockChain
           </el-menu-item>
           <el-menu-item
-            index="1-1-4"
             v-if="privilage === 'admin'"
+            index="1-1-4"
           >
             Reindex BlockChain
           </el-menu-item>
           <el-menu-item
-            index="1-1-5"
             v-if="privilage === 'admin' || privilage === 'fluxteam'"
+            index="1-1-5"
           >
             Start
           </el-menu-item>
           <el-menu-item
-            index="1-1-6"
             v-if="privilage === 'admin'"
+            index="1-1-6"
           >
             Stop
           </el-menu-item>
           <el-menu-item
-            index="1-1-7"
             v-if="privilage === 'admin' || privilage === 'fluxteam'"
+            index="1-1-7"
           >
             Restart
           </el-menu-item>
         </el-submenu>
         <el-submenu
-          :popper-append-to-body=true
+          :popper-append-to-body="true"
           index="1-2"
         >
-          <template slot="title">FluxNode</template>
-          <el-menu-item index="1-2-1">Get FluxNode Status</el-menu-item>
-          <el-menu-item index="1-2-2">List FluxNodes</el-menu-item>
-          <el-menu-item index="1-2-3">View Deterministic FluxNode List</el-menu-item>
-          <el-menu-item index="1-2-4">Get FluxNode Count</el-menu-item>
-          <el-menu-item index="1-2-5">Get Start List</el-menu-item>
-          <el-menu-item index="1-2-6">Get DOS List</el-menu-item>
-          <el-menu-item index="1-2-7">FluxNode Current Winner</el-menu-item>
+          <template slot="title">
+            FluxNode
+          </template>
+          <el-menu-item index="1-2-1">
+            Get FluxNode Status
+          </el-menu-item>
+          <el-menu-item index="1-2-2">
+            List FluxNodes
+          </el-menu-item>
+          <el-menu-item index="1-2-3">
+            View Deterministic FluxNode List
+          </el-menu-item>
+          <el-menu-item index="1-2-4">
+            Get FluxNode Count
+          </el-menu-item>
+          <el-menu-item index="1-2-5">
+            Get Start List
+          </el-menu-item>
+          <el-menu-item index="1-2-6">
+            Get DOS List
+          </el-menu-item>
+          <el-menu-item index="1-2-7">
+            FluxNode Current Winner
+          </el-menu-item>
         </el-submenu>
         <el-submenu
-          :popper-append-to-body=true
+          :popper-append-to-body="true"
           index="1-3"
         >
-          <template slot="title">Benchmarks</template>
-          <el-menu-item index="1-3-1">Get Benchmarks</el-menu-item>
-          <el-menu-item index="1-3-2">Get Bench Status</el-menu-item>
+          <template slot="title">
+            Benchmarks
+          </template>
+          <el-menu-item index="1-3-1">
+            Get Benchmarks
+          </el-menu-item>
+          <el-menu-item index="1-3-2">
+            Get Bench Status
+          </el-menu-item>
           <el-menu-item
-            index="1-3-3"
             v-if="privilage === 'admin' || privilage === 'fluxteam'"
+            index="1-3-3"
           >
             Start Benchmark
           </el-menu-item>
           <el-menu-item
-            index="1-3-4"
             v-if="privilage === 'admin' || privilage === 'fluxteam'"
+            index="1-3-4"
           >
             Stop Benchmark
           </el-menu-item>
         </el-submenu>
         <el-submenu
-          :popper-append-to-body=true
+          :popper-append-to-body="true"
           index="1-4"
         >
-          <template slot="title">BlockChain</template>
-          <el-menu-item index="1-4-1">Get BlockChain Info</el-menu-item>
+          <template slot="title">
+            BlockChain
+          </template>
+          <el-menu-item index="1-4-1">
+            Get BlockChain Info
+          </el-menu-item>
         </el-submenu>
         <el-submenu
-          :popper-append-to-body=true
+          :popper-append-to-body="true"
           index="1-5"
         >
-          <template slot="title">Mining</template>
-          <el-menu-item index="1-5-1">Get Mining Info</el-menu-item>
+          <template slot="title">
+            Mining
+          </template>
+          <el-menu-item index="1-5-1">
+            Get Mining Info
+          </el-menu-item>
         </el-submenu>
         <el-submenu
-          :popper-append-to-body=true
+          :popper-append-to-body="true"
           index="1-6"
         >
-          <template slot="title">Network</template>
-          <el-menu-item index="1-6-1">Get Network Info</el-menu-item>
+          <template slot="title">
+            Network
+          </template>
+          <el-menu-item index="1-6-1">
+            Get Network Info
+          </el-menu-item>
         </el-submenu>
         <el-submenu
-          :popper-append-to-body=true
+          :popper-append-to-body="true"
           index="1-7"
         >
-          <template slot="title">Raw Transactions</template>
-          <el-menu-item index="1-7-1">Get Raw Transaction</el-menu-item>
+          <template slot="title">
+            Raw Transactions
+          </template>
+          <el-menu-item index="1-7-1">
+            Get Raw Transaction
+          </el-menu-item>
         </el-submenu>
         <el-submenu
-          :popper-append-to-body=true
+          :popper-append-to-body="true"
           index="1-8"
         >
-          <template slot="title">Util</template>
-          <el-menu-item index="1-8-1">Validate Address</el-menu-item>
+          <template slot="title">
+            Util
+          </template>
+          <el-menu-item index="1-8-1">
+            Validate Address
+          </el-menu-item>
         </el-submenu>
         <el-submenu
-          :popper-append-to-body=true
+          :popper-append-to-body="true"
           index="1-9"
         >
-          <template slot="title">Wallet</template>
-          <el-menu-item index="1-9-1">Get Wallet Info</el-menu-item>
+          <template slot="title">
+            Wallet
+          </template>
+          <el-menu-item index="1-9-1">
+            Get Wallet Info
+          </el-menu-item>
         </el-submenu>
         <el-menu-item
           v-if="privilage === 'fluxteam' || privilage === 'admin'"
@@ -148,57 +202,73 @@
       </el-submenu>
       <el-submenu
         index="2"
-        :popper-append-to-body=true
+        :popper-append-to-body="true"
       >
-        <template slot="title">Benchmark</template>
+        <template slot="title">
+          Benchmark
+        </template>
         <el-submenu
-          :popper-append-to-body=true
+          :popper-append-to-body="true"
           index="2-1"
         >
-          <template slot="title">Control</template>
-          <el-menu-item index="2-1-1">Help</el-menu-item>
+          <template slot="title">
+            Control
+          </template>
+          <el-menu-item index="2-1-1">
+            Help
+          </el-menu-item>
           <el-menu-item
-            index="2-1-2"
             v-if="privilage === 'admin' || privilage === 'fluxteam'"
+            index="2-1-2"
           >
             Start
           </el-menu-item>
           <el-menu-item
-            index="2-1-3"
             v-if="privilage === 'admin'"
+            index="2-1-3"
           >
             Stop
           </el-menu-item>
           <el-menu-item
-            index="2-1-4"
             v-if="privilage === 'admin' || privilage === 'fluxteam'"
+            index="2-1-4"
           >
             Restart
           </el-menu-item>
         </el-submenu>
         <el-submenu
-          :popper-append-to-body=true
+          :popper-append-to-body="true"
           index="2-2"
         >
-          <template slot="title">FluxNode</template>
-          <el-menu-item index="2-2-1">Get Benchmarks</el-menu-item>
-          <el-menu-item index="2-2-2">Get Info</el-menu-item>
+          <template slot="title">
+            FluxNode
+          </template>
+          <el-menu-item index="2-2-1">
+            Get Benchmarks
+          </el-menu-item>
+          <el-menu-item index="2-2-2">
+            Get Info
+          </el-menu-item>
         </el-submenu>
         <el-submenu
-          :popper-append-to-body=true
+          :popper-append-to-body="true"
           index="2-3"
         >
-          <template slot="title">Benchmarks</template>
-          <el-menu-item index="2-3-1">Get Status</el-menu-item>
+          <template slot="title">
+            Benchmarks
+          </template>
+          <el-menu-item index="2-3-1">
+            Get Status
+          </el-menu-item>
           <el-menu-item
-            index="2-3-2"
             v-if="privilage === 'admin' || privilage === 'fluxteam'"
+            index="2-3-2"
           >
             Restart Node Benchmarks
           </el-menu-item>
           <el-menu-item
-            index="2-3-3"
             v-if="privilage === 'admin'"
+            index="2-3-3"
           >
             Sign FluxNode Transaction
           </el-menu-item>
@@ -212,21 +282,37 @@
       </el-submenu>
       <el-submenu
         index="3"
-        :popper-append-to-body=true
+        :popper-append-to-body="true"
       >
-        <template slot="title">Flux</template>
-        <el-menu-item index="3-1">Node Status</el-menu-item>
-        <el-menu-item index="3-2">Flux Network</el-menu-item>
-        <el-menu-item index="3-3">Debug</el-menu-item>
+        <template slot="title">
+          Flux
+        </template>
+        <el-menu-item index="3-1">
+          Node Status
+        </el-menu-item>
+        <el-menu-item index="3-2">
+          Flux Network
+        </el-menu-item>
+        <el-menu-item index="3-3">
+          Debug
+        </el-menu-item>
       </el-submenu>
       <el-submenu
         index="4"
-        :popper-append-to-body=true
+        :popper-append-to-body="true"
       >
-        <template slot="title">Apps</template>
-        <el-menu-item index="4-1">Local Apps</el-menu-item>
-        <el-menu-item index="4-2">Global Apps</el-menu-item>
-        <el-menu-item index="4-3">Register Flux App</el-menu-item>
+        <template slot="title">
+          Apps
+        </template>
+        <el-menu-item index="4-1">
+          Local Apps
+        </el-menu-item>
+        <el-menu-item index="4-2">
+          Global Apps
+        </el-menu-item>
+        <el-menu-item index="4-3">
+          Register Flux App
+        </el-menu-item>
         <el-menu-item
           v-if="privilage === 'admin'"
           index="4-4"
@@ -237,10 +323,14 @@
       <el-submenu
         v-if="privilage === 'user' || privilage === 'admin' || privilage === 'fluxteam'"
         index="10"
-        :popper-append-to-body=true
+        :popper-append-to-body="true"
       >
-        <template slot="title">Flux Admin</template>
-        <el-menu-item index="10-1">Logged Sessions</el-menu-item>
+        <template slot="title">
+          Flux Admin
+        </template>
+        <el-menu-item index="10-1">
+          Logged Sessions
+        </el-menu-item>
         <el-menu-item
           v-if="privilage === 'fluxteam' || privilage === 'admin'"
           index="10-2"
@@ -274,11 +364,17 @@
       </el-menu-item>
       <el-submenu
         index="70"
-        :popper-append-to-body=true
+        :popper-append-to-body="true"
       >
-        <template slot="title">XDAO</template>
-        <el-menu-item index="70-1">List Proposals</el-menu-item>
-        <el-menu-item index="70-2">Submit Proposal</el-menu-item>
+        <template slot="title">
+          XDAO
+        </template>
+        <el-menu-item index="70-1">
+          List Proposals
+        </el-menu-item>
+        <el-menu-item index="70-2">
+          Submit Proposal
+        </el-menu-item>
       </el-submenu>
       <el-menu-item
         v-if="privilage === 'user' || privilage === 'admin' || privilage === 'fluxteam'"
@@ -293,9 +389,9 @@
       :class="{ change: showMenu }"
       @click="showMenu = !showMenu"
     >
-      <div class="bar1"></div>
-      <div class="bar2"></div>
-      <div class="bar3"></div>
+      <div class="bar1" />
+      <div class="bar2" />
+      <div class="bar3" />
     </div>
   </div>
 </template>

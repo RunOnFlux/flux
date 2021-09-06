@@ -1,6 +1,6 @@
 {
   "name": "flux",
-  "version": "1.99.1",
+  "version": "1.99.2",
   "description": "Flux, Your Gateway to a Decentralized World",
   "repository": {
     "type": "git",
@@ -44,8 +44,8 @@
   "homepage": "https://github.com/runonflux/flux#readme",
   "scripts": {
     "vuelint": "vue-cli-service lint",
-    "lint": "eslint --ext .js,.vue ZelBack/ HomeUI/",
-    "lint:fix": "eslint --ext .js,.vue ZelBack/ HomeUI/ --fix",
+    "lint": "eslint --ext .js,.vue ZelBack/ ZelFront/ HomeUI/",
+    "lint:fix": "eslint --ext .js,.vue ZelBack/ ZelFront/ HomeUI/ --fix",
     "test:e2e": "vue-cli-service test:e2e",
     "test:unit": "vue-cli-service test:unit",
     "test:zelback": "mocha tests/ZelBack",
