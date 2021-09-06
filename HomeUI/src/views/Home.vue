@@ -295,12 +295,8 @@ export default {
         .then((response) => {
           console.log(response);
           if (response.data.status === 'error') {
-            if (JSON.stringify(response.data.data).includes('CONN')) {
-              // we can fix daemon, benchmark problems. But cannot fix mongo, docker issues (docker may be possible to fix in the future, mongo not)...
-              this.getEmergencyLoginPhrase();
-            } else {
-              this.showToast('danger', response.data.data.message);
-            }
+            // we can fix daemon, benchmark problems. But cannot fix mongo, docker issues (docker may be possible to fix in the future, mongo not)...
+            this.getEmergencyLoginPhrase();
           } else {
             this.loginPhrase = response.data.data;
             this.loginForm.loginPhrase = response.data.data;
