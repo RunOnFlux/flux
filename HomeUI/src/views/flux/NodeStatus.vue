@@ -149,7 +149,7 @@ export default {
       const response = await FluxService.getZelid();
       const obtainedZelid = response.data.data;
       if (response.data.status === 'success' && typeof obtainedZelid === 'string') {
-        this.$store.commit('setUserZelid', obtainedZelid);
+        this.$store.commit('flux/setUserZelid', obtainedZelid);
       }
     },
     async daemonGetInfo() {

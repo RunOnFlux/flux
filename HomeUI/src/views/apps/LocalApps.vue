@@ -745,7 +745,7 @@ export default {
     const regex = /[A-Za-z]/g;
     if (!hostname.match(regex)) {
       if (typeof hostname === 'string') {
-        this.$store.commit('setUserIp', hostname);
+        this.$store.commit('flux/setUserIp', hostname);
       }
     }
   },

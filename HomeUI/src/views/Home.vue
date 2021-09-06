@@ -204,7 +204,7 @@ export default {
         mybackend += names.join('.');
       } else {
         if (typeof hostname === 'string') {
-          this.$store.commit('setUserIp', hostname);
+          this.$store.commit('flux/setUserIp', hostname);
         }
         mybackend += ':';
         mybackend += this.config.apiPort;
@@ -215,7 +215,7 @@ export default {
       const response = await FluxService.getZelid();
       const obtainedZelid = response.data.data;
       if (response.data.status === 'success' && typeof obtainedZelid === 'string') {
-        this.$store.commit('setUserZelid', obtainedZelid);
+        this.$store.commit('flux/setUserZelid', obtainedZelid);
       }
     },
     async daemonGetInfo() {

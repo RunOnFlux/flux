@@ -602,7 +602,7 @@ export default {
         mybackend += names.join('.');
       } else {
         if (typeof hostname === 'string') {
-          this.$store.commit('setUserIp', hostname);
+          this.$store.commit('flux/setUserIp', hostname);
         }
         mybackend += hostname;
         mybackend += ':';
@@ -873,7 +873,7 @@ export default {
         mybackend += names.join('.');
       } else {
         if (typeof hostname === 'string') {
-          this.$store.commit('setUserIp', hostname);
+          this.$store.commit('flux/setUserIp', hostname);
         }
         mybackend += hostname;
         mybackend += ':';

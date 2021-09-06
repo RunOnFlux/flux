@@ -84,7 +84,7 @@ export default {
       .then((response) => {
         console.log(response);
         const version = response.data.data;
-        this.$store.commit('setFluxVersion', version);
+        this.$store.commit('flux/setFluxVersion', version);
         self.getLatestFluxVersion();
       })
       .catch((e) => {
