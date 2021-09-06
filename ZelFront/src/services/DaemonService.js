@@ -31,8 +31,8 @@ export default {
   getDOSList() {
     return Api().get('/daemon/getdoslist');
   },
-  fluxCurrentWinner() {
-    return Api().get('/daemon/fluxcurrentwinner');
+  zelnodeCurrentWinner() {
+    return Api().get('/daemon/zelnodecurrentwinner');
   },
   getBenchmarks() {
     return Api().get('/daemon/getbenchmarks');
@@ -106,7 +106,7 @@ export default {
     });
   },
   rescanDaemon(zelidauthHeader, height) {
-    return Api().get(`/daemon/rescanblockchain/${height}`, {
+    return Api().get(`/daemon/rescan/${height}`, {
       headers: {
         zelidauth: zelidauthHeader,
       },

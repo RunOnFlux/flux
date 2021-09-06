@@ -10,7 +10,7 @@ const CopyPlugin = require('copy-webpack-plugin');
 const plugins = [
   new CopyPlugin({
     patterns: [
-      { from: path.resolve(__dirname, 'ZelFront', 'public') },
+      { from: path.resolve(__dirname, 'HomeUI', 'public') },
     ],
   }),
 ];
@@ -40,7 +40,7 @@ module.exports = {
     loaderOptions: {
       sass: {
         sassOptions: {
-          includePaths: ['./node_modules', './ZelFront/src/assets'],
+          includePaths: ['./node_modules', './HomeUI/src/assets'],
         },
       },
     },
@@ -48,11 +48,11 @@ module.exports = {
   configureWebpack: {
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, './ZelFront/src/'),
-        '@themeConfig': path.resolve(__dirname, './ZelFront/themeConfig.js'),
-        '@core': path.resolve(__dirname, './ZelFront/src/@core'),
-        '@validations': path.resolve(__dirname, './ZelFront/src/@core/utils/validations/validations.js'),
-        '@axios': path.resolve(__dirname, './ZelFront/src/libs/axios'),
+        '@': path.resolve(__dirname, './HomeUI/src/'),
+        '@themeConfig': path.resolve(__dirname, './HomeUI/themeConfig.js'),
+        '@core': path.resolve(__dirname, './HomeUI/src/@core'),
+        '@validations': path.resolve(__dirname, './HomeUI/src/@core/utils/validations/validations.js'),
+        '@axios': path.resolve(__dirname, './HomeUI/src/libs/axios'),
         ZelBack: path.resolve(__dirname, './ZelBack'),
         Config: path.resolve(__dirname, './config'),
       },
@@ -91,13 +91,13 @@ module.exports = {
       });
   },
   transpileDependencies: ['resize-detector'],
-  outputDir: path.join(__dirname, './ZelFront/build'),
+  outputDir: path.join(__dirname, './HomeUI/dist'),
   pages: {
     index: {
       // entry for the page
-      entry: 'ZelFront/src/main.js',
+      entry: 'HomeUI/src/main.js',
       // the source template
-      template: 'ZelFront/public/index.html',
+      template: 'HomeUI/public/index.html',
       // output as dist/index.html
       filename: 'index.html',
     },

@@ -1,0 +1,91 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"><style>body {
+  margin: 0;
+}
+
+#loading-bg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  position: absolute;
+}
+.loading-logo {
+  position: absolute;
+  left: calc(50% - 50px);
+  top: calc(50% - 125px);
+}
+.loading-logo img {
+  width: 100px;
+}
+.loading {
+  position: absolute;
+  left: calc(50% - 35px);
+  top: calc(50% + 15px);
+  width: 70px;
+  height: 70px;
+  border-radius: 50%;
+  -webkit-box-sizing: border-box;
+  box-sizing: border-box;
+  border: 3px solid transparent;
+}
+.loading .effect-1,
+.loading .effect-2 {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  border: 3px solid transparent;
+  border-left: 3px solid #36c9a5;
+  border-radius: 50%;
+  -webkit-box-sizing: border-box;
+  box-sizing: border-box;
+}
+
+.loading .effect-1 {
+  animation: rotate 1s ease infinite;
+}
+.loading .effect-2 {
+  animation: rotateOpacity 1s ease infinite 0.1s;
+}
+.loading .effect-3 {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  border: 3px solid transparent;
+  border-left: 3px solid #36c9a5;
+  -webkit-animation: rotateOpacity 1s ease infinite 0.2s;
+  animation: rotateOpacity 1s ease infinite 0.2s;
+  border-radius: 50%;
+  -webkit-box-sizing: border-box;
+  box-sizing: border-box;
+}
+
+.loading .effects {
+  transition: all 0.3s ease;
+}
+
+@keyframes rotate {
+  0% {
+    -webkit-transform: rotate(0deg);
+    transform: rotate(0deg);
+  }
+  100% {
+    -webkit-transform: rotate(1turn);
+    transform: rotate(1turn);
+  }
+}
+@keyframes rotateOpacity {
+  0% {
+    -webkit-transform: rotate(0deg);
+    transform: rotate(0deg);
+    opacity: 0.1;
+  }
+  100% {
+    -webkit-transform: rotate(1turn);
+    transform: rotate(1turn);
+    opacity: 1;
+  }
+}</style><link rel="icon" href="/logo.png" type="image/x-icon"><link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet"><title>FluxOS Dashboard</title><link href="/css/chunk-002dafad.3e326045.css" rel="prefetch"><link href="/css/chunk-1c76f7fe.1c2d7b2d.css" rel="prefetch"><link href="/css/chunk-1df8ad36.8def0ac5.css" rel="prefetch"><link href="/css/chunk-24a28e3c.8ad3ab87.css" rel="prefetch"><link href="/css/chunk-2e4305fd.bbf304b5.css" rel="prefetch"><link href="/css/chunk-2f037878.f6c7d0b4.css" rel="prefetch"><link href="/css/chunk-3302aa62.3a56dd69.css" rel="prefetch"><link href="/css/chunk-377903a4.3e326045.css" rel="prefetch"><link href="/css/chunk-3bddc606.9d7d7312.css" rel="prefetch"><link href="/css/chunk-448594c3.3e326045.css" rel="prefetch"><link href="/css/chunk-4ba4f37c.1c2d7b2d.css" rel="prefetch"><link href="/css/chunk-4d0d7446.9d7d7312.css" rel="prefetch"><link href="/css/chunk-56bfc1e1.9d7d7312.css" rel="prefetch"><link href="/css/chunk-586caf0d.3e326045.css" rel="prefetch"><link href="/css/chunk-5c691692.96a6d0f4.css" rel="prefetch"><link href="/css/chunk-65bf740a.3e326045.css" rel="prefetch"><link href="/css/chunk-66546a30.1c2d7b2d.css" rel="prefetch"><link href="/css/chunk-730b225d.213efa55.css" rel="prefetch"><link href="/css/chunk-7c77c1e2.3e326045.css" rel="prefetch"><link href="/css/chunk-7eb6d8ec.95109084.css" rel="prefetch"><link href="/css/chunk-7f00bc12.e451045b.css" rel="prefetch"><link href="/css/chunk-84a82956.19e90c9a.css" rel="prefetch"><link href="/css/chunk-a9d4afd2.eb676156.css" rel="prefetch"><link href="/css/chunk-b2383f76.9d7d7312.css" rel="prefetch"><link href="/css/chunk-cb06fb70.bded294a.css" rel="prefetch"><link href="/css/chunk-cd18eef6.eed3f024.css" rel="prefetch"><link href="/css/chunk-d9881758.fc4b0884.css" rel="prefetch"><link href="/css/chunk-f4e44914.9d7d7312.css" rel="prefetch"><link href="/css/chunk-f742bcf2.3e326045.css" rel="prefetch"><link href="/css/chunk-f8d17ac2.19e90c9a.css" rel="prefetch"><link href="/css/chunk-fe971d28.f6fd8a7d.css" rel="prefetch"><link href="/js/chunk-002dafad.8791a689.js" rel="prefetch"><link href="/js/chunk-08f30e46.2e4c7a82.js" rel="prefetch"><link href="/js/chunk-0c9d4aae.b0552030.js" rel="prefetch"><link href="/js/chunk-0fdab1f5.9e4f82f5.js" rel="prefetch"><link href="/js/chunk-18c81973.532fd6d4.js" rel="prefetch"><link href="/js/chunk-1c76f7fe.38eb21e4.js" rel="prefetch"><link href="/js/chunk-1df8ad36.074917c0.js" rel="prefetch"><link href="/js/chunk-207cf88f.0e05ca0f.js" rel="prefetch"><link href="/js/chunk-24a28e3c.a464d98d.js" rel="prefetch"><link href="/js/chunk-276a226b.15b355f7.js" rel="prefetch"><link href="/js/chunk-2928c9ba.4c5d7a1b.js" rel="prefetch"><link href="/js/chunk-2a15b404.7baf49b4.js" rel="prefetch"><link href="/js/chunk-2d2082cb.908b5d27.js" rel="prefetch"><link href="/js/chunk-2d81a400.f0a6f247.js" rel="prefetch"><link href="/js/chunk-2dcd0dfb.8a049349.js" rel="prefetch"><link href="/js/chunk-2e4305fd.f7ddc8b3.js" rel="prefetch"><link href="/js/chunk-2f037878.1dbd060f.js" rel="prefetch"><link href="/js/chunk-3302aa62.d01693ec.js" rel="prefetch"><link href="/js/chunk-3775d85b.05d20616.js" rel="prefetch"><link href="/js/chunk-377903a4.6d7762c9.js" rel="prefetch"><link href="/js/chunk-3bddc606.bfac7007.js" rel="prefetch"><link href="/js/chunk-3f1b13c2.c813106c.js" rel="prefetch"><link href="/js/chunk-41b45156.af009d49.js" rel="prefetch"><link href="/js/chunk-448594c3.88c583a2.js" rel="prefetch"><link href="/js/chunk-45eb91e0.21c43245.js" rel="prefetch"><link href="/js/chunk-49419389.865f76e6.js" rel="prefetch"><link href="/js/chunk-4ba4f37c.49754be8.js" rel="prefetch"><link href="/js/chunk-4d0d7446.ac71f563.js" rel="prefetch"><link href="/js/chunk-52d08741.206be61c.js" rel="prefetch"><link href="/js/chunk-56bfc1e1.c8fb5e04.js" rel="prefetch"><link href="/js/chunk-586caf0d.4cd92e6d.js" rel="prefetch"><link href="/js/chunk-5aa78c20.4182beda.js" rel="prefetch"><link href="/js/chunk-5b67c44c.d1e75193.js" rel="prefetch"><link href="/js/chunk-5c691692.ed109acc.js" rel="prefetch"><link href="/js/chunk-623dc2e1.eb577e12.js" rel="prefetch"><link href="/js/chunk-64f322df.91ab6fa5.js" rel="prefetch"><link href="/js/chunk-650d0bfc.9abef166.js" rel="prefetch"><link href="/js/chunk-65bf740a.b6358db0.js" rel="prefetch"><link href="/js/chunk-66546a30.28da5142.js" rel="prefetch"><link href="/js/chunk-69bcc4fe.7e1b3a58.js" rel="prefetch"><link href="/js/chunk-6fff6798.1712871e.js" rel="prefetch"><link href="/js/chunk-72cac487.54c4ee91.js" rel="prefetch"><link href="/js/chunk-730b225d.53faf031.js" rel="prefetch"><link href="/js/chunk-7a1a851d.34cd6d1e.js" rel="prefetch"><link href="/js/chunk-7bf0b7cc.4e2bfde8.js" rel="prefetch"><link href="/js/chunk-7c050d1e.6fef9479.js" rel="prefetch"><link href="/js/chunk-7c77c1e2.1ef71189.js" rel="prefetch"><link href="/js/chunk-7eb6d8ec.bf875d55.js" rel="prefetch"><link href="/js/chunk-7f00bc12.06a3f0ba.js" rel="prefetch"><link href="/js/chunk-7fc4780e.12c7a435.js" rel="prefetch"><link href="/js/chunk-82e5c6ba.dcb4f1b2.js" rel="prefetch"><link href="/js/chunk-84a82956.99734b8d.js" rel="prefetch"><link href="/js/chunk-a9d4afd2.348029bd.js" rel="prefetch"><link href="/js/chunk-ac0ae80e.b58a1e17.js" rel="prefetch"><link href="/js/chunk-b2383f76.fc5ee6f1.js" rel="prefetch"><link href="/js/chunk-b650ba02.7e80d3cc.js" rel="prefetch"><link href="/js/chunk-cb06fb70.c127eac0.js" rel="prefetch"><link href="/js/chunk-cb4887ac.92734a1a.js" rel="prefetch"><link href="/js/chunk-cd18eef6.1f358ec4.js" rel="prefetch"><link href="/js/chunk-ceeb5c8c.e0c88eab.js" rel="prefetch"><link href="/js/chunk-d4fcbd38.d065f95c.js" rel="prefetch"><link href="/js/chunk-d9881758.2359511a.js" rel="prefetch"><link href="/js/chunk-e696eef4.05172231.js" rel="prefetch"><link href="/js/chunk-f498d422.c12581f4.js" rel="prefetch"><link href="/js/chunk-f4e44914.cc2ade15.js" rel="prefetch"><link href="/js/chunk-f742bcf2.13d30e8e.js" rel="prefetch"><link href="/js/chunk-f8b79a3e.6b8085a0.js" rel="prefetch"><link href="/js/chunk-f8d17ac2.3f2555ef.js" rel="prefetch"><link href="/js/chunk-fe971d28.c1e933e7.js" rel="prefetch"><link href="/css/index.e9d6c02c.css" rel="preload" as="style"><link href="/js/chunk-vendors.c3e004a3.js" rel="preload" as="script"><link href="/js/index.a77d96d6.js" rel="preload" as="script"><link href="/css/index.e9d6c02c.css" rel="stylesheet"></head><body><noscript><strong>We're sorry but the FluxOS Dashboard doesn't work properly without JavaScript enabled. Please enable it to continue.</strong></noscript><div id="loading-bg"><div class="loading-logo"><img src="/logo.png" alt="Logo"></div><div class="loading"><div class="effect-1 effects"></div><div class="effect-2 effects"></div><div class="effect-3 effects"></div></div></div><div id="app"></div><script src="/js/chunk-vendors.c3e004a3.js"></script><script src="/js/index.a77d96d6.js"></script></body><script>var skin = localStorage.getItem('vuexy-skin') || 'dark';
+    if (skin === 'dark') {
+      document.body.classList.add('dark-layout')
+    } else if (document.body.className.match('dark-layout')) {
+      document.body.classList.remove('dark-layout');
+    }</script></html>

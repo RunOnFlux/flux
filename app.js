@@ -25,7 +25,7 @@ app.listen(config.server.apiport, () => {
 });
 
 // Flux Home configuration
-const home = path.join(__dirname, './ZelFront/build');
+const home = path.join(__dirname, './HomeUI/dist');
 
 const homeApp = express();
 homeApp.use(compression());
