@@ -449,10 +449,10 @@ export default {
         const counts = {};
         counts['stratus-enabled'] = stratus;
         counts['bamf-enabled'] = stratus;
-        counts['nimbus-enabled'] = nimbus;
-        counts['super-enabled'] = nimbus;
-        counts['cumulus-enabled'] = cumulus;
-        counts['basic-enabled'] = cumulus;
+        counts['nimbus-enabled'] = cumulus;
+        counts['super-enabled'] = cumulus;
+        counts['cumulus-enabled'] = nimbus;
+        counts['basic-enabled'] = nimbus;
 
         this.generateEconomics(counts);
       } catch (error) {
@@ -463,11 +463,11 @@ export default {
       try {
         this.priceInformationLoading = true;
         const stratuses = zelnodecounts['stratus-enabled'];
-        const nimbuses = zelnodecounts['nimbus-enabled'];
-        const cumuluses = zelnodecounts['cumulus-enabled'];
+        const cumuluses = zelnodecounts['nimbus-enabled'];
+        const nimbuses = zelnodecounts['cumulus-enabled'];
         const resKDAEligible = await axios.get('https://stats.runonflux.io/kadena/eligiblestats/7');
         const kdaData = resKDAEligible.data.data;
-        const kdaCoins = 2500;
+        const kdaCoins = 2300;
         const totalNimbuss = kdaData.nimbus;
         const totalStratuss = kdaData.stratus;
         const overallTotal = totalNimbuss + (4 * totalStratuss);
