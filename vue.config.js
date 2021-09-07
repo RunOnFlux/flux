@@ -102,4 +102,6 @@ module.exports = {
       filename: 'index.html',
     },
   },
+  filenameHashing: false,
+  productionSourceMap: false,
 };
