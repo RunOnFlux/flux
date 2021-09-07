@@ -1475,6 +1475,12 @@ module.exports = (app, expressWs) => {
   app.get('/flux/updateflux', (req, res) => { // method shall be called only if flux version is obsolete.
     fluxService.updateFlux(req, res);
   });
+  app.get('/flux/softupdateflux', (req, res) => { // method shall be called only if flux version is obsolete.
+    fluxService.softUpdateFlux(req, res);
+  });
+  app.get('/flux/softupdatefluxinstall', (req, res) => { // method shall be called only if flux version is obsolete.
+    fluxService.softUpdateFluxInstall(req, res);
+  });
   app.get('/flux/hardupdateflux', (req, res) => { // method shall be called only if flux version is obsolete and updatezeflux is not working correctly
     fluxService.hardUpdateFlux(req, res);
   });
