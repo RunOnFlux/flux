@@ -41,14 +41,14 @@
                 :text-inside="true"
                 :stroke-width="26"
                 :percentage="circulatingSupplyPerc"
-              ></el-progress>
+              />
               <br><br><br>
               <h3>Flux Locked Supply</h3>
               <el-progress
                 :text-inside="true"
                 :stroke-width="26"
                 :percentage="lockedSupplyPerc"
-              ></el-progress>
+              />
               <br><br><br>
             </div>
             <div v-show="supplyLoading">
@@ -62,10 +62,10 @@
               <h4>{{ beautifyValue(440000000) }} FLUX</h4>
               <br>
               <h3>Circulating Supply</h3>
-              <h4>{{ beautifyValue(this.circulatingSupply) }} FLUX</h4>
+              <h4>{{ beautifyValue(circulatingSupply) }} FLUX</h4>
               <br>
               <h3>Flux Locked Supply</h3>
-              <h4>{{ beautifyValue(this.lockedSupply) }} FLUX</h4>
+              <h4>{{ beautifyValue(lockedSupply) }} FLUX</h4>
             </div>
             <div v-show="supplyLoading">
               loading...
@@ -164,21 +164,29 @@
               <h3>per day</h3>
               <h4>{{ beautifyValue(cumulusWeek / 7 ) }} FLUX</h4>
               <h4>{{ beautifyValue(cumulusUSDRewardWeek / 7) }} USD</h4>
-              <h4 style="visibility: hidden">No KDA available</h4>
+              <h4 style="visibility: hidden">
+                No KDA available
+              </h4>
               <br><br>
               <h3>per week</h3>
               <h4>{{ beautifyValue(cumulusWeek) }} FLUX</h4>
               <h4>{{ beautifyValue(cumulusUSDRewardWeek) }} USD</h4>
-              <h4 style="visibility: hidden">No KDA available</h4>
+              <h4 style="visibility: hidden">
+                No KDA available
+              </h4>
               <br><br>
               <h3>per month</h3>
               <h4>{{ beautifyValue(cumulusWeek * 4.34812141) }} FLUX</h4>
               <h4>{{ beautifyValue(cumulusUSDRewardWeek * 4.34812141) }} USD</h4>
-              <h4 style="visibility: hidden">No KDA available</h4>
+              <h4 style="visibility: hidden">
+                No KDA available
+              </h4>
               <br><br>
               <h3>Profitability per month - Node Cost 4.70 USD</h3>
               <h4>Node only: {{ beautifyValue(cumulusUSDRewardWeek * 4.34812141 - 4.70) }} USD</h4>
-              <h4 style="visibility: hidden">No KDA available</h4>
+              <h4 style="visibility: hidden">
+                No KDA available
+              </h4>
               <br>
             </div>
             <div>
@@ -236,12 +244,12 @@
           name="nodes"
         >
           <el-table
+            v-loading="fluxListLoading"
             :data="fluxList.filter(data => !fluxFilter || data.ip.toLowerCase().includes(fluxFilter.toLowerCase()) || data.payment_address.toLowerCase().includes(fluxFilter.toLowerCase()) || data.tier.toLowerCase().includes(fluxFilter.toLowerCase())
-             || (data.location ? data.location.country.toLowerCase().includes(fluxFilter.toLowerCase()) : false) || (data.location ? data.location.org.toLowerCase().includes(fluxFilter.toLowerCase()) : false))"
+              || (data.location ? data.location.country.toLowerCase().includes(fluxFilter.toLowerCase()) : false) || (data.location ? data.location.org.toLowerCase().includes(fluxFilter.toLowerCase()) : false))"
             empty-text="Flux Nodes are loading..."
             style="width: 100%"
             height="680"
-            v-loading="fluxListLoading"
             lazy
           >
             <el-table-column
@@ -492,8 +500,8 @@ export default {
         const resCount = await DashboardService.zelnodeCount();
         const counts = resCount.data.data;
         const stratuses = counts['stratus-enabled'];
-        const nimbuses = counts['nimbus-enabled'];
-        const cumuluses = counts['cumulus-enabled'];
+        const cumuluses = counts['nimbus-enabled'];
+        const nimbuses = counts['cumulus-enabled'];
         console.log(resCount);
         const supply = stratuses * 100000 + nimbuses * 25000 + cumuluses * 10000;
         this.lockedSupply = supply;
@@ -508,11 +516,11 @@ export default {
         this.priceInformationLoading = true;
         console.log(this.rates);
         const stratuses = zelnodecounts['stratus-enabled'];
-        const nimbuses = zelnodecounts['nimbus-enabled'];
-        const cumuluses = zelnodecounts['cumulus-enabled'];
+        const cumuluses = zelnodecounts['nimbus-enabled'];
+        const nimbuses = zelnodecounts['cumulus-enabled'];
         const resKDAEligible = await axios.get('https://stats.runonflux.io/kadena/eligiblestats/7');
         const kdaData = resKDAEligible.data.data;
-        const kdaCoins = 2800;
+        const kdaCoins = 2300;
         const totalNimbuss = kdaData.nimbus;
         const totalStratuss = kdaData.stratus;
         const overallTotal = totalNimbuss + (4 * totalStratuss);

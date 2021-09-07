@@ -1,0 +1,388 @@
+@import '@core/scss/base/bootstrap-extended/include'; // Bootstrap includes
+@import '@core/scss/base/components/include'; // Components includes
+
+$email_details_header_height: 5rem;
+
+// Todo Application css starts
+.xdao-application {
+  // Content area wrapper border
+  .content-area-wrapper {
+    border: 1px solid $border-color;
+    border-radius: $card-border-radius;
+
+    // Sidebar area starts
+    .sidebar {
+      .xdao-sidebar {
+        width: $menu-expanded-width;
+        height: inherit;
+        display: flex;
+        background-color: $white;
+        border-top-left-radius: $card-border-radius;
+        border-bottom-left-radius: $card-border-radius;
+        transition: all 0.3s ease, background 0s;
+
+        // Sidebar Menu
+        .xdao-app-menu {
+          width: 100%;
+          z-index: 3;
+          .add-task {
+            padding: 1.5rem;
+          }
+
+          // Sidebar menu list items
+          .sidebar-menu-list {
+            position: relative;
+            height: calc(100% - 80px);
+          }
+          .list-group .list-group-item {
+            padding: 0.58rem 1.5rem;
+            border: 0;
+            font-weight: $font-weight-bold;
+            letter-spacing: 0.4px;
+            border-left: 2px solid transparent;
+            border-radius: 0;
+            + .list-group-item.active {
+              margin-top: 0;
+            }
+            &:hover,
+            &:focus,
+            &.active {
+              background: transparent;
+              color: $primary;
+            }
+            &.active {
+              border-color: #36c9a5;
+            }
+          }
+        }
+      }
+    }
+    // Sidebar area ends
+
+    // Right content area common css starts
+    .content-right {
+      width: calc(100% - #{$menu-expanded-width});
+      border-left: 1px solid $border-color;
+      .todo-app-list {
+        height: inherit;
+      }
+      // Todo Fixed search
+      .app-fixed-search {
+        padding: 0.35rem 0.5rem;
+        border-bottom: 1px solid $border-color;
+        background-color: $white;
+        border-top-right-radius: $border-radius;
+        .input-group:focus-within {
+          box-shadow: none;
+        }
+        input,
+        .input-group-text {
+          border: 0;
+          background-color: transparent;
+        }
+      }
+
+      .proposal-title {
+        margin-left: 0;
+        margin-right: 0.5rem;
+      }
+      .completed {
+        .proposal-title {
+          color: $text-muted;
+        }
+      }
+      // ToDo task list area
+      .xdao-proposal-list {
+        position: relative;
+        height: calc(100% - 1.75rem); // ? search box height (3.49rem) + 1px bottom border till 2 decimals
+        // background-color: $white;
+        border-radius: 0;
+        .xdao-media-list {
+          padding: 0;
+          margin: 0;
+          list-style: none;
+          // Set delay per List Item
+          @for $i from 1 through 5000 {
+            li:nth-child(#{$i}) {
+              animation-delay: 0.1s * $i;
+            }
+          }
+          li {
+            cursor: pointer;
+            transition: all 0.2s, background 0s, border-color 0s, color 0s;
+            animation: fadeIn 0.5s linear;
+            animation-fill-mode: both;
+            position: relative;
+            padding: 0.893rem 2rem;
+            &:not(:first-child) {
+              border-top: 1px solid $border-color;
+            }
+            &:hover {
+              transform: translateY(-4px);
+              box-shadow: 0 3px 10px 0 $border-color;
+              transition: all 0.2s;
+            }
+            .proposal-progress-area {
+              display: flex;
+              margin-top: 0.3rem;
+              margin-bottom: 0.3rem;
+            }
+            .proposal-progress-area h6 {
+              margin-top: 6px;
+            }
+            .proposal-progress-area .progress {
+              width: 100%;
+              margin-top: 3px;
+              height: 1.5rem;
+            }
+            .proposal-title-wrapper {
+              display: flex;
+              justify-content: space-between;
+            }
+            .proposal-title-area,
+            .title-wrapper {
+              display: flex;
+              align-items: center;
+            }
+            .proposal-description {
+              overflow: hidden;
+              font-size: small;
+              white-space: pre-wrap;
+            }
+                // Todo Item Action
+            .proposal-item-action {
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              a {
+                cursor: pointer;
+                font-size: 1.2rem;
+                line-height: 1.5;
+              }
+            }
+
+            .badge-wrapper {
+              display: flex;
+              .badge:not(:last-child) {
+                margin-right: 0.5rem;
+              }
+            }
+          }
+        }
+        // When we search, no-results
+        .no-results {
+          display: none;
+          padding: 1.5rem;
+          text-align: center;
+          &.show {
+            display: block;
+          }
+        }
+        .ps__rail-y {
+          z-index: 2;
+        }
+      }
+    }
+  }
+  // Slide In close btn
+  .proposal-item-action {
+    .close {
+      background: transparent !important;
+      box-shadow: none !important;
+      position: unset !important;
+      transform: none !important;
+      transition: none !important;
+    }
+  }
+
+  // On click of proposal Details section slide in from right
+  // Proposal details section starts
+  .proposal-details {
+    position: absolute;
+    display: block;
+    z-index: 2;
+    visibility: hidden;
+    top: 0;
+    width: calc(100% - #{$menu-expanded-width});
+    background-color: $body-bg;
+    .dark-layout & {
+      background-color: $theme-dark-body-bg;
+    }
+    transform: translateX(100%);
+    transition: all 0.25s ease, color 0s;
+    height: 100%;
+    &.show {
+      visibility: visible;
+      transition: all 0.25s ease, color 0s;
+      transform: translateX(0%);
+    }
+    .proposal-detail-header {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      box-shadow: 0 4px 6px rgba($black, 0.04);
+      border-bottom: 1px solid $kbd-bg;
+      position: relative;
+      padding: 0.5rem 2rem;
+      // background-color: $white;
+      height: $email_details_header_height;
+    }
+    .proposal-header-left {
+      .proposal-topic {
+        display: -webkit-box;
+        -webkit-line-clamp: 1;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+    }
+    .proposal-header-right {
+      .dropdown-toggle,
+      .action-icon {
+        color: $body-color;
+      }
+    }
+    // Email detail scroll area
+    .proposal-scroll-area {
+      padding: 0 2rem;
+      position: relative;
+      height: calc(100% - #{$email_details_header_height});
+
+      .badge {
+        font-size: 1.6rem;
+        padding-left: 2rem;
+        padding-right: 2rem;
+        white-space: normal;
+      }
+      .vote-badge {
+        font-size: 4rem;
+        padding-left: 2rem;
+        padding-right: 2rem;
+      }
+      .vote-button {
+        width: 100%;
+        padding: 2rem;
+        font-size: 2rem;
+      }
+      .description-text {
+        opacity: 1 !important;
+      }
+      .date {
+        font-size: 1.5rem;
+        border-bottom: 1px solid $border-color;
+        .dark-layout & {
+          border-bottom: 1px solid $theme-dark-border-color;
+        }
+        padding-top: 0.5rem;
+        padding-bottom: 0.5rem;
+        .mail-meta-item {
+          .dropdown {
+            line-height: 0;
+          }
+        }
+      }
+      .email-label {
+        margin: 2rem 0;
+      }
+      .email-info-dropup {
+        .dropdown-toggle::after {
+          left: -2px;
+          margin: 0;
+          background-image: url(str-replace(str-replace($chevron-down, 'currentColor', $text-muted), '#', '%23'));
+          background-size: 0.857rem;
+        }
+        .dropdown-menu {
+          padding: 0.5rem;
+        }
+      }
+    }
+  }
+
+  // validation text style
+  form .error:not(li):not(input) {
+    color: $danger;
+    font-size: 85%;
+    margin-top: 0.25rem;
+  }
+}
+
+// Keyframe animation
+@-webkit-keyframes fadeIn {
+  0% {
+    opacity: 0;
+    top: 100px;
+  }
+  75% {
+    opacity: 0.5;
+    top: 0px;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+@include media-breakpoint-down(md) {
+  .xdao-application {
+    .content-area-wrapper {
+      .sidebar-left {
+        .xdao-sidebar {
+          transform: translateX(-110%);
+          transition: all 0.3s ease-in-out;
+          left: 0;
+          position: absolute;
+          z-index: 5;
+          border-top-left-radius: $border-radius-sm;
+          border-bottom-left-radius: $border-radius-sm;
+        }
+        &.show {
+          .xdao-sidebar {
+            transform: translateX(0%);
+            transition: all 0.3s ease;
+          }
+        }
+      }
+      .content-right {
+        width: 100%;
+        border-left: 0;
+        .app-fixed-search {
+          border-top-left-radius: $border-radius;
+        }
+      }
+      .proposal-details {
+        width: 100%;
+      }
+          // ? Responsive Todo list in columns
+      .proposal-title-wrapper {
+        flex-direction: column;
+        .title-wrapper {
+          margin-bottom: 0.5rem;
+        }
+        .proposal-title {
+          display: -webkit-box;
+          -webkit-line-clamp: 1;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
+        }
+        .proposal-description {
+          display: -webkit-box;
+          -webkit-line-clamp: 1;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
+          font-size: small;
+          white-space: pre-wrap;
+        }
+        .badge-wrapper {
+          margin-right: auto !important;
+        }
+      }
+    }
+  }
+}
+@media (max-width: 349.98px) {
+  .xdao-application .content-area-wrapper .sidebar .xdao-sidebar {
+    width: 230px;
+  }
+}
+.horizontal-menu .xdao-application .content-area-wrapper .content-right .xdao-task-list-wrapper {
+  height: calc(100% - 3.6rem); // ? search box height (48.79px + 1px border = 3.56), horizontal needs 1 decimal point
+}

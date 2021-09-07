@@ -8,13 +8,11 @@
         <el-table-column
           label="ZelID"
           prop="zelid"
-        >
-        </el-table-column>
+        />
         <el-table-column
           label="Login Phrase"
           prop="loginPhrase"
-        >
-        </el-table-column>
+        />
         <el-table-column align="right">
           <template
             slot="header"
@@ -35,21 +33,21 @@
               <i
                 v-if="scope.row.loginPhrase === currentLoginPhrase"
                 class="el-icon-warning"
-              ></i>&nbsp;
+              />&nbsp;
             </el-tooltip>
             <el-popconfirm
-              confirmButtonText='Log Out!'
-              cancelButtonText='No, Thanks'
+              confirm-button-text="Log Out!"
+              cancel-button-text="No, Thanks"
               icon="el-icon-info"
-              iconColor="red"
+              icon-color="red"
               title="This action will log out your selected session."
               @onConfirm="logoutSpecificSession(scope.$index, scope.row)"
               @confirm="logoutSpecificSession(scope.$index, scope.row)"
             >
               <ElButton
+                slot="reference"
                 size="mini"
                 type="danger"
-                slot="reference"
               >
                 Log Out
               </ElButton>
@@ -58,10 +56,10 @@
         </el-table-column>
       </el-table>
       <el-popconfirm
-        confirmButtonText='Log Out all sessions!'
-        cancelButtonText='No, Thanks'
+        confirm-button-text="Log Out all sessions!"
+        cancel-button-text="No, Thanks"
         icon="el-icon-info"
-        iconColor="red"
+        icon-color="red"
         title="This action will log out ALL your sessions include the one currently used!"
         @onConfirm="logoutAllSessions()"
         @confirm="logoutAllSessions()"
@@ -78,25 +76,23 @@
       <br>
       Account:
       <el-input
+        v-model="kadenaAccountInput"
         class="width50"
         placeholder="Kadena Account"
-        v-model="kadenaAccountInput"
-      >
-      </el-input>
+      />
       Chain ID:
       <el-input-number
         v-model="kadenaChainIDInput"
         controls-position="right"
         :min="0"
         :max="19"
-      >
-      </el-input-number>
+      />
       <br>
       <el-popconfirm
-        confirmButtonText='Update'
-        cancelButtonText='No, Thanks'
+        confirm-button-text="Update"
+        cancel-button-text="No, Thanks"
         icon="el-icon-info"
-        iconColor="orange"
+        icon-color="orange"
         title="Flux will now update your Kadena Account"
         @onConfirm="adjustKadena()"
         @confirm="adjustKadena()"
@@ -105,7 +101,7 @@
           Update Kadena account
         </ElButton>
       </el-popconfirm>
-      <el-divider></el-divider>
+      <el-divider />
       <p>
         Update your Flux to the latest version. Every Flux has to run the newest version to stay on par with the network.
       </p>
@@ -117,13 +113,13 @@
         :visible.sync="updateDialogVisible"
         width="50%"
       >
-        <el-progress :percentage="updateProgress"></el-progress>
+        <el-progress :percentage="updateProgress" />
       </el-dialog>
       <el-popconfirm
-        confirmButtonText='OK'
-        cancelButtonText='No, Thanks'
+        confirm-button-text="OK"
+        cancel-button-text="No, Thanks"
         icon="el-icon-info"
-        iconColor="orange"
+        icon-color="orange"
         title="Flux will now begin updating itself."
         @onConfirm="updateFlux()"
         @confirm="updateFlux()"
@@ -132,15 +128,15 @@
           Update Flux
         </ElButton>
       </el-popconfirm>
-      <el-divider></el-divider>
+      <el-divider />
       <p>
         This option rebuilds Flux Home User Interface. Shall be used only in situation when UI does not rebuild properly to latest Flux version.
       </p>
       <el-popconfirm
-        confirmButtonText='Rebuild!'
-        cancelButtonText='No, Thanks'
+        confirm-button-text="Rebuild!"
+        cancel-button-text="No, Thanks"
         icon="el-icon-info"
-        iconColor="red"
+        icon-color="red"
         title="Rebuilds Flux Home User Interface. Useful for resolving minor UI issues."
         @onConfirm="rebuildHome()"
         @confirm="rebuildHome()"
@@ -149,15 +145,15 @@
           Rebuild Home
         </ElButton>
       </el-popconfirm>
-      <el-divider></el-divider>
+      <el-divider />
       <p>
         Options to reindex Flux databases and so rebuild them from scratch. Reindexing may take several hours and shall be used only when an unrecoverable error is present in databases.
       </p>
       <el-popconfirm
-        confirmButtonText='Reindex Flux!'
-        cancelButtonText='No, Thanks'
+        confirm-button-text="Reindex Flux!"
+        cancel-button-text="No, Thanks"
         icon="el-icon-info"
-        iconColor="red"
+        icon-color="red"
         title="Reindexes ALL Flux databases and rebuilds them from scratch"
         @onConfirm="reindexFlux()"
         @confirm="reindexFlux()"
@@ -167,10 +163,10 @@
         </ElButton>
       </el-popconfirm>
       <el-popconfirm
-        confirmButtonText='Reindex Explorer!'
-        cancelButtonText='No, Thanks'
+        confirm-button-text="Reindex Explorer!"
+        cancel-button-text="No, Thanks"
         icon="el-icon-info"
-        iconColor="red"
+        icon-color="red"
         title="Reindexes Explorer tied databases and rebuilds them from scratch"
         @onConfirm="reindexExplorer()"
         @confirm="reindexExplorer()"
@@ -179,24 +175,24 @@
           Reindex Explorer databases
         </ElButton>
       </el-popconfirm>
-      <el-divider></el-divider>
+      <el-divider />
       <p>
         Options to rescan Flux databases from a given blockheight and rebuild them since. Rescanning may take several hours and shall be used only when an unrecoverable error is present in databases with a known blockheight.
         Rescanning Flux databases is a deeper option than just explorer databases and so while rescanning entire Flux databases, explorer parts will be rescanned as well.
       </p>
       BlockHeight:
       <el-input-number
+        v-model="rescanFluxHeight"
         controls-position="right"
         placeholder="insert blockheight"
-        v-model="rescanFluxHeight"
         :min="0"
         :max="1000000"
-      ></el-input-number>
+      />
       <el-popconfirm
-        confirmButtonText='Rescan Flux!'
-        cancelButtonText='No, Thanks'
+        confirm-button-text="Rescan Flux!"
+        cancel-button-text="No, Thanks"
         icon="el-icon-info"
-        iconColor="red"
+        icon-color="red"
         title="Rescans ALL Flux databases and rebuilds them from scratch"
         @onConfirm="rescanFlux()"
         @confirm="rescanFlux()"
@@ -208,17 +204,17 @@
       <br>
       BlockHeight:
       <el-input-number
+        v-model="rescanExplorerHeight"
         controls-position="right"
         placeholder="insert blockheight"
-        v-model="rescanExplorerHeight"
         :min="0"
         :max="1000000"
-      ></el-input-number>
+      />
       <el-popconfirm
-        confirmButtonText='Rescan Explorer!'
-        cancelButtonText='No, Thanks'
+        confirm-button-text="Rescan Explorer!"
+        cancel-button-text="No, Thanks"
         icon="el-icon-info"
-        iconColor="red"
+        icon-color="red"
         title="Rescans Explorer tied databases and rebuilds them from scratch"
         @onConfirm="rescanExplorer()"
         @confirm="rescanExplorer()"
@@ -227,19 +223,19 @@
           Rescan Explorer databases
         </ElButton>
       </el-popconfirm>
-      <el-divider></el-divider>
+      <el-divider />
       <p>
         Options to rescan Flux Global Application Database from a given blockheight and rebuild them since. Rescanning may take several hours and shall be used only when an unrecoverable error is present in databases with a known blockheight.
         If remove Last Information is wished. The current specifics will be dropped instead making it more deep option.
       </p>
       BlockHeight:
       <el-input-number
+        v-model="rescanGlobalAppsHeight"
         controls-position="right"
         placeholder="insert blockheight"
-        v-model="rescanGlobalAppsHeight"
         :min="0"
         :max="1000000"
-      ></el-input-number>
+      />
       <el-tooltip
         :content="removeLastInformation ? 'Remove last app information' : 'Do NOT remove last app information'"
         placement="top"
@@ -248,14 +244,13 @@
           v-model="removeLastInformation"
           active-color="#13ce66"
           inactive-color="#ff4949"
-        >
-        </el-switch>
+        />
       </el-tooltip>
       <el-popconfirm
-        confirmButtonText='Rescan Global Apps!'
-        cancelButtonText='No, Thanks'
+        confirm-button-text="Rescan Global Apps!"
+        cancel-button-text="No, Thanks"
         icon="el-icon-info"
-        iconColor="red"
+        icon-color="red"
         title="Rescans Global Applications from stored permanent messages given a blockheight."
         @onConfirm="rescanGlobalApps()"
         @confirm="rescanGlobalApps()"
@@ -264,15 +259,15 @@
           Rescan Global Apps Information
         </ElButton>
       </el-popconfirm>
-      <el-divider></el-divider>
+      <el-divider />
       <p>
         Reindexes Flux Global Application Database and rebuilds them entirely from stored permanent messages. Reindexing may take a few hours and shall be used only when an unrecoverable error is present.
       </p>
       <el-popconfirm
-        confirmButtonText='Reindex Global Apps!'
-        cancelButtonText='No, Thanks'
+        confirm-button-text="Reindex Global Apps!"
+        cancel-button-text="No, Thanks"
         icon="el-icon-info"
-        iconColor="red"
+        icon-color="red"
         title="Reindexes Global Application Speicifications from stored permanent messages"
         @onConfirm="reindexGlobalApps()"
         @confirm="reindexGlobalApps()"
@@ -281,15 +276,15 @@
           Reindex Global Apps Information
         </ElButton>
       </el-popconfirm>
-      <el-divider></el-divider>
+      <el-divider />
       <p>
         Reindexes Flux Global Application Locations and rebuilds them from newly incoming messages. Shall be used only when index has inconsistencies.
       </p>
       <el-popconfirm
-        confirmButtonText='Reindex Locations!'
-        cancelButtonText='No, Thanks'
+        confirm-button-text="Reindex Locations!"
+        cancel-button-text="No, Thanks"
         icon="el-icon-info"
-        iconColor="red"
+        icon-color="red"
         title="Reindexes that drops information about where each application on the network is located and rebuilds collection indexes. Locations will be rebuild from incoming messages."
         @onConfirm="reindexLocations()"
         @confirm="reindexLocations()"
@@ -298,15 +293,15 @@
           Reindex Global Apps Locations
         </ElButton>
       </el-popconfirm>
-      <el-divider></el-divider>
+      <el-divider />
       <p>
         These options manage Flux block processing which is a crucial process for Explorer and Apps functionality. Useful when Block Processing encounters an error and is stuck. Use with caution!
       </p>
       <el-popconfirm
-        confirmButtonText='Restart Block Processing!'
-        cancelButtonText='No, Thanks'
+        confirm-button-text="Restart Block Processing!"
+        cancel-button-text="No, Thanks"
         icon="el-icon-info"
-        iconColor="red"
+        icon-color="red"
         title="This will restart Flux block processing which is a crucial process for Explorer and Apps functionality. Use with caution!"
         @onConfirm="restartBlockProcessing()"
         @confirm="restartBlockProcessing()"
@@ -316,10 +311,10 @@
         </ElButton>
       </el-popconfirm>
       <el-popconfirm
-        confirmButtonText='Stop Block Processing!'
-        cancelButtonText='No, Thanks'
+        confirm-button-text="Stop Block Processing!"
+        cancel-button-text="No, Thanks"
         icon="el-icon-info"
-        iconColor="red"
+        icon-color="red"
         title="This will stop Flux block processing which is a crucial process for Explorer and Apps functionality. Your node may go offline if block processing is not running!"
         @onConfirm="stopBlockProcessing()"
         @confirm="stopBlockProcessing()"
@@ -334,10 +329,10 @@
         An easy way to update your Flux daemon to the latest version. Flux will be automatically started once update is done.
       </p>
       <el-popconfirm
-        confirmButtonText='Update Flux daemon'
-        cancelButtonText='No, Thanks'
+        confirm-button-text="Update Flux daemon"
+        cancel-button-text="No, Thanks"
         icon="el-icon-info"
-        iconColor="orange"
+        icon-color="orange"
         title="Updates Flux daemon to the latest version"
         @onConfirm="updateDaemon()"
         @confirm="updateDaemon()"
@@ -346,15 +341,15 @@
           Update Daemon
         </ElButton>
       </el-popconfirm>
-      <el-divider></el-divider>
+      <el-divider />
       <p>
         Here you can manage your Flux daemon process.
       </p>
       <el-popconfirm
-        confirmButtonText='Start Flux daemon'
-        cancelButtonText='No, Thanks'
+        confirm-button-text="Start Flux daemon"
+        cancel-button-text="No, Thanks"
         icon="el-icon-info"
-        iconColor="green"
+        icon-color="green"
         title="Starts Flux daemon"
         @onConfirm="startDaemon()"
         @confirm="startDaemon()"
@@ -364,10 +359,10 @@
         </ElButton>
       </el-popconfirm>
       <el-popconfirm
-        confirmButtonText='Stop Flux daemon'
-        cancelButtonText='No, Thanks'
+        confirm-button-text="Stop Flux daemon"
+        cancel-button-text="No, Thanks"
         icon="el-icon-info"
-        iconColor="red"
+        icon-color="red"
         title="Stops Flux daemon"
         @onConfirm="stopDaemon()"
         @confirm="stopDaemon()"
@@ -377,10 +372,10 @@
         </ElButton>
       </el-popconfirm>
       <el-popconfirm
-        confirmButtonText='Restart Flux daemon'
-        cancelButtonText='No, Thanks'
+        confirm-button-text="Restart Flux daemon"
+        cancel-button-text="No, Thanks"
         icon="el-icon-info"
-        iconColor="orange"
+        icon-color="orange"
         title="Restarts Flux daemon"
         @onConfirm="restartDaemon()"
         @confirm="restartDaemon()"
@@ -389,23 +384,23 @@
           Restart Daemon
         </ElButton>
       </el-popconfirm>
-      <el-divider></el-divider>
+      <el-divider />
       <p>
         Choose a blockheight to rescan Daemon from and click on Rescan Daemon to begin rescanning.
       </p>
       BlockHeight:
       <el-input-number
+        v-model="rescanDaemonHeight"
         controls-position="right"
         placeholder="insert blockheight"
-        v-model="rescanDaemonHeight"
         :min="0"
         :max="1000000"
-      ></el-input-number>
+      />
       <el-popconfirm
-        confirmButtonText='Rescan Flux blockhain data'
-        cancelButtonText='No, Thanks'
+        confirm-button-text="Rescan Flux blockhain data"
+        cancel-button-text="No, Thanks"
         icon="el-icon-info"
-        iconColor="red"
+        icon-color="red"
         title="Rescan Flux daemon"
         @onConfirm="rescanDaemon()"
         @confirm="rescanDaemon()"
@@ -414,15 +409,15 @@
           Rescan Daemon
         </ElButton>
       </el-popconfirm>
-      <el-divider></el-divider>
+      <el-divider />
       <p>
         This option reindexes Flux blockchain data. It will take several hours to finish the operation.
       </p>
       <el-popconfirm
-        confirmButtonText='Reindex Flux blockhain data'
-        cancelButtonText='No, Thanks'
+        confirm-button-text="Reindex Flux blockhain data"
+        cancel-button-text="No, Thanks"
         icon="el-icon-info"
-        iconColor="red"
+        icon-color="red"
         title="Reindexes Flux daemon"
         @onConfirm="reindexDaemon()"
         @confirm="reindexDaemon()"
@@ -437,10 +432,10 @@
         An easy way to update your Benchmark daemon to the latest version. Benchmark will be automatically started once update is done.
       </p>
       <el-popconfirm
-        confirmButtonText='Update Benchmark'
-        cancelButtonText='No, Thanks'
+        confirm-button-text="Update Benchmark"
+        cancel-button-text="No, Thanks"
         icon="el-icon-info"
-        iconColor="orange"
+        icon-color="orange"
         title="Updates Benchmark to the latest version"
         @onConfirm="updateBenchmark()"
         @confirm="updateBenchmark()"
@@ -449,15 +444,15 @@
           Update Benchmark
         </ElButton>
       </el-popconfirm>
-      <el-divider></el-divider>
+      <el-divider />
       <p>
         Here you can manage your Benchmark daemon process.
       </p>
       <el-popconfirm
-        confirmButtonText='Start Benchmark daemon'
-        cancelButtonText='No, Thanks'
+        confirm-button-text="Start Benchmark daemon"
+        cancel-button-text="No, Thanks"
         icon="el-icon-info"
-        iconColor="green"
+        icon-color="green"
         title="Starts Benchmark daemon"
         @onConfirm="startBenchmark()"
         @confirm="startBenchmark()"
@@ -467,10 +462,10 @@
         </ElButton>
       </el-popconfirm>
       <el-popconfirm
-        confirmButtonText='Stop Benchmark daemon'
-        cancelButtonText='No, Thanks'
+        confirm-button-text="Stop Benchmark daemon"
+        cancel-button-text="No, Thanks"
         icon="el-icon-info"
-        iconColor="red"
+        icon-color="red"
         title="Stops Benchmark daemon"
         @onConfirm="stopBenchmark()"
         @confirm="stopBenchmark()"
@@ -480,10 +475,10 @@
         </ElButton>
       </el-popconfirm>
       <el-popconfirm
-        confirmButtonText='Restart Benchmark daemon'
-        cancelButtonText='No, Thanks'
+        confirm-button-text="Restart Benchmark daemon"
+        cancel-button-text="No, Thanks"
         icon="el-icon-info"
-        iconColor="orange"
+        icon-color="orange"
         title="Restarts Benchmark daemon"
         @onConfirm="restartBenchmark()"
         @confirm="restartBenchmark()"
@@ -492,15 +487,15 @@
           Restart Benchmark
         </ElButton>
       </el-popconfirm>
-      <el-divider></el-divider>
+      <el-divider />
       <p>
         Option to trigger a complete new run of node benchmarking. Useful when your node falls down in category or fails benchmarking tests.
       </p>
       <el-popconfirm
-        confirmButtonText='Restart Benchmarks'
-        cancelButtonText='No, Thanks'
+        confirm-button-text="Restart Benchmarks"
+        cancel-button-text="No, Thanks"
         icon="el-icon-info"
-        iconColor="orange"
+        icon-color="orange"
         title="Runs a complete new test of node benchmarking"
         @onConfirm="restartBenchmarks()"
         @confirm="restartBenchmarks()"
@@ -518,13 +513,11 @@
         <el-table-column
           label="ZelID"
           prop="zelid"
-        >
-        </el-table-column>
+        />
         <el-table-column
           label="Login Phrase"
           prop="loginPhrase"
-        >
-        </el-table-column>
+        />
         <el-table-column align="right">
           <template
             slot="header"
@@ -545,21 +538,21 @@
               <i
                 v-if="scope.row.loginPhrase === currentLoginPhrase"
                 class="el-icon-warning"
-              ></i>&nbsp;
+              />&nbsp;
             </el-tooltip>
             <el-popconfirm
-              confirmButtonText='Log Out!'
-              cancelButtonText='No, Thanks'
+              confirm-button-text="Log Out!"
+              cancel-button-text="No, Thanks"
               icon="el-icon-info"
-              iconColor="red"
+              icon-color="red"
               title="This action will log out selected user session."
               @onConfirm="logoutSpecificSession(scope.$index, scope.row)"
               @confirm="logoutSpecificSession(scope.$index, scope.row)"
             >
               <ElButton
+                slot="reference"
                 size="mini"
                 type="danger"
-                slot="reference"
               >
                 Log Out
               </ElButton>
@@ -568,10 +561,10 @@
         </el-table-column>
       </el-table>
       <el-popconfirm
-        confirmButtonText='Log Out all users!'
-        cancelButtonText='No, Thanks'
+        confirm-button-text="Log Out all users!"
+        cancel-button-text="No, Thanks"
         icon="el-icon-info"
-        iconColor="red"
+        icon-color="red"
         title="This action will log out ALL users including you!"
         @onConfirm="logOutAllUsers()"
         @confirm="logOutAllUsers()"

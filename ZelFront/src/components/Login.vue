@@ -5,8 +5,8 @@
     </p>
     <div>
       <a
-        @click="initiateLoginWS"
         :href="'zel:?action=sign&message=' + loginPhrase + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FZelFront%2Fsrc%2Fassets%2Fimg%2FzelID.svg&callback=' + callbackValue"
+        @click="initiateLoginWS"
       >
         <img
           class="zelidLogin"
@@ -14,7 +14,7 @@
           alt="Zel ID"
           height="100%"
           width="100%"
-        />
+        >
       </a>
     </div>
 
@@ -27,32 +27,38 @@
     >
       <ElFormItem>
         <ElInput
+          v-model="loginForm.loginPhrase"
           type="text"
           name="message"
           placeholder="insert Login Phrase"
-          v-model="loginForm.loginPhrase"
         >
-          <template slot="prepend">Message: </template>
+          <template slot="prepend">
+            Message:
+          </template>
         </ElInput>
       </ElFormItem>
       <ElFormItem>
         <ElInput
+          v-model="loginForm.zelid"
           type="text"
           name="address"
           placeholder="insert ZelID or Bitcoin address"
-          v-model="loginForm.zelid"
         >
-          <template slot="prepend">Address: </template>
+          <template slot="prepend">
+            Address:
+          </template>
         </ElInput>
       </ElFormItem>
       <ElFormItem>
         <ElInput
+          v-model="loginForm.signature"
           type="text"
           name="signature"
           placeholder="insert Signature"
-          v-model="loginForm.signature"
         >
-          <template slot="prepend">Signature: </template>
+          <template slot="prepend">
+            Signature:
+          </template>
         </ElInput>
       </ElFormItem>
       <ElButton @click="login()">

@@ -4,6 +4,7 @@ const bitcoinjs = require('bitcoinjs-lib');
 const config = require('config');
 const cmd = require('node-cmd');
 const LRU = require('lru-cache');
+const os = require('os');
 const fs = require('fs').promises;
 const path = require('path');
 // eslint-disable-next-line import/no-extraneous-dependencies
@@ -22,6 +23,7 @@ const incomingPeers = []; // array of objects containing ip
 
 let dosState = 0; // we can start at bigger number later
 let dosMessage = null;
+let nodeHardwareSpecsGood = true;
 
 const minimumFluxBenchAllowedVersion = 223;
 
@@ -89,8 +91,9 @@ async function getMyFluxIP() {
       myIP = benchmarkResponseData.ipaddress.length > 5 ? benchmarkResponseData.ipaddress : null;
     }
   } else {
-    dosMessage = benchmarkResponse.data;
-    dosState += 10;
+    dosMessage = 'Error getting fluxIp from FluxBench';
+    dosState += 15;
+    log.error(dosMessage);
   }
   myFluxIP = myIP;
   return myIP;
@@ -1082,68 +1085,71 @@ async function checkFluxbenchVersionAllowed() {
   }
 }
 
-async function checkMyFluxAvailability(nodelist) {
-  // run if at least 10 available nodes
-  if (nodelist.length > 10) {
-    const fluxBenchVersionAllowed = await checkFluxbenchVersionAllowed();
-    if (!fluxBenchVersionAllowed) {
-      return;
+async function checkMyFluxAvailability() {
+  const fluxBenchVersionAllowed = await checkFluxbenchVersionAllowed();
+  if (!fluxBenchVersionAllowed) {
+    return false;
+  }
+  let askingIP = await getRandomConnection();
+  if (typeof askingIP !== 'string' || typeof myFluxIP !== 'string' || myFluxIP === askingIP) {
+    return false;
+  }
+  if (askingIP.includes(':')) {
+    // it is ipv6
+    askingIP = `[${askingIP}]`;
+  }
+  let myIP = myFluxIP;
+  if (myIP.includes(':')) {
+    myIP = `[${myIP}]`;
+  }
+  let availabilityError = null;
+  const resMyAvailability = await serviceHelper.axiosGet(`http://${askingIP}:${config.server.apiport}/flux/checkfluxavailability/${myIP}`).catch((error) => {
+    log.error(`${askingIP} is not reachable`);
+    log.error(error);
+    availabilityError = true;
+  });
+  if (!resMyAvailability || availabilityError) {
+    dosState += 1.5;
+    if (dosState > 10) {
+      dosMessage = dosMessage || 'Flux communication is limited';
+      log.error(dosMessage);
     }
-    let askingIP = await getRandomConnection();
-    if (typeof askingIP !== 'string' || typeof myFluxIP !== 'string' || myFluxIP === askingIP) {
-      return;
-    }
-    if (askingIP.includes(':')) {
-      // it is ipv6
-      askingIP = `[${askingIP}]`;
-    }
-    let myIP = myFluxIP;
-    if (myIP.includes(':')) {
-      myIP = `[${myIP}]`;
-    }
-    const resMyAvailability = await serviceHelper.axiosGet(`http://${askingIP}:${config.server.apiport}/flux/checkfluxavailability/${myIP}`).catch((error) => {
-      log.error(`${askingIP} is not reachable`);
-      log.error(error);
-    });
-    if (!resMyAvailability) {
-      dosState += 0.5;
-      if (dosState > 10) {
-        dosMessage = dosMessage || 'Flux communication is limited';
-        log.error(dosMessage);
-      }
-      checkMyFluxAvailability(nodelist);
-      return;
-    }
-    if (resMyAvailability.data.status === 'error' || resMyAvailability.data.data.message.includes('not')) {
-      log.error(`My Flux unavailability detected from ${askingIP}`);
-      // Asked Flux cannot reach me lets check if ip changed
-      const benchIpResponse = await daemonService.getPublicIp();
-      if (benchIpResponse.status === 'success') {
-        const benchMyIP = benchIpResponse.data.length > 5 ? benchIpResponse.data : null;
-        if (benchMyIP && benchMyIP !== myIP) {
-          myIP = benchMyIP;
-          daemonService.createConfirmationTransaction();
-          return;
-        }
+    return false;
+  }
+  if (resMyAvailability.data.status === 'error' || resMyAvailability.data.data.message.includes('not')) {
+    log.error(`My Flux unavailability detected from ${askingIP}`);
+    // Asked Flux cannot reach me lets check if ip changed
+    log.info('Getting publicIp from FluxBench');
+    const benchIpResponse = await daemonService.getPublicIp();
+    if (benchIpResponse.status === 'success') {
+      const benchMyIP = benchIpResponse.data.length > 5 ? benchIpResponse.data : null;
+      if (benchMyIP && benchMyIP !== myIP) {
+        log.info('New public Ip detected, updating the FluxNode info in the network');
+        myIP = benchMyIP;
+        daemonService.createConfirmationTransaction();
+        await serviceHelper.delay(4 * 60 * 1000); // lets wait 2 blocks time for the transaction to be mined
+        return true;
+      } if (benchMyIP && benchMyIP === myIP) {
+        log.info('FluxBench reported the same Ip that was already in use');
       } else {
-        dosMessage = benchIpResponse.data;
-        dosState += 10;
-      }
-      dosState += 1.5;
-      if (dosState > 10) {
-        dosMessage = dosMessage || 'Flux is not available for outside communication';
-        log.error(dosMessage);
-      } else {
-        checkMyFluxAvailability(nodelist);
+        log.error('FluxBench wasnt able to detect flux node public ip');
       }
     } else {
-      dosState = 0;
-      dosMessage = null;
+      dosMessage = 'Error getting publicIp from FluxBench';
+      dosState += 15;
+      log.error(dosMessage);
+      return false;
     }
-  } else {
-    dosState = 0;
-    dosMessage = null;
+    dosState += 1.5;
+    if (dosState > 10) {
+      dosMessage = dosMessage || 'Flux is not available for outside communication';
+      log.error(dosMessage);
+    }
+    return false;
   }
+  dosState = 0;
+  dosMessage = null;
+  return true;
 }
 
 async function adjustExternalIP(ip) {
@@ -1186,6 +1192,9 @@ async function checkDeterministicNodesCollisions() {
     if (myIP) {
       const syncStatus = await daemonService.isDaemonSynced();
       if (!syncStatus.data.synced) {
+        setTimeout(() => {
+          checkDeterministicNodesCollisions();
+        }, 120 * 1000);
         return;
       }
       const nodeList = await deterministicFluxList();
@@ -1217,8 +1226,10 @@ async function checkDeterministicNodesCollisions() {
           }
         }
       }
-      checkMyFluxAvailability(nodeList);
-      adjustExternalIP(myIP);
+      const availabilityOk = await checkMyFluxAvailability();
+      if (availabilityOk) {
+        adjustExternalIP(myIP);
+      }
     } else {
       dosState += 1;
       if (dosState > 10) {
@@ -1240,6 +1251,7 @@ async function checkDeterministicNodesCollisions() {
 async function getDOSState(req, res) {
   const data = {
     dosState,
+    nodeHardwareSpecsGood,
     dosMessage,
   };
   response = serviceHelper.createDataMessage(data);
@@ -1425,6 +1437,58 @@ async function adjustGitRepository() {
   }
 }
 
+async function confirmNodeTierHardware() {
+  try {
+    // eslint-disable-next-line global-require
+    const appsService = require('./appsService');
+    const tier = await appsService.nodeTier();
+    const nodeRam = os.totalmem() / 1024 / 1024 / 1024;
+    const nodeCpuCores = os.cpus().length;
+    log.info(`Node Tier: ${tier}`);
+    log.info(`Node Total Ram: ${nodeRam}`);
+    log.info(`Node Cpu Cores: ${nodeCpuCores}`);
+    if (tier === 'bamf') {
+      if (nodeRam < 31) {
+        log.error(`Node Total Ram (${nodeRam}) below Stratus requirements`);
+        nodeHardwareSpecsGood = false;
+        return;
+      }
+      if (nodeCpuCores < 8) {
+        log.error(`Node Cpu Cores (${nodeCpuCores}) below Stratus requirements`);
+        nodeHardwareSpecsGood = false;
+        return;
+      }
+    } else if (tier === 'super') {
+      if (nodeRam < 7) {
+        log.error(`Node Total Ram (${nodeRam}) below Nimbus requirements`);
+        nodeHardwareSpecsGood = false;
+        return;
+      }
+      if (nodeCpuCores < 4) {
+        log.error(`Node Cpu Cores (${nodeCpuCores}) below Nimbus requirements`);
+        nodeHardwareSpecsGood = false;
+        return;
+      }
+    } else {
+      if (nodeRam < 3) {
+        log.error(`Node Total Ram (${nodeRam}) below Cumulus requirements`);
+        nodeHardwareSpecsGood = false;
+        return;
+      }
+      if (nodeCpuCores < 2) {
+        log.error(`Node Cpu Cores (${nodeCpuCores}) below Cumulus requirements`);
+        nodeHardwareSpecsGood = false;
+        return;
+      }
+    }
+    log.info('Hardware specs check result ok');
+    nodeHardwareSpecsGood = true;
+  } catch (error) {
+    log.error(error);
+    nodeHardwareSpecsGood = false;
+  }
+}
+
 module.exports = {
   getFluxMessageSignature,
   verifyOriginalFluxBroadcast,
@@ -1462,4 +1526,5 @@ module.exports = {
   adjustFirewall,
   checkDeterministicNodesCollisions,
   adjustGitRepository,
+  confirmNodeTierHardware,
 };

@@ -8,17 +8,17 @@
         <p>Help section output is listed below. Click on a command to find more specifics about it</p>
       </div>
       <div
-        class="helpSectionData"
         v-if="callResponse.data"
+        class="helpSectionData"
       >
         <el-collapse
-          accordion
           v-model="activeHelpNames"
+          accordion
           @change="benchmarkHelpSpecific"
         >
           <div
             v-for="help of helpResponse"
-            :key=help
+            :key="help"
           >
             <div v-if="help.startsWith('=')">
               <br>
@@ -27,19 +27,20 @@
               </h2>
             </div>
             <el-collapse-item
-              :name="help"
               v-if="!help.startsWith('=')"
+              :name="help"
             >
               <template slot="title">
                 <p>
                   {{ help }}
                 </p>
               </template>
-              <p class="helpSpecific">{{ currentHelpResponse || 'Loading help message...' }}</p>
+              <p class="helpSpecific">
+                {{ currentHelpResponse || 'Loading help message...' }}
+              </p>
             </el-collapse-item>
           </div>
         </el-collapse>
-
       </div>
       <div v-else>
         Obtaining help section...
@@ -50,10 +51,10 @@
         <p>Click on Start Benchmark button to Start Benchmark daemon</p>
       </div>
       <el-popconfirm
-        confirmButtonText='Start Benchmark daemon'
-        cancelButtonText='No, Thanks'
+        confirm-button-text="Start Benchmark daemon"
+        cancel-button-text="No, Thanks"
         icon="el-icon-info"
-        iconColor="green"
+        icon-color="green"
         title="Starts Benchmark daemon"
         @onConfirm="startBenchmark()"
         @confirm="startBenchmark()"
@@ -68,10 +69,10 @@
         <p>Click on Restart Benchmark button to restart Benchmark daemon</p>
       </div>
       <el-popconfirm
-        confirmButtonText='Restart Benchmark daemon'
-        cancelButtonText='No, Thanks'
+        confirm-button-text="Restart Benchmark daemon"
+        cancel-button-text="No, Thanks"
         icon="el-icon-info"
-        iconColor="orange"
+        icon-color="orange"
         title="Restarts Benchmark daemon"
         @onConfirm="restartBenchmark()"
         @confirm="restartBenchmark()"
@@ -86,10 +87,10 @@
         <p>Click on Stop Benchmark button to stop Benchmark daemon</p>
       </div>
       <el-popconfirm
-        confirmButtonText='Stop Benchmark daemon'
-        cancelButtonText='No, Thanks'
+        confirm-button-text="Stop Benchmark daemon"
+        cancel-button-text="No, Thanks"
         icon="el-icon-info"
-        iconColor="red"
+        icon-color="red"
         title="Stops Benchmark daemon"
         @onConfirm="stopBenchmark()"
         @confirm="stopBenchmark()"
@@ -175,10 +176,10 @@
       </div>
       <div>
         <el-popconfirm
-          confirmButtonText='Restart Benchmarks'
-          cancelButtonText='No, Thanks'
+          confirm-button-text="Restart Benchmarks"
+          cancel-button-text="No, Thanks"
           icon="el-icon-info"
-          iconColor="orange"
+          icon-color="orange"
           title="Runs a complete new test of node benchmarking"
           @onConfirm="restartBenchmarks()"
           @confirm="restartBenchmarks()"
@@ -195,19 +196,18 @@
       </div>
       <div>
         <el-input
+          v-model="hexFluxTransaction"
           type="textarea"
           placeholder="Please insert hex of ZelNode transaction to sign"
           autosize
-          v-model="hexFluxTransaction"
-        >
-        </el-input>
+        />
       </div>
       <div>
         <el-popconfirm
-          confirmButtonText='Sign Transaction'
-          cancelButtonText='No, Thanks'
+          confirm-button-text="Sign Transaction"
+          cancel-button-text="No, Thanks"
           icon="el-icon-info"
-          iconColor="orange"
+          icon-color="orange"
           title="Signs valid hex of Flux transaction"
           @onConfirm="signFluxTransaction()"
           @confirm="signFluxTransaction()"
@@ -234,10 +234,10 @@
         <p>Following action will download Benchmark debug file. This may take a few minutes depending on file size</p>
       </div>
       <el-popconfirm
-        confirmButtonText='Download Debug'
-        cancelButtonText='No, Thanks'
+        confirm-button-text="Download Debug"
+        cancel-button-text="No, Thanks"
         icon="el-icon-info"
-        iconColor="red"
+        icon-color="red"
         title="Download Benchmark Debug file?"
         @onConfirm="downloadBenchmarkDebugFile()"
         @confirm="downloadBenchmarkDebugFile()"
@@ -259,7 +259,7 @@
             circle
             size="mini"
             @click="cancelDownload"
-          ></el-button>
+          />
         </el-tooltip>
       </p>
       <br><br>
@@ -268,10 +268,10 @@
           <p>Following action will show last 100 lines of Benchmark debug file</p>
         </div>
         <el-popconfirm
-          confirmButtonText='Show Debug'
-          cancelButtonText='No, Thanks'
+          confirm-button-text="Show Debug"
+          cancel-button-text="No, Thanks"
           icon="el-icon-info"
-          iconColor="red"
+          icon-color="red"
           title="Show Benchmark Debug file?"
           @onConfirm="tailBenchmarkDebug()"
           @confirm="tailBenchmarkDebug()"
@@ -283,11 +283,10 @@
         <br><br>
         <el-input
           v-if="callResponse.data.message"
+          v-model="benchmarkDebugTail"
           type="textarea"
           autosize
-          v-model="benchmarkDebugTail"
-        >
-        </el-input>
+        />
       </div>
     </div>
     <div v-if="callResponse.status === 'error'">

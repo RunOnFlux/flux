@@ -1,8 +1,8 @@
 <template>
   <div>
     <div
-      :key="uniqueKey"
       v-if="appsSection === 'localapps'"
+      :key="uniqueKey"
     >
       <el-tabs
         v-if="!managedApplication"
@@ -30,8 +30,7 @@
               label="Image"
               prop="Image"
               sortable
-            >
-            </el-table-column>
+            />
             <el-table-column
               label="Visit"
               prop="visit"
@@ -51,10 +50,10 @@
             >
               <template slot-scope="scope">
                 <el-popconfirm
-                  confirmButtonText='Stop'
-                  cancelButtonText='No, Thanks'
+                  confirm-button-text="Stop"
+                  cancel-button-text="No, Thanks"
                   icon="el-icon-info"
-                  iconColor="red"
+                  icon-color="red"
                   title="Stops Application"
                   @onConfirm="stopAll(scope.row.Names[0].substr(1, scope.row.Names[0].length))"
                   @confirm="stopAll(scope.row.Names[0].substr(1, scope.row.Names[0].length))"
@@ -129,10 +128,10 @@
             >
               <template slot-scope="scope">
                 <el-popconfirm
-                  confirmButtonText='Start'
-                  cancelButtonText='No, Thanks'
+                  confirm-button-text="Start"
+                  cancel-button-text="No, Thanks"
                   icon="el-icon-info"
-                  iconColor="green"
+                  icon-color="green"
                   title="Starts Application"
                   @onConfirm="startApp(scope.row.name)"
                   @confirm="startApp(scope.row.name)"
@@ -142,10 +141,10 @@
                   </ElButton>
                 </el-popconfirm>
                 <el-popconfirm
-                  confirmButtonText='Restart'
-                  cancelButtonText='No, Thanks'
+                  confirm-button-text="Restart"
+                  cancel-button-text="No, Thanks"
                   icon="el-icon-info"
-                  iconColor="orange"
+                  icon-color="orange"
                   title="Retarts Application"
                   @onConfirm="restartApp(scope.row.name)"
                   @confirm="restartApp(scope.row.name)"
@@ -164,10 +163,10 @@
             >
               <template slot-scope="scope">
                 <el-popconfirm
-                  confirmButtonText='Remove'
-                  cancelButtonText='No, Thanks'
+                  confirm-button-text="Remove"
+                  cancel-button-text="No, Thanks"
                   icon="el-icon-info"
-                  iconColor="red"
+                  icon-color="red"
                   title="Removes Application"
                   @onConfirm="removeApp(scope.row.name)"
                   @confirm="removeApp(scope.row.name)"
@@ -186,10 +185,10 @@
             >
               <template slot-scope="scope">
                 <el-popconfirm
-                  confirmButtonText='Manage!'
-                  cancelButtonText='No, Thanks'
+                  confirm-button-text="Manage!"
+                  cancel-button-text="No, Thanks"
                   icon="el-icon-info"
-                  iconColor="green"
+                  icon-color="green"
                   title="Opens Application management centre"
                   @onConfirm="openAppManagement(scope.row.name)"
                   @confirm="openAppManagement(scope.row.name)"
@@ -223,7 +222,8 @@
                   v-for="location in appLocations"
                   :key="location.ip"
                 >
-                  <p>{{ location.ip }}
+                  <p>
+                    {{ location.ip }}
                     <ElButton @click="openApp(props.row.name, location.ip, props.row.port || props.row.ports[0])">
                       Visit
                     </ElButton>
@@ -244,8 +244,7 @@
               label="Image"
               prop="repotag"
               sortable
-            >
-            </el-table-column>
+            />
             <el-table-column
               label="Port"
               prop="port"
@@ -290,10 +289,10 @@
             >
               <template slot-scope="scope">
                 <el-popconfirm
-                  confirmButtonText='Install'
-                  cancelButtonText='No, Thanks'
+                  confirm-button-text="Install"
+                  cancel-button-text="No, Thanks"
                   icon="el-icon-info"
-                  iconColor="green"
+                  icon-color="green"
                   title="Installs Application"
                   @onConfirm="installTemporaryLocalApp(scope.row.name)"
                   @confirm="installTemporaryLocalApp(scope.row.name)"
@@ -367,10 +366,10 @@
             >
               <template slot-scope="scope">
                 <el-popconfirm
-                  confirmButtonText='Start'
-                  cancelButtonText='No, Thanks'
+                  confirm-button-text="Start"
+                  cancel-button-text="No, Thanks"
                   icon="el-icon-info"
-                  iconColor="green"
+                  icon-color="green"
                   title="Starts Application"
                   @onConfirm="startApp(scope.row.name)"
                   @confirm="startApp(scope.row.name)"
@@ -380,10 +379,10 @@
                   </ElButton>
                 </el-popconfirm>
                 <el-popconfirm
-                  confirmButtonText='Restart'
-                  cancelButtonText='No, Thanks'
+                  confirm-button-text="Restart"
+                  cancel-button-text="No, Thanks"
                   icon="el-icon-info"
-                  iconColor="orange"
+                  icon-color="orange"
                   title="Retarts Application"
                   @onConfirm="restartApp(scope.row.name)"
                   @confirm="restartApp(scope.row.name)"
@@ -401,10 +400,10 @@
             >
               <template slot-scope="scope">
                 <el-popconfirm
-                  confirmButtonText='Remove'
-                  cancelButtonText='No, Thanks'
+                  confirm-button-text="Remove"
+                  cancel-button-text="No, Thanks"
                   icon="el-icon-info"
-                  iconColor="red"
+                  icon-color="red"
                   title="Removes Application"
                   @onConfirm="removeApp(scope.row.name)"
                   @confirm="removeApp(scope.row.name)"
@@ -422,10 +421,10 @@
             >
               <template slot-scope="scope">
                 <el-popconfirm
-                  confirmButtonText='Manage!'
-                  cancelButtonText='No, Thanks'
+                  confirm-button-text="Manage!"
+                  cancel-button-text="No, Thanks"
                   icon="el-icon-info"
-                  iconColor="green"
+                  icon-color="green"
                   title="Opens Application management centre"
                   @onConfirm="openAppManagement(scope.row.name)"
                   @confirm="openAppManagement(scope.row.name)"
@@ -441,11 +440,11 @@
       </el-tabs>
     </div>
     <div
-      :key="uniqueKey"
       v-if="appsSection === 'globalapps'"
+      :key="uniqueKey"
     >
       <el-tabs
-        v-if=!managedApplication
+        v-if="!managedApplication"
         v-model="activeNameGlobal"
       >
         <el-tab-pane
@@ -470,7 +469,8 @@
                   v-for="location in appLocations"
                   :key="location.ip"
                 >
-                  <p>{{ location.ip }}
+                  <p>
+                    {{ location.ip }}
                     <ElButton @click="openApp(props.row.name, location.ip, props.row.port || props.row.ports[0])">
                       Visit
                     </ElButton>
@@ -500,8 +500,7 @@
               label="Description"
               prop="description"
               sortable
-            >
-            </el-table-column>
+            />
             <el-table-column
               label="Visit"
               prop="visit"
@@ -537,7 +536,8 @@
                   v-for="location in appLocations"
                   :key="location.ip"
                 >
-                  <p>{{ location.ip }}
+                  <p>
+                    {{ location.ip }}
                     <ElButton @click="openApp(props.row.name, location.ip, props.row.port || props.row.ports[0])">
                       Visit
                     </ElButton>
@@ -567,8 +567,7 @@
               label="Description"
               prop="description"
               sortable
-            >
-            </el-table-column>
+            />
             <el-table-column
               label="Visit"
               prop="visit"
@@ -598,22 +597,21 @@
     <div v-if="managedApplication">
       <el-page-header
         class="pageheader"
-        @back="goBackToApps"
         :content="applicationManagementAndStatus"
-      >
-      </el-page-header>
+        @back="goBackToApps"
+      />
       <el-container>
         <el-aside width="192px">
           <el-menu
             :default-active="managementMenuItem"
             mode="vertical"
             class="mobilemenu"
-            @select="handleSelect"
-            :unique-opened=true
+            :unique-opened="true"
             background-color="#333333"
             text-color="#fff"
             active-text-color="#ffd04b"
             style="text-align: left;"
+            @select="handleSelect"
           >
             <el-menu-item
               style="margin-bottom: -19px; margin-top: -10px; cursor: default !important;"
@@ -625,56 +623,56 @@
               :disabled="isApplicationInstalledLocally ? false : true"
               index="appspecifics"
             >
-              <i class="el-icon-info"></i>
+              <i class="el-icon-info" />
               <span>Specifications</span>
             </el-menu-item>
             <el-menu-item
               :disabled="isApplicationInstalledLocally ? false : true"
               index="appinspect"
             >
-              <i class="el-icon-magic-stick"></i>
+              <i class="el-icon-magic-stick" />
               <span>Information</span>
             </el-menu-item>
             <el-menu-item
               :disabled="isApplicationInstalledLocally ? false : true"
               index="appstats"
             >
-              <i class="el-icon-s-platform"></i>
+              <i class="el-icon-s-platform" />
               <span>Resources</span>
             </el-menu-item>
             <el-menu-item
               :disabled="isApplicationInstalledLocally ? false : true"
               index="appchanges"
             >
-              <i class="el-icon-files"></i>
+              <i class="el-icon-files" />
               <span>File Changes</span>
             </el-menu-item>
             <el-menu-item
               :disabled="isApplicationInstalledLocally ? false : true"
               index="appprocesses"
             >
-              <i class="el-icon-location-outline"></i>
+              <i class="el-icon-location-outline" />
               <span>Processes</span>
             </el-menu-item>
             <el-menu-item
               :disabled="isApplicationInstalledLocally ? false : true"
               index="applogs"
             >
-              <i class="el-icon-document"></i>
+              <i class="el-icon-document" />
               <span>Log File</span>
             </el-menu-item>
             <el-menu-item
               :disabled="isApplicationInstalledLocally ? false : true"
               index="appcontrol"
             >
-              <i class="el-icon-s-operation"></i>
+              <i class="el-icon-s-operation" />
               <span>Control</span>
             </el-menu-item>
             <el-menu-item
               :disabled="isApplicationInstalledLocally ? false : true"
               index="appexec"
             >
-              <i class="el-icon-video-play"></i>
+              <i class="el-icon-video-play" />
               <span>Execute Commands</span>
             </el-menu-item>
             <hr>
@@ -689,14 +687,14 @@
               :disabled="callBResponse.data ? false : true"
               @click="handleGlobalDisabledClick"
             >
-              <i class="el-icon-info"></i>
+              <i class="el-icon-info" />
               <span>Global Specifications</span>
             </el-menu-item>
             <el-menu-item
               :disabled="callBResponse.data ? false : true"
               index="appinstances"
             >
-              <i class="el-icon-location-outline"></i>
+              <i class="el-icon-location-outline" />
               <span>Running Instances</span>
             </el-menu-item>
             <el-menu-item
@@ -704,7 +702,7 @@
               :disabled="callBResponse.data ? false : true"
               @click="handleGlobalDisabledClick"
             >
-              <i class="el-icon-magic-stick"></i>
+              <i class="el-icon-magic-stick" />
               <span>Update Specifications</span>
             </el-menu-item>
           </el-menu>
@@ -813,7 +811,7 @@
               </div>
             </div>
             <div v-else>
-              Local Specifications loading<i class="el-icon-loading"></i>
+              Local Specifications loading<i class="el-icon-loading" />
             </div>
             <h2>Global Specifications</h2>
             <div
@@ -910,26 +908,24 @@
               Global specifications not found!
             </div>
             <div v-else>
-              Global Specifications loading<i class="el-icon-loading"></i>
+              Global Specifications loading<i class="el-icon-loading" />
             </div>
           </div>
           <div v-if="managementMenuItem == 'appinspect'">
             <el-input
               v-if="callResponse.data"
+              v-model="stringifiedResponse"
               type="textarea"
               autosize
-              v-model="stringifiedResponse"
-            >
-            </el-input>
+            />
           </div>
           <div v-if="managementMenuItem == 'appstats'">
             <el-input
               v-if="callResponse.data"
+              v-model="stringifiedResponse"
               type="textarea"
               autosize
-              v-model="stringifiedResponse"
-            >
-            </el-input>
+            />
           </div>
           <div v-if="managementMenuItem == 'appchanges'">
             {{ callResponse.data }}
@@ -953,20 +949,17 @@
                 label="Name"
                 prop="name"
                 sortable
-              >
-              </el-table-column>
+              />
               <el-table-column
                 label="IP"
                 prop="ip"
                 sortable
-              >
-              </el-table-column>
+              />
               <el-table-column
                 label="Hash"
                 prop="hash"
                 sortable
-              >
-              </el-table-column>
+              />
               <el-table-column
                 label="Visit"
                 prop="visit"
@@ -986,10 +979,10 @@
               <p>Following action will download Log file from your Application debug file. This may take a few minutes depending on file size</p>
             </div>
             <el-popconfirm
-              confirmButtonText='Download Log'
-              cancelButtonText='No, Thanks'
+              confirm-button-text="Download Log"
+              cancel-button-text="No, Thanks"
               icon="el-icon-info"
-              iconColor="orange"
+              icon-color="orange"
               title="Download Log file?"
               @onConfirm="downloadApplicationLog()"
               @confirm="downloadApplicationLog()"
@@ -1011,7 +1004,7 @@
                   circle
                   size="mini"
                   @click="cancelDownload"
-                ></el-button>
+                />
               </el-tooltip>
             </p>
             <br><br>
@@ -1020,21 +1013,20 @@
             </div>
             <el-input
               v-if="callResponse.data"
+              v-model="asciResponse"
               type="textarea"
               autosize
-              v-model="asciResponse"
-            >
-            </el-input>
+            />
           </div>
           <div v-else-if="managementMenuItem == 'appcontrol'">
             <p>
               General options to control running status of App.
             </p>
             <el-popconfirm
-              confirmButtonText='Start'
-              cancelButtonText='No, Thanks'
+              confirm-button-text="Start"
+              cancel-button-text="No, Thanks"
               icon="el-icon-info"
-              iconColor="green"
+              icon-color="green"
               title="Starts App"
               @onConfirm="startApp(managedApplication)"
               @confirm="startApp(managedApplication)"
@@ -1044,10 +1036,10 @@
               </ElButton>
             </el-popconfirm>
             <el-popconfirm
-              confirmButtonText='Stop'
-              cancelButtonText='No, Thanks'
+              confirm-button-text="Stop"
+              cancel-button-text="No, Thanks"
               icon="el-icon-info"
-              iconColor="red"
+              icon-color="red"
               title="Stops App"
               @onConfirm="stopAll(managedApplication)"
               @confirm="stopAll(managedApplication)"
@@ -1057,10 +1049,10 @@
               </ElButton>
             </el-popconfirm>
             <el-popconfirm
-              confirmButtonText='Restart'
-              cancelButtonText='No, Thanks'
+              confirm-button-text="Restart"
+              cancel-button-text="No, Thanks"
               icon="el-icon-info"
-              iconColor="orange"
+              icon-color="orange"
               title="Restarts App"
               @onConfirm="restartApp(managedApplication)"
               @confirm="restartApp(managedApplication)"
@@ -1069,15 +1061,15 @@
                 Restart App
               </ElButton>
             </el-popconfirm>
-            <el-divider></el-divider>
+            <el-divider />
             <p>
               The Pause command suspends all processes in the specified App.
             </p>
             <el-popconfirm
-              confirmButtonText='Pause'
-              cancelButtonText='No, Thanks'
+              confirm-button-text="Pause"
+              cancel-button-text="No, Thanks"
               icon="el-icon-info"
-              iconColor="orange"
+              icon-color="orange"
               title="Pauses App"
               @onConfirm="pauseApp(managedApplication)"
               @confirm="pauseApp(managedApplication)"
@@ -1087,10 +1079,10 @@
               </ElButton>
             </el-popconfirm>
             <el-popconfirm
-              confirmButtonText='Unpause'
-              cancelButtonText='No, Thanks'
+              confirm-button-text="Unpause"
+              cancel-button-text="No, Thanks"
               icon="el-icon-info"
-              iconColor="orange"
+              icon-color="orange"
               title="Unpauses App"
               @onConfirm="unpauseApp(managedApplication)"
               @confirm="unpauseApp(managedApplication)"
@@ -1099,15 +1091,15 @@
                 Unpause App
               </ElButton>
             </el-popconfirm>
-            <el-divider></el-divider>
+            <el-divider />
             <p>
               App can be redeployed with or without data reinitiation. Hard redeployement removes the App including its attached data storage volume. Soft redeployemment will reuse already existing data application.
             </p>
             <el-popconfirm
-              confirmButtonText='Redeploy'
-              cancelButtonText='No, Thanks'
+              confirm-button-text="Redeploy"
+              cancel-button-text="No, Thanks"
               icon="el-icon-info"
-              iconColor="orange"
+              icon-color="orange"
               title="Redeploys App without data removal"
               @onConfirm="redeployAppSoft(managedApplication)"
               @confirm="redeployAppSoft(managedApplication)"
@@ -1117,10 +1109,10 @@
               </ElButton>
             </el-popconfirm>
             <el-popconfirm
-              confirmButtonText='Redeploy'
-              cancelButtonText='No, Thanks'
+              confirm-button-text="Redeploy"
+              cancel-button-text="No, Thanks"
               icon="el-icon-info"
-              iconColor="red"
+              icon-color="red"
               title="Redeploys App with data removal"
               @onConfirm="redeployAppHard(managedApplication)"
               @confirm="redeployAppHard(managedApplication)"
@@ -1129,15 +1121,15 @@
                 Hard Redeploy App
               </ElButton>
             </el-popconfirm>
-            <el-divider></el-divider>
+            <el-divider />
             <p>
               Stops, Uninstalls and Removes all App data from this specific Flux.
             </p>
             <el-popconfirm
-              confirmButtonText='Remove'
-              cancelButtonText='No, Thanks'
+              confirm-button-text="Remove"
+              cancel-button-text="No, Thanks"
               icon="el-icon-info"
-              iconColor="red"
+              icon-color="red"
               title="Removes App"
               @onConfirm="removeApp(managedApplication)"
               @confirm="removeApp(managedApplication)"
@@ -1157,34 +1149,31 @@
             >
               <el-form-item label="Commands">
                 <el-input
+                  v-model="appExec.cmd"
                   placeholder="Array of strings of Commands"
                   textarea
-                  v-model="appExec.cmd"
-                >
-                </el-input>
+                />
               </el-form-item>
               <el-form-item label="Enviroment">
                 <el-input
+                  v-model="appExec.env"
                   placeholder="Array of strings of Enviromental Parameters"
                   textarea
-                  v-model="appExec.env"
-                >
-                </el-input>
+                />
               </el-form-item>
             </el-form>
             <ElButton @click="appExecute">
               Execute
             </ElButton>
             <div v-if="commandExecuting">
-              <i class="el-icon-loading"></i>
+              <i class="el-icon-loading" />
             </div>
             <el-input
               v-if="callResponse.data"
+              v-model="asciResponse"
               type="textarea"
               autosize
-              v-model="asciResponse"
-            >
-            </el-input>
+            />
           </div>
           <div v-if="managementMenuItem == 'globalappspecifics'">
             <h2>Global Specifications</h2>
@@ -1282,7 +1271,7 @@
               Global specifications not found!
             </div>
             <div v-else>
-              Global Specifications loading<i class="el-icon-loading"></i>
+              Global Specifications loading<i class="el-icon-loading" />
             </div>
           </div>
           <div v-if="managementMenuItem === 'updateappglobalspecifications'">
@@ -1297,225 +1286,202 @@
               >
                 <el-form-item label="Version">
                   <el-input
+                    v-model="appUpdateSpecification.version"
                     placeholder="App Version"
                     disabled
-                    v-model="appUpdateSpecification.version"
-                  >
-                  </el-input>
+                  />
                 </el-form-item>
                 <el-form-item label="Name">
                   <el-input
+                    v-model="appUpdateSpecification.name"
                     placeholder="App name"
                     disabled
-                    v-model="appUpdateSpecification.name"
-                  >
-                  </el-input>
+                  />
                 </el-form-item>
                 <el-form-item label="Desc.">
                   <el-input
+                    v-model="appUpdateSpecification.description"
                     placeholder="Description"
                     type="textarea"
                     autosize
-                    v-model="appUpdateSpecification.description"
-                  >
-                  </el-input>
+                  />
                 </el-form-item>
                 <el-form-item label="Repo">
                   <el-input
+                    v-model="appUpdateSpecification.repotag"
                     placeholder="Docker Hub namespace/repository:tag"
                     disabled
-                    v-model="appUpdateSpecification.repotag"
-                  >
-                  </el-input>
+                  />
                 </el-form-item>
                 <el-form-item label="Owner">
                   <el-input
-                    placeholder="ZelID of application owner"
                     v-model="appUpdateSpecification.owner"
-                  >
-                  </el-input>
+                    placeholder="ZelID of application owner"
+                  />
                 </el-form-item>
                 <el-form-item label="Ports">
                   <el-input
-                    placeholder="Array of Ports on which application will be available"
                     v-model="appUpdateSpecification.ports"
-                  >
-                  </el-input>
+                    placeholder="Array of Ports on which application will be available"
+                  />
                 </el-form-item>
                 <el-form-item label="Domains">
                   <el-input
+                    v-model="appUpdateSpecification.domains"
                     placeholder="Array of strings of Domains managed by Flux Domain Manager (FDM). Length has to corresponds to available ports. Use empty strings for no domains"
                     textarea
-                    v-model="appUpdateSpecification.domains"
-                  >
-                  </el-input>
+                  />
                 </el-form-item>
                 <el-form-item label="Enviroment">
                   <el-input
+                    v-model="appUpdateSpecification.enviromentParameters"
                     placeholder="Array of strings of Enviromental Parameters"
                     textarea
-                    v-model="appUpdateSpecification.enviromentParameters"
-                  >
-                  </el-input>
+                  />
                 </el-form-item>
                 <el-form-item label="Commands">
                   <el-input
+                    v-model="appUpdateSpecification.commands"
                     placeholder="Array of strings of Commands"
                     textarea
-                    v-model="appUpdateSpecification.commands"
-                  >
-                  </el-input>
+                  />
                 </el-form-item>
                 <el-form-item label="Cont. Ports">
                   <el-input
-                    placeholder="Container Ports - array of ports on which your container has"
                     v-model="appUpdateSpecification.containerPorts"
-                  >
-                  </el-input>
+                    placeholder="Container Ports - array of ports on which your container has"
+                  />
                 </el-form-item>
                 <el-form-item label="Cont. Data">
                   <el-input
+                    v-model="appUpdateSpecification.containerData"
                     placeholder="Data folder that is shared by application to App volume"
                     textarea
-                    v-model="appUpdateSpecification.containerData"
-                  >
-                  </el-input>
+                  />
                 </el-form-item>
                 <el-form-item label="CPU">
                   <el-input
+                    v-model="appUpdateSpecification.cpu"
                     placeholder="CPU cores to use by default"
                     nubmer
                     min="0"
                     max="7"
                     step="0.1"
-                    v-model="appUpdateSpecification.cpu"
-                  >
-                  </el-input>
+                  />
                 </el-form-item>
                 <el-form-item label="RAM">
                   <el-input
+                    v-model="appUpdateSpecification.ram"
                     placeholder="RAM in MB value to use by default"
                     nubmer
                     min="0"
                     max="28000"
                     step="100"
-                    v-model="appUpdateSpecification.ram"
-                  >
-                  </el-input>
+                  />
                 </el-form-item>
                 <el-form-item label="SSD">
                   <el-input
+                    v-model="appUpdateSpecification.hdd"
                     placeholder="SSD in GB value to use by default"
                     nubmer
                     min="0"
                     max="570"
                     step="1"
-                    v-model="appUpdateSpecification.hdd"
-                  >
-                  </el-input>
+                  />
                 </el-form-item>
                 <el-form-item label="Tiered">
-                  <el-switch v-model="appUpdateSpecification.tiered"></el-switch>
+                  <el-switch v-model="appUpdateSpecification.tiered" />
                 </el-form-item>
                 <div v-if="appUpdateSpecification.tiered">
                   <el-form-item label="Cumulus CPU">
                     <el-input
+                      v-model="appUpdateSpecification.cpubasic"
                       placeholder="CPU cores to use by Cumulus"
                       nubmer
                       min="0"
                       max="1"
                       step="0.1"
-                      v-model="appUpdateSpecification.cpubasic"
-                    >
-                    </el-input>
+                    />
                   </el-form-item>
                   <el-form-item label="Cumulus RAM">
                     <el-input
+                      v-model="appUpdateSpecification.rambasic"
                       placeholder="RAM in MB value to use by Cumulus"
                       nubmer
                       min="0"
                       max="1000"
                       step="100"
-                      v-model="appUpdateSpecification.rambasic"
-                    >
-                    </el-input>
+                    />
                   </el-form-item>
                   <el-form-item label="Cumulus SSD">
                     <el-input
+                      v-model="appUpdateSpecification.hddbasic"
                       placeholder="SSD in GB value to use by Cumulus"
                       nubmer
                       min="0"
                       max="20"
                       step="1"
-                      v-model="appUpdateSpecification.hddbasic"
-                    >
-                    </el-input>
+                    />
                   </el-form-item>
                   <el-form-item label="Nimbus CPU">
                     <el-input
+                      v-model="appUpdateSpecification.cpusuper"
                       placeholder="CPU cores to use by Nimbus"
                       nubmer
                       min="0"
                       max="3"
                       step="0.1"
-                      v-model="appUpdateSpecification.cpusuper"
-                    >
-                    </el-input>
+                    />
                   </el-form-item>
                   <el-form-item label="Nimbus RAM">
                     <el-input
+                      v-model="appUpdateSpecification.ramsuper"
                       placeholder="RAM in MB value to use by Nimbus"
                       nubmer
                       min="0"
                       max="5000"
                       step="100"
-                      v-model="appUpdateSpecification.ramsuper"
-                    >
-                    </el-input>
+                    />
                   </el-form-item>
                   <el-form-item label="Nimbus SSD">
                     <el-input
+                      v-model="appUpdateSpecification.hddsuper"
                       placeholder="SSD in GB value to use by Nimbus"
                       nubmer
                       min="0"
                       max="120"
                       step="1"
-                      v-model="appUpdateSpecification.hddsuper"
-                    >
-                    </el-input>
+                    />
                   </el-form-item>
                   <el-form-item label="Stratus CPU">
                     <el-input
+                      v-model="appUpdateSpecification.cpubamf"
                       placeholder="CPU cores to use by Stratus"
                       nubmer
                       min="0"
                       max="7"
                       step="0.1"
-                      v-model="appUpdateSpecification.cpubamf"
-                    >
-                    </el-input>
+                    />
                   </el-form-item>
                   <el-form-item label="Stratus RAM">
                     <el-input
+                      v-model="appUpdateSpecification.rambamf"
                       placeholder="RAM in MB value to use by Stratus"
                       nubmer
                       min="0"
                       max="28000"
                       step="100"
-                      v-model="appUpdateSpecification.rambamf"
-                    >
-                    </el-input>
+                    />
                   </el-form-item>
                   <el-form-item label="Stratus SSD">
                     <el-input
+                      v-model="appUpdateSpecification.hddbamf"
                       placeholder="SSD in GB value to use by Stratus"
                       nubmer
                       min="0"
                       max="570"
                       step="1"
-                      v-model="appUpdateSpecification.hddbamf"
-                    >
-                    </el-input>
+                    />
                   </el-form-item>
                 </div>
               </el-form>
@@ -1529,20 +1495,18 @@
               <el-form>
                 <el-form-item label="Update Message">
                   <el-input
+                    v-model="dataToSign"
                     type="textarea"
                     autosize
                     disabled
-                    v-model="dataToSign"
-                  >
-                  </el-input>
+                  />
                 </el-form-item>
                 <el-form-item label="Signature">
                   <el-input
+                    v-model="signature"
                     type="textarea"
                     autosize
-                    v-model="signature"
-                  >
-                  </el-input>
+                  />
                 </el-form-item>
               </el-form>
               <br><br>
@@ -1552,8 +1516,8 @@
                 Sign with ZelCore
                 <br>
                 <a
-                  @click="initiateSignWSUpdate"
                   :href="'zel:?action=sign&message=' + dataToSign + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FZelFront%2Fsrc%2Fassets%2Fimg%2FzelID.svg&callback=' + callbackValue"
+                  @click="initiateSignWSUpdate"
                 >
                   <img
                     class="zelidLogin"
@@ -1561,7 +1525,7 @@
                     alt="Zel ID"
                     height="100%"
                     width="100%"
-                  />
+                  >
                 </a>
               </div>
               <br><br>
@@ -1592,7 +1556,7 @@
                     alt="Zel ID"
                     height="100%"
                     width="100%"
-                  />
+                  >
                 </a>
               </div>
             </div>
@@ -1623,223 +1587,200 @@
         >
           <el-form-item label="Version">
             <el-input
+              v-model="appRegistrationSpecification.version"
               placeholder="App Version"
               disabled
-              v-model="appRegistrationSpecification.version"
-            >
-            </el-input>
+            />
           </el-form-item>
           <el-form-item label="Name">
             <el-input
-              placeholder="App name"
               v-model="appRegistrationSpecification.name"
-            >
-            </el-input>
+              placeholder="App name"
+            />
           </el-form-item>
           <el-form-item label="Desc.">
             <el-input
+              v-model="appRegistrationSpecification.description"
               placeholder="Description"
               type="textarea"
               autosize
-              v-model="appRegistrationSpecification.description"
-            >
-            </el-input>
+            />
           </el-form-item>
           <el-form-item label="Repo">
             <el-input
-              placeholder="Docker Hub namespace/repository:tag"
               v-model="appRegistrationSpecification.repotag"
-            >
-            </el-input>
+              placeholder="Docker Hub namespace/repository:tag"
+            />
           </el-form-item>
           <el-form-item label="Owner">
             <el-input
-              placeholder="ZelID of application owner"
               v-model="appRegistrationSpecification.owner"
-            >
-            </el-input>
+              placeholder="ZelID of application owner"
+            />
           </el-form-item>
           <el-form-item label="Ports">
             <el-input
-              placeholder="Array of Ports on which application will be available"
               v-model="appRegistrationSpecification.ports"
-            >
-            </el-input>
+              placeholder="Array of Ports on which application will be available"
+            />
           </el-form-item>
           <el-form-item label="Domains">
             <el-input
+              v-model="appRegistrationSpecification.domains"
               placeholder="Array of strings of Domains managed by Flux Domain Manager (FDM). Length has to corresponds to available ports. Use empty strings for no domains"
               textarea
-              v-model="appRegistrationSpecification.domains"
-            >
-            </el-input>
+            />
           </el-form-item>
           <el-form-item label="Enviroment">
             <el-input
+              v-model="appRegistrationSpecification.enviromentParameters"
               placeholder="Array of strings of Enviromental Parameters"
               textarea
-              v-model="appRegistrationSpecification.enviromentParameters"
-            >
-            </el-input>
+            />
           </el-form-item>
           <el-form-item label="Commands">
             <el-input
+              v-model="appRegistrationSpecification.commands"
               placeholder="Array of strings of Commands"
               textarea
-              v-model="appRegistrationSpecification.commands"
-            >
-            </el-input>
+            />
           </el-form-item>
           <el-form-item label="Cont. Ports">
             <el-input
-              placeholder="Container Ports - array of ports on which your container has"
               v-model="appRegistrationSpecification.containerPorts"
-            >
-            </el-input>
+              placeholder="Container Ports - array of ports on which your container has"
+            />
           </el-form-item>
           <el-form-item label="Cont. Data">
             <el-input
+              v-model="appRegistrationSpecification.containerData"
               placeholder="Data folder that is shared by application to App volume"
               textarea
-              v-model="appRegistrationSpecification.containerData"
-            >
-            </el-input>
+            />
           </el-form-item>
           <el-form-item label="CPU">
             <el-input
+              v-model="appRegistrationSpecification.cpu"
               placeholder="CPU cores to use by default"
               nubmer
               min="0"
               max="7"
               step="0.1"
-              v-model="appRegistrationSpecification.cpu"
-            >
-            </el-input>
+            />
           </el-form-item>
           <el-form-item label="RAM">
             <el-input
+              v-model="appRegistrationSpecification.ram"
               placeholder="RAM in MB value to use by default"
               nubmer
               min="0"
               max="28000"
               step="100"
-              v-model="appRegistrationSpecification.ram"
-            >
-            </el-input>
+            />
           </el-form-item>
           <el-form-item label="SSD">
             <el-input
+              v-model="appRegistrationSpecification.hdd"
               placeholder="SSD in GB value to use by default"
               nubmer
               min="0"
               max="570"
               step="1"
-              v-model="appRegistrationSpecification.hdd"
-            >
-            </el-input>
+            />
           </el-form-item>
           <el-form-item label="Tiered">
-            <el-switch v-model="appRegistrationSpecification.tiered"></el-switch>
+            <el-switch v-model="appRegistrationSpecification.tiered" />
           </el-form-item>
           <div v-if="appRegistrationSpecification.tiered">
             <el-form-item label="Cumulus CPU">
               <el-input
+                v-model="appRegistrationSpecification.cpubasic"
                 placeholder="CPU cores to use by Cumulus"
                 nubmer
                 min="0"
                 max="1"
                 step="0.1"
-                v-model="appRegistrationSpecification.cpubasic"
-              >
-              </el-input>
+              />
             </el-form-item>
             <el-form-item label="Cumulus RAM">
               <el-input
+                v-model="appRegistrationSpecification.rambasic"
                 placeholder="RAM in MB value to use by Cumulus"
                 nubmer
                 min="0"
                 max="1000"
                 step="100"
-                v-model="appRegistrationSpecification.rambasic"
-              >
-              </el-input>
+              />
             </el-form-item>
             <el-form-item label="Cumulus SSD">
               <el-input
+                v-model="appRegistrationSpecification.hddbasic"
                 placeholder="SSD in GB value to use by Cumulus"
                 nubmer
                 min="0"
                 max="20"
                 step="1"
-                v-model="appRegistrationSpecification.hddbasic"
-              >
-              </el-input>
+              />
             </el-form-item>
             <el-form-item label="Nimbus CPU">
               <el-input
+                v-model="appRegistrationSpecification.cpusuper"
                 placeholder="CPU cores to use by Nimbus"
                 nubmer
                 min="0"
                 max="3"
                 step="0.1"
-                v-model="appRegistrationSpecification.cpusuper"
-              >
-              </el-input>
+              />
             </el-form-item>
             <el-form-item label="Nimbus RAM">
               <el-input
+                v-model="appRegistrationSpecification.ramsuper"
                 placeholder="RAM in MB value to use by Nimbus"
                 nubmer
                 min="0"
                 max="5000"
                 step="100"
-                v-model="appRegistrationSpecification.ramsuper"
-              >
-              </el-input>
+              />
             </el-form-item>
             <el-form-item label="Nimbus SSD">
               <el-input
+                v-model="appRegistrationSpecification.hddsuper"
                 placeholder="SSD in GB value to use by Nimbus"
                 nubmer
                 min="0"
                 max="120"
                 step="1"
-                v-model="appRegistrationSpecification.hddsuper"
-              >
-              </el-input>
+              />
             </el-form-item>
             <el-form-item label="Stratus CPU">
               <el-input
+                v-model="appRegistrationSpecification.cpubamf"
                 placeholder="CPU cores to use by Stratus"
                 nubmer
                 min="0"
                 max="7"
                 step="0.1"
-                v-model="appRegistrationSpecification.cpubamf"
-              >
-              </el-input>
+              />
             </el-form-item>
             <el-form-item label="Stratus RAM">
               <el-input
+                v-model="appRegistrationSpecification.rambamf"
                 placeholder="RAM in MB value to use by Stratus"
                 nubmer
                 min="0"
                 max="28000"
                 step="100"
-                v-model="appRegistrationSpecification.rambamf"
-              >
-              </el-input>
+              />
             </el-form-item>
             <el-form-item label="Stratus SSD">
               <el-input
+                v-model="appRegistrationSpecification.hddbamf"
                 placeholder="SSD in GB value to use by Stratus"
                 nubmer
                 min="0"
                 max="570"
                 step="1"
-                v-model="appRegistrationSpecification.hddbamf"
-              >
-              </el-input>
+              />
             </el-form-item>
           </div>
         </el-form>
@@ -1852,28 +1793,26 @@
           <el-form>
             <el-form-item label="Registration Message">
               <el-input
+                v-model="dataToSign"
                 type="textarea"
                 autosize
                 disabled
-                v-model="dataToSign"
-              >
-              </el-input>
+              />
             </el-form-item>
             <el-form-item label="Signature">
               <el-input
+                v-model="signature"
                 type="textarea"
                 autosize
-                v-model="signature"
-              >
-              </el-input>
+              />
             </el-form-item>
           </el-form>
           <div>
             Sign with ZelCore
             <br>
             <a
-              @click="initiateSignWS"
               :href="'zel:?action=sign&message=' + dataToSign + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FZelFront%2Fsrc%2Fassets%2Fimg%2FzelID.svg&callback=' + callbackValue"
+              @click="initiateSignWS"
             >
               <img
                 class="zelidLogin"
@@ -1881,7 +1820,7 @@
                 alt="Zel ID"
                 height="100%"
                 width="100%"
-              />
+              >
             </a>
           </div>
           <br><br>
@@ -1911,7 +1850,7 @@
                 src="@/assets/img/zelID.svg"
                 height="100%"
                 width="100%"
-              />
+              >
             </a>
           </div>
         </div>
@@ -1919,15 +1858,14 @@
     </div>
     <div
       v-if="output"
-      class='actionCenter'
+      class="actionCenter"
     >
       <br>
       <el-input
+        v-model="stringOutput"
         type="textarea"
         autosize
-        v-model="stringOutput"
-      >
-      </el-input>
+      />
     </div>
     <div v-if="appsSection === 'fluxshare'">
       <FluxShare />

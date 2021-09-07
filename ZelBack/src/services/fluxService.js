@@ -43,6 +43,46 @@ async function updateFlux(req, res) {
 }
 
 // eslint-disable-next-line consistent-return
+async function softUpdateFlux(req, res) {
+  const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
+  if (authorized === true) {
+    const nodedpath = path.join(__dirname, '../../../');
+    const exec = `cd ${nodedpath} && npm run softupdate`;
+    cmd.get(exec, (err) => {
+      if (err) {
+        const errMessage = serviceHelper.createErrorMessage(`Error softly updating Flux: ${err.message}`, err.name, err.code);
+        return res.json(errMessage);
+      }
+      const message = serviceHelper.createSuccessMessage('Flux successfully updated using soft method');
+      return res.json(message);
+    });
+  } else {
+    const errMessage = serviceHelper.errUnauthorizedMessage();
+    return res.json(errMessage);
+  }
+}
+
+// eslint-disable-next-line consistent-return
+async function softUpdateFluxInstall(req, res) {
+  const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
+  if (authorized === true) {
+    const nodedpath = path.join(__dirname, '../../../');
+    const exec = `cd ${nodedpath} && npm run softupdateinstall`;
+    cmd.get(exec, (err) => {
+      if (err) {
+        const errMessage = serviceHelper.createErrorMessage(`Error softly updating Flux with installation: ${err.message}`, err.name, err.code);
+        return res.json(errMessage);
+      }
+      const message = serviceHelper.createSuccessMessage('Flux successfully updated softly with installation');
+      return res.json(message);
+    });
+  } else {
+    const errMessage = serviceHelper.errUnauthorizedMessage();
+    return res.json(errMessage);
+  }
+}
+
+// eslint-disable-next-line consistent-return
 async function hardUpdateFlux(req, res) {
   const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
   if (authorized === true) {
@@ -706,6 +746,8 @@ async function getNodeTier(req, res) {
 module.exports = {
   startDaemon,
   updateFlux,
+  softUpdateFlux,
+  softUpdateFluxInstall,
   hardUpdateFlux,
   rebuildHome,
   updateDaemon,

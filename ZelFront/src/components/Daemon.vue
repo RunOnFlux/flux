@@ -87,17 +87,17 @@
         <p>Help section output is listed below. Click on a command to find more specifics about it</p>
       </div>
       <div
-        class="helpSectionData"
         v-if="callResponse.data"
+        class="helpSectionData"
       >
         <el-collapse
-          accordion
           v-model="activeHelpNames"
+          accordion
           @change="daemonHelpSpecific"
         >
           <div
             v-for="help of helpResponse"
-            :key=help
+            :key="help"
           >
             <div v-if="help.startsWith('=')">
               <br>
@@ -106,19 +106,20 @@
               </h2>
             </div>
             <el-collapse-item
-              :name="help"
               v-if="!help.startsWith('=')"
+              :name="help"
             >
               <template slot="title">
                 <p>
                   <b>{{ help }}</b>
                 </p>
               </template>
-              <p class="helpSpecific">{{ currentHelpResponse || 'Loading help message...' }}</p>
+              <p class="helpSpecific">
+                {{ currentHelpResponse || 'Loading help message...' }}
+              </p>
             </el-collapse-item>
           </div>
         </el-collapse>
-
       </div>
       <div v-else>
         Obtaining help section...
@@ -130,17 +131,17 @@
       </div>
       BlockHeight:
       <el-input-number
+        v-model="rescanDaemonHeight"
         controls-position="right"
         placeholder="insert blockheight"
-        v-model="rescanDaemonHeight"
         :min="0"
         :max="1000000"
-      ></el-input-number>
+      />
       <el-popconfirm
-        confirmButtonText='Rescan Flux blockhain data'
-        cancelButtonText='No, Thanks'
+        confirm-button-text="Rescan Flux blockhain data"
+        cancel-button-text="No, Thanks"
         icon="el-icon-info"
-        iconColor="red"
+        icon-color="red"
         title="Reindexes Flux daemon"
         @onConfirm="rescanDaemon()"
         @confirm="rescanDaemon()"
@@ -155,10 +156,10 @@
         <p>Click on Reindex Daemon button to Reindex Flux Blockchain</p>
       </div>
       <el-popconfirm
-        confirmButtonText='Reindex'
-        cancelButtonText='No, Thanks'
+        confirm-button-text="Reindex"
+        cancel-button-text="No, Thanks"
         icon="el-icon-info"
-        iconColor="red"
+        icon-color="red"
         title="Reindex Flux Blockchain"
         @onConfirm="reindexDaemon()"
         @confirm="reindexDaemon()"
@@ -173,10 +174,10 @@
         <p>Click on Start Daemon button to Start Flux daemon</p>
       </div>
       <el-popconfirm
-        confirmButtonText='Start Flux daemon'
-        cancelButtonText='No, Thanks'
+        confirm-button-text="Start Flux daemon"
+        cancel-button-text="No, Thanks"
         icon="el-icon-info"
-        iconColor="green"
+        icon-color="green"
         title="Starts Flux daemon"
         @onConfirm="startDaemon()"
         @confirm="startDaemon()"
@@ -191,10 +192,10 @@
         <p>Click on Restart Daemon button to restart Flux daemon</p>
       </div>
       <el-popconfirm
-        confirmButtonText='Restart Flux daemon'
-        cancelButtonText='No, Thanks'
+        confirm-button-text="Restart Flux daemon"
+        cancel-button-text="No, Thanks"
         icon="el-icon-info"
-        iconColor="orange"
+        icon-color="orange"
         title="Restarts Flux daemon"
         @onConfirm="restartDaemon()"
         @confirm="restartDaemon()"
@@ -209,10 +210,10 @@
         <p>Click on Stop Daemon button to stop Flux daemon</p>
       </div>
       <el-popconfirm
-        confirmButtonText='Stop Flux daemon'
-        cancelButtonText='No, Thanks'
+        confirm-button-text="Stop Flux daemon"
+        cancel-button-text="No, Thanks"
         icon="el-icon-info"
-        iconColor="red"
+        icon-color="red"
         title="Stops Flux daemon"
         @onConfirm="stopDaemon()"
         @confirm="stopDaemon()"
@@ -294,23 +295,19 @@
         <el-table-column
           label="Address"
           prop="payment_address"
-        >
-        </el-table-column>
+        />
         <el-table-column
           label="IP"
           prop="ip"
-        >
-        </el-table-column>
+        />
         <el-table-column
           label="Tier"
           prop="tier"
-        >
-        </el-table-column>
+        />
         <el-table-column
           label="Added Height"
           prop="added_height"
-        >
-        </el-table-column>
+        />
         <el-table-column align="right">
           <template
             slot="header"
@@ -349,23 +346,19 @@
         <el-table-column
           label="Address"
           prop="payment_address"
-        >
-        </el-table-column>
+        />
         <el-table-column
           label="IP"
           prop="ip"
-        >
-        </el-table-column>
+        />
         <el-table-column
           label="Tier"
           prop="tier"
-        >
-        </el-table-column>
+        />
         <el-table-column
           label="Added Height"
           prop="added_height"
-        >
-        </el-table-column>
+        />
         <el-table-column align="right">
           <template
             slot="header"
@@ -426,18 +419,15 @@
         <el-table-column
           label="Address"
           prop="payment_address"
-        >
-        </el-table-column>
+        />
         <el-table-column
           label="Added Height"
           prop="added_height"
-        >
-        </el-table-column>
+        />
         <el-table-column
           label="Expires In Blocks"
           prop="expires_in"
-        >
-        </el-table-column>
+        />
         <el-table-column align="right">
           <template
             slot="header"
@@ -467,18 +457,15 @@
         <el-table-column
           label="Address"
           prop="payment_address"
-        >
-        </el-table-column>
+        />
         <el-table-column
           label="Added Height"
           prop="added_height"
-        >
-        </el-table-column>
+        />
         <el-table-column
           label="Eligible In Blocks"
           prop="eligible_in"
-        >
-        </el-table-column>
+        />
         <el-table-column align="right">
           <template
             slot="header"
@@ -514,23 +501,19 @@
         <el-table-column
           label="Address"
           prop="payment_address"
-        >
-        </el-table-column>
+        />
         <el-table-column
           label="IP"
           prop="ip"
-        >
-        </el-table-column>
+        />
         <el-table-column
           label="Tier"
           prop="tier"
-        >
-        </el-table-column>
+        />
         <el-table-column
           label="Added Height"
           prop="added_height"
-        >
-        </el-table-column>
+        />
       </el-table>
     </div>
     <!-- BENCHMARKS -->
@@ -589,10 +572,10 @@
         <p>Click on Start Benchmark button to Start Benchmark Daemon</p>
       </div>
       <el-popconfirm
-        confirmButtonText='Start'
-        cancelButtonText='No, Thanks'
+        confirm-button-text="Start"
+        cancel-button-text="No, Thanks"
         icon="el-icon-info"
-        iconColor="green"
+        icon-color="green"
         title="Start Benchmark Daemon"
         @onConfirm="daemonStartBenchmark()"
         @confirm="daemonStartBenchmark()"
@@ -607,10 +590,10 @@
         <p>Click on Stop Benchmark button to Stop Benchmark Daemon</p>
       </div>
       <el-popconfirm
-        confirmButtonText='Stop'
-        cancelButtonText='No, Thanks'
+        confirm-button-text="Stop"
+        cancel-button-text="No, Thanks"
         icon="el-icon-info"
-        iconColor="red"
+        icon-color="red"
         title="Stop Benchmark Daemon"
         @onConfirm="daemonStopBenchmark()"
         @confirm="daemonStopBenchmark()"
@@ -627,12 +610,11 @@
       </div>
       <div>
         <el-input
+          v-model="callResponse.data"
           type="textarea"
           autosize
           readonly
-          v-model="callResponse.data"
-        >
-        </el-input>
+        />
       </div>
     </div>
     <!-- MINING -->
@@ -642,12 +624,11 @@
       </div>
       <div>
         <el-input
+          v-model="callResponse.data"
           type="textarea"
           autosize
           readonly
-          v-model="callResponse.data"
-        >
-        </el-input>
+        />
       </div>
     </div>
     <!-- NETWORK -->
@@ -657,12 +638,11 @@
       </div>
       <div>
         <el-input
+          v-model="callResponse.data"
           type="textarea"
           autosize
           readonly
-          v-model="callResponse.data"
-        >
-        </el-input>
+        />
       </div>
     </div>
     <!-- RAW TRANSACTION -->
@@ -672,10 +652,9 @@
       </div>
       <div>
         <el-input
-          placeholder="Insert TXID"
           v-model="generalInput"
-        >
-        </el-input>
+          placeholder="Insert TXID"
+        />
       </div>
       <div>
         <ElButton @click="daemonGetRawTransaction()">
@@ -685,12 +664,11 @@
       <div>
         <el-input
           v-if="callResponse.data"
+          v-model="callResponse.data"
           type="textarea"
           autosize
           readonly
-          v-model="callResponse.data"
-        >
-        </el-input>
+        />
       </div>
     </div>
     <!-- UTIL -->
@@ -700,10 +678,9 @@
       </div>
       <div>
         <el-input
-          placeholder="Insert transparent Flux address"
           v-model="generalInput"
-        >
-        </el-input>
+          placeholder="Insert transparent Flux address"
+        />
       </div>
       <div>
         <ElButton @click="fluxValidateAddress()">
@@ -713,12 +690,11 @@
       <div>
         <el-input
           v-if="callResponse.data"
+          v-model="callResponse.data"
           type="textarea"
           autosize
           readonly
-          v-model="callResponse.data"
-        >
-        </el-input>
+        />
       </div>
     </div>
     <!-- WALLET -->
@@ -728,12 +704,11 @@
       </div>
       <div>
         <el-input
+          v-model="callResponse.data"
           type="textarea"
           autosize
           readonly
-          v-model="callResponse.data"
-        >
-        </el-input>
+        />
       </div>
     </div>
     <!-- DEBUG -->
@@ -742,10 +717,10 @@
         <p>Following action will download Daemon debug file. This may take a few minutes depending on file size</p>
       </div>
       <el-popconfirm
-        confirmButtonText='Download Debug'
-        cancelButtonText='No, Thanks'
+        confirm-button-text="Download Debug"
+        cancel-button-text="No, Thanks"
         icon="el-icon-info"
-        iconColor="red"
+        icon-color="red"
         title="Download Daemon Debug file?"
         @onConfirm="downloadDaemonDebugFile()"
         @confirm="downloadDaemonDebugFile()"
@@ -767,7 +742,7 @@
             circle
             size="mini"
             @click="cancelDownload"
-          ></el-button>
+          />
         </el-tooltip>
       </p>
       <br><br>
@@ -776,10 +751,10 @@
           <p>Following action will show last 100 lines of Daemon debug file</p>
         </div>
         <el-popconfirm
-          confirmButtonText='Show Debug'
-          cancelButtonText='No, Thanks'
+          confirm-button-text="Show Debug"
+          cancel-button-text="No, Thanks"
           icon="el-icon-info"
-          iconColor="red"
+          icon-color="red"
           title="Show Daemon Debug file?"
           @onConfirm="tailDaemonDebug()"
           @confirm="tailDaemonDebug()"
@@ -791,11 +766,10 @@
         <br><br>
         <el-input
           v-if="callResponse.data.message"
+          v-model="daemonDebugTail"
           type="textarea"
           autosize
-          v-model="daemonDebugTail"
-        >
-        </el-input>
+        />
       </div>
     </div>
     <div v-if="callResponse.status === 'error'">

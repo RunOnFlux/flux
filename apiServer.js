@@ -1,12 +1,12 @@
 // Flux configuration
-process.env.NODE_CONFIG_DIR = `${__dirname}/config/`;
+process.env.NODE_CONFIG_DIR = `${__dirname}/ZelBack/config/`;
 const config = require('config');
 // const fs = require('fs');
 // const https = require('https');
 // const path = require('path');
-const app = require('./src/lib/server.js');
-const log = require('./src/lib/log');
-const serviceManager = require('./src/services/serviceManager');
+const app = require('./ZelBack/src/lib/server');
+const log = require('./ZelBack/src/lib/log');
+const serviceManager = require('./ZelBack/src/services/serviceManager');
 
 // const key = fs.readFileSync(path.join(__dirname, '../certs/selfsigned.key'), 'utf8');
 // const cert = fs.readFileSync(path.join(__dirname, '../certs/selfsigned.crt'), 'utf8');
