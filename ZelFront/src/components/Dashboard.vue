@@ -500,8 +500,8 @@ export default {
         const resCount = await DashboardService.zelnodeCount();
         const counts = resCount.data.data;
         const stratuses = counts['stratus-enabled'];
-        const nimbuses = counts['nimbus-enabled'];
-        const cumuluses = counts['cumulus-enabled'];
+        const cumuluses = counts['nimbus-enabled'];
+        const nimbuses = counts['cumulus-enabled'];
         console.log(resCount);
         const supply = stratuses * 100000 + nimbuses * 25000 + cumuluses * 10000;
         this.lockedSupply = supply;
@@ -516,8 +516,8 @@ export default {
         this.priceInformationLoading = true;
         console.log(this.rates);
         const stratuses = zelnodecounts['stratus-enabled'];
-        const nimbuses = zelnodecounts['nimbus-enabled'];
-        const cumuluses = zelnodecounts['cumulus-enabled'];
+        const cumuluses = zelnodecounts['nimbus-enabled'];
+        const nimbuses = zelnodecounts['cumulus-enabled'];
         const resKDAEligible = await axios.get('https://stats.runonflux.io/kadena/eligiblestats/7');
         const kdaData = resKDAEligible.data.data;
         const kdaCoins = 2300;
