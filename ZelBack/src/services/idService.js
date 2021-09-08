@@ -55,10 +55,10 @@ async function loginPhrase(req, res) {
     // check docker availablility
     await appsService.dockerListContainers(false);
     // check Node Hardware Requirements are ok.
-    const hwPassed = await confirmNodeTierHardware();
-    if (hwPassed === false) {
-      throw new Error('Node hardware requirements not met');
-    }
+    // const hwPassed = await confirmNodeTierHardware();
+    // if (hwPassed === false) {
+    //   throw new Error('Node hardware requirements not met');
+    // }
     // check DOS state (contains daemon checks)
     const dosState = await fluxCommunication.getDOSState();
     if (dosState.status === 'error') {
@@ -712,4 +712,5 @@ module.exports = {
   wsRespondLoginPhrase,
   wsRespondSignature,
   checkLoggedUser,
+  confirmNodeTierHardware,
 };
