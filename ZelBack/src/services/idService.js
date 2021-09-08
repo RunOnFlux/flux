@@ -14,6 +14,8 @@ async function loginPhrase(req, res) {
   try {
     // check docker availablility
     await appsService.dockerListContainers(false);
+    // check Node Hardware Requirements are ok.
+    await fluxCommunication.confirmNodeTierHardware();
     // check DOS state (contains daemon checks)
     const dosState = await fluxCommunication.getDOSState();
     if (dosState.status === 'error') {
