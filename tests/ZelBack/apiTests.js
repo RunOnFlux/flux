@@ -40,9 +40,9 @@ describe('loading express', function () {
       .get('/foo/bar')
       .expect(404, done);
   });
-  it('/id/emergencyphrase', function testSlash(done) {
+  it('/id/loginphrase', function testSlash(done) {
     request(server)
-      .get('/id/emergencyphrase')
+      .get('/id/loginphrase')
       .expect(200)
       .end((err, res) => {
         if (err) {
