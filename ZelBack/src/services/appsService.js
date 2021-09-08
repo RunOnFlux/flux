@@ -46,6 +46,7 @@ const myCache = new LRU(LRUoptions);
 
 let removalInProgress = false;
 let installationInProgress = false;
+let storedTier = '';
 
 function getAppIdentifier(appName) {
   // this id is used for volumes, docker names so we know it reall belongs to flux
@@ -357,6 +358,9 @@ async function listAppsImages(req, res) {
 }
 
 async function nodeTier() {
+  if (storedTier) {
+    return storedTier; // node tier is not changing. We can use globally cached value.
+  }
   // get our collateral information to decide if app specifications are basic, super, bamf
   // getzlenodestatus.collateral
   const nodeStatus = await daemonService.getZelNodeStatus();
@@ -378,13 +382,16 @@ async function nodeTier() {
   // get collateralInformation.txindex vout
   const { value } = txInformation.data.vout[collateralInformation.txindex];
   if (value === 10000) {
-    return 'basic';
+    storedTier = 'basic';
+    return storedTier;
   }
   if (value === 25000) {
-    return 'super';
+    storedTier = 'super';
+    return storedTier;
   }
   if (value === 100000) {
-    return 'bamf';
+    storedTier = 'bamf';
+    return storedTier;
   }
   throw new Error('Unrecognised Flux Node tier');
 }
