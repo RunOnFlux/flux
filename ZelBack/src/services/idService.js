@@ -13,7 +13,6 @@ const goodchars = /^[1-9a-km-zA-HJ-NP-Z]+$/;
 
 async function confirmNodeTierHardware() {
   try {
-    // eslint-disable-next-line global-require
     const tier = await appsService.nodeTier().catch((error) => {
       log.error(error);
     });
