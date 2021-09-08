@@ -1,6 +1,7 @@
 const config = require('config');
 const bitcoinMessage = require('bitcoinjs-message');
 const qs = require('qs');
+const os = require('os');
 
 const userconfig = require('../../../config/userconfig');
 const log = require('../lib/log');
@@ -10,12 +11,55 @@ const fluxCommunication = require('./fluxCommunication');
 
 const goodchars = /^[1-9a-km-zA-HJ-NP-Z]+$/;
 
+async function confirmNodeTierHardware() {
+  try {
+    // eslint-disable-next-line global-require
+    const tier = await appsService.nodeTier().catch((error) => {
+      log.error(error);
+    });
+    const nodeRam = os.totalmem() / 1024 / 1024 / 1024;
+    const nodeCpuCores = os.cpus().length;
+    log.info(`Node Tier: ${tier}`);
+    log.info(`Node Total Ram: ${nodeRam}`);
+    log.info(`Node Cpu Cores: ${nodeCpuCores}`);
+    if (tier === 'bamf') {
+      if (nodeRam < 31) {
+        throw new Error(`Node Total Ram (${nodeRam}) below Stratus requirements`);
+      }
+      if (nodeCpuCores < 8) {
+        throw new Error(`Node Cpu Cores (${nodeCpuCores}) below Stratus requirements`);
+      }
+    } else if (tier === 'super') {
+      if (nodeRam < 7) {
+        throw new Error(`Node Total Ram (${nodeRam}) below Nimbus requirements`);
+      }
+      if (nodeCpuCores < 4) {
+        throw new Error(`Node Cpu Cores (${nodeCpuCores}) below Nimbus requirements`);
+      }
+    } else if (tier === 'basic') {
+      if (nodeRam < 3) {
+        throw new Error(`Node Total Ram (${nodeRam}) below Cumulus requirements`);
+      }
+      if (nodeCpuCores < 2) {
+        throw new Error(`Node Cpu Cores (${nodeCpuCores}) below Cumulus requirements`);
+      }
+    }
+    return true;
+  } catch (error) {
+    log.error(error);
+    return false;
+  }
+}
+
 async function loginPhrase(req, res) {
   try {
     // check docker availablility
     await appsService.dockerListContainers(false);
     // check Node Hardware Requirements are ok.
-    await fluxCommunication.confirmNodeTierHardware();
+    const hwPassed = await confirmNodeTierHardware();
+    if (hwPassed === false) {
+      throw new Error('Node hardware requirements not met');
+    }
     // check DOS state (contains daemon checks)
     const dosState = await fluxCommunication.getDOSState();
     if (dosState.status === 'error') {

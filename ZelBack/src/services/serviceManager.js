@@ -63,10 +63,6 @@ async function startFluxFunctions() {
       log.info('Starting to spawn applications');
       appsService.trySpawningGlobalApplication();
     }, 14 * 60 * 1000);
-    setInterval(() => {
-      log.info('Checking node Hardware according to Tier');
-      fluxCommunication.confirmNodeTierHardware();
-    }, 5 * 60 * 1000);
     fluxCommunication.adjustGitRepository(); // temporary function to be removed after couple of versions
   } catch (e) {
     log.error(e);

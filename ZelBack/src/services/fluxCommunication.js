@@ -4,7 +4,6 @@ const bitcoinjs = require('bitcoinjs-lib');
 const config = require('config');
 const cmd = require('node-cmd');
 const LRU = require('lru-cache');
-const os = require('os');
 const fs = require('fs').promises;
 const path = require('path');
 // eslint-disable-next-line import/no-extraneous-dependencies
@@ -23,7 +22,6 @@ const incomingPeers = []; // array of objects containing ip
 
 let dosState = 0; // we can start at bigger number later
 let dosMessage = null;
-let nodeHardwareSpecsGood = true;
 
 const minimumFluxBenchAllowedVersion = 223;
 
@@ -1251,7 +1249,6 @@ async function checkDeterministicNodesCollisions() {
 async function getDOSState(req, res) {
   const data = {
     dosState,
-    nodeHardwareSpecsGood,
     dosMessage,
   };
   response = serviceHelper.createDataMessage(data);
@@ -1437,58 +1434,6 @@ async function adjustGitRepository() {
   }
 }
 
-async function confirmNodeTierHardware() {
-  try {
-    // eslint-disable-next-line global-require
-    const appsService = require('./appsService');
-    const tier = await appsService.nodeTier();
-    const nodeRam = os.totalmem() / 1024 / 1024 / 1024;
-    const nodeCpuCores = os.cpus().length;
-    log.info(`Node Tier: ${tier}`);
-    log.info(`Node Total Ram: ${nodeRam}`);
-    log.info(`Node Cpu Cores: ${nodeCpuCores}`);
-    if (tier === 'bamf') {
-      if (nodeRam < 31) {
-        log.error(`Node Total Ram (${nodeRam}) below Stratus requirements`);
-        nodeHardwareSpecsGood = false;
-        return;
-      }
-      if (nodeCpuCores < 8) {
-        log.error(`Node Cpu Cores (${nodeCpuCores}) below Stratus requirements`);
-        nodeHardwareSpecsGood = false;
-        return;
-      }
-    } else if (tier === 'super') {
-      if (nodeRam < 7) {
-        log.error(`Node Total Ram (${nodeRam}) below Nimbus requirements`);
-        nodeHardwareSpecsGood = false;
-        return;
-      }
-      if (nodeCpuCores < 4) {
-        log.error(`Node Cpu Cores (${nodeCpuCores}) below Nimbus requirements`);
-        nodeHardwareSpecsGood = false;
-        return;
-      }
-    } else {
-      if (nodeRam < 3) {
-        log.error(`Node Total Ram (${nodeRam}) below Cumulus requirements`);
-        nodeHardwareSpecsGood = false;
-        return;
-      }
-      if (nodeCpuCores < 2) {
-        log.error(`Node Cpu Cores (${nodeCpuCores}) below Cumulus requirements`);
-        nodeHardwareSpecsGood = false;
-        return;
-      }
-    }
-    log.info('Hardware specs check result ok');
-    nodeHardwareSpecsGood = true;
-  } catch (error) {
-    log.error(error);
-    nodeHardwareSpecsGood = false;
-  }
-}
-
 module.exports = {
   getFluxMessageSignature,
   verifyOriginalFluxBroadcast,
@@ -1526,5 +1471,4 @@ module.exports = {
   adjustFirewall,
   checkDeterministicNodesCollisions,
   adjustGitRepository,
-  confirmNodeTierHardware,
 };
