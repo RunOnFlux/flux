@@ -206,6 +206,7 @@ export default {
         if (typeof hostname === 'string') {
           this.$store.commit('flux/setUserIp', hostname);
         }
+        mybackend += hostname;
         mybackend += ':';
         mybackend += this.config.apiPort;
       }
