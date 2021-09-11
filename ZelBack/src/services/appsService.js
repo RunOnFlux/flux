@@ -3181,9 +3181,7 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
       if (!appInfo) {
         log.warn(`Searching permanent messages for ${specifications.name}`);
         const appsQuery = {
-          appSpecifications: {
-            name: specifications.name,
-          },
+          'appSpecifications.name': specifications.name,
         };
         const permanentAppMessage = await serviceHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
         let latestPermanentRegistrationMessage;
@@ -3199,7 +3197,24 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
             }
           }
         });
-        appInfo = latestPermanentRegistrationMessage;
+        // some early app have zelAppSepcifications
+        const appsQueryB = {
+          'zelAppSpecifications.name': specifications.name,
+        };
+        const permanentAppMessageB = await serviceHelper.findInDatabase(database, globalAppsMessages, appsQueryB, projection);
+        permanentAppMessageB.forEach((foundMessage) => {
+          // has to be registration message
+          if (foundMessage.type === 'zelappregister' || foundMessage.type === 'fluxappregister') {
+            if (latestPermanentRegistrationMessage && latestPermanentRegistrationMessage.height >= foundMessage.height) { // we have some message and the message is quite new
+              if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp) { // but our message is newer
+                latestPermanentRegistrationMessage = foundMessage;
+              }
+            } else { // we dont have any message or our message is newer
+              latestPermanentRegistrationMessage = foundMessage;
+            }
+          }
+        });
+        appInfo = latestPermanentRegistrationMessage.appSpecifications || latestPermanentRegistrationMessage.zelAppSpecifications;
       }
       if (!appInfo) {
         throw new Error(`Flux App ${specifications.name} update message received but application does not exists!`);
