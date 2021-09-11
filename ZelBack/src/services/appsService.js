@@ -3189,10 +3189,10 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
           // has to be registration message
           if (foundMessage.type === 'zelappregister' || foundMessage.type === 'fluxappregister' || foundMessage.type === 'zelappupdate' || foundMessage.type === 'fluxappupdate') { // can be any type
             if (latestPermanentRegistrationMessage && latestPermanentRegistrationMessage.height >= foundMessage.height) { // we have some message and the message is quite new
-              if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp) { // but our message is newer
+              if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp && foundMessage.timestamp <= message.timestamp) { // but our message is newer. foundMessage has to have lower timestamp than our new message
                 latestPermanentRegistrationMessage = foundMessage;
               }
-            } else { // we dont have any message or our message is newer
+            } else if (foundMessage.timestamp <= message.timestamp) { // we dont have any message or our message is newer. foundMessage has to have lower timestamp than our new message
               latestPermanentRegistrationMessage = foundMessage;
             }
           }
@@ -3206,10 +3206,10 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
           // has to be registration message
           if (foundMessage.type === 'zelappregister' || foundMessage.type === 'fluxappregister' || foundMessage.type === 'zelappupdate' || foundMessage.type === 'fluxappupdate') { // can be any type
             if (latestPermanentRegistrationMessage && latestPermanentRegistrationMessage.height >= foundMessage.height) { // we have some message and the message is quite new
-              if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp) { // but our message is newer
+              if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp && foundMessage.timestamp <= message.timestamp) { // but our message is newer. foundMessage has to have lower timestamp than our new message
                 latestPermanentRegistrationMessage = foundMessage;
               }
-            } else { // we dont have any message or our message is newer
+            } else if (foundMessage.timestamp <= message.timestamp) { // we dont have any message or our message is newer. foundMessage has to have lower timestamp than our new message
               latestPermanentRegistrationMessage = foundMessage;
             }
           }
@@ -4105,10 +4105,10 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
               // has to be registration message
               if (foundMessage.type === 'zelappregister' || foundMessage.type === 'fluxappregister' || foundMessage.type === 'zelappupdate' || foundMessage.type === 'fluxappupdate') { // can be any type
                 if (latestPermanentRegistrationMessage && latestPermanentRegistrationMessage.height >= foundMessage.height) { // we have some message and the message is quite new
-                  if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp) { // but our message is newer
+                  if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp && foundMessage.timestamp <= tempMessage.timestamp) { // but our message is newer. foundMessage has to have lower timestamp than our new message
                     latestPermanentRegistrationMessage = foundMessage;
                   }
-                } else { // we dont have any message or our message is newer
+                } else if (foundMessage.timestamp <= tempMessage.timestamp) { // we dont have any message or our message is newer. foundMessage has to have lower timestamp than our new message
                   latestPermanentRegistrationMessage = foundMessage;
                 }
               }
@@ -4122,10 +4122,10 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
               // has to be registration message
               if (foundMessage.type === 'zelappregister' || foundMessage.type === 'fluxappregister' || foundMessage.type === 'zelappupdate' || foundMessage.type === 'fluxappupdate') { // can be any type
                 if (latestPermanentRegistrationMessage && latestPermanentRegistrationMessage.height >= foundMessage.height) { // we have some message and the message is quite new
-                  if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp) { // but our message is newer
+                  if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp && foundMessage.timestamp <= tempMessage.timestamp) { // but our message is newer. foundMessage has to have lower timestamp than our new message
                     latestPermanentRegistrationMessage = foundMessage;
                   }
-                } else { // we dont have any message or our message is newer
+                } else if (foundMessage.timestamp <= tempMessage.timestamp) { // we dont have any message or our message is newer. foundMessage has to have lower timestamp than our new message
                   latestPermanentRegistrationMessage = foundMessage;
                 }
               }
