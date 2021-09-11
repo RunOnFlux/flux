@@ -3147,7 +3147,7 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
   }
   // check temporary message storage
   const tempMessage = await checkAppTemporaryMessageExistence(message.hash);
-  if (tempMessage) {
+  if (tempMessage && typeof tempMessage === 'object') {
     // do not rebroadcast further
     return false;
   }
@@ -3901,9 +3901,9 @@ async function storeAppPermanentMessage(message) {
   * @param height number
   * @param valueSat number
   */
-  if (typeof message !== 'object' && typeof message.type !== 'string' && typeof message.version !== 'number' && typeof message.appSpecifications !== 'object' && typeof message.signature !== 'string'
-    && typeof message.timestamp !== 'number' && typeof message.hash !== 'string' && typeof message.txid !== 'string' && typeof message.height !== 'number' && typeof message.valueSat !== 'number') {
-    return new Error('Invalid Flux App message for storing');
+  if (!message || !message.appSpecifications || typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number' || typeof message.appSpecifications !== 'object' || typeof message.signature !== 'string'
+    || typeof message.timestamp !== 'number' || typeof message.hash !== 'string' || typeof message.txid !== 'string' || typeof message.height !== 'number' || typeof message.valueSat !== 'number') {
+    throw new Error('Invalid Flux App message for storing');
   }
 
   const db = serviceHelper.databaseConnection();
@@ -4049,7 +4049,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
       // check temporary message storage
       // if we have it in temporary storage, get the temporary message
       const tempMessage = await checkAppTemporaryMessageExistence(hash);
-      if (tempMessage) {
+      if (tempMessage && typeof tempMessage === 'object') {
         const specifications = tempMessage.appSpecifications || tempMessage.zelAppSpecifications;
         // temp message means its all ok. store it as permanent app message
         const permanentAppMessage = {
