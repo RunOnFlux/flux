@@ -4092,7 +4092,46 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
               _id: 0,
             },
           };
-          const appInfo = await serviceHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+          let appInfo = await serviceHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+          // fall back to permanent messages
+          if (!appInfo) {
+            log.warn(`Searching permanent messages for ${specifications.name}`);
+            const appsQuery = {
+              'appSpecifications.name': specifications.name,
+            };
+            const findPermAppMessage = await serviceHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
+            let latestPermanentRegistrationMessage;
+            findPermAppMessage.forEach((foundMessage) => {
+              // has to be registration message
+              if (foundMessage.type === 'zelappregister' || foundMessage.type === 'fluxappregister' || foundMessage.type === 'zelappupdate' || foundMessage.type === 'fluxappupdate') { // can be any type
+                if (latestPermanentRegistrationMessage && latestPermanentRegistrationMessage.height >= foundMessage.height) { // we have some message and the message is quite new
+                  if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp) { // but our message is newer
+                    latestPermanentRegistrationMessage = foundMessage;
+                  }
+                } else { // we dont have any message or our message is newer
+                  latestPermanentRegistrationMessage = foundMessage;
+                }
+              }
+            });
+            // some early app have zelAppSepcifications
+            const appsQueryB = {
+              'zelAppSpecifications.name': specifications.name,
+            };
+            const findPermAppMessageB = await serviceHelper.findInDatabase(database, globalAppsMessages, appsQueryB, projection);
+            findPermAppMessageB.forEach((foundMessage) => {
+              // has to be registration message
+              if (foundMessage.type === 'zelappregister' || foundMessage.type === 'fluxappregister' || foundMessage.type === 'zelappupdate' || foundMessage.type === 'fluxappupdate') { // can be any type
+                if (latestPermanentRegistrationMessage && latestPermanentRegistrationMessage.height >= foundMessage.height) { // we have some message and the message is quite new
+                  if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp) { // but our message is newer
+                    latestPermanentRegistrationMessage = foundMessage;
+                  }
+                } else { // we dont have any message or our message is newer
+                  latestPermanentRegistrationMessage = foundMessage;
+                }
+              }
+            });
+            appInfo = latestPermanentRegistrationMessage; // we only care about height
+          }
           // here comparison of height differences and specifications
           // price shall be price for standard registration plus minus already paid price according to old specifics. height remains height valid for 22000 blocks
           const appPrice = appPricePerMonth(specifications);
