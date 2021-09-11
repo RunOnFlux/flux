@@ -56,7 +56,7 @@ async function startFluxFunctions() {
     }, 4 * 60 * 1000);
     setInterval(() => { // every 8 mins (4 blocks)
       appsService.continuousFluxAppHashesCheck();
-    }, 8 * 60 * 1000);
+    }, 1 * 60 * 1000);
     setTimeout(() => {
       // after 14 minutes of running ok.
       // is stopped on basics
