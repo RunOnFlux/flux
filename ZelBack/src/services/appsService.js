@@ -2808,7 +2808,7 @@ async function verifyAppHash(message) {
 }
 
 async function verifyAppMessageSignature(type, version, appSpec, timestamp, signature) {
-  if (typeof appSpec !== 'object' && typeof timestamp !== 'number' && typeof signature !== 'string' && typeof version !== 'number' && typeof type !== 'string') {
+  if (typeof appSpec !== 'object' || typeof timestamp !== 'number' || typeof signature !== 'string' || typeof version !== 'number' || typeof type !== 'string') {
     throw new Error('Invalid Flux App message specifications');
   }
   const messageToVerify = type + version + JSON.stringify(appSpec) + timestamp;
@@ -2821,7 +2821,7 @@ async function verifyAppMessageSignature(type, version, appSpec, timestamp, sign
 }
 
 async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp, signature, appOwner) {
-  if (typeof appSpec !== 'object' && typeof timestamp !== 'number' && typeof signature !== 'string' && typeof version !== 'number' && typeof type !== 'string') {
+  if (typeof appSpec !== 'object' || typeof timestamp !== 'number' || typeof signature !== 'string' || typeof version !== 'number' || typeof type !== 'string') {
     throw new Error('Invalid Flux App message specifications');
   }
   const messageToVerify = type + version + JSON.stringify(appSpec) + timestamp;
@@ -3124,7 +3124,7 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
   * @param timestamp number
   * @param signature string
   */
-  if (typeof message !== 'object' && typeof message.type !== 'string' && typeof message.version !== 'number' && typeof message.signature !== 'string' && typeof message.timestamp !== 'number' && typeof message.hash !== 'string') {
+  if (!message || typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number' || typeof message.signature !== 'string' || typeof message.timestamp !== 'number' || typeof message.hash !== 'string') {
     return new Error('Invalid Flux App message for storing');
   }
   // expect one to be present
@@ -3254,7 +3254,7 @@ async function storeAppRunningMessage(message) {
   * @param name string
   * @param ip string
   */
-  if (typeof message !== 'object' && typeof message.type !== 'string' && typeof message.version !== 'number' && typeof message.broadcastedAt !== 'number' && typeof message.hash !== 'string' && typeof message.name !== 'string' && typeof message.ip !== 'string') {
+  if (!message || typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number' || typeof message.broadcastedAt !== 'number' || typeof message.hash !== 'string' || typeof message.name !== 'string' || typeof message.ip !== 'string') {
     return new Error('Invalid Flux App Running message for storing');
   }
 
