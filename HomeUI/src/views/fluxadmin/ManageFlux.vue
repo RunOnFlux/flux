@@ -701,7 +701,7 @@ export default {
       const zelidauth = localStorage.getItem('zelidauth');
       const auth = qs.parse(zelidauth);
       console.log(auth);
-      this.showToast('warning', 'Global Applications information will reindex soon');
+      this.showToast('warning', 'Global Applications information will be rescanned soon');
       const blockheight = this.rescanExplorerHeight > 0 ? this.rescanExplorerHeight : 0;
       AppsService.rescanGlobalApps(zelidauth, blockheight, this.removeLastInformation)
         .then((response) => {
