@@ -3176,12 +3176,36 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
       // verify that app exists, does not change repotag and is signed by app owner.
       // may throw
       const query = { name: specifications.name };
-      const appInfo = await serviceHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+      let appInfo = await serviceHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+      // we may not have the application in global apps. This can happen when we receive the message after the app has already expired
       if (!appInfo) {
-        throw new Error('Flux App update message received but application does not exists!');
+        log.warn(`Searching permanent messages for ${specifications.name}`);
+        const appsQuery = {
+          appSpecifications: {
+            name: specifications.name,
+          },
+        };
+        const permanentAppMessage = await serviceHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
+        let latestPermanentRegistrationMessage;
+        permanentAppMessage.forEach((foundMessage) => {
+          // has to be registration message
+          if (foundMessage.type === 'zelappregister' || foundMessage.type === 'fluxappregister') {
+            if (latestPermanentRegistrationMessage && latestPermanentRegistrationMessage.height >= foundMessage.height) { // we have some message and the message is quite new
+              if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp) { // but our message is newer
+                latestPermanentRegistrationMessage = foundMessage;
+              }
+            } else { // we dont have any message or our message is newer
+              latestPermanentRegistrationMessage = foundMessage;
+            }
+          }
+        });
+        appInfo = latestPermanentRegistrationMessage;
+      }
+      if (!appInfo) {
+        throw new Error(`Flux App ${specifications.name} update message received but application does not exists!`);
       }
       if (appInfo.repotag !== specifications.repotag) {
-        throw new Error('Flux App update of repotag is not allowed');
+        throw new Error(`Flux App ${specifications.name} update of repotag is not allowed`);
       }
       const { owner } = appInfo;
       // here signature is checked against PREVIOUS app owner
