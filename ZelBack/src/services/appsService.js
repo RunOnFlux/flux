@@ -4241,6 +4241,8 @@ async function reindexGlobalAppsInformation() {
       // eslint-disable-next-line no-await-in-loop
       await updateAppSpecsForRescanReindex(updateForSpecifications);
     }
+    // eslint-disable-next-line no-use-before-define
+    expireGlobalApplications();
     return true;
   } catch (error) {
     log.error(error);
@@ -4296,6 +4298,8 @@ async function rescanGlobalAppsInformation(height = 0, removeLastInformation = f
       // eslint-disable-next-line no-await-in-loop
       await updateAppSpecsForRescanReindex(updateForSpecifications);
     }
+    // eslint-disable-next-line no-use-before-define
+    expireGlobalApplications();
     return true;
   } catch (error) {
     log.error(error);

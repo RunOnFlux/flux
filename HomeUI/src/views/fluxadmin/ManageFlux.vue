@@ -307,7 +307,7 @@
       <b-col
         xs="12"
       >
-        <b-card title="Reindexing Global Apps">
+        <b-card title="Rescanning Global Apps">
           <b-card-text class="mb-1">
             Options to rescan Flux Global Application Database from a given blockheight and rebuild them since. Rescanning may take several hours and shall be used only when an unrecoverable error is present in databases with a known blockheight.
             If remove Last Information is wished. The current specifics will be dropped instead making it more deep option.
