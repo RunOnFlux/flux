@@ -3187,7 +3187,7 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
         let latestPermanentRegistrationMessage;
         permanentAppMessage.forEach((foundMessage) => {
           // has to be registration message
-          if (foundMessage.type === 'zelappregister' || foundMessage.type === 'fluxappregister') {
+          if (foundMessage.type === 'zelappregister' || foundMessage.type === 'fluxappregister' || foundMessage.type === 'zelappupdate' || foundMessage.type === 'fluxappupdate') { // can be any type
             if (latestPermanentRegistrationMessage && latestPermanentRegistrationMessage.height >= foundMessage.height) { // we have some message and the message is quite new
               if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp) { // but our message is newer
                 latestPermanentRegistrationMessage = foundMessage;
@@ -3204,7 +3204,7 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
         const permanentAppMessageB = await serviceHelper.findInDatabase(database, globalAppsMessages, appsQueryB, projection);
         permanentAppMessageB.forEach((foundMessage) => {
           // has to be registration message
-          if (foundMessage.type === 'zelappregister' || foundMessage.type === 'fluxappregister') {
+          if (foundMessage.type === 'zelappregister' || foundMessage.type === 'fluxappregister' || foundMessage.type === 'zelappupdate' || foundMessage.type === 'fluxappupdate') { // can be any type
             if (latestPermanentRegistrationMessage && latestPermanentRegistrationMessage.height >= foundMessage.height) { // we have some message and the message is quite new
               if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp) { // but our message is newer
                 latestPermanentRegistrationMessage = foundMessage;
