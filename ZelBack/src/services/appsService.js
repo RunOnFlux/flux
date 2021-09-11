@@ -3218,10 +3218,6 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
         throw new Error(`Flux App ${specifications.name} update of repotag is not allowed`);
       }
       const { owner } = appSpecs;
-      log.info(appSpecs);
-      log.error(appSpecs.name);
-      log.error(appSpecs.owner);
-      log.error(message);
       // here signature is checked against PREVIOUS app owner
       await verifyAppMessageUpdateSignature(message.type, message.version, specifications, message.timestamp, message.signature, owner);
     } else {
