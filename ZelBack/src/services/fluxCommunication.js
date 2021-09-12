@@ -1131,7 +1131,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
     log.error(`My Flux unavailability detected from ${askingIP}`);
     // Asked Flux cannot reach me lets check if ip changed
     log.info('Getting publicIp from FluxBench');
-    const benchIpResponse = await daemonService.getPublicIp();
+    const benchIpResponse = await benchmarkService.getPublicIp();
     if (benchIpResponse.status === 'success') {
       const benchMyIP = benchIpResponse.data.length > 5 ? benchIpResponse.data : null;
       if (benchMyIP && benchMyIP !== myIP) {
