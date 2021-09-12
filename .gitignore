@@ -7,14 +7,6 @@ yarn-error.log*
 /test/unit/coverage/
 /test/e2e/reports/
 selenium-debug.log
-ZelFront/node_modules/
-ZelFront/npm-debug.log*
-ZelFront/yarn-debug.log*
-ZelFront/yarn-error.log*
-ZelFront/test/unit/coverage/
-ZelFront/test/e2e/reports/
-ZelFront/selenium-debug.log
-ZelFront/package-lock.json
 config/userconfig.js
 ZelApps
 appvolumes
