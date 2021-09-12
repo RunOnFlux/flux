@@ -2808,7 +2808,7 @@ async function verifyAppHash(message) {
 }
 
 async function verifyAppMessageSignature(type, version, appSpec, timestamp, signature) {
-  if (typeof appSpec !== 'object' && typeof timestamp !== 'number' && typeof signature !== 'string' && typeof version !== 'number' && typeof type !== 'string') {
+  if (typeof appSpec !== 'object' || typeof timestamp !== 'number' || typeof signature !== 'string' || typeof version !== 'number' || typeof type !== 'string') {
     throw new Error('Invalid Flux App message specifications');
   }
   const messageToVerify = type + version + JSON.stringify(appSpec) + timestamp;
@@ -2821,7 +2821,7 @@ async function verifyAppMessageSignature(type, version, appSpec, timestamp, sign
 }
 
 async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp, signature, appOwner) {
-  if (typeof appSpec !== 'object' && typeof timestamp !== 'number' && typeof signature !== 'string' && typeof version !== 'number' && typeof type !== 'string') {
+  if (typeof appSpec !== 'object' || typeof timestamp !== 'number' || typeof signature !== 'string' || typeof version !== 'number' || typeof type !== 'string') {
     throw new Error('Invalid Flux App message specifications');
   }
   const messageToVerify = type + version + JSON.stringify(appSpec) + timestamp;
@@ -3124,7 +3124,7 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
   * @param timestamp number
   * @param signature string
   */
-  if (typeof message !== 'object' && typeof message.type !== 'string' && typeof message.version !== 'number' && typeof message.signature !== 'string' && typeof message.timestamp !== 'number' && typeof message.hash !== 'string') {
+  if (!message || typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number' || typeof message.signature !== 'string' || typeof message.timestamp !== 'number' || typeof message.hash !== 'string') {
     return new Error('Invalid Flux App message for storing');
   }
   // expect one to be present
@@ -3147,7 +3147,7 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
   }
   // check temporary message storage
   const tempMessage = await checkAppTemporaryMessageExistence(message.hash);
-  if (tempMessage) {
+  if (tempMessage && typeof tempMessage === 'object') {
     // do not rebroadcast further
     return false;
   }
@@ -3174,16 +3174,50 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
       await verifyAppHash(message);
       await ensureCorrectApplicationPort(specifications);
       // verify that app exists, does not change repotag and is signed by app owner.
-      // may throw
-      const query = { name: specifications.name };
-      const appInfo = await serviceHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
-      if (!appInfo) {
-        throw new Error('Flux App update message received but application does not exists!');
+      // we may not have the application in global apps. This can happen when we receive the message after the app has already expired AND we need to get message right before our message. Thus using messages system that is accurate
+      log.warn(`Searching permanent messages for ${specifications.name}`);
+      const appsQuery = {
+        'appSpecifications.name': specifications.name,
+      };
+      const permanentAppMessage = await serviceHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
+      let latestPermanentRegistrationMessage;
+      permanentAppMessage.forEach((foundMessage) => {
+        // has to be registration message
+        if (foundMessage.type === 'zelappregister' || foundMessage.type === 'fluxappregister' || foundMessage.type === 'zelappupdate' || foundMessage.type === 'fluxappupdate') { // can be any type
+          if (latestPermanentRegistrationMessage && latestPermanentRegistrationMessage.height <= foundMessage.height) { // we have some message and the message is quite new
+            if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp && foundMessage.timestamp <= message.timestamp) { // but our message is newer. foundMessage has to have lower timestamp than our new message
+              latestPermanentRegistrationMessage = foundMessage;
+            }
+          } else if (foundMessage.timestamp <= message.timestamp) { // we dont have any message or our message is newer. foundMessage has to have lower timestamp than our new message
+            latestPermanentRegistrationMessage = foundMessage;
+          }
+        }
+      });
+      // some early app have zelAppSepcifications
+      const appsQueryB = {
+        'zelAppSpecifications.name': specifications.name,
+      };
+      const permanentAppMessageB = await serviceHelper.findInDatabase(database, globalAppsMessages, appsQueryB, projection);
+      permanentAppMessageB.forEach((foundMessage) => {
+        // has to be registration message
+        if (foundMessage.type === 'zelappregister' || foundMessage.type === 'fluxappregister' || foundMessage.type === 'zelappupdate' || foundMessage.type === 'fluxappupdate') { // can be any type
+          if (latestPermanentRegistrationMessage && latestPermanentRegistrationMessage.height <= foundMessage.height) { // we have some message and the message is quite new
+            if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp && foundMessage.timestamp <= message.timestamp) { // but our message is newer. foundMessage has to have lower timestamp than our new message
+              latestPermanentRegistrationMessage = foundMessage;
+            }
+          } else if (foundMessage.timestamp <= message.timestamp) { // we dont have any message or our message is newer. foundMessage has to have lower timestamp than our new message
+            latestPermanentRegistrationMessage = foundMessage;
+          }
+        }
+      });
+      const appSpecs = latestPermanentRegistrationMessage.appSpecifications || latestPermanentRegistrationMessage.zelAppSpecifications;
+      if (!appSpecs) {
+        throw new Error(`Flux App ${specifications.name} update message received but application does not exists!`);
       }
-      if (appInfo.repotag !== specifications.repotag) {
-        throw new Error('Flux App update of repotag is not allowed');
+      if (appSpecs.repotag !== specifications.repotag) {
+        throw new Error(`Flux App ${specifications.name} update of repotag is not allowed`);
       }
-      const { owner } = appInfo;
+      const { owner } = appSpecs;
       // here signature is checked against PREVIOUS app owner
       await verifyAppMessageUpdateSignature(message.type, message.version, specifications, message.timestamp, message.signature, owner);
     } else {
@@ -3220,7 +3254,7 @@ async function storeAppRunningMessage(message) {
   * @param name string
   * @param ip string
   */
-  if (typeof message !== 'object' && typeof message.type !== 'string' && typeof message.version !== 'number' && typeof message.broadcastedAt !== 'number' && typeof message.hash !== 'string' && typeof message.name !== 'string' && typeof message.ip !== 'string') {
+  if (!message || typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number' || typeof message.broadcastedAt !== 'number' || typeof message.hash !== 'string' || typeof message.name !== 'string' || typeof message.ip !== 'string') {
     return new Error('Invalid Flux App Running message for storing');
   }
 
@@ -3862,9 +3896,9 @@ async function storeAppPermanentMessage(message) {
   * @param height number
   * @param valueSat number
   */
-  if (typeof message !== 'object' && typeof message.type !== 'string' && typeof message.version !== 'number' && typeof message.appSpecifications !== 'object' && typeof message.signature !== 'string'
-    && typeof message.timestamp !== 'number' && typeof message.hash !== 'string' && typeof message.txid !== 'string' && typeof message.height !== 'number' && typeof message.valueSat !== 'number') {
-    return new Error('Invalid Flux App message for storing');
+  if (!message || !message.appSpecifications || typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number' || typeof message.appSpecifications !== 'object' || typeof message.signature !== 'string'
+    || typeof message.timestamp !== 'number' || typeof message.hash !== 'string' || typeof message.txid !== 'string' || typeof message.height !== 'number' || typeof message.valueSat !== 'number') {
+    throw new Error('Invalid Flux App message for storing');
   }
 
   const db = serviceHelper.databaseConnection();
@@ -4002,6 +4036,9 @@ async function appHashHasMessage(hash) {
 // handles fluxappregister type and fluxappupdate type.
 async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
   try {
+    if (height < config.fluxapps.epochstart) { // do not request testing apps
+      return;
+    }
     const randomDelay = Math.floor((Math.random() * 1280)) + 420;
     await serviceHelper.delay(randomDelay);
     const appMessageExists = await checkAppMessageExistence(hash);
@@ -4010,7 +4047,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
       // check temporary message storage
       // if we have it in temporary storage, get the temporary message
       const tempMessage = await checkAppTemporaryMessageExistence(hash);
-      if (tempMessage) {
+      if (tempMessage && typeof tempMessage === 'object') {
         const specifications = tempMessage.appSpecifications || tempMessage.zelAppSpecifications;
         // temp message means its all ok. store it as permanent app message
         const permanentAppMessage = {
@@ -4046,20 +4083,53 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
           // appSpecifications.name as identifier
           const db = serviceHelper.databaseConnection();
           const database = db.db(config.database.appsglobal.database);
-          // may throw
-          const query = { name: specifications.name };
           const projection = {
             projection: {
               _id: 0,
             },
           };
-          const appInfo = await serviceHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+          // we may not have the application in global apps. This can happen when we receive the message after the app has already expired AND we need to get message right before our message. Thus using messages system that is accurate
+          const appsQuery = {
+            'appSpecifications.name': specifications.name,
+          };
+          const findPermAppMessage = await serviceHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
+          let latestPermanentRegistrationMessage;
+          findPermAppMessage.forEach((foundMessage) => {
+            // has to be registration message
+            if (foundMessage.type === 'zelappregister' || foundMessage.type === 'fluxappregister' || foundMessage.type === 'zelappupdate' || foundMessage.type === 'fluxappupdate') { // can be any type
+              if (latestPermanentRegistrationMessage && latestPermanentRegistrationMessage.height <= foundMessage.height) { // we have some message and the message is quite new
+                if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp && foundMessage.timestamp <= tempMessage.timestamp) { // but our message is newer. foundMessage has to have lower timestamp than our new message
+                  latestPermanentRegistrationMessage = foundMessage;
+                }
+              } else if (foundMessage.timestamp <= tempMessage.timestamp) { // we dont have any message or our message is newer. foundMessage has to have lower timestamp than our new message
+                latestPermanentRegistrationMessage = foundMessage;
+              }
+            }
+          });
+          // some early app have zelAppSepcifications
+          const appsQueryB = {
+            'zelAppSpecifications.name': specifications.name,
+          };
+          const findPermAppMessageB = await serviceHelper.findInDatabase(database, globalAppsMessages, appsQueryB, projection);
+          findPermAppMessageB.forEach((foundMessage) => {
+            // has to be registration message
+            if (foundMessage.type === 'zelappregister' || foundMessage.type === 'fluxappregister' || foundMessage.type === 'zelappupdate' || foundMessage.type === 'fluxappupdate') { // can be any type
+              if (latestPermanentRegistrationMessage && latestPermanentRegistrationMessage.height <= foundMessage.height) { // we have some message and the message is quite new
+                if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp && foundMessage.timestamp <= tempMessage.timestamp) { // but our message is newer. foundMessage has to have lower timestamp than our new message
+                  latestPermanentRegistrationMessage = foundMessage;
+                }
+              } else if (foundMessage.timestamp <= tempMessage.timestamp) { // we dont have any message or our message is newer. foundMessage has to have lower timestamp than our new message
+                latestPermanentRegistrationMessage = foundMessage;
+              }
+            }
+          });
+          const messageInfo = latestPermanentRegistrationMessage; // we only care about height
           // here comparison of height differences and specifications
           // price shall be price for standard registration plus minus already paid price according to old specifics. height remains height valid for 22000 blocks
           const appPrice = appPricePerMonth(specifications);
-          const previousSpecsPrice = appPricePerMonth(appInfo);
+          const previousSpecsPrice = appPricePerMonth(messageInfo);
           // what is the height difference
-          const heightDifference = permanentAppMessage.height - appInfo.height; // has to be lower than 22000
+          const heightDifference = permanentAppMessage.height - messageInfo.height; // has to be lower than 22000
           const perc = (config.fluxapps.blocksLasting - heightDifference) / config.fluxapps.blocksLasting;
           let actualPriceToPay = appPrice * 0.9;
           if (perc > 0) {
@@ -4174,6 +4244,8 @@ async function reindexGlobalAppsInformation() {
       // eslint-disable-next-line no-await-in-loop
       await updateAppSpecsForRescanReindex(updateForSpecifications);
     }
+    // eslint-disable-next-line no-use-before-define
+    expireGlobalApplications();
     return true;
   } catch (error) {
     log.error(error);
@@ -4229,6 +4301,8 @@ async function rescanGlobalAppsInformation(height = 0, removeLastInformation = f
       // eslint-disable-next-line no-await-in-loop
       await updateAppSpecsForRescanReindex(updateForSpecifications);
     }
+    // eslint-disable-next-line no-use-before-define
+    expireGlobalApplications();
     return true;
   } catch (error) {
     log.error(error);
@@ -4351,9 +4425,11 @@ async function continuousFluxAppHashesCheck() {
     const results = await serviceHelper.findInDatabase(database, appsHashesCollection, query, projection);
     // eslint-disable-next-line no-restricted-syntax
     for (const result of results) {
-      checkAndRequestApp(result.hash, result.txid, result.height, result.value);
-      // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay(1234);
+      if (result.hash !== '5501c7dd6516c3fc2e68dee8d4fdd20d92f57f8cfcdc7b4fcbad46499e43ed6f' && result.height !== 861997) { // wrong data, can be later removed
+        checkAndRequestApp(result.hash, result.txid, result.height, result.value);
+        // eslint-disable-next-line no-await-in-loop
+        await serviceHelper.delay(1234);
+      }
     }
   } catch (error) {
     log.error(error);

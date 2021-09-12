@@ -307,7 +307,7 @@
       <b-col
         xs="12"
       >
-        <b-card title="Reindexing Global Apps">
+        <b-card title="Rescanning Global Apps">
           <b-card-text class="mb-1">
             Options to rescan Flux Global Application Database from a given blockheight and rebuild them since. Rescanning may take several hours and shall be used only when an unrecoverable error is present in databases with a known blockheight.
             If remove Last Information is wished. The current specifics will be dropped instead making it more deep option.
@@ -701,7 +701,7 @@ export default {
       const zelidauth = localStorage.getItem('zelidauth');
       const auth = qs.parse(zelidauth);
       console.log(auth);
-      this.showToast('warning', 'Global Applications information will reindex soon');
+      this.showToast('warning', 'Global Applications information will be rescanned soon');
       const blockheight = this.rescanExplorerHeight > 0 ? this.rescanExplorerHeight : 0;
       AppsService.rescanGlobalApps(zelidauth, blockheight, this.removeLastInformation)
         .then((response) => {
@@ -785,7 +785,7 @@ export default {
                 self.updateProgress = 0;
               }
             }, 1000);
-            FluxService.updateFlux(zelidauth)
+            FluxService.softUpdateInstallFlux(zelidauth)
               .then((responseB) => {
                 console.log(responseB);
                 if (responseB.data.status === 'error') {

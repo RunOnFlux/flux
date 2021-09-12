@@ -313,8 +313,33 @@ async function processBlock(blockHeight) {
           const appTxRecord = {
             txid: tx.txid, height: blockDataVerbose.height, hash: message, value: isFluxAppMessageValue, message: false, // message is boolean saying if we already have it stored as permanent message
           };
-          await serviceHelper.insertOneToDatabase(database, appsHashesCollection, appTxRecord);
-          appsService.checkAndRequestApp(message, tx.txid, blockDataVerbose.height, isFluxAppMessageValue);
+          // Unique hash - If we already have a hash of this app in our database, do not insert it!
+          try {
+            // 5501c7dd6516c3fc2e68dee8d4fdd20d92f57f8cfcdc7b4fcbad46499e43ed6f
+            const querySearch = {
+              hash: message,
+            };
+            const projectionSearch = {
+              projection: {
+                _id: 0,
+                txid: 1,
+                hash: 1,
+                height: 1,
+                value: 1,
+                message: 1,
+              },
+            };
+            const result = await serviceHelper.findOneInDatabase(database, appsHashesCollection, querySearch, projectionSearch); // this search can be later removed if nodes rescan apps and reconstruct the index for unique
+            if (!result) {
+              await serviceHelper.insertOneToDatabase(database, appsHashesCollection, appTxRecord);
+              appsService.checkAndRequestApp(message, tx.txid, blockDataVerbose.height, isFluxAppMessageValue);
+            } else {
+              throw new Error(`Found an existing hash app ${serviceHelper.ensureString(result)}`);
+            }
+          } catch (error) {
+            log.error(`Hash ${message} already exists. Not adding at height ${blockDataVerbose.height}`);
+            log.error(error);
+          }
         }
       }
       // tx version 5 are flux transactions. Put them into flux
@@ -529,7 +554,11 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
       await database.collection(fluxTransactionCollection).createIndex({ collateralHash: 1, collateralIndex: 1 }, { name: 'query for getting list of zelnode txs associated to specific collateral' });
       await database.collection(appsHashesCollection).createIndex({ txid: 1 }, { name: 'query for getting txid' });
       await database.collection(appsHashesCollection).createIndex({ height: 1 }, { name: 'query for getting height' });
-      await database.collection(appsHashesCollection).createIndex({ hash: 1 }, { name: 'query for getting app hash' });
+      await database.collection(appsHashesCollection).createIndex({ hash: 1 }, { name: 'query for getting app hash', unique: true }).catch((error) => {
+        // 5501c7dd6516c3fc2e68dee8d4fdd20d92f57f8cfcdc7b4fcbad46499e43ed6f
+        log.error('Expected throw on index creation as of new uniquness. Do not remove this check until all nodes have rebuild apps data');
+        log.error(error);
+      }); // has to be unique!
       await database.collection(appsHashesCollection).createIndex({ message: 1 }, { name: 'query for getting app hashes depending if we have message' });
 
       const databaseGlobal = db.db(config.database.appsglobal.database);

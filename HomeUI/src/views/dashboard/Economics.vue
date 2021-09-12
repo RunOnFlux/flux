@@ -46,8 +46,8 @@
                     0 KDA
                   </h6>
                   <small class="mt-0 invisible">(0 USD)</small>
-                  <h6 class="mt-0 mt-1 invisible">
-                    0 USD
+                  <h6 class="mt-0 mt-1">
+                    ~ ${{ beautifyValue((cumulusUSDRewardWeek * 0.1 * 3 / 7 ) + (cumulusUSDRewardWeek / 7)) }} USD
                   </h6>
                 </div>
                 <small class="text-muted">Per Day</small>
@@ -68,8 +68,8 @@
                     0 KDA
                   </h6>
                   <small class="mt-0 invisible">(0 USD)</small>
-                  <h6 class="mt-0 mt-1 invisible">
-                    0 USD
+                  <h6 class="mt-0 mt-1">
+                    ~ ${{ beautifyValue((cumulusUSDRewardWeek * 0.1 * 3 ) + cumulusUSDRewardWeek) }} USD
                   </h6>
                 </div>
                 <small class="text-muted">Per Week</small>
@@ -90,8 +90,11 @@
                     0 KDA
                   </h6>
                   <small class="mt-0 invisible">(0 USD)</small>
-                  <h6 class="mt-0 mt-1 invisible">
-                    0 USD
+                  <h6 class="mt-0 mt-1">
+                    ~ ${{ beautifyValue((cumulusUSDRewardWeek * weeksInAMonth * 0.1 * 3) + (cumulusUSDRewardWeek * weeksInAMonth)) }} USD
+                  </h6>
+                  <h6 class="mb-0 mt-1">
+                    VPS Cost ~ 7 USD
                   </h6>
                 </div>
                 <small class="text-muted">Per Month</small>
@@ -185,6 +188,9 @@
                   <h6 class="mt-0 mt-1">
                     ~ ${{ beautifyValue((nimbusUSDRewardWeek * weeksInAMonth * 0.1 * 3) + (nimbusUSDRewardWeek * weeksInAMonth) + (nimbusUSDKDARewardWeek * weeksInAMonth)) }} USD
                   </h6>
+                  <h6 class="mb-0 mt-1">
+                    VPS Cost ~ 13 USD
+                  </h6>
                 </div>
                 <small class="text-muted">Per Month</small>
               </div>
@@ -277,6 +283,9 @@
                   <h6 class="mt-0 mt-1">
                     ~ ${{ beautifyValue((stratusUSDRewardWeek * weeksInAMonth * 0.1 * 3) + (stratusUSDRewardWeek * weeksInAMonth) + (stratusUSDKDARewardWeek * weeksInAMonth)) }} USD
                   </h6>
+                  <h6 class="mb-0 mt-1">
+                    VPS Cost ~ 25 USD
+                  </h6>
                 </div>
                 <small class="text-muted">Per Month</small>
               </div>
@@ -337,9 +346,9 @@ export default {
   },
   data() {
     return {
-      cumulusHostingCost: 4.70,
-      nimbusHostingCost: 6,
-      stratusHostingCost: 32,
+      cumulusHostingCost: 7,
+      nimbusHostingCost: 13,
+      stratusHostingCost: 25,
       weeksInAMonth: 4.34812141,
       loadingPrice: true,
       historicalPrices: [],
