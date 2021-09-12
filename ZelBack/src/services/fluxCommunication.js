@@ -24,6 +24,7 @@ let dosState = 0; // we can start at bigger number later
 let dosMessage = null;
 
 const minimumFluxBenchAllowedVersion = 223;
+let storedFluxBenchAllowed = null;
 
 // my external Flux IP from benchmark
 let myFluxIP = null;
@@ -1056,16 +1057,20 @@ async function removeIncomingPeer(req, res, expressWS) {
 }
 
 async function checkFluxbenchVersionAllowed() {
+  if (storedFluxBenchAllowed) {
+    return storedFluxBenchAllowed >= minimumFluxBenchAllowedVersion;
+  }
   try {
     const benchmarkInfoResponse = await benchmarkService.getInfo();
     if (benchmarkInfoResponse.status === 'success') {
       log.info(benchmarkInfoResponse);
       let benchmarkVersion = benchmarkInfoResponse.data.version;
       benchmarkVersion = benchmarkVersion.replace(/\./g, '');
+      storedFluxBenchAllowed = benchmarkVersion;
       if (benchmarkVersion >= minimumFluxBenchAllowedVersion) {
         return true;
       }
-      dosState += 2;
+      dosState += 11;
       dosMessage = `Fluxbench Version Error. Current lower version allowed is v${minimumFluxBenchAllowedVersion} found v${benchmarkVersion}`;
       log.error(dosMessage);
       return false;
