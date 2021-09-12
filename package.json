@@ -1,6 +1,6 @@
 {
   "name": "flux",
-  "version": "2.0.9",
+  "version": "2.1.0",
   "description": "Flux, Your Gateway to a Decentralized World",
   "repository": {
     "type": "git",
@@ -59,7 +59,7 @@
     "dev": "node init.js && concurrently \"npm run fluxdev\" \"npm run homedev\"",
     "softupdate": "git pull",
     "softupdateinstall": "git pull; npm install --production",
-    "updateflux": "git pull; git reset --hard; rm -rf .git/index.lock HomeUI; git reset --hard; git pull",
+    "updateflux": "git pull; git reset --hard; rm -rf .git/index.lock HomeUI/dist; git reset --hard; git pull",
     "hardupdateflux": "git pull; git reset --hard; rm -rf .git/index.lock ZelFront/dist HomeUI/dist node_modules package-lock.json; git reset --hard; git pull; npm run start",
     "ciconfig": "cp sampleUserConfig.js config/userconfig.js && mkdir ~/.zelcash && cp sampleDaemonConfig.conf ~/.zelcash/zelcash.conf"
   },
