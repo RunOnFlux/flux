@@ -4036,6 +4036,9 @@ async function appHashHasMessage(hash) {
 // handles fluxappregister type and fluxappupdate type.
 async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
   try {
+    if (height < config.fluxapps.epochstart) { // do not request testing apps
+      return;
+    }
     const randomDelay = Math.floor((Math.random() * 1280)) + 420;
     await serviceHelper.delay(randomDelay);
     const appMessageExists = await checkAppMessageExistence(hash);
