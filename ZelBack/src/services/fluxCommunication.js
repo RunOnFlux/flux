@@ -47,7 +47,7 @@ let addingNodesToCache = false;
 // basic check for a version of other flux.
 async function isFluxAvailable(ip) {
   const axiosConfig = {
-    timeout: 8888,
+    timeout: 5000,
   };
   try {
     const fluxResponse = await serviceHelper.axiosGet(`http://${ip}:${config.server.apiport}/flux/version`, axiosConfig);
@@ -1088,7 +1088,7 @@ async function checkFluxbenchVersionAllowed() {
   }
 }
 
-async function checkMyFluxAvailability() {
+async function checkMyFluxAvailability(retryNumber = 0) {
   const fluxBenchVersionAllowed = await checkFluxbenchVersionAllowed();
   if (!fluxBenchVersionAllowed) {
     return false;
@@ -1106,16 +1106,24 @@ async function checkMyFluxAvailability() {
     myIP = `[${myIP}]`;
   }
   let availabilityError = null;
-  const resMyAvailability = await serviceHelper.axiosGet(`http://${askingIP}:${config.server.apiport}/flux/checkfluxavailability/${myIP}`).catch((error) => {
+  const axiosConfig = {
+    timeout: 7000,
+  };
+  const resMyAvailability = await serviceHelper.axiosGet(`http://${askingIP}:${config.server.apiport}/flux/checkfluxavailability/${myIP}`, axiosConfig).catch((error) => {
     log.error(`${askingIP} is not reachable`);
     log.error(error);
     availabilityError = true;
   });
   if (!resMyAvailability || availabilityError) {
-    dosState += 1.5;
+    dosState += 2;
     if (dosState > 10) {
       dosMessage = dosMessage || 'Flux communication is limited';
       log.error(dosMessage);
+      return false;
+    }
+    if (retryNumber <= 6) {
+      const newRetryIndex = retryNumber + 1;
+      return checkMyFluxAvailability(newRetryIndex);
     }
     return false;
   }
@@ -1135,6 +1143,8 @@ async function checkMyFluxAvailability() {
       } if (benchMyIP && benchMyIP === myIP) {
         log.info('FluxBench reported the same Ip that was already in use');
       } else {
+        dosMessage = 'Error getting publicIp from FluxBench';
+        dosState += 15;
         log.error('FluxBench wasnt able to detect flux node public ip');
       }
     } else {
@@ -1143,10 +1153,15 @@ async function checkMyFluxAvailability() {
       log.error(dosMessage);
       return false;
     }
-    dosState += 1.5;
+    dosState += 2;
     if (dosState > 10) {
       dosMessage = dosMessage || 'Flux is not available for outside communication';
       log.error(dosMessage);
+      return false;
+    }
+    if (retryNumber <= 6) {
+      const newRetryIndex = retryNumber + 1;
+      return checkMyFluxAvailability(newRetryIndex);
     }
     return false;
   }
