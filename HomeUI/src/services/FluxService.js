@@ -1,6 +1,20 @@
 import Api, { sourceCancelToken } from '@/services/Api';
 
 export default {
+  softUpdateFlux(zelidauthHeader) {
+    return Api().get('/flux/softupdate', {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    });
+  },
+  softUpdateInstallFlux(zelidauthHeader) {
+    return Api().get('/flux/softupdateinstall', {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    });
+  },
   updateFlux(zelidauthHeader) {
     return Api().get('/flux/updateflux', {
       headers: {

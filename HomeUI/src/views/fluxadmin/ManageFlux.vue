@@ -785,7 +785,7 @@ export default {
                 self.updateProgress = 0;
               }
             }, 1000);
-            FluxService.updateFlux(zelidauth)
+            FluxService.softUpdateInstallFlux(zelidauth)
               .then((responseB) => {
                 console.log(responseB);
                 if (responseB.data.status === 'error') {
