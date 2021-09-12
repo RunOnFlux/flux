@@ -4425,9 +4425,11 @@ async function continuousFluxAppHashesCheck() {
     const results = await serviceHelper.findInDatabase(database, appsHashesCollection, query, projection);
     // eslint-disable-next-line no-restricted-syntax
     for (const result of results) {
-      checkAndRequestApp(result.hash, result.txid, result.height, result.value);
-      // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay(1234);
+      if (result.hash !== '5501c7dd6516c3fc2e68dee8d4fdd20d92f57f8cfcdc7b4fcbad46499e43ed6f' && result.height !== 861997) { // wrong data, can be later removed
+        checkAndRequestApp(result.hash, result.txid, result.height, result.value);
+        // eslint-disable-next-line no-await-in-loop
+        await serviceHelper.delay(1234);
+      }
     }
   } catch (error) {
     log.error(error);
