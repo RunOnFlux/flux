@@ -91,8 +91,10 @@ async function getMyFluxIP() {
     }
   } else {
     dosMessage = 'Error getting fluxIp from FluxBench';
-    dosState += 15;
-    log.error(dosMessage);
+    dosState += 1;
+    if (dosState > 10) {
+      log.error(dosMessage);
+    }
   }
   myFluxIP = myIP;
   return myIP;
