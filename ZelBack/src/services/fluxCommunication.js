@@ -89,12 +89,6 @@ async function getMyFluxIP() {
     if (benchmarkResponseData.ipaddress) {
       myIP = benchmarkResponseData.ipaddress.length > 5 ? benchmarkResponseData.ipaddress : null;
     }
-  } else {
-    dosMessage = 'Error getting fluxIp from FluxBench';
-    dosState += 1;
-    if (dosState > 10) {
-      log.error(dosMessage);
-    }
   }
   myFluxIP = myIP;
   return myIP;
