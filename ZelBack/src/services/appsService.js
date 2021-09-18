@@ -4123,11 +4123,11 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
               }
             }
           });
-          const messageInfo = latestPermanentRegistrationMessage; // we only care about height
+          const messageInfo = latestPermanentRegistrationMessage;
           // here comparison of height differences and specifications
           // price shall be price for standard registration plus minus already paid price according to old specifics. height remains height valid for 22000 blocks
           const appPrice = appPricePerMonth(specifications);
-          const previousSpecsPrice = appPricePerMonth(messageInfo);
+          const previousSpecsPrice = appPricePerMonth(messageInfo.appSpecifications || messageInfo.zelAppSpecifications);
           // what is the height difference
           const heightDifference = permanentAppMessage.height - messageInfo.height; // has to be lower than 22000
           const perc = (config.fluxapps.blocksLasting - heightDifference) / config.fluxapps.blocksLasting;
