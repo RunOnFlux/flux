@@ -24,6 +24,7 @@ let dosState = 0; // we can start at bigger number later
 let dosMessage = null;
 
 const minimumFluxBenchAllowedVersion = 231;
+const minimumFluxOSAllowedVersion = 214;
 let storedFluxBenchAllowed = null;
 
 // my external Flux IP from benchmark
@@ -52,20 +53,12 @@ async function isFluxAvailable(ip) {
   try {
     const fluxResponse = await serviceHelper.axiosGet(`http://${ip}:${config.server.apiport}/flux/version`, axiosConfig);
     if (fluxResponse.data.status === 'success') {
-      try {
-        const fluxBenchInfoResponse = await serviceHelper.axiosGet(`http://${ip}:${config.server.apiport}/benchmark/getinfo`, axiosConfig);
-        if (fluxBenchInfoResponse.data.status === 'success') {
-          let benchmarkVersion = fluxBenchInfoResponse.data.version;
-          benchmarkVersion = benchmarkVersion.replace(/\./g, '');
-          storedFluxBenchAllowed = benchmarkVersion;
-          if (benchmarkVersion >= minimumFluxBenchAllowedVersion) {
-            return true;
-          }
-        }
-        return false;
-      } catch (e) {
-        return false;
+      let fluxVersion = fluxResponse.data.data;
+      fluxVersion = fluxVersion.replace(/\./g, '');
+      if (fluxVersion >= minimumFluxOSAllowedVersion) {
+        return true;
       }
+      return false;
     }
     return false;
   } catch (e) {
@@ -1116,7 +1109,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
   }
   let availabilityError = null;
   const axiosConfig = {
-    timeout: 11000,
+    timeout: 7000,
   };
   const resMyAvailability = await serviceHelper.axiosGet(`http://${askingIP}:${config.server.apiport}/flux/checkfluxavailability/${myIP}`, axiosConfig).catch((error) => {
     log.error(`${askingIP} is not reachable`);
