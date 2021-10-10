@@ -23,7 +23,8 @@ const incomingPeers = []; // array of objects containing ip
 let dosState = 0; // we can start at bigger number later
 let dosMessage = null;
 
-const minimumFluxBenchAllowedVersion = 223;
+const minimumFluxBenchAllowedVersion = 231;
+const minimumFluxOSAllowedVersion = 214;
 let storedFluxBenchAllowed = null;
 
 // my external Flux IP from benchmark
@@ -52,7 +53,12 @@ async function isFluxAvailable(ip) {
   try {
     const fluxResponse = await serviceHelper.axiosGet(`http://${ip}:${config.server.apiport}/flux/version`, axiosConfig);
     if (fluxResponse.data.status === 'success') {
-      return true;
+      let fluxVersion = fluxResponse.data.data;
+      fluxVersion = fluxVersion.replace(/\./g, '');
+      if (fluxVersion >= minimumFluxOSAllowedVersion) {
+        return true;
+      }
+      return false;
     }
     return false;
   } catch (e) {

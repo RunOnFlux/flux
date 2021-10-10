@@ -8,7 +8,7 @@
       >Flux, Your Gateway to a Decentralized World</b-link>
     </span>
 
-    <span class="float-md-right d-none d-md-block">Flux {{ 'v' + fluxVersion }}
+    <span class="float-md-right d-none d-md-block">FluxOS {{ 'v' + fluxVersion }}
     </span>
   </p>
 </template>
