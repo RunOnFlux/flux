@@ -422,20 +422,34 @@ async function appDockerCreate(appSpecifications) {
           HostPort: appSpecifications.port.toString(),
         },
       ],
+      [`${appSpecifications.containerPort.toString()}/udp`]: [
+        {
+          HostPort: appSpecifications.port.toString(),
+        },
+      ],
     };
     exposedPorts = {
       [`${appSpecifications.port.toString()}/tcp`]: {},
       [`${appSpecifications.containerPort.toString()}/tcp`]: {},
+      [`${appSpecifications.port.toString()}/udp`]: {},
+      [`${appSpecifications.containerPort.toString()}/udp`]: {},
     };
-  } else if (appSpecifications.version === 2) {
+  } else {
     appSpecifications.ports.forEach((port) => {
       exposedPorts[[`${port.toString()}/tcp`]] = {};
+      exposedPorts[[`${port.toString()}/udp`]] = {};
     });
     appSpecifications.containerPorts.forEach((port) => {
       exposedPorts[[`${port.toString()}/tcp`]] = {};
+      exposedPorts[[`${port.toString()}/udp`]] = {};
     });
     for (let i = 0; i < appSpecifications.containerPorts.length; i += 1) {
       portBindings[[`${appSpecifications.containerPorts[i].toString()}/tcp`]] = [
+        {
+          HostPort: appSpecifications.ports[i].toString(),
+        },
+      ];
+      portBindings[[`${appSpecifications.containerPorts[i].toString()}/udp`]] = [
         {
           HostPort: appSpecifications.ports[i].toString(),
         },
@@ -3346,7 +3360,7 @@ async function registerAppGlobalyApi(req, res) {
       messageType = serviceHelper.ensureString(messageType);
       typeVersion = serviceHelper.ensureNumber(typeVersion);
 
-      let { version } = appSpecification; // Active specs version is 2
+      let { version } = appSpecification;
       let { name } = appSpecification;
       let { description } = appSpecification;
       let { repotag } = appSpecification;
@@ -3577,7 +3591,7 @@ async function updateAppGlobalyApi(req, res) {
       messageType = serviceHelper.ensureString(messageType);
       typeVersion = serviceHelper.ensureNumber(typeVersion);
 
-      let { version } = appSpecification; // shall be 2
+      let { version } = appSpecification;
       let { name } = appSpecification;
       let { description } = appSpecification;
       let { repotag } = appSpecification;

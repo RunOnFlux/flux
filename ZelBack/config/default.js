@@ -79,6 +79,11 @@ module.exports = {
       hdd: 0.05, // per 1gb,
       minPrice: 0.1, // minimum price that has to be paid for registration or update. Flux listens only to message above or equal this price
     }],
+    appSpecsEnforcementHeights: {
+      1: 0, // blockheight
+      2: 0, // blockheight
+      3: 984000, // blockheight. Since this blockheight specification of type 3 is active. User can still submit v1 or v2. UI allows only v2, v3
+    },
     address: 't1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6',
     epochstart: 694000,
     publicepochstart: 705000,
