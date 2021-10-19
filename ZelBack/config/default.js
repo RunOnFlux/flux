@@ -65,7 +65,7 @@ module.exports = {
   fluxTeamZelId: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
   fluxapps: {
     // in flux main chain per month (blocksLasting)
-    price: [{ // any price fork can be done by adjusting object similarily
+    price: [{ // any price fork can be done by adjusting object similarily.
       height: 0, // height from which price spec is valid
       cpu: 3, // per 0.1 cpu core,
       ram: 1, // per 100mb,
@@ -85,8 +85,8 @@ module.exports = {
     portMin: 31000, // ports 30000 - 30999 are reserved for local applications
     portMax: 39999,
     maxImageSize: 500000000, // 500mb possibly increase later
-    minimumInstances: 5,
-    maximumInstances: 10,
+    minimumInstances: 3,
+    maximumAdditionalInstances: 5, // max instances above subscribed amount. In case of min instances, this is minimumInstances + maximumAdditionalInstances
     minOutgoing: 5,
     minIncoming: 2,
     installation: {

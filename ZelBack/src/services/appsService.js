@@ -5043,7 +5043,8 @@ async function checkAndRemoveApplicationInstance() {
     for (const installedApp of appsInstalled) {
       // eslint-disable-next-line no-await-in-loop
       const runningAppList = await getRunningAppList(installedApp.name);
-      if (runningAppList.length > config.fluxapps.maximumInstances) {
+      const minInstances = installedApp.instances || config.fluxapps.minimumInstances; // introduced in v3 of apps specs
+      if (runningAppList.length > (minInstances + config.fluxapps.maximumAdditionalInstances)) {
         // eslint-disable-next-line no-await-in-loop
         const appDetails = await getApplicationGlobalSpecifications(installedApp.name);
         if (appDetails) {
