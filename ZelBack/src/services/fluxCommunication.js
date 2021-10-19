@@ -24,7 +24,7 @@ let dosState = 0; // we can start at bigger number later
 let dosMessage = null;
 
 const minimumFluxBenchAllowedVersion = 231;
-const minimumFluxOSAllowedVersion = 214;
+const minimumFluxOSAllowedVersion = 215;
 let storedFluxBenchAllowed = null;
 
 // my external Flux IP from benchmark
