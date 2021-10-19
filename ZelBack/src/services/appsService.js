@@ -2561,26 +2561,28 @@ async function softRegisterAppLocally(appSpecifications, res) {
   }
 }
 
-function appPricePerMonth(dataForAppRegistration) {
+function appPricePerMonth(dataForAppRegistration, height) {
   if (!dataForAppRegistration) {
     return new Error('Application specification not provided');
   }
+  const intervals = config.fluxapps.price.filter((i) => i.height <= height);
+  const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
   if (dataForAppRegistration.tiered) {
     const cpuTotalCount = dataForAppRegistration.cpubasic + dataForAppRegistration.cpusuper + dataForAppRegistration.cpubamf;
-    const cpuPrice = cpuTotalCount * config.fluxapps.price.cpu * 10;
+    const cpuPrice = cpuTotalCount * priceSpecifications.cpu * 10;
     const cpuTotal = cpuPrice / 3;
     const ramTotalCount = dataForAppRegistration.rambasic + dataForAppRegistration.ramsuper + dataForAppRegistration.rambamf;
-    const ramPrice = (ramTotalCount * config.fluxapps.price.ram) / 100;
+    const ramPrice = (ramTotalCount * priceSpecifications.ram) / 100;
     const ramTotal = ramPrice / 3;
     const hddTotalCount = dataForAppRegistration.hddbasic + dataForAppRegistration.hddsuper + dataForAppRegistration.hddbamf;
-    const hddPrice = hddTotalCount * config.fluxapps.price.hdd;
+    const hddPrice = hddTotalCount * priceSpecifications.hdd;
     const hddTotal = hddPrice / 3;
     const totalPrice = cpuTotal + ramTotal + hddTotal;
     return Number(Math.ceil(totalPrice * 100) / 100);
   }
-  const cpuTotal = dataForAppRegistration.cpu * config.fluxapps.price.cpu * 10;
-  const ramTotal = (dataForAppRegistration.ram * config.fluxapps.price.ram) / 100;
-  const hddTotal = dataForAppRegistration.hdd * config.fluxapps.price.hdd;
+  const cpuTotal = dataForAppRegistration.cpu * priceSpecifications.cpu * 10;
+  const ramTotal = (dataForAppRegistration.ram * priceSpecifications.ram) / 100;
+  const hddTotal = dataForAppRegistration.hdd * priceSpecifications.hdd;
   const totalPrice = cpuTotal + ramTotal + hddTotal;
   return Number(Math.ceil(totalPrice * 100) / 100);
 }
@@ -4065,11 +4067,13 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
         // await update zelapphashes that we already have it stored
         await appHashHasMessage(hash);
         // disregard other types
+        const intervals = config.fluxapps.price.filter((interval) => interval.height <= height);
+        const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
         if (tempMessage.type === 'zelappregister' || tempMessage.type === 'fluxappregister') {
           // check if value is optimal or higher
-          let appPrice = appPricePerMonth(specifications);
-          if (appPrice < 1) {
-            appPrice = 1;
+          let appPrice = appPricePerMonth(specifications, height);
+          if (appPrice < priceSpecifications.minPrice) {
+            appPrice = priceSpecifications.minPrice;
           }
           if (valueSat >= appPrice * 1e8) {
             const updateForSpecifications = permanentAppMessage.appSpecifications;
@@ -4126,8 +4130,8 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
           const messageInfo = latestPermanentRegistrationMessage;
           // here comparison of height differences and specifications
           // price shall be price for standard registration plus minus already paid price according to old specifics. height remains height valid for 22000 blocks
-          const appPrice = appPricePerMonth(specifications);
-          const previousSpecsPrice = appPricePerMonth(messageInfo.appSpecifications || messageInfo.zelAppSpecifications);
+          const appPrice = appPricePerMonth(specifications, height);
+          const previousSpecsPrice = appPricePerMonth(messageInfo.appSpecifications || messageInfo.zelAppSpecifications, height);
           // what is the height difference
           const heightDifference = permanentAppMessage.height - messageInfo.height; // has to be lower than 22000
           const perc = (config.fluxapps.blocksLasting - heightDifference) / config.fluxapps.blocksLasting;
@@ -4136,8 +4140,8 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
             actualPriceToPay = (appPrice - (perc * previousSpecsPrice)) * 0.9; // discount for missing heights. Allow 90%
           }
           actualPriceToPay = Number(Math.ceil(actualPriceToPay * 100) / 100);
-          if (actualPriceToPay < 1) {
-            actualPriceToPay = 1;
+          if (actualPriceToPay < priceSpecifications.minPrice) {
+            actualPriceToPay = priceSpecifications.minPrice;
           }
           if (valueSat >= actualPriceToPay * 1e8) {
             const updateForSpecifications = permanentAppMessage.appSpecifications;
@@ -5341,27 +5345,29 @@ async function getAppPrice(req, res) {
           _id: 0,
         },
       };
+      const daemonGetInfo = await daemonService.getInfo();
+      let daemonHeight;
+      if (daemonGetInfo.status === 'success') {
+        daemonHeight = daemonGetInfo.data.blocks;
+      } else {
+        throw new Error(daemonGetInfo.data.message || daemonGetInfo.data);
+      }
       const appInfo = await serviceHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
-      let actualPriceToPay = appPricePerMonth(appSpecFormatted);
+      let actualPriceToPay = appPricePerMonth(appSpecFormatted, daemonHeight);
       if (appInfo) {
-        const previousSpecsPrice = appPricePerMonth(appInfo);
+        const previousSpecsPrice = appPricePerMonth(appInfo, daemonHeight); // calculate previous based on CURRENT height, with current interval of prices!
         // what is the height difference
-        const daemonGetInfo = await daemonService.getInfo();
-        let daemonHeight;
-        if (daemonGetInfo.status === 'success') {
-          daemonHeight = daemonGetInfo.data.blocks;
-        } else {
-          throw new Error(daemonGetInfo.data.message || daemonGetInfo.data);
-        }
         const heightDifference = daemonHeight - appInfo.height; // has to be lower than 22000
         const perc = (config.fluxapps.blocksLasting - heightDifference) / config.fluxapps.blocksLasting;
         if (perc > 0) {
           actualPriceToPay -= (perc * previousSpecsPrice);
         }
       }
+      const intervals = config.fluxapps.price.filter((i) => i.height <= daemonHeight);
+      const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
       actualPriceToPay = Number(Math.ceil(actualPriceToPay * 100) / 100);
-      if (actualPriceToPay < 1) {
-        actualPriceToPay = 1;
+      if (actualPriceToPay < priceSpecifications.minPrice) {
+        actualPriceToPay = priceSpecifications.minPrice;
       }
       const respondPrice = serviceHelper.createDataMessage(actualPriceToPay);
       return res.json(respondPrice);

@@ -32,42 +32,53 @@ export default {
   lockedSystemResources,
   apps: {
     // in flux per month
-    price: {
+    price: [{
+      height: 0, // height from which price spec is valid
       cpu: 3, // per 0.1 cpu core,
       ram: 1, // per 100mb,
       hdd: 0.5, // per 1gb,
+      minPrice: 1,
     },
+    {
+      height: 984000, // height from which price spec is valid. Counts from when app was registerd on blockchain!
+      cpu: 0.3, // per 0.1 cpu core,
+      ram: 0.1, // per 100mb,
+      hdd: 0.05, // per 1gb,
+      minPrice: 0.1,
+    }],
     address: 't1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6', // apps registration address
     epochstart: 694000, // apps epoch blockheight start
     portMin: 31000, // originally should have been from 30000 but we got temporary folding there
     portMax: 39999,
   },
-  appPricePerMonthMethod(specifications) {
+  appPricePerMonthMethod(specifications, height) {
     let price;
+    const intervals = this.apps.price.filter((i) => i.height <= height);
+    const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
     if (specifications.tiered) {
       const cpuTotalCount = specifications.cpubasic + specifications.cpusuper + specifications.cpubamf;
-      const cpuPrice = cpuTotalCount * this.apps.price.cpu * 10; // 0.1 core cost cpu price
+      const cpuPrice = cpuTotalCount * priceSpecifications.cpu * 10; // 0.1 core cost cpu price
       const cpuTotal = cpuPrice / 3;
       const ramTotalCount = specifications.rambasic + specifications.ramsuper + specifications.rambamf;
-      const ramPrice = (ramTotalCount * this.apps.price.ram) / 100;
+      const ramPrice = (ramTotalCount * priceSpecifications.ram) / 100;
       const ramTotal = ramPrice / 3;
       const hddTotalCount = specifications.hddbasic + specifications.hddsuper + specifications.hddbamf;
-      const hddPrice = hddTotalCount * this.apps.price.hdd;
+      const hddPrice = hddTotalCount * priceSpecifications.hdd;
       const hddTotal = hddPrice / 3;
       const totalPrice = cpuTotal + ramTotal + hddTotal;
       price = Number(Math.ceil(totalPrice * 100) / 100);
-      if (price < 1) {
-        price = 1;
+      if (price < priceSpecifications.minPrice) {
+        price = priceSpecifications.minPrice;
       }
       return price;
     }
-    const cpuTotal = specifications.cpu * this.apps.price.cpu * 10;
-    const ramTotal = (specifications.ram * this.apps.price.ram) / 100;
-    const hddTotal = specifications.hdd * this.apps.price.hdd;
+    const cpuTotal = specifications.cpu * priceSpecifications.cpu * 10;
+    const ramTotal = (specifications.ram * priceSpecifications.ram) / 100;
+    const hddTotal = specifications.hdd * priceSpecifications.hdd;
     const totalPrice = cpuTotal + ramTotal + hddTotal;
     price = Number(Math.ceil(totalPrice * 100) / 100);
-    if (price < 1) {
-      price = 1;
+    if (price < priceSpecifications.minPrice) {
+      price = priceSpecifications.minPrice;
     }
     return price;
   },

@@ -1611,13 +1611,13 @@ export default {
     },
     appPricePerMonthForUpdate() {
       const appInfo = this.callBResponse.data;
-      let actualPriceToPay = this.appPricePerMonthMethod(this.dataForAppUpdate);
+      const daemonHeight = this.currentHeight;
+      let actualPriceToPay = this.appPricePerMonthMethod(this.dataForAppUpdate, daemonHeight);
       console.log(actualPriceToPay);
       if (appInfo) {
-        const previousSpecsPrice = this.appPricePerMonthMethod(appInfo);
+        const previousSpecsPrice = this.appPricePerMonthMethod(appInfo, daemonHeight);
         console.log(previousSpecsPrice);
         // what is the height difference
-        const daemonHeight = this.currentHeight;
         const heightDifference = daemonHeight - appInfo.height; // has to be lower than 22000
         const perc = (22000 - heightDifference) / 22000;
         if (perc > 0) {
@@ -2224,33 +2224,8 @@ export default {
       }
       return `/${name}`;
     },
-    appPricePerMonthMethod(specifications) {
-      let price;
-      if (specifications.tiered) {
-        const cpuTotalCount = specifications.cpubasic + specifications.cpusuper + specifications.cpubamf;
-        const cpuPrice = cpuTotalCount * fluxapps.apps.price.cpu * 10; // 0.1 core cost cpu price
-        const cpuTotal = cpuPrice / 3;
-        const ramTotalCount = specifications.rambasic + specifications.ramsuper + specifications.rambamf;
-        const ramPrice = (ramTotalCount * fluxapps.apps.price.ram) / 100;
-        const ramTotal = ramPrice / 3;
-        const hddTotalCount = specifications.hddbasic + specifications.hddsuper + specifications.hddbamf;
-        const hddPrice = hddTotalCount * fluxapps.apps.price.hdd;
-        const hddTotal = hddPrice / 3;
-        const totalPrice = cpuTotal + ramTotal + hddTotal;
-        price = Number(Math.ceil(totalPrice * 100) / 100);
-        if (price < 1) {
-          price = 1;
-        }
-        return price;
-      }
-      const cpuTotal = specifications.cpu * fluxapps.apps.price.cpu * 10;
-      const ramTotal = (specifications.ram * fluxapps.apps.price.ram) / 100;
-      const hddTotal = specifications.hdd * fluxapps.apps.price.hdd;
-      const totalPrice = cpuTotal + ramTotal + hddTotal;
-      price = Number(Math.ceil(totalPrice * 100) / 100);
-      if (price < 1) {
-        price = 1;
-      }
+    appPricePerMonthMethod(specifications, height = this.currentHeight) {
+      const price = fluxapps.appPricePerMonthMethod(specifications, height);
       return price;
     },
 

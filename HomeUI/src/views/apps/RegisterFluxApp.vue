@@ -509,6 +509,7 @@ import Ripple from 'vue-ripple-directive';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 import fluxapps from '@/libs/fluxApps';
 import AppsService from '@/services/AppsService';
+import DaemonService from '@/services/DaemonService';
 
 const qs = require('qs');
 const store = require('store');
@@ -544,6 +545,7 @@ export default {
       signature: '',
       registrationHash: '',
       registrationtype: 'fluxappregister',
+      currentHeight: 1,
       appRegistrationSpecification: {
         version: 2,
         name: '',
@@ -579,7 +581,7 @@ export default {
       'privilege',
     ]),
     appPricePerMonth() {
-      const price = fluxapps.appPricePerMonthMethod(this.dataForAppRegistration);
+      const price = fluxapps.appPricePerMonthMethod(this.dataForAppRegistration, this.currentHeight);
       return price;
     },
     validTill() {
@@ -630,6 +632,7 @@ export default {
     },
   },
   mounted() {
+    this.getDaemonInfo();
     this.getRandomPort();
     this.registrationInformation();
     const zelidauth = localStorage.getItem('zelidauth');
@@ -860,6 +863,15 @@ export default {
       }
     },
 
+    async getDaemonInfo() {
+      const daemonGetInfo = await DaemonService.getInfo();
+      if (daemonGetInfo.data.status === 'error') {
+        this.showToast('danger', daemonGetInfo.data.data.message || daemonGetInfo.data.data);
+      } else {
+        this.currentHeight = daemonGetInfo.data.data.blocks;
+      }
+    },
+
     initiateSignWS() {
       const self = this;
       const { protocol, hostname } = window.location;
@@ -936,9 +948,7 @@ export default {
       const response = await AppsService.appsRegInformation();
       const { data } = response.data;
       if (response.data.status === 'success') {
-        fluxapps.apps.price.cpu = data.price.cpu;
-        fluxapps.apps.price.hdd = data.price.hdd;
-        fluxapps.apps.price.ram = data.price.ram;
+        fluxapps.apps.price = data.price;
         fluxapps.apps.address = data.address;
         fluxapps.apps.epochstart = data.epochstart;
         fluxapps.apps.portMin = data.portMin;

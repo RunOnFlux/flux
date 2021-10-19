@@ -65,11 +65,20 @@ module.exports = {
   fluxTeamZelId: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
   fluxapps: {
     // in flux main chain per month (blocksLasting)
-    price: {
+    price: [{ // any price fork can be done by adjusting object similarily
+      height: 0, // height from which price spec is valid
       cpu: 3, // per 0.1 cpu core,
       ram: 1, // per 100mb,
       hdd: 0.5, // per 1gb,
+      minPrice: 1, // minimum price that has to be paid for registration or update. Flux listens only to message above or equal this price
     },
+    {
+      height: 984000, // height from which price spec is valid. Counts from when app was registerd on blockchain!
+      cpu: 0.3, // per 0.1 cpu core,
+      ram: 0.1, // per 100mb,
+      hdd: 0.05, // per 1gb,
+      minPrice: 0.1, // minimum price that has to be paid for registration or update. Flux listens only to message above or equal this price
+    }],
     address: 't1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6',
     epochstart: 694000,
     publicepochstart: 705000,
