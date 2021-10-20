@@ -2598,6 +2598,9 @@ function appPricePerMonth(dataForAppRegistration, height) {
       const additionalPrice = (appPrice * instancesAdditional) / 3;
       appPrice = (Math.ceil(additionalPrice * 100) + Math.ceil(appPrice * 100)) / 100;
     }
+    if (appPrice < priceSpecifications.minPrice) {
+      appPrice = priceSpecifications.minPrice;
+    }
     return appPrice;
   }
   const cpuTotal = dataForAppRegistration.cpu * priceSpecifications.cpu * 10;
@@ -2608,6 +2611,9 @@ function appPricePerMonth(dataForAppRegistration, height) {
   if (instancesAdditional > 0) {
     const additionalPrice = (appPrice * instancesAdditional) / 3;
     appPrice = (Math.ceil(additionalPrice * 100) + Math.ceil(appPrice * 100)) / 100;
+  }
+  if (appPrice < priceSpecifications.minPrice) {
+    appPrice = priceSpecifications.minPrice;
   }
   return appPrice;
 }

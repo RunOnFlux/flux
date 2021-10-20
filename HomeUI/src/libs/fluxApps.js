@@ -55,6 +55,12 @@ export default {
     let price;
     const intervals = this.apps.price.filter((i) => i.height <= height);
     const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
+    let instancesAdditional = 0;
+    if (specifications.instances) {
+      // spec of version >= 3
+      // specification version 3 is saying. 3 instances are standard, every 3 additional is double the price.
+      instancesAdditional = specifications.instances - 3; // has to always be >=0 as of checks before.
+    }
     if (specifications.tiered) {
       const cpuTotalCount = specifications.cpubasic + specifications.cpusuper + specifications.cpubamf;
       const cpuPrice = cpuTotalCount * priceSpecifications.cpu * 10; // 0.1 core cost cpu price
@@ -67,6 +73,10 @@ export default {
       const hddTotal = hddPrice / 3;
       const totalPrice = cpuTotal + ramTotal + hddTotal;
       price = Number(Math.ceil(totalPrice * 100) / 100);
+      if (instancesAdditional > 0) {
+        const additionalPrice = (price * instancesAdditional) / 3;
+        price = (Math.ceil(additionalPrice * 100) + Math.ceil(price * 100)) / 100;
+      }
       if (price < priceSpecifications.minPrice) {
         price = priceSpecifications.minPrice;
       }
@@ -77,6 +87,10 @@ export default {
     const hddTotal = specifications.hdd * priceSpecifications.hdd;
     const totalPrice = cpuTotal + ramTotal + hddTotal;
     price = Number(Math.ceil(totalPrice * 100) / 100);
+    if (instancesAdditional > 0) {
+      const additionalPrice = (price * instancesAdditional) / 3;
+      price = (Math.ceil(additionalPrice * 100) + Math.ceil(price * 100)) / 100;
+    }
     if (price < priceSpecifications.minPrice) {
       price = priceSpecifications.minPrice;
     }
