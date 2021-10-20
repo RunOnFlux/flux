@@ -2575,13 +2575,13 @@ function appPricePerMonth(dataForAppRegistration, height) {
     return new Error('Application specification not provided');
   }
   const intervals = config.fluxapps.price.filter((i) => i.height <= height);
+  const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
   let instancesAdditional = 0;
   if (dataForAppRegistration.instances) {
     // spec of version >= 3
     // specification version 3 is saying. 3 instances are standard, every 3 additional is double the price.
     instancesAdditional = dataForAppRegistration.instances - 3; // has to always be >=0 as of checks before.
   }
-  const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
   if (dataForAppRegistration.tiered) {
     const cpuTotalCount = dataForAppRegistration.cpubasic + dataForAppRegistration.cpusuper + dataForAppRegistration.cpubamf;
     const cpuPrice = cpuTotalCount * priceSpecifications.cpu * 10;
