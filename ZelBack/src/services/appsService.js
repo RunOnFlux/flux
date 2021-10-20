@@ -2575,6 +2575,12 @@ function appPricePerMonth(dataForAppRegistration, height) {
     return new Error('Application specification not provided');
   }
   const intervals = config.fluxapps.price.filter((i) => i.height <= height);
+  let instancesAdditional = 0;
+  if (dataForAppRegistration.instances) {
+    // spec of version >= 3
+    // specification version 3 is saying. 3 instances are standard, every 3 additional is double the price.
+    instancesAdditional = dataForAppRegistration.instances - 3; // has to always be >=0 as of checks before.
+  }
   const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
   if (dataForAppRegistration.tiered) {
     const cpuTotalCount = dataForAppRegistration.cpubasic + dataForAppRegistration.cpusuper + dataForAppRegistration.cpubamf;
@@ -2587,13 +2593,23 @@ function appPricePerMonth(dataForAppRegistration, height) {
     const hddPrice = hddTotalCount * priceSpecifications.hdd;
     const hddTotal = hddPrice / 3;
     const totalPrice = cpuTotal + ramTotal + hddTotal;
-    return Number(Math.ceil(totalPrice * 100) / 100);
+    let appPrice = Number(Math.ceil(totalPrice * 100) / 100);
+    if (instancesAdditional > 0) {
+      const additionalPrice = (appPrice * instancesAdditional) / 3;
+      appPrice = (Math.ceil(additionalPrice * 100) + Math.ceil(appPrice * 100)) / 100;
+    }
+    return appPrice;
   }
   const cpuTotal = dataForAppRegistration.cpu * priceSpecifications.cpu * 10;
   const ramTotal = (dataForAppRegistration.ram * priceSpecifications.ram) / 100;
   const hddTotal = dataForAppRegistration.hdd * priceSpecifications.hdd;
   const totalPrice = cpuTotal + ramTotal + hddTotal;
-  return Number(Math.ceil(totalPrice * 100) / 100);
+  let appPrice = Number(Math.ceil(totalPrice * 100) / 100);
+  if (instancesAdditional > 0) {
+    const additionalPrice = (appPrice * instancesAdditional) / 3;
+    appPrice = (Math.ceil(additionalPrice * 100) + Math.ceil(appPrice * 100)) / 100;
+  }
+  return appPrice;
 }
 
 function checkHWParameters(appSpecs) {
@@ -2988,6 +3004,9 @@ async function verifyAppSpecifications(appSpecifications, height) {
   if (appSpecifications.version > 2) {
     if (typeof appSpecifications.instances !== 'number') {
       throw new Error('Instances is not a number');
+    }
+    if (Number.isInteger(appSpecifications.instances) !== true) {
+      throw new Error('Instances is not integer');
     }
     if (appSpecifications.instances < 3) {
       throw new Error('Minimum number of instances is 3');
@@ -3464,6 +3483,9 @@ async function registerAppGlobalyApi(req, res) {
         if (typeof instances !== 'number') {
           throw new Error('Invalid instances specification');
         }
+        if (Number.isInteger(instances) !== true) {
+          throw new Error('Invalid instances specified');
+        }
         if (instances < 3) {
           throw new Error('Minimum number of instances is 3');
         }
@@ -3708,6 +3730,9 @@ async function updateAppGlobalyApi(req, res) {
         instances = serviceHelper.ensureNumber(instances);
         if (typeof instances !== 'number') {
           throw new Error('Invalid instances specification');
+        }
+        if (Number.isInteger(instances) !== true) {
+          throw new Error('Invalid instances specified');
         }
         if (instances < 3) {
           throw new Error('Minimum number of instances is 3');
