@@ -121,6 +121,12 @@
             classes="mb-0"
           />
           <list-entry
+            v-if="callResponse.data.instances"
+            title="Number of Instances"
+            :data="callResponse.data.instances.toString()"
+            classes="mb-0"
+          />
+          <list-entry
             v-if="callResponse.data.tiered"
             title="Tiered Specifications"
             :data="callResponse.data.tiered.toString()"
@@ -278,6 +284,12 @@
             classes="mb-0"
           />
           <list-entry
+            v-if="callBResponse.data.instances"
+            title="Number of Instances"
+            :data="callBResponse.data.instances.toString()"
+            classes="mb-0"
+          />
+          <list-entry
             v-if="callBResponse.data.tiered"
             title="Tiered Specifications"
             :data="callBResponse.data.tiered.toString()"
@@ -428,9 +440,7 @@
             />
           </div>
           <div>
-            <b-card-text
-              v-if="total && downloaded"
-            >
+            <b-card-text v-if="total && downloaded">
               {{ (downloaded / 1e6).toFixed(2) + " / " + (total / 1e6).toFixed(2) }} MB - {{ ((downloaded / total) * 100).toFixed(2) + "%" }}
             </b-card-text>
             <h6 class="mb-1 mt-2">
@@ -747,6 +757,12 @@
             v-if="callBResponse.data.commands"
             title="Application Commands"
             :data="callBResponse.data.commands.toString()"
+            classes="mb-0"
+          />
+          <list-entry
+            v-if="callBResponse.data.instances"
+            title="Number of Instances"
+            :data="callBResponse.data.instances.toString()"
             classes="mb-0"
           />
           <list-entry
@@ -1093,6 +1109,40 @@
           <b-form-group
             label-cols="2"
             label-cols-lg="1"
+            label="Tiered"
+            label-for="tiered"
+          >
+            <b-form-checkbox
+              id="tiered"
+              v-model="appUpdateSpecification.tiered"
+              switch
+              class="custom-control-primary"
+            />
+          </b-form-group>
+          <b-form-group
+            v-if="appUpdateSpecification.version > 2"
+            label-cols="2"
+            label-cols-lg="1"
+            label="Instances"
+            label-for="instances"
+          >
+            <div class="mx-1">
+              {{ appUpdateSpecification.instances }}
+            </div>
+            <b-form-input
+              id="instances"
+              v-model="appUpdateSpecification.instances"
+              placeholder="Minimum number of application instances to be spawned"
+              type="range"
+              min="3"
+              max="100"
+              step="1"
+            />
+          </b-form-group>
+          <b-form-group
+            v-if="!appUpdateSpecification.tiered"
+            label-cols="2"
+            label-cols-lg="1"
             label="CPU"
             label-for="cpu"
           >
@@ -1110,6 +1160,7 @@
             />
           </b-form-group>
           <b-form-group
+            v-if="!appUpdateSpecification.tiered"
             label-cols="2"
             label-cols-lg="1"
             label="RAM"
@@ -1129,6 +1180,7 @@
             />
           </b-form-group>
           <b-form-group
+            v-if="!appUpdateSpecification.tiered"
             label-cols="2"
             label-cols-lg="1"
             label="SSD"
@@ -1147,22 +1199,7 @@
               step="1"
             />
           </b-form-group>
-          <b-form-group
-            label-cols="2"
-            label-cols-lg="1"
-            label="Tiered"
-            label-for="tiered"
-          >
-            <b-form-checkbox
-              id="tiered"
-              v-model="appUpdateSpecification.tiered"
-              switch
-              class="custom-control-primary"
-            />
-          </b-form-group>
-          <b-row
-            v-if="appUpdateSpecification.tiered"
-          >
+          <b-row v-if="appUpdateSpecification.tiered">
             <b-col
               xs="12"
               md="6"
@@ -1525,7 +1562,7 @@ export default {
         env: '',
       },
       appUpdateSpecification: {
-        version: 2,
+        version: 3,
         name: '',
         description: '',
         repotag: '',
@@ -1536,6 +1573,7 @@ export default {
         commands: '', // []
         containerPorts: '', // []
         containerData: '',
+        instances: 3,
         cpu: null,
         ram: null,
         hdd: null,
@@ -1624,8 +1662,10 @@ export default {
           actualPriceToPay -= (perc * previousSpecsPrice);
         }
       }
-      if (actualPriceToPay < 1) {
-        actualPriceToPay = 1;
+      const intervals = fluxapps.apps.price.filter((i) => i.height <= daemonHeight);
+      const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
+      if (actualPriceToPay < priceSpecifications.minPrice) {
+        actualPriceToPay = priceSpecifications.minPrice;
       }
       actualPriceToPay = Number(Math.ceil(actualPriceToPay * 100) / 100);
       return actualPriceToPay;
@@ -1834,6 +1874,7 @@ export default {
         this.appUpdateSpecification.commands = this.ensureString(specs.commands);
         this.appUpdateSpecification.containerPorts = specs.containerPort || this.ensureString(specs.containerPorts); // v1 compatibility
         this.appUpdateSpecification.containerData = specs.containerData;
+        this.appUpdateSpecification.instances = specs.instances || 3;
         this.appUpdateSpecification.cpu = specs.cpu;
         this.appUpdateSpecification.ram = specs.ram;
         this.appUpdateSpecification.hdd = specs.hdd;
@@ -1847,6 +1888,9 @@ export default {
         this.appUpdateSpecification.cpubamf = specs.cpubamf;
         this.appUpdateSpecification.rambamf = specs.rambamf;
         this.appUpdateSpecification.hddbamf = specs.hddbamf;
+        if (this.currentHeight > 984000) { // fork height for spec v3
+          this.appUpdateSpecification.version = 3; // enforce specs version 3
+        }
       }
     },
 
@@ -1885,7 +1929,7 @@ export default {
         let appSpecification = this.appUpdateSpecification;
         console.log(appSpecification);
         appSpecification = this.ensureObject(appSpecification);
-        let { version } = appSpecification; // shall be 2
+        let { version } = appSpecification; // shall be 2 or 3
         let { name } = appSpecification;
         let { description } = appSpecification;
         let { repotag } = appSpecification;
@@ -1896,6 +1940,7 @@ export default {
         let { commands } = appSpecification;
         let { containerPorts } = appSpecification;
         let { containerData } = appSpecification;
+        let { instances } = appSpecification;
         let { cpu } = appSpecification;
         let { ram } = appSpecification;
         let { hdd } = appSpecification;
@@ -1967,6 +2012,24 @@ export default {
         if (typeof tiered !== 'boolean') {
           throw new Error('Invalid tiered value obtained. Only boolean as true or false allowed.');
         }
+        if (version > 2) {
+          if (!instances) {
+            throw new Error('Missing Flux App specification parameter');
+          }
+          instances = this.ensureNumber(instances);
+          if (typeof instances !== 'number') {
+            throw new Error('Invalid instances specification');
+          }
+          if (Number.isInteger(instances) !== true) {
+            throw new Error('Invalid instances specified');
+          }
+          if (instances < 3) {
+            throw new Error('Minimum number of instances is 3');
+          }
+          if (instances > 100) {
+            throw new Error('Maximum number of instances is 100');
+          }
+        }
 
         // finalised parameters that will get stored in global database
         const appSpecFormatted = {
@@ -1986,6 +2049,9 @@ export default {
           hdd, // integer 1 step
           tiered, // boolean
         };
+        if (version > 2) {
+          appSpecFormatted.instances = instances;
+        }
 
         if (tiered) {
           let { cpubasic } = appSpecification;
@@ -2021,7 +2087,7 @@ export default {
           appSpecFormatted.hddbamf = hddbamf;
         }
         // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
-        if (version !== 2) {
+        if (version !== 2 && version !== 3) {
           throw new Error('App message version specification is invalid');
         }
         if (name.length > 32) {
@@ -2308,6 +2374,9 @@ export default {
         this.showToast('danger', daemonGetInfo.data.data.message || daemonGetInfo.data.data);
       } else {
         this.currentHeight = daemonGetInfo.data.data.blocks;
+        if (this.currentHeight < 984000) { // fork height for spec v3
+          this.appUpdateSpecification.version = 2;
+        }
       }
     },
 

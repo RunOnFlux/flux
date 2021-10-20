@@ -9,6 +9,14 @@
           active-class="primary"
         >
           Discord
+        </b-link>
+        or submit a Pull Request directly to
+        <b-link
+          href="https://github.com/RunOnFlux/flux"
+          target="_blank"
+          active-class="primary"
+        >
+          Flux repository
         </b-link>.
       </b-card-sub-title>
     </b-card>
@@ -26,7 +34,7 @@
             <b-form-input
               id="version"
               v-model="appRegistrationSpecification.version"
-              placeholder="2"
+              :placeholder="appRegistrationSpecification.version"
               readonly
             />
           </b-form-group>
@@ -197,6 +205,27 @@
             </h6>
           </b-card-title>
           <b-form-group
+            v-if="appRegistrationSpecification.version > 2"
+            label-cols="2"
+            label-cols-lg="1"
+            label="Instances"
+            label-for="instances"
+          >
+            <div class="mx-1">
+              {{ appRegistrationSpecification.instances }}
+            </div>
+            <b-form-input
+              id="instances"
+              v-model="appRegistrationSpecification.instances"
+              placeholder="Minimum number of application instances to be spawned"
+              type="range"
+              min="3"
+              max="100"
+              step="1"
+            />
+          </b-form-group>
+          <b-form-group
+            v-if="!appRegistrationSpecification.tiered"
             label-cols="2"
             label-cols-lg="1"
             label="CPU"
@@ -216,6 +245,7 @@
             />
           </b-form-group>
           <b-form-group
+            v-if="!appRegistrationSpecification.tiered"
             label-cols="2"
             label-cols-lg="1"
             label="RAM"
@@ -235,6 +265,7 @@
             />
           </b-form-group>
           <b-form-group
+            v-if="!appRegistrationSpecification.tiered"
             label-cols="2"
             label-cols-lg="1"
             label="SSD"
@@ -547,7 +578,7 @@ export default {
       registrationtype: 'fluxappregister',
       currentHeight: 1,
       appRegistrationSpecification: {
-        version: 2,
+        version: 3,
         name: '',
         description: '',
         repotag: '',
@@ -558,6 +589,7 @@ export default {
         commands: '[]',
         containerPorts: '[]',
         containerData: '',
+        instances: 3,
         cpu: 0.5,
         ram: 2000,
         hdd: 40,
@@ -645,7 +677,7 @@ export default {
         let appSpecification = this.appRegistrationSpecification;
         console.log(appSpecification);
         appSpecification = this.ensureObject(appSpecification);
-        let { version } = appSpecification; // shall be 2
+        let { version } = appSpecification; // shall be 2 or 3
         let { name } = appSpecification;
         let { description } = appSpecification;
         let { repotag } = appSpecification;
@@ -656,6 +688,7 @@ export default {
         let { commands } = appSpecification;
         let { containerPorts } = appSpecification;
         let { containerData } = appSpecification;
+        let { instances } = appSpecification;
         let { cpu } = appSpecification;
         let { ram } = appSpecification;
         let { hdd } = appSpecification;
@@ -726,6 +759,24 @@ export default {
         if (typeof tiered !== 'boolean') {
           throw new Error('Invalid tiered value obtained. Only boolean as true or false allowed.');
         }
+        if (version > 2) {
+          if (!instances) {
+            throw new Error('Missing Flux App specification parameter');
+          }
+          instances = this.ensureNumber(instances);
+          if (typeof instances !== 'number') {
+            throw new Error('Invalid instances specification');
+          }
+          if (Number.isInteger(instances) !== true) {
+            throw new Error('Invalid instances specified');
+          }
+          if (instances < 3) {
+            throw new Error('Minimum number of instances is 3');
+          }
+          if (instances > 100) {
+            throw new Error('Maximum number of instances is 100');
+          }
+        }
 
         // finalised parameters that will get stored in global database
         const appSpecFormatted = {
@@ -745,6 +796,9 @@ export default {
           hdd, // integer 1 step
           tiered, // boolean
         };
+        if (version > 2) {
+          appSpecFormatted.instances = instances;
+        }
 
         if (tiered) {
           let { cpubasic } = appSpecification;
@@ -780,7 +834,7 @@ export default {
           appSpecFormatted.hddbamf = hddbamf;
         }
         // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper port, repotag exists, string lengths, specs are ok
-        if (version !== 2) {
+        if (version !== 2 && version !== 3) {
           throw new Error('App message version specification is invalid');
         }
         if (name.length > 32) {
@@ -869,6 +923,9 @@ export default {
         this.showToast('danger', daemonGetInfo.data.data.message || daemonGetInfo.data.data);
       } else {
         this.currentHeight = daemonGetInfo.data.data.blocks;
+      }
+      if (this.currentHeight < 984000) { // fork height for spec v3
+        this.appRegistrationSpecification.version = 2;
       }
     },
 
