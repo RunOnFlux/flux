@@ -253,7 +253,7 @@ function decodeMessage(asm) {
 
 async function processBlock(blockHeight) {
   try {
-    const syncStatus = await daemonService.isDaemonSynced();
+    const syncStatus = daemonService.isDaemonSynced();
     if (!syncStatus.data.synced) {
       setTimeout(() => {
         processBlock(blockHeight);
@@ -476,7 +476,7 @@ async function restoreDatabaseToBlockheightState(height, rescanGlobalApps = fals
 // use reindexGlobalApps with caution!!!
 async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRescanGlobalApps) {
   try {
-    const syncStatus = await daemonService.isDaemonSynced();
+    const syncStatus = daemonService.isDaemonSynced();
     if (!syncStatus.data.synced) {
       setTimeout(() => {
         initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRescanGlobalApps);

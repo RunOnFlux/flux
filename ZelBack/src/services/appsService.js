@@ -1083,13 +1083,8 @@ async function fluxUsage(req, res) {
     if (result) {
       explorerHeight = serviceHelper.ensureNumber(result.generalScannedHeight) || 999999999;
     }
-    const daemonGetInfo = await daemonService.getInfo();
-    let daemonHeight = 1;
-    if (daemonGetInfo.status === 'success') {
-      daemonHeight = daemonGetInfo.data.blocks;
-    } else {
-      log.error(daemonGetInfo.data.message || daemonGetInfo.data);
-    }
+    const syncStatus = daemonService.isDaemonSynced();
+    const daemonHeight = syncStatus.data.height;
     let cpuCores = 0;
     const cpus = os.cpus();
     if (cpus) {
@@ -2920,12 +2915,15 @@ async function checkWhitelistedZelID(zelid) {
   return true;
 }
 
-async function verifyAppSpecifications(appSpecifications) {
+async function verifyAppSpecifications(appSpecifications, height) {
   if (typeof appSpecifications !== 'object') {
     throw new Error('Invalid Flux App Specifications');
   }
-  if (appSpecifications.version !== 1 && appSpecifications.version !== 2) {
+  if (appSpecifications.version !== 1 && appSpecifications.version !== 2 && appSpecifications.version !== 3) {
     throw new Error('Flux App message version specification is invalid');
+  }
+  if (height < config.fluxapps[appSpecifications.version]) {
+    throw new Error(`Flux apps specifications of version ${appSpecifications.version} not yet supported`);
   }
   if (appSpecifications.name.length > 32) {
     throw new Error('Flux App name is too long');
@@ -2959,7 +2957,7 @@ async function verifyAppSpecifications(appSpecifications) {
     if (appSpecifications.containerPort < 0 || appSpecifications.containerPort > 65535) {
       throw new Error(`Container Port ${appSpecifications.containerPort} is not within system limits 0-65535`);
     }
-  } else if (appSpecifications.version === 2) {
+  } else {
     // check port is within range
     appSpecifications.ports.forEach((port) => {
       if (port < config.fluxapps.portMin || port > config.fluxapps.portMax) {
@@ -2984,6 +2982,18 @@ async function verifyAppSpecifications(appSpecifications) {
 
     if (appSpecifications.ports.length > 5) {
       throw new Error('Too many ports defined. Maximum of 5 allowed.');
+    }
+  }
+
+  if (appSpecifications.version > 2) {
+    if (typeof appSpecifications.instances !== 'number') {
+      throw new Error('Instances is not a number');
+    }
+    if (appSpecifications.instances < 3) {
+      throw new Error('Minimum number of instances is 3');
+    }
+    if (appSpecifications.instances > 100) {
+      throw new Error('Maximum number of instances is 100');
     }
   }
 
@@ -3021,7 +3031,7 @@ async function ensureCorrectApplicationPort(appSpecFormatted) {
         throw new Error(`Flux App ${appSpecFormatted.name} port ${appSpecFormatted.port} already registered with different application. Your Flux App has to use different port.`);
       }
     });
-  } else if (appSpecFormatted.version === 2) {
+  } else {
     // eslint-disable-next-line no-restricted-syntax
     for (const port of appSpecFormatted.ports) {
       const portQuery = { ports: port };
@@ -3178,15 +3188,18 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
   // data shall already be verified by the broadcasting node. But verify all again.
   if (furtherVerification) {
     if (message.type === 'zelappregister' || message.type === 'fluxappregister') {
-      // missing check for port?
-      await verifyAppSpecifications(specifications);
+      const syncStatus = daemonService.isDaemonSynced();
+      const daemonHeight = syncStatus.data.height;
+      await verifyAppSpecifications(specifications, daemonHeight);
       await verifyAppHash(message);
       await ensureCorrectApplicationPort(specifications);
       await checkApplicationNameConflicts(specifications);
       await verifyAppMessageSignature(message.type, message.version, specifications, message.timestamp, message.signature);
     } else if (message.type === 'zelappupdate' || message.type === 'fluxappupdate') {
+      const syncStatus = daemonService.isDaemonSynced();
+      const daemonHeight = syncStatus.data.height;
       // stadard verifications
-      await verifyAppSpecifications(specifications);
+      await verifyAppSpecifications(specifications, daemonHeight);
       await verifyAppHash(message);
       await ensureCorrectApplicationPort(specifications);
       // verify that app exists, does not change repotag and is signed by app owner.
@@ -3371,6 +3384,7 @@ async function registerAppGlobalyApi(req, res) {
       let { commands } = appSpecification;
       let { containerPorts } = appSpecification;
       let { containerData } = appSpecification;
+      let { instances } = appSpecification;
       let { cpu } = appSpecification;
       let { ram } = appSpecification;
       let { hdd } = appSpecification;
@@ -3442,17 +3456,20 @@ async function registerAppGlobalyApi(req, res) {
       if (typeof tiered !== 'boolean') {
         throw new Error('Invalid tiered value obtained. Only boolean as true or false allowed.');
       }
-
-      const daemonGetInfo = await daemonService.getInfo();
-      let daemonHeight = 0;
-      if (daemonGetInfo.status === 'success') {
-        daemonHeight = daemonGetInfo.data.blocks;
-      } else {
-        throw new Error(daemonGetInfo.data.message || daemonGetInfo.data);
-      }
-
-      if (owner !== config.fluxTeamZelId && daemonHeight < config.fluxapps.publicepochstart) {
-        throw new Error('Global Registration open on the 10th of October 2020');
+      if (version > 2) {
+        if (!instances) {
+          throw new Error('Missing Flux App specification parameter');
+        }
+        instances = serviceHelper.ensureNumber(instances);
+        if (typeof instances !== 'number') {
+          throw new Error('Invalid instances specification');
+        }
+        if (instances < 3) {
+          throw new Error('Minimum number of instances is 3');
+        }
+        if (instances > 100) {
+          throw new Error('Maximum number of instances is 100');
+        }
       }
 
       // finalised parameters that will get stored in global database
@@ -3473,6 +3490,9 @@ async function registerAppGlobalyApi(req, res) {
         hdd, // integer 1 step
         tiered, // boolean
       };
+      if (version > 2) {
+        appSpecFormatted.instances = instances;
+      }
 
       if (tiered) {
         let { cpubasic } = appSpecification;
@@ -3507,8 +3527,15 @@ async function registerAppGlobalyApi(req, res) {
         appSpecFormatted.hddsuper = hddsuper;
         appSpecFormatted.hddbamf = hddbamf;
       }
+
+      const syncStatus = daemonService.isDaemonSynced();
+      if (!syncStatus.data.synced) {
+        throw new Error('Daemon not yet synced.');
+      }
+      const daemonHeight = syncStatus.data.height;
+
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
-      await verifyAppSpecifications(appSpecFormatted);
+      await verifyAppSpecifications(appSpecFormatted, daemonHeight);
 
       // check if name is not yet registered
       await checkApplicationNameConflicts(appSpecFormatted);
@@ -3602,6 +3629,7 @@ async function updateAppGlobalyApi(req, res) {
       let { commands } = appSpecification;
       let { containerPorts } = appSpecification;
       let { containerData } = appSpecification;
+      let { instances } = appSpecification;
       let { cpu } = appSpecification;
       let { ram } = appSpecification;
       let { hdd } = appSpecification;
@@ -3673,6 +3701,21 @@ async function updateAppGlobalyApi(req, res) {
       if (typeof tiered !== 'boolean') {
         throw new Error('Invalid tiered value obtained. Only boolean as true or false allowed.');
       }
+      if (version > 2) {
+        if (!instances) {
+          throw new Error('Missing Flux App specification parameter');
+        }
+        instances = serviceHelper.ensureNumber(instances);
+        if (typeof instances !== 'number') {
+          throw new Error('Invalid instances specification');
+        }
+        if (instances < 3) {
+          throw new Error('Minimum number of instances is 3');
+        }
+        if (instances > 100) {
+          throw new Error('Maximum number of instances is 100');
+        }
+      }
 
       // finalised parameters that will get stored in global database
       const appSpecFormatted = {
@@ -3692,6 +3735,9 @@ async function updateAppGlobalyApi(req, res) {
         hdd, // integer 1 step
         tiered, // boolean
       };
+      if (version > 2) {
+        appSpecFormatted.instances = instances;
+      }
 
       if (tiered) {
         let { cpubasic } = appSpecification;
@@ -3726,8 +3772,15 @@ async function updateAppGlobalyApi(req, res) {
         appSpecFormatted.hddsuper = hddsuper;
         appSpecFormatted.hddbamf = hddbamf;
       }
+
+      const syncStatus = daemonService.isDaemonSynced();
+      if (!syncStatus.data.synced) {
+        throw new Error('Daemon not yet synced.');
+      }
+      const daemonHeight = syncStatus.data.height;
+
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
-      await verifyAppSpecifications(appSpecFormatted);
+      await verifyAppSpecifications(appSpecFormatted, daemonHeight);
       // check if ports are not conflicting
       await ensureCorrectApplicationPort(appSpecFormatted);
 
@@ -3929,7 +3982,7 @@ async function storeAppPermanentMessage(message) {
 async function updateAppSpecifications(appSpecs) {
   try {
     // appSpecs: {
-    //   version: 2,
+    //   version: 3,
     //   name: 'FoldingAtHomeB',
     //   description: 'Folding @ Home is cool :)',
     //   repotag: 'yurinnick/folding-at-home:latest',
@@ -3953,6 +4006,7 @@ async function updateAppSpecifications(appSpecs) {
     //   cpubamf: 2,
     //   rambamf: 2000,
     //   hddbamf: 5,
+    //   instances: 10, // version 3 fork
     //   hash: hash of message that has these paramenters,
     //   height: height containing the message
     // };
@@ -3987,7 +4041,7 @@ async function updateAppSpecifications(appSpecs) {
 
 async function updateAppSpecsForRescanReindex(appSpecs) {
   // appSpecs: {
-  //   version: 2,
+  //   version: 3,
   //   name: 'FoldingAtHomeB',
   //   description: 'Folding @ Home is cool :)',
   //   repotag: 'yurinnick/folding-at-home:latest',
@@ -4011,6 +4065,7 @@ async function updateAppSpecsForRescanReindex(appSpecs) {
   //   cpubamf: 2,
   //   rambamf: 2000,
   //   hddbamf: 5,
+  //   instances: 10, // version 3 fork
   //   hash: hash of message that has these paramenters,
   //   height: height containing the message
   // };
@@ -4549,13 +4604,11 @@ async function getAppsLocation(req, res) {
 async function checkSynced() {
   try {
     // check if flux database is synced with daemon database (equal or -1 inheight)
-    const daemonGetInfo = await daemonService.getInfo();
-    let daemonHeight;
-    if (daemonGetInfo.status === 'success') {
-      daemonHeight = daemonGetInfo.data.blocks;
-    } else {
-      throw new Error(daemonGetInfo.data.message || daemonGetInfo.data);
+    const syncStatus = daemonService.isDaemonSynced();
+    if (!syncStatus.data.synced) {
+      throw new Error('Daemon not yet synced.');
     }
+    const daemonHeight = syncStatus.data.height;
     const dbopen = serviceHelper.databaseConnection();
     const database = dbopen.db(config.database.daemon.database);
     const query = { generalScannedHeight: { $gte: 0 } };
@@ -5360,13 +5413,11 @@ async function getAppPrice(req, res) {
           _id: 0,
         },
       };
-      const daemonGetInfo = await daemonService.getInfo();
-      let daemonHeight;
-      if (daemonGetInfo.status === 'success') {
-        daemonHeight = daemonGetInfo.data.blocks;
-      } else {
-        throw new Error(daemonGetInfo.data.message || daemonGetInfo.data);
+      const syncStatus = daemonService.isDaemonSynced();
+      if (!syncStatus.data.synced) {
+        throw new Error('Daemon not yet synced.');
       }
+      const daemonHeight = syncStatus.data.height;
       const appInfo = await serviceHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
       let actualPriceToPay = appPricePerMonth(appSpecFormatted, daemonHeight);
       if (appInfo) {

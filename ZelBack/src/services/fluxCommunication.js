@@ -815,7 +815,7 @@ async function initiateAndHandleConnection(ip) {
 
 async function fluxDiscovery() {
   try {
-    const syncStatus = await daemonService.isDaemonSynced();
+    const syncStatus = daemonService.isDaemonSynced();
     if (!syncStatus.data.synced) {
       throw new Error('Daemon not yet synced. Flux discovery is awaiting.');
     }
@@ -1210,7 +1210,7 @@ async function checkDeterministicNodesCollisions() {
     // another precatuion might be comparing node list on multiple nodes. evaulate in the future
     const myIP = await getMyFluxIP();
     if (myIP) {
-      const syncStatus = await daemonService.isDaemonSynced();
+      const syncStatus = daemonService.isDaemonSynced();
       if (!syncStatus.data.synced) {
         setTimeout(() => {
           checkDeterministicNodesCollisions();
