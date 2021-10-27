@@ -1610,7 +1610,7 @@ export default {
       total: '',
       downloaded: '',
       abortToken: {},
-      foundationAddress: 't1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6',
+      foundationAddress: 't1J1DwsDMWFKxbF4VNHWc1qgbXc5hZeRLRn',
     };
   },
   computed: {
@@ -1888,7 +1888,7 @@ export default {
         this.appUpdateSpecification.cpubamf = specs.cpubamf;
         this.appUpdateSpecification.rambamf = specs.rambamf;
         this.appUpdateSpecification.hddbamf = specs.hddbamf;
-        if (this.currentHeight > 984000) { // fork height for spec v3
+        if (this.currentHeight > 954000) { // fork height for spec v3
           this.appUpdateSpecification.version = 3; // enforce specs version 3
         }
       }
@@ -2374,7 +2374,7 @@ export default {
         this.showToast('danger', daemonGetInfo.data.data.message || daemonGetInfo.data.data);
       } else {
         this.currentHeight = daemonGetInfo.data.data.blocks;
-        if (this.currentHeight < 984000) { // fork height for spec v3
+        if (this.currentHeight < 954000) { // fork height for spec v3
           this.appUpdateSpecification.version = 2;
         }
       }
