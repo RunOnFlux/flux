@@ -9,6 +9,14 @@
           active-class="primary"
         >
           Discord
+        </b-link>
+        or submit a Pull Request directly to
+        <b-link
+          href="https://github.com/RunOnFlux/flux"
+          target="_blank"
+          active-class="primary"
+        >
+          Flux repository
         </b-link>.
       </b-card-sub-title>
     </b-card>
@@ -26,7 +34,7 @@
             <b-form-input
               id="version"
               v-model="appRegistrationSpecification.version"
-              placeholder="2"
+              :placeholder="appRegistrationSpecification.version"
               readonly
             />
           </b-form-group>
@@ -197,6 +205,27 @@
             </h6>
           </b-card-title>
           <b-form-group
+            v-if="appRegistrationSpecification.version > 2"
+            label-cols="2"
+            label-cols-lg="1"
+            label="Instances"
+            label-for="instances"
+          >
+            <div class="mx-1">
+              {{ appRegistrationSpecification.instances }}
+            </div>
+            <b-form-input
+              id="instances"
+              v-model="appRegistrationSpecification.instances"
+              placeholder="Minimum number of application instances to be spawned"
+              type="range"
+              min="3"
+              max="100"
+              step="1"
+            />
+          </b-form-group>
+          <b-form-group
+            v-if="!appRegistrationSpecification.tiered"
             label-cols="2"
             label-cols-lg="1"
             label="CPU"
@@ -210,12 +239,13 @@
               v-model="appRegistrationSpecification.cpu"
               placeholder="CPU cores to use by default"
               type="range"
-              min="0"
+              min="0.1"
               max="7"
               step="0.1"
             />
           </b-form-group>
           <b-form-group
+            v-if="!appRegistrationSpecification.tiered"
             label-cols="2"
             label-cols-lg="1"
             label="RAM"
@@ -229,12 +259,13 @@
               v-model="appRegistrationSpecification.ram"
               placeholder="RAM in MB value to use by default"
               type="range"
-              min="0"
+              min="100"
               max="28000"
               step="100"
             />
           </b-form-group>
           <b-form-group
+            v-if="!appRegistrationSpecification.tiered"
             label-cols="2"
             label-cols-lg="1"
             label="SSD"
@@ -248,7 +279,7 @@
               v-model="appRegistrationSpecification.hdd"
               placeholder="SSD in GB value to use by default"
               type="range"
-              min="0"
+              min="1"
               max="570"
               step="1"
             />
@@ -269,7 +300,7 @@
           <b-form-input
             v-model="appRegistrationSpecification.cpubasic"
             type="range"
-            min="0"
+            min="0.1"
             max="1"
             step="0.1"
           />
@@ -279,7 +310,7 @@
           <b-form-input
             v-model="appRegistrationSpecification.rambasic"
             type="range"
-            min="0"
+            min="100"
             max="1000"
             step="100"
           />
@@ -289,7 +320,7 @@
           <b-form-input
             v-model="appRegistrationSpecification.hddbasic"
             type="range"
-            min="0"
+            min="1"
             max="20"
             step="1"
           />
@@ -307,7 +338,7 @@
           <b-form-input
             v-model="appRegistrationSpecification.cpusuper"
             type="range"
-            min="0"
+            min="0.1"
             max="3"
             step="0.1"
           />
@@ -317,7 +348,7 @@
           <b-form-input
             v-model="appRegistrationSpecification.ramsuper"
             type="range"
-            min="0"
+            min="100"
             max="5000"
             step="100"
           />
@@ -327,7 +358,7 @@
           <b-form-input
             v-model="appRegistrationSpecification.hddsuper"
             type="range"
-            min="0"
+            min="1"
             max="120"
             step="1"
           />
@@ -344,7 +375,7 @@
           <b-form-input
             v-model="appRegistrationSpecification.cpubamf"
             type="range"
-            min="0"
+            min="0.1"
             max="7"
             step="0.1"
           />
@@ -354,7 +385,7 @@
           <b-form-input
             v-model="appRegistrationSpecification.rambamf"
             type="range"
-            min="0"
+            min="1000"
             max="28000"
             step="100"
           />
@@ -364,7 +395,7 @@
           <b-form-input
             v-model="appRegistrationSpecification.hddbamf"
             type="range"
-            min="0"
+            min="1"
             max="570"
             step="1"
           />
@@ -509,6 +540,7 @@ import Ripple from 'vue-ripple-directive';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 import fluxapps from '@/libs/fluxApps';
 import AppsService from '@/services/AppsService';
+import DaemonService from '@/services/DaemonService';
 
 const qs = require('qs');
 const store = require('store');
@@ -544,8 +576,9 @@ export default {
       signature: '',
       registrationHash: '',
       registrationtype: 'fluxappregister',
+      currentHeight: 1,
       appRegistrationSpecification: {
-        version: 2,
+        version: 3,
         name: '',
         description: '',
         repotag: '',
@@ -556,6 +589,7 @@ export default {
         commands: '[]',
         containerPorts: '[]',
         containerData: '',
+        instances: 3,
         cpu: 0.5,
         ram: 2000,
         hdd: 40,
@@ -579,7 +613,7 @@ export default {
       'privilege',
     ]),
     appPricePerMonth() {
-      const price = fluxapps.appPricePerMonthMethod(this.dataForAppRegistration);
+      const price = fluxapps.appPricePerMonthMethod(this.dataForAppRegistration, this.currentHeight);
       return price;
     },
     validTill() {
@@ -630,6 +664,7 @@ export default {
     },
   },
   mounted() {
+    this.getDaemonInfo();
     this.getRandomPort();
     this.registrationInformation();
     const zelidauth = localStorage.getItem('zelidauth');
@@ -642,7 +677,7 @@ export default {
         let appSpecification = this.appRegistrationSpecification;
         console.log(appSpecification);
         appSpecification = this.ensureObject(appSpecification);
-        let { version } = appSpecification; // shall be 2
+        let { version } = appSpecification; // shall be 2 or 3
         let { name } = appSpecification;
         let { description } = appSpecification;
         let { repotag } = appSpecification;
@@ -653,6 +688,7 @@ export default {
         let { commands } = appSpecification;
         let { containerPorts } = appSpecification;
         let { containerData } = appSpecification;
+        let { instances } = appSpecification;
         let { cpu } = appSpecification;
         let { ram } = appSpecification;
         let { hdd } = appSpecification;
@@ -723,6 +759,24 @@ export default {
         if (typeof tiered !== 'boolean') {
           throw new Error('Invalid tiered value obtained. Only boolean as true or false allowed.');
         }
+        if (version > 2) {
+          if (!instances) {
+            throw new Error('Missing Flux App specification parameter');
+          }
+          instances = this.ensureNumber(instances);
+          if (typeof instances !== 'number') {
+            throw new Error('Invalid instances specification');
+          }
+          if (Number.isInteger(instances) !== true) {
+            throw new Error('Invalid instances specified');
+          }
+          if (instances < 3) {
+            throw new Error('Minimum number of instances is 3');
+          }
+          if (instances > 100) {
+            throw new Error('Maximum number of instances is 100');
+          }
+        }
 
         // finalised parameters that will get stored in global database
         const appSpecFormatted = {
@@ -742,6 +796,9 @@ export default {
           hdd, // integer 1 step
           tiered, // boolean
         };
+        if (version > 2) {
+          appSpecFormatted.instances = instances;
+        }
 
         if (tiered) {
           let { cpubasic } = appSpecification;
@@ -777,7 +834,7 @@ export default {
           appSpecFormatted.hddbamf = hddbamf;
         }
         // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper port, repotag exists, string lengths, specs are ok
-        if (version !== 2) {
+        if (version !== 2 && version !== 3) {
           throw new Error('App message version specification is invalid');
         }
         if (name.length > 32) {
@@ -860,6 +917,18 @@ export default {
       }
     },
 
+    async getDaemonInfo() {
+      const daemonGetInfo = await DaemonService.getInfo();
+      if (daemonGetInfo.data.status === 'error') {
+        this.showToast('danger', daemonGetInfo.data.data.message || daemonGetInfo.data.data);
+      } else {
+        this.currentHeight = daemonGetInfo.data.data.blocks;
+      }
+      if (this.currentHeight < 983000) { // fork height for spec v3
+        this.appRegistrationSpecification.version = 2;
+      }
+    },
+
     initiateSignWS() {
       const self = this;
       const { protocol, hostname } = window.location;
@@ -936,9 +1005,7 @@ export default {
       const response = await AppsService.appsRegInformation();
       const { data } = response.data;
       if (response.data.status === 'success') {
-        fluxapps.apps.price.cpu = data.price.cpu;
-        fluxapps.apps.price.hdd = data.price.hdd;
-        fluxapps.apps.price.ram = data.price.ram;
+        fluxapps.apps.price = data.price;
         fluxapps.apps.address = data.address;
         fluxapps.apps.epochstart = data.epochstart;
         fluxapps.apps.portMin = data.portMin;

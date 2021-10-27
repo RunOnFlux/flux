@@ -253,7 +253,7 @@ function decodeMessage(asm) {
 
 async function processBlock(blockHeight) {
   try {
-    const syncStatus = await daemonService.isDaemonSynced();
+    const syncStatus = daemonService.isDaemonSynced();
     if (!syncStatus.data.synced) {
       setTimeout(() => {
         processBlock(blockHeight);
@@ -308,8 +308,10 @@ async function processBlock(blockHeight) {
           };
           await serviceHelper.updateOneInDatabase(database, addressTransactionIndexCollection, query, update, options);
         }));
+        const intervals = config.fluxapps.price.filter((i) => i.height <= blockDataVerbose.height);
+        const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
         // MAY contain App transaction. Store it.
-        if (isFluxAppMessageValue >= 1e8 && message.length === 64 && blockDataVerbose.height >= config.fluxapps.epochstart) { // min of 1 flux had to be paid for us bothering checking
+        if (isFluxAppMessageValue >= (priceSpecifications.minPrice * 1e8) && message.length === 64 && blockDataVerbose.height >= config.fluxapps.epochstart) { // min of 1 flux had to be paid for us bothering checking
           const appTxRecord = {
             txid: tx.txid, height: blockDataVerbose.height, hash: message, value: isFluxAppMessageValue, message: false, // message is boolean saying if we already have it stored as permanent message
           };
@@ -474,7 +476,7 @@ async function restoreDatabaseToBlockheightState(height, rescanGlobalApps = fals
 // use reindexGlobalApps with caution!!!
 async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRescanGlobalApps) {
   try {
-    const syncStatus = await daemonService.isDaemonSynced();
+    const syncStatus = daemonService.isDaemonSynced();
     if (!syncStatus.data.synced) {
       setTimeout(() => {
         initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRescanGlobalApps);

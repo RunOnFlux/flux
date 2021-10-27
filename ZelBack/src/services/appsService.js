@@ -422,20 +422,34 @@ async function appDockerCreate(appSpecifications) {
           HostPort: appSpecifications.port.toString(),
         },
       ],
+      [`${appSpecifications.containerPort.toString()}/udp`]: [
+        {
+          HostPort: appSpecifications.port.toString(),
+        },
+      ],
     };
     exposedPorts = {
       [`${appSpecifications.port.toString()}/tcp`]: {},
       [`${appSpecifications.containerPort.toString()}/tcp`]: {},
+      [`${appSpecifications.port.toString()}/udp`]: {},
+      [`${appSpecifications.containerPort.toString()}/udp`]: {},
     };
-  } else if (appSpecifications.version === 2) {
+  } else {
     appSpecifications.ports.forEach((port) => {
       exposedPorts[[`${port.toString()}/tcp`]] = {};
+      exposedPorts[[`${port.toString()}/udp`]] = {};
     });
     appSpecifications.containerPorts.forEach((port) => {
       exposedPorts[[`${port.toString()}/tcp`]] = {};
+      exposedPorts[[`${port.toString()}/udp`]] = {};
     });
     for (let i = 0; i < appSpecifications.containerPorts.length; i += 1) {
       portBindings[[`${appSpecifications.containerPorts[i].toString()}/tcp`]] = [
+        {
+          HostPort: appSpecifications.ports[i].toString(),
+        },
+      ];
+      portBindings[[`${appSpecifications.containerPorts[i].toString()}/udp`]] = [
         {
           HostPort: appSpecifications.ports[i].toString(),
         },
@@ -1069,13 +1083,8 @@ async function fluxUsage(req, res) {
     if (result) {
       explorerHeight = serviceHelper.ensureNumber(result.generalScannedHeight) || 999999999;
     }
-    const daemonGetInfo = await daemonService.getInfo();
-    let daemonHeight = 1;
-    if (daemonGetInfo.status === 'success') {
-      daemonHeight = daemonGetInfo.data.blocks;
-    } else {
-      log.error(daemonGetInfo.data.message || daemonGetInfo.data);
-    }
+    const syncStatus = daemonService.isDaemonSynced();
+    const daemonHeight = syncStatus.data.height;
     let cpuCores = 0;
     const cpus = os.cpus();
     if (cpus) {
@@ -2561,28 +2570,52 @@ async function softRegisterAppLocally(appSpecifications, res) {
   }
 }
 
-function appPricePerMonth(dataForAppRegistration) {
+function appPricePerMonth(dataForAppRegistration, height) {
   if (!dataForAppRegistration) {
     return new Error('Application specification not provided');
   }
+  const intervals = config.fluxapps.price.filter((i) => i.height <= height);
+  const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
+  let instancesAdditional = 0;
+  if (dataForAppRegistration.instances) {
+    // spec of version >= 3
+    // specification version 3 is saying. 3 instances are standard, every 3 additional is double the price.
+    instancesAdditional = dataForAppRegistration.instances - 3; // has to always be >=0 as of checks before.
+  }
   if (dataForAppRegistration.tiered) {
     const cpuTotalCount = dataForAppRegistration.cpubasic + dataForAppRegistration.cpusuper + dataForAppRegistration.cpubamf;
-    const cpuPrice = cpuTotalCount * config.fluxapps.price.cpu * 10;
+    const cpuPrice = cpuTotalCount * priceSpecifications.cpu * 10;
     const cpuTotal = cpuPrice / 3;
     const ramTotalCount = dataForAppRegistration.rambasic + dataForAppRegistration.ramsuper + dataForAppRegistration.rambamf;
-    const ramPrice = (ramTotalCount * config.fluxapps.price.ram) / 100;
+    const ramPrice = (ramTotalCount * priceSpecifications.ram) / 100;
     const ramTotal = ramPrice / 3;
     const hddTotalCount = dataForAppRegistration.hddbasic + dataForAppRegistration.hddsuper + dataForAppRegistration.hddbamf;
-    const hddPrice = hddTotalCount * config.fluxapps.price.hdd;
+    const hddPrice = hddTotalCount * priceSpecifications.hdd;
     const hddTotal = hddPrice / 3;
     const totalPrice = cpuTotal + ramTotal + hddTotal;
-    return Number(Math.ceil(totalPrice * 100) / 100);
+    let appPrice = Number(Math.ceil(totalPrice * 100) / 100);
+    if (instancesAdditional > 0) {
+      const additionalPrice = (appPrice * instancesAdditional) / 3;
+      appPrice = (Math.ceil(additionalPrice * 100) + Math.ceil(appPrice * 100)) / 100;
+    }
+    if (appPrice < priceSpecifications.minPrice) {
+      appPrice = priceSpecifications.minPrice;
+    }
+    return appPrice;
   }
-  const cpuTotal = dataForAppRegistration.cpu * config.fluxapps.price.cpu * 10;
-  const ramTotal = (dataForAppRegistration.ram * config.fluxapps.price.ram) / 100;
-  const hddTotal = dataForAppRegistration.hdd * config.fluxapps.price.hdd;
+  const cpuTotal = dataForAppRegistration.cpu * priceSpecifications.cpu * 10;
+  const ramTotal = (dataForAppRegistration.ram * priceSpecifications.ram) / 100;
+  const hddTotal = dataForAppRegistration.hdd * priceSpecifications.hdd;
   const totalPrice = cpuTotal + ramTotal + hddTotal;
-  return Number(Math.ceil(totalPrice * 100) / 100);
+  let appPrice = Number(Math.ceil(totalPrice * 100) / 100);
+  if (instancesAdditional > 0) {
+    const additionalPrice = (appPrice * instancesAdditional) / 3;
+    appPrice = (Math.ceil(additionalPrice * 100) + Math.ceil(appPrice * 100)) / 100;
+  }
+  if (appPrice < priceSpecifications.minPrice) {
+    appPrice = priceSpecifications.minPrice;
+  }
+  return appPrice;
 }
 
 function checkHWParameters(appSpecs) {
@@ -2904,12 +2937,15 @@ async function checkWhitelistedZelID(zelid) {
   return true;
 }
 
-async function verifyAppSpecifications(appSpecifications) {
+async function verifyAppSpecifications(appSpecifications, height) {
   if (typeof appSpecifications !== 'object') {
     throw new Error('Invalid Flux App Specifications');
   }
-  if (appSpecifications.version !== 1 && appSpecifications.version !== 2) {
+  if (appSpecifications.version !== 1 && appSpecifications.version !== 2 && appSpecifications.version !== 3) {
     throw new Error('Flux App message version specification is invalid');
+  }
+  if (height < config.fluxapps.appSpecsEnforcementHeights[appSpecifications.version]) {
+    throw new Error(`Flux apps specifications of version ${appSpecifications.version} not yet supported`);
   }
   if (appSpecifications.name.length > 32) {
     throw new Error('Flux App name is too long');
@@ -2943,7 +2979,7 @@ async function verifyAppSpecifications(appSpecifications) {
     if (appSpecifications.containerPort < 0 || appSpecifications.containerPort > 65535) {
       throw new Error(`Container Port ${appSpecifications.containerPort} is not within system limits 0-65535`);
     }
-  } else if (appSpecifications.version === 2) {
+  } else {
     // check port is within range
     appSpecifications.ports.forEach((port) => {
       if (port < config.fluxapps.portMin || port > config.fluxapps.portMax) {
@@ -2968,6 +3004,21 @@ async function verifyAppSpecifications(appSpecifications) {
 
     if (appSpecifications.ports.length > 5) {
       throw new Error('Too many ports defined. Maximum of 5 allowed.');
+    }
+  }
+
+  if (appSpecifications.version > 2) {
+    if (typeof appSpecifications.instances !== 'number') {
+      throw new Error('Instances is not a number');
+    }
+    if (Number.isInteger(appSpecifications.instances) !== true) {
+      throw new Error('Instances is not integer');
+    }
+    if (appSpecifications.instances < 3) {
+      throw new Error('Minimum number of instances is 3');
+    }
+    if (appSpecifications.instances > 100) {
+      throw new Error('Maximum number of instances is 100');
     }
   }
 
@@ -3005,7 +3056,7 @@ async function ensureCorrectApplicationPort(appSpecFormatted) {
         throw new Error(`Flux App ${appSpecFormatted.name} port ${appSpecFormatted.port} already registered with different application. Your Flux App has to use different port.`);
       }
     });
-  } else if (appSpecFormatted.version === 2) {
+  } else {
     // eslint-disable-next-line no-restricted-syntax
     for (const port of appSpecFormatted.ports) {
       const portQuery = { ports: port };
@@ -3162,15 +3213,18 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
   // data shall already be verified by the broadcasting node. But verify all again.
   if (furtherVerification) {
     if (message.type === 'zelappregister' || message.type === 'fluxappregister') {
-      // missing check for port?
-      await verifyAppSpecifications(specifications);
+      const syncStatus = daemonService.isDaemonSynced();
+      const daemonHeight = syncStatus.data.height;
+      await verifyAppSpecifications(specifications, daemonHeight);
       await verifyAppHash(message);
       await ensureCorrectApplicationPort(specifications);
       await checkApplicationNameConflicts(specifications);
       await verifyAppMessageSignature(message.type, message.version, specifications, message.timestamp, message.signature);
     } else if (message.type === 'zelappupdate' || message.type === 'fluxappupdate') {
+      const syncStatus = daemonService.isDaemonSynced();
+      const daemonHeight = syncStatus.data.height;
       // stadard verifications
-      await verifyAppSpecifications(specifications);
+      await verifyAppSpecifications(specifications, daemonHeight);
       await verifyAppHash(message);
       await ensureCorrectApplicationPort(specifications);
       // verify that app exists, does not change repotag and is signed by app owner.
@@ -3344,7 +3398,7 @@ async function registerAppGlobalyApi(req, res) {
       messageType = serviceHelper.ensureString(messageType);
       typeVersion = serviceHelper.ensureNumber(typeVersion);
 
-      let { version } = appSpecification; // Active specs version is 2
+      let { version } = appSpecification;
       let { name } = appSpecification;
       let { description } = appSpecification;
       let { repotag } = appSpecification;
@@ -3355,6 +3409,7 @@ async function registerAppGlobalyApi(req, res) {
       let { commands } = appSpecification;
       let { containerPorts } = appSpecification;
       let { containerData } = appSpecification;
+      let { instances } = appSpecification;
       let { cpu } = appSpecification;
       let { ram } = appSpecification;
       let { hdd } = appSpecification;
@@ -3426,17 +3481,23 @@ async function registerAppGlobalyApi(req, res) {
       if (typeof tiered !== 'boolean') {
         throw new Error('Invalid tiered value obtained. Only boolean as true or false allowed.');
       }
-
-      const daemonGetInfo = await daemonService.getInfo();
-      let daemonHeight = 0;
-      if (daemonGetInfo.status === 'success') {
-        daemonHeight = daemonGetInfo.data.blocks;
-      } else {
-        throw new Error(daemonGetInfo.data.message || daemonGetInfo.data);
-      }
-
-      if (owner !== config.fluxTeamZelId && daemonHeight < config.fluxapps.publicepochstart) {
-        throw new Error('Global Registration open on the 10th of October 2020');
+      if (version > 2) {
+        if (!instances) {
+          throw new Error('Missing Flux App specification parameter');
+        }
+        instances = serviceHelper.ensureNumber(instances);
+        if (typeof instances !== 'number') {
+          throw new Error('Invalid instances specification');
+        }
+        if (Number.isInteger(instances) !== true) {
+          throw new Error('Invalid instances specified');
+        }
+        if (instances < 3) {
+          throw new Error('Minimum number of instances is 3');
+        }
+        if (instances > 100) {
+          throw new Error('Maximum number of instances is 100');
+        }
       }
 
       // finalised parameters that will get stored in global database
@@ -3457,6 +3518,9 @@ async function registerAppGlobalyApi(req, res) {
         hdd, // integer 1 step
         tiered, // boolean
       };
+      if (version > 2) {
+        appSpecFormatted.instances = instances;
+      }
 
       if (tiered) {
         let { cpubasic } = appSpecification;
@@ -3491,8 +3555,15 @@ async function registerAppGlobalyApi(req, res) {
         appSpecFormatted.hddsuper = hddsuper;
         appSpecFormatted.hddbamf = hddbamf;
       }
+
+      const syncStatus = daemonService.isDaemonSynced();
+      if (!syncStatus.data.synced) {
+        throw new Error('Daemon not yet synced.');
+      }
+      const daemonHeight = syncStatus.data.height;
+
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
-      await verifyAppSpecifications(appSpecFormatted);
+      await verifyAppSpecifications(appSpecFormatted, daemonHeight);
 
       // check if name is not yet registered
       await checkApplicationNameConflicts(appSpecFormatted);
@@ -3575,7 +3646,7 @@ async function updateAppGlobalyApi(req, res) {
       messageType = serviceHelper.ensureString(messageType);
       typeVersion = serviceHelper.ensureNumber(typeVersion);
 
-      let { version } = appSpecification; // shall be 2
+      let { version } = appSpecification;
       let { name } = appSpecification;
       let { description } = appSpecification;
       let { repotag } = appSpecification;
@@ -3586,6 +3657,7 @@ async function updateAppGlobalyApi(req, res) {
       let { commands } = appSpecification;
       let { containerPorts } = appSpecification;
       let { containerData } = appSpecification;
+      let { instances } = appSpecification;
       let { cpu } = appSpecification;
       let { ram } = appSpecification;
       let { hdd } = appSpecification;
@@ -3657,6 +3729,24 @@ async function updateAppGlobalyApi(req, res) {
       if (typeof tiered !== 'boolean') {
         throw new Error('Invalid tiered value obtained. Only boolean as true or false allowed.');
       }
+      if (version > 2) {
+        if (!instances) {
+          throw new Error('Missing Flux App specification parameter');
+        }
+        instances = serviceHelper.ensureNumber(instances);
+        if (typeof instances !== 'number') {
+          throw new Error('Invalid instances specification');
+        }
+        if (Number.isInteger(instances) !== true) {
+          throw new Error('Invalid instances specified');
+        }
+        if (instances < 3) {
+          throw new Error('Minimum number of instances is 3');
+        }
+        if (instances > 100) {
+          throw new Error('Maximum number of instances is 100');
+        }
+      }
 
       // finalised parameters that will get stored in global database
       const appSpecFormatted = {
@@ -3676,6 +3766,9 @@ async function updateAppGlobalyApi(req, res) {
         hdd, // integer 1 step
         tiered, // boolean
       };
+      if (version > 2) {
+        appSpecFormatted.instances = instances;
+      }
 
       if (tiered) {
         let { cpubasic } = appSpecification;
@@ -3710,8 +3803,15 @@ async function updateAppGlobalyApi(req, res) {
         appSpecFormatted.hddsuper = hddsuper;
         appSpecFormatted.hddbamf = hddbamf;
       }
+
+      const syncStatus = daemonService.isDaemonSynced();
+      if (!syncStatus.data.synced) {
+        throw new Error('Daemon not yet synced.');
+      }
+      const daemonHeight = syncStatus.data.height;
+
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
-      await verifyAppSpecifications(appSpecFormatted);
+      await verifyAppSpecifications(appSpecFormatted, daemonHeight);
       // check if ports are not conflicting
       await ensureCorrectApplicationPort(appSpecFormatted);
 
@@ -3913,7 +4013,7 @@ async function storeAppPermanentMessage(message) {
 async function updateAppSpecifications(appSpecs) {
   try {
     // appSpecs: {
-    //   version: 2,
+    //   version: 3,
     //   name: 'FoldingAtHomeB',
     //   description: 'Folding @ Home is cool :)',
     //   repotag: 'yurinnick/folding-at-home:latest',
@@ -3937,6 +4037,7 @@ async function updateAppSpecifications(appSpecs) {
     //   cpubamf: 2,
     //   rambamf: 2000,
     //   hddbamf: 5,
+    //   instances: 10, // version 3 fork
     //   hash: hash of message that has these paramenters,
     //   height: height containing the message
     // };
@@ -3971,7 +4072,7 @@ async function updateAppSpecifications(appSpecs) {
 
 async function updateAppSpecsForRescanReindex(appSpecs) {
   // appSpecs: {
-  //   version: 2,
+  //   version: 3,
   //   name: 'FoldingAtHomeB',
   //   description: 'Folding @ Home is cool :)',
   //   repotag: 'yurinnick/folding-at-home:latest',
@@ -3995,6 +4096,7 @@ async function updateAppSpecsForRescanReindex(appSpecs) {
   //   cpubamf: 2,
   //   rambamf: 2000,
   //   hddbamf: 5,
+  //   instances: 10, // version 3 fork
   //   hash: hash of message that has these paramenters,
   //   height: height containing the message
   // };
@@ -4065,11 +4167,13 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
         // await update zelapphashes that we already have it stored
         await appHashHasMessage(hash);
         // disregard other types
+        const intervals = config.fluxapps.price.filter((interval) => interval.height <= height);
+        const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
         if (tempMessage.type === 'zelappregister' || tempMessage.type === 'fluxappregister') {
           // check if value is optimal or higher
-          let appPrice = appPricePerMonth(specifications);
-          if (appPrice < 1) {
-            appPrice = 1;
+          let appPrice = appPricePerMonth(specifications, height);
+          if (appPrice < priceSpecifications.minPrice) {
+            appPrice = priceSpecifications.minPrice;
           }
           if (valueSat >= appPrice * 1e8) {
             const updateForSpecifications = permanentAppMessage.appSpecifications;
@@ -4126,8 +4230,8 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
           const messageInfo = latestPermanentRegistrationMessage;
           // here comparison of height differences and specifications
           // price shall be price for standard registration plus minus already paid price according to old specifics. height remains height valid for 22000 blocks
-          const appPrice = appPricePerMonth(specifications);
-          const previousSpecsPrice = appPricePerMonth(messageInfo.appSpecifications || messageInfo.zelAppSpecifications);
+          const appPrice = appPricePerMonth(specifications, height);
+          const previousSpecsPrice = appPricePerMonth(messageInfo.appSpecifications || messageInfo.zelAppSpecifications, height);
           // what is the height difference
           const heightDifference = permanentAppMessage.height - messageInfo.height; // has to be lower than 22000
           const perc = (config.fluxapps.blocksLasting - heightDifference) / config.fluxapps.blocksLasting;
@@ -4136,8 +4240,8 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
             actualPriceToPay = (appPrice - (perc * previousSpecsPrice)) * 0.9; // discount for missing heights. Allow 90%
           }
           actualPriceToPay = Number(Math.ceil(actualPriceToPay * 100) / 100);
-          if (actualPriceToPay < 1) {
-            actualPriceToPay = 1;
+          if (actualPriceToPay < priceSpecifications.minPrice) {
+            actualPriceToPay = priceSpecifications.minPrice;
           }
           if (valueSat >= actualPriceToPay * 1e8) {
             const updateForSpecifications = permanentAppMessage.appSpecifications;
@@ -4531,13 +4635,11 @@ async function getAppsLocation(req, res) {
 async function checkSynced() {
   try {
     // check if flux database is synced with daemon database (equal or -1 inheight)
-    const daemonGetInfo = await daemonService.getInfo();
-    let daemonHeight;
-    if (daemonGetInfo.status === 'success') {
-      daemonHeight = daemonGetInfo.data.blocks;
-    } else {
-      throw new Error(daemonGetInfo.data.message || daemonGetInfo.data);
+    const syncStatus = daemonService.isDaemonSynced();
+    if (!syncStatus.data.synced) {
+      throw new Error('Daemon not yet synced.');
     }
+    const daemonHeight = syncStatus.data.height;
     const dbopen = serviceHelper.databaseConnection();
     const database = dbopen.db(config.database.daemon.database);
     const query = { generalScannedHeight: { $gte: 0 } };
@@ -5039,7 +5141,8 @@ async function checkAndRemoveApplicationInstance() {
     for (const installedApp of appsInstalled) {
       // eslint-disable-next-line no-await-in-loop
       const runningAppList = await getRunningAppList(installedApp.name);
-      if (runningAppList.length > config.fluxapps.maximumInstances) {
+      const minInstances = installedApp.instances || config.fluxapps.minimumInstances; // introduced in v3 of apps specs
+      if (runningAppList.length > (minInstances + config.fluxapps.maximumAdditionalInstances)) {
         // eslint-disable-next-line no-await-in-loop
         const appDetails = await getApplicationGlobalSpecifications(installedApp.name);
         if (appDetails) {
@@ -5341,27 +5444,27 @@ async function getAppPrice(req, res) {
           _id: 0,
         },
       };
+      const syncStatus = daemonService.isDaemonSynced();
+      if (!syncStatus.data.synced) {
+        throw new Error('Daemon not yet synced.');
+      }
+      const daemonHeight = syncStatus.data.height;
       const appInfo = await serviceHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
-      let actualPriceToPay = appPricePerMonth(appSpecFormatted);
+      let actualPriceToPay = appPricePerMonth(appSpecFormatted, daemonHeight);
       if (appInfo) {
-        const previousSpecsPrice = appPricePerMonth(appInfo);
+        const previousSpecsPrice = appPricePerMonth(appInfo, daemonHeight); // calculate previous based on CURRENT height, with current interval of prices!
         // what is the height difference
-        const daemonGetInfo = await daemonService.getInfo();
-        let daemonHeight;
-        if (daemonGetInfo.status === 'success') {
-          daemonHeight = daemonGetInfo.data.blocks;
-        } else {
-          throw new Error(daemonGetInfo.data.message || daemonGetInfo.data);
-        }
         const heightDifference = daemonHeight - appInfo.height; // has to be lower than 22000
         const perc = (config.fluxapps.blocksLasting - heightDifference) / config.fluxapps.blocksLasting;
         if (perc > 0) {
           actualPriceToPay -= (perc * previousSpecsPrice);
         }
       }
+      const intervals = config.fluxapps.price.filter((i) => i.height <= daemonHeight);
+      const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
       actualPriceToPay = Number(Math.ceil(actualPriceToPay * 100) / 100);
-      if (actualPriceToPay < 1) {
-        actualPriceToPay = 1;
+      if (actualPriceToPay < priceSpecifications.minPrice) {
+        actualPriceToPay = priceSpecifications.minPrice;
       }
       const respondPrice = serviceHelper.createDataMessage(actualPriceToPay);
       return res.json(respondPrice);
