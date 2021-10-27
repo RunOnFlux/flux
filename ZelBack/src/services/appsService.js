@@ -2944,7 +2944,7 @@ async function verifyAppSpecifications(appSpecifications, height) {
   if (appSpecifications.version !== 1 && appSpecifications.version !== 2 && appSpecifications.version !== 3) {
     throw new Error('Flux App message version specification is invalid');
   }
-  if (height < config.fluxapps[appSpecifications.version]) {
+  if (height < config.fluxapps.appSpecsEnforcementHeights[appSpecifications.version]) {
     throw new Error(`Flux apps specifications of version ${appSpecifications.version} not yet supported`);
   }
   if (appSpecifications.name.length > 32) {

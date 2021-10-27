@@ -239,7 +239,7 @@
               v-model="appRegistrationSpecification.cpu"
               placeholder="CPU cores to use by default"
               type="range"
-              min="0"
+              min="0.1"
               max="7"
               step="0.1"
             />
@@ -259,7 +259,7 @@
               v-model="appRegistrationSpecification.ram"
               placeholder="RAM in MB value to use by default"
               type="range"
-              min="0"
+              min="100"
               max="28000"
               step="100"
             />
@@ -279,7 +279,7 @@
               v-model="appRegistrationSpecification.hdd"
               placeholder="SSD in GB value to use by default"
               type="range"
-              min="0"
+              min="1"
               max="570"
               step="1"
             />
@@ -300,7 +300,7 @@
           <b-form-input
             v-model="appRegistrationSpecification.cpubasic"
             type="range"
-            min="0"
+            min="0.1"
             max="1"
             step="0.1"
           />
@@ -310,7 +310,7 @@
           <b-form-input
             v-model="appRegistrationSpecification.rambasic"
             type="range"
-            min="0"
+            min="100"
             max="1000"
             step="100"
           />
@@ -320,7 +320,7 @@
           <b-form-input
             v-model="appRegistrationSpecification.hddbasic"
             type="range"
-            min="0"
+            min="1"
             max="20"
             step="1"
           />
@@ -338,7 +338,7 @@
           <b-form-input
             v-model="appRegistrationSpecification.cpusuper"
             type="range"
-            min="0"
+            min="0.1"
             max="3"
             step="0.1"
           />
@@ -348,7 +348,7 @@
           <b-form-input
             v-model="appRegistrationSpecification.ramsuper"
             type="range"
-            min="0"
+            min="100"
             max="5000"
             step="100"
           />
@@ -358,7 +358,7 @@
           <b-form-input
             v-model="appRegistrationSpecification.hddsuper"
             type="range"
-            min="0"
+            min="1"
             max="120"
             step="1"
           />
@@ -375,7 +375,7 @@
           <b-form-input
             v-model="appRegistrationSpecification.cpubamf"
             type="range"
-            min="0"
+            min="0.1"
             max="7"
             step="0.1"
           />
@@ -385,7 +385,7 @@
           <b-form-input
             v-model="appRegistrationSpecification.rambamf"
             type="range"
-            min="0"
+            min="1000"
             max="28000"
             step="100"
           />
@@ -395,7 +395,7 @@
           <b-form-input
             v-model="appRegistrationSpecification.hddbamf"
             type="range"
-            min="0"
+            min="1"
             max="570"
             step="1"
           />
