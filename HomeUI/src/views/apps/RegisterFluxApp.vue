@@ -924,7 +924,7 @@ export default {
       } else {
         this.currentHeight = daemonGetInfo.data.data.blocks;
       }
-      if (this.currentHeight < 954000) { // fork height for spec v3
+      if (this.currentHeight < 983000) { // fork height for spec v3
         this.appRegistrationSpecification.version = 2;
       }
     },

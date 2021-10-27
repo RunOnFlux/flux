@@ -40,13 +40,13 @@ export default {
       minPrice: 1,
     },
     {
-      height: 954000, // height from which price spec is valid. Counts from when app was registerd on blockchain!
+      height: 983000, // height from which price spec is valid. Counts from when app was registerd on blockchain!
       cpu: 0.3, // per 0.1 cpu core,
       ram: 0.1, // per 100mb,
       hdd: 0.05, // per 1gb,
       minPrice: 0.1,
     }],
-    address: 't1J1DwsDMWFKxbF4VNHWc1qgbXc5hZeRLRn', // apps registration address
+    address: 't1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6', // apps registration address
     epochstart: 694000, // apps epoch blockheight start
     portMin: 31000, // originally should have been from 30000 but we got temporary folding there
     portMax: 39999,
