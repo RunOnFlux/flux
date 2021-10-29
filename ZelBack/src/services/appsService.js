@@ -4558,40 +4558,37 @@ async function updateAppSpecifications(appSpecs) {
     //   height: height containing the message
     // };
     // const appSpecs = {
-    //   version: 4,
-    //   name: 'FoldingAtHomeB',
-    //   description: 'Folding @ Home is cool :)',
-    //   repotag: 'yurinnick/folding-at-home:latest',
-    //   owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-    //   compose: [
+    //   version: 4, // int
+    //   name: 'FoldingAtHomeB', // string
+    //   description: 'Folding @ Home is cool :)', // string
+    //   owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC', // string
+    //   compose: [ // array of max 5 objects of following specs
     //     {
-    //       name: 'Daemon',
-    //       description: 'Main ddaemon for foldingAtHome',
+    //       name: 'Daemon', // string
+    //       description: 'Main ddaemon for foldingAtHome', // string
     //       repotag: 'yurinnick/folding-at-home:latest',
-    //       ports: '[30001]',
-    //       containerPorts: '[7396]',
-    //       domains: '[""]',
-    //       enviromentParameters: '["USER=foldingUser", "TEAM=262156", "ENABLE_GPU=false", "ENABLE_SMP=true"]', // []
-    //       commands: '["--allow","0/0","--web-allow","0/0"]', // []
-    //       containerData: '/config',
-    //       cpu: 0.5,
-    //       ram: 500,
-    //       hdd: 5,
-    //       tiered: true,
-    //       cpubasic: 0.5,
-    //       rambasic: 500,
-    //       hddbasic: 5,
-    //       cpusuper: 1,
-    //       ramsuper: 1000,
-    //       hddsuper: 5,
-    //       cpubamf: 2,
-    //       rambamf: 2000,
-    //       hddbamf: 5,
+    //       ports: '[30001]', // array of ints
+    //       containerPorts: '[7396]', // array of ints
+    //       domains: '[""]', // array of strings
+    //       enviromentParameters: '["USER=foldingUser", "TEAM=262156", "ENABLE_GPU=false", "ENABLE_SMP=true"]', // array of strings
+    //       commands: '["--allow","0/0","--web-allow","0/0"]', // array of strings
+    //       containerData: '/config', // string
+    //       cpu: 0.5, // float
+    //       ram: 500, // int
+    //       hdd: 5, // int
+    //       tiered: true, // bool
+    //       cpubasic: 0.5, // float
+    //       rambasic: 500, // int
+    //       hddbasic: 5, // int
+    //       cpusuper: 1, // float
+    //       ramsuper: 1000, // int
+    //       hddsuper: 5, // int
+    //       cpubamf: 2, // float
+    //       rambamf: 2000, // int
+    //       hddbamf: 5, // int
     //     },
     //   ],
-    //   instances: 10, // version 3 fork
-    //   hash: 'abadasdasdsad',
-    //   height: 12345,
+    //   instances: 10, // int
     // };
     const db = serviceHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
