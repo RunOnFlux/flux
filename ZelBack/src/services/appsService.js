@@ -3007,7 +3007,7 @@ async function verifyAppSpecifications(appSpecifications, height) {
     }
   }
 
-  if (appSpecifications.version > 2) {
+  if (appSpecifications.version >= 3) {
     if (typeof appSpecifications.instances !== 'number') {
       throw new Error('Instances is not a number');
     }
@@ -3481,7 +3481,7 @@ async function registerAppGlobalyApi(req, res) {
       if (typeof tiered !== 'boolean') {
         throw new Error('Invalid tiered value obtained. Only boolean as true or false allowed.');
       }
-      if (version > 2) {
+      if (version >= 3) {
         if (!instances) {
           throw new Error('Missing Flux App specification parameter');
         }
@@ -3518,7 +3518,7 @@ async function registerAppGlobalyApi(req, res) {
         hdd, // integer 1 step
         tiered, // boolean
       };
-      if (version > 2) {
+      if (version >= 3) {
         appSpecFormatted.instances = instances;
       }
 
@@ -3729,7 +3729,7 @@ async function updateAppGlobalyApi(req, res) {
       if (typeof tiered !== 'boolean') {
         throw new Error('Invalid tiered value obtained. Only boolean as true or false allowed.');
       }
-      if (version > 2) {
+      if (version >= 3) {
         if (!instances) {
           throw new Error('Missing Flux App specification parameter');
         }
@@ -3766,7 +3766,7 @@ async function updateAppGlobalyApi(req, res) {
         hdd, // integer 1 step
         tiered, // boolean
       };
-      if (version > 2) {
+      if (version >= 3) {
         appSpecFormatted.instances = instances;
       }
 

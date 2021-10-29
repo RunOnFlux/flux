@@ -1120,7 +1120,7 @@
             />
           </b-form-group>
           <b-form-group
-            v-if="appUpdateSpecification.version > 2"
+            v-if="appUpdateSpecification.version >= 3"
             label-cols="2"
             label-cols-lg="1"
             label="Instances"
@@ -2012,7 +2012,7 @@ export default {
         if (typeof tiered !== 'boolean') {
           throw new Error('Invalid tiered value obtained. Only boolean as true or false allowed.');
         }
-        if (version > 2) {
+        if (version >= 3) {
           if (!instances) {
             throw new Error('Missing Flux App specification parameter');
           }
@@ -2049,7 +2049,7 @@ export default {
           hdd, // integer 1 step
           tiered, // boolean
         };
-        if (version > 2) {
+        if (version >= 3) {
           appSpecFormatted.instances = instances;
         }
 
