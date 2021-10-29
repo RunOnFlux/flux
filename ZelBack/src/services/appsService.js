@@ -2621,41 +2621,119 @@ function appPricePerMonth(dataForAppRegistration, height) {
 function checkHWParameters(appSpecs) {
   // check specs parameters. JS precision
   if ((appSpecs.cpu * 10) % 1 !== 0 || (appSpecs.cpu * 10) > (config.fluxSpecifics.cpu.bamf - config.lockedSystemResources.cpu) || appSpecs.cpu < 0.1) {
-    return new Error('CPU badly assigned');
+    return new Error(`CPU badly assigned for ${appSpecs.name}`);
   }
   if (appSpecs.ram % 100 !== 0 || appSpecs.ram > (config.fluxSpecifics.ram.bamf - config.lockedSystemResources.ram) || appSpecs.ram < 100) {
-    return new Error('RAM badly assigned');
+    return new Error(`RAM badly assigned for ${appSpecs.name}`);
   }
   if (appSpecs.hdd % 1 !== 0 || appSpecs.hdd > (config.fluxSpecifics.hdd.bamf - config.lockedSystemResources.hdd) || appSpecs.hdd < 1) {
-    return new Error('SSD badly assigned');
+    return new Error(`SSD badly assigned for ${appSpecs.name}`);
   }
   if (appSpecs.tiered) {
     if ((appSpecs.cpubasic * 10) % 1 !== 0 || (appSpecs.cpubasic * 10) > (config.fluxSpecifics.cpu.basic - config.lockedSystemResources.cpu) || appSpecs.cpubasic < 0.1) {
-      return new Error('CPU for Cumulus badly assigned');
+      return new Error(`CPU for Cumulus badly assigned for ${appSpecs.name}`);
     }
     if (appSpecs.rambasic % 100 !== 0 || appSpecs.rambasic > (config.fluxSpecifics.ram.basic - config.lockedSystemResources.ram) || appSpecs.rambasic < 100) {
-      return new Error('RAM for Cumulus badly assigned');
+      return new Error(`RAM for Cumulus badly assigned for ${appSpecs.name}`);
     }
     if (appSpecs.hddbasic % 1 !== 0 || appSpecs.hddbasic > (config.fluxSpecifics.hdd.basic - config.lockedSystemResources.hdd) || appSpecs.hddbasic < 1) {
-      return new Error('SSD for Cumulus badly assigned');
+      return new Error(`SSD for Cumulus badly assigned for ${appSpecs.name}`);
     }
     if ((appSpecs.cpusuper * 10) % 1 !== 0 || (appSpecs.cpusuper * 10) > (config.fluxSpecifics.cpu.super - config.lockedSystemResources.cpu) || appSpecs.cpusuper < 0.1) {
-      return new Error('CPU for Nimbus badly assigned');
+      return new Error(`CPU for Nimbus badly assigned for ${appSpecs.name}`);
     }
     if (appSpecs.ramsuper % 100 !== 0 || appSpecs.ramsuper > (config.fluxSpecifics.ram.super - config.lockedSystemResources.ram) || appSpecs.ramsuper < 100) {
-      return new Error('RAM for Nimbus badly assigned');
+      return new Error(`RAM for Nimbus badly assigned for ${appSpecs.name}`);
     }
     if (appSpecs.hddsuper % 1 !== 0 || appSpecs.hddsuper > (config.fluxSpecifics.hdd.super - config.lockedSystemResources.hdd) || appSpecs.hddsuper < 1) {
-      return new Error('SSD for Nimbus badly assigned');
+      return new Error(`SSD for Nimbus badly assigned for ${appSpecs.name}`);
     }
     if ((appSpecs.cpubamf * 10) % 1 !== 0 || (appSpecs.cpubamf * 10) > (config.fluxSpecifics.cpu.bamf - config.lockedSystemResources.cpu) || appSpecs.cpubamf < 0.1) {
-      return new Error('CPU for Stratus badly assigned');
+      return new Error(`CPU for Stratus badly assigned for ${appSpecs.name}`);
     }
     if (appSpecs.rambamf % 100 !== 0 || appSpecs.rambamf > (config.fluxSpecifics.ram.bamf - config.lockedSystemResources.ram) || appSpecs.rambamf < 100) {
-      return new Error('RAM for Stratus badly assigned');
+      return new Error(`RAM for Stratus badly assigned for ${appSpecs.name}`);
     }
     if (appSpecs.hddbamf % 1 !== 0 || appSpecs.hddbamf > (config.fluxSpecifics.hdd.bamf - config.lockedSystemResources.hdd) || appSpecs.hddbamf < 1) {
-      return new Error('SSD for Stratus badly assigned');
+      return new Error(`SSD for Stratus badly assigned for ${appSpecs.name}`);
+    }
+  }
+  return true;
+}
+
+function checkComposeHWParameters(appSpecsComposed) {
+  // calculate total HW assigned
+  let totalCpu = 0;
+  let totalRam = 0;
+  let totalHdd = 0;
+  let totalCpuBasic = 0;
+  let totalCpuSuper = 0;
+  let totalCpuBamf = 0;
+  let totalRamBasic = 0;
+  let totalRamSuper = 0;
+  let totalRamBamf = 0;
+  let totalHddBasic = 0;
+  let totalHddSuper = 0;
+  let totalHddBamf = 0;
+  const isTiered = appSpecsComposed.compose.find((appComponent) => appComponent.tiered === true);
+  appSpecsComposed.compose.forEach((appComponent) => {
+    if (isTiered) {
+      totalCpuBamf += ((appComponent.cpubamf || appComponent.cpu) * 10); // rounding errors
+      totalCpuBamf /= 10;
+      totalRamBamf += (appComponent.rambamf || appComponent.ram);
+      totalHddBamf += (appComponent.hddbamf || appComponent.hdd);
+      totalCpuSuper += ((appComponent.cpusuper || appComponent.cpu) * 10); // rounding errors
+      totalCpuSuper /= 10;
+      totalRamSuper += (appComponent.ramsuper || appComponent.ram);
+      totalHddSuper += (appComponent.hddsuper || appComponent.hdd);
+      totalCpuBasic += ((appComponent.cpubasic || appComponent.cpu) * 10); // rounding errors
+      totalCpuBasic /= 10;
+      totalRamBasic += (appComponent.rambasic || appComponent.ram);
+      totalHddBasic += (appComponent.hddbasic || appComponent.hdd);
+    } else {
+      totalCpu += (appComponent.cpu * 10); // rounding errors
+      totalCpu /= 10;
+      totalRam += appComponent.ram;
+      totalHdd += appComponent.hdd;
+    }
+  });
+  // check specs parameters. JS precision
+  if (totalCpu > (config.fluxSpecifics.cpu.bamf - config.lockedSystemResources.cpu)) {
+    return new Error(`Too much CPU resources assigned for ${appSpecsComposed.name}`);
+  }
+  if (totalRam > (config.fluxSpecifics.ram.bamf - config.lockedSystemResources.ram)) {
+    return new Error(`Too much RAM rsources assigned for ${appSpecsComposed.name}`);
+  }
+  if (totalHdd > (config.fluxSpecifics.hdd.bamf - config.lockedSystemResources.hdd)) {
+    return new Error(`Too much SSD rsources assigned for ${appSpecsComposed.name}`);
+  }
+  if (isTiered) {
+    if (totalCpuBasic > (config.fluxSpecifics.cpu.basic - config.lockedSystemResources.cpu)) {
+      return new Error(`Too much CPU for Cumulus rsources assigned for ${appSpecsComposed.name}`);
+    }
+    if (totalRamBasic > (config.fluxSpecifics.ram.basic - config.lockedSystemResources.ram)) {
+      return new Error(`Too much RAM for Cumulus rsources assigned for ${appSpecsComposed.name}`);
+    }
+    if (totalHddBasic > (config.fluxSpecifics.hdd.basic - config.lockedSystemResources.hdd)) {
+      return new Error(`Too much SSD for Cumulus rsources assigned for ${appSpecsComposed.name}`);
+    }
+    if (totalCpuSuper > (config.fluxSpecifics.cpu.super - config.lockedSystemResources.cpu)) {
+      return new Error(`Too much CPU for Nimbus rsources assigned for ${appSpecsComposed.name}`);
+    }
+    if (totalRamSuper > (config.fluxSpecifics.ram.super - config.lockedSystemResources.ram)) {
+      return new Error(`Too much RAM for Nimbus rsources assigned for ${appSpecsComposed.name}`);
+    }
+    if (totalHddSuper > (config.fluxSpecifics.hdd.super - config.lockedSystemResources.hdd)) {
+      return new Error(`Too much SSD for Nimbus rsources assigned for ${appSpecsComposed.name}`);
+    }
+    if (totalCpuBamf > (config.fluxSpecifics.cpu.bamf - config.lockedSystemResources.cpu)) {
+      return new Error(`Too much CPU for Stratus rsources assigned for ${appSpecsComposed.name}`);
+    }
+    if (totalRamBamf > (config.fluxSpecifics.ram.bamf - config.lockedSystemResources.ram)) {
+      return new Error(`Too much RAM for Stratus rsources assigned for ${appSpecsComposed.name}`);
+    }
+    if (totalHddBamf > (config.fluxSpecifics.hdd.bamf - config.lockedSystemResources.hdd)) {
+      return new Error(`Too much SSD for Stratus rsources assigned for ${appSpecsComposed.name}`);
     }
   }
   return true;
@@ -2841,7 +2919,7 @@ async function verifyAppHash(message) {
 }
 
 async function verifyAppMessageSignature(type, version, appSpec, timestamp, signature) {
-  if (typeof appSpec !== 'object' || typeof timestamp !== 'number' || typeof signature !== 'string' || typeof version !== 'number' || typeof type !== 'string') {
+  if (!appSpec || typeof appSpec !== 'object' || Array.isArray(appSpec) || typeof timestamp !== 'number' || typeof signature !== 'string' || typeof version !== 'number' || typeof type !== 'string') {
     throw new Error('Invalid Flux App message specifications');
   }
   const messageToVerify = type + version + JSON.stringify(appSpec) + timestamp;
@@ -2854,7 +2932,7 @@ async function verifyAppMessageSignature(type, version, appSpec, timestamp, sign
 }
 
 async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp, signature, appOwner) {
-  if (typeof appSpec !== 'object' || typeof timestamp !== 'number' || typeof signature !== 'string' || typeof version !== 'number' || typeof type !== 'string') {
+  if (!appSpec || typeof appSpec !== 'object' || Array.isArray(appSpec) || typeof timestamp !== 'number' || typeof signature !== 'string' || typeof version !== 'number' || typeof type !== 'string') {
     throw new Error('Invalid Flux App message specifications');
   }
   const messageToVerify = type + version + JSON.stringify(appSpec) + timestamp;
@@ -2937,11 +3015,243 @@ async function checkWhitelistedZelID(zelid) {
   return true;
 }
 
+function verifyCorrectnessOfApp(appSpecification) {
+  const { version } = appSpecification;
+  const { name } = appSpecification;
+  const { description } = appSpecification;
+  const { owner } = appSpecification;
+  const { port } = appSpecification;
+  const { containerPort } = appSpecification;
+  const { compose } = appSpecification;
+  const { repotag } = appSpecification;
+  const { ports } = appSpecification;
+  const { domains } = appSpecification;
+  const { enviromentParameters } = appSpecification;
+  const { commands } = appSpecification;
+  const { containerPorts } = appSpecification;
+  const { containerData } = appSpecification;
+  const { instances } = appSpecification;
+  const { cpu } = appSpecification;
+  const { ram } = appSpecification;
+  const { hdd } = appSpecification;
+  const { tiered } = appSpecification;
+
+  if (!version) {
+    throw new Error('Missing Flux App specification parameter');
+  }
+  if (version === 1) {
+    throw new Error('Specifications of version 1 is depreceated');
+  }
+
+  // commons
+  if (!version || !name || !description || !owner) {
+    throw new Error('Missing Flux App specification parameter');
+  }
+
+  if (version === 1) {
+    if (!port || !containerPort) {
+      throw new Error('Missing Flux App specification parameter');
+    }
+  } else if (version >= 2 && version <= 3) {
+    if (!ports || !domains || !containerPorts) {
+      throw new Error('Missing Flux App specification parameter');
+    }
+  }
+
+  if (version <= 3) {
+    if (!repotag || !enviromentParameters || !commands || !containerData || !cpu || !ram || !hdd) {
+      throw new Error('Missing Flux App specification parameter');
+    }
+
+    if (Array.isArray(ports)) {
+      ports.forEach((parameter) => {
+        if (typeof parameter !== 'string') {
+          throw new Error('Ports for Flux App are invalid');
+        }
+      });
+    } else {
+      throw new Error('Ports for Flux App are invalid');
+    }
+    if (Array.isArray(domains)) {
+      domains.forEach((parameter) => {
+        if (typeof parameter !== 'string') {
+          throw new Error('Domains for Flux App are invalid');
+        }
+      });
+    } else {
+      throw new Error('Domains for Flux App are invalid');
+    }
+    if (Array.isArray(enviromentParameters)) {
+      enviromentParameters.forEach((parameter) => {
+        if (typeof parameter !== 'string') {
+          throw new Error('Enviromental parameters for Flux App are invalid');
+        }
+      });
+    } else {
+      throw new Error('Enviromental parameters for Flux App are invalid');
+    }
+    if (Array.isArray(commands)) {
+      commands.forEach((command) => {
+        if (typeof command !== 'string') {
+          throw new Error('Flux App commands are invalid');
+        }
+      });
+    } else {
+      throw new Error('Flux App commands are invalid');
+    }
+    if (Array.isArray(containerPorts)) {
+      containerPorts.forEach((parameter) => {
+        if (typeof parameter !== 'string') {
+          throw new Error('Container Ports for Flux App are invalid');
+        }
+      });
+    } else {
+      throw new Error('Container Ports for Flux App are invalid');
+    }
+    if (typeof tiered !== 'boolean') {
+      throw new Error('Invalid tiered value obtained. Only boolean as true or false allowed.');
+    }
+    if (typeof cpu !== 'number' || typeof hdd !== 'number' || typeof ram !== 'number') {
+      throw new Error('Invalid HW specifications');
+    }
+
+    if (tiered) {
+      const { cpubasic } = appSpecification;
+      const { cpusuper } = appSpecification;
+      const { cpubamf } = appSpecification;
+      const { rambasic } = appSpecification;
+      const { ramsuper } = appSpecification;
+      const { rambamf } = appSpecification;
+      const { hddbasic } = appSpecification;
+      const { hddsuper } = appSpecification;
+      const { hddbamf } = appSpecification;
+      if (typeof cpubasic !== 'number' || typeof cpusuper !== 'number' || typeof cpubamf !== 'number'
+        || typeof rambasic !== 'number' || typeof ramsuper !== 'number' || typeof rambamf !== 'number'
+        || typeof hddbasic !== 'number' || typeof hddsuper !== 'number' || typeof hddbamf !== 'number') {
+        throw new Error('Invalid tiered HW specifications');
+      }
+    }
+  } else { // v4+
+    if (!compose) {
+      throw new Error('Missing Flux App specification parameter');
+    }
+    if (compose.length < 1) {
+      throw new Error('Flux App does not contain any components');
+    }
+    if (compose.length > 5) {
+      throw new Error('Flux App has too many components');
+    }
+    compose.forEach((appComponent) => {
+      if (Array.isArray(appComponent.ports)) {
+        appComponent.ports.forEach((parameter) => {
+          if (typeof parameter !== 'number') {
+            throw new Error(`Ports for Flux App component ${appComponent.name} are invalid`);
+          }
+        });
+      } else {
+        throw new Error(`Ports for Flux App component ${appComponent.name} are invalid`);
+      }
+      if (Array.isArray(appComponent.domains)) {
+        appComponent.domains.forEach((parameter) => {
+          if (typeof parameter !== 'string') {
+            throw new Error(`Domains for Flux App component ${appComponent.name} are invalid`);
+          }
+        });
+      } else {
+        throw new Error(`Domains for Flux App component ${appComponent.name} are invalid`);
+      }
+      if (Array.isArray(appComponent.enviromentParameters)) {
+        appComponent.enviromentParameters.forEach((parameter) => {
+          if (typeof parameter !== 'string') {
+            throw new Error(`Enviromental parameters for Flux App component ${appComponent.name} are invalid`);
+          }
+        });
+      } else {
+        throw new Error(`Enviromental parameters for Flux App component ${appComponent.name} are invalid`);
+      }
+      if (Array.isArray(appComponent.commands)) {
+        appComponent.commands.forEach((command) => {
+          if (typeof command !== 'string') {
+            throw new Error(`Flux App component ${appComponent.name} commands are invalid`);
+          }
+        });
+      } else {
+        throw new Error(`Flux App component ${appComponent.name} commands are invalid`);
+      }
+      if (Array.isArray(appComponent.containerPorts)) {
+        appComponent.containerPorts.forEach((parameter) => {
+          if (typeof parameter !== 'number') {
+            throw new Error(`Container Ports for Flux App component ${appComponent.name} are invalid`);
+          }
+        });
+      } else {
+        throw new Error(`Container Ports for Flux App component ${appComponent.name} are invalid`);
+      }
+      if (typeof appComponent.tiered !== 'boolean') {
+        throw new Error('Invalid tiered value obtained. Only boolean as true or false allowed.');
+      }
+      const cpuB = appComponent.cpu;
+      const ramB = appComponent.ram;
+      const hddB = appComponent.hdd;
+      if (typeof cpuB !== 'number' || typeof ramB !== 'number' || typeof hddB !== 'number') {
+        throw new Error('Invalid HW specifications');
+      }
+      if (appComponent.tiered) {
+        const { cpubasic } = appComponent;
+        const { cpusuper } = appComponent;
+        const { cpubamf } = appComponent;
+        const { rambasic } = appComponent;
+        const { ramsuper } = appComponent;
+        const { rambamf } = appComponent;
+        const { hddbasic } = appComponent;
+        const { hddsuper } = appComponent;
+        const { hddbamf } = appComponent;
+        if (typeof cpubasic !== 'number' || typeof cpusuper !== 'number' || typeof cpubamf !== 'number'
+        || typeof rambasic !== 'number' || typeof ramsuper !== 'number' || typeof rambamf !== 'number'
+        || typeof hddbasic !== 'number' || typeof hddsuper !== 'number' || typeof hddbamf !== 'number') {
+          throw new Error('Invalid tiered HW specifications');
+        }
+      }
+    });
+  }
+
+  if (version >= 3) {
+    if (!instances) {
+      throw new Error('Missing Flux App specification parameter');
+    }
+    if (typeof instances !== 'number') {
+      throw new Error('Invalid instances specification');
+    }
+    if (Number.isInteger(instances) !== true) {
+      throw new Error('Invalid instances specified');
+    }
+    if (instances < 3) {
+      throw new Error('Minimum number of instances is 3');
+    }
+    if (instances > 100) {
+      throw new Error('Maximum number of instances is 100');
+    }
+  }
+
+  return true;
+}
+
 async function verifyAppSpecifications(appSpecifications, height) {
+  if (!appSpecifications) {
+    throw new Error('Invalid Flux App Specifications');
+  }
   if (typeof appSpecifications !== 'object') {
     throw new Error('Invalid Flux App Specifications');
   }
-  if (appSpecifications.version !== 1 && appSpecifications.version !== 2 && appSpecifications.version !== 3) {
+  if (Array.isArray(appSpecifications)) {
+    throw new Error('Invalid Flux App Specifications');
+  }
+  const typeCheckVerification = verifyCorrectnessOfApp(appSpecifications); // throw if wrong
+  if (typeCheckVerification !== true) {
+    const errorMessage = typeCheckVerification;
+    throw new Error(errorMessage);
+  }
+  if (appSpecifications.version !== 1 && appSpecifications.version !== 2 && appSpecifications.version !== 3 && appSpecifications.version !== 4) {
     throw new Error('Flux App message version specification is invalid');
   }
   if (height < config.fluxapps.appSpecsEnforcementHeights[appSpecifications.version]) {
@@ -2963,11 +3273,6 @@ async function verifyAppSpecifications(appSpecifications, height) {
   if (appSpecifications.description.length > 256) {
     throw new Error('Description is too long. Maximum of 256 characters is allowed');
   }
-  const parameters = checkHWParameters(appSpecifications);
-  if (parameters !== true) {
-    const errorMessage = parameters;
-    throw new Error(errorMessage);
-  }
 
   if (appSpecifications.version === 1) {
     // check port is within range
@@ -2979,7 +3284,7 @@ async function verifyAppSpecifications(appSpecifications, height) {
     if (appSpecifications.containerPort < 0 || appSpecifications.containerPort > 65535) {
       throw new Error(`Container Port ${appSpecifications.containerPort} is not within system limits 0-65535`);
     }
-  } else {
+  } else if (appSpecifications.version <= 3) {
     // check port is within range
     appSpecifications.ports.forEach((port) => {
       if (port < config.fluxapps.portMin || port > config.fluxapps.portMax) {
@@ -3007,12 +3312,118 @@ async function verifyAppSpecifications(appSpecifications, height) {
     }
   }
 
+  if (appSpecifications.version <= 3) {
+    const parameters = checkHWParameters(appSpecifications);
+    if (parameters !== true) {
+      const errorMessage = parameters;
+      throw new Error(errorMessage);
+    }
+
+    // check wheter shared Folder is not root
+    if (appSpecifications.containerData.length < 2) {
+      throw new Error('Flux App container data folder not specified. If no data folder is whished, use /tmp');
+    }
+
+    // check repotag if available for download
+    await verifyRepository(appSpecifications.repotag);
+
+    // check repository whitelisted
+    await checkWhitelistedRepository(appSpecifications.repotag);
+  } else {
+    if (!Array.isArray(appSpecifications.compose)) {
+      throw new Error('Invalid Flux App Specifications');
+    }
+    if (appSpecifications.copmose.length < 1) {
+      throw new Error('Flux App does not contain any composition');
+    }
+    if (appSpecifications.copmose.length > 5) {
+      throw new Error('Flux App has too many components');
+    }
+    // check port is within range
+    const usedNames = [];
+    // eslint-disable-next-line no-restricted-syntax
+    for (const appComponent of appSpecifications.compose) {
+      if (!appComponent) {
+        throw new Error('Invalid Flux App Specifications');
+      }
+      if (typeof appComponent !== 'object') {
+        throw new Error('Invalid Flux App Specifications');
+      }
+      if (Array.isArray(appComponent)) {
+        throw new Error('Invalid Flux App Specifications');
+      }
+      if (appComponent.name.length > 32) {
+        throw new Error('Flux App name is too long');
+      }
+      // furthermore name cannot contain any special character
+      if (!appComponent.name.match(/^[a-zA-Z0-9]+$/)) {
+        throw new Error('Flux App name contains special characters. Only a-z, A-Z and 0-9 are allowed');
+      }
+      if (usedNames.indexOf(appComponent.name) > -1) {
+        throw new Error(`Flux App component ${appComponent.name} already assigned. Use different name.`);
+      }
+      usedNames.push(appComponent.name);
+      if (appComponent.description.length > 256) {
+        throw new Error('Description is too long. Maximum of 256 characters is allowed');
+      }
+      appComponent.ports.forEach((port) => {
+        if (port < config.fluxapps.portMin || port > config.fluxapps.portMax) {
+          throw new Error(`Assigned port ${port} is not within Flux Apps range ${config.fluxapps.portMin}-${config.fluxapps.portMax}`);
+        }
+      });
+
+      // check if containerPort makes sense
+      appComponent.containerPorts.forEach((port) => {
+        if (port < 0 || port > 65535) {
+          throw new Error(`Container Port ${port} in in ${appComponent.name} is not within system limits 0-65535`);
+        }
+      });
+
+      if (appComponent.containerPorts.length !== appComponent.ports.length) {
+        throw new Error(`Ports specifications in ${appComponent.name} do not match`);
+      }
+
+      if (appComponent.domains.length !== appComponent.ports.length) {
+        throw new Error(`Domains specifications in ${appComponent.name} do not match available ports`);
+      }
+
+      if (appComponent.ports.length > 5) {
+        throw new Error(`Too many ports defined in ${appComponent.name}. Maximum of 5 allowed.`);
+      }
+
+      // check wheter shared Folder is not root
+      if (appComponent.containerData.length < 2) {
+        throw new Error(`Flux App container data folder not specified in in ${appComponent.name}. If no data folder is whished, use /tmp`);
+      }
+
+      const parameters = checkHWParameters(appComponent);
+      if (parameters !== true) {
+        const errorMessage = parameters;
+        throw new Error(errorMessage);
+      }
+
+      const composeParameter = checkComposeHWParameters(appComponent);
+      if (composeParameter !== true) {
+        const errorMessage = composeParameter;
+        throw new Error(errorMessage);
+      }
+
+      // check repotag if available for download
+      // eslint-disable-next-line no-await-in-loop
+      await verifyRepository(appComponent.repotag);
+
+      // check repository whitelisted
+      // eslint-disable-next-line no-await-in-loop
+      await checkWhitelistedRepository(appComponent.repotag);
+    }
+  }
+
   if (appSpecifications.version >= 3) {
     if (typeof appSpecifications.instances !== 'number') {
       throw new Error('Instances is not a number');
     }
     if (Number.isInteger(appSpecifications.instances) !== true) {
-      throw new Error('Instances is not integer');
+      throw new Error('Instances is not an integer');
     }
     if (appSpecifications.instances < 3) {
       throw new Error('Minimum number of instances is 3');
@@ -3022,58 +3433,155 @@ async function verifyAppSpecifications(appSpecifications, height) {
     }
   }
 
-  // check wheter shared Folder is not root
-  if (appSpecifications.containerData.length < 2) {
-    throw new Error('Flux App container data folder not specified. If no data folder is whished, use /tmp');
+  // check for Object.keys in applications. App can have only the fields that are in the version specification.
+  if (appSpecifications.version === 1) {
+    // appSpecs: {
+    //   version: 2,
+    //   name: 'FoldingAtHomeB',
+    //   description: 'Folding @ Home is cool :)',
+    //   repotag: 'yurinnick/folding-at-home:latest',
+    //   owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+    //   ports: '[30001]', // []
+    //   containerPorts: '[7396]', // []
+    //   domains: '[""]', // []
+    //   enviromentParameters: '["USER=foldingUser", "TEAM=262156", "ENABLE_GPU=false", "ENABLE_SMP=true"]', // []
+    //   commands: '["--allow","0/0","--web-allow","0/0"]', // []
+    //   containerData: '/config',
+    //   cpu: 0.5,
+    //   ram: 500,
+    //   hdd: 5,
+    //   tiered: true,
+    //   cpubasic: 0.5,
+    //   rambasic: 500,
+    //   hddbasic: 5,
+    //   cpusuper: 1,
+    //   ramsuper: 1000,
+    //   hddsuper: 5,
+    //   cpubamf: 2,
+    //   rambamf: 2000,
+    //   hddbamf: 5,
+    //   hash: hash of message that has these paramenters,
+    //   height: height containing the message
+    // };
+    const specifications = [
+      'version', 'name', 'description', 'owner', 'repotag', 'port', 'containerPort', 'enviromentParameters', 'commands', 'containerData',
+      'cpu', 'ram', 'hdd', 'tiered', ' cpubasic', 'rambasic', 'hddbasic', 'cpusuper', 'ramsuper', 'hddsuper', 'cpubamf', 'rambamf', 'hddbamf',
+    ];
+    const specsKeys = Object.keys(appSpecifications);
+    specsKeys.forEach((sKey) => {
+      if (specifications.indexOf((sKey)) === -1) {
+        throw new Error('Unsupported parameter for v1 app specifications');
+      }
+    });
+  } else if (appSpecifications.version === 2) {
+    const specifications = [
+      'version', 'name', 'description', 'owner', 'repotag', 'ports', 'containerPorts', 'enviromentParameters', 'commands', 'containerData', 'domains',
+      'cpu', 'ram', 'hdd', 'tiered', ' cpubasic', 'rambasic', 'hddbasic', 'cpusuper', 'ramsuper', 'hddsuper', 'cpubamf', 'rambamf', 'hddbamf',
+    ];
+    const specsKeys = Object.keys(appSpecifications);
+    specsKeys.forEach((sKey) => {
+      if (specifications.indexOf((sKey)) === -1) {
+        throw new Error('Unsupported parameter for v2 app specifications');
+      }
+    });
+  } else if (appSpecifications.version === 3) {
+    const specifications = [
+      'version', 'name', 'description', 'owner', 'repotag', 'ports', 'containerPorts', 'enviromentParameters', 'commands', 'containerData', 'domains', 'intsances',
+      'cpu', 'ram', 'hdd', 'tiered', ' cpubasic', 'rambasic', 'hddbasic', 'cpusuper', 'ramsuper', 'hddsuper', 'cpubamf', 'rambamf', 'hddbamf',
+    ];
+    const specsKeys = Object.keys(appSpecifications);
+    specsKeys.forEach((sKey) => {
+      if (specifications.indexOf((sKey)) === -1) {
+        throw new Error('Unsupported parameter for v3 app specifications');
+      }
+    });
+  } else {
+    const specifications = [
+      'version', 'name', 'description', 'owner', 'compose',
+    ];
+    const componentSpecifications = [
+      'name', 'description', 'repotag', 'ports', 'containerPorts', 'enviromentParameters', 'commands', 'containerData', 'domains',
+      'cpu', 'ram', 'hdd', 'tiered', ' cpubasic', 'rambasic', 'hddbasic', 'cpusuper', 'ramsuper', 'hddsuper', 'cpubamf', 'rambamf', 'hddbamf',
+    ];
+    const specsKeys = Object.keys(appSpecifications);
+    specsKeys.forEach((sKey) => {
+      if (specifications.indexOf((sKey)) === -1) {
+        throw new Error('Unsupported parameter for v4 app specifications');
+      }
+    });
+    appSpecifications.compose.forEach((appComponent) => {
+      const specsKeysComponent = Object.keys(appComponent);
+      specsKeysComponent.forEach((sKey) => {
+        if (componentSpecifications.indexOf((sKey)) === -1) {
+          throw new Error('Unsupported parameter for v4 app specifications');
+        }
+      });
+    });
   }
-
-  // check repotag if available for download
-  await verifyRepository(appSpecifications.repotag);
-
-  // check repository whitelisted
-  await checkWhitelistedRepository(appSpecifications.repotag);
-
   // check ZelID whitelisted
   await checkWhitelistedZelID(appSpecifications.owner);
 }
 
-async function ensureCorrectApplicationPort(appSpecFormatted) {
-  const dbopen = serviceHelper.databaseConnection();
-  const appsDatabase = dbopen.db(config.database.appsglobal.database);
-  if (appSpecFormatted.version === 1) {
-    const portQuery = { ports: appSpecFormatted.port };
-    const portProjection = {
-      projection: {
-        _id: 0,
-        name: 1,
-      },
-    };
-    // eslint-disable-next-line no-await-in-loop
-    const portsResult = await serviceHelper.findInDatabase(appsDatabase, globalAppsInformation, portQuery, portProjection);
+async function assignedPortsApps() {
+  // construct object ob app name and ports array
+  const db = serviceHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  const query = {};
+  const projection = { projection: { _id: 0 } };
+  const results = await serviceHelper.findInDatabase(database, globalAppsInformation, query, projection);
+  const apps = [];
+  results.forEach((app) => {
+    // there is no app
+    if (app.version === 1) {
+      const appSpecs = {
+        name: app.name,
+        ports: [app.port],
+      };
+      apps.push(appSpecs);
+    } else if (app.version <= 3) {
+      const appSpecs = {
+        name: app.name,
+        ports: app.ports,
+      };
+      apps.push(appSpecs);
+    } else if (app.version >= 4) {
+      const appSpecs = {
+        name: app.name,
+        ports: [],
+      };
+      app.compose.forEach((composeApp) => {
+        appSpecs.ports = appSpecs.ports.concat(composeApp.ports);
+      });
+    }
+  });
+  return apps;
+}
 
-    portsResult.forEach((result) => {
-      if (result.name !== appSpecFormatted.name) {
-        throw new Error(`Flux App ${appSpecFormatted.name} port ${appSpecFormatted.port} already registered with different application. Your Flux App has to use different port.`);
-      }
-    });
-  } else {
+async function ensureCorrectApplicationPort(appSpecFormatted) {
+  const currentAppsPorts = await assignedPortsApps();
+  if (appSpecFormatted.version === 1) {
+    const portAssigned = currentAppsPorts.find((app) => app.ports.indexOf(appSpecFormatted.port));
+    if (portAssigned && portAssigned.name !== appSpecFormatted.name) {
+      throw new Error(`Flux App ${appSpecFormatted.name} port ${appSpecFormatted.port} already registered with different application. Your Flux App has to use different port.`);
+    }
+  } else if (appSpecFormatted.version <= 3) {
     // eslint-disable-next-line no-restricted-syntax
     for (const port of appSpecFormatted.ports) {
-      const portQuery = { ports: port };
-      const portProjection = {
-        projection: {
-          _id: 0,
-          name: 1,
-        },
-      };
-      // eslint-disable-next-line no-await-in-loop
-      const portsResult = await serviceHelper.findInDatabase(appsDatabase, globalAppsInformation, portQuery, portProjection);
-
-      portsResult.forEach((result) => {
-        if (result.name !== appSpecFormatted.name) {
+      const portAssigned = currentAppsPorts.find((app) => app.ports.indexOf(port));
+      if (portAssigned && portAssigned.name !== appSpecFormatted.name) {
+        throw new Error(`Flux App ${appSpecFormatted.name} port ${port} already registered with different application. Your Flux App has to use different port.`);
+      }
+    }
+  } else {
+    // eslint-disable-next-line no-restricted-syntax
+    for (const appComponent of appSpecFormatted.compose) {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const port of appComponent.ports) {
+        const portAssigned = currentAppsPorts.find((app) => app.ports.indexOf(port));
+        if (portAssigned && portAssigned.name !== appSpecFormatted.name) {
           throw new Error(`Flux App ${appSpecFormatted.name} port ${port} already registered with different application. Your Flux App has to use different port.`);
         }
-      });
+      }
     }
   }
   return true;
@@ -3198,7 +3706,7 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
   }
   // check temporary message storage
   const tempMessage = await checkAppTemporaryMessageExistence(message.hash);
-  if (tempMessage && typeof tempMessage === 'object') {
+  if (tempMessage && typeof tempMessage === 'object' && !Array.isArray(tempMessage)) {
     // do not rebroadcast further
     return false;
   }
@@ -3268,8 +3776,31 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
       if (!appSpecs) {
         throw new Error(`Flux App ${specifications.name} update message received but application does not exists!`);
       }
-      if (appSpecs.repotag !== specifications.repotag) {
-        throw new Error(`Flux App ${specifications.name} update of repotag is not allowed`);
+      if (specifications.version >= 4) {
+        if (appSpecs.version >= 4) {
+          // update and current are both v4 compositions
+          // must be same amount of copmositions
+          // must be same names
+          if (specifications.compose.length !== appSpecs.compose.length) {
+            throw new Error(`Flux App ${specifications.name} change of components is not allowed`);
+          }
+          appSpecs.compose.forEach((appComponent) => {
+            const newSpecComponentFound = specifications.compose.find((appComponentNew) => appComponentNew.name === appComponent.name);
+            if (!newSpecComponentFound) {
+              throw new Error(`Flux App ${specifications.name} change of component name is not allowed`);
+            }
+            // v4 allows for changes of repotag
+          });
+        } else { // update is v4+ and current app have v1,2,3
+          throw new Error(`Flux App ${specifications.name} update to different specifications is not possible`);
+        }
+      } else if (appSpecs.version >= 4) {
+        throw new Error(`Flux App ${specifications.name} update to different specifications is not possible`);
+      } else { // bot update and current app have v1,2,3
+        // eslint-disable-next-line no-lonely-if
+        if (appSpecs.repotag !== specifications.repotag) { // v1,2,3 does not allow repotag change
+          throw new Error(`Flux App ${specifications.name} update of repotag is not allowed`);
+        }
       }
       const { owner } = appSpecs;
       // here signature is checked against PREVIOUS app owner
@@ -3358,6 +3889,303 @@ async function storeAppRunningMessage(message) {
   return true;
 }
 
+function specificationFormatter(appSpecification) {
+  let { version } = appSpecification;
+  let { name } = appSpecification;
+  let { description } = appSpecification;
+  let { owner } = appSpecification;
+  let { compose } = appSpecification;
+  let { repotag } = appSpecification;
+  let { ports } = appSpecification;
+  let { domains } = appSpecification;
+  let { enviromentParameters } = appSpecification;
+  let { commands } = appSpecification;
+  let { containerPorts } = appSpecification;
+  let { containerData } = appSpecification;
+  let { instances } = appSpecification;
+  let { cpu } = appSpecification;
+  let { ram } = appSpecification;
+  let { hdd } = appSpecification;
+  const { tiered } = appSpecification;
+
+  if (!version) {
+    throw new Error('Missing Flux App specification parameter');
+  }
+  version = serviceHelper.ensureNumber(version);
+  if (version === 1) {
+    throw new Error('Specifications of version 1 is depreceated');
+  }
+
+  // commons
+  if (!version || !name || !description || !owner) {
+    throw new Error('Missing Flux App specification parameter');
+  }
+  name = serviceHelper.ensureString(name);
+  description = serviceHelper.ensureString(description);
+  owner = serviceHelper.ensureString(owner);
+
+  // finalised parameters that will get stored in global database
+  const appSpecFormatted = {
+    version, // integer
+    name, // string
+    description, // string
+    owner, // zelid string
+  };
+
+  const correctCompose = [];
+
+  if (version <= 3) {
+    if (!repotag || !ports || !domains || !enviromentParameters || !commands || !containerPorts || !containerData || !cpu || !ram || !hdd) {
+      throw new Error('Missing Flux App specification parameter');
+    }
+
+    repotag = serviceHelper.ensureString(repotag);
+    ports = serviceHelper.ensureObject(ports);
+    const portsCorrect = [];
+    if (Array.isArray(ports)) {
+      ports.forEach((parameter) => {
+        const param = serviceHelper.ensureString(parameter); // next specification fork here we want to do ensureNumber
+        portsCorrect.push(param);
+      });
+    } else {
+      throw new Error('Ports for Flux App are invalid');
+    }
+    domains = serviceHelper.ensureObject(domains);
+    const domainsCorrect = [];
+    if (Array.isArray(domains)) {
+      domains.forEach((parameter) => {
+        const param = serviceHelper.ensureString(parameter);
+        domainsCorrect.push(param);
+      });
+    } else {
+      throw new Error('Domains for Flux App are invalid');
+    }
+    enviromentParameters = serviceHelper.ensureObject(enviromentParameters);
+    const envParamsCorrected = [];
+    if (Array.isArray(enviromentParameters)) {
+      enviromentParameters.forEach((parameter) => {
+        const param = serviceHelper.ensureString(parameter);
+        envParamsCorrected.push(param);
+      });
+    } else {
+      throw new Error('Enviromental parameters for Flux App are invalid');
+    }
+    commands = serviceHelper.ensureObject(commands);
+    const commandsCorrected = [];
+    if (Array.isArray(commands)) {
+      commands.forEach((command) => {
+        const cmm = serviceHelper.ensureString(command);
+        commandsCorrected.push(cmm);
+      });
+    } else {
+      throw new Error('Flux App commands are invalid');
+    }
+    containerPorts = serviceHelper.ensureObject(containerPorts);
+    const containerportsCorrect = [];
+    if (Array.isArray(containerPorts)) {
+      containerPorts.forEach((parameter) => {
+        const param = serviceHelper.ensureString(parameter); // next specification fork here we want to do ensureNumber
+        containerportsCorrect.push(param);
+      });
+    } else {
+      throw new Error('Container Ports for Flux App are invalid');
+    }
+    containerData = serviceHelper.ensureString(containerData);
+    cpu = serviceHelper.ensureNumber(cpu);
+    ram = serviceHelper.ensureNumber(ram);
+    hdd = serviceHelper.ensureNumber(hdd);
+    if (typeof tiered !== 'boolean') {
+      throw new Error('Invalid tiered value obtained. Only boolean as true or false allowed.');
+    }
+
+    // finalised parameters
+    appSpecFormatted.repotag = repotag; // string
+    appSpecFormatted.ports = portsCorrect; // array of integers
+    appSpecFormatted.domains = domainsCorrect;
+    appSpecFormatted.enviromentParameters = envParamsCorrected; // array of strings
+    appSpecFormatted.commands = commandsCorrected; // array of strings
+    appSpecFormatted.containerPorts = containerportsCorrect; // array of integers
+    appSpecFormatted.containerData = containerData; // string
+    appSpecFormatted.cpu = cpu; // float 0.1 step
+    appSpecFormatted.ram = ram; // integer 100 step (mb)
+    appSpecFormatted.hdd = hdd; // integer 1 step
+    appSpecFormatted.tiered = tiered; // boolean
+
+    if (tiered) {
+      let { cpubasic } = appSpecification;
+      let { cpusuper } = appSpecification;
+      let { cpubamf } = appSpecification;
+      let { rambasic } = appSpecification;
+      let { ramsuper } = appSpecification;
+      let { rambamf } = appSpecification;
+      let { hddbasic } = appSpecification;
+      let { hddsuper } = appSpecification;
+      let { hddbamf } = appSpecification;
+      if (!cpubasic || !cpusuper || !cpubamf || !rambasic || !ramsuper || !rambamf || !hddbasic || !hddsuper || !hddbamf) {
+        throw new Error('Flux App was requested as tiered setup but specifications are missing');
+      }
+      cpubasic = serviceHelper.ensureNumber(cpubasic);
+      cpusuper = serviceHelper.ensureNumber(cpusuper);
+      cpubamf = serviceHelper.ensureNumber(cpubamf);
+      rambasic = serviceHelper.ensureNumber(rambasic);
+      ramsuper = serviceHelper.ensureNumber(ramsuper);
+      rambamf = serviceHelper.ensureNumber(rambamf);
+      hddbasic = serviceHelper.ensureNumber(hddbasic);
+      hddsuper = serviceHelper.ensureNumber(hddsuper);
+      hddbamf = serviceHelper.ensureNumber(hddbamf);
+
+      appSpecFormatted.cpubasic = cpubasic;
+      appSpecFormatted.cpusuper = cpusuper;
+      appSpecFormatted.cpubamf = cpubamf;
+      appSpecFormatted.rambasic = rambasic;
+      appSpecFormatted.ramsuper = ramsuper;
+      appSpecFormatted.rambamf = rambamf;
+      appSpecFormatted.hddbasic = hddbasic;
+      appSpecFormatted.hddsuper = hddsuper;
+      appSpecFormatted.hddbamf = hddbamf;
+    }
+  } else { // v4+
+    if (!compose) {
+      throw new Error('Missing Flux App specification parameter');
+    }
+    compose = serviceHelper.ensureObject(compose);
+    if (compose.length < 1) {
+      throw new Error('Flux App does not contain any components');
+    }
+    if (compose.length > 5) {
+      throw new Error('Flux App has too many components');
+    }
+    compose.forEach((appComponent) => {
+      const appComponentCorrect = {};
+      appComponentCorrect.name = serviceHelper.ensureString(appComponent.name);
+      appComponentCorrect.description = serviceHelper.ensureString(appComponent.description);
+      appComponentCorrect.repotag = serviceHelper.ensureString(appComponent.repotag);
+      appComponentCorrect.ports = serviceHelper.ensureObject(appComponent.ports);
+      const portsCorrect = [];
+      if (Array.isArray(appComponentCorrect.ports)) {
+        appComponentCorrect.ports.forEach((parameter) => {
+          const param = serviceHelper.ensureNumber(parameter);
+          portsCorrect.push(param);
+        });
+        appComponentCorrect.ports = portsCorrect;
+      } else {
+        throw new Error(`Ports for Flux App component ${appComponent.name} are invalid`);
+      }
+      appComponentCorrect.domains = serviceHelper.ensureObject(appComponent.domains);
+      const domainsCorect = [];
+      if (Array.isArray(appComponentCorrect.domains)) {
+        appComponentCorrect.domains.forEach((parameter) => {
+          const param = serviceHelper.ensureString(parameter);
+          domainsCorect.push(param);
+        });
+        appComponentCorrect.domains = domainsCorect;
+      } else {
+        throw new Error(`Domains for Flux App component ${appComponent.name} are invalid`);
+      }
+      appComponentCorrect.enviromentParameters = serviceHelper.ensureObject(appComponent.enviromentParameters);
+      const envParamsCorrected = [];
+      if (Array.isArray(appComponentCorrect.enviromentParameters)) {
+        appComponentCorrect.enviromentParameters.forEach((parameter) => {
+          const param = serviceHelper.ensureString(parameter);
+          envParamsCorrected.push(param);
+        });
+        appComponentCorrect.enviromentParameters = envParamsCorrected;
+      } else {
+        throw new Error(`Enviromental parameters for Flux App component ${appComponent.name} are invalid`);
+      }
+      appComponentCorrect.commands = serviceHelper.ensureObject(appComponent.commands);
+      const commandsCorrected = [];
+      if (Array.isArray(appComponentCorrect.commands)) {
+        appComponentCorrect.commands.forEach((command) => {
+          const cmm = serviceHelper.ensureString(command);
+          commandsCorrected.push(cmm);
+        });
+        appComponentCorrect.commands = commandsCorrected;
+      } else {
+        throw new Error(`Flux App component ${appComponent.name} commands are invalid`);
+      }
+      appComponentCorrect.containerPorts = serviceHelper.ensureObject(appComponent.containerPorts);
+      const containerportsCorrect = [];
+      if (Array.isArray(appComponentCorrect.containerPorts)) {
+        appComponentCorrect.containerPorts.forEach((parameter) => {
+          const param = serviceHelper.ensureNumber(parameter);
+          containerportsCorrect.push(param);
+        });
+      } else {
+        throw new Error(`Container Ports for Flux App component ${appComponent.name} are invalid`);
+      }
+      appComponentCorrect.containerData = serviceHelper.ensureString(containerData);
+      appComponentCorrect.cpu = serviceHelper.ensureNumber(appComponent.cpu);
+      appComponentCorrect.ram = serviceHelper.ensureNumber(appComponent.ram);
+      appComponentCorrect.hdd = serviceHelper.ensureNumber(appComponent.hdd);
+      appComponentCorrect.tiered = appComponent.tiered;
+      if (typeof appComponentCorrect.tiered !== 'boolean') {
+        throw new Error('Invalid tiered value obtained. Only boolean as true or false allowed.');
+      }
+      if (appComponentCorrect.tiered) {
+        let { cpubasic } = appComponent;
+        let { cpusuper } = appComponent;
+        let { cpubamf } = appComponent;
+        let { rambasic } = appComponent;
+        let { ramsuper } = appComponent;
+        let { rambamf } = appComponent;
+        let { hddbasic } = appComponent;
+        let { hddsuper } = appComponent;
+        let { hddbamf } = appComponent;
+        if (!cpubasic || !cpusuper || !cpubamf || !rambasic || !ramsuper || !rambamf || !hddbasic || !hddsuper || !hddbamf) {
+          throw new Error(`Flux App component ${appComponent.name} was requested as tiered setup but specifications are missing`);
+        }
+        cpubasic = serviceHelper.ensureNumber(cpubasic);
+        cpusuper = serviceHelper.ensureNumber(cpusuper);
+        cpubamf = serviceHelper.ensureNumber(cpubamf);
+        rambasic = serviceHelper.ensureNumber(rambasic);
+        ramsuper = serviceHelper.ensureNumber(ramsuper);
+        rambamf = serviceHelper.ensureNumber(rambamf);
+        hddbasic = serviceHelper.ensureNumber(hddbasic);
+        hddsuper = serviceHelper.ensureNumber(hddsuper);
+        hddbamf = serviceHelper.ensureNumber(hddbamf);
+
+        appComponentCorrect.cpubasic = cpubasic;
+        appComponentCorrect.cpusuper = cpusuper;
+        appComponentCorrect.cpubamf = cpubamf;
+        appComponentCorrect.rambasic = rambasic;
+        appComponentCorrect.ramsuper = ramsuper;
+        appComponentCorrect.rambamf = rambamf;
+        appComponentCorrect.hddbasic = hddbasic;
+        appComponentCorrect.hddsuper = hddsuper;
+        appComponentCorrect.hddbamf = hddbamf;
+      }
+      correctCompose.push(appComponentCorrect);
+    });
+    appSpecFormatted.compose = correctCompose;
+  }
+
+  if (version >= 3) {
+    if (!instances) {
+      throw new Error('Missing Flux App specification parameter');
+    }
+    instances = serviceHelper.ensureNumber(instances);
+    if (typeof instances !== 'number') {
+      throw new Error('Invalid instances specification');
+    }
+    if (Number.isInteger(instances) !== true) {
+      throw new Error('Invalid instances specified');
+    }
+    if (instances < 3) {
+      throw new Error('Minimum number of instances is 3');
+    }
+    if (instances > 100) {
+      throw new Error('Maximum number of instances is 100');
+    }
+  }
+
+  if (version >= 3) {
+    appSpecFormatted.instances = instances;
+  }
+
+  return appSpecFormatted;
+}
+
 async function registerAppGlobalyApi(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -3398,163 +4226,7 @@ async function registerAppGlobalyApi(req, res) {
       messageType = serviceHelper.ensureString(messageType);
       typeVersion = serviceHelper.ensureNumber(typeVersion);
 
-      let { version } = appSpecification;
-      let { name } = appSpecification;
-      let { description } = appSpecification;
-      let { repotag } = appSpecification;
-      let { owner } = appSpecification;
-      let { ports } = appSpecification;
-      let { domains } = appSpecification;
-      let { enviromentParameters } = appSpecification;
-      let { commands } = appSpecification;
-      let { containerPorts } = appSpecification;
-      let { containerData } = appSpecification;
-      let { instances } = appSpecification;
-      let { cpu } = appSpecification;
-      let { ram } = appSpecification;
-      let { hdd } = appSpecification;
-      const { tiered } = appSpecification;
-
-      // check if signature of received data is correct
-      if (!version || !name || !description || !repotag || !owner || !ports || !domains || !enviromentParameters || !commands || !containerPorts || !containerData || !cpu || !ram || !hdd) {
-        throw new Error('Missing Flux App specification parameter');
-      }
-      version = serviceHelper.ensureNumber(version);
-      name = serviceHelper.ensureString(name);
-      description = serviceHelper.ensureString(description);
-      repotag = serviceHelper.ensureString(repotag);
-      owner = serviceHelper.ensureString(owner);
-      ports = serviceHelper.ensureObject(ports);
-      const portsCorrect = [];
-      if (Array.isArray(ports)) {
-        ports.forEach((parameter) => {
-          const param = serviceHelper.ensureString(parameter); // next specification fork here we want to do ensureNumber
-          portsCorrect.push(param);
-        });
-      } else {
-        throw new Error('Ports for Flux App are invalid');
-      }
-      domains = serviceHelper.ensureObject(domains);
-      const domainsCorect = [];
-      if (Array.isArray(domains)) {
-        domains.forEach((parameter) => {
-          const param = serviceHelper.ensureString(parameter);
-          domainsCorect.push(param);
-        });
-      } else {
-        throw new Error('Domains for Flux App are invalid');
-      }
-      enviromentParameters = serviceHelper.ensureObject(enviromentParameters);
-      const envParamsCorrected = [];
-      if (Array.isArray(enviromentParameters)) {
-        enviromentParameters.forEach((parameter) => {
-          const param = serviceHelper.ensureString(parameter);
-          envParamsCorrected.push(param);
-        });
-      } else {
-        throw new Error('Enviromental parameters for Flux App are invalid');
-      }
-      commands = serviceHelper.ensureObject(commands);
-      const commandsCorrected = [];
-      if (Array.isArray(commands)) {
-        commands.forEach((command) => {
-          const cmm = serviceHelper.ensureString(command);
-          commandsCorrected.push(cmm);
-        });
-      } else {
-        throw new Error('Flux App commands are invalid');
-      }
-      containerPorts = serviceHelper.ensureObject(containerPorts);
-      const containerportsCorrect = [];
-      if (Array.isArray(containerPorts)) {
-        containerPorts.forEach((parameter) => {
-          const param = serviceHelper.ensureString(parameter); // next specification fork here we want to do ensureNumber
-          containerportsCorrect.push(param);
-        });
-      } else {
-        throw new Error('Container Ports for Flux App are invalid');
-      }
-      containerData = serviceHelper.ensureString(containerData);
-      cpu = serviceHelper.ensureNumber(cpu);
-      ram = serviceHelper.ensureNumber(ram);
-      hdd = serviceHelper.ensureNumber(hdd);
-      if (typeof tiered !== 'boolean') {
-        throw new Error('Invalid tiered value obtained. Only boolean as true or false allowed.');
-      }
-      if (version >= 3) {
-        if (!instances) {
-          throw new Error('Missing Flux App specification parameter');
-        }
-        instances = serviceHelper.ensureNumber(instances);
-        if (typeof instances !== 'number') {
-          throw new Error('Invalid instances specification');
-        }
-        if (Number.isInteger(instances) !== true) {
-          throw new Error('Invalid instances specified');
-        }
-        if (instances < 3) {
-          throw new Error('Minimum number of instances is 3');
-        }
-        if (instances > 100) {
-          throw new Error('Maximum number of instances is 100');
-        }
-      }
-
-      // finalised parameters that will get stored in global database
-      const appSpecFormatted = {
-        version, // integer
-        name, // string
-        description, // string
-        repotag, // string
-        owner, // zelid string
-        ports: portsCorrect, // array of integers
-        domains: domainsCorect,
-        enviromentParameters: envParamsCorrected, // array of strings
-        commands: commandsCorrected, // array of strings
-        containerPorts: containerportsCorrect, // array of integers
-        containerData, // string
-        cpu, // float 0.1 step
-        ram, // integer 100 step (mb)
-        hdd, // integer 1 step
-        tiered, // boolean
-      };
-      if (version >= 3) {
-        appSpecFormatted.instances = instances;
-      }
-
-      if (tiered) {
-        let { cpubasic } = appSpecification;
-        let { cpusuper } = appSpecification;
-        let { cpubamf } = appSpecification;
-        let { rambasic } = appSpecification;
-        let { ramsuper } = appSpecification;
-        let { rambamf } = appSpecification;
-        let { hddbasic } = appSpecification;
-        let { hddsuper } = appSpecification;
-        let { hddbamf } = appSpecification;
-        if (!cpubasic || !cpusuper || !cpubamf || !rambasic || !ramsuper || !rambamf || !hddbasic || !hddsuper || !hddbamf) {
-          throw new Error('Flux App was requested as tiered setup but specifications are missing');
-        }
-        cpubasic = serviceHelper.ensureNumber(cpubasic);
-        cpusuper = serviceHelper.ensureNumber(cpusuper);
-        cpubamf = serviceHelper.ensureNumber(cpubamf);
-        rambasic = serviceHelper.ensureNumber(rambasic);
-        ramsuper = serviceHelper.ensureNumber(ramsuper);
-        rambamf = serviceHelper.ensureNumber(rambamf);
-        hddbasic = serviceHelper.ensureNumber(hddbasic);
-        hddsuper = serviceHelper.ensureNumber(hddsuper);
-        hddbamf = serviceHelper.ensureNumber(hddbamf);
-
-        appSpecFormatted.cpubasic = cpubasic;
-        appSpecFormatted.cpusuper = cpusuper;
-        appSpecFormatted.cpubamf = cpubamf;
-        appSpecFormatted.rambasic = rambasic;
-        appSpecFormatted.ramsuper = ramsuper;
-        appSpecFormatted.rambamf = rambamf;
-        appSpecFormatted.hddbasic = hddbasic;
-        appSpecFormatted.hddsuper = hddsuper;
-        appSpecFormatted.hddbamf = hddbamf;
-      }
+      const appSpecFormatted = specificationFormatter(appSpecification);
 
       const syncStatus = daemonService.isDaemonSynced();
       if (!syncStatus.data.synced) {
@@ -3646,163 +4318,7 @@ async function updateAppGlobalyApi(req, res) {
       messageType = serviceHelper.ensureString(messageType);
       typeVersion = serviceHelper.ensureNumber(typeVersion);
 
-      let { version } = appSpecification;
-      let { name } = appSpecification;
-      let { description } = appSpecification;
-      let { repotag } = appSpecification;
-      let { owner } = appSpecification;
-      let { ports } = appSpecification;
-      let { domains } = appSpecification;
-      let { enviromentParameters } = appSpecification;
-      let { commands } = appSpecification;
-      let { containerPorts } = appSpecification;
-      let { containerData } = appSpecification;
-      let { instances } = appSpecification;
-      let { cpu } = appSpecification;
-      let { ram } = appSpecification;
-      let { hdd } = appSpecification;
-      const { tiered } = appSpecification;
-
-      // check if signature of received data is correct
-      if (!version || !name || !description || !repotag || !owner || !ports || !domains || !enviromentParameters || !commands || !containerPorts || !containerData || !cpu || !ram || !hdd) {
-        throw new Error('Missing Flux App specification parameter');
-      }
-      version = serviceHelper.ensureNumber(version);
-      name = serviceHelper.ensureString(name);
-      description = serviceHelper.ensureString(description);
-      repotag = serviceHelper.ensureString(repotag);
-      owner = serviceHelper.ensureString(owner);
-      ports = serviceHelper.ensureObject(ports);
-      const portsCorrect = [];
-      if (Array.isArray(ports)) {
-        ports.forEach((parameter) => {
-          const param = serviceHelper.ensureString(parameter); // todo ensureNumber
-          portsCorrect.push(param);
-        });
-      } else {
-        throw new Error('Ports for Flux App are invalid');
-      }
-      domains = serviceHelper.ensureObject(domains);
-      const domainsCorrect = [];
-      if (Array.isArray(domains)) {
-        domains.forEach((parameter) => {
-          const param = serviceHelper.ensureString(parameter);
-          domainsCorrect.push(param);
-        });
-      } else {
-        throw new Error('Domains for Flux App are invalid');
-      }
-      enviromentParameters = serviceHelper.ensureObject(enviromentParameters);
-      const envParamsCorrected = [];
-      if (Array.isArray(enviromentParameters)) {
-        enviromentParameters.forEach((parameter) => {
-          const param = serviceHelper.ensureString(parameter);
-          envParamsCorrected.push(param);
-        });
-      } else {
-        throw new Error('Enviromental parameters for Flux App are invalid');
-      }
-      commands = serviceHelper.ensureObject(commands);
-      const commandsCorrected = [];
-      if (Array.isArray(commands)) {
-        commands.forEach((command) => {
-          const cmm = serviceHelper.ensureString(command);
-          commandsCorrected.push(cmm);
-        });
-      } else {
-        throw new Error('Flux App commands are invalid');
-      }
-      containerPorts = serviceHelper.ensureObject(containerPorts);
-      const containerportsCorrect = [];
-      if (Array.isArray(containerPorts)) {
-        containerPorts.forEach((parameter) => {
-          const param = serviceHelper.ensureString(parameter); // todo ensureNumber
-          containerportsCorrect.push(param);
-        });
-      } else {
-        throw new Error('Container Ports for Flux App are invalid');
-      }
-      containerData = serviceHelper.ensureString(containerData);
-      cpu = serviceHelper.ensureNumber(cpu);
-      ram = serviceHelper.ensureNumber(ram);
-      hdd = serviceHelper.ensureNumber(hdd);
-      if (typeof tiered !== 'boolean') {
-        throw new Error('Invalid tiered value obtained. Only boolean as true or false allowed.');
-      }
-      if (version >= 3) {
-        if (!instances) {
-          throw new Error('Missing Flux App specification parameter');
-        }
-        instances = serviceHelper.ensureNumber(instances);
-        if (typeof instances !== 'number') {
-          throw new Error('Invalid instances specification');
-        }
-        if (Number.isInteger(instances) !== true) {
-          throw new Error('Invalid instances specified');
-        }
-        if (instances < 3) {
-          throw new Error('Minimum number of instances is 3');
-        }
-        if (instances > 100) {
-          throw new Error('Maximum number of instances is 100');
-        }
-      }
-
-      // finalised parameters that will get stored in global database
-      const appSpecFormatted = {
-        version, // integer
-        name, // string
-        description, // string
-        repotag, // string
-        owner, // zelid string
-        ports: portsCorrect, // array of integers
-        domains: domainsCorrect, // array of strings
-        enviromentParameters: envParamsCorrected, // array of strings
-        commands: commandsCorrected, // array of strings
-        containerPorts: containerportsCorrect, // array of integers
-        containerData, // string
-        cpu, // float 0.1 step
-        ram, // integer 100 step (mb)
-        hdd, // integer 1 step
-        tiered, // boolean
-      };
-      if (version >= 3) {
-        appSpecFormatted.instances = instances;
-      }
-
-      if (tiered) {
-        let { cpubasic } = appSpecification;
-        let { cpusuper } = appSpecification;
-        let { cpubamf } = appSpecification;
-        let { rambasic } = appSpecification;
-        let { ramsuper } = appSpecification;
-        let { rambamf } = appSpecification;
-        let { hddbasic } = appSpecification;
-        let { hddsuper } = appSpecification;
-        let { hddbamf } = appSpecification;
-        if (!cpubasic || !cpusuper || !cpubamf || !rambasic || !ramsuper || !rambamf || !hddbasic || !hddsuper || !hddbamf) {
-          throw new Error('Flux App was requested as tiered setup but specifications are missing');
-        }
-        cpubasic = serviceHelper.ensureNumber(cpubasic);
-        cpusuper = serviceHelper.ensureNumber(cpusuper);
-        cpubamf = serviceHelper.ensureNumber(cpubamf);
-        rambasic = serviceHelper.ensureNumber(rambasic);
-        ramsuper = serviceHelper.ensureNumber(ramsuper);
-        rambamf = serviceHelper.ensureNumber(rambamf);
-        hddbasic = serviceHelper.ensureNumber(hddbasic);
-        hddsuper = serviceHelper.ensureNumber(hddsuper);
-        hddbamf = serviceHelper.ensureNumber(hddbamf);
-
-        appSpecFormatted.cpubasic = cpubasic;
-        appSpecFormatted.cpusuper = cpusuper;
-        appSpecFormatted.cpubamf = cpubamf;
-        appSpecFormatted.rambasic = rambasic;
-        appSpecFormatted.ramsuper = ramsuper;
-        appSpecFormatted.rambamf = rambamf;
-        appSpecFormatted.hddbasic = hddbasic;
-        appSpecFormatted.hddsuper = hddsuper;
-        appSpecFormatted.hddbamf = hddbamf;
-      }
+      const appSpecFormatted = specificationFormatter(appSpecification);
 
       const syncStatus = daemonService.isDaemonSynced();
       if (!syncStatus.data.synced) {
@@ -4041,6 +4557,42 @@ async function updateAppSpecifications(appSpecs) {
     //   hash: hash of message that has these paramenters,
     //   height: height containing the message
     // };
+    // const appSpecs = {
+    //   version: 4,
+    //   name: 'FoldingAtHomeB',
+    //   description: 'Folding @ Home is cool :)',
+    //   repotag: 'yurinnick/folding-at-home:latest',
+    //   owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+    //   compose: [
+    //     {
+    //       name: 'Daemon',
+    //       description: 'Main ddaemon for foldingAtHome',
+    //       repotag: 'yurinnick/folding-at-home:latest',
+    //       ports: '[30001]',
+    //       containerPorts: '[7396]',
+    //       domains: '[""]',
+    //       enviromentParameters: '["USER=foldingUser", "TEAM=262156", "ENABLE_GPU=false", "ENABLE_SMP=true"]', // []
+    //       commands: '["--allow","0/0","--web-allow","0/0"]', // []
+    //       containerData: '/config',
+    //       cpu: 0.5,
+    //       ram: 500,
+    //       hdd: 5,
+    //       tiered: true,
+    //       cpubasic: 0.5,
+    //       rambasic: 500,
+    //       hddbasic: 5,
+    //       cpusuper: 1,
+    //       ramsuper: 1000,
+    //       hddsuper: 5,
+    //       cpubamf: 2,
+    //       rambamf: 2000,
+    //       hddbamf: 5,
+    //     },
+    //   ],
+    //   instances: 10, // version 3 fork
+    //   hash: 'abadasdasdsad',
+    //   height: 12345,
+    // };
     const db = serviceHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
 
@@ -4149,7 +4701,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
       // check temporary message storage
       // if we have it in temporary storage, get the temporary message
       const tempMessage = await checkAppTemporaryMessageExistence(hash);
-      if (tempMessage && typeof tempMessage === 'object') {
+      if (tempMessage && typeof tempMessage === 'object' && !Array.isArray(tempMessage)) {
         const specifications = tempMessage.appSpecifications || tempMessage.zelAppSpecifications;
         // temp message means its all ok. store it as permanent app message
         const permanentAppMessage = {

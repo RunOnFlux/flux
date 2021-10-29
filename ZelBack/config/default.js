@@ -80,7 +80,7 @@ module.exports = {
       minPrice: 0.1, // minimum price that has to be paid for registration or update. Flux listens only to message above or equal this price
     }],
     appSpecsEnforcementHeights: {
-      1: 0, // blockheight
+      1: 0, // blockheight v1 is deprecated. Not possible to use api to update to its specs
       2: 0, // blockheight
       3: 983000, // blockheight. Since this blockheight specification of type 3 is active. User can still submit v1 or v2. UI allows only v2, v3
       4: 1000000, // v4 available
