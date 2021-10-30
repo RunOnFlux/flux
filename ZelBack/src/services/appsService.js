@@ -2582,16 +2582,31 @@ function appPricePerMonth(dataForAppRegistration, height) {
     // specification version 3 is saying. 3 instances are standard, every 3 additional is double the price.
     instancesAdditional = dataForAppRegistration.instances - 3; // has to always be >=0 as of checks before.
   }
-  if (dataForAppRegistration.tiered) {
-    const cpuTotalCount = dataForAppRegistration.cpubasic + dataForAppRegistration.cpusuper + dataForAppRegistration.cpubamf;
-    const cpuPrice = cpuTotalCount * priceSpecifications.cpu * 10;
-    const cpuTotal = cpuPrice / 3;
-    const ramTotalCount = dataForAppRegistration.rambasic + dataForAppRegistration.ramsuper + dataForAppRegistration.rambamf;
-    const ramPrice = (ramTotalCount * priceSpecifications.ram) / 100;
-    const ramTotal = ramPrice / 3;
-    const hddTotalCount = dataForAppRegistration.hddbasic + dataForAppRegistration.hddsuper + dataForAppRegistration.hddbamf;
-    const hddPrice = hddTotalCount * priceSpecifications.hdd;
-    const hddTotal = hddPrice / 3;
+  if (dataForAppRegistration.version <= 3) {
+    if (dataForAppRegistration.tiered) {
+      const cpuTotalCount = dataForAppRegistration.cpubasic + dataForAppRegistration.cpusuper + dataForAppRegistration.cpubamf;
+      const cpuPrice = cpuTotalCount * priceSpecifications.cpu * 10;
+      const cpuTotal = cpuPrice / 3;
+      const ramTotalCount = dataForAppRegistration.rambasic + dataForAppRegistration.ramsuper + dataForAppRegistration.rambamf;
+      const ramPrice = (ramTotalCount * priceSpecifications.ram) / 100;
+      const ramTotal = ramPrice / 3;
+      const hddTotalCount = dataForAppRegistration.hddbasic + dataForAppRegistration.hddsuper + dataForAppRegistration.hddbamf;
+      const hddPrice = hddTotalCount * priceSpecifications.hdd;
+      const hddTotal = hddPrice / 3;
+      const totalPrice = cpuTotal + ramTotal + hddTotal;
+      let appPrice = Number(Math.ceil(totalPrice * 100) / 100);
+      if (instancesAdditional > 0) {
+        const additionalPrice = (appPrice * instancesAdditional) / 3;
+        appPrice = (Math.ceil(additionalPrice * 100) + Math.ceil(appPrice * 100)) / 100;
+      }
+      if (appPrice < priceSpecifications.minPrice) {
+        appPrice = priceSpecifications.minPrice;
+      }
+      return appPrice;
+    }
+    const cpuTotal = dataForAppRegistration.cpu * priceSpecifications.cpu * 10;
+    const ramTotal = (dataForAppRegistration.ram * priceSpecifications.ram) / 100;
+    const hddTotal = dataForAppRegistration.hdd * priceSpecifications.hdd;
     const totalPrice = cpuTotal + ramTotal + hddTotal;
     let appPrice = Number(Math.ceil(totalPrice * 100) / 100);
     if (instancesAdditional > 0) {
@@ -2603,10 +2618,25 @@ function appPricePerMonth(dataForAppRegistration, height) {
     }
     return appPrice;
   }
-  const cpuTotal = dataForAppRegistration.cpu * priceSpecifications.cpu * 10;
-  const ramTotal = (dataForAppRegistration.ram * priceSpecifications.ram) / 100;
-  const hddTotal = dataForAppRegistration.hdd * priceSpecifications.hdd;
-  const totalPrice = cpuTotal + ramTotal + hddTotal;
+  // v4+ compose
+  let cpuTotalCount = 0;
+  let ramTotalCount = 0;
+  let hddTotalCount = 0;
+  dataForAppRegistration.forEach((appComponent) => {
+    if (appComponent.tiered) {
+      cpuTotalCount += ((appComponent.cpubasic + appComponent.cpusuper + appComponent.cpubamf) / 3);
+      ramTotalCount += ((appComponent.rambasic + appComponent.ramsuper + appComponent.rambamf) / 3);
+      hddTotalCount += ((appComponent.hddbasic + appComponent.hddsuper + appComponent.hddbamf) / 3);
+    } else {
+      cpuTotalCount += appComponent.cpu;
+      ramTotalCount += appComponent.ram;
+      hddTotalCount += appComponent.hdd;
+    }
+  });
+  const cpuPrice = cpuTotalCount * priceSpecifications.cpu * 10;
+  const ramPrice = (ramTotalCount * priceSpecifications.ram) / 100;
+  const hddPrice = hddTotalCount * priceSpecifications.hdd;
+  const totalPrice = cpuPrice + ramPrice + hddPrice;
   let appPrice = Number(Math.ceil(totalPrice * 100) / 100);
   if (instancesAdditional > 0) {
     const additionalPrice = (appPrice * instancesAdditional) / 3;
@@ -2678,15 +2708,15 @@ function checkComposeHWParameters(appSpecsComposed) {
   const isTiered = appSpecsComposed.compose.find((appComponent) => appComponent.tiered === true);
   appSpecsComposed.compose.forEach((appComponent) => {
     if (isTiered) {
-      totalCpuBamf += ((appComponent.cpubamf || appComponent.cpu) * 10);
-      totalRamBamf += (appComponent.rambamf || appComponent.ram);
-      totalHddBamf += (appComponent.hddbamf || appComponent.hdd);
-      totalCpuSuper += ((appComponent.cpusuper || appComponent.cpu) * 10);
-      totalRamSuper += (appComponent.ramsuper || appComponent.ram);
-      totalHddSuper += (appComponent.hddsuper || appComponent.hdd);
-      totalCpuBasic += ((appComponent.cpubasic || appComponent.cpu) * 10);
-      totalRamBasic += (appComponent.rambasic || appComponent.ram);
-      totalHddBasic += (appComponent.hddbasic || appComponent.hdd);
+      totalCpuBamf += (appComponent.cpubamf * 10);
+      totalRamBamf += appComponent.rambamf;
+      totalHddBamf += appComponent.hddbamf;
+      totalCpuSuper += (appComponent.cpusuper * 10);
+      totalRamSuper += appComponent.ramsuper;
+      totalHddSuper += appComponent.hddsuper;
+      totalCpuBasic += (appComponent.cpubasic * 10);
+      totalRamBasic += appComponent.rambasic;
+      totalHddBasic += appComponent.hddbasic;
     } else {
       totalCpu += (appComponent.cpu * 10);
       totalRam += appComponent.ram;
@@ -3203,8 +3233,8 @@ function verifyCorrectnessOfApp(appSpecification) {
         const { hddsuper } = appComponent;
         const { hddbamf } = appComponent;
         if (typeof cpubasic !== 'number' || typeof cpusuper !== 'number' || typeof cpubamf !== 'number'
-        || typeof rambasic !== 'number' || typeof ramsuper !== 'number' || typeof rambamf !== 'number'
-        || typeof hddbasic !== 'number' || typeof hddsuper !== 'number' || typeof hddbamf !== 'number') {
+          || typeof rambasic !== 'number' || typeof ramsuper !== 'number' || typeof rambamf !== 'number'
+          || typeof hddbasic !== 'number' || typeof hddsuper !== 'number' || typeof hddbamf !== 'number') {
           throw new Error('Invalid tiered HW specifications');
         }
       }
