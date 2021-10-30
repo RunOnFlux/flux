@@ -1970,6 +1970,46 @@ async function removeAppLocallyApi(req, res) {
   }
 }
 
+function totalAppHWRequirements(appSpecifications, myNodeTier) {
+  let cpu = 0;
+  let ram = 0;
+  let hdd = 0;
+  const hddTier = `hdd${myNodeTier}`;
+  const ramTier = `ram${myNodeTier}`;
+  const cpuTier = `cpu${myNodeTier}`;
+  if (appSpecifications.version <= 3) {
+    if (appSpecifications.tiered) {
+      cpu = appSpecifications[cpuTier] || appSpecifications.cpu;
+      ram = appSpecifications[ramTier] || appSpecifications.ram;
+      hdd = appSpecifications[hddTier] || appSpecifications.hdd;
+    } else {
+      // eslint-disable-next-line prefer-destructuring
+      cpu = appSpecifications.cpu;
+      // eslint-disable-next-line prefer-destructuring
+      ram = appSpecifications.ram;
+      // eslint-disable-next-line prefer-destructuring
+      hdd = appSpecifications.hdd;
+    }
+  } else {
+    appSpecifications.compose.forEach((appComponent) => {
+      if (appComponent.tiered) {
+        cpu += appComponent[cpuTier] || appComponent.cpu;
+        ram += appComponent[ramTier] || appComponent.ram;
+        hdd += appComponent[hddTier] || appComponent.hdd;
+      } else {
+        cpu += appSpecifications.cpu;
+        ram += appSpecifications.ram;
+        hdd += appSpecifications.hdd;
+      }
+    });
+  }
+  return {
+    cpu,
+    ram,
+    hdd,
+  };
+}
+
 async function checkAppRequirements(appSpecs) {
   // appSpecs has hdd, cpu and ram assigned to correct tier
   const tier = await nodeTier();
@@ -1978,19 +2018,21 @@ async function checkAppRequirements(appSpecs) {
     throw new Error('Unable to obtain locked system resources by Flux Apps. Aborting.');
   }
 
+  const appHWrequirements = totalAppHWRequirements(appSpecs, tier);
+
   const totalSpaceOnNode = config.fluxSpecifics.hdd[tier];
   const useableSpaceOnNode = totalSpaceOnNode - config.lockedSystemResources.hdd;
   const hddLockedByApps = resourcesLocked.data.apsHddLocked;
   const availableSpaceForApps = useableSpaceOnNode - hddLockedByApps;
   // bigger or equal so we have the 1 gb free...
-  if (appSpecs.hdd > availableSpaceForApps) {
+  if (appHWrequirements.hdd > availableSpaceForApps) {
     throw new Error('Insufficient space on Flux Node to spawn an application');
   }
 
   const totalCpuOnNode = config.fluxSpecifics.cpu[tier];
   const useableCpuOnNode = totalCpuOnNode - config.lockedSystemResources.cpu;
   const cpuLockedByApps = resourcesLocked.data.appsCpusLocked * 10;
-  const adjustedAppCpu = appSpecs.cpu * 10;
+  const adjustedAppCpu = appHWrequirements.cpu * 10;
   const availableCpuForApps = useableCpuOnNode - cpuLockedByApps;
   if (adjustedAppCpu > availableCpuForApps) {
     throw new Error('Insufficient CPU power on Flux Node to spawn an application');
@@ -2000,7 +2042,7 @@ async function checkAppRequirements(appSpecs) {
   const useableRamOnNode = totalRamOnNode - config.lockedSystemResources.ram;
   const ramLockedByApps = resourcesLocked.data.appsRamLocked;
   const availableRamForApps = useableRamOnNode - ramLockedByApps;
-  if (appSpecs.ram > availableRamForApps) {
+  if (appHWrequirements.ram > availableRamForApps) {
     throw new Error('Insufficient RAM on Flux Node to spawn an application');
   }
   return true;
