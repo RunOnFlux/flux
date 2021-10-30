@@ -12,6 +12,7 @@ const serviceHelper = require('./serviceHelper');
 const daemonService = require('./daemonService');
 const benchmarkService = require('./benchmarkService');
 const appsService = require('./appsService');
+const generalService = require('./generalService');
 const fluxCommunication = require('./fluxCommunication');
 const userconfig = require('../../../config/userconfig');
 
@@ -724,7 +725,7 @@ async function adjustKadenaAccount(req, res) {
 async function getNodeTier(req, res) {
   try {
     let responseAux;
-    const tier = await appsService.nodeTier();
+    const tier = await generalService.nodeTier();
     if (tier === 'basic') {
       responseAux = 'cumulus';
     } else if (tier === 'super') {

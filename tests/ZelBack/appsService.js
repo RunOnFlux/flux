@@ -1,5 +1,6 @@
 process.env.NODE_CONFIG_DIR = `${process.cwd()}/ZelBack/config/`;
 const appService = require("../../ZelBack/src/services/appsService");
+const generalService = require("../../ZelBack/src/services/generalService");
 const chai = require('chai');
 const expect = chai.expect;
 
@@ -193,7 +194,7 @@ describe('checkHWParameters', () => {
     const signature = 'H7AP+VrFUTrmi+DqG8x0nllBFXB+oD09AkSE/JEpemeOTzMglftjTtPaEY3rMW/FUezEiad0WZNgxiInFrUn6S8=';
     const messageHash = 'c509eae87618e0c4c40106d3c515923d7611070bcafad261de9520238617c972'
     const message = type + version + JSON.stringify(fluxAppSpecs) + timestamp + signature;
-    expect(await appService.messageHash(message)).to.be.equal(messageHash);
+    expect(await generalService.messageHash(message)).to.be.equal(messageHash);
   });
 
   it('Message Hash is correctly verified', async () => {

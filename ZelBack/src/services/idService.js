@@ -6,7 +6,7 @@ const os = require('os');
 const userconfig = require('../../../config/userconfig');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
-const appsService = require('./appsService');
+const generalService = require('./generalService');
 const dockerService = require('./dockerService');
 const fluxCommunication = require('./fluxCommunication');
 
@@ -14,7 +14,7 @@ const goodchars = /^[1-9a-km-zA-HJ-NP-Z]+$/;
 
 async function confirmNodeTierHardware() {
   try {
-    const tier = await appsService.nodeTier().catch((error) => {
+    const tier = await generalService.nodeTier().catch((error) => {
       log.error(error);
     });
     const nodeRam = os.totalmem() / 1024 / 1024 / 1024;

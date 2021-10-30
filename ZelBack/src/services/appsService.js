@@ -1,14 +1,10 @@
 const config = require('config');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const os = require('os');
-const crypto = require('crypto');
 const path = require('path');
 const nodecmd = require('node-cmd');
 const df = require('node-df');
-const fs = require('fs');
-const formidable = require('formidable');
 const LRU = require('lru-cache');
-const archiver = require('archiver');
 const systemcrontab = require('crontab');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
@@ -16,6 +12,7 @@ const fluxCommunication = require('./fluxCommunication');
 const serviceHelper = require('./serviceHelper');
 const daemonService = require('./daemonService');
 const dockerService = require('./dockerService');
+const generalService = require('./generalService');
 const log = require('../lib/log');
 const userconfig = require('../../../config/userconfig');
 
@@ -43,15 +40,6 @@ const myCache = new LRU(LRUoptions);
 
 let removalInProgress = false;
 let installationInProgress = false;
-let storedTier = '';
-
-function getCollateralInfo(collateralOutpoint) {
-  const a = collateralOutpoint;
-  const b = a.split(', ');
-  const txhash = b[0].substr(10, b[0].length);
-  const txindex = serviceHelper.ensureNumber(b[1].split(')')[0]);
-  return { txhash, txindex };
-}
 
 async function appPull(req, res) {
   try {
@@ -158,61 +146,6 @@ async function listAppsImages(req, res) {
       error.code,
     );
     return res ? res.json(errorResponse) : errorResponse;
-  }
-}
-
-async function nodeTier() {
-  if (storedTier) {
-    return storedTier; // node tier is not changing. We can use globally cached value.
-  }
-  // get our collateral information to decide if app specifications are basic, super, bamf
-  // getzlenodestatus.collateral
-  const nodeStatus = await daemonService.getZelNodeStatus();
-  if (nodeStatus.status === 'error') {
-    throw nodeStatus.data;
-  }
-  const collateralInformation = getCollateralInfo(nodeStatus.data.collateral);
-  // get transaction information about collateralInformation.txhash
-  const request = {
-    params: {
-      txid: collateralInformation.txhash,
-      verbose: 1,
-    },
-  };
-  const txInformation = await daemonService.getRawTransaction(request);
-  if (txInformation.status === 'error') {
-    throw txInformation.data;
-  }
-  // get collateralInformation.txindex vout
-  const { value } = txInformation.data.vout[collateralInformation.txindex];
-  if (value === 10000) {
-    storedTier = 'basic';
-    return storedTier;
-  }
-  if (value === 25000) {
-    storedTier = 'super';
-    return storedTier;
-  }
-  if (value === 100000) {
-    storedTier = 'bamf';
-    return storedTier;
-  }
-  throw new Error('Unrecognised Flux Node tier');
-}
-
-async function isNodeStatusConfirmed() {
-  try {
-    const response = await daemonService.getZelNodeStatus();
-    if (response.status === 'error') {
-      throw response.data;
-    }
-    if (response.data.status === 'CONFIRMED') {
-      return true;
-    }
-    return false;
-  } catch (error) {
-    log.error(error);
-    return false;
   }
 }
 
@@ -808,7 +741,7 @@ async function createAppVolume(appSpecifications, res) {
     }
   });
 
-  const tier = await nodeTier();
+  const tier = await generalService.nodeTier();
   const totalSpaceOnNode = config.fluxSpecifics.hdd[tier];
   const useableSpaceOnNode = totalSpaceOnNode - config.lockedSystemResources.hdd;
   const resourcesLocked = await appsResources();
@@ -1608,7 +1541,7 @@ function totalAppHWRequirements(appSpecifications, myNodeTier) {
 
 async function checkAppRequirements(appSpecs) {
   // appSpecs has hdd, cpu and ram assigned to correct tier
-  const tier = await nodeTier();
+  const tier = await generalService.nodeTier();
   const resourcesLocked = await appsResources();
   if (resourcesLocked.status !== 'success') {
     throw new Error('Unable to obtain locked system resources by Flux Apps. Aborting.');
@@ -2419,13 +2352,6 @@ async function getAppsTemporaryMessages(req, res) {
   res.json(resultsResponse);
 }
 
-async function messageHash(message) {
-  if (typeof message !== 'string') {
-    return new Error('Invalid message');
-  }
-  return crypto.createHash('sha256').update(message).digest('hex');
-}
-
 async function getAppsPermanentMessages(req, res) {
   const db = serviceHelper.databaseConnection();
 
@@ -2575,7 +2501,7 @@ async function verifyAppHash(message) {
   * @param signature string
   */
   const messToHash = message.type + message.version + JSON.stringify(message.appSpecifications || message.zelAppSpecifications) + message.timestamp + message.signature;
-  const messageHASH = await messageHash(messToHash);
+  const messageHASH = await generalService.messageHash(messToHash);
   if (messageHASH !== message.hash) {
     throw new Error('Invalid Flux App hash received!');
   }
@@ -2634,47 +2560,6 @@ async function verifyRepository(repotag) {
     }
   } else {
     throw new Error(`Repository ${repotag} is not in valid format namespace/repository:tag`);
-  }
-  return true;
-}
-
-async function checkWhitelistedRepository(repotag) {
-  if (typeof repotag !== 'string') {
-    throw new Error('Invalid repotag');
-  }
-  const splittedRepo = repotag.split(':');
-  if (splittedRepo[0] && splittedRepo[1] && !splittedRepo[2]) {
-    const resWhitelistRepo = await serviceHelper.axiosGet('https://raw.githubusercontent.com/runonflux/flux/master/helpers/repositories.json');
-
-    if (!resWhitelistRepo) {
-      throw new Error('Unable to communicate with Flux Services! Try again later.');
-    }
-
-    const repos = resWhitelistRepo.data;
-    const whitelisted = repos.includes(repotag);
-    if (!whitelisted) {
-      throw new Error('Repository is not whitelisted. Please contact Flux Team.');
-    }
-  } else {
-    throw new Error(`Repository ${repotag} is not in valid format namespace/repository:tag`);
-  }
-  return true;
-}
-
-async function checkWhitelistedZelID(zelid) {
-  if (typeof zelid !== 'string') {
-    throw new Error('Invalid Owner ZelID');
-  }
-  const resZelIDs = await serviceHelper.axiosGet('https://raw.githubusercontent.com/runonflux/flux/master/helpers/zelids.json');
-
-  if (!resZelIDs) {
-    throw new Error('Unable to communicate with Flux Services! Try again later.');
-  }
-
-  const zelids = resZelIDs.data;
-  const whitelisted = zelids.includes(zelid);
-  if (!whitelisted) {
-    throw new Error('Owner ZelID is not whitelisted. Please contact Flux Team.');
   }
   return true;
 }
@@ -2992,7 +2877,7 @@ async function verifyAppSpecifications(appSpecifications, height) {
     await verifyRepository(appSpecifications.repotag);
 
     // check repository whitelisted
-    await checkWhitelistedRepository(appSpecifications.repotag);
+    await generalService.checkWhitelistedRepository(appSpecifications.repotag);
   } else {
     if (!Array.isArray(appSpecifications.compose)) {
       throw new Error('Invalid Flux App Specifications');
@@ -3078,7 +2963,7 @@ async function verifyAppSpecifications(appSpecifications, height) {
 
       // check repository whitelisted
       // eslint-disable-next-line no-await-in-loop
-      await checkWhitelistedRepository(appComponent.repotag);
+      await generalService.checkWhitelistedRepository(appComponent.repotag);
     }
   }
 
@@ -3183,7 +3068,7 @@ async function verifyAppSpecifications(appSpecifications, height) {
     });
   }
   // check ZelID whitelisted
-  await checkWhitelistedZelID(appSpecifications.owner);
+  await generalService.checkWhitelistedZelID(appSpecifications.owner);
 }
 
 async function assignedPortsApps() {
@@ -3915,7 +3800,7 @@ async function registerAppGlobalyApi(req, res) {
       // If hashing just specificiations, if application goes back to previous specifications, it may possess some issues if we have indeed correct state
       // We respond with a hash that is supposed to go to transaction.
       const message = messageType + typeVersion + JSON.stringify(appSpecFormatted) + timestamp + signature;
-      const messageHASH = await messageHash(message);
+      const messageHASH = await generalService.messageHash(message);
       const responseHash = serviceHelper.createDataMessage(messageHASH);
       // now all is great. Store appSpecFormatted, timestamp, signature and hash in appsTemporaryMessages. with 1 hours expiration time. Broadcast this message to all outgoing connections.
       const temporaryAppMessage = { // specification of temp message
@@ -4020,7 +3905,7 @@ async function updateAppGlobalyApi(req, res) {
       // If hashing just specificiations, if application goes back to previous specifications, it may possess some issues if we have indeed correct state
       // We respond with a hash that is supposed to go to transaction.
       const message = messageType + typeVersion + JSON.stringify(appSpecFormatted) + timestamp + signature;
-      const messageHASH = await messageHash(message);
+      const messageHASH = await generalService.messageHash(message);
       const responseHash = serviceHelper.createDataMessage(messageHASH);
       // now all is great. Store appSpecFormatted, timestamp, signature and hash in appsTemporaryMessages. with 1 hours expiration time. Broadcast this message to all outgoing connections.
       const temporaryAppMessage = { // specification of temp message
@@ -4118,7 +4003,7 @@ async function installTemporaryLocalApplication(req, res) {
 
       // get our tier and adjust true resource registered
       if (appSpecifications.tiered) {
-        const tier = await nodeTier();
+        const tier = await generalService.nodeTier();
         if (tier === 'basic') {
           appSpecifications.cpu = appSpecifications.cpubasic || appSpecifications.cpu;
           appSpecifications.ram = appSpecifications.rambasic || appSpecifications.ram;
@@ -4845,39 +4730,6 @@ async function getAppsLocation(req, res) {
   }
 }
 
-async function checkSynced() {
-  try {
-    // check if flux database is synced with daemon database (equal or -1 inheight)
-    const syncStatus = daemonService.isDaemonSynced();
-    if (!syncStatus.data.synced) {
-      throw new Error('Daemon not yet synced.');
-    }
-    const daemonHeight = syncStatus.data.height;
-    const dbopen = serviceHelper.databaseConnection();
-    const database = dbopen.db(config.database.daemon.database);
-    const query = { generalScannedHeight: { $gte: 0 } };
-    const projection = {
-      projection: {
-        _id: 0,
-        generalScannedHeight: 1,
-      },
-    };
-    const result = await serviceHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
-    if (!result) {
-      throw new Error('Scanning not initiated');
-    }
-    const explorerHeight = serviceHelper.ensureNumber(result.generalScannedHeight);
-
-    if (explorerHeight + 1 === daemonHeight || explorerHeight === daemonHeight) {
-      return true;
-    }
-    return false;
-  } catch (e) {
-    log.error(e);
-    return false;
-  }
-}
-
 async function getAllGlobalApplicationsNames() {
   try {
     const db = serviceHelper.databaseConnection();
@@ -5050,19 +4902,19 @@ async function trySpawningGlobalApplication() {
     // how do we continue with this function function?
     // we have globalapplication specifics list
     // check if we are synced
-    const tier = await nodeTier();
+    const tier = await generalService.nodeTier();
     if (tier === 'basic') {
       log.info('Cumulus node detected. Global applications will not be installed');
       return;
     }
-    const synced = await checkSynced();
+    const synced = await generalService.checkSynced();
     if (synced !== true) {
       log.info('Flux not yet synced');
       await serviceHelper.delay(config.fluxapps.installation.delay * 1000);
       trySpawningGlobalApplication();
       return;
     }
-    const isNodeConfirmed = await isNodeStatusConfirmed();
+    const isNodeConfirmed = await generalService.isNodeStatusConfirmed();
     if (!isNodeConfirmed) {
       log.info('Flux Node not Confirmed. Global applications will not be installed');
       await serviceHelper.delay(config.fluxapps.installation.delay * 1000);
@@ -5275,7 +5127,7 @@ async function expireGlobalApplications() {
   // function to expire global applications. Find applications that are lower than blocksLasting
   // check if synced
   try {
-    const synced = await checkSynced();
+    const synced = await generalService.checkSynced();
     if (synced !== true) {
       log.info('Application expiration paused. Not yet synced');
       return;
@@ -5333,12 +5185,12 @@ async function expireGlobalApplications() {
   }
 }
 
-// check if more than 10 instances of application are running
+// check if more than allowed instances of application are running
 async function checkAndRemoveApplicationInstance() {
   // function to remove global applications on this local node. Find applications that are spawned more than maximum number of instances allowed
   // check if synced
   try {
-    const synced = await checkSynced();
+    const synced = await generalService.checkSynced();
     if (synced !== true) {
       log.info('Application duplication removal paused. Not yet synced');
       return;
@@ -5412,7 +5264,7 @@ async function softRedeploy(appSpecs, res) {
     await serviceHelper.delay(config.fluxapps.redeploy.delay * 1000); // wait for delay mins
     // run the verification
     // get tier and adjust specifications
-    const tier = await nodeTier();
+    const tier = await generalService.nodeTier();
     const appSpecifications = appSpecs;
     if (appSpecifications.tiered) {
       const hddTier = `hdd${tier}`;
@@ -5444,7 +5296,7 @@ async function hardRedeploy(appSpecs, res) {
     await serviceHelper.delay(config.fluxapps.redeploy.delay * 1000); // wait for delay mins
     // run the verification
     // get tier and adjust specifications
-    const tier = await nodeTier();
+    const tier = await generalService.nodeTier();
     const appSpecifications = appSpecs;
     if (appSpecifications.tiered) {
       const hddTier = `hdd${tier}`;
@@ -5467,7 +5319,7 @@ async function hardRedeploy(appSpecs, res) {
 
 async function reinstallOldApplications() {
   try {
-    const synced = await checkSynced();
+    const synced = await generalService.checkSynced();
     if (synced !== true) {
       log.info('Checking application status paused. Not yet synced');
       return;
@@ -5495,7 +5347,7 @@ async function reinstallOldApplications() {
           // run the verification
           // get tier and adjust specifications
           // eslint-disable-next-line no-await-in-loop
-          const tier = await nodeTier();
+          const tier = await generalService.nodeTier();
           if (appSpecifications.tiered) {
             const hddTier = `hdd${tier}`;
             const ramTier = `ram${tier}`;
@@ -5736,805 +5588,7 @@ async function redeployAPI(req, res) {
   }
 }
 
-async function whitelistedRepositories(req, res) {
-  try {
-    const whitelisted = await serviceHelper.axiosGet('https://raw.githubusercontent.com/runonflux/flux/master/helpers/repositories.json');
-    const resultsResponse = serviceHelper.createDataMessage(whitelisted.data);
-    res.json(resultsResponse);
-  } catch (error) {
-    log.error(error);
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
-    res.json(errMessage);
-  }
-}
-
-async function whitelistedZelIDs(req, res) {
-  try {
-    const whitelisted = await serviceHelper.axiosGet('https://raw.githubusercontent.com/runonflux/flux/master/helpers/zelids.json');
-    const resultsResponse = serviceHelper.createDataMessage(whitelisted.data);
-    res.json(resultsResponse);
-  } catch (error) {
-    log.error(error);
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
-    res.json(errMessage);
-  }
-}
-
-// FluxShare specific
-async function fluxShareDatabaseFileDelete(file) {
-  try {
-    const dbopen = serviceHelper.databaseConnection();
-    const databaseFluxShare = dbopen.db(config.database.fluxshare.database);
-    const sharedCollection = config.database.fluxshare.collections.shared;
-    const queryFluxShare = { name: file };
-    const projectionFluxShare = { projection: { _id: 0, name: 1, token: 1 } };
-    await serviceHelper.findOneAndDeleteInDatabase(databaseFluxShare, sharedCollection, queryFluxShare, projectionFluxShare);
-    return true;
-  } catch (error) {
-    log.error(error);
-    throw error;
-  }
-}
-
-// removes documents that starts with the path queried
-async function fluxShareDatabaseFileDeleteMultiple(pathstart) {
-  try {
-    const dbopen = serviceHelper.databaseConnection();
-    const databaseFluxShare = dbopen.db(config.database.fluxshare.database);
-    const sharedCollection = config.database.fluxshare.collections.shared;
-    const queryFluxShare = { name: new RegExp(`^${pathstart}`) }; // has to start with this path
-    await serviceHelper.removeDocumentsFromCollection(databaseFluxShare, sharedCollection, queryFluxShare);
-    return true;
-  } catch (error) {
-    log.error(error);
-    throw error;
-  }
-}
-
-function getAllFiles(dirPath, arrayOfFiles) {
-  const files = fs.readdirSync(dirPath);
-
-  // eslint-disable-next-line no-param-reassign
-  arrayOfFiles = arrayOfFiles || [];
-
-  files.forEach((file) => {
-    let isDirectory = false;
-    try {
-      isDirectory = fs.statSync(`${dirPath}/${file}`).isDirectory();
-    } catch (error) {
-      log.warn(error);
-    }
-    if (isDirectory) {
-      // eslint-disable-next-line no-param-reassign
-      arrayOfFiles = getAllFiles(`${dirPath}/${file}`, arrayOfFiles);
-    } else {
-      arrayOfFiles.push(`${dirPath}/${file}`);
-    }
-  });
-  return arrayOfFiles;
-}
-
-function getFluxShareSize() {
-  const dirpath = path.join(__dirname, '../../../');
-  const directoryPath = `${dirpath}ZelApps/ZelShare`;
-
-  const arrayOfFiles = getAllFiles(directoryPath);
-
-  let totalSize = 0;
-
-  arrayOfFiles.forEach((filePath) => {
-    try {
-      totalSize += fs.statSync(filePath).size;
-    } catch (error) {
-      log.warn(error);
-    }
-  });
-  return (totalSize / 1e9); // in 'GB'
-}
-
-function getFluxShareSpecificFolderSize(folder) {
-  const arrayOfFiles = getAllFiles(folder);
-
-  let totalSize = 0;
-
-  arrayOfFiles.forEach((filePath) => {
-    try {
-      totalSize += fs.statSync(filePath).size;
-    } catch (error) {
-      log.warn(error);
-    }
-  });
-  return (totalSize); // in 'B'
-}
-
-async function fluxShareDatabaseShareFile(file) {
-  try {
-    const dbopen = serviceHelper.databaseConnection();
-    const databaseFluxShare = dbopen.db(config.database.fluxshare.database);
-    const sharedCollection = config.database.fluxshare.collections.shared;
-    const queryFluxShare = { name: file };
-    const projectionFluxShare = { projection: { _id: 0, name: 1, token: 1 } };
-    const result = await serviceHelper.findOneInDatabase(databaseFluxShare, sharedCollection, queryFluxShare, projectionFluxShare);
-    if (result) {
-      return result;
-    }
-    const string = file + new Date().getTime().toString() + Math.floor((Math.random() * 999999999999999)).toString();
-
-    const fileDetail = {
-      name: file,
-      token: crypto.createHash('sha256').update(string).digest('hex'),
-    };
-    await serviceHelper.insertOneToDatabase(databaseFluxShare, sharedCollection, fileDetail);
-    return fileDetail;
-  } catch (error) {
-    log.error(error);
-    throw error;
-  }
-}
-
-async function fluxShareSharedFiles() {
-  try {
-    const dbopen = serviceHelper.databaseConnection();
-    const databaseFluxShare = dbopen.db(config.database.fluxshare.database);
-    const sharedCollection = config.database.fluxshare.collections.shared;
-    const queryFluxShare = {};
-    const projectionFluxShare = { projection: { _id: 0, name: 1, token: 1 } };
-    const results = await serviceHelper.findInDatabase(databaseFluxShare, sharedCollection, queryFluxShare, projectionFluxShare);
-    return results;
-  } catch (error) {
-    log.error(error);
-    throw error;
-  }
-}
-
-async function fluxShareGetSharedFiles(req, res) {
-  try {
-    const authorized = await serviceHelper.verifyPrivilege('admin', req);
-    if (authorized) {
-      const files = await fluxShareSharedFiles();
-      const resultsResponse = serviceHelper.createDataMessage(files);
-      res.json(resultsResponse);
-    } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
-      res.json(errMessage);
-    }
-  } catch (error) {
-    log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    try {
-      res.write(serviceHelper.ensureString(errorResponse));
-      res.end();
-    } catch (e) {
-      log.error(e);
-    }
-  }
-}
-
-async function fluxShareUnshareFile(req, res) {
-  try {
-    const authorized = await serviceHelper.verifyPrivilege('admin', req);
-    if (authorized) {
-      let { file } = req.params;
-      file = file || req.query.file;
-      file = encodeURIComponent(file);
-      await fluxShareDatabaseFileDelete(file);
-      const resultsResponse = serviceHelper.createSuccessMessage('File sharing disabled');
-      res.json(resultsResponse);
-    } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
-      res.json(errMessage);
-    }
-  } catch (error) {
-    log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    try {
-      res.write(serviceHelper.ensureString(errorResponse));
-      res.end();
-    } catch (e) {
-      log.error(e);
-    }
-  }
-}
-
-async function fluxShareShareFile(req, res) {
-  try {
-    const authorized = await serviceHelper.verifyPrivilege('admin', req);
-    if (authorized) {
-      let { file } = req.params;
-      file = file || req.query.file;
-      file = encodeURIComponent(file);
-      const fileDetails = await fluxShareDatabaseShareFile(file);
-      const resultsResponse = serviceHelper.createDataMessage(fileDetails);
-      res.json(resultsResponse);
-    } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
-      res.json(errMessage);
-    }
-  } catch (error) {
-    log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    try {
-      res.write(serviceHelper.ensureString(errorResponse));
-      res.end();
-    } catch (e) {
-      log.error(e);
-    }
-  }
-}
-
-async function fluxShareDownloadFolder(req, res, authorized = false) {
-  try {
-    let auth = authorized;
-    if (!auth) {
-      auth = await serviceHelper.verifyPrivilege('admin', req);
-    }
-
-    if (auth) {
-      let { folder } = req.params;
-      folder = folder || req.query.folder;
-
-      if (!folder) {
-        const errorResponse = serviceHelper.createErrorMessage('No folder specified');
-        res.json(errorResponse);
-        return;
-      }
-
-      const dirpath = path.join(__dirname, '../../../');
-      const folderpath = `${dirpath}ZelApps/ZelShare/${folder}`;
-
-      // beautify name
-      const folderNameArray = folderpath.split('/');
-      const folderName = folderNameArray[folderNameArray.length - 1];
-
-      // const size = getFluxShareSpecificFolderSize(folderpath);
-
-      // Tell the browser that this is a zip file.
-      res.writeHead(200, {
-        'Content-Type': 'application/zip',
-        'Content-disposition': `attachment; filename=${folderName}.zip`,
-      });
-
-      const zip = archiver('zip');
-
-      // Send the file to the page output.
-      zip.pipe(res);
-      zip.glob('**/*', { cwd: folderpath });
-      zip.finalize();
-    } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
-      res.json(errMessage);
-      return;
-    }
-  } catch (error) {
-    log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    try {
-      res.write(serviceHelper.ensureString(errorResponse));
-      res.end();
-    } catch (e) {
-      log.error(e);
-    }
-  }
-}
-
-async function fluxShareDownloadFile(req, res) {
-  try {
-    const authorized = await serviceHelper.verifyPrivilege('admin', req);
-    if (authorized) {
-      let { file } = req.params;
-      file = file || req.query.file;
-
-      if (!file) {
-        const errorResponse = serviceHelper.createErrorMessage('No file specified');
-        res.json(errorResponse);
-        return;
-      }
-
-      const dirpath = path.join(__dirname, '../../../');
-      const filepath = `${dirpath}ZelApps/ZelShare/${file}`;
-
-      // beautify name
-      const fileNameArray = file.split('/');
-      const fileName = fileNameArray[fileNameArray.length - 1];
-
-      res.download(filepath, fileName);
-    } else {
-      let { file } = req.params;
-      file = file || req.query.file;
-      let { token } = req.params;
-      token = token || req.query.token;
-      if (!file || !token) {
-        const errMessage = serviceHelper.errUnauthorizedMessage();
-        res.json(errMessage);
-        return;
-      }
-      const fileURI = encodeURIComponent(file);
-      const dbopen = serviceHelper.databaseConnection();
-      const databaseFluxShare = dbopen.db(config.database.fluxshare.database);
-      const sharedCollection = config.database.fluxshare.collections.shared;
-      const queryFluxShare = { name: fileURI, token };
-      const projectionFluxShare = { projection: { _id: 0, name: 1, token: 1 } };
-      const result = await serviceHelper.findOneInDatabase(databaseFluxShare, sharedCollection, queryFluxShare, projectionFluxShare);
-      if (!result) {
-        const errMessage = serviceHelper.errUnauthorizedMessage();
-        res.json(errMessage);
-        return;
-      }
-
-      // check if file is file. If directory use zelshareDwonloadFolder
-      const dirpath = path.join(__dirname, '../../../');
-      const filepath = `${dirpath}ZelApps/ZelShare/${file}`;
-      const fileStats = await fs.promises.lstat(filepath);
-      const isDirectory = fileStats.isDirectory();
-
-      if (isDirectory) {
-        const modifiedReq = req;
-        modifiedReq.params.folder = req.params.file;
-        modifiedReq.query.folder = req.query.file;
-        fluxShareDownloadFolder(modifiedReq, res, true);
-      } else {
-        // beautify name
-        const fileNameArray = filepath.split('/');
-        const fileName = fileNameArray[fileNameArray.length - 1];
-
-        res.download(filepath, fileName);
-      }
-    }
-  } catch (error) {
-    log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    try {
-      res.write(serviceHelper.ensureString(errorResponse));
-      res.end();
-    } catch (e) {
-      log.error(e);
-    }
-  }
-}
-
-// oldpath is relative path to default fluxshare directory; newname is just a new name of folder/file
-async function fluxShareRename(req, res) {
-  try {
-    const authorized = await serviceHelper.verifyPrivilege('admin', req);
-    if (authorized) {
-      let { oldpath } = req.params;
-      oldpath = oldpath || req.query.oldpath;
-      if (!oldpath) {
-        throw new Error('No file nor folder to rename specified');
-      }
-      let { newname } = req.params;
-      newname = newname || req.query.newname;
-      if (!newname) {
-        throw new Error('No new name specified');
-      }
-      if (newname.includes('/')) {
-        throw new Error('No new name is invalid');
-      }
-      // stop sharing of ALL files that start with the path
-      const fileURI = encodeURIComponent(oldpath);
-      await fluxShareDatabaseFileDeleteMultiple(fileURI);
-
-      const dirpath = path.join(__dirname, '../../../');
-      const oldfullpath = `${dirpath}ZelApps/ZelShare/${oldpath}`;
-      let newfullpath = `${dirpath}ZelApps/ZelShare/${newname}`;
-      const fileURIArray = fileURI.split('%2F');
-      fileURIArray.pop();
-      if (fileURIArray.length > 0) {
-        const renamingFolder = fileURIArray.join('/');
-        newfullpath = `${dirpath}ZelApps/ZelShare/${renamingFolder}/${newname}`;
-      }
-      await fs.promises.rename(oldfullpath, newfullpath);
-
-      const response = serviceHelper.createSuccessMessage('Rename successful');
-      res.json(response);
-    } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
-      res.json(errMessage);
-    }
-  } catch (error) {
-    log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    try {
-      res.write(serviceHelper.ensureString(errorResponse));
-      res.end();
-    } catch (e) {
-      log.error(e);
-    }
-  }
-}
-
-async function fluxShareRemoveFile(req, res) {
-  try {
-    const authorized = await serviceHelper.verifyPrivilege('admin', req);
-    if (authorized) {
-      let { file } = req.params;
-      file = file || req.query.file;
-      const fileURI = encodeURIComponent(file);
-      if (!file) {
-        throw new Error('No file specified');
-      }
-      // stop sharing
-
-      await fluxShareDatabaseFileDelete(fileURI);
-
-      const dirpath = path.join(__dirname, '../../../');
-      const filepath = `${dirpath}ZelApps/ZelShare/${file}`;
-      await fs.promises.unlink(filepath);
-
-      const response = serviceHelper.createSuccessMessage('File Removed');
-      res.json(response);
-    } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
-      res.json(errMessage);
-    }
-  } catch (error) {
-    log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    try {
-      res.write(serviceHelper.ensureString(errorResponse));
-      res.end();
-    } catch (e) {
-      log.error(e);
-    }
-  }
-}
-
-async function fluxShareRemoveFolder(req, res) {
-  try {
-    const authorized = await serviceHelper.verifyPrivilege('admin', req);
-    if (authorized) {
-      let { folder } = req.params;
-      folder = folder || req.query.folder;
-      if (!folder) {
-        throw new Error('No folder specified');
-      }
-
-      const dirpath = path.join(__dirname, '../../../');
-      const filepath = `${dirpath}ZelApps/ZelShare/${folder}`;
-      await fs.promises.rmdir(filepath);
-
-      const response = serviceHelper.createSuccessMessage('Folder Removed');
-      res.json(response);
-    } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
-      res.json(errMessage);
-    }
-  } catch (error) {
-    log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    try {
-      res.write(serviceHelper.ensureString(errorResponse));
-      res.end();
-    } catch (e) {
-      log.error(e);
-    }
-  }
-}
-
-async function fluxShareGetFolder(req, res) {
-  try {
-    const authorized = await serviceHelper.verifyPrivilege('admin', req);
-    if (authorized) {
-      let { folder } = req.params;
-      folder = folder || req.query.folder || '';
-
-      const dirpath = path.join(__dirname, '../../../');
-      const filepath = `${dirpath}ZelApps/ZelShare/${folder}`;
-      const options = {
-        withFileTypes: false,
-      };
-      const files = await fs.promises.readdir(filepath, options);
-      const filesWithDetails = [];
-      let sharedFiles = await fluxShareSharedFiles().catch((error) => {
-        log.error(error);
-      });
-      sharedFiles = sharedFiles || [];
-      // eslint-disable-next-line no-restricted-syntax
-      for (const file of files) {
-        // eslint-disable-next-line no-await-in-loop
-        const fileStats = await fs.promises.lstat(`${filepath}/${file}`);
-        let fileURI = encodeURIComponent(file);
-        if (folder) {
-          fileURI = encodeURIComponent(`${folder}/${file}`);
-        }
-        const fileShared = sharedFiles.find((sharedfile) => sharedfile.name === fileURI);
-        let shareToken;
-        let shareFile;
-        if (fileShared) {
-          shareToken = fileShared.token;
-          shareFile = fileShared.name;
-        }
-        const isDirectory = fileStats.isDirectory();
-        const isFile = fileStats.isFile();
-        const isSymbolicLink = fileStats.isSymbolicLink();
-        let fileFolderSize = fileStats.size;
-        if (isDirectory) {
-          fileFolderSize = getFluxShareSpecificFolderSize(`${filepath}/${file}`);
-        }
-        const detailedFile = {
-          name: file,
-          size: fileFolderSize, // bytes
-          isDirectory,
-          isFile,
-          isSymbolicLink,
-          createdAt: fileStats.birthtime,
-          modifiedAt: fileStats.mtime,
-          shareToken,
-          shareFile,
-        };
-        filesWithDetails.push(detailedFile);
-      }
-      const resultsResponse = serviceHelper.createDataMessage(filesWithDetails);
-      res.json(resultsResponse);
-    } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
-      res.json(errMessage);
-    }
-  } catch (error) {
-    log.error(error);
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
-    res.json(errMessage);
-  }
-}
-
-async function fluxShareCreateFolder(req, res) {
-  try {
-    const authorized = await serviceHelper.verifyPrivilege('admin', req);
-    if (authorized) {
-      let { folder } = req.params;
-      folder = folder || req.query.folder || '';
-
-      const dirpath = path.join(__dirname, '../../../');
-      const filepath = `${dirpath}ZelApps/ZelShare/${folder}`;
-
-      await fs.promises.mkdir(filepath);
-
-      const resultsResponse = serviceHelper.createSuccessMessage('Folder Created');
-      res.json(resultsResponse);
-    } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
-      res.json(errMessage);
-    }
-  } catch (error) {
-    log.error(error);
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
-    res.json(errMessage);
-  }
-}
-
-async function fluxShareFileExists(req, res) {
-  try {
-    const authorized = await serviceHelper.verifyPrivilege('admin', req);
-    if (authorized) {
-      let { file } = req.params;
-      file = file || req.query.file;
-
-      const dirpath = path.join(__dirname, '../../../');
-      const filepath = `${dirpath}ZelApps/ZelShare/${file}`;
-      let fileExists = true;
-      try {
-        await fs.promises.access(filepath, fs.constants.F_OK); // check folder exists and write ability
-      } catch (error) {
-        fileExists = false;
-      }
-      const data = {
-        fileExists,
-      };
-      const resultsResponse = serviceHelper.createDataMessage(data);
-      res.json(resultsResponse);
-    } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
-      res.json(errMessage);
-    }
-  } catch (error) {
-    log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    try {
-      res.write(serviceHelper.ensureString(errorResponse));
-      res.end();
-    } catch (e) {
-      log.error(e);
-    }
-  }
-}
-
-async function getSpaceAvailableForFluxShare() {
-  const dfAsync = util.promisify(df);
-  // we want whole numbers in GB
-  const options = {
-    prefixMultiplier: 'GB',
-    isDisplayPrefixMultiplier: false,
-    precision: 0,
-  };
-
-  const dfres = await dfAsync(options);
-  const okVolumes = [];
-  dfres.forEach((volume) => {
-    if (volume.filesystem.includes('/dev/') && !volume.filesystem.includes('loop') && !volume.mount.includes('boot')) {
-      okVolumes.push(volume);
-    } else if (volume.filesystem.includes('loop') && volume.mount === '/') {
-      okVolumes.push(volume);
-    }
-  });
-
-  // now we know that most likely there is a space available. IF user does not have his own stuff on the node or space may be sharded accross hdds.
-  let totalSpace = 0;
-  okVolumes.forEach((volume) => {
-    totalSpace += serviceHelper.ensureNumber(volume.size);
-  });
-  // space that is further reserved for flux os and that will be later substracted from available space. Max 30.
-  const tier = await nodeTier();
-  const lockedSpaceOnNode = config.fluxSpecifics.hdd[tier];
-
-  const extraSpaceOnNode = totalSpace - lockedSpaceOnNode > 0 ? totalSpace - lockedSpaceOnNode : 0; // shall always be above 0. Put precaution to place anyway
-  // const extraSpaceOnNode = availableSpace - lockedSpaceOnNode > 0 ? availableSpace - lockedSpaceOnNode : 0;
-  const spaceAvailableForFluxShare = 2 + extraSpaceOnNode;
-  return spaceAvailableForFluxShare;
-}
-
-async function fluxShareStorageStats(req, res) {
-  try {
-    const authorized = await serviceHelper.verifyPrivilege('admin', req);
-    if (authorized) {
-      const spaceAvailableForFluxShare = await getSpaceAvailableForFluxShare();
-      let spaceUsedByFluxShare = getFluxShareSize();
-      spaceUsedByFluxShare = Number(spaceUsedByFluxShare.toFixed(6));
-      const data = {
-        available: spaceAvailableForFluxShare - spaceUsedByFluxShare,
-        used: spaceUsedByFluxShare,
-        total: spaceAvailableForFluxShare,
-      };
-      const resultsResponse = serviceHelper.createDataMessage(data);
-      res.json(resultsResponse);
-    } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
-      res.json(errMessage);
-    }
-  } catch (error) {
-    log.error(error);
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
-    res.json(errMessage);
-  }
-}
-
-async function fluxShareUpload(req, res) {
-  try {
-    const authorized = await serviceHelper.verifyPrivilege('admin', req);
-    if (!authorized) {
-      throw new Error('Unauthorized. Access denied.');
-    }
-    let { folder } = req.params;
-    folder = folder || req.query.folder || '';
-    if (folder) {
-      folder += '/';
-    }
-    const dirpath = path.join(__dirname, '../../../');
-    const uploadDir = `${dirpath}ZelApps/ZelShare/${folder}`;
-    const options = {
-      multiples: true,
-      uploadDir,
-      maxFileSize: 5 * 1024 * 1024 * 1024, // 5gb
-      hash: true,
-      keepExtensions: true,
-    };
-    const spaceAvailableForFluxShare = await getSpaceAvailableForFluxShare();
-    let spaceUsedByFluxShare = getFluxShareSize();
-    spaceUsedByFluxShare = Number(spaceUsedByFluxShare.toFixed(6));
-    const available = spaceAvailableForFluxShare - spaceUsedByFluxShare;
-    if (available <= 0) {
-      throw new Error('FluxShare Storage is full');
-    }
-    // eslint-disable-next-line no-bitwise
-    await fs.promises.access(uploadDir, fs.constants.F_OK | fs.constants.W_OK); // check folder exists and write ability
-    const form = formidable(options);
-    form.parse(req)
-      .on('fileBegin', (name, file) => {
-        try {
-          res.write(serviceHelper.ensureString(file.name));
-          const filepath = `${dirpath}ZelApps/ZelShare/${folder}${file.name}`;
-          // eslint-disable-next-line no-param-reassign
-          file.path = filepath;
-        } catch (error) {
-          log.error(error);
-        }
-      })
-      .on('progress', (bytesReceived, bytesExpected) => {
-        try {
-          // console.log('PROGRESS');
-          res.write(serviceHelper.ensureString([bytesReceived, bytesExpected]));
-        } catch (error) {
-          log.error(error);
-        }
-      })
-      .on('field', (name, field) => {
-        console.log('Field', name, field);
-        // console.log(name);
-        // console.log(field);
-        // res.write(serviceHelper.ensureString(field));
-      })
-      .on('file', (name, file) => {
-        try {
-          // console.log('Uploaded file', name, file);
-          res.write(serviceHelper.ensureString(file));
-        } catch (error) {
-          log.error(error);
-        }
-      })
-      .on('aborted', () => {
-        console.error('Request aborted by the user');
-      })
-      .on('error', (error) => {
-        log.error(error);
-        const errorResponse = serviceHelper.createErrorMessage(
-          error.message || error,
-          error.name,
-          error.code,
-        );
-        try {
-          res.write(serviceHelper.ensureString(errorResponse));
-          res.end();
-        } catch (e) {
-          log.error(e);
-        }
-      })
-      .on('end', () => {
-        try {
-          res.end();
-        } catch (error) {
-          log.error(error);
-        }
-      });
-  } catch (error) {
-    log.error(error);
-    if (res) {
-      // res.set('Connection', 'close');
-      try {
-        res.connection.destroy();
-      } catch (e) {
-        log.error(e);
-      }
-    }
-  }
-}
-
 module.exports = {
-  nodeTier,
   appPull,
   listRunningApps,
   listAllApps,
@@ -6572,7 +5626,6 @@ module.exports = {
   storeAppTemporaryMessage,
   verifyRepository,
   checkHWParameters,
-  messageHash,
   verifyAppHash,
   verifyAppMessageSignature,
   reindexGlobalAppsInformation,
@@ -6583,7 +5636,6 @@ module.exports = {
   getAppsLocations,
   storeAppRunningMessage,
   reindexGlobalAppsLocation,
-  checkSynced,
   getRunningAppList,
   trySpawningGlobalApplication,
   getApplicationSpecifications,
@@ -6607,19 +5659,4 @@ module.exports = {
   softRemoveAppLocally,
   softRedeploy,
   redeployAPI,
-  whitelistedRepositories,
-  whitelistedZelIDs,
-  fluxShareDownloadFile,
-  fluxShareGetFolder,
-  fluxShareCreateFolder,
-  fluxShareUpload,
-  fluxShareRemoveFile,
-  fluxShareRemoveFolder,
-  fluxShareFileExists,
-  fluxShareStorageStats,
-  fluxShareUnshareFile,
-  fluxShareShareFile,
-  fluxShareGetSharedFiles,
-  fluxShareRename,
-  fluxShareDownloadFolder,
 };
