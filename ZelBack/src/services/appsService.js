@@ -2678,21 +2678,17 @@ function checkComposeHWParameters(appSpecsComposed) {
   const isTiered = appSpecsComposed.compose.find((appComponent) => appComponent.tiered === true);
   appSpecsComposed.compose.forEach((appComponent) => {
     if (isTiered) {
-      totalCpuBamf += ((appComponent.cpubamf || appComponent.cpu) * 10); // rounding errors
-      totalCpuBamf /= 10;
+      totalCpuBamf += ((appComponent.cpubamf || appComponent.cpu) * 10);
       totalRamBamf += (appComponent.rambamf || appComponent.ram);
       totalHddBamf += (appComponent.hddbamf || appComponent.hdd);
-      totalCpuSuper += ((appComponent.cpusuper || appComponent.cpu) * 10); // rounding errors
-      totalCpuSuper /= 10;
+      totalCpuSuper += ((appComponent.cpusuper || appComponent.cpu) * 10);
       totalRamSuper += (appComponent.ramsuper || appComponent.ram);
       totalHddSuper += (appComponent.hddsuper || appComponent.hdd);
-      totalCpuBasic += ((appComponent.cpubasic || appComponent.cpu) * 10); // rounding errors
-      totalCpuBasic /= 10;
+      totalCpuBasic += ((appComponent.cpubasic || appComponent.cpu) * 10);
       totalRamBasic += (appComponent.rambasic || appComponent.ram);
       totalHddBasic += (appComponent.hddbasic || appComponent.hdd);
     } else {
-      totalCpu += (appComponent.cpu * 10); // rounding errors
-      totalCpu /= 10;
+      totalCpu += (appComponent.cpu * 10);
       totalRam += appComponent.ram;
       totalHdd += appComponent.hdd;
     }
