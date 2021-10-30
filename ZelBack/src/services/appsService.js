@@ -2,8 +2,6 @@ const config = require('config');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const os = require('os');
 const crypto = require('crypto');
-const Docker = require('dockerode');
-const stream = require('stream');
 const path = require('path');
 const nodecmd = require('node-cmd');
 const df = require('node-df');
@@ -17,6 +15,7 @@ const util = require('util');
 const fluxCommunication = require('./fluxCommunication');
 const serviceHelper = require('./serviceHelper');
 const daemonService = require('./daemonService');
+const dockerService = require('./dockerService');
 const log = require('../lib/log');
 const userconfig = require('../../../config/userconfig');
 
@@ -25,8 +24,6 @@ const appsFolder = `${fluxDirPath}ZelApps/`;
 
 const cmdAsync = util.promisify(nodecmd.get);
 const crontabLoad = util.promisify(systemcrontab.load);
-
-const docker = new Docker();
 
 const scannedHeightCollection = config.database.daemon.collections.scannedHeight;
 const appsHashesCollection = config.database.daemon.collections.appsHashes;
@@ -48,205 +45,12 @@ let removalInProgress = false;
 let installationInProgress = false;
 let storedTier = '';
 
-function getAppIdentifier(appName) {
-  // this id is used for volumes, docker names so we know it reall belongs to flux
-  if (appName.startsWith('zel')) {
-    return appName;
-  }
-  if (appName.startsWith('flux')) {
-    return appName;
-  }
-  if (appName === 'KadenaChainWebNode' || appName === 'FoldingAtHomeB') {
-    return `zel${appName}`;
-  }
-  return `flux${appName}`;
-}
-
-function getAppDockerNameIdentifier(appName) {
-  // this id is used for volumes, docker names so we know it reall belongs to flux
-  const name = getAppIdentifier(appName);
-  if (name.startsWith('/')) {
-    return name;
-  }
-  return `/${name}`;
-}
-
 function getCollateralInfo(collateralOutpoint) {
   const a = collateralOutpoint;
   const b = a.split(', ');
   const txhash = b[0].substr(10, b[0].length);
   const txindex = serviceHelper.ensureNumber(b[1].split(')')[0]);
   return { txhash, txindex };
-}
-
-async function dockerCreateNetwork(options) {
-  const network = await docker.createNetwork(options);
-  return network;
-}
-
-async function dockerRemoveNetwork(netw) {
-  const network = await netw.remove();
-  return network;
-}
-
-async function dockerNetworkInspect(netw) {
-  const network = await netw.inspect();
-  return network;
-}
-
-async function dockerListContainers(all, limit, size, filter) {
-  const options = {
-    all,
-    limit,
-    size,
-    filter,
-  };
-  const containers = await docker.listContainers(options);
-  return containers;
-}
-
-async function dockerListImages() {
-  const containers = await docker.listImages();
-  return containers;
-}
-
-async function dockerContainerInspect(idOrName) {
-  // container ID or name
-  const containers = await dockerListContainers(true);
-  const myContainer = containers.find((container) => (container.Names[0] === getAppDockerNameIdentifier(idOrName) || container.Id === idOrName));
-  const dockerContainer = docker.getContainer(myContainer.Id);
-  const response = await dockerContainer.inspect();
-  return response;
-}
-
-async function dockerContainerStats(idOrName) {
-  // container ID or name
-  const containers = await dockerListContainers(true);
-  const myContainer = containers.find((container) => (container.Names[0] === getAppDockerNameIdentifier(idOrName) || container.Id === idOrName));
-  const dockerContainer = docker.getContainer(myContainer.Id);
-  const options = {
-    stream: false,
-  };
-  const response = await dockerContainer.stats(options); // output hw usage statistics just once
-  return response;
-}
-
-async function dockerContainerChanges(idOrName) {
-  // container ID or name
-  const containers = await dockerListContainers(true);
-  const myContainer = containers.find((container) => (container.Names[0] === getAppDockerNameIdentifier(idOrName) || container.Id === idOrName));
-  const dockerContainer = docker.getContainer(myContainer.Id);
-  const response = await dockerContainer.changes();
-  return response.toString();
-}
-
-function dockerPullStream(repoTag, res, callback) {
-  docker.pull(repoTag, (err, mystream) => {
-    function onFinished(error, output) {
-      if (error) {
-        callback(err);
-      } else {
-        callback(null, output);
-      }
-    }
-    function onProgress(event) {
-      if (res) {
-        res.write(serviceHelper.ensureString(event));
-      }
-      log.info(event);
-    }
-    if (err) {
-      callback(err);
-    } else {
-      docker.modem.followProgress(mystream, onFinished, onProgress);
-    }
-  });
-}
-
-async function dockerContainerExec(container, cmd, env, res, callback) {
-  try {
-    const options = {
-      AttachStdin: false,
-      AttachStdout: true,
-      AttachStderr: true,
-      Cmd: cmd,
-      Env: env,
-      Tty: false,
-    };
-    const optionsExecStart = {
-      Detach: false,
-      Tty: false,
-    };
-
-    const exec = await container.exec(options);
-    exec.start(optionsExecStart, (err, mystream) => {
-      if (err) {
-        callback(err);
-      }
-      mystream.on('data', (data) => res.write(data.toString()));
-      mystream.on('end', () => callback(null));
-    });
-  } catch (error) {
-    callback(error);
-  }
-}
-
-async function dockerContainerLogsStream(idOrName, res, callback) {
-  try {
-    // container ID or name
-    const containers = await dockerListContainers(true);
-    const myContainer = containers.find((container) => (container.Names[0] === getAppDockerNameIdentifier(idOrName) || container.Id === idOrName));
-    const dockerContainer = docker.getContainer(myContainer.Id);
-    const logStream = new stream.PassThrough();
-    logStream.on('data', (chunk) => {
-      res.write(serviceHelper.ensureString(chunk.toString('utf8')));
-    });
-
-    dockerContainer.logs(
-      {
-        follow: true,
-        stdout: true,
-        stderr: true,
-      },
-      (err, mystream) => {
-        if (err) {
-          callback(err);
-        } else {
-          try {
-            dockerContainer.modem.demuxStream(mystream, logStream, logStream);
-            mystream.on('end', () => {
-              logStream.end();
-              callback(null);
-            });
-
-            setTimeout(() => {
-              mystream.destroy();
-            }, 2000);
-          } catch (error) {
-            throw new Error('An error obtaining log data of an application has occured');
-          }
-        }
-      },
-    );
-  } catch (error) {
-    callback(error);
-  }
-}
-
-async function dockerContainerLogs(idOrName, lines) {
-  // container ID or name
-  const containers = await dockerListContainers(true);
-  const myContainer = containers.find((container) => (container.Names[0] === getAppDockerNameIdentifier(idOrName) || container.Id === idOrName));
-  const dockerContainer = docker.getContainer(myContainer.Id);
-
-  const options = {
-    follow: false,
-    stdout: true,
-    stderr: true,
-    tail: lines,
-  };
-  const logs = await dockerContainer.logs(options);
-  return logs.toString();
 }
 
 async function appPull(req, res) {
@@ -259,7 +63,7 @@ async function appPull(req, res) {
         throw new Error('No Docker repository specified');
       }
 
-      dockerPullStream(repotag, res, (error, dataLog) => {
+      dockerService.dockerPullStream(repotag, res, (error, dataLog) => {
         if (error) {
           throw error;
         } else {
@@ -284,7 +88,7 @@ async function appPull(req, res) {
 
 async function listRunningApps(req, res) {
   try {
-    let apps = await dockerListContainers(false);
+    let apps = await dockerService.dockerListContainers(false);
     if (apps.length > 0) {
       apps = apps.filter((app) => (app.Names[0].substr(1, 3) === 'zel' || app.Names[0].substr(1, 4) === 'flux'));
     }
@@ -314,7 +118,7 @@ async function listRunningApps(req, res) {
 // shall be identical to installedApps. But this is docker response
 async function listAllApps(req, res) {
   try {
-    let apps = await dockerListContainers(true);
+    let apps = await dockerService.dockerListContainers(true);
     if (apps.length > 0) {
       apps = apps.filter((app) => (app.Names[0].substr(1, 3) === 'zel' || app.Names[0].substr(1, 4) === 'flux'));
     }
@@ -343,7 +147,7 @@ async function listAllApps(req, res) {
 
 async function listAppsImages(req, res) {
   try {
-    const apps = await dockerListImages();
+    const apps = await dockerService.dockerListImages();
     const appsResponse = serviceHelper.createDataMessage(apps);
     return res ? res.json(appsResponse) : appsResponse;
   } catch (error) {
@@ -412,181 +216,6 @@ async function isNodeStatusConfirmed() {
   }
 }
 
-async function appDockerCreate(appSpecifications) {
-  let exposedPorts = {};
-  let portBindings = {};
-  if (appSpecifications.version === 1) {
-    portBindings = {
-      [`${appSpecifications.containerPort.toString()}/tcp`]: [
-        {
-          HostPort: appSpecifications.port.toString(),
-        },
-      ],
-      [`${appSpecifications.containerPort.toString()}/udp`]: [
-        {
-          HostPort: appSpecifications.port.toString(),
-        },
-      ],
-    };
-    exposedPorts = {
-      [`${appSpecifications.port.toString()}/tcp`]: {},
-      [`${appSpecifications.containerPort.toString()}/tcp`]: {},
-      [`${appSpecifications.port.toString()}/udp`]: {},
-      [`${appSpecifications.containerPort.toString()}/udp`]: {},
-    };
-  } else {
-    appSpecifications.ports.forEach((port) => {
-      exposedPorts[[`${port.toString()}/tcp`]] = {};
-      exposedPorts[[`${port.toString()}/udp`]] = {};
-    });
-    appSpecifications.containerPorts.forEach((port) => {
-      exposedPorts[[`${port.toString()}/tcp`]] = {};
-      exposedPorts[[`${port.toString()}/udp`]] = {};
-    });
-    for (let i = 0; i < appSpecifications.containerPorts.length; i += 1) {
-      portBindings[[`${appSpecifications.containerPorts[i].toString()}/tcp`]] = [
-        {
-          HostPort: appSpecifications.ports[i].toString(),
-        },
-      ];
-      portBindings[[`${appSpecifications.containerPorts[i].toString()}/udp`]] = [
-        {
-          HostPort: appSpecifications.ports[i].toString(),
-        },
-      ];
-    }
-  }
-  const options = {
-    Image: appSpecifications.repotag,
-    name: getAppIdentifier(appSpecifications.name),
-    AttachStdin: true,
-    AttachStdout: true,
-    AttachStderr: true,
-    Cmd: appSpecifications.commands,
-    Env: appSpecifications.enviromentParameters,
-    Tty: false,
-    ExposedPorts: exposedPorts,
-    HostConfig: {
-      NanoCPUs: appSpecifications.cpu * 1e9,
-      Memory: appSpecifications.ram * 1024 * 1024,
-      Binds: [`${appsFolder + getAppIdentifier(appSpecifications.name)}:${appSpecifications.containerData}`],
-      Ulimits: [
-        {
-          Name: 'nofile',
-          Soft: 100000,
-          Hard: 100000, // 1048576
-        },
-      ],
-      PortBindings: portBindings,
-      RestartPolicy: {
-        Name: 'unless-stopped',
-      },
-      NetworkMode: 'fluxDockerNetwork',
-      LogConfig: {
-        Type: 'json-file',
-        Config: {
-          'max-file': '1',
-          'max-size': '20m',
-        },
-      },
-    },
-  };
-
-  const app = await docker.createContainer(options).catch((error) => {
-    log.error(error);
-    throw error;
-  });
-  return app;
-}
-
-async function appDockerStart(idOrName) {
-  // container ID or name
-  const containers = await dockerListContainers(true);
-  const myContainer = containers.find((container) => (container.Names[0] === getAppDockerNameIdentifier(idOrName) || container.Id === idOrName));
-  const dockerContainer = docker.getContainer(myContainer.Id);
-
-  await dockerContainer.start(); // may throw
-  return `Flux App ${idOrName} successfully started.`;
-}
-
-async function appDockerStop(idOrName) {
-  // container ID or name
-  const containers = await dockerListContainers(true);
-  const myContainer = containers.find((container) => (container.Names[0] === getAppDockerNameIdentifier(idOrName) || container.Id === idOrName));
-  const dockerContainer = docker.getContainer(myContainer.Id);
-
-  await dockerContainer.stop();
-  return `Flux App ${idOrName} successfully stopped.`;
-}
-
-async function appDockerRestart(idOrName) {
-  // container ID or name
-  const containers = await dockerListContainers(true);
-  const myContainer = containers.find((container) => (container.Names[0] === getAppDockerNameIdentifier(idOrName) || container.Id === idOrName));
-  const dockerContainer = docker.getContainer(myContainer.Id);
-
-  await dockerContainer.restart();
-  return `Flux App ${idOrName} successfully restarted.`;
-}
-
-async function appDockerKill(idOrName) {
-  // container ID or name
-  const containers = await dockerListContainers(true);
-  const myContainer = containers.find((container) => (container.Names[0] === getAppDockerNameIdentifier(idOrName) || container.Id === idOrName));
-  const dockerContainer = docker.getContainer(myContainer.Id);
-
-  await dockerContainer.kill();
-  return `Flux App ${idOrName} successfully killed.`;
-}
-
-async function appDockerRemove(idOrName) {
-  // container ID or name
-  const containers = await dockerListContainers(true);
-  const myContainer = containers.find((container) => (container.Names[0] === getAppDockerNameIdentifier(idOrName) || container.Id === idOrName));
-  const dockerContainer = docker.getContainer(myContainer.Id);
-
-  await dockerContainer.remove();
-  return `Flux App ${idOrName} successfully removed.`;
-}
-
-async function appDockerImageRemove(idOrName) {
-  // container ID or name
-  const dockerImage = docker.getImage(idOrName);
-
-  await dockerImage.remove();
-  return `Flux App ${idOrName} image successfully removed.`;
-}
-
-async function appDockerPause(idOrName) {
-  // container ID or name
-  const containers = await dockerListContainers(true);
-  const myContainer = containers.find((container) => (container.Names[0] === getAppDockerNameIdentifier(idOrName) || container.Id === idOrName));
-  const dockerContainer = docker.getContainer(myContainer.Id);
-
-  await dockerContainer.pause();
-  return `Flux App ${idOrName} successfully paused.`;
-}
-
-async function appDockerUnpase(idOrName) {
-  // container ID or name
-  const containers = await dockerListContainers(true);
-  const myContainer = containers.find((container) => (container.Names[0] === getAppDockerNameIdentifier(idOrName) || container.Id === idOrName));
-  const dockerContainer = docker.getContainer(myContainer.Id);
-
-  await dockerContainer.unpause();
-  return `Flux App ${idOrName} successfully unpaused.`;
-}
-
-async function appDockerTop(idOrName) {
-  // container ID or name
-  const containers = await dockerListContainers(true);
-  const myContainer = containers.find((container) => (container.Names[0] === getAppDockerNameIdentifier(idOrName) || container.Id === idOrName));
-  const dockerContainer = docker.getContainer(myContainer.Id);
-
-  const processes = await dockerContainer.top();
-  return processes;
-}
-
 async function appStart(req, res) {
   try {
     let { appname } = req.params;
@@ -602,7 +231,7 @@ async function appStart(req, res) {
       return res ? res.json(errMessage) : errMessage;
     }
 
-    const appRes = await appDockerStart(appname);
+    const appRes = await dockerService.appDockerStart(appname);
 
     const appResponse = serviceHelper.createDataMessage(appRes);
     return res ? res.json(appResponse) : appResponse;
@@ -632,7 +261,7 @@ async function appStop(req, res) {
       return res ? res.json(errMessage) : errMessage;
     }
 
-    const appRes = await appDockerStop(appname);
+    const appRes = await dockerService.appDockerStop(appname);
 
     const appResponse = serviceHelper.createDataMessage(appRes);
     return res ? res.json(appResponse) : appResponse;
@@ -662,7 +291,7 @@ async function appRestart(req, res) {
       return res ? res.json(errMessage) : errMessage;
     }
 
-    const appRes = await appDockerRestart(appname);
+    const appRes = await dockerService.appDockerRestart(appname);
 
     const appResponse = serviceHelper.createDataMessage(appRes);
     return res ? res.json(appResponse) : appResponse;
@@ -691,7 +320,7 @@ async function appKill(req, res) {
       throw new Error('No Flux App specified');
     }
 
-    const appRes = await appDockerKill(appname);
+    const appRes = await dockerService.appDockerKill(appname);
 
     const appResponse = serviceHelper.createDataMessage(appRes);
     return res ? res.json(appResponse) : appResponse;
@@ -721,7 +350,7 @@ async function appPause(req, res) {
       return res ? res.json(errMessage) : errMessage;
     }
 
-    const appRes = await appDockerPause(appname);
+    const appRes = await dockerService.appDockerPause(appname);
 
     const appResponse = serviceHelper.createDataMessage(appRes);
     return res ? res.json(appResponse) : appResponse;
@@ -751,7 +380,7 @@ async function appUnpause(req, res) {
       return res ? res.json(errMessage) : errMessage;
     }
 
-    const appRes = await appDockerUnpase(appname);
+    const appRes = await dockerService.appDockerUnpase(appname);
 
     const appResponse = serviceHelper.createDataMessage(appRes);
     return res ? res.json(appResponse) : appResponse;
@@ -782,7 +411,7 @@ async function appTop(req, res) {
       throw new Error('No Flux App specified');
     }
 
-    const appRes = await appDockerTop(appname);
+    const appRes = await dockerService.appDockerTop(appname);
 
     const appResponse = serviceHelper.createDataMessage(appRes);
     return res ? res.json(appResponse) : appResponse;
@@ -810,7 +439,7 @@ async function appLog(req, res) {
     }
     const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, appname);
     if (authorized === true) {
-      const logs = await dockerContainerLogs(appname, lines);
+      const logs = await dockerService.dockerContainerLogs(appname, lines);
       const dataMessage = serviceHelper.createDataMessage(logs);
       res.json(dataMessage);
     } else {
@@ -839,7 +468,7 @@ async function appLogStream(req, res) {
     const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, appname);
     if (authorized === true) {
       res.setHeader('Content-Type', 'application/json');
-      dockerContainerLogsStream(appname, res, (error) => {
+      dockerService.dockerContainerLogsStream(appname, res, (error) => {
         if (error) {
           log.error(error);
           const errorResponse = serviceHelper.createErrorMessage(
@@ -877,7 +506,7 @@ async function appInspect(req, res) {
     }
     const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, appname);
     if (authorized === true) {
-      const response = await dockerContainerInspect(appname);
+      const response = await dockerService.dockerContainerInspect(appname);
       const appResponse = serviceHelper.createDataMessage(response);
       res.json(appResponse);
     } else {
@@ -904,7 +533,7 @@ async function appStats(req, res) {
     }
     const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, appname);
     if (authorized === true) {
-      const response = await dockerContainerStats(appname);
+      const response = await dockerService.dockerContainerStats(appname);
       const appResponse = serviceHelper.createDataMessage(response);
       res.json(appResponse);
     } else {
@@ -931,7 +560,7 @@ async function appChanges(req, res) {
     }
     const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, appname);
     if (authorized === true) {
-      const response = await dockerContainerChanges(appname);
+      const response = await dockerService.dockerContainerChanges(appname);
       const appResponse = serviceHelper.createDataMessage(response);
       res.json(appResponse);
     } else {
@@ -974,13 +603,13 @@ async function appExec(req, res) {
         cmd = serviceHelper.ensureObject(cmd);
         env = serviceHelper.ensureObject(env);
 
-        const containers = await dockerListContainers(true);
-        const myContainer = containers.find((container) => (container.Names[0] === getAppDockerNameIdentifier(processedBody.appname) || container.Id === processedBody.appname));
-        const dockerContainer = docker.getContainer(myContainer.Id);
+        const containers = await dockerService.dockerListContainers(true);
+        const myContainer = containers.find((container) => (container.Names[0] === dockerService.getAppDockerNameIdentifier(processedBody.appname) || container.Id === processedBody.appname));
+        const dockerContainer = dockerService.getDockerContainer(myContainer.Id);
 
         res.setHeader('Content-Type', 'application/json');
 
-        dockerContainerExec(dockerContainer, cmd, env, res, (error) => {
+        dockerService.dockerContainerExec(dockerContainer, cmd, env, res, (error) => {
           if (error) {
             log.error(error);
             const errorResponse = serviceHelper.createErrorMessage(
@@ -1010,39 +639,6 @@ async function appExec(req, res) {
   });
 }
 
-async function createFluxDockerNetwork() {
-  // todo remove after couple of updates
-  try {
-    const network = docker.getNetwork('zelfluxDockerNetwork');
-    await dockerRemoveNetwork(network);
-  } catch (error) {
-    log.warn(error);
-  }
-  // check if fluxDockerNetwork exists
-  const fluxNetworkOptions = {
-    Name: 'fluxDockerNetwork',
-    IPAM: {
-      Config: [{
-        Subnet: '172.15.0.0/16',
-        Gateway: '172.15.0.1',
-      }],
-    },
-  };
-  let fluxNetworkExists = true;
-  const network = docker.getNetwork(fluxNetworkOptions.Name);
-  await dockerNetworkInspect(network).catch(() => {
-    fluxNetworkExists = false;
-  });
-  let response;
-  // create or check docker network
-  if (!fluxNetworkExists) {
-    response = await dockerCreateNetwork(fluxNetworkOptions);
-  } else {
-    response = 'Flux Network already exists.';
-  }
-  return response;
-}
-
 async function createFluxNetworkAPI(req, res) {
   try {
     const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
@@ -1050,7 +646,7 @@ async function createFluxNetworkAPI(req, res) {
       const errMessage = serviceHelper.errUnauthorizedMessage();
       return res.json(errMessage);
     }
-    const dockerRes = await createFluxDockerNetwork();
+    const dockerRes = await dockerService.createFluxDockerNetwork();
     const response = serviceHelper.createDataMessage(dockerRes);
     return res.json(response);
   } catch (error) {
@@ -1185,7 +781,7 @@ async function appsResources(req, res) {
 
 async function createAppVolume(appSpecifications, res) {
   const dfAsync = util.promisify(df);
-  const appId = getAppIdentifier(appSpecifications.name);
+  const appId = dockerService.getAppIdentifier(appSpecifications.name);
 
   const searchSpace = {
     status: 'Searching available space...',
@@ -1445,7 +1041,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
       throw new Error('No App specified');
     }
 
-    const appId = getAppIdentifier(app);
+    const appId = dockerService.getAppIdentifier(app);
 
     // first find the appSpecifications in our database.
     // connect to mongodb
@@ -1502,7 +1098,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
     if (res) {
       res.write(serviceHelper.ensureString(stopStatus));
     }
-    await appDockerStop(appId).catch((error) => {
+    await dockerService.appDockerStop(appId).catch((error) => {
       const errorResponse = serviceHelper.createErrorMessage(
         error.message || error,
         error.name,
@@ -1527,7 +1123,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
     if (res) {
       res.write(serviceHelper.ensureString(removeStatus));
     }
-    await appDockerRemove(appId).catch((error) => {
+    await dockerService.appDockerRemove(appId).catch((error) => {
       const errorResponse = serviceHelper.createErrorMessage(
         error.message || error,
         error.name,
@@ -1553,7 +1149,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
     if (res) {
       res.write(serviceHelper.ensureString(imageStatus));
     }
-    await appDockerImageRemove(appSpecifications.repotag).catch((error) => {
+    await dockerService.appDockerImageRemove(appSpecifications.repotag).catch((error) => {
       const errorResponse = serviceHelper.createErrorMessage(
         error.message || error,
         error.name,
@@ -1808,7 +1404,7 @@ async function softRemoveAppLocally(app, res) {
     throw new Error('No Flux App specified');
   }
 
-  const appId = getAppIdentifier(app);
+  const appId = dockerService.getAppIdentifier(app);
 
   // first find the appSpecifications in our database.
   // connect to mongodb
@@ -1832,7 +1428,7 @@ async function softRemoveAppLocally(app, res) {
     res.write(serviceHelper.ensureString(stopStatus));
   }
 
-  await appDockerStop(appId);
+  await dockerService.appDockerStop(appId);
 
   const stopStatus2 = {
     status: 'Flux App stopped',
@@ -1850,7 +1446,7 @@ async function softRemoveAppLocally(app, res) {
     res.write(serviceHelper.ensureString(removeStatus));
   }
 
-  await appDockerRemove(appId);
+  await dockerService.appDockerRemove(appId);
 
   const removeStatus2 = {
     status: 'Flux App container removed',
@@ -1867,7 +1463,7 @@ async function softRemoveAppLocally(app, res) {
   if (res) {
     res.write(serviceHelper.ensureString(imageStatus));
   }
-  await appDockerImageRemove(appSpecifications.repotag).catch((error) => {
+  await dockerService.appDockerImageRemove(appSpecifications.repotag).catch((error) => {
     const errorResponse = serviceHelper.createErrorMessage(
       error.message || error,
       error.name,
@@ -2096,7 +1692,7 @@ async function registerAppLocally(appSpecifications, res) {
     if (res) {
       res.write(serviceHelper.ensureString(fluxNetworkStatus));
     }
-    const fluxNet = await createFluxDockerNetwork();
+    const fluxNet = await dockerService.createFluxDockerNetwork();
     const fluxNetResponse = serviceHelper.createDataMessage(fluxNet);
     log.info(fluxNetResponse);
     if (res) {
@@ -2139,7 +1735,7 @@ async function registerAppLocally(appSpecifications, res) {
 
     // pull image
     // eslint-disable-next-line no-unused-vars
-    dockerPullStream(appSpecifications.repotag, res, async (error, dataLog) => {
+    dockerService.dockerPullStream(appSpecifications.repotag, res, async (error, dataLog) => {
       if (error) {
         const errorResponse = serviceHelper.createErrorMessage(
           error.message || error,
@@ -2203,7 +1799,7 @@ async function registerAppLocally(appSpecifications, res) {
           res.write(serviceHelper.ensureString(createApp));
         }
 
-        const dockerCreated = await appDockerCreate(appSpecifications).catch((e) => {
+        const dockerCreated = await dockerService.appDockerCreate(appSpecifications).catch((e) => {
           const errorResponse = serviceHelper.createErrorMessage(
             e.message || e,
             e.name,
@@ -2300,7 +1896,7 @@ async function registerAppLocally(appSpecifications, res) {
         if (res) {
           res.write(serviceHelper.ensureString(startStatus));
         }
-        const app = await appDockerStart(getAppIdentifier(appSpecifications.name)).catch((error2) => {
+        const app = await dockerService.appDockerStart(dockerService.getAppIdentifier(appSpecifications.name)).catch((error2) => {
           const errorResponse = serviceHelper.createErrorMessage(
             error2.message || error2,
             error2.name,
@@ -2395,7 +1991,7 @@ async function softRegisterAppLocally(appSpecifications, res) {
     if (res) {
       res.write(serviceHelper.ensureString(fluxNetworkStatus));
     }
-    const fluxNet = await createFluxDockerNetwork();
+    const fluxNet = await dockerService.createFluxDockerNetwork();
     const fluxNetResponse = serviceHelper.createDataMessage(fluxNet);
     log.info(fluxNetResponse);
     if (res) {
@@ -2438,7 +2034,7 @@ async function softRegisterAppLocally(appSpecifications, res) {
 
     // pull image
     // eslint-disable-next-line no-unused-vars
-    dockerPullStream(appSpecifications.repotag, res, async (error, dataLog) => {
+    dockerService.dockerPullStream(appSpecifications.repotag, res, async (error, dataLog) => {
       if (error) {
         const errorResponse = serviceHelper.createErrorMessage(
           error.message || error,
@@ -2472,7 +2068,7 @@ async function softRegisterAppLocally(appSpecifications, res) {
           res.write(serviceHelper.ensureString(createApp));
         }
 
-        const dockerCreated = await appDockerCreate(appSpecifications).catch((e) => {
+        const dockerCreated = await dockerService.appDockerCreate(appSpecifications).catch((e) => {
           const errorResponse = serviceHelper.createErrorMessage(
             e.message || e,
             e.name,
@@ -2567,7 +2163,7 @@ async function softRegisterAppLocally(appSpecifications, res) {
         if (res) {
           res.write(serviceHelper.ensureString(startStatus));
         }
-        const app = await appDockerStart(getAppIdentifier(appSpecifications.name)).catch((error2) => {
+        const app = await dockerService.appDockerStart(dockerService.getAppIdentifier(appSpecifications.name)).catch((error2) => {
           const errorResponse = serviceHelper.createErrorMessage(
             error2.message || error2,
             error2.name,
@@ -5619,11 +5215,11 @@ async function checkAndNotifyPeersOfRunningApps() {
         if (appDetails) {
           log.warn(`${stoppedApp} is stopped but shall be running. Starting...`);
           // it is a stopped global app. Try to run it.
-          const appId = getAppIdentifier(stoppedApp);
+          const appId = dockerService.getAppIdentifier(stoppedApp);
           // check if some removal is in progress as if it is dont start it!
           if (!removalInProgress && !installationInProgress) {
             // eslint-disable-next-line no-await-in-loop
-            await appDockerStart(appId);
+            await dockerService.appDockerStart(appId);
           } else {
             log.warn(`Not starting ${stoppedApp} as of application removal or installation in progress`);
           }
@@ -6939,7 +6535,6 @@ async function fluxShareUpload(req, res) {
 
 module.exports = {
   nodeTier,
-  dockerListContainers,
   appPull,
   listRunningApps,
   listAllApps,
@@ -7028,5 +6623,3 @@ module.exports = {
   fluxShareRename,
   fluxShareDownloadFolder,
 };
-
-// reenable min connections for registrations/updates before main release

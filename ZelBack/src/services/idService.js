@@ -7,6 +7,7 @@ const userconfig = require('../../../config/userconfig');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const appsService = require('./appsService');
+const dockerService = require('./dockerService');
 const fluxCommunication = require('./fluxCommunication');
 
 const goodchars = /^[1-9a-km-zA-HJ-NP-Z]+$/;
@@ -53,7 +54,7 @@ async function confirmNodeTierHardware() {
 async function loginPhrase(req, res) {
   try {
     // check docker availablility
-    await appsService.dockerListContainers(false);
+    await dockerService.dockerListContainers(false);
     // check Node Hardware Requirements are ok.
     const hwPassed = await confirmNodeTierHardware();
     if (hwPassed === false) {
