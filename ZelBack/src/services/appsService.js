@@ -943,11 +943,6 @@ async function createAppVolume(appSpecifications, res) {
 }
 
 async function appUninstallHard(appName, appId, appSpecifications, appComponent, isComponent, res) {
-  const dbopen = serviceHelper.databaseConnection();
-  const appsDatabase = dbopen.db(config.database.appslocal.database);
-  const appsQuery = { name: appName };
-  const appsProjection = {};
-
   const stopStatus = {
     status: isComponent ? `Stopping Flux App Component ${appComponent}...` : `Stopping Flux App ${appName}...`,
   };
@@ -1203,22 +1198,6 @@ async function appUninstallHard(appName, appId, appSpecifications, appComponent,
     }
   }
 
-  const databaseStatus = {
-    status: 'Cleaning up database...',
-  };
-  log.info(databaseStatus);
-  if (res) {
-    res.write(serviceHelper.ensureString(databaseStatus));
-  }
-  await serviceHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
-  const databaseStatus2 = {
-    status: 'Database cleaned',
-  };
-  log.info(databaseStatus2);
-  if (res) {
-    res.write(serviceHelper.ensureString(databaseStatus2));
-  }
-
   const appRemovalResponse = {
     status: isComponent ? `Flux App component ${appComponent} of ${appName} was successfuly removed` : `Flux App ${appName} was successfuly removed`,
   };
@@ -1330,6 +1309,21 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
     } else {
       await appUninstallHard(appName, appId, appSpecifications, appComponent, isComponent, res);
     }
+    const databaseStatus = {
+      status: 'Cleaning up database...',
+    };
+    log.info(databaseStatus);
+    if (res) {
+      res.write(serviceHelper.ensureString(databaseStatus));
+    }
+    await serviceHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+    const databaseStatus2 = {
+      status: 'Database cleaned',
+    };
+    log.info(databaseStatus2);
+    if (res) {
+      res.write(serviceHelper.ensureString(databaseStatus2));
+    }
     const appRemovalResponseDone = {
       status: `All done. Result: Flux App ${appName} was successfuly removed`,
     };
@@ -1359,11 +1353,6 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
 }
 
 async function appUninstallSoft(appName, appId, appSpecifications, appComponent, isComponent, res) {
-  const dbopen = serviceHelper.databaseConnection();
-  const appsDatabase = dbopen.db(config.database.appslocal.database);
-  const appsQuery = { name: appName };
-  const appsProjection = {};
-
   const stopStatus = {
     status: isComponent ? `Stopping Flux App Component ${appComponent}...` : `Stopping Flux App ${appName}...`,
   };
@@ -1451,22 +1440,6 @@ async function appUninstallSoft(appName, appId, appSpecifications, appComponent,
     res.write(serviceHelper.ensureString(portStatus2));
   }
 
-  const databaseStatus = {
-    status: 'Cleaning up database...',
-  };
-  log.info(databaseStatus);
-  if (res) {
-    res.write(serviceHelper.ensureString(databaseStatus));
-  }
-  await serviceHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
-  const databaseStatus2 = {
-    status: 'Database cleaned',
-  };
-  log.info(databaseStatus2);
-  if (res) {
-    res.write(serviceHelper.ensureString(databaseStatus2));
-  }
-
   const appRemovalResponse = {
     status: isComponent ? `Flux App component ${appComponent} of ${appName} was successfuly removed` : `Flux App ${appName} was successfuly removed`,
   };
@@ -1525,6 +1498,22 @@ async function softRemoveAppLocally(app, res) {
     }
   } else {
     await appUninstallSoft(appName, appId, appSpecifications, appComponent, isComponent, res);
+  }
+
+  const databaseStatus = {
+    status: 'Cleaning up database...',
+  };
+  log.info(databaseStatus);
+  if (res) {
+    res.write(serviceHelper.ensureString(databaseStatus));
+  }
+  await serviceHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+  const databaseStatus2 = {
+    status: 'Database cleaned',
+  };
+  log.info(databaseStatus2);
+  if (res) {
+    res.write(serviceHelper.ensureString(databaseStatus2));
   }
 
   const appRemovalResponseDone = {
@@ -1650,6 +1639,10 @@ async function checkAppRequirements(appSpecs) {
   }
   return true;
 }
+
+// async function appInstallHard(appName, appId, appSpecifications, appComponent, isComponent, res) {
+
+// }
 
 async function registerAppLocally(appSpecifications, res) {
   // cpu, ram, hdd were assigned to correct tiered specs.
@@ -2978,7 +2971,7 @@ async function verifyAppSpecifications(appSpecifications, height) {
       if (!appComponent.name.match(/^[a-zA-Z0-9]+$/)) {
         throw new Error('Flux App name contains special characters. Only a-z, A-Z and 0-9 are allowed');
       }
-      if (usedNames.indexOf(appComponent.name) > -1) {
+      if (usedNames.includes(appComponent.name)) {
         throw new Error(`Flux App component ${appComponent.name} already assigned. Use different name.`);
       }
       usedNames.push(appComponent.name);
@@ -3088,7 +3081,7 @@ async function verifyAppSpecifications(appSpecifications, height) {
     ];
     const specsKeys = Object.keys(appSpecifications);
     specsKeys.forEach((sKey) => {
-      if (specifications.indexOf((sKey)) === -1) {
+      if (!specifications.includes((sKey))) {
         throw new Error('Unsupported parameter for v1 app specifications');
       }
     });
@@ -3099,7 +3092,7 @@ async function verifyAppSpecifications(appSpecifications, height) {
     ];
     const specsKeys = Object.keys(appSpecifications);
     specsKeys.forEach((sKey) => {
-      if (specifications.indexOf((sKey)) === -1) {
+      if (!specifications.includes((sKey))) {
         throw new Error('Unsupported parameter for v2 app specifications');
       }
     });
@@ -3110,7 +3103,7 @@ async function verifyAppSpecifications(appSpecifications, height) {
     ];
     const specsKeys = Object.keys(appSpecifications);
     specsKeys.forEach((sKey) => {
-      if (specifications.indexOf((sKey)) === -1) {
+      if (!specifications.includes((sKey))) {
         throw new Error('Unsupported parameter for v3 app specifications');
       }
     });
@@ -3124,14 +3117,14 @@ async function verifyAppSpecifications(appSpecifications, height) {
     ];
     const specsKeys = Object.keys(appSpecifications);
     specsKeys.forEach((sKey) => {
-      if (specifications.indexOf((sKey)) === -1) {
+      if (!specifications.includes((sKey))) {
         throw new Error('Unsupported parameter for v4 app specifications');
       }
     });
     appSpecifications.compose.forEach((appComponent) => {
       const specsKeysComponent = Object.keys(appComponent);
       specsKeysComponent.forEach((sKey) => {
-        if (componentSpecifications.indexOf((sKey)) === -1) {
+        if (!componentSpecifications.includes((sKey))) {
           throw new Error('Unsupported parameter for v4 app specifications');
         }
       });
@@ -3179,14 +3172,14 @@ async function assignedPortsApps() {
 async function ensureCorrectApplicationPort(appSpecFormatted) {
   const currentAppsPorts = await assignedPortsApps();
   if (appSpecFormatted.version === 1) {
-    const portAssigned = currentAppsPorts.find((app) => app.ports.indexOf(appSpecFormatted.port));
+    const portAssigned = currentAppsPorts.find((app) => app.ports.includes(appSpecFormatted.port));
     if (portAssigned && portAssigned.name !== appSpecFormatted.name) {
       throw new Error(`Flux App ${appSpecFormatted.name} port ${appSpecFormatted.port} already registered with different application. Your Flux App has to use different port.`);
     }
   } else if (appSpecFormatted.version <= 3) {
     // eslint-disable-next-line no-restricted-syntax
     for (const port of appSpecFormatted.ports) {
-      const portAssigned = currentAppsPorts.find((app) => app.ports.indexOf(port));
+      const portAssigned = currentAppsPorts.find((app) => app.ports.includes(port));
       if (portAssigned && portAssigned.name !== appSpecFormatted.name) {
         throw new Error(`Flux App ${appSpecFormatted.name} port ${port} already registered with different application. Your Flux App has to use different port.`);
       }
@@ -3196,7 +3189,7 @@ async function ensureCorrectApplicationPort(appSpecFormatted) {
     for (const appComponent of appSpecFormatted.compose) {
       // eslint-disable-next-line no-restricted-syntax
       for (const port of appComponent.ports) {
-        const portAssigned = currentAppsPorts.find((app) => app.ports.indexOf(port));
+        const portAssigned = currentAppsPorts.find((app) => app.ports.includes(port));
         if (portAssigned && portAssigned.name !== appSpecFormatted.name) {
           throw new Error(`Flux App ${appSpecFormatted.name} port ${port} already registered with different application. Your Flux App has to use different port.`);
         }
@@ -5056,16 +5049,7 @@ async function trySpawningGlobalApplication() {
     if (!appSpecifications) {
       throw new Error(`Specifications for application ${randomApp} were not found!`);
     }
-    // run the verification
-    // get tier and adjust specifications
-    if (appSpecifications.tiered) {
-      const hddTier = `hdd${tier}`;
-      const ramTier = `ram${tier}`;
-      const cpuTier = `cpu${tier}`;
-      appSpecifications.cpu = appSpecifications[cpuTier] || appSpecifications.cpu;
-      appSpecifications.ram = appSpecifications[ramTier] || appSpecifications.ram;
-      appSpecifications.hdd = appSpecifications[hddTier] || appSpecifications.hdd;
-    }
+
     // verify requirements
     await checkAppRequirements(appSpecifications);
 
@@ -5118,7 +5102,16 @@ async function checkAndNotifyPeersOfRunningApps() {
     }
     const appsInstalled = installedAppsRes.data;
     const runningApps = runningAppsRes.data;
-    const installedAppsNames = appsInstalled.map((app) => app.name);
+    const installedAppComponentNames = [];
+    appsInstalled.forEach((app) => {
+      if (app.version >= 4) {
+        app.compose.forEach((appComponent) => {
+          installedAppComponentNames.push(`${app.name}_${appComponent.name}`);
+        });
+      } else {
+        installedAppComponentNames.push(app.name);
+      }
+    });
     // kadena and folding is old naming scheme having /zel.  all global application start with /flux
     const runningAppsNames = runningApps.map((app) => {
       if (app.Names[0].startsWith('/zel')) {
@@ -5128,34 +5121,54 @@ async function checkAndNotifyPeersOfRunningApps() {
     });
     // installed always is bigger array than running
     const runningSet = new Set(runningAppsNames);
-    const stoppedApps = installedAppsNames.filter((installedApp) => !runningSet.has(installedApp));
+    const stoppedApps = installedAppComponentNames.filter((installedApp) => !runningSet.has(installedApp));
     // check if stoppedApp is a global application present in specifics. If so, try to start it.
-    // eslint-disable-next-line no-restricted-syntax
-    for (const stoppedApp of stoppedApps) {
-      try {
-        // proceed ONLY if its global App
-        // eslint-disable-next-line no-await-in-loop
-        const appDetails = await getApplicationGlobalSpecifications(stoppedApp);
-        if (appDetails) {
-          log.warn(`${stoppedApp} is stopped but shall be running. Starting...`);
-          // it is a stopped global app. Try to run it.
-          const appId = dockerService.getAppIdentifier(stoppedApp);
-          // check if some removal is in progress as if it is dont start it!
-          if (!removalInProgress && !installationInProgress) {
-            // eslint-disable-next-line no-await-in-loop
-            await dockerService.appDockerStart(appId);
-          } else {
-            log.warn(`Not starting ${stoppedApp} as of application removal or installation in progress`);
+    if (!removalInProgress && !installationInProgress) {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const stoppedApp of stoppedApps) { // will uninstall app if some component is missing
+        try {
+          // proceed ONLY if its global App
+          const mainAppName = stoppedApp.split('_')[0];
+          // eslint-disable-next-line no-await-in-loop
+          const appDetails = await getApplicationGlobalSpecifications(mainAppName);
+          if (appDetails) {
+            log.warn(`${stoppedApp} is stopped but shall be running. Starting...`);
+            // it is a stopped global app. Try to run it.
+            const appId = dockerService.getAppIdentifier(stoppedApp);
+            // check if some removal is in progress as if it is dont start it!
+            if (!removalInProgress && !installationInProgress) {
+              // eslint-disable-next-line no-await-in-loop
+              await dockerService.appDockerStart(appId);
+            } else {
+              log.warn(`Not starting ${stoppedApp} as of application removal or installation in progress`);
+            }
           }
+        } catch (err) {
+          log.error(err);
+          // already checked for mongo ok, daemon ok, docker ok.
+          // eslint-disable-next-line no-await-in-loop
+          await removeAppLocally(stoppedApp);
         }
-      } catch (err) {
-        log.error(err);
-        // already checked for mongo ok, daemon ok, docker ok.
-        // eslint-disable-next-line no-await-in-loop
-        await removeAppLocally(stoppedApp);
       }
+    } else {
+      log.warn('Stopped application checks not running, some removal or installation is in progress');
     }
-    const installedAndRunning = appsInstalled.filter((installedApp) => runningAppsNames.includes(installedApp.name));
+    const installedAndRunning = [];
+    appsInstalled.forEach((app) => {
+      if (app.version >= 4) {
+        let appRunningWell = true;
+        app.compose.forEach((appComponent) => {
+          if (!runningAppsNames.includes(appComponent.name)) {
+            appRunningWell = false;
+          }
+        });
+        if (appRunningWell) {
+          installedAndRunning.push(app);
+        }
+      } else if (runningAppsNames.includes(app.name)) {
+        installedAndRunning.push(app);
+      }
+    });
     // eslint-disable-next-line no-restricted-syntax
     for (const application of installedAndRunning) {
       log.info(`${application.name} is running properly. Broadcasting status.`);
@@ -5334,22 +5347,10 @@ async function softRedeploy(appSpecs, res) {
       res.write(serviceHelper.ensureString(appRedeployResponse));
     }
     await serviceHelper.delay(config.fluxapps.redeploy.delay * 1000); // wait for delay mins
-    // run the verification
-    // get tier and adjust specifications
-    const tier = await generalService.nodeTier();
-    const appSpecifications = appSpecs;
-    if (appSpecifications.tiered) {
-      const hddTier = `hdd${tier}`;
-      const ramTier = `ram${tier}`;
-      const cpuTier = `cpu${tier}`;
-      appSpecifications.cpu = appSpecifications[cpuTier] || appSpecifications.cpu;
-      appSpecifications.ram = appSpecifications[ramTier] || appSpecifications.ram;
-      appSpecifications.hdd = appSpecifications[hddTier] || appSpecifications.hdd;
-    }
     // verify requirements
-    await checkAppRequirements(appSpecifications);
+    await checkAppRequirements(appSpecs);
     // register
-    await softRegisterAppLocally(appSpecifications, res); // can throw
+    await softRegisterAppLocally(appSpecs, res); // can throw
     log.info('Application softly redeployed');
   } catch (error) {
     log.error(error);
@@ -5366,22 +5367,10 @@ async function hardRedeploy(appSpecs, res) {
       res.write(serviceHelper.ensureString(appRedeployResponse));
     }
     await serviceHelper.delay(config.fluxapps.redeploy.delay * 1000); // wait for delay mins
-    // run the verification
-    // get tier and adjust specifications
-    const tier = await generalService.nodeTier();
-    const appSpecifications = appSpecs;
-    if (appSpecifications.tiered) {
-      const hddTier = `hdd${tier}`;
-      const ramTier = `ram${tier}`;
-      const cpuTier = `cpu${tier}`;
-      appSpecifications.cpu = appSpecifications[cpuTier] || appSpecifications.cpu;
-      appSpecifications.ram = appSpecifications[ramTier] || appSpecifications.ram;
-      appSpecifications.hdd = appSpecifications[hddTier] || appSpecifications.hdd;
-    }
     // verify requirements
-    await checkAppRequirements(appSpecifications);
+    await checkAppRequirements(appSpecs);
     // register
-    await registerAppLocally(appSpecifications, res); // can throw
+    await registerAppLocally(appSpecs, res); // can throw
     log.info('Application redeployed');
   } catch (error) {
     log.error(error);
