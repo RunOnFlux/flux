@@ -1727,8 +1727,6 @@ async function registerAppLocally(appSpecifications, res) {
       res.write(serviceHelper.ensureString(checkParameters));
     }
 
-    await checkAppRequirements(appSpecifications);
-
     // prechecks done
     const appInstallation = {
       status: 'Initiating Flux App installation...',
@@ -2025,8 +2023,6 @@ async function softRegisterAppLocally(appSpecifications, res) {
     if (res) {
       res.write(serviceHelper.ensureString(checkParameters));
     }
-
-    await checkAppRequirements(appSpecifications);
 
     // prechecks done
     const appInstallation = {
@@ -4091,6 +4087,8 @@ async function installTemporaryLocalApplication(req, res) {
           throw new Error('Unrecognised Flux Node tier');
         }
       }
+
+      await checkAppRequirements(appSpecifications); // entire app
 
       res.setHeader('Content-Type', 'application/json');
       registerAppLocally(appSpecifications, res); // can throw
