@@ -941,7 +941,294 @@ async function createAppVolume(appSpecifications, res) {
     throw error;
   }
 }
-// force determines if some a check for app not found is skipped
+
+async function appUninstallHard(appName, appId, appSpecifications, appComponent, isComponent, res) {
+  const dbopen = serviceHelper.databaseConnection();
+  const appsDatabase = dbopen.db(config.database.appslocal.database);
+  const appsQuery = { name: appName };
+  const appsProjection = {};
+
+  const stopStatus = {
+    status: isComponent ? `Stopping Flux App Component ${appComponent}...` : `Stopping Flux App ${appName}...`,
+  };
+  log.info(stopStatus);
+  if (res) {
+    res.write(serviceHelper.ensureString(stopStatus));
+  }
+  await dockerService.appDockerStop(appId).catch((error) => {
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    if (res) {
+      res.write(serviceHelper.ensureString(errorResponse));
+    }
+  });
+  const stopStatus2 = {
+    status: isComponent ? `Flux App Component ${appComponent} stopped ` : `Flux App ${appName} stopped`,
+  };
+  log.info(stopStatus2);
+  if (res) {
+    res.write(serviceHelper.ensureString(stopStatus2));
+  }
+
+  const removeStatus = {
+    status: isComponent ? `Removing Flux App component ${appComponent} container...` : `Removing Flux App ${appName} container...`,
+  };
+  log.info(removeStatus);
+  if (res) {
+    res.write(serviceHelper.ensureString(removeStatus));
+  }
+  await dockerService.appDockerRemove(appId).catch((error) => {
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    log.error(errorResponse);
+    if (res) {
+      res.write(serviceHelper.ensureString(errorResponse));
+    }
+  });
+  const removeStatus2 = {
+    status: isComponent ? `Flux App component ${appComponent}container removed` : `Flux App ${appName} container removed`,
+  };
+  log.info(removeStatus2);
+  if (res) {
+    res.write(serviceHelper.ensureString(removeStatus2));
+  }
+
+  const imageStatus = {
+    status: isComponent ? `Removing Flux App component ${appComponent} image...` : `Removing Flux App ${appName} image...`,
+  };
+  log.info(imageStatus);
+  if (res) {
+    res.write(serviceHelper.ensureString(imageStatus));
+  }
+  await dockerService.appDockerImageRemove(appSpecifications.repotag).catch((error) => {
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    log.error(errorResponse);
+    if (res) {
+      res.write(serviceHelper.ensureString(errorResponse));
+    }
+  });
+  const imageStatus2 = {
+    status: isComponent ? `Flux App component ${appComponent} image operations done` : `Flux App ${appName} image operations done`,
+  };
+  log.info(imageStatus2);
+  if (res) {
+    res.write(serviceHelper.ensureString(imageStatus2));
+  }
+
+  const portStatus = {
+    status: isComponent ? `Denying Flux App component ${appComponent} ports...` : `Denying Flux App ${appName} ports...`,
+  };
+  log.info(portStatus);
+  if (res) {
+    res.write(serviceHelper.ensureString(portStatus));
+  }
+  if (appSpecifications.ports) {
+    // eslint-disable-next-line no-restricted-syntax
+    for (const port of appSpecifications.ports) {
+      // eslint-disable-next-line no-await-in-loop
+      await fluxCommunication.denyPort(serviceHelper.ensureNumber(port));
+    }
+    // v1 compatibility
+  } else if (appSpecifications.port) {
+    await fluxCommunication.denyPort(serviceHelper.ensureNumber(appSpecifications.port));
+  }
+  const portStatus2 = {
+    status: isComponent ? `Ports of component ${appComponent} denied` : `Ports of ${appName} denied`,
+  };
+  log.info(portStatus2);
+  if (res) {
+    res.write(serviceHelper.ensureString(portStatus2));
+  }
+
+  const unmuontStatus = {
+    status: isComponent ? `Unmounting volume of component ${appName}...` : `Unmounting volume of ${appName}...`,
+  };
+  log.info(unmuontStatus);
+  if (res) {
+    res.write(serviceHelper.ensureString(unmuontStatus));
+  }
+  const execUnmount = `sudo umount ${appsFolder + appId}`;
+  await cmdAsync(execUnmount).then(() => {
+    const unmuontStatus2 = {
+      status: isComponent ? `Volume of component ${appComponent} unmounted` : `Volume of ${appName} unmounted`,
+    };
+    log.info(unmuontStatus2);
+    if (res) {
+      res.write(serviceHelper.ensureString(unmuontStatus2));
+    }
+  }).catch((e) => {
+    log.error(e);
+    const unmuontStatus3 = {
+      status: isComponent ? `An error occured while unmounting component ${appComponent} storage. Continuing...` : `An error occured while unmounting ${appName} storage. Continuing...`,
+    };
+    log.info(unmuontStatus3);
+    if (res) {
+      res.write(serviceHelper.ensureString(unmuontStatus3));
+    }
+  });
+
+  const cleaningStatus = {
+    status: isComponent ? `Cleaning up component ${appComponent} data...` : `Cleaning up ${appName} data...`,
+  };
+  log.info(cleaningStatus);
+  if (res) {
+    res.write(serviceHelper.ensureString(cleaningStatus));
+  }
+  const execDelete = `sudo rm -rf ${appsFolder + appId}`;
+  await cmdAsync(execDelete).catch((e) => {
+    log.error(e);
+    const cleaningStatusE = {
+      status: isComponent ? `An error occured while cleaning component ${appComponent} data. Continuing...` : `An error occured while cleaning ${appName} data. Continuing...`,
+    };
+    log.info(cleaningStatusE);
+    if (res) {
+      res.write(serviceHelper.ensureString(cleaningStatusE));
+    }
+  });
+  const cleaningStatus2 = {
+    status: isComponent ? `Data of component ${appComponent} cleaned` : `Data of ${appName} cleaned`,
+  };
+  log.info(cleaningStatus2);
+  if (res) {
+    res.write(serviceHelper.ensureString(cleaningStatus2));
+  }
+
+  let volumepath;
+  // CRONTAB
+  const cronStatus = {
+    status: 'Adjusting crontab...',
+  };
+  log.info(cronStatus);
+  if (res) {
+    res.write(serviceHelper.ensureString(cronStatus));
+  }
+
+  const crontab = await crontabLoad().catch((e) => {
+    log.error(e);
+    const cronE = {
+      status: 'An error occured while loading crontab. Continuing...',
+    };
+    log.info(cronE);
+    if (res) {
+      res.write(serviceHelper.ensureString(cronE));
+    }
+  });
+  if (crontab) {
+    const jobs = crontab.jobs();
+    // find correct cronjob
+    let jobToRemove;
+    jobs.forEach((job) => {
+      if (job.comment() === appId) {
+        jobToRemove = job;
+        // find the command that tells us where the actual fsvol is;
+        const command = job.command();
+        const cmdsplit = command.split(' ');
+        // eslint-disable-next-line prefer-destructuring
+        volumepath = cmdsplit[4]; // sudo mount -o loop /home/abcapp2TEMP /root/zelflux/ZelApps/abcapp2 is an example
+        if (!job || !job.isValid()) {
+          // remove the job as its invalid anyway
+          crontab.remove(job);
+        }
+      }
+    });
+    // remove the job
+    if (jobToRemove) {
+      crontab.remove(jobToRemove);
+      // save
+      try {
+        crontab.save();
+      } catch (e) {
+        log.error(e);
+        const cronE = {
+          status: 'An error occured while saving crontab. Continuing...',
+        };
+        log.info(cronE);
+        if (res) {
+          res.write(serviceHelper.ensureString(cronE));
+        }
+      }
+      const cronStatusDone = {
+        status: 'Crontab Adjusted.',
+      };
+      log.info(cronStatusDone);
+      if (res) {
+        res.write(serviceHelper.ensureString(cronStatusDone));
+      }
+    } else {
+      const cronStatusNotFound = {
+        status: 'Crontab not found.',
+      };
+      log.info(cronStatusNotFound);
+      if (res) {
+        res.write(serviceHelper.ensureString(cronStatusNotFound));
+      }
+    }
+  }
+
+  if (volumepath) {
+    const cleaningVolumeStatus = {
+      status: isComponent ? `Cleaning up data volume of ${appComponent}...` : `Cleaning up data volume of ${appName}...`,
+    };
+    log.info(cleaningVolumeStatus);
+    if (res) {
+      res.write(serviceHelper.ensureString(cleaningVolumeStatus));
+    }
+    const execVolumeDelete = `sudo rm -rf ${volumepath}`;
+    await cmdAsync(execVolumeDelete).catch((e) => {
+      log.error(e);
+      const cleaningVolumeStatusE = {
+        status: isComponent ? `An error occured while cleaning component ${appComponent} volume. Continuing...` : `An error occured while cleaning ${appName} volume. Continuing...`,
+      };
+      log.info(cleaningVolumeStatusE);
+      if (res) {
+        res.write(serviceHelper.ensureString(cleaningVolumeStatusE));
+      }
+    });
+    const cleaningVolumeStatus2 = {
+      status: isComponent ? `Volume of component ${appComponent} cleaned` : `Volume of ${appName} cleaned`,
+    };
+    log.info(cleaningVolumeStatus2);
+    if (res) {
+      res.write(serviceHelper.ensureString(cleaningVolumeStatus2));
+    }
+  }
+
+  const databaseStatus = {
+    status: 'Cleaning up database...',
+  };
+  log.info(databaseStatus);
+  if (res) {
+    res.write(serviceHelper.ensureString(databaseStatus));
+  }
+  await serviceHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+  const databaseStatus2 = {
+    status: 'Database cleaned',
+  };
+  log.info(databaseStatus2);
+  if (res) {
+    res.write(serviceHelper.ensureString(databaseStatus2));
+  }
+
+  const appRemovalResponse = {
+    status: isComponent ? `Flux App component ${appComponent} of ${appName} was successfuly removed` : `Flux App ${appName} was successfuly removed`,
+  };
+  log.info(appRemovalResponse);
+  if (res) {
+    res.write(serviceHelper.ensureString(appRemovalResponse));
+  }
+}
+
+// force determines if some a check for app not found is skipped. Works for both entire app or app component
 async function removeAppLocally(app, res, force = false, endResponse = true) {
   try {
     // remove app from local machine.
@@ -970,11 +1257,15 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
       }
     }
     removalInProgress = true;
+
     if (!app) {
       throw new Error('No App specified');
     }
 
-    const appId = dockerService.getAppIdentifier(app);
+    let isComponent = app.includes('_'); // copmonent is defined by appSpecs.name_appComponent.name
+
+    const appName = app.split('_')[0];
+    let appComponent = app.split('_')[1];
 
     // first find the appSpecifications in our database.
     // connect to mongodb
@@ -983,7 +1274,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
     const appsDatabase = dbopen.db(config.database.appslocal.database);
     const database = dbopen.db(config.database.appsglobal.database);
 
-    const appsQuery = { name: app };
+    const appsQuery = { name: appName };
     const appsProjection = {};
     let appSpecifications = await serviceHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
     if (!appSpecifications) {
@@ -996,7 +1287,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
         // get it from locally available Specifications
         // eslint-disable-next-line no-use-before-define
         const allApps = await availableApps();
-        appSpecifications = allApps.find((a) => a.name === app);
+        appSpecifications = allApps.find((a) => a.name === appName);
         // get it from permanent messages
         if (!appSpecifications) {
           const query = {};
@@ -1004,7 +1295,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
           const messages = await serviceHelper.findInDatabase(database, globalAppsMessages, query, projection);
           const appMessages = messages.filter((message) => {
             const specifications = message.appSpecifications || message.zelAppSpecifications;
-            return specifications.name === app;
+            return specifications.name === appName;
           });
           let currentSpecifications;
           appMessages.forEach((message) => {
@@ -1023,285 +1314,31 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
       throw new Error('Flux App not found');
     }
 
-    // simplifying ignore error messages for now
-    const stopStatus = {
-      status: 'Stopping Flux App...',
-    };
-    log.info(stopStatus);
-    if (res) {
-      res.write(serviceHelper.ensureString(stopStatus));
-    }
-    await dockerService.appDockerStop(appId).catch((error) => {
-      const errorResponse = serviceHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
-      );
-      if (res) {
-        res.write(serviceHelper.ensureString(errorResponse));
-      }
-    });
-    const stopStatus2 = {
-      status: 'Flux App stopped',
-    };
-    log.info(stopStatus2);
-    if (res) {
-      res.write(serviceHelper.ensureString(stopStatus2));
-    }
+    let appId = dockerService.getAppIdentifier(app); // get app or component app identifier
 
-    const removeStatus = {
-      status: 'Removing Flux App container...',
-    };
-    log.info(removeStatus);
-    if (res) {
-      res.write(serviceHelper.ensureString(removeStatus));
-    }
-    await dockerService.appDockerRemove(appId).catch((error) => {
-      const errorResponse = serviceHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
-      );
-      log.error(errorResponse);
-      if (res) {
-        res.write(serviceHelper.ensureString(errorResponse));
-      }
-    });
-    const removeStatus2 = {
-      status: 'Flux App container removed',
-    };
-    log.info(removeStatus2);
-    if (res) {
-      res.write(serviceHelper.ensureString(removeStatus2));
-    }
-
-    const imageStatus = {
-      status: 'Removing Flux App image...',
-    };
-    log.info(imageStatus);
-    if (res) {
-      res.write(serviceHelper.ensureString(imageStatus));
-    }
-    await dockerService.appDockerImageRemove(appSpecifications.repotag).catch((error) => {
-      const errorResponse = serviceHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
-      );
-      log.error(errorResponse);
-      if (res) {
-        res.write(serviceHelper.ensureString(errorResponse));
-      }
-    });
-    const imageStatus2 = {
-      status: 'Flux App image operations done',
-    };
-    log.info(imageStatus2);
-    if (res) {
-      res.write(serviceHelper.ensureString(imageStatus2));
-    }
-
-    const portStatus = {
-      status: 'Denying Flux App ports...',
-    };
-    log.info(portStatus);
-    if (res) {
-      res.write(serviceHelper.ensureString(portStatus));
-    }
-    if (appSpecifications.ports) {
+    if (appSpecifications.version === 4 && !isComponent) {
+      // it is a composed application
       // eslint-disable-next-line no-restricted-syntax
-      for (const port of appSpecifications.ports) {
+      for (const appComposedComponent of appSpecifications.compose) {
+        isComponent = true;
+        appComponent = appComposedComponent.name;
+        appId = `${appSpecifications.name}_${appComposedComponent.name}`;
+        const appComponentSpecifications = appComposedComponent;
         // eslint-disable-next-line no-await-in-loop
-        await fluxCommunication.denyPort(serviceHelper.ensureNumber(port));
+        await appUninstallHard(appName, appId, appComponentSpecifications, appComponent, isComponent, res);
       }
-      // v1 compatibility
-    } else if (appSpecifications.port) {
-      await fluxCommunication.denyPort(serviceHelper.ensureNumber(appSpecifications.port));
+    } else {
+      await appUninstallHard(appName, appId, appSpecifications, appComponent, isComponent, res);
     }
-    const portStatus2 = {
-      status: 'Ports denied',
+    const appRemovalResponseDone = {
+      status: `All done. Result: Flux App ${appName} was successfuly removed`,
     };
-    log.info(portStatus2);
+    log.info(appRemovalResponseDone);
     if (res) {
-      res.write(serviceHelper.ensureString(portStatus2));
+      res.write(serviceHelper.ensureString(appRemovalResponseDone));
     }
-
-    const unmuontStatus = {
-      status: 'Unmounting volume...',
-    };
-    log.info(unmuontStatus);
-    if (res) {
-      res.write(serviceHelper.ensureString(unmuontStatus));
-    }
-    const execUnmount = `sudo umount ${appsFolder + appId}`;
-    await cmdAsync(execUnmount).then(() => {
-      const unmuontStatus2 = {
-        status: 'Volume unmounted',
-      };
-      log.info(unmuontStatus2);
-      if (res) {
-        res.write(serviceHelper.ensureString(unmuontStatus2));
-      }
-    }).catch((e) => {
-      log.error(e);
-      const unmuontStatus3 = {
-        status: 'An error occured while unmounting storage. Continuing...',
-      };
-      log.info(unmuontStatus3);
-      if (res) {
-        res.write(serviceHelper.ensureString(unmuontStatus3));
-      }
-    });
-
-    const cleaningStatus = {
-      status: 'Cleaning up data...',
-    };
-    log.info(cleaningStatus);
-    if (res) {
-      res.write(serviceHelper.ensureString(cleaningStatus));
-    }
-    const execDelete = `sudo rm -rf ${appsFolder + appId}`;
-    await cmdAsync(execDelete).catch((e) => {
-      log.error(e);
-      const cleaningStatusE = {
-        status: 'An error occured while cleaning data. Continuing...',
-      };
-      log.info(cleaningStatusE);
-      if (res) {
-        res.write(serviceHelper.ensureString(cleaningStatusE));
-      }
-    });
-    const cleaningStatus2 = {
-      status: 'Data cleaned',
-    };
-    log.info(cleaningStatus2);
-    if (res) {
-      res.write(serviceHelper.ensureString(cleaningStatus2));
-    }
-
-    let volumepath;
-    // CRONTAB
-    const cronStatus = {
-      status: 'Adjusting crontab...',
-    };
-    log.info(cronStatus);
-    if (res) {
-      res.write(serviceHelper.ensureString(cronStatus));
-    }
-
-    const crontab = await crontabLoad().catch((e) => {
-      log.error(e);
-      const cronE = {
-        status: 'An error occured while loading crontab. Continuing...',
-      };
-      log.info(cronE);
-      if (res) {
-        res.write(serviceHelper.ensureString(cronE));
-      }
-    });
-    if (crontab) {
-      const jobs = crontab.jobs();
-      // find correct cronjob
-      let jobToRemove;
-      jobs.forEach((job) => {
-        if (job.comment() === appId) {
-          jobToRemove = job;
-          // find the command that tells us where the actual fsvol is;
-          const command = job.command();
-          const cmdsplit = command.split(' ');
-          // eslint-disable-next-line prefer-destructuring
-          volumepath = cmdsplit[4]; // sudo mount -o loop /home/abcapp2TEMP /root/zelflux/ZelApps/abcapp2 is an example
-          if (!job || !job.isValid()) {
-            // remove the job as its invalid anyway
-            crontab.remove(job);
-          }
-        }
-      });
-      // remove the job
-      if (jobToRemove) {
-        crontab.remove(jobToRemove);
-        // save
-        try {
-          crontab.save();
-        } catch (e) {
-          log.error(e);
-          const cronE = {
-            status: 'An error occured while saving crontab. Continuing...',
-          };
-          log.info(cronE);
-          if (res) {
-            res.write(serviceHelper.ensureString(cronE));
-          }
-        }
-        const cronStatusDone = {
-          status: 'Crontab Adjusted.',
-        };
-        log.info(cronStatusDone);
-        if (res) {
-          res.write(serviceHelper.ensureString(cronStatusDone));
-        }
-      } else {
-        const cronStatusNotFound = {
-          status: 'Crontab not found.',
-        };
-        log.info(cronStatusNotFound);
-        if (res) {
-          res.write(serviceHelper.ensureString(cronStatusNotFound));
-        }
-      }
-    }
-
-    if (volumepath) {
-      const cleaningVolumeStatus = {
-        status: 'Cleaning up data volume...',
-      };
-      log.info(cleaningVolumeStatus);
-      if (res) {
-        res.write(serviceHelper.ensureString(cleaningVolumeStatus));
-      }
-      const execVolumeDelete = `sudo rm -rf ${volumepath}`;
-      await cmdAsync(execVolumeDelete).catch((e) => {
-        log.error(e);
-        const cleaningVolumeStatusE = {
-          status: 'An error occured while cleaning volume. Continuing...',
-        };
-        log.info(cleaningVolumeStatusE);
-        if (res) {
-          res.write(serviceHelper.ensureString(cleaningVolumeStatusE));
-        }
-      });
-      const cleaningVolumeStatus2 = {
-        status: 'Volume cleaned',
-      };
-      log.info(cleaningVolumeStatus2);
-      if (res) {
-        res.write(serviceHelper.ensureString(cleaningVolumeStatus2));
-      }
-    }
-
-    const databaseStatus = {
-      status: 'Cleaning up database...',
-    };
-    log.info(databaseStatus);
-    if (res) {
-      res.write(serviceHelper.ensureString(databaseStatus));
-    }
-    await serviceHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
-    const databaseStatus2 = {
-      status: 'Database cleaned',
-    };
-    log.info(databaseStatus2);
-    if (res) {
-      res.write(serviceHelper.ensureString(databaseStatus2));
-    }
-
-    const appRemovalResponse = serviceHelper.createDataMessage(`Flux App ${app} was successfuly removed`);
-    log.info(appRemovalResponse);
-    if (res) {
-      res.write(serviceHelper.ensureString(appRemovalResponse));
-      if (endResponse) {
-        res.end();
-      }
+    if (res && endResponse) {
+      res.end();
     }
     removalInProgress = false;
   } catch (error) {
@@ -1321,40 +1358,14 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
   }
 }
 
-// removal WITHOUT storage deletion and catches. For app reload. Only for internal useage. We throwing in functinos using this
-async function softRemoveAppLocally(app, res) {
-  // remove app from local machine.
-  // find in database, stop app, remove container, close port, remove from database
-  // we want to remove the image as well (repotag) what if other container uses the same image -> then it shall result in an error so ok anyway
-  if (removalInProgress) {
-    throw new Error('Another application is undergoing removal');
-  }
-  if (installationInProgress) {
-    throw new Error('Another application is undergoing installation');
-  }
-  removalInProgress = true;
-  if (!app) {
-    throw new Error('No Flux App specified');
-  }
-
-  const appId = dockerService.getAppIdentifier(app);
-
-  // first find the appSpecifications in our database.
-  // connect to mongodb
+async function appUninstallSoft(appName, appId, appSpecifications, appComponent, isComponent, res) {
   const dbopen = serviceHelper.databaseConnection();
-
   const appsDatabase = dbopen.db(config.database.appslocal.database);
-
-  const appsQuery = { name: app };
+  const appsQuery = { name: appName };
   const appsProjection = {};
-  const appSpecifications = await serviceHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
-  if (!appSpecifications) {
-    throw new Error('Flux App not found');
-  }
 
-  // simplifying ignore error messages for now
   const stopStatus = {
-    status: 'Stopping Flux App...',
+    status: isComponent ? `Stopping Flux App Component ${appComponent}...` : `Stopping Flux App ${appName}...`,
   };
   log.info(stopStatus);
   if (res) {
@@ -1364,7 +1375,7 @@ async function softRemoveAppLocally(app, res) {
   await dockerService.appDockerStop(appId);
 
   const stopStatus2 = {
-    status: 'Flux App stopped',
+    status: isComponent ? `Flux App Component ${appComponent} stopped ` : `Flux App ${appName} stopped`,
   };
   log.info(stopStatus2);
   if (res) {
@@ -1372,7 +1383,7 @@ async function softRemoveAppLocally(app, res) {
   }
 
   const removeStatus = {
-    status: 'Removing Flux App container...',
+    status: isComponent ? `Removing Flux App component ${appComponent} container...` : `Removing Flux App ${appName} container...`,
   };
   log.info(removeStatus);
   if (res) {
@@ -1382,7 +1393,7 @@ async function softRemoveAppLocally(app, res) {
   await dockerService.appDockerRemove(appId);
 
   const removeStatus2 = {
-    status: 'Flux App container removed',
+    status: isComponent ? `Flux App component ${appComponent}container removed` : `Flux App ${appName} container removed`,
   };
   log.info(removeStatus2);
   if (res) {
@@ -1390,7 +1401,7 @@ async function softRemoveAppLocally(app, res) {
   }
 
   const imageStatus = {
-    status: 'Removing Flux App image...',
+    status: isComponent ? `Removing Flux App component ${appComponent} image...` : `Removing Flux App ${appName} image...`,
   };
   log.info(imageStatus);
   if (res) {
@@ -1408,7 +1419,7 @@ async function softRemoveAppLocally(app, res) {
     }
   });
   const imageStatus2 = {
-    status: 'Flux App image operations done',
+    status: isComponent ? `Flux App component ${appComponent} image operations done` : `Flux App ${appName} image operations done`,
   };
   log.info(imageStatus2);
   if (res) {
@@ -1416,7 +1427,7 @@ async function softRemoveAppLocally(app, res) {
   }
 
   const portStatus = {
-    status: 'Denying Flux App ports...',
+    status: isComponent ? `Denying Flux App component ${appComponent} ports...` : `Denying Flux App ${appName} ports...`,
   };
   log.info(portStatus);
   if (res) {
@@ -1433,7 +1444,7 @@ async function softRemoveAppLocally(app, res) {
     await fluxCommunication.denyPort(serviceHelper.ensureNumber(appSpecifications.port));
   }
   const portStatus2 = {
-    status: 'Ports denied',
+    status: isComponent ? `Ports of component ${appComponent} denied` : `Ports of ${appName} denied`,
   };
   log.info(portStatus2);
   if (res) {
@@ -1456,10 +1467,73 @@ async function softRemoveAppLocally(app, res) {
     res.write(serviceHelper.ensureString(databaseStatus2));
   }
 
-  const appRemovalResponse = serviceHelper.createDataMessage(`Flux App ${app} was partially removed`);
+  const appRemovalResponse = {
+    status: isComponent ? `Flux App component ${appComponent} of ${appName} was successfuly removed` : `Flux App ${appName} was successfuly removed`,
+  };
   log.info(appRemovalResponse);
   if (res) {
     res.write(serviceHelper.ensureString(appRemovalResponse));
+  }
+}
+
+// removal WITHOUT storage deletion and catches. For app reload. Only for internal useage. We throwing in functinos using this
+async function softRemoveAppLocally(app, res) {
+  // remove app from local machine.
+  // find in database, stop app, remove container, close port, remove from database
+  // we want to remove the image as well (repotag) what if other container uses the same image -> then it shall result in an error so ok anyway
+  if (removalInProgress) {
+    throw new Error('Another application is undergoing removal');
+  }
+  if (installationInProgress) {
+    throw new Error('Another application is undergoing installation');
+  }
+  removalInProgress = true;
+  if (!app) {
+    throw new Error('No Flux App specified');
+  }
+
+  let isComponent = app.includes('_'); // copmonent is defined by appSpecs.name_appComponent.name
+
+  const appName = app.split('_')[0];
+  let appComponent = app.split('_')[1];
+
+  // first find the appSpecifications in our database.
+  // connect to mongodb
+  const dbopen = serviceHelper.databaseConnection();
+
+  const appsDatabase = dbopen.db(config.database.appslocal.database);
+
+  const appsQuery = { name: appName };
+  const appsProjection = {};
+  const appSpecifications = await serviceHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+  if (!appSpecifications) {
+    throw new Error('Flux App not found');
+  }
+
+  let appId = dockerService.getAppIdentifier(app);
+
+  if (appSpecifications.version === 4 && !isComponent) {
+    // it is a composed application
+    // eslint-disable-next-line no-restricted-syntax
+    for (const appComposedComponent of appSpecifications.compose) {
+      isComponent = true;
+      appComponent = appComposedComponent.name;
+      appId = `${appSpecifications.name}_${appComposedComponent.name}`;
+      const appComponentSpecifications = appComposedComponent;
+      // eslint-disable-next-line no-await-in-loop
+      await appUninstallSoft(appName, appId, appComponentSpecifications, appComponent, isComponent, res);
+    }
+  } else {
+    await appUninstallSoft(appName, appId, appSpecifications, appComponent, isComponent, res);
+  }
+
+  const appRemovalResponseDone = {
+    status: `All done. Result: Flux App ${appName} was partially removed`,
+  };
+
+  log.info(appRemovalResponseDone);
+  if (res) {
+    res.write(serviceHelper.ensureString(appRemovalResponseDone));
   }
   removalInProgress = false;
 }
@@ -5348,65 +5422,137 @@ async function reinstallOldApplications() {
           // get tier and adjust specifications
           // eslint-disable-next-line no-await-in-loop
           const tier = await generalService.nodeTier();
-          if (appSpecifications.tiered) {
-            const hddTier = `hdd${tier}`;
-            const ramTier = `ram${tier}`;
-            const cpuTier = `cpu${tier}`;
-            appSpecifications.cpu = appSpecifications[cpuTier] || appSpecifications.cpu;
-            appSpecifications.ram = appSpecifications[ramTier] || appSpecifications.ram;
-            appSpecifications.hdd = appSpecifications[hddTier] || appSpecifications.hdd;
-          }
+          if (appSpecifications.version <= 3) {
+            if (appSpecifications.tiered) {
+              const hddTier = `hdd${tier}`;
+              const ramTier = `ram${tier}`;
+              const cpuTier = `cpu${tier}`;
+              appSpecifications.cpu = appSpecifications[cpuTier] || appSpecifications.cpu;
+              appSpecifications.ram = appSpecifications[ramTier] || appSpecifications.ram;
+              appSpecifications.hdd = appSpecifications[hddTier] || appSpecifications.hdd;
+            }
 
-          if (appSpecifications.hdd === installedApp.hdd) {
-            log.warn('Beginning Soft Redeployment...');
-            // soft redeployment
-            try {
+            if (removalInProgress) {
+              log.warn('Another application is undergoing removal');
+              return;
+            }
+            if (installationInProgress) {
+              log.warn('Another application is undergoing installation');
+              return;
+            }
+
+            if (appSpecifications.hdd === installedApp.hdd) {
+              log.warn(`Beginning Soft Redeployment of ${appSpecifications.name}...`);
+              // soft redeployment
               try {
-                if (removalInProgress) {
-                  log.warn('Another application is undergoing removal');
-                  return;
-                }
-                if (installationInProgress) {
-                  log.warn('Another application is undergoing installation');
-                  return;
+                try {
+                  // eslint-disable-next-line no-await-in-loop
+                  await softRemoveAppLocally(installedApp.name);
+                  log.warn('Application softly removed. Awaiting installation...');
+                } catch (error) {
+                  log.error(error);
+                  removalInProgress = false;
+                  throw error;
                 }
                 // eslint-disable-next-line no-await-in-loop
-                await softRemoveAppLocally(installedApp.name);
-                log.warn('Application softly removed. Awaiting installation...');
+                await serviceHelper.delay(config.fluxapps.redeploy.delay * 1000); // wait for delay mins so we dont have more removals at the same time
+                // eslint-disable-next-line no-await-in-loop
+                await checkAppRequirements(appSpecifications);
+                // install the app
+                // eslint-disable-next-line no-await-in-loop
+                await softRegisterAppLocally(appSpecifications); // can throw which is ok
               } catch (error) {
                 log.error(error);
-                removalInProgress = false;
-                throw error;
+                removeAppLocally(appSpecifications.name, null, true);
               }
-              // eslint-disable-next-line no-await-in-loop
-              await serviceHelper.delay(config.fluxapps.redeploy.delay * 1000); // wait for delay mins so we dont have more removals at the same time
-              // eslint-disable-next-line no-await-in-loop
-              await checkAppRequirements(appSpecifications);
-              // install the app
-              // eslint-disable-next-line no-await-in-loop
-              await softRegisterAppLocally(appSpecifications); // can throw which is ok
-            } catch (error) {
-              log.error(error);
-              removeAppLocally(appSpecifications.name, null, true);
+            } else {
+              log.warn(`Beginning Hard Redeployment of ${appSpecifications.name}...`);
+              // hard redeployment
+              try {
+                // eslint-disable-next-line no-await-in-loop
+                await removeAppLocally(installedApp.name);
+                log.warn('Application removed. Awaiting installation...');
+                // eslint-disable-next-line no-await-in-loop
+                await serviceHelper.delay(config.fluxapps.redeploy.delay * 1000); // wait for delay mins so we dont have more removals at the same time
+                // eslint-disable-next-line no-await-in-loop
+                await checkAppRequirements(appSpecifications);
+
+                // install the app
+                // eslint-disable-next-line no-await-in-loop
+                await registerAppLocally(appSpecifications); // can throw
+              } catch (error) {
+                log.error(error);
+                removeAppLocally(appSpecifications.name, null, true);
+              }
             }
           } else {
-            log.warn('Beginning Hard Redeployment...');
-            // hard redeployment
-            try {
-              // eslint-disable-next-line no-await-in-loop
-              await removeAppLocally(installedApp.name);
-              log.warn('Application removed. Awaiting installation...');
-              // eslint-disable-next-line no-await-in-loop
-              await serviceHelper.delay(config.fluxapps.redeploy.delay * 1000); // wait for delay mins so we dont have more removals at the same time
-              // eslint-disable-next-line no-await-in-loop
-              await checkAppRequirements(appSpecifications);
+            // composed application
+            log.warn(`Beginning Redeployment of ${appSpecifications.name}${appSpecifications.name}...`);
+            if (removalInProgress) {
+              log.warn('Another application is undergoing removal');
+              return;
+            }
+            if (installationInProgress) {
+              log.warn('Another application is undergoing installation');
+              return;
+            }
+            // eslint-disable-next-line no-restricted-syntax
+            for (const appComponent of appSpecifications.compose) {
+              if (appComponent.tiered) {
+                const hddTier = `hdd${tier}`;
+                const ramTier = `ram${tier}`;
+                const cpuTier = `cpu${tier}`;
+                appComponent.cpu = appComponent[cpuTier] || appComponent.cpu;
+                appComponent.ram = appComponent[ramTier] || appComponent.ram;
+                appComponent.hdd = appComponent[hddTier] || appComponent.hdd;
+              }
 
-              // install the app
-              // eslint-disable-next-line no-await-in-loop
-              await registerAppLocally(appSpecifications); // can throw
-            } catch (error) {
-              log.error(error);
-              removeAppLocally(appSpecifications.name, null, true);
+              const installedComponent = installedApp.compose.find((component) => component.name === appComponent.name);
+
+              if (appComponent.hdd === installedComponent.hdd) {
+                log.warn(`Beginning Soft Redeployment of component ${appSpecifications.name}_${appComponent.name}...`);
+                // soft redeployment
+                try {
+                  try {
+                    // eslint-disable-next-line no-await-in-loop
+                    await softRemoveAppLocally(`${appSpecifications.name}_${appComponent.name}`); // component
+                    log.warn(`Application component ${appSpecifications.name}_${appComponent.name} softly removed. Awaiting installation...`);
+                  } catch (error) {
+                    log.error(error);
+                    removalInProgress = false;
+                    throw error;
+                  }
+                  // eslint-disable-next-line no-await-in-loop
+                  await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
+                  // eslint-disable-next-line no-await-in-loop
+                  await checkAppRequirements(appSpecifications); // entire app
+                  // install the app
+                  // eslint-disable-next-line no-await-in-loop
+                  await softRegisterAppLocally(appComponent); // component
+                } catch (error) {
+                  log.error(error);
+                  removeAppLocally(appSpecifications.name, null, true); // remove entire app
+                }
+              } else {
+                log.warn(`Beginning Hard Redeployment of component ${appSpecifications.name}_${appComponent.name}...`);
+                // hard redeployment
+                try {
+                  // eslint-disable-next-line no-await-in-loop
+                  await removeAppLocally(`${appSpecifications.name}_${appComponent.name}`); // component
+                  log.warn(`Application component ${appSpecifications.name}_${appComponent.name} removed. Awaiting installation...`);
+                  // eslint-disable-next-line no-await-in-loop
+                  await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
+                  // eslint-disable-next-line no-await-in-loop
+                  await checkAppRequirements(appSpecifications); // entire app
+
+                  // install the app
+                  // eslint-disable-next-line no-await-in-loop
+                  await registerAppLocally(appComponent); // component
+                } catch (error) {
+                  log.error(error);
+                  removeAppLocally(appSpecifications.name, null, true); // remove entire app
+                }
+              }
             }
           }
         } else {
