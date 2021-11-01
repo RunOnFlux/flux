@@ -21,6 +21,7 @@ const appsFolder = `${fluxDirPath}ZelApps/`;
 
 const cmdAsync = util.promisify(nodecmd.get);
 const crontabLoad = util.promisify(systemcrontab.load);
+const dockerPullStreamPromise = util.promisify(dockerService.dockerPullStream);
 
 const scannedHeightCollection = config.database.daemon.collections.scannedHeight;
 const appsHashesCollection = config.database.daemon.collections.appsHashes;
@@ -50,15 +51,7 @@ async function appPull(req, res) {
       if (!repotag) {
         throw new Error('No Docker repository specified');
       }
-
-      dockerService.dockerPullStream(repotag, res, (error, dataLog) => {
-        if (error) {
-          throw error;
-        } else {
-          const containerLogResponse = serviceHelper.createDataMessage(dataLog);
-          res.json(containerLogResponse);
-        }
-      });
+      await dockerPullStreamPromise(repotag, res);
     } else {
       const errMessage = serviceHelper.errUnauthorizedMessage();
       res.json(errMessage);
@@ -712,9 +705,10 @@ async function appsResources(req, res) {
   }
 }
 
-async function createAppVolume(appSpecifications, res) {
+async function createAppVolume(appSpecifications, appName, isComponent, res) {
   const dfAsync = util.promisify(df);
-  const appId = dockerService.getAppIdentifier(appSpecifications.name);
+  const identifier = isComponent ? `${appName}_${appSpecifications.name}` : appName;
+  const appId = dockerService.getAppIdentifier(identifier);
 
   const searchSpace = {
     status: 'Searching available space...',
@@ -1306,28 +1300,32 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
         // eslint-disable-next-line no-await-in-loop
         await appUninstallHard(appName, appId, appComponentSpecifications, appComponent, isComponent, res);
       }
+      isComponent = false;
     } else {
       await appUninstallHard(appName, appId, appSpecifications, appComponent, isComponent, res);
     }
-    const databaseStatus = {
-      status: 'Cleaning up database...',
-    };
-    log.info(databaseStatus);
-    if (res) {
-      res.write(serviceHelper.ensureString(databaseStatus));
-    }
-    await serviceHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
-    const databaseStatus2 = {
-      status: 'Database cleaned',
-    };
-    log.info(databaseStatus2);
-    if (res) {
-      res.write(serviceHelper.ensureString(databaseStatus2));
+    if (!isComponent) {
+      const databaseStatus = {
+        status: 'Cleaning up database...',
+      };
+      log.info(databaseStatus);
+      if (res) {
+        res.write(serviceHelper.ensureString(databaseStatus));
+      }
+      await serviceHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+      const databaseStatus2 = {
+        status: 'Database cleaned',
+      };
+      log.info(databaseStatus2);
+      if (res) {
+        res.write(serviceHelper.ensureString(databaseStatus2));
+      }
     }
     const appRemovalResponseDone = {
-      status: `All done. Result: Flux App ${appName} was successfuly removed`,
+      status: `Removal step done. Result: Flux App ${appName} was successfuly removed`,
     };
     log.info(appRemovalResponseDone);
+
     if (res) {
       res.write(serviceHelper.ensureString(appRemovalResponseDone));
     }
@@ -1496,28 +1494,31 @@ async function softRemoveAppLocally(app, res) {
       // eslint-disable-next-line no-await-in-loop
       await appUninstallSoft(appName, appId, appComponentSpecifications, appComponent, isComponent, res);
     }
+    isComponent = false;
   } else {
     await appUninstallSoft(appName, appId, appSpecifications, appComponent, isComponent, res);
   }
 
-  const databaseStatus = {
-    status: 'Cleaning up database...',
-  };
-  log.info(databaseStatus);
-  if (res) {
-    res.write(serviceHelper.ensureString(databaseStatus));
-  }
-  await serviceHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
-  const databaseStatus2 = {
-    status: 'Database cleaned',
-  };
-  log.info(databaseStatus2);
-  if (res) {
-    res.write(serviceHelper.ensureString(databaseStatus2));
+  if (!isComponent) {
+    const databaseStatus = {
+      status: 'Cleaning up database...',
+    };
+    log.info(databaseStatus);
+    if (res) {
+      res.write(serviceHelper.ensureString(databaseStatus));
+    }
+    await serviceHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+    const databaseStatus2 = {
+      status: 'Database cleaned',
+    };
+    log.info(databaseStatus2);
+    if (res) {
+      res.write(serviceHelper.ensureString(databaseStatus2));
+    }
   }
 
   const appRemovalResponseDone = {
-    status: `All done. Result: Flux App ${appName} was partially removed`,
+    status: `Removal step done. Result: Flux App ${appName} was partially removed`,
   };
 
   log.info(appRemovalResponseDone);
@@ -1640,11 +1641,89 @@ async function checkAppRequirements(appSpecs) {
   return true;
 }
 
-// async function appInstallHard(appName, appId, appSpecifications, appComponent, isComponent, res) {
+async function installApplicationHard(appSpecifications, appName, isComponent, res) {
+  // pull image // todo pull to be promise
+  // eslint-disable-next-line no-unused-vars
+  await dockerPullStreamPromise(appSpecifications.repotag, res);
+  const pullStatus = {
+    status: isComponent ? `Pulling global Flux App ${appSpecifications.name} was successful` : `Pulling global Flux App ${appName} was successful`,
+  };
+  if (res) {
+    res.write(serviceHelper.ensureString(pullStatus));
+  }
 
-// }
+  await createAppVolume(appSpecifications, appName, isComponent, res);
 
-async function registerAppLocally(appSpecifications, res) {
+  const createApp = {
+    status: isComponent ? `Creating component ${appSpecifications.name} of local Flux App ${appName}` : `Creating local Flux App ${appName}`,
+  };
+  log.info(createApp);
+  if (res) {
+    res.write(serviceHelper.ensureString(createApp));
+  }
+
+  await dockerService.appDockerCreate(appSpecifications, appName, isComponent);
+
+  const portStatusInitial = {
+    status: isComponent ? `Allowing component ${appSpecifications.name} of Flux App ${appName} ports...` : `Allowing Flux App ${appName} ports...`,
+  };
+  log.info(portStatusInitial);
+  if (res) {
+    res.write(serviceHelper.ensureString(portStatusInitial));
+  }
+  if (appSpecifications.ports) {
+    // eslint-disable-next-line no-restricted-syntax
+    for (const port of appSpecifications.ports) {
+      // eslint-disable-next-line no-await-in-loop
+      const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(port));
+      if (portResponse.status === true) {
+        const portStatus = {
+          status: `'Port ${port} OK'`,
+        };
+        log.info(portStatus);
+        if (res) {
+          res.write(serviceHelper.ensureString(portStatus));
+        }
+      } else {
+        throw new Error(`Error: Port ${port} FAILed to open.`);
+      }
+    }
+  } else if (appSpecifications.port) {
+    // v1 compatibility
+    const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(appSpecifications.port));
+    if (portResponse.status === true) {
+      const portStatus = {
+        status: 'Port OK',
+      };
+      log.info(portStatus);
+      if (res) {
+        res.write(serviceHelper.ensureString(portStatus));
+      }
+    } else {
+      throw new Error(`Error: Port ${appSpecifications.port} FAILed to open.`);
+    }
+  }
+  const startStatus = {
+    status: isComponent ? `Starting component ${appSpecifications.name} of Flux App ${appName}...` : `Starting Flux App ${appName}...`,
+  };
+  log.info(startStatus);
+  if (res) {
+    res.write(serviceHelper.ensureString(startStatus));
+  }
+  const identifier = isComponent ? `${appName}_${appSpecifications.name}` : appName;
+  const app = await dockerService.appDockerStart(dockerService.getAppIdentifier(identifier));
+  installationInProgress = false;
+  if (!app) {
+    return;
+  }
+  const appResponse = serviceHelper.createDataMessage(app);
+  log.info(appResponse);
+  if (res) {
+    res.write(serviceHelper.ensureString(appResponse));
+  }
+}
+
+async function registerAppLocally(appSpecs, componentSpecs, res) {
   // cpu, ram, hdd were assigned to correct tiered specs.
   // get applications specifics from aapp messages database
   // check if hash is in blockchain
@@ -1657,7 +1736,11 @@ async function registerAppLocally(appSpecifications, res) {
   }
   try {
     installationInProgress = true;
+    const tier = await generalService.nodeTier();
+    const appSpecifications = appSpecs;
+    const appComponent = componentSpecs;
     const appName = appSpecifications.name;
+    let isComponent = !!appComponent;
     const precheckForInstallation = {
       status: 'Running initial checks for Flux App...',
     };
@@ -1709,238 +1792,165 @@ async function registerAppLocally(appSpecifications, res) {
     }
     const appResult = await serviceHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
     if (appResult) {
-      throw new Error('Flux App already installed');
+      throw new Error(`Flux App ${appName} already installed`);
     }
 
-    const checkParameters = {
-      status: 'Checking Flux App requirements...',
-    };
-    log.info(checkParameters);
-    if (res) {
-      res.write(serviceHelper.ensureString(checkParameters));
-    }
-
-    // prechecks done
     const appInstallation = {
-      status: 'Initiating Flux App installation...',
+      status: isComponent ? `Initiating Flux App component ${appComponent.name} installation...` : `Initiating Flux App ${appName} installation...`,
     };
     log.info(appInstallation);
     if (res) {
       res.write(serviceHelper.ensureString(appInstallation));
     }
-    // register the app
-    await serviceHelper.insertOneToDatabase(appsDatabase, localAppsInformation, appSpecifications);
+    if (!isComponent) {
+      // register the app
+      await serviceHelper.insertOneToDatabase(appsDatabase, localAppsInformation, appSpecifications);
+      const hddTier = `hdd${tier}`;
+      const ramTier = `ram${tier}`;
+      const cpuTier = `cpu${tier}`;
+      appComponent.cpu = appComponent[cpuTier] || appComponent.cpu;
+      appComponent.ram = appComponent[ramTier] || appComponent.ram;
+      appComponent.hdd = appComponent[hddTier] || appComponent.hdd;
+    } else {
+      const hddTier = `hdd${tier}`;
+      const ramTier = `ram${tier}`;
+      const cpuTier = `cpu${tier}`;
+      appSpecifications.cpu = appSpecifications[cpuTier] || appSpecifications.cpu;
+      appSpecifications.ram = appSpecifications[ramTier] || appSpecifications.ram;
+      appSpecifications.hdd = appSpecifications[hddTier] || appSpecifications.hdd;
+    }
 
-    // pull image
-    // eslint-disable-next-line no-unused-vars
-    dockerService.dockerPullStream(appSpecifications.repotag, res, async (error, dataLog) => {
-      if (error) {
-        const errorResponse = serviceHelper.createErrorMessage(
-          error.message || error,
-          error.name,
-          error.code,
-        );
-        log.error(errorResponse);
-        if (res) {
-          res.write(serviceHelper.ensureString(errorResponse));
-        }
-        const removeStatus = serviceHelper.createErrorMessage('Error occured. Initiating Flux App removal');
-        log.info(removeStatus);
-        if (res) {
-          res.write(serviceHelper.ensureString(removeStatus));
-        }
-        installationInProgress = false;
-        removeAppLocally(appName, res);
-      } else {
-        const pullStatus = {
-          status: 'Pulling global Flux App was successful',
-        };
-        log.info(pullStatus);
-        if (res) {
-          res.write(serviceHelper.ensureString(pullStatus));
-        }
+    const specificationsToInstall = isComponent ? appComponent : appSpecifications;
 
-        const volumeOK = await createAppVolume(appSpecifications, res).catch((errr) => {
-          const errorResponse = serviceHelper.createErrorMessage(
-            errr.message || errr,
-            errr.name,
-            errr.code,
-          );
-          log.error(errorResponse);
-          if (res) {
-            res.write(serviceHelper.ensureString(errorResponse));
-          }
-
-          const removeStatus = serviceHelper.createErrorMessage('Error in volume assigning occured. Initiating Flux App removal');
-          log.info(removeStatus);
-          if (res) {
-            res.write(serviceHelper.ensureString(removeStatus));
-          }
-          installationInProgress = false;
-          removeAppLocally(appName, res);
-        });
-
-        if (!volumeOK) {
-          installationInProgress = false;
-          return;
-        }
-        log.info(volumeOK);
-        if (res) {
-          res.write(serviceHelper.ensureString(volumeOK));
-        }
-
-        const createApp = {
-          status: 'Creating local Flux App',
-        };
-        log.info(createApp);
-        if (res) {
-          res.write(serviceHelper.ensureString(createApp));
-        }
-
-        const dockerCreated = await dockerService.appDockerCreate(appSpecifications).catch((e) => {
-          const errorResponse = serviceHelper.createErrorMessage(
-            e.message || e,
-            e.name,
-            e.code,
-          );
-          log.error(errorResponse);
-          if (res) {
-            res.write(serviceHelper.ensureString(errorResponse));
-          }
-          const removeStatus = serviceHelper.createErrorMessage('Error occured. Initiating Flux App removal');
-          log.info(removeStatus);
-          if (res) {
-            res.write(serviceHelper.ensureString(removeStatus));
-          }
-          installationInProgress = false;
-          removeAppLocally(appName, res);
-        });
-        if (!dockerCreated) {
-          installationInProgress = false;
-          return;
-        }
-        const portStatusInitial = {
-          status: 'Allowing Flux App ports...',
-        };
-        log.info(portStatusInitial);
-        if (res) {
-          res.write(serviceHelper.ensureString(portStatusInitial));
-        }
-        if (appSpecifications.ports) {
-          // eslint-disable-next-line no-restricted-syntax
-          for (const port of appSpecifications.ports) {
-            // eslint-disable-next-line no-await-in-loop
-            const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(port));
-            if (portResponse.status === true) {
-              const portStatus = {
-                status: `Port ${port} OK`,
-              };
-              log.info(portStatus);
-              if (res) {
-                res.write(serviceHelper.ensureString(portStatus));
-              }
-            } else {
-              const portStatus = {
-                status: `Error: Port ${port} FAILed to open.`,
-              };
-              log.info(portStatus);
-              if (res) {
-                res.write(serviceHelper.ensureString(portStatus));
-              }
-              const removeStatus = serviceHelper.createErrorMessage('Error occured. Initiating Flux App removal');
-              log.info(removeStatus);
-              if (res) {
-                res.write(serviceHelper.ensureString(removeStatus));
-              }
-              installationInProgress = false;
-              removeAppLocally(appName, res);
-              return;
-            }
-          }
-        } else if (appSpecifications.port) {
-          // v1 compatibility
-          const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(appSpecifications.port));
-          if (portResponse.status === true) {
-            const portStatus = {
-              status: 'Port OK',
-            };
-            log.info(portStatus);
-            if (res) {
-              res.write(serviceHelper.ensureString(portStatus));
-            }
-          } else {
-            const portStatus = {
-              status: 'Error: Port FAILed to open.',
-            };
-            log.info(portStatus);
-            if (res) {
-              res.write(serviceHelper.ensureString(portStatus));
-            }
-            const removeStatus = serviceHelper.createErrorMessage('Error occured. Initiating Flux App removal');
-            log.info(removeStatus);
-            if (res) {
-              res.write(serviceHelper.ensureString(removeStatus));
-            }
-            installationInProgress = false;
-            removeAppLocally(appName, res);
-            return;
-          }
-        }
-
-        const startStatus = {
-          status: 'Starting Flux App...',
-        };
-        log.info(startStatus);
-        if (res) {
-          res.write(serviceHelper.ensureString(startStatus));
-        }
-        const app = await dockerService.appDockerStart(dockerService.getAppIdentifier(appSpecifications.name)).catch((error2) => {
-          const errorResponse = serviceHelper.createErrorMessage(
-            error2.message || error2,
-            error2.name,
-            error2.code,
-          );
-          log.error(errorResponse);
-          if (res) {
-            res.write(serviceHelper.ensureString(errorResponse));
-          }
-          const removeStatus = serviceHelper.createErrorMessage('Error occured. Initiating Flux App removal');
-          log.info(removeStatus);
-          if (res) {
-            res.write(serviceHelper.ensureString(removeStatus));
-          }
-          installationInProgress = false;
-          removeAppLocally(appName, res);
-        });
-        installationInProgress = false;
-        if (!app) {
-          return;
-        }
-        const appResponse = serviceHelper.createDataMessage(app);
-        log.info(appResponse);
-        if (res) {
-          res.write(serviceHelper.ensureString(appResponse));
-          res.end();
-        }
+    if (specificationsToInstall.version >= 4) {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const appComponentSpecs of specificationsToInstall.version) {
+        isComponent = true;
+        const hddTier = `hdd${tier}`;
+        const ramTier = `ram${tier}`;
+        const cpuTier = `cpu${tier}`;
+        appComponentSpecs.cpu = appComponentSpecs[cpuTier] || appComponentSpecs.cpu;
+        appComponentSpecs.ram = appComponentSpecs[ramTier] || appComponentSpecs.ram;
+        appComponentSpecs.hdd = appComponentSpecs[hddTier] || appComponentSpecs.hdd;
+        // eslint-disable-next-line no-await-in-loop
+        await installApplicationHard(appComponentSpecs, appName, isComponent, res);
       }
-    });
+    } else {
+      await installApplicationHard(specificationsToInstall, appName, isComponent, res);
+    }
+
+    // all done message
+    const successStatus = {
+      status: `Flux App ${appName} successfully installed and launched`,
+    };
+    log.info(successStatus);
+    if (res) {
+      res.write(serviceHelper.ensureString(successStatus));
+      res.end();
+    }
   } catch (error) {
     installationInProgress = false;
-    log.error(error);
     const errorResponse = serviceHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
     );
+    log.error(errorResponse);
     if (res) {
       res.write(serviceHelper.ensureString(errorResponse));
-      res.end();
     }
+    const removeStatus = serviceHelper.createErrorMessage(`Error occured. Initiating Flux App ${appSpecs.name} removal`);
+    log.info(removeStatus);
+    if (res) {
+      res.write(serviceHelper.ensureString(removeStatus));
+    }
+    installationInProgress = false;
+    removeAppLocally(appSpecs.name, res, true);
+  }
+}
+
+async function installApplicationSoft(appSpecifications, appName, isComponent, res) {
+  // pull image // todo pull to be promise
+  // eslint-disable-next-line no-unused-vars
+  await dockerPullStreamPromise(appSpecifications.repotag, res);
+  const pullStatus = {
+    status: isComponent ? `Pulling global Flux App ${appSpecifications.name} was successful` : `Pulling global Flux App ${appName} was successful`,
+  };
+  if (res) {
+    res.write(serviceHelper.ensureString(pullStatus));
+  }
+
+  const createApp = {
+    status: isComponent ? `Creating component ${appSpecifications.name} of local Flux App ${appName}` : `Creating local Flux App ${appName}`,
+  };
+  log.info(createApp);
+  if (res) {
+    res.write(serviceHelper.ensureString(createApp));
+  }
+
+  await dockerService.appDockerCreate(appSpecifications, appName, isComponent);
+
+  const portStatusInitial = {
+    status: isComponent ? `Allowing component ${appSpecifications.name} of Flux App ${appName} ports...` : `Allowing Flux App ${appName} ports...`,
+  };
+  log.info(portStatusInitial);
+  if (res) {
+    res.write(serviceHelper.ensureString(portStatusInitial));
+  }
+  if (appSpecifications.ports) {
+    // eslint-disable-next-line no-restricted-syntax
+    for (const port of appSpecifications.ports) {
+      // eslint-disable-next-line no-await-in-loop
+      const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(port));
+      if (portResponse.status === true) {
+        const portStatus = {
+          status: `'Port ${port} OK'`,
+        };
+        log.info(portStatus);
+        if (res) {
+          res.write(serviceHelper.ensureString(portStatus));
+        }
+      } else {
+        throw new Error(`Error: Port ${port} FAILed to open.`);
+      }
+    }
+  } else if (appSpecifications.port) {
+    // v1 compatibility
+    const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(appSpecifications.port));
+    if (portResponse.status === true) {
+      const portStatus = {
+        status: 'Port OK',
+      };
+      log.info(portStatus);
+      if (res) {
+        res.write(serviceHelper.ensureString(portStatus));
+      }
+    } else {
+      throw new Error(`Error: Port ${appSpecifications.port} FAILed to open.`);
+    }
+  }
+  const startStatus = {
+    status: isComponent ? `Starting component ${appSpecifications.name} of Flux App ${appName}...` : `Starting Flux App ${appName}...`,
+  };
+  log.info(startStatus);
+  if (res) {
+    res.write(serviceHelper.ensureString(startStatus));
+  }
+  const identifier = isComponent ? `${appName}_${appSpecifications.name}` : appName;
+  const app = await dockerService.appDockerStart(dockerService.getAppIdentifier(identifier));
+  installationInProgress = false;
+  if (!app) {
+    return;
+  }
+  const appResponse = serviceHelper.createDataMessage(app);
+  log.info(appResponse);
+  if (res) {
+    res.write(serviceHelper.ensureString(appResponse));
   }
 }
 
 // register app with volume already existing
-async function softRegisterAppLocally(appSpecifications, res) {
+async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
   // cpu, ram, hdd were assigned to correct tiered specs.
   // get applications specifics from app messages database
   // check if hash is in blockchain
@@ -1954,7 +1964,11 @@ async function softRegisterAppLocally(appSpecifications, res) {
   }
   try {
     installationInProgress = true;
+    const tier = await generalService.nodeTier();
+    const appSpecifications = appSpecs;
+    const appComponent = componentSpecs;
     const appName = appSpecifications.name;
+    let isComponent = !!appComponent;
     const precheckForInstallation = {
       status: 'Running initial checks for Flux App...',
     };
@@ -2006,201 +2020,79 @@ async function softRegisterAppLocally(appSpecifications, res) {
     }
     const appResult = await serviceHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
     if (appResult) {
-      throw new Error('Flux App already installed');
+      throw new Error(`Flux App ${appName} already installed`);
     }
 
-    const checkParameters = {
-      status: 'Checking Flux App requirements...',
-    };
-    log.info(checkParameters);
-    if (res) {
-      res.write(serviceHelper.ensureString(checkParameters));
-    }
-
-    // prechecks done
     const appInstallation = {
-      status: 'Initiating Flux App installation...',
+      status: isComponent ? `Initiating Flux App component ${appComponent.name} installation...` : `Initiating Flux App ${appName} installation...`,
     };
     log.info(appInstallation);
     if (res) {
       res.write(serviceHelper.ensureString(appInstallation));
     }
-    // register the app
-    await serviceHelper.insertOneToDatabase(appsDatabase, localAppsInformation, appSpecifications);
+    if (!isComponent) {
+      // register the app
+      await serviceHelper.insertOneToDatabase(appsDatabase, localAppsInformation, appSpecifications);
+      const hddTier = `hdd${tier}`;
+      const ramTier = `ram${tier}`;
+      const cpuTier = `cpu${tier}`;
+      appComponent.cpu = appComponent[cpuTier] || appComponent.cpu;
+      appComponent.ram = appComponent[ramTier] || appComponent.ram;
+      appComponent.hdd = appComponent[hddTier] || appComponent.hdd;
+    } else {
+      const hddTier = `hdd${tier}`;
+      const ramTier = `ram${tier}`;
+      const cpuTier = `cpu${tier}`;
+      appSpecifications.cpu = appSpecifications[cpuTier] || appSpecifications.cpu;
+      appSpecifications.ram = appSpecifications[ramTier] || appSpecifications.ram;
+      appSpecifications.hdd = appSpecifications[hddTier] || appSpecifications.hdd;
+    }
 
-    // pull image
-    // eslint-disable-next-line no-unused-vars
-    dockerService.dockerPullStream(appSpecifications.repotag, res, async (error, dataLog) => {
-      if (error) {
-        const errorResponse = serviceHelper.createErrorMessage(
-          error.message || error,
-          error.name,
-          error.code,
-        );
-        log.error(errorResponse);
-        if (res) {
-          res.write(serviceHelper.ensureString(errorResponse));
-        }
-        const removeStatus = serviceHelper.createErrorMessage('Error occured. Initiating Flux App removal');
-        log.info(removeStatus);
-        if (res) {
-          res.write(serviceHelper.ensureString(removeStatus));
-        }
-        installationInProgress = false;
-        removeAppLocally(appName, res, true);
-      } else {
-        const pullStatus = {
-          status: 'Pulling global Flux App was successful',
-        };
-        if (res) {
-          res.write(serviceHelper.ensureString(pullStatus));
-        }
+    const specificationsToInstall = isComponent ? appComponent : appSpecifications;
 
-        const createApp = {
-          status: 'Creating local Flux App',
-        };
-        log.info(createApp);
-        if (res) {
-          res.write(serviceHelper.ensureString(createApp));
-        }
-
-        const dockerCreated = await dockerService.appDockerCreate(appSpecifications).catch((e) => {
-          const errorResponse = serviceHelper.createErrorMessage(
-            e.message || e,
-            e.name,
-            e.code,
-          );
-          log.error(errorResponse);
-          if (res) {
-            res.write(serviceHelper.ensureString(errorResponse));
-          }
-          const removeStatus = serviceHelper.createErrorMessage('Error occured. Initiating Flux App removal');
-          log.info(removeStatus);
-          if (res) {
-            res.write(serviceHelper.ensureString(removeStatus));
-          }
-          installationInProgress = false;
-          removeAppLocally(appName, res, true);
-        });
-        if (!dockerCreated) {
-          return;
-        }
-        const portStatusInitial = {
-          status: 'Allowing Flux App ports...',
-        };
-        log.info(portStatusInitial);
-        if (res) {
-          res.write(serviceHelper.ensureString(portStatusInitial));
-        }
-        if (appSpecifications.ports) {
-          // eslint-disable-next-line no-restricted-syntax
-          for (const port of appSpecifications.ports) {
-            // eslint-disable-next-line no-await-in-loop
-            const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(port));
-            if (portResponse.status === true) {
-              const portStatus = {
-                status: `'Port ${port} OK'`,
-              };
-              log.info(portStatus);
-              if (res) {
-                res.write(serviceHelper.ensureString(portStatus));
-              }
-            } else {
-              const portStatus = {
-                status: `Error: Port ${port} FAILed to open.`,
-              };
-              log.info(portStatus);
-              if (res) {
-                res.write(serviceHelper.ensureString(portStatus));
-              }
-              const removeStatus = serviceHelper.createErrorMessage('Error occured. Initiating Flux App removal');
-              log.info(removeStatus);
-              if (res) {
-                res.write(serviceHelper.ensureString(removeStatus));
-              }
-              installationInProgress = false;
-              removeAppLocally(appName, res, true);
-              return;
-            }
-          }
-        } else if (appSpecifications.port) {
-          // v1 compatibility
-          const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(appSpecifications.port));
-          if (portResponse.status === true) {
-            const portStatus = {
-              status: 'Port OK',
-            };
-            log.info(portStatus);
-            if (res) {
-              res.write(serviceHelper.ensureString(portStatus));
-            }
-          } else {
-            const portStatus = {
-              status: 'Error: Port FAILed to open.',
-            };
-            log.info(portStatus);
-            if (res) {
-              res.write(serviceHelper.ensureString(portStatus));
-            }
-            const removeStatus = serviceHelper.createErrorMessage('Error occured. Initiating Flux App removal');
-            log.info(removeStatus);
-            if (res) {
-              res.write(serviceHelper.ensureString(removeStatus));
-            }
-            installationInProgress = false;
-            removeAppLocally(appName, res, true);
-            return;
-          }
-        }
-        const startStatus = {
-          status: 'Starting Flux App...',
-        };
-        log.info(startStatus);
-        if (res) {
-          res.write(serviceHelper.ensureString(startStatus));
-        }
-        const app = await dockerService.appDockerStart(dockerService.getAppIdentifier(appSpecifications.name)).catch((error2) => {
-          const errorResponse = serviceHelper.createErrorMessage(
-            error2.message || error2,
-            error2.name,
-            error2.code,
-          );
-          log.error(errorResponse);
-          if (res) {
-            res.write(serviceHelper.ensureString(errorResponse));
-          }
-          const removeStatus = serviceHelper.createErrorMessage('Error occured. Initiating Flux App removal');
-          log.info(removeStatus);
-          if (res) {
-            res.write(serviceHelper.ensureString(removeStatus));
-          }
-          installationInProgress = false;
-          removeAppLocally(appName, res, true);
-        });
-        installationInProgress = false;
-        if (!app) {
-          return;
-        }
-        const appResponse = serviceHelper.createDataMessage(app);
-        log.info(appResponse);
-        if (res) {
-          res.write(serviceHelper.ensureString(appResponse));
-          res.end();
-        }
+    if (specificationsToInstall.version >= 4) {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const appComponentSpecs of specificationsToInstall.version) {
+        isComponent = true;
+        const hddTier = `hdd${tier}`;
+        const ramTier = `ram${tier}`;
+        const cpuTier = `cpu${tier}`;
+        appComponentSpecs.cpu = appComponentSpecs[cpuTier] || appComponentSpecs.cpu;
+        appComponentSpecs.ram = appComponentSpecs[ramTier] || appComponentSpecs.ram;
+        appComponentSpecs.hdd = appComponentSpecs[hddTier] || appComponentSpecs.hdd;
+        // eslint-disable-next-line no-await-in-loop
+        await installApplicationSoft(appComponentSpecs, appName, isComponent, res);
       }
-    });
+    } else {
+      await installApplicationSoft(specificationsToInstall, appName, isComponent, res);
+    }
+    // all done message
+    const successStatus = {
+      status: `Flux App ${appName} successfully installed and launched`,
+    };
+    log.info(successStatus);
+    if (res) {
+      res.write(serviceHelper.ensureString(successStatus));
+      res.end();
+    }
   } catch (error) {
     installationInProgress = false;
-    log.error(error);
     const errorResponse = serviceHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
     );
+    log.error(errorResponse);
     if (res) {
       res.write(serviceHelper.ensureString(errorResponse));
-      res.end();
     }
+    const removeStatus = serviceHelper.createErrorMessage(`Error occured. Initiating Flux App ${appSpecs.name} removal`);
+    log.info(removeStatus);
+    if (res) {
+      res.write(serviceHelper.ensureString(removeStatus));
+    }
+    installationInProgress = false;
+    removeAppLocally(appSpecs.name, res, true);
   }
 }
 
@@ -4064,27 +3956,10 @@ async function installTemporaryLocalApplication(req, res) {
         }
       }
 
-      // get our tier and adjust true resource registered
-      if (appSpecifications.tiered) {
-        const tier = await generalService.nodeTier();
-        if (tier === 'basic') {
-          appSpecifications.cpu = appSpecifications.cpubasic || appSpecifications.cpu;
-          appSpecifications.ram = appSpecifications.rambasic || appSpecifications.ram;
-        } else if (tier === 'super') {
-          appSpecifications.cpu = appSpecifications.cpusuper || appSpecifications.cpu;
-          appSpecifications.ram = appSpecifications.ramsuper || appSpecifications.ram;
-        } else if (tier === 'bamf') {
-          appSpecifications.cpu = appSpecifications.cpubamf || appSpecifications.cpu;
-          appSpecifications.ram = appSpecifications.rambamf || appSpecifications.ram;
-        } else {
-          throw new Error('Unrecognised Flux Node tier');
-        }
-      }
-
       await checkAppRequirements(appSpecifications); // entire app
 
       res.setHeader('Content-Type', 'application/json');
-      registerAppLocally(appSpecifications, res); // can throw
+      registerAppLocally(appSpecifications, undefined, res); // can throw
     } else {
       const errMessage = serviceHelper.errUnauthorizedMessage();
       res.json(errMessage);
@@ -5350,7 +5225,7 @@ async function softRedeploy(appSpecs, res) {
     // verify requirements
     await checkAppRequirements(appSpecs);
     // register
-    await softRegisterAppLocally(appSpecs, res); // can throw
+    await softRegisterAppLocally(appSpecs, undefined, res); // can throw
     log.info('Application softly redeployed');
   } catch (error) {
     log.error(error);
@@ -5370,7 +5245,7 @@ async function hardRedeploy(appSpecs, res) {
     // verify requirements
     await checkAppRequirements(appSpecs);
     // register
-    await registerAppLocally(appSpecs, res); // can throw
+    await registerAppLocally(appSpecs, undefined, res); // can throw
     log.info('Application redeployed');
   } catch (error) {
     log.error(error);
@@ -5515,7 +5390,7 @@ async function reinstallOldApplications() {
                   await checkAppRequirements(appSpecifications); // entire app
                   // install the app
                   // eslint-disable-next-line no-await-in-loop
-                  await softRegisterAppLocally(appComponent); // component
+                  await softRegisterAppLocally(appSpecifications, appComponent); // component
                 } catch (error) {
                   log.error(error);
                   removeAppLocally(appSpecifications.name, null, true); // remove entire app
@@ -5534,7 +5409,7 @@ async function reinstallOldApplications() {
 
                   // install the app
                   // eslint-disable-next-line no-await-in-loop
-                  await registerAppLocally(appComponent); // component
+                  await registerAppLocally(appSpecifications, appComponent); // component
                 } catch (error) {
                   log.error(error);
                   removeAppLocally(appSpecifications.name, null, true); // remove entire app

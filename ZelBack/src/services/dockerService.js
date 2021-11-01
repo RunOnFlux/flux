@@ -207,7 +207,8 @@ async function dockerContainerLogs(idOrName, lines) {
   return logs.toString();
 }
 
-async function appDockerCreate(appSpecifications) {
+async function appDockerCreate(appSpecifications, appName, isComponent) {
+  const identifier = isComponent ? `${appName}_${appSpecifications.name}` : appName;
   let exposedPorts = {};
   let portBindings = {};
   if (appSpecifications.version === 1) {
@@ -253,7 +254,7 @@ async function appDockerCreate(appSpecifications) {
   }
   const options = {
     Image: appSpecifications.repotag,
-    name: getAppIdentifier(appSpecifications.name),
+    name: getAppIdentifier(identifier),
     AttachStdin: true,
     AttachStdout: true,
     AttachStderr: true,
@@ -264,7 +265,7 @@ async function appDockerCreate(appSpecifications) {
     HostConfig: {
       NanoCPUs: appSpecifications.cpu * 1e9,
       Memory: appSpecifications.ram * 1024 * 1024,
-      Binds: [`${appsFolder + getAppIdentifier(appSpecifications.name)}:${appSpecifications.containerData}`],
+      Binds: [`${appsFolder + getAppIdentifier(identifier)}:${appSpecifications.containerData}`],
       Ulimits: [
         {
           Name: 'nofile',
