@@ -423,6 +423,7 @@ module.exports = {
   dockerCreateNetwork,
   dockerRemoveNetwork,
   dockerNetworkInspect,
+  dockerListContainers,
   dockerListImages,
   dockerContainerInspect,
   dockerContainerStats,
