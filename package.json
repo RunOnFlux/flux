@@ -85,7 +85,7 @@
     "fullnode": "file:lib/fullnode",
     "inquirer": "~8.2.0",
     "lru-cache": "~6.0.0",
-    "mongodb": "~4.1.4",
+    "mongodb": "~3.7.3",
     "morgan": "~1.10.0",
     "node-cmd": "~3.0.0",
     "node-df": "~0.1.4",
