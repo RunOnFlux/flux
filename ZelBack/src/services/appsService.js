@@ -2780,8 +2780,8 @@ async function availableApps(req, res) {
       containerPorts: [8888],
       domains: [''],
       tiered: false,
-      cpu: 1.5, // true resource registered for app. If not tiered only this is available
-      ram: 3000, // true resource registered for app
+      cpu: 3, // true resource registered for app. If not tiered only this is available
+      ram: 6000, // true resource registered for app
       hdd: 60, // true resource registered for app
       enviromentParameters: [],
       commands: [],
