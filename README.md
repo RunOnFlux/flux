@@ -20,7 +20,7 @@ Flux is the frontend UI to the entire Flux Network, it enables Flux operators to
 
 Flux Requires a reasonably new version of Node.js (npm), MongoDB and Docker. It is a MongoDB, Express.js, Vue.js, Node.js (MEVN) application
 
-This application communicates locally with the Flux Daemon (zelcashd), Benchmark Daemon (zelbenchd) and other Flux instances.
+This application communicates locally with the Flux Daemon (fluxd), Benchmark Daemon (fluxbenchd) and other Flux instances.
 
 ## Application Overview
 
@@ -62,12 +62,12 @@ build-essential is a recommended dependency
 sudo apt-get build-essential
 ```
 
-Setup Mongodb on Ubuntu 16.04 (LTS):
+Setup Mongodb on Ubuntu 18.04 (LTS):
 
 ```bash
-wget -qO - https://www.mongodb.org/static/pgp/server-4.2.asc | sudo apt-key add -
+wget -qO - https://www.mongodb.org/static/pgp/server-5.0.asc | sudo apt-key add -
 
-echo "deb [ arch=amd64 ] https://repo.mongodb.org/apt/ubuntu xenial/mongodb-org/4.2 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-4.2.list
+echo "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu bionic/mongodb-org/5.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-5.0.list
 
 sudo apt-get update
 
@@ -76,12 +76,12 @@ sudo apt-get install -y mongodb-org
 sudo service mongod start
 ```
 
-Setup Mongodb on Ubuntu 18.04 (LTS):
+Setup Mongodb on Ubuntu 20.04 (LTS):
 
 ```bash
-wget -qO - https://www.mongodb.org/static/pgp/server-4.2.asc | sudo apt-key add -
+wget -qO - https://www.mongodb.org/static/pgp/server-5.0.asc | sudo apt-key add -
 
-echo "deb [ arch=amd64 ] https://repo.mongodb.org/apt/ubuntu bionic/mongodb-org/4.2 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-4.2.list
+echo "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu focal/mongodb-org/5.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-5.0.list
 
 sudo apt-get update
 
@@ -95,16 +95,17 @@ Setup Mongodb on Red Hat or CentOS:
 ```bash
 sudo yum install nano
 
-sudo nano /etc/yum.repos.d/mongodb-org-4.2.repo
+sudo nano /etc/yum.repos.d/mongodb-org-5.0.repo
 
-# Paste below into the mongodb-org-4.2.repo file
+# Paste below into the mongodb-org-5.0.repo file
 
-[mongodb-org-4.2]
+[mongodb-org-5.0]
 name=MongoDB Repository
-baseurl=https://repo.mongodb.org/yum/redhat/$releasever/mongodb-org/4.2/x86_64/
+baseurl=https://repo.mongodb.org/yum/redhat/$releasever/mongodb-org/5.0/x86_64/
 gpgcheck=1
 enabled=1
-gpgkey=https://www.mongodb.org/static/pgp/server-4.2.asc
+gpgkey=https://www.mongodb.org/static/pgp/server-5.0.asc
+
 
 # exit nano
 
@@ -123,7 +124,7 @@ sudo systemctl start mongod.service
 sudo service mongod start
 ```
 
-Install Node Version Manager (NVM) and NodeJS 12 on Ubuntu 16.04/18.04:
+Install Node Version Manager (NVM) and NodeJS 14 on Ubuntu 18.04/20.04:
 
 ```bash
 sudo apt-get install curl
@@ -132,12 +133,12 @@ curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.35.0/install.sh | bash
 
 source ~/.profile
 
-nvm install 12
+nvm install 14
 
-nvm use 12
+nvm use 14
 ```
 
-Install Node Version Manager (NVM) and NodeJS 12 on Redhat/CentOS:
+Install Node Version Manager (NVM) and NodeJS 14 on Redhat/CentOS:
 
 ```bash
 sudo yum install curl
@@ -146,15 +147,29 @@ curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.35.0/install.sh | bash
 
 source ~/.bashrc
 
-nvm install 12
+nvm install 14
 
-nvm use 12
+nvm use 14
 ```
 
-Install Docker using snap
+Install Docker using on Ubuntu 20.04
 
 ```bash
-snap install docker
+sudo apt install apt-transport-https ca-certificates curl software-properties-common
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
+sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu focal stable"
+sudo apt-get update
+sudo apt install docker-ce
+```
+
+Install Docker using on Ubuntu 18.04
+
+```bash
+sudo apt install apt-transport-https ca-certificates curl software-properties-common
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
+sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu bionic stable"
+sudo apt-get update
+sudo apt install docker-ce
 ```
 
 Clone Flux repo (Ubuntu):
@@ -162,7 +177,7 @@ Clone Flux repo (Ubuntu):
 ```bash
 sudo apt-get install git
 
-git clone https://github.com/zelcash/Flux
+git clone https://github.com/runonflux/flux
 ```
 
 Clone Flux repo (Redhat/CentOS):
@@ -170,7 +185,7 @@ Clone Flux repo (Redhat/CentOS):
 ```bash
 sudo yum install git
 
-git clone https://github.com/zelcash/Flux
+git clone https://github.com/runonflux/flux
 ```
 
 Allow Inbound Connections on UFW firewall (ONLY if ufw enabled):
@@ -206,7 +221,7 @@ The following information below provided for brief usage guidelines and/or examp
 
 ## Flux Home Information
 
-> Frontend interface to interact with the Zel network
+> Frontend interface to interact with the Flux network
 > Uses port 16126
 
 ## Build Setup

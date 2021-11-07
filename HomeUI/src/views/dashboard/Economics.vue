@@ -325,8 +325,8 @@ import Ripple from 'vue-ripple-directive';
 import VueApexCharts from 'vue-apexcharts';
 
 import { $themeColors } from '@themeConfig';
-// import DashboardService from '@/services/DashboardService'
 
+const rax = require('retry-axios');
 const axios = require('axios');
 
 export default {
@@ -346,6 +346,7 @@ export default {
   },
   data() {
     return {
+      interceptorID: 0,
       cumulusHostingCost: 7,
       nimbusHostingCost: 13,
       stratusHostingCost: 25,
@@ -430,91 +431,44 @@ export default {
           },
         },
       },
+      retryOptions: {
+        raxConfig: {
+          onRetryAttempt: (err) => {
+            const cfg = rax.getConfig(err);
+            console.log(`Retry attempt #${cfg.currentRetryAttempt}`);
+          },
+        },
+      },
     };
   },
   mounted() {
-    this.getRates();
+    this.interceptorID = rax.attach();
+    this.getData();
+    // Refresh the data every 10 minutes
+    setInterval(() => {
+      this.getData();
+    }, 1000 * 60 * 10);
+  },
+  unmounted() {
+    rax.detach(this.interceptorID);
   },
   methods: {
+    async getData() {
+      this.getRates();
+      this.getPriceData();
+    },
     async getRates() {
-      const resultB = await axios.get('https://vipdrates.zelcore.io/rates');
-      this.rates = resultB.data;
-      this.getZelNodeCount();
+      axios.get('https://vipdrates.zelcore.io/rates', this.retryOptions)
+        .then((resultB) => {
+          this.rates = resultB.data;
+          this.getZelNodeCount();
+        });
     },
-    async getZelNodeCount() {
-      try {
-        const result = await axios.get('https://stats.runonflux.io/fluxhistorystats');
-        const fluxHistoryStats = result.data.data;
-        const timePoints = Object.keys(fluxHistoryStats);
-        const max = Math.max(...timePoints);
-        const { cumulus, nimbus, stratus } = fluxHistoryStats[max];
-
-        // const resCount = await DashboardService.zelnodeCount()
-        // const counts = resCount.data.data
-        // const stratuses = counts['stratus-enabled']
-        // const nimbuses = counts['nimbus-enabled']
-        // const cumuluses = counts['cumulus-enabled']
-        // console.log(resCount)
-        const counts = {};
-        counts['stratus-enabled'] = stratus;
-        counts['bamf-enabled'] = stratus;
-        counts['nimbus-enabled'] = nimbus;
-        counts['super-enabled'] = nimbus;
-        counts['cumulus-enabled'] = cumulus;
-        counts['basic-enabled'] = cumulus;
-
-        this.generateEconomics(counts);
-      } catch (error) {
-        console.log(error);
-      }
-    },
-    async generateEconomics(zelnodecounts) {
-      try {
-        this.priceInformationLoading = true;
-        const stratuses = zelnodecounts['stratus-enabled'];
-        const nimbuses = zelnodecounts['nimbus-enabled'];
-        const cumuluses = zelnodecounts['cumulus-enabled'];
-        const resKDAEligible = await axios.get('https://stats.runonflux.io/kadena/eligiblestats/7');
-        const kdaData = resKDAEligible.data.data;
-        const kdaCoins = 1000;
-        const totalNimbuss = kdaData.nimbus;
-        const totalStratuss = kdaData.stratus;
-        const overallTotal = totalNimbuss + (4 * totalStratuss);
-        const perNimbusWeek = Number((kdaCoins / overallTotal).toFixed(4)); // KDA
-        const perStratusWeek = Number(((kdaCoins / overallTotal) * 4).toFixed(4)); // KDA
-        const perCumulusNode = 5.625;
-        const perNimbusNode = 9.375;
-        const perStratusNode = 22.5;
-        // eslint-disable-next-line no-mixed-operators
-        const cumulusWeek = perCumulusNode * 720 * 7 / cumuluses;
-        // eslint-disable-next-line no-mixed-operators
-        const nimbusWeek = perNimbusNode * 720 * 7 / nimbuses;
-        // eslint-disable-next-line no-mixed-operators
-        const stratusWeek = perStratusNode * 720 * 7 / stratuses;
-        const cumulusUSDReward = this.getFiatRate('ZEL') * perCumulusNode; // per one go
-        const nimbusUSDReward = this.getFiatRate('ZEL') * perNimbusNode; // per one go
-        const stratusUSDReward = this.getFiatRate('ZEL') * perStratusNode; // per one go
-        const nimbusUSDKDARewardWeek = this.getFiatRate('KDA') * perNimbusWeek; // per week
-        const stratusUSDKDARewardWeek = this.getFiatRate('KDA') * perStratusWeek; // per week
-        // 720 blocks per day.
-        // eslint-disable-next-line no-mixed-operators
-        const cumulusUSDRewardWeek = 7 * 720 * cumulusUSDReward / cumuluses;
-        // eslint-disable-next-line no-mixed-operators
-        const nimbusUSDRewardWeek = 7 * 720 * nimbusUSDReward / nimbuses;
-        // eslint-disable-next-line no-mixed-operators
-        const stratusUSDRewardWeek = 7 * 720 * stratusUSDReward / stratuses;
-        this.cumulusWeek = cumulusWeek;
-        this.nimbusWeek = nimbusWeek;
-        this.stratusWeek = stratusWeek;
-        this.cumulusUSDRewardWeek = cumulusUSDRewardWeek;
-        this.nimbusUSDRewardWeek = nimbusUSDRewardWeek;
-        this.stratusUSDRewardWeek = stratusUSDRewardWeek;
-        this.nimbusUSDKDARewardWeek = nimbusUSDKDARewardWeek;
-        this.stratusUSDKDARewardWeek = stratusUSDKDARewardWeek;
-        this.kdaNimbusWeek = perNimbusWeek;
-        this.kdaStratusWeek = perStratusWeek;
-        const self = this;
-        axios.get('https://api.coingecko.com/api/v3/coins/zelcash/market_chart?vs_currency=USD&days=30').then((res2) => {
+    async getPriceData() {
+      const self = this;
+      this.loadingPrice = true;
+      axios.get('https://api.coingecko.com/api/v3/coins/zelcash/market_chart?vs_currency=USD&days=30', this.retryOptions)
+        .then((res2) => {
           self.historicalPrices = res2.data.prices.filter((a) => a[0] > 1483232400000); // min date from  January 1, 2017 1:00:00 AM
           const priceData = [];
           for (let i = 0; i < self.historicalPrices.length; i += 3) {
@@ -525,9 +479,71 @@ export default {
           self.lineChart.series = [{ name: 'Price', data: priceData }];
           this.loadingPrice = false;
         });
-      } catch (error) {
-        console.log(error);
-      }
+    },
+    async getZelNodeCount() {
+      axios.get('https://stats.runonflux.io/fluxhistorystats', this.retryOptions)
+        .then((result) => {
+          const fluxHistoryStats = result.data.data;
+          const timePoints = Object.keys(fluxHistoryStats);
+          const max = Math.max(...timePoints);
+          const { cumulus, nimbus, stratus } = fluxHistoryStats[max];
+
+          const counts = {};
+          counts['stratus-enabled'] = stratus;
+          counts['bamf-enabled'] = stratus;
+          counts['nimbus-enabled'] = nimbus;
+          counts['super-enabled'] = nimbus;
+          counts['cumulus-enabled'] = cumulus;
+          counts['basic-enabled'] = cumulus;
+
+          this.generateEconomics(counts);
+        });
+    },
+    async generateEconomics(zelnodecounts) {
+      const stratuses = zelnodecounts['stratus-enabled'];
+      const nimbuses = zelnodecounts['nimbus-enabled'];
+      const cumuluses = zelnodecounts['cumulus-enabled'];
+      axios.get('https://stats.runonflux.io/kadena/eligiblestats/7', this.retryOptions)
+        .then((resKDAEligible) => {
+          const kdaData = resKDAEligible.data.data;
+          const kdaCoins = 1000;
+          const totalNimbuss = kdaData.nimbus;
+          const totalStratuss = kdaData.stratus;
+          const overallTotal = totalNimbuss + (4 * totalStratuss);
+          const perNimbusWeek = Number((kdaCoins / overallTotal).toFixed(4)); // KDA
+          const perStratusWeek = Number(((kdaCoins / overallTotal) * 4).toFixed(4)); // KDA
+          const perCumulusNode = 5.625;
+          const perNimbusNode = 9.375;
+          const perStratusNode = 22.5;
+          // eslint-disable-next-line no-mixed-operators
+          const cumulusWeek = perCumulusNode * 720 * 7 / cumuluses;
+          // eslint-disable-next-line no-mixed-operators
+          const nimbusWeek = perNimbusNode * 720 * 7 / nimbuses;
+          // eslint-disable-next-line no-mixed-operators
+          const stratusWeek = perStratusNode * 720 * 7 / stratuses;
+          const cumulusUSDReward = this.getFiatRate('ZEL') * perCumulusNode; // per one go
+          const nimbusUSDReward = this.getFiatRate('ZEL') * perNimbusNode; // per one go
+          const stratusUSDReward = this.getFiatRate('ZEL') * perStratusNode; // per one go
+          const nimbusUSDKDARewardWeek = this.getFiatRate('KDA') * perNimbusWeek; // per week
+          const stratusUSDKDARewardWeek = this.getFiatRate('KDA') * perStratusWeek; // per week
+          // 720 blocks per day.
+          // eslint-disable-next-line no-mixed-operators
+          const cumulusUSDRewardWeek = 7 * 720 * cumulusUSDReward / cumuluses;
+          // eslint-disable-next-line no-mixed-operators
+          const nimbusUSDRewardWeek = 7 * 720 * nimbusUSDReward / nimbuses;
+          // eslint-disable-next-line no-mixed-operators
+          const stratusUSDRewardWeek = 7 * 720 * stratusUSDReward / stratuses;
+          this.cumulusWeek = cumulusWeek;
+          this.nimbusWeek = nimbusWeek;
+          this.stratusWeek = stratusWeek;
+          this.cumulusUSDRewardWeek = cumulusUSDRewardWeek;
+          this.nimbusUSDRewardWeek = nimbusUSDRewardWeek;
+          this.stratusUSDRewardWeek = stratusUSDRewardWeek;
+          this.nimbusUSDKDARewardWeek = nimbusUSDKDARewardWeek;
+          this.stratusUSDKDARewardWeek = stratusUSDKDARewardWeek;
+          this.kdaNimbusWeek = perNimbusWeek;
+          this.kdaStratusWeek = perStratusWeek;
+        });
     },
     getFiatRate(coin) {
       const coinRateToUse = 'USD';
