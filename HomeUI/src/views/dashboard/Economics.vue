@@ -481,21 +481,16 @@ export default {
         });
     },
     async getZelNodeCount() {
-      axios.get('https://stats.runonflux.io/fluxhistorystats', this.retryOptions)
+      axios.get('https://api.runonflux.io/daemon/getzelnodecount', this.retryOptions)
         .then((result) => {
-          const fluxHistoryStats = result.data.data;
-          const timePoints = Object.keys(fluxHistoryStats);
-          const max = Math.max(...timePoints);
-          const { cumulus, nimbus, stratus } = fluxHistoryStats[max];
-
+          const fluxNodesData = result.data.data;
           const counts = {};
-          counts['stratus-enabled'] = stratus;
-          counts['bamf-enabled'] = stratus;
-          counts['nimbus-enabled'] = nimbus;
-          counts['super-enabled'] = nimbus;
-          counts['cumulus-enabled'] = cumulus;
-          counts['basic-enabled'] = cumulus;
-
+          counts['stratus-enabled'] = fluxNodesData['stratus-enabled'];
+          counts['bamf-enabled'] = fluxNodesData['stratus-enabled'];
+          counts['nimbus-enabled'] = fluxNodesData['cumulus-enabled']; // flipped until new fluxd release
+          counts['super-enabled'] = fluxNodesData['cumulus-enabled'];
+          counts['cumulus-enabled'] = fluxNodesData['nimbus-enabled'];
+          counts['basic-enabled'] = fluxNodesData['nimbus-enabled'];
           this.generateEconomics(counts);
         });
     },
