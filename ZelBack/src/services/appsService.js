@@ -2409,7 +2409,7 @@ async function availableApps(req, res) {
       enviromentParameters: [],
       commands: [],
       containerData: '/var/lib/postgresql/data', // cannot be root todo in verification
-      hash: 'chainwebDataLocalSpecificationsVersion2', // hash of app message
+      hash: 'chainwebDataLocalSpecificationsVersion3', // hash of app message
       height: 900000, // height of tx on which it was
     },
     { // app specifications
