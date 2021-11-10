@@ -481,7 +481,7 @@ export default {
         });
     },
     async getZelNodeCount() {
-      axios.get('https://api.runonflux.io/daemon/getzelnodecount', this.retryOptions)
+      axios.get('http://localhost:16127/daemon/getzelnodecount', this.retryOptions)
         .then((result) => {
           const fluxNodesData = result.data.data;
           const counts = {};
