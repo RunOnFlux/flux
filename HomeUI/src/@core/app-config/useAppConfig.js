@@ -12,6 +12,13 @@ export default function usAppConfig() {
     },
   });
 
+  const xdaoOpenProposals = computed({
+    get: () => store.state.flux.xdaoOpen,
+    set: (val) => {
+      store.commit('flux/setXDAOOpen', val);
+    },
+  });
+
   // ------------------------------------------------
   // RTL
   // ------------------------------------------------
@@ -149,5 +156,6 @@ export default function usAppConfig() {
     contentWidth,
     isNavMenuHidden,
     isNavMenuCollapsed,
+    xdaoOpenProposals,
   };
 }
