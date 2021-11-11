@@ -26,9 +26,7 @@
         md="6"
         lg="4"
       >
-        <b-card
-          title="Cumulus Rewards"
-        >
+        <b-card title="Cumulus Rewards">
           <b-card-text>10,000 FLUX Collateral</b-card-text>
           <app-timeline class="mt-2">
             <app-timeline-item>
@@ -109,9 +107,7 @@
         md="6"
         lg="4"
       >
-        <b-card
-          title="Nimbus Rewards"
-        >
+        <b-card title="Nimbus Rewards">
           <b-card-text>25,000 FLUX Collateral</b-card-text>
           <app-timeline class="mt-2">
             <app-timeline-item variant="warning">
@@ -192,9 +188,7 @@
         md="12"
         lg="4"
       >
-        <b-card
-          title="Stratus Rewards"
-        >
+        <b-card title="Stratus Rewards">
           <b-card-text>100,000 FLUX Collateral</b-card-text>
           <app-timeline class="mt-2">
             <app-timeline-item variant="danger">
@@ -285,10 +279,13 @@ import {
 } from 'bootstrap-vue';
 import AppTimeline from '@core/components/app-timeline/AppTimeline.vue';
 import AppTimelineItem from '@core/components/app-timeline/AppTimelineItem.vue';
+import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 import Ripple from 'vue-ripple-directive';
 import VueApexCharts from 'vue-apexcharts';
 
 import { $themeColors } from '@themeConfig';
+
+import DashboardService from '@/services/DashboardService';
 
 const rax = require('retry-axios');
 const axios = require('axios');
@@ -304,6 +301,8 @@ export default {
     AppTimeline,
     AppTimelineItem,
     VueApexCharts,
+    // eslint-disable-next-line vue/no-unused-components
+    ToastificationContent,
   },
   directives: {
     Ripple,
@@ -441,25 +440,39 @@ export default {
         });
     },
     async getZelNodeCount() {
-      const url = 'http://localhost:16127/daemon/getzelnodecount';
-      // const url = 'https://api.runonflux.io/daemon/getzelnodecount'; // should be used for local testing.
-      axios.get(url, this.retryOptions)
-        .then((result) => {
-          const fluxNodesData = result.data.data;
-          const counts = {};
-          counts['stratus-enabled'] = fluxNodesData['stratus-enabled'];
-          counts['bamf-enabled'] = fluxNodesData['stratus-enabled'];
-          counts['nimbus-enabled'] = fluxNodesData['cumulus-enabled']; // flipped until new fluxd release
+      const response = await DashboardService.zelnodeCount();
+      if (response.data.status === 'error') {
+        this.$toast({
+          component: ToastificationContent,
+          props: {
+            title: response.data.data.message || response.data.data,
+            icon: 'InfoIcon',
+            variant: 'danger',
+          },
+        });
+      } else {
+        const fluxNodesData = response.data.data;
+        const counts = {};
+        counts['stratus-enabled'] = fluxNodesData['stratus-enabled'];
+        counts['bamf-enabled'] = fluxNodesData['stratus-enabled'];
+        if (fluxNodesData['cumulus-enabled'] > fluxNodesData['nimbus-enabled']) {
+          counts['nimbus-enabled'] = fluxNodesData['nimbus-enabled'];
+          counts['super-enabled'] = fluxNodesData['nimbus-enabled'];
+          counts['cumulus-enabled'] = fluxNodesData['cumulus-enabled'];
+          counts['basic-enabled'] = fluxNodesData['cumulus-enabled'];
+        } else { // flipped until new fluxd release
+          counts['nimbus-enabled'] = fluxNodesData['cumulus-enabled'];
           counts['super-enabled'] = fluxNodesData['cumulus-enabled'];
           counts['cumulus-enabled'] = fluxNodesData['nimbus-enabled'];
           counts['basic-enabled'] = fluxNodesData['nimbus-enabled'];
-          this.generateEconomics(counts);
-        });
+        }
+        this.generateEconomics(counts);
+      }
     },
-    async generateEconomics(zelnodecounts) {
-      const stratuses = zelnodecounts['stratus-enabled'];
-      const nimbuses = zelnodecounts['nimbus-enabled'];
-      const cumuluses = zelnodecounts['cumulus-enabled'];
+    async generateEconomics(fluxnodecounts) {
+      const stratuses = fluxnodecounts['stratus-enabled'];
+      const nimbuses = fluxnodecounts['nimbus-enabled'];
+      const cumuluses = fluxnodecounts['cumulus-enabled'];
       const perCumulusNode = 5.625;
       const perNimbusNode = 9.375;
       const perStratusNode = 22.5;
@@ -469,9 +482,9 @@ export default {
       const nimbusWeek = perNimbusNode * 720 * 7 / nimbuses;
       // eslint-disable-next-line no-mixed-operators
       const stratusWeek = perStratusNode * 720 * 7 / stratuses;
-      const cumulusUSDReward = this.getFiatRate('ZEL') * perCumulusNode; // per one go
-      const nimbusUSDReward = this.getFiatRate('ZEL') * perNimbusNode; // per one go
-      const stratusUSDReward = this.getFiatRate('ZEL') * perStratusNode; // per one go
+      const cumulusUSDReward = this.getFiatRate('FLUX') * perCumulusNode; // per one go
+      const nimbusUSDReward = this.getFiatRate('FLUX') * perNimbusNode; // per one go
+      const stratusUSDReward = this.getFiatRate('FLUX') * perStratusNode; // per one go
       // 720 blocks per day.
       // eslint-disable-next-line no-mixed-operators
       const cumulusUSDRewardWeek = 7 * 720 * cumulusUSDReward / cumuluses;
@@ -508,5 +521,4 @@ export default {
 </script>
 
 <style>
-
 </style>
