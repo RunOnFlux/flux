@@ -381,6 +381,7 @@ import {
   BRow,
   BTooltip,
 } from 'bootstrap-vue';
+import useAppConfig from '@core/app-config/useAppConfig';
 import VuePerfectScrollbar from 'vue-perfect-scrollbar';
 import VueApexCharts from 'vue-apexcharts';
 import Ripple from 'vue-ripple-directive';
@@ -465,6 +466,10 @@ export default {
       }
       return false;
     };
+
+    const {
+      xdaoOpenProposals,
+    } = useAppConfig();
 
     const myNumberOfVotes = ref(0);
     const dataToSign = ref('');
@@ -657,6 +662,8 @@ export default {
         showToast('success', 'Vote registered successfully');
         myVote.value = voteType ? 'Yes' : 'No';
         haveVoted.value = true;
+        // Decrement the menu badge value
+        xdaoOpenProposals.value -= 1;
       } else {
         showToast('danger', response.data.data.message || response.data.data);
       }
