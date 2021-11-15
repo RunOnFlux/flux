@@ -2234,15 +2234,15 @@ function checkComposeHWParameters(appSpecsComposed) {
   const isTiered = appSpecsComposed.compose.find((appComponent) => appComponent.tiered === true);
   appSpecsComposed.compose.forEach((appComponent) => {
     if (isTiered) {
-      totalCpuBamf += (appComponent.cpubamf * 10);
-      totalRamBamf += appComponent.rambamf;
-      totalHddBamf += appComponent.hddbamf;
-      totalCpuSuper += (appComponent.cpusuper * 10);
-      totalRamSuper += appComponent.ramsuper;
-      totalHddSuper += appComponent.hddsuper;
-      totalCpuBasic += (appComponent.cpubasic * 10);
-      totalRamBasic += appComponent.rambasic;
-      totalHddBasic += appComponent.hddbasic;
+      totalCpuBamf += ((appComponent.cpubamf || appComponent.cpu) * 10);
+      totalRamBamf += appComponent.rambamf || appComponent.ram;
+      totalHddBamf += appComponent.hddbamf || appComponent.hdd;
+      totalCpuSuper += ((appComponent.cpusuper || appComponent.cpu) * 10);
+      totalRamSuper += appComponent.ramsuper || appComponent.ram;
+      totalHddSuper += appComponent.hddsuper || appComponent.hdd;
+      totalCpuBasic += ((appComponent.cpubasic || appComponent.cpu) * 10);
+      totalRamBasic += appComponent.rambasic || appComponent.ram;
+      totalHddBasic += appComponent.hddbasic || appComponent.hdd;
     } else {
       totalCpu += (appComponent.cpu * 10);
       totalRam += appComponent.ram;
@@ -3448,7 +3448,7 @@ function specificationFormatter(appSpecification) {
     const portsCorrect = [];
     if (Array.isArray(ports)) {
       ports.forEach((parameter) => {
-        const param = serviceHelper.ensureString(parameter); // next specification fork here we want to do ensureNumber
+        const param = serviceHelper.ensureString(parameter); // v2 and v3 have string
         portsCorrect.push(param);
       });
     } else {
@@ -3681,9 +3681,6 @@ function specificationFormatter(appSpecification) {
     if (instances > 100) {
       throw new Error('Maximum number of instances is 100');
     }
-  }
-
-  if (version >= 3) {
     appSpecFormatted.instances = instances;
   }
 
@@ -5439,73 +5436,9 @@ async function getAppPrice(req, res) {
       let appSpecification = processedBody;
 
       appSpecification = serviceHelper.ensureObject(appSpecification);
+      const appSpecFormatted = specificationFormatter(appSpecification);
 
-      let { name } = appSpecification;
-      let { cpu } = appSpecification;
-      let { ram } = appSpecification;
-      let { hdd } = appSpecification;
-      const { tiered } = appSpecification;
-
-      // check if signature of received data is correct
-      if (!name || !cpu || !ram || !hdd) {
-        throw new Error('Missing Flux App HW specification parameter');
-      }
-
-      name = serviceHelper.ensureString(name);
-      cpu = serviceHelper.ensureNumber(cpu);
-      ram = serviceHelper.ensureNumber(ram);
-      hdd = serviceHelper.ensureNumber(hdd);
-      if (typeof tiered !== 'boolean') {
-        throw new Error('Invalid tiered value obtained. Only boolean as true or false allowed.');
-      }
-
-      // finalised parameters that will get stored in global database
-      const appSpecFormatted = {
-        name, // string
-        cpu, // float 0.1 step
-        ram, // integer 100 step (mb)
-        hdd, // integer 1 step
-        tiered, // boolean
-      };
-
-      if (tiered) {
-        let { cpubasic } = appSpecification;
-        let { cpusuper } = appSpecification;
-        let { cpubamf } = appSpecification;
-        let { rambasic } = appSpecification;
-        let { ramsuper } = appSpecification;
-        let { rambamf } = appSpecification;
-        let { hddbasic } = appSpecification;
-        let { hddsuper } = appSpecification;
-        let { hddbamf } = appSpecification;
-        if (!cpubasic || !cpusuper || !cpubamf || !rambasic || !ramsuper || !rambamf || !hddbasic || !hddsuper || !hddbamf) {
-          throw new Error('Flux App was requested as tiered setup but specifications are missing');
-        }
-        cpubasic = serviceHelper.ensureNumber(cpubasic);
-        cpusuper = serviceHelper.ensureNumber(cpusuper);
-        cpubamf = serviceHelper.ensureNumber(cpubamf);
-        rambasic = serviceHelper.ensureNumber(rambasic);
-        ramsuper = serviceHelper.ensureNumber(ramsuper);
-        rambamf = serviceHelper.ensureNumber(rambamf);
-        hddbasic = serviceHelper.ensureNumber(hddbasic);
-        hddsuper = serviceHelper.ensureNumber(hddsuper);
-        hddbamf = serviceHelper.ensureNumber(hddbamf);
-
-        appSpecFormatted.cpubasic = cpubasic;
-        appSpecFormatted.cpusuper = cpusuper;
-        appSpecFormatted.cpubamf = cpubamf;
-        appSpecFormatted.rambasic = rambasic;
-        appSpecFormatted.ramsuper = ramsuper;
-        appSpecFormatted.rambamf = rambamf;
-        appSpecFormatted.hddbasic = hddbasic;
-        appSpecFormatted.hddsuper = hddsuper;
-        appSpecFormatted.hddbamf = hddbamf;
-      }
-      const parameters = checkHWParameters(appSpecFormatted);
-      if (parameters !== true) {
-        const errorMessage = parameters;
-        throw new Error(errorMessage);
-      }
+      // verifications skipped. This endpoint is only for price evaluation
 
       // check if app exists or its a new registration price
       const db = serviceHelper.databaseConnection();
