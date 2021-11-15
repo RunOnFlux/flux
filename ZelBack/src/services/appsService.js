@@ -2969,7 +2969,7 @@ async function verifyAppSpecifications(appSpecifications, height) {
     // };
     const specifications = [
       'version', 'name', 'description', 'owner', 'repotag', 'port', 'containerPort', 'enviromentParameters', 'commands', 'containerData',
-      'cpu', 'ram', 'hdd', 'tiered', ' cpubasic', 'rambasic', 'hddbasic', 'cpusuper', 'ramsuper', 'hddsuper', 'cpubamf', 'rambamf', 'hddbamf',
+      'cpu', 'ram', 'hdd', 'tiered', 'cpubasic', 'rambasic', 'hddbasic', 'cpusuper', 'ramsuper', 'hddsuper', 'cpubamf', 'rambamf', 'hddbamf',
     ];
     const specsKeys = Object.keys(appSpecifications);
     specsKeys.forEach((sKey) => {
@@ -2980,7 +2980,7 @@ async function verifyAppSpecifications(appSpecifications, height) {
   } else if (appSpecifications.version === 2) {
     const specifications = [
       'version', 'name', 'description', 'owner', 'repotag', 'ports', 'containerPorts', 'enviromentParameters', 'commands', 'containerData', 'domains',
-      'cpu', 'ram', 'hdd', 'tiered', ' cpubasic', 'rambasic', 'hddbasic', 'cpusuper', 'ramsuper', 'hddsuper', 'cpubamf', 'rambamf', 'hddbamf',
+      'cpu', 'ram', 'hdd', 'tiered', 'cpubasic', 'rambasic', 'hddbasic', 'cpusuper', 'ramsuper', 'hddsuper', 'cpubamf', 'rambamf', 'hddbamf',
     ];
     const specsKeys = Object.keys(appSpecifications);
     specsKeys.forEach((sKey) => {
@@ -2990,8 +2990,8 @@ async function verifyAppSpecifications(appSpecifications, height) {
     });
   } else if (appSpecifications.version === 3) {
     const specifications = [
-      'version', 'name', 'description', 'owner', 'repotag', 'ports', 'containerPorts', 'enviromentParameters', 'commands', 'containerData', 'domains', 'intsances',
-      'cpu', 'ram', 'hdd', 'tiered', ' cpubasic', 'rambasic', 'hddbasic', 'cpusuper', 'ramsuper', 'hddsuper', 'cpubamf', 'rambamf', 'hddbamf',
+      'version', 'name', 'description', 'owner', 'repotag', 'ports', 'containerPorts', 'enviromentParameters', 'commands', 'containerData', 'domains', 'instances',
+      'cpu', 'ram', 'hdd', 'tiered', 'cpubasic', 'rambasic', 'hddbasic', 'cpusuper', 'ramsuper', 'hddsuper', 'cpubamf', 'rambamf', 'hddbamf',
     ];
     const specsKeys = Object.keys(appSpecifications);
     specsKeys.forEach((sKey) => {
@@ -3001,11 +3001,11 @@ async function verifyAppSpecifications(appSpecifications, height) {
     });
   } else {
     const specifications = [
-      'version', 'name', 'description', 'owner', 'compose',
+      'version', 'name', 'description', 'owner', 'compose', 'instances',
     ];
     const componentSpecifications = [
       'name', 'description', 'repotag', 'ports', 'containerPorts', 'enviromentParameters', 'commands', 'containerData', 'domains',
-      'cpu', 'ram', 'hdd', 'tiered', ' cpubasic', 'rambasic', 'hddbasic', 'cpusuper', 'ramsuper', 'hddsuper', 'cpubamf', 'rambamf', 'hddbamf',
+      'cpu', 'ram', 'hdd', 'tiered', 'cpubasic', 'rambasic', 'hddbasic', 'cpusuper', 'ramsuper', 'hddsuper', 'cpubamf', 'rambamf', 'hddbamf',
     ];
     const specsKeys = Object.keys(appSpecifications);
     specsKeys.forEach((sKey) => {
