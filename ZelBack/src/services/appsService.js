@@ -42,6 +42,12 @@ const myCache = new LRU(LRUoptions);
 let removalInProgress = false;
 let installationInProgress = false;
 
+const nodeSpecs = {
+  cpuCores: 0,
+  ram: 0,
+  ssdStorage: 0,
+};
+
 async function appPull(req, res) {
   try {
     const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
@@ -705,6 +711,32 @@ async function appsResources(req, res) {
   }
 }
 
+async function getNodeSpecs() {
+  try {
+    if (nodeSpecs.cpuCores === 0) {
+      nodeSpecs.cpuCores = os.cpus().length;
+    }
+    if (nodeSpecs.ram === 0) {
+      nodeSpecs.ram = os.totalmem() / 1024 / 1024;
+    }
+    if (nodeSpecs.ssdStorage === 0) {
+      // get my external IP and check that it is longer than 5 in length.
+      const benchmarkResponse = await daemonService.getBenchmarks();
+      if (benchmarkResponse.status === 'success') {
+        const benchmarkResponseData = JSON.parse(benchmarkResponse.data);
+        log.info(`Gathered ssdstorage ${benchmarkResponseData.ssd}`);
+        nodeSpecs.ssdStorage = benchmarkResponseData.ssd;
+      } else {
+        throw new Error('Error getting ssdstorage from benchmarks');
+      }
+    }
+    return nodeSpecs;
+  } catch (error) {
+    log.error(error);
+    throw new Error('Error getting nodeSpecs');
+  }
+}
+
 async function createAppVolume(appSpecifications, appName, isComponent, res) {
   const dfAsync = util.promisify(df);
   const identifier = isComponent ? `${appName}_${appSpecifications.name}` : appName;
@@ -735,8 +767,8 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     }
   });
 
-  const tier = await generalService.nodeTier();
-  const totalSpaceOnNode = config.fluxSpecifics.hdd[tier];
+  getNodeSpecs();
+  const totalSpaceOnNode = nodeSpecs.ssdStorage;
   const useableSpaceOnNode = totalSpaceOnNode - config.lockedSystemResources.hdd;
   const resourcesLocked = await appsResources();
   if (resourcesLocked.status !== 'success') {
@@ -1612,8 +1644,8 @@ async function checkAppRequirements(appSpecs) {
   }
 
   const appHWrequirements = totalAppHWRequirements(appSpecs, tier);
-
-  const totalSpaceOnNode = config.fluxSpecifics.hdd[tier];
+  getNodeSpecs();
+  const totalSpaceOnNode = nodeSpecs.ssdStorage;
   const useableSpaceOnNode = totalSpaceOnNode - config.lockedSystemResources.hdd;
   const hddLockedByApps = resourcesLocked.data.apsHddLocked;
   const availableSpaceForApps = useableSpaceOnNode - hddLockedByApps;
@@ -1622,7 +1654,7 @@ async function checkAppRequirements(appSpecs) {
     throw new Error('Insufficient space on Flux Node to spawn an application');
   }
 
-  const totalCpuOnNode = config.fluxSpecifics.cpu[tier];
+  const totalCpuOnNode = nodeSpecs.cpuCores;
   const useableCpuOnNode = totalCpuOnNode - config.lockedSystemResources.cpu;
   const cpuLockedByApps = resourcesLocked.data.appsCpusLocked * 10;
   const adjustedAppCpu = appHWrequirements.cpu * 10;
@@ -1631,7 +1663,7 @@ async function checkAppRequirements(appSpecs) {
     throw new Error('Insufficient CPU power on Flux Node to spawn an application');
   }
 
-  const totalRamOnNode = config.fluxSpecifics.ram[tier];
+  const totalRamOnNode = nodeSpecs.ram;
   const useableRamOnNode = totalRamOnNode - config.lockedSystemResources.ram;
   const ramLockedByApps = resourcesLocked.data.appsRamLocked;
   const availableRamForApps = useableRamOnNode - ramLockedByApps;
@@ -3939,7 +3971,15 @@ async function installTemporaryLocalApplication(req, res) {
       if (!appSpecifications) {
         throw new Error('Application Specifications not found');
       }
-      if (appname === 'KadenaChainWebData') {
+      const tier = await generalService.nodeTier();
+      if (tier === 'basic' && appname === 'KadenaChainWebNode') {
+        throw new Error('KadenaChainWebNode can only be installed on NIMBUS and STRATUS');
+      } else if (tier === 'basic' && appname === 'KadenaChainWebData') {
+        throw new Error('KadenaChainWebData can only be installed on STRATUS');
+      } else if (appname === 'KadenaChainWebData') {
+        if (tier === 'super') {
+          throw new Error('KadenaChainWebData can only be installed on STRATUS');
+        }
         // this app can only be installed if KadenaChainWebNode is installed
         // check if they are running?
         const installedAppsRes = await installedApps();

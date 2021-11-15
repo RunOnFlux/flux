@@ -10,9 +10,9 @@ const fluxSpecifics = {
     bamf: 30000, // available 28000 for apps
   },
   hdd: {
-    basic: 50, // 20 for apps
-    super: 150, // 120 for apps
-    bamf: 600, // 570 for apps
+    basic: 50, // 15 for apps
+    super: 150, // 115 for apps
+    bamf: 600, // 565 for apps
   },
   collateral: {
     basic: 10000,
@@ -24,7 +24,7 @@ const fluxSpecifics = {
 const lockedSystemResources = {
   cpu: 10, // 1 cpu core
   ram: 2000, // 2000mb
-  hdd: 30, // 30gb // this value is likely to rise
+  hdd: 35, // 35gb // this value is likely to rise
 };
 
 export default {
