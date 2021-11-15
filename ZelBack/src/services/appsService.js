@@ -4879,11 +4879,6 @@ async function trySpawningGlobalApplication() {
     // how do we continue with this function function?
     // we have globalapplication specifics list
     // check if we are synced
-    const tier = await generalService.nodeTier();
-    if (tier === 'basic') {
-      log.info('Cumulus node detected. Global applications will not be installed');
-      return;
-    }
     const synced = await generalService.checkSynced();
     if (synced !== true) {
       log.info('Flux not yet synced');
