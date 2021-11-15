@@ -78,14 +78,21 @@ module.exports = {
       ram: 0.1, // per 100mb,
       hdd: 0.05, // per 1gb,
       minPrice: 0.1, // minimum price that has to be paid for registration or update. Flux listens only to message above or equal this price
+    },
+    {
+      height: 1000002, // height from which price spec is valid. Counts from when app was registerd on blockchain!
+      cpu: 0.03, // per 0.1 cpu core,
+      ram: 0.01, // per 100mb,
+      hdd: 0.005, // per 1gb,
+      minPrice: 0.01, // minimum price that has to be paid for registration or update. Flux listens only to message above or equal this price
     }],
     appSpecsEnforcementHeights: {
       1: 0, // blockheight v1 is deprecated. Not possible to use api to update to its specs
       2: 0, // blockheight
       3: 983000, // blockheight. Since this blockheight specification of type 3 is active. User can still submit v1 or v2. UI allows only v2, v3
-      4: 1000000, // v4 available
+      4: 1000002, // v4 available
     },
-    address: 't1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6',
+    address: 't1NG7vr4D5iD6UF78fA75uW2U1qwkcpY9pw',
     epochstart: 694000,
     publicepochstart: 705000,
     portMin: 31000, // ports 30000 - 30999 are reserved for local applications
