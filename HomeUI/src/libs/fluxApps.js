@@ -51,51 +51,6 @@ export default {
     portMin: 31000, // originally should have been from 30000 but we got temporary folding there
     portMax: 39999,
   },
-  appPricePerMonthMethod(specifications, height) {
-    let price;
-    const intervals = this.apps.price.filter((i) => i.height <= height);
-    const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
-    let instancesAdditional = 0;
-    if (specifications.instances) {
-      // spec of version >= 3
-      // specification version 3 is saying. 3 instances are standard, every 3 additional is double the price.
-      instancesAdditional = specifications.instances - 3; // has to always be >=0 as of checks before.
-    }
-    if (specifications.tiered) {
-      const cpuTotalCount = specifications.cpubasic + specifications.cpusuper + specifications.cpubamf;
-      const cpuPrice = cpuTotalCount * priceSpecifications.cpu * 10; // 0.1 core cost cpu price
-      const cpuTotal = cpuPrice / 3;
-      const ramTotalCount = specifications.rambasic + specifications.ramsuper + specifications.rambamf;
-      const ramPrice = (ramTotalCount * priceSpecifications.ram) / 100;
-      const ramTotal = ramPrice / 3;
-      const hddTotalCount = specifications.hddbasic + specifications.hddsuper + specifications.hddbamf;
-      const hddPrice = hddTotalCount * priceSpecifications.hdd;
-      const hddTotal = hddPrice / 3;
-      const totalPrice = cpuTotal + ramTotal + hddTotal;
-      price = Number(Math.ceil(totalPrice * 100) / 100);
-      if (instancesAdditional > 0) {
-        const additionalPrice = (price * instancesAdditional) / 3;
-        price = (Math.ceil(additionalPrice * 100) + Math.ceil(price * 100)) / 100;
-      }
-      if (price < priceSpecifications.minPrice) {
-        price = priceSpecifications.minPrice;
-      }
-      return price;
-    }
-    const cpuTotal = specifications.cpu * priceSpecifications.cpu * 10;
-    const ramTotal = (specifications.ram * priceSpecifications.ram) / 100;
-    const hddTotal = specifications.hdd * priceSpecifications.hdd;
-    const totalPrice = cpuTotal + ramTotal + hddTotal;
-    price = Number(Math.ceil(totalPrice * 100) / 100);
-    if (instancesAdditional > 0) {
-      const additionalPrice = (price * instancesAdditional) / 3;
-      price = (Math.ceil(additionalPrice * 100) + Math.ceil(price * 100)) / 100;
-    }
-    if (price < priceSpecifications.minPrice) {
-      price = priceSpecifications.minPrice;
-    }
-    return price;
-  },
   checkHWParameters(appSpecs) {
     // check specs parameters. JS precision
     if ((appSpecs.cpu * 10) % 1 !== 0 || (appSpecs.cpu * 10) > (fluxSpecifics.cpu.bamf - lockedSystemResources.cpu) || appSpecs.cpu < 0.1) {
@@ -134,6 +89,79 @@ export default {
       }
       if (appSpecs.hddbamf % 1 !== 0 || appSpecs.hddbamf > (fluxSpecifics.hdd.bamf - lockedSystemResources.hdd) || appSpecs.hddbamf < 1) {
         return new Error('SSD for Stratus badly assigned');
+      }
+    }
+    return true;
+  },
+  checkComposeHWParameters(appSpecsComposed) {
+    // calculate total HW assigned
+    let totalCpu = 0;
+    let totalRam = 0;
+    let totalHdd = 0;
+    let totalCpuBasic = 0;
+    let totalCpuSuper = 0;
+    let totalCpuBamf = 0;
+    let totalRamBasic = 0;
+    let totalRamSuper = 0;
+    let totalRamBamf = 0;
+    let totalHddBasic = 0;
+    let totalHddSuper = 0;
+    let totalHddBamf = 0;
+    const isTiered = appSpecsComposed.compose.find((appComponent) => appComponent.tiered === true);
+    appSpecsComposed.compose.forEach((appComponent) => {
+      if (isTiered) {
+        totalCpuBamf += ((appComponent.cpubamf || appComponent.cpu) * 10);
+        totalRamBamf += appComponent.rambamf || appComponent.ram;
+        totalHddBamf += appComponent.hddbamf || appComponent.hdd;
+        totalCpuSuper += ((appComponent.cpusuper || appComponent.cpu) * 10);
+        totalRamSuper += appComponent.ramsuper || appComponent.ram;
+        totalHddSuper += appComponent.hddsuper || appComponent.hdd;
+        totalCpuBasic += ((appComponent.cpubasic || appComponent.cpu) * 10);
+        totalRamBasic += appComponent.rambasic || appComponent.ram;
+        totalHddBasic += appComponent.hddbasic || appComponent.hdd;
+      } else {
+        totalCpu += (appComponent.cpu * 10);
+        totalRam += appComponent.ram;
+        totalHdd += appComponent.hdd;
+      }
+    });
+    // check specs parameters. JS precision
+    if (totalCpu > (fluxSpecifics.cpu.bamf - lockedSystemResources.cpu)) {
+      return new Error(`Too much CPU resources assigned for ${appSpecsComposed.name}`);
+    }
+    if (totalRam > (fluxSpecifics.ram.bamf - lockedSystemResources.ram)) {
+      return new Error(`Too much RAM rsources assigned for ${appSpecsComposed.name}`);
+    }
+    if (totalHdd > (fluxSpecifics.hdd.bamf - lockedSystemResources.hdd)) {
+      return new Error(`Too much SSD rsources assigned for ${appSpecsComposed.name}`);
+    }
+    if (isTiered) {
+      if (totalCpuBasic > (fluxSpecifics.cpu.basic - lockedSystemResources.cpu)) {
+        return new Error(`Too much CPU for Cumulus rsources assigned for ${appSpecsComposed.name}`);
+      }
+      if (totalRamBasic > (fluxSpecifics.ram.basic - lockedSystemResources.ram)) {
+        return new Error(`Too much RAM for Cumulus rsources assigned for ${appSpecsComposed.name}`);
+      }
+      if (totalHddBasic > (fluxSpecifics.hdd.basic - lockedSystemResources.hdd)) {
+        return new Error(`Too much SSD for Cumulus rsources assigned for ${appSpecsComposed.name}`);
+      }
+      if (totalCpuSuper > (fluxSpecifics.cpu.super - lockedSystemResources.cpu)) {
+        return new Error(`Too much CPU for Nimbus rsources assigned for ${appSpecsComposed.name}`);
+      }
+      if (totalRamSuper > (fluxSpecifics.ram.super - lockedSystemResources.ram)) {
+        return new Error(`Too much RAM for Nimbus rsources assigned for ${appSpecsComposed.name}`);
+      }
+      if (totalHddSuper > (fluxSpecifics.hdd.super - lockedSystemResources.hdd)) {
+        return new Error(`Too much SSD for Nimbus rsources assigned for ${appSpecsComposed.name}`);
+      }
+      if (totalCpuBamf > (fluxSpecifics.cpu.bamf - lockedSystemResources.cpu)) {
+        return new Error(`Too much CPU for Stratus rsources assigned for ${appSpecsComposed.name}`);
+      }
+      if (totalRamBamf > (fluxSpecifics.ram.bamf - lockedSystemResources.ram)) {
+        return new Error(`Too much RAM for Stratus rsources assigned for ${appSpecsComposed.name}`);
+      }
+      if (totalHddBamf > (fluxSpecifics.hdd.bamf - lockedSystemResources.hdd)) {
+        return new Error(`Too much SSD for Stratus rsources assigned for ${appSpecsComposed.name}`);
       }
     }
     return true;

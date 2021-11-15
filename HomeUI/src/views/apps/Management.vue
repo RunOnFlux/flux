@@ -1611,6 +1611,7 @@ export default {
       downloaded: '',
       abortToken: {},
       foundationAddress: 't1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6',
+      appPricePerMonthForUpdate: 0,
     };
   },
   computed: {
@@ -1646,29 +1647,6 @@ export default {
       }
       const json = JSON.stringify(this.callResponse.data, null, 4);
       return json;
-    },
-    appPricePerMonthForUpdate() {
-      const appInfo = this.callBResponse.data;
-      const daemonHeight = this.currentHeight;
-      let actualPriceToPay = this.appPricePerMonthMethod(this.dataForAppUpdate, daemonHeight);
-      console.log(actualPriceToPay);
-      if (appInfo) {
-        const previousSpecsPrice = this.appPricePerMonthMethod(appInfo, daemonHeight);
-        console.log(previousSpecsPrice);
-        // what is the height difference
-        const heightDifference = daemonHeight - appInfo.height; // has to be lower than 22000
-        const perc = (22000 - heightDifference) / 22000;
-        if (perc > 0) {
-          actualPriceToPay -= (perc * previousSpecsPrice);
-        }
-      }
-      const intervals = fluxapps.apps.price.filter((i) => i.height <= daemonHeight);
-      const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
-      if (actualPriceToPay < priceSpecifications.minPrice) {
-        actualPriceToPay = priceSpecifications.minPrice;
-      }
-      actualPriceToPay = Number(Math.ceil(actualPriceToPay * 100) / 100);
-      return actualPriceToPay;
     },
     validTill() {
       const expTime = this.timestamp + 60 * 60 * 1000; // 1 hour
@@ -2166,6 +2144,13 @@ export default {
         } else {
           throw new Error('Repository is not in valid format namespace/repository:tag');
         }
+        const response = await AppsService.appPrice(this.zelidHeader.zelidauth, { appSpecification: appSpecFormatted });
+        this.appPricePerMonthForUpdate = 0;
+        if (response.data.status === 'success') {
+          this.appPricePerMonthForUpdate = response.data.data;
+        } else {
+          throw new Error(response.data.data);
+        }
         this.timestamp = new Date().getTime();
         this.dataForAppUpdate = appSpecFormatted;
         this.dataToSign = this.updatetype + this.version + JSON.stringify(appSpecFormatted) + this.timestamp;
@@ -2289,10 +2274,6 @@ export default {
         return name;
       }
       return `/${name}`;
-    },
-    appPricePerMonthMethod(specifications, height = this.currentHeight) {
-      const price = fluxapps.appPricePerMonthMethod(specifications, height);
-      return price;
     },
 
     async getApplicationInspect() {
