@@ -99,6 +99,7 @@ module.exports = {
     portMax: 39999,
     maxImageSize: 500000000, // 500mb possibly increase later
     minimumInstances: 3,
+    maximumInstances: 100,
     maximumAdditionalInstances: 5, // max instances above subscribed amount. In case of min instances, this is minimumInstances + maximumAdditionalInstances
     minOutgoing: 5,
     minIncoming: 2,

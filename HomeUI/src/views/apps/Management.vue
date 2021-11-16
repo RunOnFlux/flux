@@ -1912,6 +1912,7 @@ export default {
         let { description } = appSpecification;
         let { repotag } = appSpecification;
         let { owner } = appSpecification;
+        let { compose } = appSpecification;
         let { ports } = appSpecification;
         let { domains } = appSpecification;
         let { enviromentParameters } = appSpecification;

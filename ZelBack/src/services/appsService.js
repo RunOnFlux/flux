@@ -2759,11 +2759,11 @@ function verifyCorrectnessOfApp(appSpecification) {
     if (Number.isInteger(instances) !== true) {
       throw new Error('Invalid instances specified');
     }
-    if (instances < 3) {
-      throw new Error('Minimum number of instances is 3');
+    if (instances < config.fluxapps.minimumInstances) {
+      throw new Error(`Minimum number of instances is ${config.fluxapps.minimumInstances}`);
     }
-    if (instances > 100) {
-      throw new Error('Maximum number of instances is 100');
+    if (instances > config.fluxapps.maximumInstances) {
+      throw new Error(`Maximum number of instances is ${config.fluxapps.maximumInstances}`);
     }
   }
 
@@ -2959,11 +2959,11 @@ async function verifyAppSpecifications(appSpecifications, height) {
     if (Number.isInteger(appSpecifications.instances) !== true) {
       throw new Error('Instances is not an integer');
     }
-    if (appSpecifications.instances < 3) {
-      throw new Error('Minimum number of instances is 3');
+    if (appSpecifications.instances < config.fluxapps.minimumInstances) {
+      throw new Error(`Minimum number of instances is ${config.fluxapps.minimumInstances}`);
     }
-    if (appSpecifications.instances > 100) {
-      throw new Error('Maximum number of instances is 100');
+    if (appSpecifications.instances > config.fluxapps.maximumInstances) {
+      throw new Error(`Maximum number of instances is ${config.fluxapps.maximumInstances}`);
     }
   }
 
@@ -3121,7 +3121,7 @@ async function ensureCorrectApplicationPort(appSpecFormatted) {
   return true;
 }
 
-async function checkApplicationNameConflicts(appSpecFormatted) {
+async function checkApplicationRegistrationNameConflicts(appSpecFormatted) {
   // check if name is not yet registered
   const dbopen = serviceHelper.databaseConnection();
 
@@ -3148,6 +3148,134 @@ async function checkApplicationNameConflicts(appSpecFormatted) {
     throw new Error(`Flux App ${appSpecFormatted.name} already assigned to Flux main application. Flux App has to be registered under different name.`);
   }
   return true;
+}
+
+async function checkApplicationUpdateNameRepositoryConflicts(specifications, verificationTimestamp) {
+  // we may not have the application in global apps. This can happen when we receive the message after the app has already expired AND we need to get message right before our message. Thus using messages system that is accurate
+  const db = serviceHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  const projection = {
+    projection: {
+      _id: 0,
+    },
+  };
+  log.info(`Searching permanent messages for ${specifications.name}`);
+  const appsQuery = {
+    'appSpecifications.name': specifications.name,
+  };
+  const permanentAppMessage = await serviceHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
+  let latestPermanentRegistrationMessage;
+  permanentAppMessage.forEach((foundMessage) => {
+    // has to be registration message
+    if (foundMessage.type === 'zelappregister' || foundMessage.type === 'fluxappregister' || foundMessage.type === 'zelappupdate' || foundMessage.type === 'fluxappupdate') { // can be any type
+      if (latestPermanentRegistrationMessage && latestPermanentRegistrationMessage.height <= foundMessage.height) { // we have some message and the message is quite new
+        if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp && foundMessage.timestamp <= verificationTimestamp) { // but our message is newer. foundMessage has to have lower timestamp than our new message
+          latestPermanentRegistrationMessage = foundMessage;
+        }
+      } else if (foundMessage.timestamp <= verificationTimestamp) { // we dont have any message or our message is newer. foundMessage has to have lower timestamp than our new message
+        latestPermanentRegistrationMessage = foundMessage;
+      }
+    }
+  });
+  // some early app have zelAppSepcifications
+  const appsQueryB = {
+    'zelAppSpecifications.name': specifications.name,
+  };
+  const permanentAppMessageB = await serviceHelper.findInDatabase(database, globalAppsMessages, appsQueryB, projection);
+  permanentAppMessageB.forEach((foundMessage) => {
+    // has to be registration message
+    if (foundMessage.type === 'zelappregister' || foundMessage.type === 'fluxappregister' || foundMessage.type === 'zelappupdate' || foundMessage.type === 'fluxappupdate') { // can be any type
+      if (latestPermanentRegistrationMessage && latestPermanentRegistrationMessage.height <= foundMessage.height) { // we have some message and the message is quite new
+        if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp && foundMessage.timestamp <= verificationTimestamp) { // but our message is newer. foundMessage has to have lower timestamp than our new message
+          latestPermanentRegistrationMessage = foundMessage;
+        }
+      } else if (foundMessage.timestamp <= verificationTimestamp) { // we dont have any message or our message is newer. foundMessage has to have lower timestamp than our new message
+        latestPermanentRegistrationMessage = foundMessage;
+      }
+    }
+  });
+  const appSpecs = latestPermanentRegistrationMessage.appSpecifications || latestPermanentRegistrationMessage.zelAppSpecifications;
+  if (!appSpecs) {
+    throw new Error(`Flux App ${specifications.name} update message received but application does not exists!`);
+  }
+  if (specifications.version >= 4) {
+    if (appSpecs.version >= 4) {
+      // update and current are both v4 compositions
+      // must be same amount of copmositions
+      // must be same names
+      if (specifications.compose.length !== appSpecs.compose.length) {
+        throw new Error(`Flux App ${specifications.name} change of components is not allowed`);
+      }
+      appSpecs.compose.forEach((appComponent) => {
+        const newSpecComponentFound = specifications.compose.find((appComponentNew) => appComponentNew.name === appComponent.name);
+        if (!newSpecComponentFound) {
+          throw new Error(`Flux App ${specifications.name} change of component name is not allowed`);
+        }
+        // v4 allows for changes of repotag
+      });
+    } else { // update is v4+ and current app have v1,2,3
+      throw new Error(`Flux App ${specifications.name} update to different specifications is not possible`);
+    }
+  } else if (appSpecs.version >= 4) {
+    throw new Error(`Flux App ${specifications.name} update to different specifications is not possible`);
+  } else { // bot update and current app have v1,2,3
+    // eslint-disable-next-line no-lonely-if
+    if (appSpecs.repotag !== specifications.repotag) { // v1,2,3 does not allow repotag change
+      throw new Error(`Flux App ${specifications.name} update of repotag is not allowed`);
+    }
+  }
+  return true;
+}
+
+async function getPreviousAppSpecifications(specifications, message) {
+  // we may not have the application in global apps. This can happen when we receive the message after the app has already expired AND we need to get message right before our message. Thus using messages system that is accurate
+  const db = serviceHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  const projection = {
+    projection: {
+      _id: 0,
+    },
+  };
+  log.info(`Searching permanent messages for ${specifications.name}`);
+  const appsQuery = {
+    'appSpecifications.name': specifications.name,
+  };
+  const permanentAppMessage = await serviceHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
+  let latestPermanentRegistrationMessage;
+  permanentAppMessage.forEach((foundMessage) => {
+    // has to be registration message
+    if (foundMessage.type === 'zelappregister' || foundMessage.type === 'fluxappregister' || foundMessage.type === 'zelappupdate' || foundMessage.type === 'fluxappupdate') { // can be any type
+      if (latestPermanentRegistrationMessage && latestPermanentRegistrationMessage.height <= foundMessage.height) { // we have some message and the message is quite new
+        if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp && foundMessage.timestamp <= message.timestamp) { // but our message is newer. foundMessage has to have lower timestamp than our new message
+          latestPermanentRegistrationMessage = foundMessage;
+        }
+      } else if (foundMessage.timestamp <= message.timestamp) { // we dont have any message or our message is newer. foundMessage has to have lower timestamp than our new message
+        latestPermanentRegistrationMessage = foundMessage;
+      }
+    }
+  });
+  // some early app have zelAppSepcifications
+  const appsQueryB = {
+    'zelAppSpecifications.name': specifications.name,
+  };
+  const permanentAppMessageB = await serviceHelper.findInDatabase(database, globalAppsMessages, appsQueryB, projection);
+  permanentAppMessageB.forEach((foundMessage) => {
+    // has to be registration message
+    if (foundMessage.type === 'zelappregister' || foundMessage.type === 'fluxappregister' || foundMessage.type === 'zelappupdate' || foundMessage.type === 'fluxappupdate') { // can be any type
+      if (latestPermanentRegistrationMessage && latestPermanentRegistrationMessage.height <= foundMessage.height) { // we have some message and the message is quite new
+        if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp && foundMessage.timestamp <= message.timestamp) { // but our message is newer. foundMessage has to have lower timestamp than our new message
+          latestPermanentRegistrationMessage = foundMessage;
+        }
+      } else if (foundMessage.timestamp <= message.timestamp) { // we dont have any message or our message is newer. foundMessage has to have lower timestamp than our new message
+        latestPermanentRegistrationMessage = foundMessage;
+      }
+    }
+  });
+  const appSpecs = latestPermanentRegistrationMessage.appSpecifications || latestPermanentRegistrationMessage.zelAppSpecifications;
+  if (!appSpecs) {
+    throw new Error(`Flux App ${specifications.name} update message received but application does not exists!`);
+  }
+  return appSpecs;
 }
 
 async function checkAppMessageExistence(hash) {
@@ -3245,13 +3373,6 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
     return false;
   }
 
-  const db = serviceHelper.databaseConnection();
-  const database = db.db(config.database.appsglobal.database);
-  const projection = {
-    projection: {
-      _id: 0,
-    },
-  };
   // data shall already be verified by the broadcasting node. But verify all again.
   if (furtherVerification) {
     if (message.type === 'zelappregister' || message.type === 'fluxappregister') {
@@ -3260,7 +3381,7 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
       await verifyAppSpecifications(specifications, daemonHeight);
       await verifyAppHash(message);
       await ensureCorrectApplicationPort(specifications);
-      await checkApplicationNameConflicts(specifications);
+      await checkApplicationRegistrationNameConflicts(specifications);
       await verifyAppMessageSignature(message.type, message.version, specifications, message.timestamp, message.signature);
     } else if (message.type === 'zelappupdate' || message.type === 'fluxappupdate') {
       const syncStatus = daemonService.isDaemonSynced();
@@ -3269,74 +3390,11 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
       await verifyAppSpecifications(specifications, daemonHeight);
       await verifyAppHash(message);
       await ensureCorrectApplicationPort(specifications);
-      // verify that app exists, does not change repotag and is signed by app owner.
-      // we may not have the application in global apps. This can happen when we receive the message after the app has already expired AND we need to get message right before our message. Thus using messages system that is accurate
-      log.warn(`Searching permanent messages for ${specifications.name}`);
-      const appsQuery = {
-        'appSpecifications.name': specifications.name,
-      };
-      const permanentAppMessage = await serviceHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
-      let latestPermanentRegistrationMessage;
-      permanentAppMessage.forEach((foundMessage) => {
-        // has to be registration message
-        if (foundMessage.type === 'zelappregister' || foundMessage.type === 'fluxappregister' || foundMessage.type === 'zelappupdate' || foundMessage.type === 'fluxappupdate') { // can be any type
-          if (latestPermanentRegistrationMessage && latestPermanentRegistrationMessage.height <= foundMessage.height) { // we have some message and the message is quite new
-            if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp && foundMessage.timestamp <= message.timestamp) { // but our message is newer. foundMessage has to have lower timestamp than our new message
-              latestPermanentRegistrationMessage = foundMessage;
-            }
-          } else if (foundMessage.timestamp <= message.timestamp) { // we dont have any message or our message is newer. foundMessage has to have lower timestamp than our new message
-            latestPermanentRegistrationMessage = foundMessage;
-          }
-        }
-      });
-      // some early app have zelAppSepcifications
-      const appsQueryB = {
-        'zelAppSpecifications.name': specifications.name,
-      };
-      const permanentAppMessageB = await serviceHelper.findInDatabase(database, globalAppsMessages, appsQueryB, projection);
-      permanentAppMessageB.forEach((foundMessage) => {
-        // has to be registration message
-        if (foundMessage.type === 'zelappregister' || foundMessage.type === 'fluxappregister' || foundMessage.type === 'zelappupdate' || foundMessage.type === 'fluxappupdate') { // can be any type
-          if (latestPermanentRegistrationMessage && latestPermanentRegistrationMessage.height <= foundMessage.height) { // we have some message and the message is quite new
-            if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp && foundMessage.timestamp <= message.timestamp) { // but our message is newer. foundMessage has to have lower timestamp than our new message
-              latestPermanentRegistrationMessage = foundMessage;
-            }
-          } else if (foundMessage.timestamp <= message.timestamp) { // we dont have any message or our message is newer. foundMessage has to have lower timestamp than our new message
-            latestPermanentRegistrationMessage = foundMessage;
-          }
-        }
-      });
-      const appSpecs = latestPermanentRegistrationMessage.appSpecifications || latestPermanentRegistrationMessage.zelAppSpecifications;
-      if (!appSpecs) {
-        throw new Error(`Flux App ${specifications.name} update message received but application does not exists!`);
-      }
-      if (specifications.version >= 4) {
-        if (appSpecs.version >= 4) {
-          // update and current are both v4 compositions
-          // must be same amount of copmositions
-          // must be same names
-          if (specifications.compose.length !== appSpecs.compose.length) {
-            throw new Error(`Flux App ${specifications.name} change of components is not allowed`);
-          }
-          appSpecs.compose.forEach((appComponent) => {
-            const newSpecComponentFound = specifications.compose.find((appComponentNew) => appComponentNew.name === appComponent.name);
-            if (!newSpecComponentFound) {
-              throw new Error(`Flux App ${specifications.name} change of component name is not allowed`);
-            }
-            // v4 allows for changes of repotag
-          });
-        } else { // update is v4+ and current app have v1,2,3
-          throw new Error(`Flux App ${specifications.name} update to different specifications is not possible`);
-        }
-      } else if (appSpecs.version >= 4) {
-        throw new Error(`Flux App ${specifications.name} update to different specifications is not possible`);
-      } else { // bot update and current app have v1,2,3
-        // eslint-disable-next-line no-lonely-if
-        if (appSpecs.repotag !== specifications.repotag) { // v1,2,3 does not allow repotag change
-          throw new Error(`Flux App ${specifications.name} update of repotag is not allowed`);
-        }
-      }
-      const { owner } = appSpecs;
+      // verify that app exists, does not change repotag (for v1-v3), does not change name and does not change component names
+      await checkApplicationUpdateNameRepositoryConflicts(specifications, message.timestamp);
+      // get previousAppSpecifications as we need previous owner
+      const previousAppSpecs = await getPreviousAppSpecifications(specifications, message);
+      const { owner } = previousAppSpecs;
       // here signature is checked against PREVIOUS app owner
       await verifyAppMessageUpdateSignature(message.type, message.version, specifications, message.timestamp, message.signature, owner);
     } else {
@@ -3359,6 +3417,8 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
   };
   const value = newMessage;
   // message does not exist anywhere and is ok, store it
+  const db = serviceHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
   await serviceHelper.insertOneToDatabase(database, globalAppsTempMessages, value);
   // it is stored and rebroadcasted
   return true;
@@ -3705,11 +3765,11 @@ function specificationFormatter(appSpecification) {
     if (Number.isInteger(instances) !== true) {
       throw new Error('Invalid instances specified');
     }
-    if (instances < 3) {
-      throw new Error('Minimum number of instances is 3');
+    if (instances < config.fluxapps.minimumInstances) {
+      throw new Error(`Minimum number of instances is ${config.fluxapps.minimumInstances}`);
     }
-    if (instances > 100) {
-      throw new Error('Maximum number of instances is 100');
+    if (instances > config.fluxapps.maximumInstances) {
+      throw new Error(`Maximum number of instances is ${config.fluxapps.maximumInstances}`);
     }
     appSpecFormatted.instances = instances;
   }
@@ -3769,7 +3829,7 @@ async function registerAppGlobalyApi(req, res) {
       await verifyAppSpecifications(appSpecFormatted, daemonHeight);
 
       // check if name is not yet registered
-      await checkApplicationNameConflicts(appSpecFormatted);
+      await checkApplicationRegistrationNameConflicts(appSpecFormatted);
 
       // check if ports is not yet registered
       await ensureCorrectApplicationPort(appSpecFormatted);
@@ -3898,6 +3958,8 @@ async function updateAppGlobalyApi(req, res) {
         timestamp,
         signature,
       };
+      // verify that app exists, does not change repotag (for v1-v3), does not change name and does not change component names
+      await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, temporaryAppMessage.timestamp);
       await storeAppTemporaryMessage(temporaryAppMessage, false);
       await fluxCommunication.broadcastTemporaryAppMessage(temporaryAppMessage);
       return res.json(responseHash);
@@ -5562,6 +5624,121 @@ async function redeployAPI(req, res) {
   }
 }
 
+async function verifyAppRegistrationParameters(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    try {
+      const processedBody = serviceHelper.ensureObject(body);
+      let appSpecification = processedBody;
+
+      appSpecification = serviceHelper.ensureObject(appSpecification);
+      const appSpecFormatted = specificationFormatter(appSpecification);
+
+      const syncStatus = daemonService.isDaemonSynced();
+      if (!syncStatus.data.synced) {
+        throw new Error('Daemon not yet synced.');
+      }
+      const daemonHeight = syncStatus.data.height;
+
+      // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
+      await verifyAppSpecifications(appSpecFormatted, daemonHeight);
+
+      // check if name is not yet registered
+      await checkApplicationRegistrationNameConflicts(appSpecFormatted);
+
+      // check if ports is not yet registered
+      await ensureCorrectApplicationPort(appSpecFormatted);
+
+      // app is valid and can be registered
+      // respond with formatted specifications
+      const respondPrice = serviceHelper.createDataMessage(appSpecFormatted);
+      return res.json(respondPrice);
+    } catch (error) {
+      log.warn(error);
+      const errorResponse = serviceHelper.createErrorMessage(
+        error.message || error,
+        error.name,
+        error.code,
+      );
+      return res.json(errorResponse);
+    }
+  });
+}
+
+async function verifyAppUpdateParameters(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    try {
+      const processedBody = serviceHelper.ensureObject(body);
+      let appSpecification = processedBody;
+
+      appSpecification = serviceHelper.ensureObject(appSpecification);
+      const appSpecFormatted = specificationFormatter(appSpecification);
+
+      const syncStatus = daemonService.isDaemonSynced();
+      if (!syncStatus.data.synced) {
+        throw new Error('Daemon not yet synced.');
+      }
+      const daemonHeight = syncStatus.data.height;
+
+      // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
+      await verifyAppSpecifications(appSpecFormatted, daemonHeight);
+
+      // check if name is not yet registered
+      const timestamp = new Date().getTime();
+      await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, timestamp);
+
+      // check if ports is not yet registered
+      await ensureCorrectApplicationPort(appSpecFormatted);
+
+      // app is valid and can be registered
+      // respond with formatted specifications
+      const respondPrice = serviceHelper.createDataMessage(appSpecFormatted);
+      return res.json(respondPrice);
+    } catch (error) {
+      log.warn(error);
+      const errorResponse = serviceHelper.createErrorMessage(
+        error.message || error,
+        error.name,
+        error.code,
+      );
+      return res.json(errorResponse);
+    }
+  });
+}
+
+async function deloymentInformation(req, res) {
+  try {
+    // respond with information needed for application deployment regarding specification limitation and prices
+    const information = {
+      price: config.fluxapps.price,
+      appSpecsEnforcementHeights: config.fluxapps.appSpecsEnforcementHeights,
+      address: config.fluxapps.address,
+      portMin: config.fluxapps.portMin,
+      portMax: config.fluxapps.portMax,
+      maxImageSize: config.fluxapps.maxImageSize,
+      minimumInstances: config.fluxapps.minimumInstances,
+      maximumInstances: config.fluxapps.maximumInstances,
+    };
+    const respondPrice = serviceHelper.createDataMessage(information);
+    res.json(respondPrice);
+  } catch (error) {
+    log.warn(error);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
+}
+
 module.exports = {
   appPull,
   listRunningApps,
@@ -5633,4 +5810,7 @@ module.exports = {
   softRemoveAppLocally,
   softRedeploy,
   redeployAPI,
+  verifyAppRegistrationParameters,
+  verifyAppUpdateParameters,
+  deloymentInformation,
 };

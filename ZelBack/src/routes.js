@@ -1154,6 +1154,15 @@ module.exports = (app, expressWs) => {
   app.get('/apps/whitelistedzelids', cache('30 seconds'), (req, res) => {
     generalService.whitelistedZelIDs(req, res);
   });
+  app.post('/apps/verifyappregistrationspecifications', (req, res) => { // returns formatted app specifications
+    appsService.verifyAppRegistrationParameters(req, res);
+  });
+  app.post('/apps/verifyappupdatespecifications', (req, res) => { // returns formatted app specifications
+    appsService.verifyAppUpdateParameters(req, res);
+  });
+  app.get('/apps/deploymentinformation', cache('30 seconds'), (req, res) => {
+    appsService.deloymentInformation(req, res);
+  });
 
   // app.get('/explorer/allutxos', (req, res) => {
   //   explorerService.getAllUtxos(req, res);
