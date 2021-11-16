@@ -874,7 +874,7 @@
         class="mb-4"
         @click="addCopmonent"
       >
-        Add Component to Application composition
+        Add Component to Application Composition
       </b-button>
     </div>
     <div class="text-center">
