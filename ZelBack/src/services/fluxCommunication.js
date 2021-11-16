@@ -1348,38 +1348,31 @@ async function allowPortApi(req, res) {
 
 async function adjustFirewall() {
   try {
-    const execA = 'sudo ufw status | grep Status';
-    const execB = `sudo ufw allow ${config.server.apiport}`;
-    const execC = `sudo ufw allow out ${config.server.apiport}`;
-    const execD = `sudo ufw allow ${config.server.homeport}`;
-    const execE = `sudo ufw allow out ${config.server.homeport}`;
     const cmdAsync = util.promisify(cmd.get);
-
+    const execA = 'sudo ufw status | grep Status';
+    const ports = [config.server.apiport, config.server.homeport, 80, 443, 16125];
     const cmdresA = await cmdAsync(execA);
     if (serviceHelper.ensureString(cmdresA).includes('Status: active')) {
-      const cmdresB = await cmdAsync(execB);
-      if (serviceHelper.ensureString(cmdresB).includes('updated') || serviceHelper.ensureString(cmdresB).includes('existing') || serviceHelper.ensureString(cmdresB).includes('added')) {
-        log.info('Incoming Firewall adjusted for Flux port');
-      } else {
-        log.info('Failed to adjust Firewall for incoming Flux port');
-      }
-      const cmdresC = await cmdAsync(execC);
-      if (serviceHelper.ensureString(cmdresC).includes('updated') || serviceHelper.ensureString(cmdresC).includes('existing') || serviceHelper.ensureString(cmdresC).includes('added')) {
-        log.info('Outgoing Firewall adjusted for Flux port');
-      } else {
-        log.info('Failed to adjust Firewall for outgoing Flux port');
-      }
-      const cmdresD = await cmdAsync(execD);
-      if (serviceHelper.ensureString(cmdresD).includes('updated') || serviceHelper.ensureString(cmdresD).includes('existing') || serviceHelper.ensureString(cmdresD).includes('added')) {
-        log.info('Incoming Firewall adjusted for Home port');
-      } else {
-        log.info('Failed to adjust Firewall for incoming Home port');
-      }
-      const cmdresE = await cmdAsync(execE);
-      if (serviceHelper.ensureString(cmdresE).includes('updated') || serviceHelper.ensureString(cmdresE).includes('existing') || serviceHelper.ensureString(cmdresE).includes('added')) {
-        log.info('Outgoing Firewall adjusted for Home port');
-      } else {
-        log.info('Failed to adjust Firewall for outgoing Home port');
+      // eslint-disable-next-line no-restricted-syntax
+      for (const port of ports) {
+        const execB = `sudo ufw allow ${port}`;
+        const execC = `sudo ufw allow out ${port}`;
+
+        // eslint-disable-next-line no-await-in-loop
+        const cmdresB = await cmdAsync(execB);
+        if (serviceHelper.ensureString(cmdresB).includes('updated') || serviceHelper.ensureString(cmdresB).includes('existing') || serviceHelper.ensureString(cmdresB).includes('added')) {
+          log.info(`Firewall adjusted for port ${port}`);
+        } else {
+          log.info(`Failed to adjust Firewall for port ${port}`);
+        }
+
+        // eslint-disable-next-line no-await-in-loop
+        const cmdresC = await cmdAsync(execC);
+        if (serviceHelper.ensureString(cmdresC).includes('updated') || serviceHelper.ensureString(cmdresC).includes('existing') || serviceHelper.ensureString(cmdresC).includes('added')) {
+          log.info(`Firewall adjusted for port ${port}`);
+        } else {
+          log.info(`Failed to adjust Firewall for port ${port}`);
+        }
       }
     } else {
       log.info('Firewall is not active. Adjusting not applied');
