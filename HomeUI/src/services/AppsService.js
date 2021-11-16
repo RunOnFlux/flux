@@ -94,6 +94,9 @@ export default {
   appsRegInformation() {
     return Api().get('/apps/registrationinformation');
   },
+  appsDeploymentInformation() {
+    return Api().get('/apps/deploymentinformation');
+  },
   getAppLocation(name) {
     return Api().get(`/apps/location/${name}`);
   },
@@ -263,6 +266,22 @@ export default {
       },
     };
     return Api().post('/apps/calculateprice', JSON.stringify(data), axiosConfig);
+  },
+  appRegistrationVerificaiton(zelidauthHeader, data) {
+    const axiosConfig = {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    };
+    return Api().post('/apps/verifyappregistrationspecifications', JSON.stringify(data), axiosConfig);
+  },
+  appUpdateVerification(zelidauthHeader, data) {
+    const axiosConfig = {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    };
+    return Api().post('/apps/verifyappupdatespecifications', JSON.stringify(data), axiosConfig);
   },
   justAPI() {
     return Api();
