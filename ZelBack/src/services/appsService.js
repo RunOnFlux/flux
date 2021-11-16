@@ -4038,14 +4038,11 @@ async function installTemporaryLocalApplication(req, res) {
         throw new Error('Application Specifications not found');
       }
       const tier = await generalService.nodeTier();
-      if (tier === 'basic' && appname === 'KadenaChainWebNode') {
+      if (appname === 'KadenaChainWebNode' && tier === 'basic') {
         throw new Error('KadenaChainWebNode can only be installed on NIMBUS and STRATUS');
-      } else if (tier === 'basic' && appname === 'KadenaChainWebData') {
+      } else if (appname === 'KadenaChainWebData' && (tier === 'basic' || tier === 'super')) {
         throw new Error('KadenaChainWebData can only be installed on STRATUS');
       } else if (appname === 'KadenaChainWebData') {
-        if (tier === 'super') {
-          throw new Error('KadenaChainWebData can only be installed on STRATUS');
-        }
         // this app can only be installed if KadenaChainWebNode is installed
         // check if they are running?
         const installedAppsRes = await installedApps();
