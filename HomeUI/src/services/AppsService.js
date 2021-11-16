@@ -259,29 +259,14 @@ export default {
       },
     });
   },
-  appPrice(zelidauthHeader, data) {
-    const axiosConfig = {
-      headers: {
-        zelidauth: zelidauthHeader,
-      },
-    };
-    return Api().post('/apps/calculateprice', JSON.stringify(data), axiosConfig);
+  appPrice(data) {
+    return Api().post('/apps/calculateprice', JSON.stringify(data));
   },
-  appRegistrationVerificaiton(zelidauthHeader, data) {
-    const axiosConfig = {
-      headers: {
-        zelidauth: zelidauthHeader,
-      },
-    };
-    return Api().post('/apps/verifyappregistrationspecifications', JSON.stringify(data), axiosConfig);
+  appRegistrationVerificaiton(data) {
+    return Api().post('/apps/verifyappregistrationspecifications', JSON.stringify(data));
   },
-  appUpdateVerification(zelidauthHeader, data) {
-    const axiosConfig = {
-      headers: {
-        zelidauth: zelidauthHeader,
-      },
-    };
-    return Api().post('/apps/verifyappupdatespecifications', JSON.stringify(data), axiosConfig);
+  appUpdateVerification(data) {
+    return Api().post('/apps/verifyappupdatespecifications', JSON.stringify(data));
   },
   justAPI() {
     return Api();
