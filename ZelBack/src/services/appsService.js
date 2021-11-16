@@ -3789,8 +3789,11 @@ async function registerAppGlobalyApi(req, res) {
         const errMessage = serviceHelper.errUnauthorizedMessage();
         return res.json(errMessage);
       }
-      // first  check if this node is available for application registration - has at least 7 connections (that is sufficient as it means it is confirmed and works correctly)
-      if (fluxCommunication.outgoingPeers.length + fluxCommunication.incomingPeers.length < config.fluxapps.minOutgoing + config.fluxapps.minIncoming) {
+      // first  check if this node is available for application registration
+      if (fluxCommunication.outgoingPeers.length < config.fluxapps.minOutgoing) {
+        throw new Error('Sorry, This Flux does not have enough peers for safe application registration');
+      }
+      if (fluxCommunication.incomingPeers.length < config.fluxapps.minIncoming) {
         throw new Error('Sorry, This Flux does not have enough peers for safe application registration');
       }
       const processedBody = serviceHelper.ensureObject(body);
@@ -3881,8 +3884,11 @@ async function updateAppGlobalyApi(req, res) {
         const errMessage = serviceHelper.errUnauthorizedMessage();
         return res.json(errMessage);
       }
-      // first  check if this node is available for application update - has at least 7 connections (that is sufficient as it means it is confirmed and works correctly)
-      if (fluxCommunication.outgoingPeers.length + fluxCommunication.incomingPeers.length < config.fluxapps.minOutgoing + config.fluxapps.minIncoming) {
+      // first  check if this node is available for application registration
+      if (fluxCommunication.outgoingPeers.length < config.fluxapps.minOutgoing) {
+        throw new Error('Sorry, This Flux does not have enough peers for safe application registration');
+      }
+      if (fluxCommunication.incomingPeers.length < config.fluxapps.minIncoming) {
         throw new Error('Sorry, This Flux does not have enough peers for safe application registration');
       }
       const processedBody = serviceHelper.ensureObject(body);
