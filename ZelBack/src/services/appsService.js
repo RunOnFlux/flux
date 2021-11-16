@@ -730,10 +730,8 @@ async function getNodeSpecs() {
         throw new Error('Error getting ssdstorage from benchmarks');
       }
     }
-    return nodeSpecs;
   } catch (error) {
     log.error(error);
-    throw new Error('Error getting nodeSpecs');
   }
 }
 
@@ -767,7 +765,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     }
   });
 
-  getNodeSpecs();
+  await getNodeSpecs();
   const totalSpaceOnNode = nodeSpecs.ssdStorage;
   const useableSpaceOnNode = totalSpaceOnNode - config.lockedSystemResources.hdd;
   const resourcesLocked = await appsResources();
@@ -1644,7 +1642,7 @@ async function checkAppRequirements(appSpecs) {
   }
 
   const appHWrequirements = totalAppHWRequirements(appSpecs, tier);
-  getNodeSpecs();
+  await getNodeSpecs();
   const totalSpaceOnNode = nodeSpecs.ssdStorage;
   const useableSpaceOnNode = totalSpaceOnNode - config.lockedSystemResources.hdd;
   const hddLockedByApps = resourcesLocked.data.apsHddLocked;
