@@ -1265,10 +1265,10 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
       throw new Error('No App specified');
     }
 
-    let isComponent = app.includes('_'); // copmonent is defined by appSpecs.name_appComponent.name
+    let isComponent = app.includes('_'); // copmonent is defined by appComponent.name_appSpecs.name
 
-    const appName = app.split('_')[0];
-    let appComponent = app.split('_')[1];
+    const appName = app.split('_')[1];
+    let appComponent = app.split('_')[0];
 
     // first find the appSpecifications in our database.
     // connect to mongodb
@@ -1325,7 +1325,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
       for (const appComposedComponent of appSpecifications.compose) {
         isComponent = true;
         appComponent = appComposedComponent.name;
-        appId = `${appSpecifications.name}_${appComposedComponent.name}`;
+        appId = `${appComposedComponent.name}_${appSpecifications.name}`;
         const appComponentSpecifications = appComposedComponent;
         // eslint-disable-next-line no-await-in-loop
         await appUninstallHard(appName, appId, appComponentSpecifications, appComponent, isComponent, res);
@@ -1493,10 +1493,10 @@ async function softRemoveAppLocally(app, res) {
     throw new Error('No Flux App specified');
   }
 
-  let isComponent = app.includes('_'); // copmonent is defined by appSpecs.name_appComponent.name
+  let isComponent = app.includes('_'); // copmonent is defined by appComponent.name_appSpecs.name
 
-  const appName = app.split('_')[0];
-  let appComponent = app.split('_')[1];
+  const appName = app.split('_')[1];
+  let appComponent = app.split('_')[0];
 
   // first find the appSpecifications in our database.
   // connect to mongodb
@@ -1519,7 +1519,7 @@ async function softRemoveAppLocally(app, res) {
     for (const appComposedComponent of appSpecifications.compose) {
       isComponent = true;
       appComponent = appComposedComponent.name;
-      appId = `${appSpecifications.name}_${appComposedComponent.name}`;
+      appId = `${appComposedComponent.name}_${appSpecifications.name}`;
       const appComponentSpecifications = appComposedComponent;
       // eslint-disable-next-line no-await-in-loop
       await appUninstallSoft(appName, appId, appComponentSpecifications, appComponent, isComponent, res);
@@ -5076,7 +5076,7 @@ async function checkAndNotifyPeersOfRunningApps() {
     appsInstalled.forEach((app) => {
       if (app.version >= 4) {
         app.compose.forEach((appComponent) => {
-          installedAppComponentNames.push(`${app.name}_${appComponent.name}`);
+          installedAppComponentNames.push(`${appComponent.name}_${app.name}`);
         });
       } else {
         installedAppComponentNames.push(app.name);
@@ -5098,7 +5098,7 @@ async function checkAndNotifyPeersOfRunningApps() {
       for (const stoppedApp of stoppedApps) { // will uninstall app if some component is missing
         try {
           // proceed ONLY if its global App
-          const mainAppName = stoppedApp.split('_')[0];
+          const mainAppName = stoppedApp.split('_')[1];
           // eslint-disable-next-line no-await-in-loop
           const appDetails = await getApplicationGlobalSpecifications(mainAppName);
           if (appDetails) {
@@ -5467,13 +5467,13 @@ async function reinstallOldApplications() {
               const installedComponent = installedApp.compose.find((component) => component.name === appComponent.name);
 
               if (appComponent.hdd === installedComponent.hdd) {
-                log.warn(`Beginning Soft Redeployment of component ${appSpecifications.name}_${appComponent.name}...`);
+                log.warn(`Beginning Soft Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
                 // soft redeployment
                 try {
                   try {
                     // eslint-disable-next-line no-await-in-loop
-                    await softRemoveAppLocally(`${appSpecifications.name}_${appComponent.name}`); // component
-                    log.warn(`Application component ${appSpecifications.name}_${appComponent.name} softly removed. Awaiting installation...`);
+                    await softRemoveAppLocally(`${appComponent.name}_${appSpecifications.name}`); // component
+                    log.warn(`Application component ${appComponent.name}_${appSpecifications.name} softly removed. Awaiting installation...`);
                   } catch (error) {
                     log.error(error);
                     removalInProgress = false;
@@ -5491,12 +5491,12 @@ async function reinstallOldApplications() {
                   removeAppLocally(appSpecifications.name, null, true); // remove entire app
                 }
               } else {
-                log.warn(`Beginning Hard Redeployment of component ${appSpecifications.name}_${appComponent.name}...`);
+                log.warn(`Beginning Hard Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
                 // hard redeployment
                 try {
                   // eslint-disable-next-line no-await-in-loop
-                  await removeAppLocally(`${appSpecifications.name}_${appComponent.name}`); // component
-                  log.warn(`Application component ${appSpecifications.name}_${appComponent.name} removed. Awaiting installation...`);
+                  await removeAppLocally(`${appComponent.name}_${appSpecifications.name}`); // component
+                  log.warn(`Application component ${appComponent.name}_${appSpecifications.name} removed. Awaiting installation...`);
                   // eslint-disable-next-line no-await-in-loop
                   await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
                   // eslint-disable-next-line no-await-in-loop
