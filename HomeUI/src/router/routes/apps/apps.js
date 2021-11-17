@@ -51,6 +51,46 @@ export default [
     },
   },
   {
+    path: '/apps/marketplace',
+    name: 'apps-marketplace',
+    component: () => import('@/views/apps/marketplace/Marketplace.vue'),
+    meta: {
+      contentRenderer: 'sidebar-left',
+      contentClass: 'marketplace-application',
+      privilege: ['admin'],
+    },
+  },
+  {
+    path: '/apps/marketplace/:filter',
+    name: 'apps-marketplace-filter',
+    component: () => import('@/views/apps/marketplace/Marketplace.vue'),
+    meta: {
+      contentRenderer: 'sidebar-left',
+      contentClass: 'marketplace-application',
+      navActiveLink: 'apps-marketplace',
+      privilege: ['admin'],
+    },
+    beforeEnter(to, _, next) {
+      if (['games', 'productivity'].includes(to.params.filter)) next();
+      else next({ name: 'error-404' });
+    },
+  },
+  {
+    path: '/apps/marketplace/:tag',
+    name: 'apps-marketplace-tag',
+    component: () => import('@/views/apps/marketplace/Marketplace.vue'),
+    meta: {
+      contentRenderer: 'sidebar-left',
+      contentClass: 'marketplace-application',
+      navActiveLink: 'apps-marketplace',
+      privilege: ['admin'],
+    },
+    beforeEnter(to, _, next) {
+      if (['games', 'productivity'].includes(to.params.tag)) next();
+      else next({ name: 'error-404' });
+    },
+  },
+  {
     path: '/apps/fluxsharestorage',
     name: 'apps-fluxsharestorage',
     component: () => import('@/views/apps/MyFluxShare.vue'),
