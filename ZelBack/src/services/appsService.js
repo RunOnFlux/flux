@@ -163,7 +163,29 @@ async function appStart(req, res) {
       return res ? res.json(errMessage) : errMessage;
     }
 
-    const appRes = await dockerService.appDockerStart(appname);
+    const isComponent = appname.includes('_'); // it is a component start. Proceed with starting just component
+
+    let appRes;
+    if (isComponent) {
+      appRes = await dockerService.appDockerStart(appname);
+    } else {
+      // ask for starting entire composed application
+      // eslint-disable-next-line no-use-before-define
+      const appSpecs = await getApplicationSpecifications(appname);
+      if (!appSpecs) {
+        throw new Error('Application not found');
+      }
+      if (appSpecs.version <= 3) {
+        appRes = await dockerService.appDockerStart(appname);
+      } else {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const appComponent of appSpecs.compose) {
+          // eslint-disable-next-line no-await-in-loop
+          await dockerService.appDockerStart(`${appComponent}_${appSpecs.name}`);
+        }
+        appRes = `Application ${appSpecs.name} started`;
+      }
+    }
 
     const appResponse = serviceHelper.createDataMessage(appRes);
     return res ? res.json(appResponse) : appResponse;
@@ -193,7 +215,29 @@ async function appStop(req, res) {
       return res ? res.json(errMessage) : errMessage;
     }
 
-    const appRes = await dockerService.appDockerStop(appname);
+    const isComponent = appname.includes('_'); // it is a component start. Proceed with starting just component
+
+    let appRes;
+    if (isComponent) {
+      appRes = await dockerService.appDockerStop(appname);
+    } else {
+      // ask for starting entire composed application
+      // eslint-disable-next-line no-use-before-define
+      const appSpecs = await getApplicationSpecifications(appname);
+      if (!appSpecs) {
+        throw new Error('Application not found');
+      }
+      if (appSpecs.version <= 3) {
+        appRes = await dockerService.appDockerStop(appname);
+      } else {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const appComponent of appSpecs.compose) {
+          // eslint-disable-next-line no-await-in-loop
+          await dockerService.appDockerStop(`${appComponent}_${appSpecs.name}`);
+        }
+        appRes = `Application ${appSpecs.name} stopped`;
+      }
+    }
 
     const appResponse = serviceHelper.createDataMessage(appRes);
     return res ? res.json(appResponse) : appResponse;
@@ -223,7 +267,29 @@ async function appRestart(req, res) {
       return res ? res.json(errMessage) : errMessage;
     }
 
-    const appRes = await dockerService.appDockerRestart(appname);
+    const isComponent = appname.includes('_'); // it is a component start. Proceed with starting just component
+
+    let appRes;
+    if (isComponent) {
+      appRes = await dockerService.appDockerRestart(appname);
+    } else {
+      // ask for starting entire composed application
+      // eslint-disable-next-line no-use-before-define
+      const appSpecs = await getApplicationSpecifications(appname);
+      if (!appSpecs) {
+        throw new Error('Application not found');
+      }
+      if (appSpecs.version <= 3) {
+        appRes = await dockerService.appDockerRestart(appname);
+      } else {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const appComponent of appSpecs.compose) {
+          // eslint-disable-next-line no-await-in-loop
+          await dockerService.appDockerRestart(`${appComponent}_${appSpecs.name}`);
+        }
+        appRes = `Application ${appSpecs.name} restarted`;
+      }
+    }
 
     const appResponse = serviceHelper.createDataMessage(appRes);
     return res ? res.json(appResponse) : appResponse;
@@ -252,7 +318,29 @@ async function appKill(req, res) {
       throw new Error('No Flux App specified');
     }
 
-    const appRes = await dockerService.appDockerKill(appname);
+    const isComponent = appname.includes('_'); // it is a component start. Proceed with starting just component
+
+    let appRes;
+    if (isComponent) {
+      appRes = await dockerService.appDockerKill(appname);
+    } else {
+      // ask for starting entire composed application
+      // eslint-disable-next-line no-use-before-define
+      const appSpecs = await getApplicationSpecifications(appname);
+      if (!appSpecs) {
+        throw new Error('Application not found');
+      }
+      if (appSpecs.version <= 3) {
+        appRes = await dockerService.appDockerKill(appname);
+      } else {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const appComponent of appSpecs.compose) {
+          // eslint-disable-next-line no-await-in-loop
+          await dockerService.appDockerKill(`${appComponent}_${appSpecs.name}`);
+        }
+        appRes = `Application ${appSpecs.name} killed`;
+      }
+    }
 
     const appResponse = serviceHelper.createDataMessage(appRes);
     return res ? res.json(appResponse) : appResponse;
@@ -282,7 +370,29 @@ async function appPause(req, res) {
       return res ? res.json(errMessage) : errMessage;
     }
 
-    const appRes = await dockerService.appDockerPause(appname);
+    const isComponent = appname.includes('_'); // it is a component start. Proceed with starting just component
+
+    let appRes;
+    if (isComponent) {
+      appRes = await dockerService.appDockerPause(appname);
+    } else {
+      // ask for starting entire composed application
+      // eslint-disable-next-line no-use-before-define
+      const appSpecs = await getApplicationSpecifications(appname);
+      if (!appSpecs) {
+        throw new Error('Application not found');
+      }
+      if (appSpecs.version <= 3) {
+        appRes = await dockerService.appDockerPause(appname);
+      } else {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const appComponent of appSpecs.compose) {
+          // eslint-disable-next-line no-await-in-loop
+          await dockerService.appDockerPause(`${appComponent}_${appSpecs.name}`);
+        }
+        appRes = `Application ${appSpecs.name} paused`;
+      }
+    }
 
     const appResponse = serviceHelper.createDataMessage(appRes);
     return res ? res.json(appResponse) : appResponse;
@@ -312,7 +422,29 @@ async function appUnpause(req, res) {
       return res ? res.json(errMessage) : errMessage;
     }
 
-    const appRes = await dockerService.appDockerUnpase(appname);
+    const isComponent = appname.includes('_'); // it is a component start. Proceed with starting just component
+
+    let appRes;
+    if (isComponent) {
+      appRes = await dockerService.appDockerUnpase(appname);
+    } else {
+      // ask for starting entire composed application
+      // eslint-disable-next-line no-use-before-define
+      const appSpecs = await getApplicationSpecifications(appname);
+      if (!appSpecs) {
+        throw new Error('Application not found');
+      }
+      if (appSpecs.version <= 3) {
+        appRes = await dockerService.appDockerUnpase(appname);
+      } else {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const appComponent of appSpecs.compose) {
+          // eslint-disable-next-line no-await-in-loop
+          await dockerService.appDockerUnpase(`${appComponent}_${appSpecs.name}`);
+        }
+        appRes = `Application ${appSpecs.name} unpaused`;
+      }
+    }
 
     const appResponse = serviceHelper.createDataMessage(appRes);
     return res ? res.json(appResponse) : appResponse;
