@@ -1835,7 +1835,7 @@ export default {
       } else {
         this.showToast('danger', response.data.data.message || response.data.data);
       }
-      this.appsGetListRunningApps(5000);
+      this.appsGetListRunningApps(8000);
       console.log(response);
     },
     async startApp(app) {
