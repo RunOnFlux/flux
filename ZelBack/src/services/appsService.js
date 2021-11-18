@@ -1784,7 +1784,7 @@ async function checkAppRequirements(appSpecs) {
     throw new Error('Insufficient space on Flux Node to spawn an application');
   }
 
-  const totalCpuOnNode = nodeSpecs.cpuCores;
+  const totalCpuOnNode = nodeSpecs.cpuCores * 10;
   const useableCpuOnNode = totalCpuOnNode - config.lockedSystemResources.cpu;
   const cpuLockedByApps = resourcesLocked.data.appsCpusLocked * 10;
   const adjustedAppCpu = appHWrequirements.cpu * 10;
