@@ -1399,7 +1399,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
 
     let isComponent = app.includes('_'); // copmonent is defined by appComponent.name_appSpecs.name
 
-    const appName = app.split('_')[1];
+    const appName = isComponent ? app.split('_')[1] : app;
     let appComponent = app.split('_')[0];
 
     // first find the appSpecifications in our database.
@@ -1627,7 +1627,7 @@ async function softRemoveAppLocally(app, res) {
 
   let isComponent = app.includes('_'); // copmonent is defined by appComponent.name_appSpecs.name
 
-  const appName = app.split('_')[1];
+  const appName = isComponent ? app.split('_')[1] : app;
   let appComponent = app.split('_')[0];
 
   // first find the appSpecifications in our database.
@@ -1890,15 +1890,20 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
   // get applications specifics from aapp messages database
   // check if hash is in blockchain
   // register and launch according to specifications in message
-  if (removalInProgress) {
-    throw new Error('Another application is undergoing removal');
-  }
-  if (installationInProgress) {
-    throw new Error('Another application is undergoing installation');
-  }
   try {
+    if (removalInProgress) {
+      log.error('Another application is undergoing removal');
+      return;
+    }
+    if (installationInProgress) {
+      log.error('Another application is undergoing installation');
+      return;
+    }
     installationInProgress = true;
-    const tier = await generalService.nodeTier();
+    const tier = await generalService.nodeTier().catch((error) => log.error(error));
+    if (!tier) {
+      return;
+    }
     const appSpecifications = appSpecs;
     const appComponent = componentSpecs;
     const appName = appSpecifications.name;
@@ -1937,7 +1942,10 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
     if (res) {
       res.write(serviceHelper.ensureString(fluxNetworkStatus));
     }
-    const fluxNet = await dockerService.createFluxDockerNetwork();
+    const fluxNet = await dockerService.createFluxDockerNetwork().catch((error) => log.error(error));
+    if (!fluxNet) {
+      return;
+    }
     const fluxNetResponse = serviceHelper.createDataMessage(fluxNet);
     log.info(fluxNetResponse);
     if (res) {
@@ -1954,7 +1962,13 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
     }
     const appResult = await serviceHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
     if (appResult) {
-      throw new Error(`Flux App ${appName} already installed`);
+      installationInProgress = false;
+      log.error(`Flux App ${appName} already installed`);
+      if (res) {
+        res.write(`Flux App ${appName} already installed`);
+        res.end();
+      }
+      return;
     }
 
     const appInstallation = {
@@ -2118,15 +2132,20 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
   // check if hash is in blockchain
   // register and launch according to specifications in message
   // throw without catching
-  if (removalInProgress) {
-    throw new Error('Another application is undergoing removal');
-  }
-  if (installationInProgress) {
-    throw new Error('Another application is undergoing installation');
-  }
   try {
+    if (removalInProgress) {
+      log.error('Another application is undergoing removal');
+      return;
+    }
+    if (installationInProgress) {
+      log.error('Another application is undergoing installation');
+      return;
+    }
     installationInProgress = true;
-    const tier = await generalService.nodeTier();
+    const tier = await generalService.nodeTier().catch((error) => log.error(error));
+    if (!tier) {
+      return;
+    }
     const appSpecifications = appSpecs;
     const appComponent = componentSpecs;
     const appName = appSpecifications.name;
@@ -2165,7 +2184,10 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
     if (res) {
       res.write(serviceHelper.ensureString(fluxNetworkStatus));
     }
-    const fluxNet = await dockerService.createFluxDockerNetwork();
+    const fluxNet = await dockerService.createFluxDockerNetwork().catch((error) => log.error(error));
+    if (!fluxNet) {
+      return;
+    }
     const fluxNetResponse = serviceHelper.createDataMessage(fluxNet);
     log.info(fluxNetResponse);
     if (res) {
@@ -2182,7 +2204,13 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
     }
     const appResult = await serviceHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
     if (appResult) {
-      throw new Error(`Flux App ${appName} already installed`);
+      installationInProgress = false;
+      log.error(`Flux App ${appName} already installed`);
+      if (res) {
+        res.write(`Flux App ${appName} already installed`);
+        res.end();
+      }
+      return;
     }
 
     const appInstallation = {
@@ -5230,7 +5258,7 @@ async function checkAndNotifyPeersOfRunningApps() {
       for (const stoppedApp of stoppedApps) { // will uninstall app if some component is missing
         try {
           // proceed ONLY if its global App
-          const mainAppName = stoppedApp.split('_')[1];
+          const mainAppName = stoppedApp.split('_')[1] || stoppedApp;
           // eslint-disable-next-line no-await-in-loop
           const appDetails = await getApplicationGlobalSpecifications(mainAppName);
           if (appDetails) {
@@ -5452,7 +5480,7 @@ async function softRedeploy(appSpecs, res) {
     // verify requirements
     await checkAppRequirements(appSpecs);
     // register
-    await softRegisterAppLocally(appSpecs, undefined, res); // can throw
+    await softRegisterAppLocally(appSpecs, undefined, res);
     log.info('Application softly redeployed');
   } catch (error) {
     log.error(error);
@@ -5549,7 +5577,7 @@ async function reinstallOldApplications() {
                 await checkAppRequirements(appSpecifications);
                 // install the app
                 // eslint-disable-next-line no-await-in-loop
-                await softRegisterAppLocally(appSpecifications); // can throw which is ok
+                await softRegisterAppLocally(appSpecifications);
               } catch (error) {
                 log.error(error);
                 removeAppLocally(appSpecifications.name, null, true);
