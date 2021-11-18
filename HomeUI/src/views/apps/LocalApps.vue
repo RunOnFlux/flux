@@ -24,22 +24,249 @@
                     show-empty
                     empty-text="No Flux Apps running"
                   >
-                    <template #cell(Names)="row">
-                      {{ row.item.Names[0].startsWith('/flux') ? row.item.Names[0].substr(5, row.item.Names[0].length) : row.item.Names[0].substr(4, row.item.Names[0].length) }}
+                    <template #cell(show_details)="row">
+                      <a @click="showLocations(row, tableconfig.installed.apps)">
+                        <v-icon
+                          v-if="!row.detailsShowing"
+                          name="chevron-down"
+                        />
+                        <v-icon
+                          v-if="row.detailsShowing"
+                          name="chevron-up"
+                        />
+                      </a>
+                    </template>
+                    <template #row-details="row">
+                      <b-card class="mx-2">
+                        <list-entry
+                          title="Description"
+                          :data="row.item.description"
+                        />
+                        <list-entry
+                          title="Owner"
+                          :data="row.item.owner"
+                        />
+                        <list-entry
+                          title="Hash"
+                          :data="row.item.hash"
+                        />
+                        <list-entry
+                          v-if="row.item.instances"
+                          title="Instances"
+                          :data="row.item.instances.toString()"
+                        />
+                        <h4>Composition</h4>
+                        <div v-if="row.item.version <= 3">
+                          <b-card>
+                            <list-entry
+                              title="Repository"
+                              :data="row.item.repotag"
+                            />
+                            <list-entry
+                              title="Custom Domains"
+                              :data="row.item.domains.toString() || 'none'"
+                            />
+                            <list-entry
+                              title="Automatic Domains"
+                              :data="constructAutomaticDomains(row.item.ports, undefined, row.item.name).toString()"
+                            />
+                            <list-entry
+                              title="Ports"
+                              :data="row.item.ports.toString()"
+                            />
+                            <list-entry
+                              title="Container Ports"
+                              :data="row.item.containerPorts.toString()"
+                            />
+                            <list-entry
+                              title="Container Data"
+                              :data="row.item.containerData"
+                            />
+                            <list-entry
+                              title="Enviroment Parameters"
+                              :data="row.item.enviromentParameters.length > 0 ? row.item.enviromentParameters.toString() : 'none'"
+                            />
+                            <list-entry
+                              title="Commands"
+                              :data="row.item.commands.length > 0 ? row.item.commands.toString() : 'none'"
+                            />
+                            <div v-if="row.item.tiered">
+                              <list-entry
+                                title="CPU Cumulus"
+                                :data="row.item.cpubasic + ' vCore'"
+                              />
+                              <list-entry
+                                title="CPU Nimbus"
+                                :data="row.item.cpusuper + ' vCore'"
+                              />
+                              <list-entry
+                                title="CPU Stratus"
+                                :data="row.item.cpubamf + ' vCore'"
+                              />
+                              <list-entry
+                                title="RAM Cumulus"
+                                :data="row.item.rambasic + ' MB'"
+                              />
+                              <list-entry
+                                title="RAM Nimbus"
+                                :data="row.item.ramsuper + ' MB'"
+                              />
+                              <list-entry
+                                title="RAM Stratus"
+                                :data="row.item.rambamf + ' MB'"
+                              />
+                              <list-entry
+                                title="SSD Cumulus"
+                                :data="row.item.hddbasic + ' GB'"
+                              />
+                              <list-entry
+                                title="SSD Nimbus"
+                                :data="row.item.hddsuper + ' GB'"
+                              />
+                              <list-entry
+                                title="SSD Stratus"
+                                :data="row.item.hddbamf + ' GB'"
+                              />
+                            </div>
+                            <div v-else>
+                              <list-entry
+                                title="CPU"
+                                :data="row.item.cpu + ' vCore'"
+                              />
+                              <list-entry
+                                title="RAM"
+                                :data="row.item.ram + ' MB'"
+                              />
+                              <list-entry
+                                title="SSD"
+                                :data="row.item.hdd + ' GB'"
+                              />
+                            </div>
+                          </b-card>
+                        </div>
+                        <div v-else>
+                          <b-card
+                            v-for="(component, index) in row.item.compose"
+                            :key="index"
+                          >
+                            <b-card-title>
+                              Component {{ component.name }}
+                            </b-card-title>
+                            <list-entry
+                              title="Name"
+                              :data="component.name"
+                            />
+                            <list-entry
+                              title="Description"
+                              :data="component.description"
+                            />
+                            <list-entry
+                              title="Repository"
+                              :data="component.repotag"
+                            />
+                            <list-entry
+                              title="Custom Domains"
+                              :data="component.domains.toString() || 'none'"
+                            />
+                            <list-entry
+                              title="Automatic Domains"
+                              :data="constructAutomaticDomains(component.ports, component.name, row.item.name).toString()"
+                            />
+                            <list-entry
+                              title="Ports"
+                              :data="component.ports.toString()"
+                            />
+                            <list-entry
+                              title="Container Ports"
+                              :data="component.containerPorts.toString()"
+                            />
+                            <list-entry
+                              title="Container Data"
+                              :data="component.containerData"
+                            />
+                            <list-entry
+                              title="Enviroment Parameters"
+                              :data="component.enviromentParameters.length > 0 ? component.enviromentParameters.toString() : 'none'"
+                            />
+                            <list-entry
+                              title="Commands"
+                              :data="component.commands.length > 0 ? component.commands.toString() : 'none'"
+                            />
+                            <div v-if="component.tiered">
+                              <list-entry
+                                title="CPU Cumulus"
+                                :data="component.cpubasic + ' vCore'"
+                              />
+                              <list-entry
+                                title="CPU Nimbus"
+                                :data="component.cpusuper + ' vCore'"
+                              />
+                              <list-entry
+                                title="CPU Stratus"
+                                :data="component.cpubamf + ' vCore'"
+                              />
+                              <list-entry
+                                title="RAM Cumulus"
+                                :data="component.rambasic + ' MB'"
+                              />
+                              <list-entry
+                                title="RAM Nimbus"
+                                :data="component.ramsuper + ' MB'"
+                              />
+                              <list-entry
+                                title="RAM Stratus"
+                                :data="component.rambamf + ' MB'"
+                              />
+                              <list-entry
+                                title="SSD Cumulus"
+                                :data="component.hddbasic + ' GB'"
+                              />
+                              <list-entry
+                                title="SSD Nimbus"
+                                :data="component.hddsuper + ' GB'"
+                              />
+                              <list-entry
+                                title="SSD Stratus"
+                                :data="component.hddbamf + ' GB'"
+                              />
+                            </div>
+                            <div v-else>
+                              <list-entry
+                                title="CPU"
+                                :data="component.cpu + ' vCore'"
+                              />
+                              <list-entry
+                                title="RAM"
+                                :data="component.ram + ' MB'"
+                              />
+                              <list-entry
+                                title="SSD"
+                                :data="component.hdd + ' GB'"
+                              />
+                            </div>
+                          </b-card>
+                        </div>
+                      </b-card>
+                    </template>
+                    <template #cell(Name)="row">
+                      {{ row.item.name }}
+                    </template>
+                    <template #cell(Description)="row">
+                      {{ row.item.description }}
                     </template>
                     <template #cell(visit)="row">
                       <b-button
                         size="sm"
                         class="mr-0"
                         variant="danger"
-                        @click="openApp(row.item.Names[0].startsWith('/flux') ? row.item.Names[0].substr(5, row.item.Names[0].length) : row.item.Names[0].substr(4, row.item.Names[0].length))"
+                        @click="openApp(row.item.name)"
                       >
                         Visit
                       </b-button>
                     </template>
                     <template #cell(actions)="row">
                       <b-button
-                        :id="`stop-running-app-${row.item.Names[0]}`"
+                        :id="`stop-running-app-${row.item.name}`"
                         size="sm"
                         class="mr-0"
                         variant="danger"
@@ -47,9 +274,9 @@
                         Stop
                       </b-button>
                       <confirm-dialog
-                        :target="`stop-running-app-${row.item.Names[0]}`"
+                        :target="`stop-running-app-${row.item.name}`"
                         confirm-button="Stop App"
-                        @confirm="stopAll(row.item.Names[0].substr(1, row.item.Names[0].length))"
+                        @confirm="stopAll(row.item.name)"
                       />
                     </template>
                   </b-table>
@@ -389,7 +616,7 @@
                     <template #cell(Name)="row">
                       {{ getAppName(row.item.name) }}
                     </template>
-                    <template #cell(ports)="row">
+                    <template #cell(Description)="row">
                       {{ row.item.description }}
                     </template>
                     <template #cell(actions)="row">
@@ -490,17 +717,14 @@
                     <template #row-details="row">
                       <b-card class="mx-2">
                         <list-entry
-                          v-if="row.item.description"
                           title="Description"
                           :data="row.item.description"
                         />
                         <list-entry
-                          v-if="row.item.owner"
                           title="Owner"
                           :data="row.item.owner"
                         />
                         <list-entry
-                          v-if="row.item.hash"
                           title="Hash"
                           :data="row.item.hash"
                         />
@@ -1398,14 +1622,14 @@ export default {
           status: '',
           loggedInFields: [
             { key: 'show_details', label: '' },
-            { key: 'Names', label: 'Name', sortable: true },
+            { key: 'name', label: 'Name', sortable: true },
             { key: 'description', label: 'Description', sortable: true },
             { key: 'visit', label: 'Visit' },
             { key: 'actions', label: 'Actions' },
           ],
           fields: [
             { key: 'show_details', label: '' },
-            { key: 'Names', label: 'Name', sortable: true },
+            { key: 'name', label: 'Name', sortable: true },
             { key: 'description', label: 'Description', sortable: true },
             { key: 'visit', label: 'Visit' },
           ],
@@ -1541,9 +1765,32 @@ export default {
       const self = this;
       setTimeout(async () => {
         const response = await AppsService.listRunningApps();
+        // this is coming from docker;
+        const apps = response.data.data;
+        const runningAppsNames = [];
+        const runningAppsSpecifics = [];
+        apps.forEach((app) => {
+          // get application specification IF it is composed app
+          const appName = app.Names[0].startsWith('/flux') ? app.Names[0].substr(5, app.Names[0].length) : app.Names[0].substr(4, app.Names[0].length);
+          if (appName.includes('_')) {
+            runningAppsNames.push(appName.split('_')[1]);
+          } else {
+            runningAppsNames.push(appName);
+          }
+        });
+        const runningAppsok = [...new Set(runningAppsNames)];
+        // eslint-disable-next-line no-restricted-syntax
+        for (const app of runningAppsok) {
+          // get specificaitons of the app
+          // eslint-disable-next-line no-await-in-loop
+          const res = await AppsService.getAppSpecifics(app);
+          if (res.data.status === 'success') {
+            runningAppsSpecifics.push(res.data.data);
+          }
+        }
         console.log(response);
         self.tableconfig.running.status = response.data.status;
-        self.tableconfig.running.apps = response.data.data;
+        self.tableconfig.running.apps = runningAppsSpecifics;
         self.tableconfig.running.loading = false;
       }, timeout);
     },
