@@ -319,7 +319,7 @@ async function sendToAllIncomingConnections(data, wsList) {
           const foundPeer = incomingPeers.find((peer) => peer.ip === ip);
           ipremovals.push(foundPeer);
           // eslint-disable-next-line no-use-before-define
-          closeIncomingConnection(ip, wsList);
+          closeIncomingConnection(ip, [], client); // this is wrong
         } catch (err) {
           log.error(err);
         }
@@ -997,10 +997,10 @@ async function closeConnection(ip) {
   return message;
 }
 
-async function closeIncomingConnection(ip, expressWS) {
-  const clientsSet = expressWS.clients;
+async function closeIncomingConnection(ip, expressWS, clientToClose) {
+  const clientsSet = expressWS.clients || [];
   let message;
-  let wsObj = null;
+  let wsObj = null || clientToClose;
   clientsSet.forEach((client) => {
     if (client._socket.remoteAddress === ip) {
       wsObj = client;

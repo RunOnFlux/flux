@@ -1914,9 +1914,9 @@ export default {
       } else {
         this.output = JSON.parse(`[${response.data.replace(/}{/g, '},{')}]`);
         if (this.output[this.output.length - 1].status === 'error') {
-          this.showToast('danger', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
+          this.showToast('danger', this.output[this.output.length - 1].status);
         } else {
-          this.showToast('success', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
+          this.showToast('success', this.output[this.output.length - 1].status);
         }
       }
     },
@@ -1938,15 +1938,15 @@ export default {
       if (response.data.status === 'error') {
         this.showToast('danger', response.data.data.message || response.data.data);
       } else {
-        this.appsGetInstalledApps();
-        this.appsGetListRunningApps();
         this.output = JSON.parse(`[${response.data.replace(/}{/g, '},{')}]`);
         if (this.output[this.output.length - 1].status === 'error') {
-          this.showToast('danger', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
+          this.showToast('danger', this.output[this.output.length - 1].status);
         } else {
-          this.showToast('success', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
+          this.showToast('success', this.output[this.output.length - 1].status);
         }
         setTimeout(() => {
+          this.appsGetInstalledApps();
+          this.appsGetListRunningApps();
           self.managedApplication = '';
         }, 5000);
       }
@@ -1986,50 +1986,13 @@ export default {
           }
         }
         if (this.output[this.output.length - 1].status === 'error') {
-          this.showToast('danger', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
+          this.showToast('danger', this.output[this.output.length - 1].status);
         } else {
-          this.showToast('success', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
+          this.showToast('success', this.output[this.output.length - 1].status);
         }
         this.appsGetInstalledApps();
         this.appsGetListRunningApps();
       }
-    },
-    resolveCpu(app) {
-      console.log(this.tier);
-      if (this.tier === 'BASIC' || this.tier === 'CUMULUS') {
-        return (`${app.cpubasic || app.cpu} cores`);
-      }
-      if (this.tier === 'SUPER' || this.tier === 'NIMBUS') {
-        return (`${app.cpusuper || app.cpu} cores`);
-      }
-      if (this.tier === 'BAMF' || this.tier === 'STRATUS') {
-        return (`${app.cpubamf || app.cpu} cores`);
-      }
-      return (`${app.cpu} cores`);
-    },
-    resolveRam(app) {
-      if (this.tier === 'BASIC' || this.tier === 'CUMULUS') {
-        return (`${app.rambasic || app.ram} MB`);
-      }
-      if (this.tier === 'SUPER' || this.tier === 'NIMBUS') {
-        return (`${app.ramsuper || app.ram} MB`);
-      }
-      if (this.tier === 'BAMF' || this.tier === 'STRATUS') {
-        return (`${app.rambamf || app.ram} MB`);
-      }
-      return (`${app.ram} MB`);
-    },
-    resolveHdd(app) {
-      if (this.tier === 'BASIC' || this.tier === 'CUMULUS') {
-        return (`${app.hddbasic || app.hdd} GB`);
-      }
-      if (this.tier === 'SUPER' || this.tier === 'NIMBUS') {
-        return (`${app.hddsuper || app.hdd} GB`);
-      }
-      if (this.tier === 'BAMF' || this.tier === 'STRATUS') {
-        return (`${app.hddbamf || app.hdd} GB`);
-      }
-      return (`${app.hdd} GB`);
     },
     getAppName(appName) {
       // this id is used for volumes, docker names so we know it reall belongs to flux
