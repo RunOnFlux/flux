@@ -1970,16 +1970,16 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
       const hddTier = `hdd${tier}`;
       const ramTier = `ram${tier}`;
       const cpuTier = `cpu${tier}`;
-      appComponent.cpu = appComponent[cpuTier] || appComponent.cpu;
-      appComponent.ram = appComponent[ramTier] || appComponent.ram;
-      appComponent.hdd = appComponent[hddTier] || appComponent.hdd;
+      appSpecifications.cpu = appSpecifications[cpuTier] || appSpecifications.cpu;
+      appSpecifications.ram = appSpecifications[ramTier] || appSpecifications.ram;
+      appSpecifications.hdd = appSpecifications[hddTier] || appSpecifications.hdd;
     } else {
       const hddTier = `hdd${tier}`;
       const ramTier = `ram${tier}`;
       const cpuTier = `cpu${tier}`;
-      appSpecifications.cpu = appSpecifications[cpuTier] || appSpecifications.cpu;
-      appSpecifications.ram = appSpecifications[ramTier] || appSpecifications.ram;
-      appSpecifications.hdd = appSpecifications[hddTier] || appSpecifications.hdd;
+      appComponent.cpu = appComponent[cpuTier] || appComponent.cpu;
+      appComponent.ram = appComponent[ramTier] || appComponent.ram;
+      appComponent.hdd = appComponent[hddTier] || appComponent.hdd;
     }
 
     const specificationsToInstall = isComponent ? appComponent : appSpecifications;
@@ -2198,16 +2198,16 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
       const hddTier = `hdd${tier}`;
       const ramTier = `ram${tier}`;
       const cpuTier = `cpu${tier}`;
-      appComponent.cpu = appComponent[cpuTier] || appComponent.cpu;
-      appComponent.ram = appComponent[ramTier] || appComponent.ram;
-      appComponent.hdd = appComponent[hddTier] || appComponent.hdd;
+      appSpecifications.cpu = appSpecifications[cpuTier] || appSpecifications.cpu;
+      appSpecifications.ram = appSpecifications[ramTier] || appSpecifications.ram;
+      appSpecifications.hdd = appSpecifications[hddTier] || appSpecifications.hdd;
     } else {
       const hddTier = `hdd${tier}`;
       const ramTier = `ram${tier}`;
       const cpuTier = `cpu${tier}`;
-      appSpecifications.cpu = appSpecifications[cpuTier] || appSpecifications.cpu;
-      appSpecifications.ram = appSpecifications[ramTier] || appSpecifications.ram;
-      appSpecifications.hdd = appSpecifications[hddTier] || appSpecifications.hdd;
+      appComponent.cpu = appComponent[cpuTier] || appComponent.cpu;
+      appComponent.ram = appComponent[ramTier] || appComponent.ram;
+      appComponent.hdd = appComponent[hddTier] || appComponent.hdd;
     }
 
     const specificationsToInstall = isComponent ? appComponent : appSpecifications;
