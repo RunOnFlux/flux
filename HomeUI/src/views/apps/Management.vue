@@ -92,7 +92,7 @@
                 />
                 <list-entry
                   title="Automatic Domains"
-                  :data="constructAutomaticDomains(callResponse.data.ports, undefined, callResponse.data.name).toString()"
+                  :data="constructAutomaticDomains"
                 />
                 <list-entry
                   title="Ports"
@@ -194,7 +194,7 @@
                 />
                 <list-entry
                   title="Automatic Domains"
-                  :data="constructAutomaticDomains(component.ports, component.name, callResponse.data.name).toString()"
+                  :data="constructAutomaticDomains[index]"
                 />
                 <list-entry
                   title="Ports"
@@ -330,7 +330,7 @@
                 />
                 <list-entry
                   title="Automatic Domains"
-                  :data="constructAutomaticDomains(callBResponse.data.ports, undefined, callBResponse.data.name).toString()"
+                  :data="constructAutomaticDomainsGlobal"
                 />
                 <list-entry
                   title="Ports"
@@ -432,7 +432,7 @@
                 />
                 <list-entry
                   title="Automatic Domains"
-                  :data="constructAutomaticDomains(component.ports, component.name, callBResponse.data.name).toString()"
+                  :data="constructAutomaticDomainsGlobal[index]"
                 />
                 <list-entry
                   title="Ports"
@@ -1147,196 +1147,193 @@
               :number="callBResponse.data.height + 22000"
             />
             <h4>Composition</h4>
-            <div v-if="callBResponse.data.version <= 3">
-              <b-card>
+            <b-card v-if="callBResponse.data.version <= 3">
+              <list-entry
+                title="Repository"
+                :data="callBResponse.data.repotag"
+              />
+              <list-entry
+                title="Custom Domains"
+                :data="callBResponse.data.domains.toString() || 'none'"
+              />
+              <list-entry
+                title="Automatic Domains"
+                :data="constructAutomaticDomainsGlobal"
+              />
+              <list-entry
+                title="Ports"
+                :data="callBResponse.data.ports.toString()"
+              />
+              <list-entry
+                title="Container Ports"
+                :data="callBResponse.data.containerPorts.toString()"
+              />
+              <list-entry
+                title="Container Data"
+                :data="callBResponse.data.containerData"
+              />
+              <list-entry
+                title="Enviroment Parameters"
+                :data="callBResponse.data.enviromentParameters.length > 0 ? callBResponse.data.enviromentParameters.toString() : 'none'"
+              />
+              <list-entry
+                title="Commands"
+                :data="callBResponse.data.commands.length > 0 ? callBResponse.data.commands.toString() : 'none'"
+              />
+              <div v-if="callBResponse.data.tiered">
                 <list-entry
-                  title="Repository"
-                  :data="callBResponse.data.repotag"
+                  title="CPU Cumulus"
+                  :data="callBResponse.data.cpubasic + ' vCore'"
                 />
                 <list-entry
-                  title="Custom Domains"
-                  :data="callBResponse.data.domains.toString() || 'none'"
+                  title="CPU Nimbus"
+                  :data="callBResponse.data.cpusuper + ' vCore'"
                 />
                 <list-entry
-                  title="Automatic Domains"
-                  :data="constructAutomaticDomains(callBResponse.data.ports, undefined, callBResponse.data.name).toString()"
+                  title="CPU Stratus"
+                  :data="callBResponse.data.cpubamf + ' vCore'"
                 />
                 <list-entry
-                  title="Ports"
-                  :data="callBResponse.data.ports.toString()"
+                  title="RAM Cumulus"
+                  :data="callBResponse.data.rambasic + ' MB'"
                 />
                 <list-entry
-                  title="Container Ports"
-                  :data="callBResponse.data.containerPorts.toString()"
+                  title="RAM Nimbus"
+                  :data="callBResponse.data.ramsuper + ' MB'"
                 />
                 <list-entry
-                  title="Container Data"
-                  :data="callBResponse.data.containerData"
+                  title="RAM Stratus"
+                  :data="callBResponse.data.rambamf + ' MB'"
                 />
                 <list-entry
-                  title="Enviroment Parameters"
-                  :data="callBResponse.data.enviromentParameters.length > 0 ? callBResponse.data.enviromentParameters.toString() : 'none'"
+                  title="SSD Cumulus"
+                  :data="callBResponse.data.hddbasic + ' GB'"
                 />
                 <list-entry
-                  title="Commands"
-                  :data="callBResponse.data.commands.length > 0 ? callBResponse.data.commands.toString() : 'none'"
-                />
-                <div v-if="callBResponse.data.tiered">
-                  <list-entry
-                    title="CPU Cumulus"
-                    :data="callBResponse.data.cpubasic + ' vCore'"
-                  />
-                  <list-entry
-                    title="CPU Nimbus"
-                    :data="callBResponse.data.cpusuper + ' vCore'"
-                  />
-                  <list-entry
-                    title="CPU Stratus"
-                    :data="callBResponse.data.cpubamf + ' vCore'"
-                  />
-                  <list-entry
-                    title="RAM Cumulus"
-                    :data="callBResponse.data.rambasic + ' MB'"
-                  />
-                  <list-entry
-                    title="RAM Nimbus"
-                    :data="callBResponse.data.ramsuper + ' MB'"
-                  />
-                  <list-entry
-                    title="RAM Stratus"
-                    :data="callBResponse.data.rambamf + ' MB'"
-                  />
-                  <list-entry
-                    title="SSD Cumulus"
-                    :data="callBResponse.data.hddbasic + ' GB'"
-                  />
-                  <list-entry
-                    title="SSD Nimbus"
-                    :data="callBResponse.data.hddsuper + ' GB'"
-                  />
-                  <list-entry
-                    title="SSD Stratus"
-                    :data="callBResponse.data.hddbamf + ' GB'"
-                  />
-                </div>
-                <div v-else>
-                  <list-entry
-                    title="CPU"
-                    :data="callBResponse.data.cpu + ' vCore'"
-                  />
-                  <list-entry
-                    title="RAM"
-                    :data="callBResponse.data.ram + ' MB'"
-                  />
-                  <list-entry
-                    title="SSD"
-                    :data="callBResponse.data.hdd + ' GB'"
-                  />
-                </div>
-              </b-card>
-            </div>
-            <div v-else>
-              <b-card
-                v-for="(component, index) in callBResponse.data.compose"
-                :key="index"
-              >
-                <b-card-title>
-                  Component {{ component.name }}
-                </b-card-title>
-                <list-entry
-                  title="Name"
-                  :data="component.name"
+                  title="SSD Nimbus"
+                  :data="callBResponse.data.hddsuper + ' GB'"
                 />
                 <list-entry
-                  title="Description"
-                  :data="component.description"
+                  title="SSD Stratus"
+                  :data="callBResponse.data.hddbamf + ' GB'"
+                />
+              </div>
+              <div v-else>
+                <list-entry
+                  title="CPU"
+                  :data="callBResponse.data.cpu + ' vCore'"
                 />
                 <list-entry
-                  title="Repository"
-                  :data="component.repotag"
+                  title="RAM"
+                  :data="callBResponse.data.ram + ' MB'"
                 />
                 <list-entry
-                  title="Custom Domains"
-                  :data="component.domains.toString() || 'none'"
+                  title="SSD"
+                  :data="callBResponse.data.hdd + ' GB'"
+                />
+              </div>
+            </b-card>
+            <b-card
+              v-for="(component, index) in callBResponse.data.compose"
+              v-else
+              :key="index"
+            >
+              <b-card-title>
+                Component {{ component.name }}
+              </b-card-title>
+              <list-entry
+                title="Name"
+                :data="component.name"
+              />
+              <list-entry
+                title="Description"
+                :data="component.description"
+              />
+              <list-entry
+                title="Repository"
+                :data="component.repotag"
+              />
+              <list-entry
+                title="Custom Domains"
+                :data="component.domains.toString() || 'none'"
+              />
+              <list-entry
+                title="Automatic Domains"
+                :data="constructAutomaticDomainsGlobal[index]"
+              />
+              <list-entry
+                title="Ports"
+                :data="component.ports.toString()"
+              />
+              <list-entry
+                title="Container Ports"
+                :data="component.containerPorts.toString()"
+              />
+              <list-entry
+                title="Container Data"
+                :data="component.containerData"
+              />
+              <list-entry
+                title="Enviroment Parameters"
+                :data="component.enviromentParameters.length > 0 ? component.enviromentParameters.toString() : 'none'"
+              />
+              <list-entry
+                title="Commands"
+                :data="component.commands.length > 0 ? component.commands.toString() : 'none'"
+              />
+              <div v-if="component.tiered">
+                <list-entry
+                  title="CPU Cumulus"
+                  :data="component.cpubasic + ' vCore'"
                 />
                 <list-entry
-                  title="Automatic Domains"
-                  :data="constructAutomaticDomains(component.ports, component.name, callBResponse.data.name).toString()"
+                  title="CPU Nimbus"
+                  :data="component.cpusuper + ' vCore'"
                 />
                 <list-entry
-                  title="Ports"
-                  :data="component.ports.toString()"
+                  title="CPU Stratus"
+                  :data="component.cpubamf + ' vCore'"
                 />
                 <list-entry
-                  title="Container Ports"
-                  :data="component.containerPorts.toString()"
+                  title="RAM Cumulus"
+                  :data="component.rambasic + ' MB'"
                 />
                 <list-entry
-                  title="Container Data"
-                  :data="component.containerData"
+                  title="RAM Nimbus"
+                  :data="component.ramsuper + ' MB'"
                 />
                 <list-entry
-                  title="Enviroment Parameters"
-                  :data="component.enviromentParameters.length > 0 ? component.enviromentParameters.toString() : 'none'"
+                  title="RAM Stratus"
+                  :data="component.rambamf + ' MB'"
                 />
                 <list-entry
-                  title="Commands"
-                  :data="component.commands.length > 0 ? component.commands.toString() : 'none'"
+                  title="SSD Cumulus"
+                  :data="component.hddbasic + ' GB'"
                 />
-                <div v-if="component.tiered">
-                  <list-entry
-                    title="CPU Cumulus"
-                    :data="component.cpubasic + ' vCore'"
-                  />
-                  <list-entry
-                    title="CPU Nimbus"
-                    :data="component.cpusuper + ' vCore'"
-                  />
-                  <list-entry
-                    title="CPU Stratus"
-                    :data="component.cpubamf + ' vCore'"
-                  />
-                  <list-entry
-                    title="RAM Cumulus"
-                    :data="component.rambasic + ' MB'"
-                  />
-                  <list-entry
-                    title="RAM Nimbus"
-                    :data="component.ramsuper + ' MB'"
-                  />
-                  <list-entry
-                    title="RAM Stratus"
-                    :data="component.rambamf + ' MB'"
-                  />
-                  <list-entry
-                    title="SSD Cumulus"
-                    :data="component.hddbasic + ' GB'"
-                  />
-                  <list-entry
-                    title="SSD Nimbus"
-                    :data="component.hddsuper + ' GB'"
-                  />
-                  <list-entry
-                    title="SSD Stratus"
-                    :data="component.hddbamf + ' GB'"
-                  />
-                </div>
-                <div v-else>
-                  <list-entry
-                    title="CPU"
-                    :data="component.cpu + ' vCore'"
-                  />
-                  <list-entry
-                    title="RAM"
-                    :data="component.ram + ' MB'"
-                  />
-                  <list-entry
-                    title="SSD"
-                    :data="component.hdd + ' GB'"
-                  />
-                </div>
-              </b-card>
-            </div>
+                <list-entry
+                  title="SSD Nimbus"
+                  :data="component.hddsuper + ' GB'"
+                />
+                <list-entry
+                  title="SSD Stratus"
+                  :data="component.hddbamf + ' GB'"
+                />
+              </div>
+              <div v-else>
+                <list-entry
+                  title="CPU"
+                  :data="component.cpu + ' vCore'"
+                />
+                <list-entry
+                  title="RAM"
+                  :data="component.ram + ' MB'"
+                />
+                <list-entry
+                  title="SSD"
+                  :data="component.hdd + ' GB'"
+                />
+              </div>
+            </b-card>
           </b-card>
         </div>
         <div v-else-if="callBResponse.status === 'error'">
@@ -2643,6 +2640,76 @@ export default {
       const niceString = `${appInfo.name} - ${appInfo.state} - ${appInfo.status}`;
       return niceString;
     },
+    constructAutomaticDomains() {
+      const domainString = 'abcdefghijklmno'; // enough
+      const appName = this.appSpecification.name;
+      if (!appName) {
+        return 'loading...';
+      }
+      const lowerCaseName = appName.toLowerCase();
+
+      if (!this.appSpecification.compose) {
+        const ports = JSON.parse(this.callBResponse.data.ports);
+        const domains = [`${lowerCaseName}.app.runonflux.io`];
+        // flux specs dont allow more than 10 ports so domainString is enough
+        for (let i = 0; i < ports.length; i += 1) {
+          const portDomain = `${domainString[i]}.${lowerCaseName}.app.runonflux.io`;
+          domains.push(portDomain);
+        }
+        return JSON.stringify(domains);
+      }
+      const domains = [];
+      this.appSpecification.copmose.forEach((component) => {
+        const componentName = component.name;
+        const lowerCaseCopmonentName = componentName.toLowerCase();
+        const domainsComponent = [`${lowerCaseName}.app.runonflux.io`, `${lowerCaseCopmonentName}.${lowerCaseName}.app.runonflux.io`];
+        for (let i = 0; i < JSON.parse(component.ports).length; i += 1) {
+          const portDomain = `${domainString[i]}.${lowerCaseCopmonentName}.${lowerCaseName}.app.runonflux.io`;
+          domainsComponent.push(portDomain);
+        }
+        domains.push(JSON.stringify(domainsComponent));
+      });
+      return domains;
+    },
+    constructAutomaticDomainsGlobal() {
+      const domainString = 'abcdefghijklmno'; // enough
+      if (!this.callBResponse.data) {
+        return 'loading...';
+      }
+
+      console.log(this.callBResponse.data);
+
+      if (!this.callBResponse.data.name) {
+        return 'loading...';
+      }
+
+      const appName = this.callBResponse.data.name;
+
+      const lowerCaseName = appName.toLowerCase();
+
+      if (!this.callBResponse.data.compose) {
+        const ports = JSON.parse(this.callBResponse.data.ports);
+        const domains = [`${lowerCaseName}.app.runonflux.io`];
+        // flux specs dont allow more than 10 ports so domainString is enough
+        for (let i = 0; i < ports.length; i += 1) {
+          const portDomain = `${domainString[i]}.${lowerCaseName}.app.runonflux.io`;
+          domains.push(portDomain);
+        }
+        return JSON.stringify(domains);
+      }
+      const domains = [];
+      this.callBResponse.data.copmose.forEach((component) => {
+        const componentName = component.name;
+        const lowerCaseCopmonentName = componentName.toLowerCase();
+        const domainsComponent = [`${lowerCaseName}.app.runonflux.io`, `${lowerCaseCopmonentName}.${lowerCaseName}.app.runonflux.io`];
+        for (let i = 0; i < JSON.parse(component.ports).length; i += 1) {
+          const portDomain = `${domainString[i]}.${lowerCaseCopmonentName}.${lowerCaseName}.app.runonflux.io`;
+          domainsComponent.push(portDomain);
+        }
+        domains.push(JSON.stringify(domainsComponent));
+      });
+      return domains;
+    },
   },
   watch: {
     appUpdateSpecification: {
@@ -3353,28 +3420,6 @@ export default {
           variant,
         },
       });
-    },
-
-    constructAutomaticDomains(ports, componentName = '', appName) {
-      const domainString = 'abcdefghijklmno'; // enough
-      const lowerCaseName = appName.toLowerCase();
-      const lowerCaseCopmonentName = componentName.toLowerCase();
-      if (!lowerCaseCopmonentName) {
-        const domains = [`${lowerCaseName}.app.runonflux.io`];
-        // flux specs dont allow more than 10 ports so domainString is enough
-        for (let i = 0; i < ports.length; i += 1) {
-          const portDomain = `${domainString[i]}.${lowerCaseName}.app.runonflux.io`;
-          domains.push(portDomain);
-        }
-        return domains;
-      }
-      const domains = [`${lowerCaseName}.app.runonflux.io`, `${lowerCaseCopmonentName}.${lowerCaseName}.app.runonflux.io`];
-      // flux specs dont allow more than 10 ports so domainString is enough
-      for (let i = 0; i < ports.length; i += 1) {
-        const portDomain = `${domainString[i]}.${lowerCaseCopmonentName}.${lowerCaseName}.app.runonflux.io`;
-        domains.push(portDomain);
-      }
-      return domains;
     },
 
     decodeAsciiResponse(data) {
