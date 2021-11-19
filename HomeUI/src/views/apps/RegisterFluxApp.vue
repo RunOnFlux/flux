@@ -289,14 +289,13 @@
               <br>
               <b-card-title>
                 Resources &nbsp;&nbsp;&nbsp;<h6 class="inline text-small">
-                  (Tiered:
+                  Tiered:
                   <b-form-checkbox
                     id="tiered"
                     v-model="component.tiered"
                     switch
                     class="custom-control-primary inline"
                   />
-                  )
                 </h6>
               </b-card-title>
               <b-form-group
@@ -654,14 +653,13 @@
           <b-card>
             <b-card-title>
               Resources &nbsp;&nbsp;&nbsp;<h6 class="inline text-small">
-                (Tiered:
+                Tiered:
                 <b-form-checkbox
                   id="tiered"
                   v-model="appRegistrationSpecification.tiered"
                   switch
                   class="custom-control-primary inline"
                 />
-                )
               </h6>
             </b-card-title>
             <b-form-group

@@ -1703,6 +1703,10 @@ async function removeAppLocallyApi(req, res) {
       let { appname } = req.params;
       appname = appname || req.query.appname;
 
+      if (appname.includes('_')) {
+        throw new Error('Components cannot be removed manually');
+      }
+
       let { force } = req.params;
       force = force || req.query.force || false;
       force = serviceHelper.ensureBoolean(force);
@@ -5751,6 +5755,10 @@ async function redeployAPI(req, res) {
 
     if (!appname) {
       throw new Error('No Flux App specified');
+    }
+
+    if (appname.includes('_')) {
+      throw new Error('Component cannot be redeployed manually');
     }
 
     let { force } = req.params;
