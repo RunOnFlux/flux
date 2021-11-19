@@ -1210,12 +1210,12 @@ export default {
         // formation, pre verificaiton
         const appSpecification = this.appRegistrationSpecification;
         // call api for verification of app registration specifications that returns formatted specs
-        const responseAppSpecs = await AppsService.appRegistrationVerificaiton({ appSpecification });
+        const responseAppSpecs = await AppsService.appRegistrationVerificaiton(appSpecification);
         if (responseAppSpecs.data.status === 'error') {
-          throw new Error(responseAppSpecs.data.data);
+          throw new Error(responseAppSpecs.data.data.message || responseAppSpecs.data.data);
         }
         const appSpecFormatted = responseAppSpecs.data.data;
-        const response = await AppsService.appPrice({ appSpecification: appSpecFormatted });
+        const response = await AppsService.appPrice(appSpecFormatted);
         this.appPricePerMonth = 0;
         if (response.data.status === 'error') {
           throw new Error(response.data.data);

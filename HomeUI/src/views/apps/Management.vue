@@ -2938,12 +2938,12 @@ export default {
       try {
         const appSpecification = this.appUpdateSpecification;
         // call api for verification of app registration specifications that returns formatted specs
-        const responseAppSpecs = await AppsService.appUpdateVerification({ appSpecification });
+        const responseAppSpecs = await AppsService.appUpdateVerification(appSpecification);
         if (responseAppSpecs.data.status === 'error') {
           throw new Error(responseAppSpecs.data.data);
         }
         const appSpecFormatted = responseAppSpecs.data.data;
-        const response = await AppsService.appPrice({ appSpecification: appSpecFormatted });
+        const response = await AppsService.appPrice(appSpecFormatted);
         this.appPricePerMonthForUpdate = 0;
         if (response.data.status === 'error') {
           throw new Error(response.data.data);

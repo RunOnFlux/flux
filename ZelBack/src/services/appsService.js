@@ -3675,7 +3675,7 @@ function specificationFormatter(appSpecification) {
   }
 
   // commons
-  if (!version || !name || !description || !owner) {
+  if (!name || !description || !owner) {
     throw new Error('Missing Flux App specification parameter');
   }
   name = serviceHelper.ensureString(name);
