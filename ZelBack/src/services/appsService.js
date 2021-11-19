@@ -306,7 +306,7 @@ async function appRestart(req, res) {
 
 async function appKill(req, res) {
   try {
-    const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+    const authorized = await serviceHelper.verifyPrivilege('appownerabove', req);
     if (!authorized) {
       const errMessage = serviceHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
@@ -1692,7 +1692,7 @@ async function softRemoveAppLocally(app, res) {
 
 async function removeAppLocallyApi(req, res) {
   try {
-    const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+    const authorized = await serviceHelper.verifyPrivilege('appownerabove', req);
     if (!authorized) {
       const errMessage = serviceHelper.errUnauthorizedMessage();
       res.json(errMessage);
@@ -4813,6 +4813,7 @@ async function rescanGlobalAppsInformationAPI(req, res) {
 
 async function continuousFluxAppHashesCheck() {
   try {
+    const knownWrongTxids = ['e56e08a8dbe9523ad10ca328fca84ee1da775ea5f466abed06ec357daa192940', 'e56e08a8dbe9523ad10ca328fca84ee1da775ea5f466abed06ec357daa192940'];
     log.info('Requesting missing Flux App messages');
     // get flux app hashes that do not have a message;
     const dbopen = serviceHelper.databaseConnection();
@@ -4831,7 +4832,7 @@ async function continuousFluxAppHashesCheck() {
     const results = await serviceHelper.findInDatabase(database, appsHashesCollection, query, projection);
     // eslint-disable-next-line no-restricted-syntax
     for (const result of results) {
-      if (result.hash !== '5501c7dd6516c3fc2e68dee8d4fdd20d92f57f8cfcdc7b4fcbad46499e43ed6f' && result.height !== 861997) { // wrong data, can be later removed
+      if (!knownWrongTxids.includes(result.txid)) { // wrong data, can be later removed
         checkAndRequestApp(result.hash, result.txid, result.height, result.value);
         // eslint-disable-next-line no-await-in-loop
         await serviceHelper.delay(1234);

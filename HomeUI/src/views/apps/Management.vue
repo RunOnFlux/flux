@@ -3322,7 +3322,7 @@ export default {
         if (this.output[this.output.length - 1].status === 'error') {
           this.showToast('danger', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         } else {
-          this.showToast('success', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
+          this.showToast('success', this.output[this.output.length - 1].status);
         }
       }
     },
@@ -3348,7 +3348,7 @@ export default {
         if (this.output[this.output.length - 1].status === 'error') {
           this.showToast('danger', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         } else {
-          this.showToast('success', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
+          this.showToast('success', this.output[this.output.length - 1].status);
         }
         setTimeout(() => {
           self.managedApplication = '';
