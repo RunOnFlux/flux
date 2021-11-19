@@ -1880,7 +1880,7 @@
                   <b-form-input
                     v-model="component.rambamf"
                     type="range"
-                    min="1000"
+                    min="100"
                     max="28000"
                     step="100"
                   />
@@ -2266,7 +2266,7 @@
                 <b-form-input
                   v-model="appUpdateSpecification.rambamf"
                   type="range"
-                  min="1000"
+                  min="100"
                   max="28000"
                   step="100"
                 />

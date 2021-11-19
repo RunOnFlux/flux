@@ -92,7 +92,7 @@ module.exports = {
       3: 983000, // blockheight. Since this blockheight specification of type 3 is active. User can still submit v1 or v2. UI allows only v2, v3
       4: 1000002, // v4 available
     },
-    address: 't1NG7vr4D5iD6UF78fA75uW2U1qwkcpY9pw',
+    address: 't1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6',
     epochstart: 694000,
     publicepochstart: 705000,
     portMin: 31000, // ports 30000 - 30999 are reserved for local applications
@@ -104,19 +104,19 @@ module.exports = {
     minOutgoing: 5,
     minIncoming: 0,
     installation: {
-      probability: 1, // 1%
+      probability: 100, // 1%
       delay: 120, // in seconds
     },
     removal: {
-      probability: 1, // 4%
+      probability: 25, // 4%
       delay: 300,
     },
     redeploy: {
-      probability: 1, // 50%
+      probability: 2, // 50%
       delay: 30,
       composedDelay: 5,
     },
-    blocksLasting: 400, // registered app will live for 22000 of blocks 44000 minutes ~= 1 month
+    blocksLasting: 22000, // registered app will live for 22000 of blocks 44000 minutes ~= 1 month
     expireFluxAppsPeriod: 100, // every 100 blocks we run a check that deletes apps specifications and stops/removes the application from existence if it has been lastly updated more than 22k blocks ago
     updateFluxAppsPeriod: 9, // every 9 blocks we check for reinstalling of old application versions
     removeFluxAppsPeriod: 11, // every 11 blocks we check for more than maximum number of instances of an application

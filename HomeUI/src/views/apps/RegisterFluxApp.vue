@@ -1198,7 +1198,6 @@ export default {
   },
   mounted() {
     this.getDaemonInfo();
-    this.getRandomPort();
     this.appsDeploymentInformation();
     const zelidauth = localStorage.getItem('zelidauth');
     const auth = qs.parse(zelidauth);
@@ -1240,9 +1239,16 @@ export default {
       if (this.currentHeight < 1000002) { // fork height for spec v4
         this.specificationVersion = 3;
         this.appRegistrationSpecification = this.appRegistrationSpecificationv3template;
+        const ports = this.getRandomPort();
+        this.appRegistrationSpecification.ports = ports;
       } else {
         this.specificationVersion = 4;
         this.appRegistrationSpecification = this.appRegistrationSpecificationv4template;
+        this.appRegistrationSpecification.compose.forEach((component) => {
+          const ports = this.getRandomPort();
+          // eslint-disable-next-line no-param-reassign
+          component.ports = ports;
+        });
       }
     },
 
@@ -1332,6 +1338,8 @@ export default {
 
     addCopmonent() {
       // insert composeTemplate to appSpecs
+      const ports = this.getRandomPort();
+      this.composeTemplate.ports = ports;
       this.appRegistrationSpecification.compose.push(JSON.parse(JSON.stringify(this.composeTemplate)));
     },
 
@@ -1345,7 +1353,7 @@ export default {
       const portsArray = [];
       const port = Math.floor(Math.random() * (max - min) + min);
       portsArray.push(port);
-      this.appRegistrationSpecification.ports = JSON.stringify(portsArray);
+      return JSON.stringify(portsArray);
     },
 
     ensureBoolean(parameter) {
