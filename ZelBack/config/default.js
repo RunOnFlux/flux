@@ -104,19 +104,19 @@ module.exports = {
     minOutgoing: 5,
     minIncoming: 2,
     installation: {
-      probability: 100, // 1%
+      probability: 1, // 1%
       delay: 120, // in seconds
     },
     removal: {
-      probability: 25, // 4%
+      probability: 1, // 4%
       delay: 300,
     },
     redeploy: {
-      probability: 2, // 50%
+      probability: 1, // 50%
       delay: 30,
       composedDelay: 5,
     },
-    blocksLasting: 22000, // registered app will live for 22000 of blocks 44000 minutes ~= 1 month
+    blocksLasting: 400, // registered app will live for 22000 of blocks 44000 minutes ~= 1 month
     expireFluxAppsPeriod: 100, // every 100 blocks we run a check that deletes apps specifications and stops/removes the application from existence if it has been lastly updated more than 22k blocks ago
     updateFluxAppsPeriod: 9, // every 9 blocks we check for reinstalling of old application versions
     removeFluxAppsPeriod: 11, // every 11 blocks we check for more than maximum number of instances of an application
