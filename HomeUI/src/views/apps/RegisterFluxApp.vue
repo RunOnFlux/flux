@@ -1217,7 +1217,7 @@ export default {
         const response = await AppsService.appPrice(appSpecFormatted);
         this.appPricePerMonth = 0;
         if (response.data.status === 'error') {
-          throw new Error(response.data.data);
+          throw new Error(response.data.data.message || response.data.data);
         }
         this.appPricePerMonth = response.data.data;
         this.timestamp = new Date().getTime();

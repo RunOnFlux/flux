@@ -2448,38 +2448,38 @@ function checkComposeHWParameters(appSpecsComposed) {
     throw new Error(`Too much CPU resources assigned for ${appSpecsComposed.name}`);
   }
   if (totalRam > (config.fluxSpecifics.ram.bamf - config.lockedSystemResources.ram)) {
-    throw new Error(`Too much RAM rsources assigned for ${appSpecsComposed.name}`);
+    throw new Error(`Too much RAM resources assigned for ${appSpecsComposed.name}`);
   }
   if (totalHdd > (config.fluxSpecifics.hdd.bamf - config.lockedSystemResources.hdd)) {
-    throw new Error(`Too much SSD rsources assigned for ${appSpecsComposed.name}`);
+    throw new Error(`Too much SSD resources assigned for ${appSpecsComposed.name}`);
   }
   if (isTiered) {
     if (totalCpuBasic > (config.fluxSpecifics.cpu.basic - config.lockedSystemResources.cpu)) {
-      throw new Error(`Too much CPU for Cumulus rsources assigned for ${appSpecsComposed.name}`);
+      throw new Error(`Too much CPU for Cumulus resources assigned for ${appSpecsComposed.name}`);
     }
     if (totalRamBasic > (config.fluxSpecifics.ram.basic - config.lockedSystemResources.ram)) {
-      throw new Error(`Too much RAM for Cumulus rsources assigned for ${appSpecsComposed.name}`);
+      throw new Error(`Too much RAM for Cumulus resources assigned for ${appSpecsComposed.name}`);
     }
     if (totalHddBasic > (config.fluxSpecifics.hdd.basic - config.lockedSystemResources.hdd)) {
-      throw new Error(`Too much SSD for Cumulus rsources assigned for ${appSpecsComposed.name}`);
+      throw new Error(`Too much SSD for Cumulus resources assigned for ${appSpecsComposed.name}`);
     }
     if (totalCpuSuper > (config.fluxSpecifics.cpu.super - config.lockedSystemResources.cpu)) {
-      throw new Error(`Too much CPU for Nimbus rsources assigned for ${appSpecsComposed.name}`);
+      throw new Error(`Too much CPU for Nimbus resources assigned for ${appSpecsComposed.name}`);
     }
     if (totalRamSuper > (config.fluxSpecifics.ram.super - config.lockedSystemResources.ram)) {
-      throw new Error(`Too much RAM for Nimbus rsources assigned for ${appSpecsComposed.name}`);
+      throw new Error(`Too much RAM for Nimbus resources assigned for ${appSpecsComposed.name}`);
     }
     if (totalHddSuper > (config.fluxSpecifics.hdd.super - config.lockedSystemResources.hdd)) {
-      throw new Error(`Too much SSD for Nimbus rsources assigned for ${appSpecsComposed.name}`);
+      throw new Error(`Too much SSD for Nimbus resources assigned for ${appSpecsComposed.name}`);
     }
     if (totalCpuBamf > (config.fluxSpecifics.cpu.bamf - config.lockedSystemResources.cpu)) {
-      throw new Error(`Too much CPU for Stratus rsources assigned for ${appSpecsComposed.name}`);
+      throw new Error(`Too much CPU for Stratus resources assigned for ${appSpecsComposed.name}`);
     }
     if (totalRamBamf > (config.fluxSpecifics.ram.bamf - config.lockedSystemResources.ram)) {
-      throw new Error(`Too much RAM for Stratus rsources assigned for ${appSpecsComposed.name}`);
+      throw new Error(`Too much RAM for Stratus resources assigned for ${appSpecsComposed.name}`);
     }
     if (totalHddBamf > (config.fluxSpecifics.hdd.bamf - config.lockedSystemResources.hdd)) {
-      throw new Error(`Too much SSD for Stratus rsources assigned for ${appSpecsComposed.name}`);
+      throw new Error(`Too much SSD for Stratus resources assigned for ${appSpecsComposed.name}`);
     }
   }
   return true;
