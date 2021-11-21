@@ -3031,10 +3031,10 @@ async function verifyAppSpecifications(appSpecifications, height) {
     if (!Array.isArray(appSpecifications.compose)) {
       throw new Error('Invalid Flux App Specifications');
     }
-    if (appSpecifications.copmose.length < 1) {
+    if (appSpecifications.compose.length < 1) {
       throw new Error('Flux App does not contain any composition');
     }
-    if (appSpecifications.copmose.length > 5) {
+    if (appSpecifications.compose.length > 5) {
       throw new Error('Flux App has too many components');
     }
     // check port is within range

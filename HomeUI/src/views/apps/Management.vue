@@ -2659,7 +2659,7 @@ export default {
         return JSON.stringify(domains);
       }
       const domains = [];
-      this.appSpecification.copmose.forEach((component) => {
+      this.appSpecification.compose.forEach((component) => {
         const componentName = component.name;
         const lowerCaseCopmonentName = componentName.toLowerCase();
         const domainsComponent = [`${lowerCaseName}.app.runonflux.io`, `${lowerCaseCopmonentName}.${lowerCaseName}.app.runonflux.io`];
@@ -2698,7 +2698,7 @@ export default {
         return JSON.stringify(domains);
       }
       const domains = [];
-      this.callBResponse.data.copmose.forEach((component) => {
+      this.callBResponse.data.compose.forEach((component) => {
         const componentName = component.name;
         const lowerCaseCopmonentName = componentName.toLowerCase();
         const domainsComponent = [`${lowerCaseName}.app.runonflux.io`, `${lowerCaseCopmonentName}.${lowerCaseName}.app.runonflux.io`];
