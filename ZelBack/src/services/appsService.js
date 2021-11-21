@@ -2342,7 +2342,7 @@ function appPricePerMonth(dataForAppRegistration, height) {
   let cpuTotalCount = 0;
   let ramTotalCount = 0;
   let hddTotalCount = 0;
-  dataForAppRegistration.forEach((appComponent) => {
+  dataForAppRegistration.compose.forEach((appComponent) => {
     if (appComponent.tiered) {
       cpuTotalCount += ((appComponent.cpubasic + appComponent.cpusuper + appComponent.cpubamf) / 3);
       ramTotalCount += ((appComponent.rambasic + appComponent.ramsuper + appComponent.rambamf) / 3);
