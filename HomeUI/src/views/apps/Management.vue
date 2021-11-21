@@ -1721,8 +1721,8 @@
                   </b-card-title>
                   <b-form-group
                     v-if="!component.tiered"
-                    label-cols="2"
-                    label-cols-lg="1"
+                    label-cols="3"
+                    label-cols-lg="2"
                     label="CPU"
                     label-for="cpu"
                   >
@@ -1741,8 +1741,8 @@
                   </b-form-group>
                   <b-form-group
                     v-if="!component.tiered"
-                    label-cols="2"
-                    label-cols-lg="1"
+                    label-cols="3"
+                    label-cols-lg="2"
                     label="RAM"
                     label-for="ram"
                   >
@@ -1761,8 +1761,8 @@
                   </b-form-group>
                   <b-form-group
                     v-if="!component.tiered"
-                    label-cols="2"
-                    label-cols-lg="1"
+                    label-cols="3"
+                    label-cols-lg="2"
                     label="SSD"
                     label-for="ssd"
                   >

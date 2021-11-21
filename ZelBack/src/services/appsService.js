@@ -2371,41 +2371,41 @@ function appPricePerMonth(dataForAppRegistration, height) {
 function checkHWParameters(appSpecs) {
   // check specs parameters. JS precision
   if ((appSpecs.cpu * 10) % 1 !== 0 || (appSpecs.cpu * 10) > (config.fluxSpecifics.cpu.bamf - config.lockedSystemResources.cpu) || appSpecs.cpu < 0.1) {
-    return new Error(`CPU badly assigned for ${appSpecs.name}`);
+    throw new Error(`CPU badly assigned for ${appSpecs.name}`);
   }
   if (appSpecs.ram % 100 !== 0 || appSpecs.ram > (config.fluxSpecifics.ram.bamf - config.lockedSystemResources.ram) || appSpecs.ram < 100) {
-    return new Error(`RAM badly assigned for ${appSpecs.name}`);
+    throw new Error(`RAM badly assigned for ${appSpecs.name}`);
   }
   if (appSpecs.hdd % 1 !== 0 || appSpecs.hdd > (config.fluxSpecifics.hdd.bamf - config.lockedSystemResources.hdd) || appSpecs.hdd < 1) {
-    return new Error(`SSD badly assigned for ${appSpecs.name}`);
+    throw new Error(`SSD badly assigned for ${appSpecs.name}`);
   }
   if (appSpecs.tiered) {
     if ((appSpecs.cpubasic * 10) % 1 !== 0 || (appSpecs.cpubasic * 10) > (config.fluxSpecifics.cpu.basic - config.lockedSystemResources.cpu) || appSpecs.cpubasic < 0.1) {
-      return new Error(`CPU for Cumulus badly assigned for ${appSpecs.name}`);
+      throw new Error(`CPU for Cumulus badly assigned for ${appSpecs.name}`);
     }
     if (appSpecs.rambasic % 100 !== 0 || appSpecs.rambasic > (config.fluxSpecifics.ram.basic - config.lockedSystemResources.ram) || appSpecs.rambasic < 100) {
-      return new Error(`RAM for Cumulus badly assigned for ${appSpecs.name}`);
+      throw new Error(`RAM for Cumulus badly assigned for ${appSpecs.name}`);
     }
     if (appSpecs.hddbasic % 1 !== 0 || appSpecs.hddbasic > (config.fluxSpecifics.hdd.basic - config.lockedSystemResources.hdd) || appSpecs.hddbasic < 1) {
-      return new Error(`SSD for Cumulus badly assigned for ${appSpecs.name}`);
+      throw new Error(`SSD for Cumulus badly assigned for ${appSpecs.name}`);
     }
     if ((appSpecs.cpusuper * 10) % 1 !== 0 || (appSpecs.cpusuper * 10) > (config.fluxSpecifics.cpu.super - config.lockedSystemResources.cpu) || appSpecs.cpusuper < 0.1) {
-      return new Error(`CPU for Nimbus badly assigned for ${appSpecs.name}`);
+      throw new Error(`CPU for Nimbus badly assigned for ${appSpecs.name}`);
     }
     if (appSpecs.ramsuper % 100 !== 0 || appSpecs.ramsuper > (config.fluxSpecifics.ram.super - config.lockedSystemResources.ram) || appSpecs.ramsuper < 100) {
-      return new Error(`RAM for Nimbus badly assigned for ${appSpecs.name}`);
+      throw new Error(`RAM for Nimbus badly assigned for ${appSpecs.name}`);
     }
     if (appSpecs.hddsuper % 1 !== 0 || appSpecs.hddsuper > (config.fluxSpecifics.hdd.super - config.lockedSystemResources.hdd) || appSpecs.hddsuper < 1) {
-      return new Error(`SSD for Nimbus badly assigned for ${appSpecs.name}`);
+      throw new Error(`SSD for Nimbus badly assigned for ${appSpecs.name}`);
     }
     if ((appSpecs.cpubamf * 10) % 1 !== 0 || (appSpecs.cpubamf * 10) > (config.fluxSpecifics.cpu.bamf - config.lockedSystemResources.cpu) || appSpecs.cpubamf < 0.1) {
-      return new Error(`CPU for Stratus badly assigned for ${appSpecs.name}`);
+      throw new Error(`CPU for Stratus badly assigned for ${appSpecs.name}`);
     }
     if (appSpecs.rambamf % 100 !== 0 || appSpecs.rambamf > (config.fluxSpecifics.ram.bamf - config.lockedSystemResources.ram) || appSpecs.rambamf < 100) {
-      return new Error(`RAM for Stratus badly assigned for ${appSpecs.name}`);
+      throw new Error(`RAM for Stratus badly assigned for ${appSpecs.name}`);
     }
     if (appSpecs.hddbamf % 1 !== 0 || appSpecs.hddbamf > (config.fluxSpecifics.hdd.bamf - config.lockedSystemResources.hdd) || appSpecs.hddbamf < 1) {
-      return new Error(`SSD for Stratus badly assigned for ${appSpecs.name}`);
+      throw new Error(`SSD for Stratus badly assigned for ${appSpecs.name}`);
     }
   }
   return true;
@@ -2445,41 +2445,41 @@ function checkComposeHWParameters(appSpecsComposed) {
   });
   // check specs parameters. JS precision
   if (totalCpu > (config.fluxSpecifics.cpu.bamf - config.lockedSystemResources.cpu)) {
-    return new Error(`Too much CPU resources assigned for ${appSpecsComposed.name}`);
+    throw new Error(`Too much CPU resources assigned for ${appSpecsComposed.name}`);
   }
   if (totalRam > (config.fluxSpecifics.ram.bamf - config.lockedSystemResources.ram)) {
-    return new Error(`Too much RAM rsources assigned for ${appSpecsComposed.name}`);
+    throw new Error(`Too much RAM rsources assigned for ${appSpecsComposed.name}`);
   }
   if (totalHdd > (config.fluxSpecifics.hdd.bamf - config.lockedSystemResources.hdd)) {
-    return new Error(`Too much SSD rsources assigned for ${appSpecsComposed.name}`);
+    throw new Error(`Too much SSD rsources assigned for ${appSpecsComposed.name}`);
   }
   if (isTiered) {
     if (totalCpuBasic > (config.fluxSpecifics.cpu.basic - config.lockedSystemResources.cpu)) {
-      return new Error(`Too much CPU for Cumulus rsources assigned for ${appSpecsComposed.name}`);
+      throw new Error(`Too much CPU for Cumulus rsources assigned for ${appSpecsComposed.name}`);
     }
     if (totalRamBasic > (config.fluxSpecifics.ram.basic - config.lockedSystemResources.ram)) {
-      return new Error(`Too much RAM for Cumulus rsources assigned for ${appSpecsComposed.name}`);
+      throw new Error(`Too much RAM for Cumulus rsources assigned for ${appSpecsComposed.name}`);
     }
     if (totalHddBasic > (config.fluxSpecifics.hdd.basic - config.lockedSystemResources.hdd)) {
-      return new Error(`Too much SSD for Cumulus rsources assigned for ${appSpecsComposed.name}`);
+      throw new Error(`Too much SSD for Cumulus rsources assigned for ${appSpecsComposed.name}`);
     }
     if (totalCpuSuper > (config.fluxSpecifics.cpu.super - config.lockedSystemResources.cpu)) {
-      return new Error(`Too much CPU for Nimbus rsources assigned for ${appSpecsComposed.name}`);
+      throw new Error(`Too much CPU for Nimbus rsources assigned for ${appSpecsComposed.name}`);
     }
     if (totalRamSuper > (config.fluxSpecifics.ram.super - config.lockedSystemResources.ram)) {
-      return new Error(`Too much RAM for Nimbus rsources assigned for ${appSpecsComposed.name}`);
+      throw new Error(`Too much RAM for Nimbus rsources assigned for ${appSpecsComposed.name}`);
     }
     if (totalHddSuper > (config.fluxSpecifics.hdd.super - config.lockedSystemResources.hdd)) {
-      return new Error(`Too much SSD for Nimbus rsources assigned for ${appSpecsComposed.name}`);
+      throw new Error(`Too much SSD for Nimbus rsources assigned for ${appSpecsComposed.name}`);
     }
     if (totalCpuBamf > (config.fluxSpecifics.cpu.bamf - config.lockedSystemResources.cpu)) {
-      return new Error(`Too much CPU for Stratus rsources assigned for ${appSpecsComposed.name}`);
+      throw new Error(`Too much CPU for Stratus rsources assigned for ${appSpecsComposed.name}`);
     }
     if (totalRamBamf > (config.fluxSpecifics.ram.bamf - config.lockedSystemResources.ram)) {
-      return new Error(`Too much RAM for Stratus rsources assigned for ${appSpecsComposed.name}`);
+      throw new Error(`Too much RAM for Stratus rsources assigned for ${appSpecsComposed.name}`);
     }
     if (totalHddBamf > (config.fluxSpecifics.hdd.bamf - config.lockedSystemResources.hdd)) {
-      return new Error(`Too much SSD for Stratus rsources assigned for ${appSpecsComposed.name}`);
+      throw new Error(`Too much SSD for Stratus rsources assigned for ${appSpecsComposed.name}`);
     }
   }
   return true;
@@ -3011,11 +3011,7 @@ async function verifyAppSpecifications(appSpecifications, height) {
   }
 
   if (appSpecifications.version <= 3) {
-    const parameters = checkHWParameters(appSpecifications);
-    if (parameters !== true) {
-      const errorMessage = parameters;
-      throw new Error(errorMessage);
-    }
+    checkHWParameters(appSpecifications);
 
     // check wheter shared Folder is not root
     if (appSpecifications.containerData.length < 2) {
@@ -3095,17 +3091,9 @@ async function verifyAppSpecifications(appSpecifications, height) {
         throw new Error(`Flux App container data folder not specified in in ${appComponent.name}. If no data folder is whished, use /tmp`);
       }
 
-      const parameters = checkHWParameters(appComponent);
-      if (parameters !== true) {
-        const errorMessage = parameters;
-        throw new Error(errorMessage);
-      }
+      checkHWParameters(appComponent);
 
-      const composeParameter = checkComposeHWParameters(appSpecifications);
-      if (composeParameter !== true) {
-        const errorMessage = composeParameter;
-        throw new Error(errorMessage);
-      }
+      checkComposeHWParameters(appSpecifications);
 
       // check repotag if available for download
       // eslint-disable-next-line no-await-in-loop
