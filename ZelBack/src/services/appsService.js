@@ -3101,7 +3101,7 @@ async function verifyAppSpecifications(appSpecifications, height) {
         throw new Error(errorMessage);
       }
 
-      const composeParameter = checkComposeHWParameters(appComponent);
+      const composeParameter = checkComposeHWParameters(appSpecifications);
       if (composeParameter !== true) {
         const errorMessage = composeParameter;
         throw new Error(errorMessage);
