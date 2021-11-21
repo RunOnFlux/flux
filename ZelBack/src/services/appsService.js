@@ -3873,7 +3873,7 @@ function specificationFormatter(appSpecification) {
       } else {
         throw new Error(`Container Ports for Flux App component ${appComponent.name} are invalid`);
       }
-      appComponentCorrect.containerData = serviceHelper.ensureString(containerData);
+      appComponentCorrect.containerData = serviceHelper.ensureString(appComponent.containerData);
       appComponentCorrect.cpu = serviceHelper.ensureNumber(appComponent.cpu);
       appComponentCorrect.ram = serviceHelper.ensureNumber(appComponent.ram);
       appComponentCorrect.hdd = serviceHelper.ensureNumber(appComponent.hdd);
