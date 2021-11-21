@@ -3028,6 +3028,7 @@ async function verifyAppSpecifications(appSpecifications, height) {
     // check repository whitelisted
     await generalService.checkWhitelistedRepository(appSpecifications.repotag);
   } else {
+    console.log(appSpecifications);
     if (!Array.isArray(appSpecifications.compose)) {
       throw new Error('Invalid Flux App Specifications');
     }
