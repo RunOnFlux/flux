@@ -2002,9 +2002,9 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
 
     const specificationsToInstall = isComponent ? appComponent : appSpecifications;
 
-    if (specificationsToInstall.version >= 4) {
+    if (specificationsToInstall.version >= 4) { // version is undefined for component
       // eslint-disable-next-line no-restricted-syntax
-      for (const appComponentSpecs of specificationsToInstall) {
+      for (const appComponentSpecs of specificationsToInstall.compose) {
         isComponent = true;
         const hddTier = `hdd${tier}`;
         const ramTier = `ram${tier}`;
@@ -2244,9 +2244,9 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
 
     const specificationsToInstall = isComponent ? appComponent : appSpecifications;
 
-    if (specificationsToInstall.version >= 4) {
+    if (specificationsToInstall.version >= 4) { // version is undefined for component
       // eslint-disable-next-line no-restricted-syntax
-      for (const appComponentSpecs of specificationsToInstall) {
+      for (const appComponentSpecs of specificationsToInstall.compose) {
         isComponent = true;
         const hddTier = `hdd${tier}`;
         const ramTier = `ram${tier}`;
