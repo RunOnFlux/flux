@@ -116,7 +116,7 @@ module.exports = {
       delay: 30,
       composedDelay: 5,
     },
-    blocksLasting: 400, // registered app will live for 22000 of blocks 44000 minutes ~= 1 month
+    blocksLasting: 4000, // registered app will live for 22000 of blocks 44000 minutes ~= 1 month
     expireFluxAppsPeriod: 100, // every 100 blocks we run a check that deletes apps specifications and stops/removes the application from existence if it has been lastly updated more than 22k blocks ago
     updateFluxAppsPeriod: 9, // every 9 blocks we check for reinstalling of old application versions
     removeFluxAppsPeriod: 11, // every 11 blocks we check for more than maximum number of instances of an application
