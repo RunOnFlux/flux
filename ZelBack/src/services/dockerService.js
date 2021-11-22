@@ -384,13 +384,6 @@ async function appDockerTop(idOrName) {
 }
 
 async function createFluxDockerNetwork() {
-  // todo remove after couple of updates
-  try {
-    const network = docker.getNetwork('zelfluxDockerNetwork');
-    await dockerRemoveNetwork(network);
-  } catch (error) {
-    log.warn(error);
-  }
   // check if fluxDockerNetwork exists
   const fluxNetworkOptions = {
     Name: 'fluxDockerNetwork',

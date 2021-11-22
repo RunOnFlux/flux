@@ -902,7 +902,7 @@ async function getNodeSpecs() {
 
 async function createAppVolume(appSpecifications, appName, isComponent, res) {
   const dfAsync = util.promisify(df);
-  const identifier = isComponent ? `${appName}_${appSpecifications.name}` : appName;
+  const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
   const appId = dockerService.getAppIdentifier(identifier);
 
   const searchSpace = {
@@ -951,7 +951,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     availableSpace += serviceHelper.ensureNumber(volume.available);
   });
   // space that is further reserved for flux os and that will be later substracted from available space. Max 30.
-  const fluxSystemReserve = 30 - usedSpace > 0 ? 30 - usedSpace : 0;
+  const fluxSystemReserve = config.lockedSystemResources.hdd - usedSpace > 0 ? config.lockedSystemResources.hdd - usedSpace : 0;
   const totalAvailableSpaceLeft = availableSpace - fluxSystemReserve;
   if (appSpecifications.hdd >= totalAvailableSpaceLeft) {
     // sadly user free space is not enough for this application
@@ -1490,7 +1490,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
       for (const appComposedComponent of appSpecifications.compose) {
         isComponent = true;
         appComponent = appComposedComponent.name;
-        appId = `${appComposedComponent.name}_${appSpecifications.name}`;
+        appId = dockerService.getAppIdentifier(`${appComposedComponent.name}_${appSpecifications.name}`);
         const appComponentSpecifications = appComposedComponent;
         // eslint-disable-next-line no-await-in-loop
         await appUninstallHard(appName, appId, appComponentSpecifications, appComponent, isComponent, res);
