@@ -1555,6 +1555,7 @@ import {
   BTable,
   BCol,
   BCard,
+  BCardTitle,
   BRow,
   BButton,
   BFormGroup,
@@ -1588,6 +1589,7 @@ export default {
     BTable,
     BCol,
     BCard,
+    BCardTitle,
     BRow,
     BButton,
     BFormGroup,
@@ -1808,7 +1810,7 @@ export default {
       if (appInfo || (_port && _ip)) {
         const backendURL = store.get('backendURL') || `http://${this.userconfig.externalip}:${this.config.apiPort}`;
         const ip = _ip || backendURL.split(':')[1].split('//')[1];
-        const port = _port || appInfo.port || appInfo.ports[0];
+        const port = _port || appInfo.port || appInfo.ports ? appInfo.ports[0] : appInfo.compose[0].ports[0];
         let url = `http://${ip}:${port}`;
         if (name === 'KadenaChainWebNode') {
           url = `https://${ip}:${port}/chainweb/0.0/mainnet01/cut`;

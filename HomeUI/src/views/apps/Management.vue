@@ -521,13 +521,13 @@
         title="Information"
         :disabled="!isApplicationInstalledLocally"
       >
-        <h4>{{ appSpecification.name }}</h4>
+        <h3>{{ appSpecification.name }}</h3>
         <div v-if="appSpecification.version >= 4">
           <div
             v-for="(component, index) in callResponse.data"
             :key="index"
           >
-            {{ component.name }} Component
+            <h4>{{ component.name }} Component</h4>
             <b-form-textarea
               v-if="component.callData"
               plaintext
@@ -551,13 +551,13 @@
         title="Resources"
         :disabled="!isApplicationInstalledLocally"
       >
-        <h4>{{ appSpecification.name }}</h4>
+        <h3>{{ appSpecification.name }}</h3>
         <div v-if="appSpecification.version >= 4">
           <div
             v-for="(component, index) in callResponse.data"
             :key="index"
           >
-            {{ component.name }} Component
+            <h4>{{ component.name }} Component</h4>
             <b-form-textarea
               v-if="component.callData"
               plaintext
@@ -581,13 +581,13 @@
         title="File Changes"
         :disabled="!isApplicationInstalledLocally"
       >
-        <h4>{{ appSpecification.name }}</h4>
+        <h3>{{ appSpecification.name }}</h3>
         <div v-if="appSpecification.version >= 4">
           <div
             v-for="(component, index) in callResponse.data"
             :key="index"
           >
-            {{ component.name }} Component
+            <h4>{{ component.name }} Component</h4>
             <b-form-textarea
               v-if="component.callData"
               plaintext
@@ -611,13 +611,13 @@
         title="Processes"
         :disabled="!isApplicationInstalledLocally"
       >
-        <h4>{{ appSpecification.name }}</h4>
+        <h3>{{ appSpecification.name }}</h3>
         <div v-if="appSpecification.version >= 4">
           <div
             v-for="(component, index) in callResponse.data"
             :key="index"
           >
-            {{ component.name }} Component
+            <h4>{{ component.name }} Component</h4>
             <b-form-textarea
               v-if="component.callData"
               plaintext
@@ -641,20 +641,20 @@
         title="Log File"
         :disabled="!isApplicationInstalledLocally"
       >
-        <h4>{{ appSpecification.name }}</h4>
+        <h3>{{ appSpecification.name }}</h3>
         <div v-if="appSpecification.version >= 4">
           <div
             v-for="(component, index) in callResponse.data"
             :key="index"
           >
-            {{ component.name }} Component
+            <h4>{{ component.name }} Component</h4>
             <div class="text-center">
               <h6>
                 Click the 'Download Log File' button to download the Log file from your Application debug file. This may take a few minutes depending on file size.
               </h6>
               <div>
                 <b-button
-                  id="start-download-log"
+                  :id="`start-download-log-${component.name}_${appSpecification.name}`"
                   v-ripple.400="'rgba(255, 255, 255, 0.15)'"
                   variant="outline-primary"
                   size="md"
@@ -663,7 +663,7 @@
                   Download Debug File
                 </b-button>
                 <confirm-dialog
-                  target="start-download-log"
+                  :target="`start-download-log-${component.name}_${appSpecification.name}`"
                   confirm-button="Download Log"
                   @confirm="downloadApplicationLog(`${component.name}_${appSpecification.name}`)"
                 />
@@ -888,11 +888,11 @@
         title="Component Control"
         :disabled="!isApplicationInstalledLocally || appSpecification.version <= 3"
       >
-        <b-chard
+        <b-card
           v-for="(component, index) of appSpecification.compose"
           :key="index"
         >
-          {{ component.name }} Component
+          <h4>{{ component.name }} Component</h4>
           <b-row class="match-height">
             <b-col xs="6">
               <b-card title="Control">
@@ -901,7 +901,7 @@
                 </b-card-text>
                 <div class="text-center">
                   <b-button
-                    id="start-app"
+                    :id="`start-app-${component.name}_${appSpecification.name}`"
                     v-ripple.400="'rgba(255, 255, 255, 0.15)'"
                     variant="success"
                     aria-label="Start Component"
@@ -910,12 +910,12 @@
                     Start Component
                   </b-button>
                   <confirm-dialog
-                    target="start-app"
+                    :target="`start-app-${component.name}_${appSpecification.name}`"
                     confirm-button="Start Component"
                     @confirm="startApp(`${component.name}_${appSpecification.name}`)"
                   />
                   <b-button
-                    id="stop-app"
+                    :id="`stop-app-${component.name}_${appSpecification.name}`"
                     v-ripple.400="'rgba(255, 255, 255, 0.15)'"
                     variant="success"
                     aria-label="Stop Component"
@@ -924,12 +924,12 @@
                     Stop Component
                   </b-button>
                   <confirm-dialog
-                    target="stop-app"
+                    :target="`stop-app-${component.name}_${appSpecification.name}`"
                     confirm-button="Stop App"
                     @confirm="stopAll(`${component.name}_${appSpecification.name}`)"
                   />
                   <b-button
-                    id="restart-app"
+                    :id="`restart-app-${component.name}_${appSpecification.name}`"
                     v-ripple.400="'rgba(255, 255, 255, 0.15)'"
                     variant="success"
                     aria-label="Restart Component"
@@ -938,7 +938,7 @@
                     Restart Component
                   </b-button>
                   <confirm-dialog
-                    target="restart-app"
+                    :target="`restart-app-${component.name}_${appSpecification.name}`"
                     confirm-button="Restart Component"
                     @confirm="restartApp(`${component.name}_${appSpecification.name}`)"
                   />
@@ -952,7 +952,7 @@
                 </b-card-text>
                 <div class="text-center">
                   <b-button
-                    id="pause-app"
+                    :id="`pause-app-${component.name}_${appSpecification.name}`"
                     v-ripple.400="'rgba(255, 255, 255, 0.15)'"
                     variant="success"
                     aria-label="Pause Component"
@@ -961,12 +961,12 @@
                     Pause Component
                   </b-button>
                   <confirm-dialog
-                    target="pause-app"
+                    :target="`pause-app-${component.name}_${appSpecification.name}`"
                     confirm-button="Pause Component"
                     @confirm="pauseApp(`${component.name}_${appSpecification.name}`)"
                   />
                   <b-button
-                    id="unpause-app"
+                    :id="`unpause-app-${component.name}_${appSpecification.name}`"
                     v-ripple.400="'rgba(255, 255, 255, 0.15)'"
                     variant="success"
                     aria-label="Unpause Component"
@@ -975,7 +975,7 @@
                     Unpause Component
                   </b-button>
                   <confirm-dialog
-                    target="unpause-app"
+                    :target="`unpause-app-${component.name}_${appSpecification.name}`"
                     confirm-button="Unpause Component"
                     @confirm="unpauseApp(`${component.name}_${appSpecification.name}`)"
                   />
@@ -983,21 +983,22 @@
               </b-card>
             </b-col>
           </b-row>
-        </b-chard>
+        </b-card>
       </b-tab>
       <b-tab
         title="Execute Commands"
         :disabled="!isApplicationInstalledLocally"
       >
         <div class="text-center">
-          <h6>{{ appSpecification.name }}</h6>
+          <h3>{{ appSpecification.name }}</h3>
           <h6>Here you can execute some commands with a set of enviroment variables on this local application instance. Both are array of strings. Useful especially for testing and tweaking purposes.</h6>
+          <div class="mb-2" />
           <div v-if="appSpecification.compose">
             <div
               v-for="(component, index) in appSpecification.compose"
               :key="index"
             >
-              {{ component.name }} Component
+              <h4>{{ component.name }} Component</h4>
               <b-form-group
                 label-cols="4"
                 label-cols-lg="2"
@@ -1006,7 +1007,7 @@
                 class="mt-2"
               >
                 <b-form-input
-                  id="commandInput"
+                  id="`commandInput-${component.name}_${appSpecification.name}`"
                   v-model="appExec.cmd"
                   placeholder="Array of strings of Commands"
                 />
@@ -1018,13 +1019,13 @@
                 label-for="environmentInput"
               >
                 <b-form-input
-                  id="environmentInput"
+                  :id="`environmentInput-${component.name}_${appSpecification.name}`"
                   v-model="appExec.env"
                   placeholder="Array of strings of Environment Parameters"
                 />
               </b-form-group>
               <b-button
-                id="execute-commands"
+                :id="`execute-commands-${component.name}_${appSpecification.name}`"
                 v-ripple.400="'rgba(255, 255, 255, 0.15)'"
                 variant="success"
                 aria-label="Execute Commands"
@@ -1037,13 +1038,14 @@
                 <v-icon name="spinner" />
               </div>
               <b-form-textarea
-                v-if="callResponse.data && callResponse.data.find((d) => d.name === component.name)"
+                v-if="callResponse.data && callResponse.data[0] && callResponse.data.find((d) => d.name === component.name)"
                 plaintext
                 no-resize
                 rows="30"
                 :value="decodeAsciiResponse(callResponse.data.find((d) => d.name === component.name).data)"
                 class="mt-1"
               />
+              <div class="mb-5" />
             </div>
           </div>
           <div v-else>
@@ -1556,7 +1558,7 @@
                     </label>
                     <div class="col">
                       <b-form-input
-                        id="repo"
+                        :id="`repo-${component.name}_${appUpdateSpecification.name}`"
                         v-model="component.name"
                         placeholder="Component name"
                         readonly
@@ -1574,7 +1576,7 @@
                     </label>
                     <div class="col">
                       <b-form-input
-                        id="repo"
+                        :id="`repo-${component.name}_${appUpdateSpecification.name}`"
                         v-model="component.description"
                         placeholder="Component description"
                       />
@@ -1591,7 +1593,7 @@
                     </label>
                     <div class="col">
                       <b-form-input
-                        id="repo"
+                        :id="`repo-${component.name}_${appUpdateSpecification.name}`"
                         v-model="component.repotag"
                         placeholder="Docker Hub namespace/repository:tag"
                       />
@@ -1612,7 +1614,7 @@
                     </label>
                     <div class="col">
                       <b-form-input
-                        id="ports"
+                        :id="`ports-${component.name}_${appUpdateSpecification.name}`"
                         v-model="component.ports"
                       />
                     </div>
@@ -1628,7 +1630,7 @@
                     </label>
                     <div class="col">
                       <b-form-input
-                        id="domains"
+                        :id="`domains-${component.name}_${appUpdateSpecification.name}`"
                         v-model="component.domains"
                       />
                     </div>
@@ -1644,7 +1646,7 @@
                     </label>
                     <div class="col">
                       <b-form-input
-                        id="containerPorts"
+                        :id="`containerPorts-${component.name}_${appUpdateSpecification.name}`"
                         v-model="component.containerPorts"
                       />
                     </div>
@@ -1670,7 +1672,7 @@
                     </label>
                     <div class="col">
                       <b-form-input
-                        id="enviromentParameters"
+                        :id="`enviromentParameters-${component.name}_${appUpdateSpecification.name}`"
                         v-model="component.enviromentParameters"
                       />
                     </div>
@@ -1686,7 +1688,7 @@
                     </label>
                     <div class="col">
                       <b-form-input
-                        id="commands"
+                        :id="`commands-${component.name}_${appUpdateSpecification.name}`"
                         v-model="component.commands"
                       />
                     </div>
@@ -1702,7 +1704,7 @@
                     </label>
                     <div class="col">
                       <b-form-input
-                        id="containerData"
+                        :id="`containerData-${component.name}_${appUpdateSpecification.name}`"
                         v-model="component.containerData"
                       />
                     </div>
@@ -1730,7 +1732,7 @@
                       {{ component.cpu }}
                     </div>
                     <b-form-input
-                      id="cpu"
+                      :id="`cpu-${component.name}_${appUpdateSpecification.name}`"
                       v-model="component.cpu"
                       placeholder="CPU cores to use by default"
                       type="range"
@@ -1750,7 +1752,7 @@
                       {{ component.ram }}
                     </div>
                     <b-form-input
-                      id="ram"
+                      :id="`ram-${component.name}_${appUpdateSpecification.name}`"
                       v-model="component.ram"
                       placeholder="RAM in MB value to use by default"
                       type="range"
@@ -1770,7 +1772,7 @@
                       {{ component.hdd }}
                     </div>
                     <b-form-input
-                      id="ssd"
+                      :id="`ssd-${component.name}_${appUpdateSpecification.name}`"
                       v-model="component.hdd"
                       placeholder="SSD in GB value to use by default"
                       type="range"
@@ -2960,25 +2962,39 @@ export default {
     },
 
     async appExecute(name = this.appName) {
-      const zelidauth = localStorage.getItem('zelidauth');
-      if (!this.appExec.cmd) {
-        this.showToast('danger', 'No commands specified');
-        return;
-      }
-      const env = this.appExec.env ? this.appExec.env : '[]';
-      const { cmd } = this.appExec;
-      this.commandExecuting = true;
-      const response = await AppsService.getAppExec(zelidauth, name, cmd, env);
-      console.log(response);
-      this.commandExecuting = false;
-      this.callResponse.status = response.status;
-      this.callResponse.data = response.data;
-      this.callResponse.push({
-        name,
-        data: response.data,
-      });
-      if (response.data.status === 'error') {
-        this.showToast('danger', response.data.data.message || response.data.data);
+      try {
+        const zelidauth = localStorage.getItem('zelidauth');
+        if (!this.appExec.cmd) {
+          this.showToast('danger', 'No commands specified');
+          return;
+        }
+        const env = this.appExec.env ? this.appExec.env : '[]';
+        const { cmd } = this.appExec;
+        this.commandExecuting = true;
+        const response = await AppsService.getAppExec(zelidauth, name, cmd, env);
+        console.log(response);
+        this.commandExecuting = false;
+        this.callResponse.status = response.status;
+        if (name.includes('_')) {
+          this.callResponse.data = response.data;
+        } else {
+          if (!this.callResponse.data) {
+            this.callResponse.data = [];
+          } else if (this.callResponse.data[0]) {
+            this.callResponse.data = [];
+          }
+          this.callResponse.data.push({
+            name,
+            data: response.data,
+          });
+        }
+        if (response.data.status === 'error') {
+          this.showToast('danger', response.data.data.message || response.data.data);
+        }
+      } catch (error) {
+        this.commandExecuting = false;
+        console.log(error);
+        this.showToast('danger', error.message || error);
       }
     },
 

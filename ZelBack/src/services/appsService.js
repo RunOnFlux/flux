@@ -692,7 +692,9 @@ async function appExec(req, res) {
         throw new Error('No command specified');
       }
 
-      const authorized = await serviceHelper.verifyPrivilege('appowner', req, processedBody.appname);
+      const mainAppName = processedBody.appname.split('_')[1] || processedBody.appname;
+
+      const authorized = await serviceHelper.verifyPrivilege('appowner', req, mainAppName);
       if (authorized === true) {
         let cmd = processedBody.cmd || [];
         let env = processedBody.env || [];
