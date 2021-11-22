@@ -93,7 +93,8 @@ describe('checkHWParameters', () => {
       "hddsuper": 5,
       "hddbamf": 5
     };
-    expect(appService.checkHWParameters(fluxAppSpecs)).to.be.an('error');
+    const specs = function () { appService.checkHWParameters(fluxAppSpecs) };
+    expect(specs).to.throw();
   });
 
   it('Verifies HW specs are missing', () => {
@@ -133,8 +134,8 @@ describe('checkHWParameters', () => {
       "hddsuper": 5,
       "hddbamf": 21
     };
-    const hwSpecs = appService.checkHWParameters(fluxAppSpecs);
-    expect(hwSpecs).to.be.an('error');
+    const hwSpecs = function () { appService.checkHWParameters(fluxAppSpecs) };
+    expect(hwSpecs).to.throw();
   });
 
   it('Verifies repository exists or is not correct', async () => {
@@ -239,8 +240,8 @@ describe('checkHWParameters', () => {
     const timestamp = 1592988806887
     const signature = 'H7AP+VrFUTrmi+DqG8x0nllBFXB+oD09AkSE/JEpemeOTzMglftjTtPaEY3rMW/FUezEiad0WZNgxiInFrUn6S8=';
     const messageHash = 'c509eae87618e0c4c40106d3c515923d7611070bcafad261de9520238617c972';
-    const message =  {
-      type, 
+    const message = {
+      type,
       version,
       hash: messageHash,
       appSpecifications: fluxAppSpecs,
