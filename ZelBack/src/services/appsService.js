@@ -157,7 +157,9 @@ async function appStart(req, res) {
       throw new Error('No Flux App specified');
     }
 
-    const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, appname);
+    const mainAppName = appname.split('_')[1] || appname;
+
+    const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (!authorized) {
       const errMessage = serviceHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
@@ -171,7 +173,7 @@ async function appStart(req, res) {
     } else {
       // ask for starting entire composed application
       // eslint-disable-next-line no-use-before-define
-      const appSpecs = await getApplicationSpecifications(appname);
+      const appSpecs = await getApplicationSpecifications(mainAppName);
       if (!appSpecs) {
         throw new Error('Application not found');
       }
@@ -209,7 +211,9 @@ async function appStop(req, res) {
       throw new Error('No Flux App specified');
     }
 
-    const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, appname);
+    const mainAppName = appname.split('_')[1] || appname;
+
+    const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (!authorized) {
       const errMessage = serviceHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
@@ -223,7 +227,7 @@ async function appStop(req, res) {
     } else {
       // ask for starting entire composed application
       // eslint-disable-next-line no-use-before-define
-      const appSpecs = await getApplicationSpecifications(appname);
+      const appSpecs = await getApplicationSpecifications(mainAppName);
       if (!appSpecs) {
         throw new Error('Application not found');
       }
@@ -261,7 +265,9 @@ async function appRestart(req, res) {
       throw new Error('No Flux App specified');
     }
 
-    const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, appname);
+    const mainAppName = appname.split('_')[1] || appname;
+
+    const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (!authorized) {
       const errMessage = serviceHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
@@ -275,7 +281,7 @@ async function appRestart(req, res) {
     } else {
       // ask for starting entire composed application
       // eslint-disable-next-line no-use-before-define
-      const appSpecs = await getApplicationSpecifications(appname);
+      const appSpecs = await getApplicationSpecifications(mainAppName);
       if (!appSpecs) {
         throw new Error('Application not found');
       }
@@ -306,16 +312,19 @@ async function appRestart(req, res) {
 
 async function appKill(req, res) {
   try {
-    const authorized = await serviceHelper.verifyPrivilege('appownerabove', req);
-    if (!authorized) {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
-      return res ? res.json(errMessage) : errMessage;
-    }
     let { appname } = req.params;
     appname = appname || req.query.appname;
 
     if (!appname) {
       throw new Error('No Flux App specified');
+    }
+
+    const mainAppName = appname.split('_')[1] || appname;
+
+    const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, mainAppName);
+    if (!authorized) {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      return res ? res.json(errMessage) : errMessage;
     }
 
     const isComponent = appname.includes('_'); // it is a component start. Proceed with starting just component
@@ -326,7 +335,7 @@ async function appKill(req, res) {
     } else {
       // ask for starting entire composed application
       // eslint-disable-next-line no-use-before-define
-      const appSpecs = await getApplicationSpecifications(appname);
+      const appSpecs = await getApplicationSpecifications(mainAppName);
       if (!appSpecs) {
         throw new Error('Application not found');
       }
@@ -364,7 +373,9 @@ async function appPause(req, res) {
       throw new Error('No Flux App specified');
     }
 
-    const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, appname);
+    const mainAppName = appname.split('_')[1] || appname;
+
+    const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (!authorized) {
       const errMessage = serviceHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
@@ -378,7 +389,7 @@ async function appPause(req, res) {
     } else {
       // ask for starting entire composed application
       // eslint-disable-next-line no-use-before-define
-      const appSpecs = await getApplicationSpecifications(appname);
+      const appSpecs = await getApplicationSpecifications(mainAppName);
       if (!appSpecs) {
         throw new Error('Application not found');
       }
@@ -416,7 +427,9 @@ async function appUnpause(req, res) {
       throw new Error('No Flux App specified');
     }
 
-    const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, appname);
+    const mainAppName = appname.split('_')[1] || appname;
+
+    const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (!authorized) {
       const errMessage = serviceHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
@@ -430,7 +443,7 @@ async function appUnpause(req, res) {
     } else {
       // ask for starting entire composed application
       // eslint-disable-next-line no-use-before-define
-      const appSpecs = await getApplicationSpecifications(appname);
+      const appSpecs = await getApplicationSpecifications(mainAppName);
       if (!appSpecs) {
         throw new Error('Application not found');
       }
@@ -465,14 +478,16 @@ async function appTop(req, res) {
     let { appname } = req.params;
     appname = appname || req.query.appname;
 
-    const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, appname);
+    if (!appname) {
+      throw new Error('No Flux App specified');
+    }
+
+    const mainAppName = appname.split('_')[1] || appname;
+
+    const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (!authorized) {
       const errMessage = serviceHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
-    }
-
-    if (!appname) {
-      throw new Error('No Flux App specified');
     }
 
     const appRes = await dockerService.appDockerTop(appname);
@@ -501,7 +516,10 @@ async function appLog(req, res) {
     if (!appname) {
       throw new Error('No Flux App specified');
     }
-    const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, appname);
+
+    const mainAppName = appname.split('_')[1] || appname;
+
+    const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (authorized === true) {
       const logs = await dockerService.dockerContainerLogs(appname, lines);
       const dataMessage = serviceHelper.createDataMessage(logs);
@@ -529,7 +547,10 @@ async function appLogStream(req, res) {
     if (!appname) {
       throw new Error('No Flux App specified');
     }
-    const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, appname);
+
+    const mainAppName = appname.split('_')[1] || appname;
+
+    const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (authorized === true) {
       res.setHeader('Content-Type', 'application/json');
       dockerService.dockerContainerLogsStream(appname, res, (error) => {
@@ -565,10 +586,14 @@ async function appInspect(req, res) {
   try {
     let { appname } = req.params;
     appname = appname || req.query.appname;
+
     if (!appname) {
       throw new Error('No Flux App specified');
     }
-    const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, appname);
+
+    const mainAppName = appname.split('_')[1] || appname;
+
+    const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (authorized === true) {
       const response = await dockerService.dockerContainerInspect(appname);
       const appResponse = serviceHelper.createDataMessage(response);
@@ -592,10 +617,14 @@ async function appStats(req, res) {
   try {
     let { appname } = req.params;
     appname = appname || req.query.appname;
+
     if (!appname) {
       throw new Error('No Flux App specified');
     }
-    const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, appname);
+
+    const mainAppName = appname.split('_')[1] || appname;
+
+    const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (authorized === true) {
       const response = await dockerService.dockerContainerStats(appname);
       const appResponse = serviceHelper.createDataMessage(response);
@@ -619,10 +648,14 @@ async function appChanges(req, res) {
   try {
     let { appname } = req.params;
     appname = appname || req.query.appname;
+
     if (!appname) {
       throw new Error('No Flux App specified');
     }
-    const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, appname);
+
+    const mainAppName = appname.split('_')[1] || appname;
+
+    const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (authorized === true) {
       const response = await dockerService.dockerContainerChanges(appname);
       const appResponse = serviceHelper.createDataMessage(response);
@@ -1692,7 +1725,22 @@ async function softRemoveAppLocally(app, res) {
 
 async function removeAppLocallyApi(req, res) {
   try {
-    const authorized = await serviceHelper.verifyPrivilege('appownerabove', req);
+    let { appname } = req.params;
+    appname = appname || req.query.appname;
+
+    if (appname.includes('_')) {
+      throw new Error('Components cannot be removed manually');
+    }
+
+    let { force } = req.params;
+    force = force || req.query.force || false;
+    force = serviceHelper.ensureBoolean(force);
+
+    if (!appname) {
+      throw new Error('No Flux App specified');
+    }
+
+    const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, appname);
     if (!authorized) {
       const errMessage = serviceHelper.errUnauthorizedMessage();
       res.json(errMessage);
@@ -1700,21 +1748,6 @@ async function removeAppLocallyApi(req, res) {
       // remove app from local machine.
       // find in database, stop app, remove container, close ports delete data associated on system, remove from database
       // if other container uses the same image -> then it shall result in an error so ok anyway
-      let { appname } = req.params;
-      appname = appname || req.query.appname;
-
-      if (appname.includes('_')) {
-        throw new Error('Components cannot be removed manually');
-      }
-
-      let { force } = req.params;
-      force = force || req.query.force || false;
-      force = serviceHelper.ensureBoolean(force);
-
-      if (!appname) {
-        throw new Error('No Flux App specified');
-      }
-
       res.setHeader('Content-Type', 'application/json');
       removeAppLocally(appname, res, force);
     }
