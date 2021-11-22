@@ -181,7 +181,7 @@ async function appStart(req, res) {
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of appSpecs.compose) {
           // eslint-disable-next-line no-await-in-loop
-          await dockerService.appDockerStart(`${appComponent}_${appSpecs.name}`);
+          await dockerService.appDockerStart(`${appComponent.name}_${appSpecs.name}`);
         }
         appRes = `Application ${appSpecs.name} started`;
       }
@@ -233,7 +233,7 @@ async function appStop(req, res) {
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of appSpecs.compose) {
           // eslint-disable-next-line no-await-in-loop
-          await dockerService.appDockerStop(`${appComponent}_${appSpecs.name}`);
+          await dockerService.appDockerStop(`${appComponent.name}_${appSpecs.name}`);
         }
         appRes = `Application ${appSpecs.name} stopped`;
       }
@@ -285,7 +285,7 @@ async function appRestart(req, res) {
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of appSpecs.compose) {
           // eslint-disable-next-line no-await-in-loop
-          await dockerService.appDockerRestart(`${appComponent}_${appSpecs.name}`);
+          await dockerService.appDockerRestart(`${appComponent.name}_${appSpecs.name}`);
         }
         appRes = `Application ${appSpecs.name} restarted`;
       }
@@ -336,7 +336,7 @@ async function appKill(req, res) {
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of appSpecs.compose) {
           // eslint-disable-next-line no-await-in-loop
-          await dockerService.appDockerKill(`${appComponent}_${appSpecs.name}`);
+          await dockerService.appDockerKill(`${appComponent.name}_${appSpecs.name}`);
         }
         appRes = `Application ${appSpecs.name} killed`;
       }
@@ -388,7 +388,7 @@ async function appPause(req, res) {
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of appSpecs.compose) {
           // eslint-disable-next-line no-await-in-loop
-          await dockerService.appDockerPause(`${appComponent}_${appSpecs.name}`);
+          await dockerService.appDockerPause(`${appComponent.name}_${appSpecs.name}`);
         }
         appRes = `Application ${appSpecs.name} paused`;
       }
@@ -440,7 +440,7 @@ async function appUnpause(req, res) {
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of appSpecs.compose) {
           // eslint-disable-next-line no-await-in-loop
-          await dockerService.appDockerUnpase(`${appComponent}_${appSpecs.name}`);
+          await dockerService.appDockerUnpase(`${appComponent.name}_${appSpecs.name}`);
         }
         appRes = `Application ${appSpecs.name} unpaused`;
       }
@@ -1876,7 +1876,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
   if (res) {
     res.write(serviceHelper.ensureString(startStatus));
   }
-  const identifier = isComponent ? `${appName}_${appSpecifications.name}` : appName;
+  const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
   const app = await dockerService.appDockerStart(dockerService.getAppIdentifier(identifier));
   installationInProgress = false;
   if (!app) {
@@ -2116,7 +2116,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
   if (res) {
     res.write(serviceHelper.ensureString(startStatus));
   }
-  const identifier = isComponent ? `${appName}_${appSpecifications.name}` : appName;
+  const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
   const app = await dockerService.appDockerStart(dockerService.getAppIdentifier(identifier));
   installationInProgress = false;
   if (!app) {

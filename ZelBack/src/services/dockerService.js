@@ -208,7 +208,7 @@ async function dockerContainerLogs(idOrName, lines) {
 }
 
 async function appDockerCreate(appSpecifications, appName, isComponent) {
-  const identifier = isComponent ? `${appName}_${appSpecifications.name}` : appName;
+  const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
   let exposedPorts = {};
   let portBindings = {};
   if (appSpecifications.version === 1) {
