@@ -1847,7 +1847,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
   // eslint-disable-next-line no-unused-vars
   await dockerPullStreamPromise(appSpecifications.repotag, res);
   const pullStatus = {
-    status: isComponent ? `Pulling global Flux App ${appSpecifications.name} was successful` : `Pulling global Flux App ${appName} was successful`,
+    status: isComponent ? `Pulling component ${appSpecifications.name} of Flux App ${appName}` : `Pulling global Flux App ${appName} was successful`,
   };
   if (res) {
     res.write(serviceHelper.ensureString(pullStatus));
@@ -1856,7 +1856,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
   await createAppVolume(appSpecifications, appName, isComponent, res);
 
   const createApp = {
-    status: isComponent ? `Creating component ${appSpecifications.name} of local Flux App ${appName}` : `Creating local Flux App ${appName}`,
+    status: isComponent ? `Creating component ${appSpecifications.name} of Flux App ${appName}` : `Creating Flux App ${appName}`,
   };
   log.info(createApp);
   if (res) {

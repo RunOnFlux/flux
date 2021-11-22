@@ -532,7 +532,7 @@
               v-if="component.callData"
               plaintext
               no-resize
-              rows="30"
+              rows="15"
               :value="JSON.stringify(component.callData, null, 4)"
             />
           </div>
@@ -542,7 +542,7 @@
             v-if="callResponse.data && callResponse.data[0]"
             plaintext
             no-resize
-            rows="30"
+            rows="15"
             :value="JSON.stringify(callResponse.data[0].callData, null, 4)"
           />
         </div>
@@ -562,7 +562,7 @@
               v-if="component.callData"
               plaintext
               no-resize
-              rows="30"
+              rows="15"
               :value="JSON.stringify(component.callData, null, 4)"
             />
           </div>
@@ -572,7 +572,7 @@
             v-if="callResponse.data && callResponse.data[0]"
             plaintext
             no-resize
-            rows="30"
+            rows="15"
             :value="JSON.stringify(callResponse.data[0].callData, null, 4)"
           />
         </div>
@@ -592,7 +592,7 @@
               v-if="component.callData"
               plaintext
               no-resize
-              rows="30"
+              rows="15"
               :value="JSON.stringify(component.callData, null, 4)"
             />
           </div>
@@ -602,7 +602,7 @@
             v-if="callResponse.data && callResponse.data[0]"
             plaintext
             no-resize
-            rows="30"
+            rows="15"
             :value="JSON.stringify(callResponse.data[0].callData, null, 4)"
           />
         </div>
@@ -622,7 +622,7 @@
               v-if="component.callData"
               plaintext
               no-resize
-              rows="30"
+              rows="15"
               :value="JSON.stringify(component.callData, null, 4)"
             />
           </div>
@@ -632,7 +632,7 @@
             v-if="callResponse.data && callResponse.data[0]"
             plaintext
             no-resize
-            rows="30"
+            rows="15"
             :value="JSON.stringify(callResponse.data[0].callData, null, 4)"
           />
         </div>
@@ -679,7 +679,7 @@
                   v-if="component.callData"
                   plaintext
                   no-resize
-                  rows="30"
+                  rows="15"
                   :value="decodeAsciiResponse(component.callData)"
                   class="mt-1"
                 />
@@ -719,7 +719,7 @@
                 v-if="callResponse.data && callResponse.data[0]"
                 plaintext
                 no-resize
-                rows="30"
+                rows="15"
                 :value="decodeAsciiResponse(callResponse.data[0].callData)"
                 class="mt-1"
               />
@@ -1038,11 +1038,11 @@
                 <v-icon name="spinner" />
               </div>
               <b-form-textarea
-                v-if="callResponse.data && callResponse.data[0] && callResponse.data.find((d) => d.name === component.name)"
+                v-if="callResponse.data && callResponse.data[0] && callResponse.data.find((d) => d.name === `${component.name}_${appSpecification.name}`)"
                 plaintext
                 no-resize
-                rows="30"
-                :value="decodeAsciiResponse(callResponse.data.find((d) => d.name === component.name).data)"
+                rows="15"
+                :value="decodeAsciiResponse(callResponse.data.find((d) => d.name === `${component.name}_${appSpecification.name}`).data)"
                 class="mt-1"
               />
               <div class="mb-5" />
@@ -1091,7 +1091,7 @@
               v-if="callResponse.data && callResponse.data[0]"
               plaintext
               no-resize
-              rows="30"
+              rows="15"
               :value="decodeAsciiResponse(callResponse.data[0].data)"
               class="mt-1"
             />
@@ -2639,7 +2639,26 @@ export default {
       };
       appInfo.state = appInfo.state.charAt(0).toUpperCase() + appInfo.state.slice(1);
       appInfo.status = appInfo.status.charAt(0).toUpperCase() + appInfo.status.slice(1);
-      const niceString = `${appInfo.name} - ${appInfo.state} - ${appInfo.status}`;
+      let niceString = `${appInfo.name} - ${appInfo.state} - ${appInfo.status}`;
+      if (this.appSpecification) {
+        if (this.appSpecification.version >= 4) {
+          niceString = `${this.appSpecification.name}:`;
+          // eslint-disable-next-line no-restricted-syntax
+          for (const component of this.appSpecification.compose) {
+            const foundAppInfoComponent = this.getAllAppsResponse.data.find((app) => app.Names[0] === this.getAppDockerNameIdentifier(`${component.name}_${this.appSpecification.name}`)) || {};
+            const appInfoComponent = {
+              name: component.name,
+              state: foundAppInfoComponent.State || 'Unknown state',
+              status: foundAppInfoComponent.Status || 'Unknown status',
+            };
+            appInfoComponent.state = appInfoComponent.state.charAt(0).toUpperCase() + appInfoComponent.state.slice(1);
+            appInfoComponent.status = appInfoComponent.status.charAt(0).toUpperCase() + appInfoComponent.status.slice(1);
+            const niceStringComponent = ` ${appInfoComponent.name} - ${appInfoComponent.state} - ${appInfoComponent.status},`;
+            niceString += niceStringComponent;
+          }
+          niceString = niceString.substring(0, niceString.length - 1);
+        }
+      }
       return niceString;
     },
     constructAutomaticDomains() {
@@ -2975,12 +2994,12 @@ export default {
         console.log(response);
         this.commandExecuting = false;
         this.callResponse.status = response.status;
-        if (name.includes('_')) {
+        if (!name.includes('_')) {
           this.callResponse.data = response.data;
         } else {
           if (!this.callResponse.data) {
             this.callResponse.data = [];
-          } else if (this.callResponse.data[0]) {
+          } else if (!Array.isArray(this.callResponse.data)) {
             this.callResponse.data = [];
           }
           this.callResponse.data.push({
@@ -2988,6 +3007,7 @@ export default {
             data: response.data,
           });
         }
+        console.log(this.callResponse);
         if (response.data.status === 'error') {
           this.showToast('danger', response.data.data.message || response.data.data);
         }
@@ -3029,22 +3049,22 @@ export default {
       link.click();
     },
 
-    getAppIdentifier() {
+    getAppIdentifier(appName = this.appName) {
       // this id is used for volumes, docker names so we know it reall belongs to flux
-      if (this.appName && this.appName.startsWith('zel')) {
-        return this.appName;
+      if (appName && appName.startsWith('zel')) {
+        return appName;
       }
-      if (this.appName && this.appName.startsWith('flux')) {
-        return this.appName;
+      if (appName && appName.startsWith('flux')) {
+        return appName;
       }
-      if (this.appName === 'KadenaChainWebNode' || this.appName === 'FoldingAtHomeB') {
-        return `zel${this.appName}`;
+      if (appName === 'KadenaChainWebNode' || appName === 'FoldingAtHomeB') {
+        return `zel${appName}`;
       }
-      return `flux${this.appName}`;
+      return `flux${appName}`;
     },
-    getAppDockerNameIdentifier() {
+    getAppDockerNameIdentifier(appName) {
       // this id is used for volumes, docker names so we know it reall belongs to flux
-      const name = this.getAppIdentifier();
+      const name = this.getAppIdentifier(appName);
       if (name && name.startsWith('/')) {
         return name;
       }
