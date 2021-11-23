@@ -2724,7 +2724,11 @@ async function verifyRepository(repotag) {
   }
   const splittedRepo = repotag.split(':');
   if (splittedRepo[0] && splittedRepo[1] && !splittedRepo[2]) {
-    const resDocker = await serviceHelper.axiosGet(`https://hub.docker.com/v2/repositories/${splittedRepo[0]}/tags/${splittedRepo[1]}`).catch(() => {
+    let repoToFetch = splittedRepo[0];
+    if (!repoToFetch.includes('/')) {
+      repoToFetch = `library/${splittedRepo[0]}`;
+    }
+    const resDocker = await serviceHelper.axiosGet(`https://hub.docker.com/v2/repositories/${repoToFetch}/tags/${splittedRepo[1]}`).catch(() => {
       throw new Error(`Repository ${repotag} is not found on docker hub in expected format`);
     });
     if (!resDocker) {
