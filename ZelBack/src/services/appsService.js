@@ -5303,7 +5303,7 @@ async function checkAndNotifyPeersOfRunningApps() {
             if (!removalInProgress && !installationInProgress && !reinstallationOfOldAppsInProgress) {
               log.warn(`${appId} is stopped, starting`);
               // eslint-disable-next-line no-await-in-loop
-              await dockerService.appDockerStart(appId); // TODO this gets enetered even tho app is undergoing update
+              await dockerService.appDockerStart(appId);
             } else {
               log.warn(`Not starting ${stoppedApp} as of application removal or installation in progress`);
             }
