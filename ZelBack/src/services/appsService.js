@@ -1712,16 +1712,16 @@ async function softRemoveAppLocally(app, res) {
     if (res) {
       res.write(serviceHelper.ensureString(databaseStatus2));
     }
+
+    const appRemovalResponseDone = {
+      status: `Removal step done. Result: Flux App ${appName} was partially removed`,
+    };
+    log.info(appRemovalResponseDone);
+    if (res) {
+      res.write(serviceHelper.ensureString(appRemovalResponseDone));
+    }
   }
 
-  const appRemovalResponseDone = {
-    status: `Removal step done. Result: Flux App ${appName} was partially removed`,
-  };
-
-  log.info(appRemovalResponseDone);
-  if (res) {
-    res.write(serviceHelper.ensureString(appRemovalResponseDone));
-  }
   removalInProgress = false;
 }
 
@@ -5296,6 +5296,7 @@ async function checkAndNotifyPeersOfRunningApps() {
             const appId = dockerService.getAppIdentifier(stoppedApp);
             // check if some removal is in progress as if it is dont start it!
             if (!removalInProgress && !installationInProgress) {
+              log.warn(`${appId} is stopped, starting`);
               // eslint-disable-next-line no-await-in-loop
               await dockerService.appDockerStart(appId);
             } else {
@@ -5304,9 +5305,12 @@ async function checkAndNotifyPeersOfRunningApps() {
           }
         } catch (err) {
           log.error(err);
-          // already checked for mongo ok, daemon ok, docker ok.
-          // eslint-disable-next-line no-await-in-loop
-          await removeAppLocally(stoppedApp);
+          if (!removalInProgress && !installationInProgress) {
+            const mainAppName = stoppedApp.split('_')[1] || stoppedApp;
+            // already checked for mongo ok, daemon ok, docker ok.
+            // eslint-disable-next-line no-await-in-loop
+            await removeAppLocally(mainAppName);
+          }
         }
       }
     } else {
@@ -5317,7 +5321,7 @@ async function checkAndNotifyPeersOfRunningApps() {
       if (app.version >= 4) {
         let appRunningWell = true;
         app.compose.forEach((appComponent) => {
-          if (!runningAppsNames.includes(appComponent.name)) {
+          if (!runningAppsNames.includes(`${appComponent.name}_${app.name}`)) {
             appRunningWell = false;
           }
         });
@@ -5633,7 +5637,7 @@ async function reinstallOldApplications() {
             }
           } else {
             // composed application
-            log.warn(`Beginning Redeployment of ${appSpecifications.name}${appSpecifications.name}...`);
+            log.warn(`Beginning Redeployment of ${appSpecifications.name}...`);
             if (removalInProgress) {
               log.warn('Another application is undergoing removal');
               return;
@@ -5642,32 +5646,26 @@ async function reinstallOldApplications() {
               log.warn('Another application is undergoing installation');
               return;
             }
-            // eslint-disable-next-line no-restricted-syntax
-            for (const appComponent of appSpecifications.compose) {
-              if (appComponent.tiered) {
-                const hddTier = `hdd${tier}`;
-                const ramTier = `ram${tier}`;
-                const cpuTier = `cpu${tier}`;
-                appComponent.cpu = appComponent[cpuTier] || appComponent.cpu;
-                appComponent.ram = appComponent[ramTier] || appComponent.ram;
-                appComponent.hdd = appComponent[hddTier] || appComponent.hdd;
-              }
+            try {
+              // eslint-disable-next-line no-restricted-syntax
+              for (const appComponent of appSpecifications.compose) {
+                if (appComponent.tiered) {
+                  const hddTier = `hdd${tier}`;
+                  const ramTier = `ram${tier}`;
+                  const cpuTier = `cpu${tier}`;
+                  appComponent.cpu = appComponent[cpuTier] || appComponent.cpu;
+                  appComponent.ram = appComponent[ramTier] || appComponent.ram;
+                  appComponent.hdd = appComponent[hddTier] || appComponent.hdd;
+                }
 
-              const installedComponent = installedApp.compose.find((component) => component.name === appComponent.name);
+                const installedComponent = installedApp.compose.find((component) => component.name === appComponent.name);
 
-              if (appComponent.hdd === installedComponent.hdd) {
-                log.warn(`Beginning Soft Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
-                // soft redeployment
-                try {
-                  try {
-                    // eslint-disable-next-line no-await-in-loop
-                    await softRemoveAppLocally(`${appComponent.name}_${appSpecifications.name}`); // component
-                    log.warn(`Application component ${appComponent.name}_${appSpecifications.name} softly removed. Awaiting installation...`);
-                  } catch (error) {
-                    log.error(error);
-                    removalInProgress = false;
-                    throw error;
-                  }
+                if (appComponent.hdd === installedComponent.hdd) {
+                  log.warn(`Beginning Soft Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
+                  // soft redeployment
+                  // eslint-disable-next-line no-await-in-loop
+                  await softRemoveAppLocally(`${appComponent.name}_${appSpecifications.name}`); // component
+                  log.warn(`Application component ${appComponent.name}_${appSpecifications.name} softly removed. Awaiting installation...`);
                   // eslint-disable-next-line no-await-in-loop
                   await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
                   // eslint-disable-next-line no-await-in-loop
@@ -5675,14 +5673,9 @@ async function reinstallOldApplications() {
                   // install the app
                   // eslint-disable-next-line no-await-in-loop
                   await softRegisterAppLocally(appSpecifications, appComponent); // component
-                } catch (error) {
-                  log.error(error);
-                  removeAppLocally(appSpecifications.name, null, true); // remove entire app
-                }
-              } else {
-                log.warn(`Beginning Hard Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
-                // hard redeployment
-                try {
+                } else {
+                  log.warn(`Beginning Hard Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
+                  // hard redeployment
                   // eslint-disable-next-line no-await-in-loop
                   await removeAppLocally(`${appComponent.name}_${appSpecifications.name}`); // component
                   log.warn(`Application component ${appComponent.name}_${appSpecifications.name} removed. Awaiting installation...`);
@@ -5694,11 +5687,12 @@ async function reinstallOldApplications() {
                   // install the app
                   // eslint-disable-next-line no-await-in-loop
                   await registerAppLocally(appSpecifications, appComponent); // component
-                } catch (error) {
-                  log.error(error);
-                  removeAppLocally(appSpecifications.name, null, true); // remove entire app
                 }
               }
+            } catch (error) {
+              removalInProgress = false;
+              log.error(error);
+              removeAppLocally(appSpecifications.name, null, true); // remove entire app
             }
           }
         } else {
