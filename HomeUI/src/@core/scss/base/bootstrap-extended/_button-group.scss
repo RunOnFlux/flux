@@ -3,20 +3,20 @@
 //
 
 .dropdown-toggle-split {
-  padding-right: $btn-padding-x / 1.9;
-  padding-left: $btn-padding-x / 1.9;
+  padding-right: math.div($btn-padding-x, 1.9);
+  padding-left: math.div($btn-padding-x, 1.9);
 }
 
 .btn-lg + .dropdown-toggle-split,
 .btn-group-lg > .btn + .dropdown-toggle-split {
-  padding-right: $input-btn-padding-x-lg / 1.75;
-  padding-left: $input-btn-padding-x-lg / 1.75;
+  padding-right: math.div($input-btn-padding-x-lg, 1.75);
+  padding-left: math.div($input-btn-padding-x-lg, 1.75);
 }
 
 .btn-sm + .dropdown-toggle-split,
 .btn-group-sm > .btn + .dropdown-toggle-split {
-  padding-right: $input-btn-padding-x-sm / 1.9;
-  padding-left: $input-btn-padding-x-sm / 1.9;
+  padding-right: math.div($input-btn-padding-x-sm, 1.9);
+  padding-left: math.div($input-btn-padding-x-sm, 1.9);
 }
 
 // button group border
