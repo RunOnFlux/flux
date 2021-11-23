@@ -41,6 +41,7 @@ const myCache = new LRU(LRUoptions);
 
 let removalInProgress = false;
 let installationInProgress = false;
+let reinstallationOfOldAppsInProgress = false;
 
 const nodeSpecs = {
   cpuCores: 0,
@@ -1152,7 +1153,7 @@ async function appUninstallHard(appName, appId, appSpecifications, appComponent,
     }
   });
   const stopStatus2 = {
-    status: isComponent ? `Flux App Component ${appComponent} stopped ` : `Flux App ${appName} stopped`,
+    status: isComponent ? `Flux App Component ${appComponent} stopped` : `Flux App ${appName} stopped`,
   };
   log.info(stopStatus2);
   if (res) {
@@ -1559,7 +1560,7 @@ async function appUninstallSoft(appName, appId, appSpecifications, appComponent,
   await dockerService.appDockerStop(appId);
 
   const stopStatus2 = {
-    status: isComponent ? `Flux App Component ${appComponent} stopped ` : `Flux App ${appName} stopped`,
+    status: isComponent ? `Flux App Component ${appComponent} stopped` : `Flux App ${appName} stopped`,
   };
   log.info(stopStatus2);
   if (res) {
@@ -5286,7 +5287,7 @@ async function checkAndNotifyPeersOfRunningApps() {
     const runningSet = new Set(runningAppsNames);
     const stoppedApps = installedAppComponentNames.filter((installedApp) => !runningSet.has(installedApp));
     // check if stoppedApp is a global application present in specifics. If so, try to start it.
-    if (!removalInProgress && !installationInProgress) {
+    if (!removalInProgress && !installationInProgress && !reinstallationOfOldAppsInProgress) {
       // eslint-disable-next-line no-restricted-syntax
       for (const stoppedApp of stoppedApps) { // will uninstall app if some component is missing
         try {
@@ -5299,17 +5300,17 @@ async function checkAndNotifyPeersOfRunningApps() {
             // it is a stopped global app. Try to run it.
             const appId = dockerService.getAppIdentifier(stoppedApp);
             // check if some removal is in progress as if it is dont start it!
-            if (!removalInProgress && !installationInProgress) {
+            if (!removalInProgress && !installationInProgress && !reinstallationOfOldAppsInProgress) {
               log.warn(`${appId} is stopped, starting`);
               // eslint-disable-next-line no-await-in-loop
-              await dockerService.appDockerStart(appId);
+              await dockerService.appDockerStart(appId); // TODO this gets enetered even tho app is undergoing update
             } else {
               log.warn(`Not starting ${stoppedApp} as of application removal or installation in progress`);
             }
           }
         } catch (err) {
           log.error(err);
-          if (!removalInProgress && !installationInProgress) {
+          if (!removalInProgress && !installationInProgress && !reinstallationOfOldAppsInProgress) {
             const mainAppName = stoppedApp.split('_')[1] || stoppedApp;
             // already checked for mongo ok, daemon ok, docker ok.
             // eslint-disable-next-line no-await-in-loop
@@ -5558,6 +5559,7 @@ async function reinstallOldApplications() {
       throw new Error('Failed to get installed Apps');
     }
     const appsInstalled = installedAppsRes.data;
+    reinstallationOfOldAppsInProgress = true;
     // eslint-disable-next-line no-restricted-syntax
     for (const installedApp of appsInstalled) {
       // get current app specifications for the app name
@@ -5705,8 +5707,10 @@ async function reinstallOldApplications() {
       }
       // else specifications do not exist anymore, app shall expire itself
     }
+    reinstallationOfOldAppsInProgress = false;
   } catch (error) {
     log.error(error);
+    reinstallationOfOldAppsInProgress = false;
   }
 }
 
