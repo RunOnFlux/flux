@@ -236,7 +236,7 @@ async function appStop(req, res) {
         appRes = await dockerService.appDockerStop(appname);
       } else {
         // eslint-disable-next-line no-restricted-syntax
-        for (const appComponent of appSpecs.compose) {
+        for (const appComponent of appSpecs.compose.reverse()) {
           // eslint-disable-next-line no-await-in-loop
           await dockerService.appDockerStop(`${appComponent.name}_${appSpecs.name}`);
         }
@@ -344,7 +344,7 @@ async function appKill(req, res) {
         appRes = await dockerService.appDockerKill(appname);
       } else {
         // eslint-disable-next-line no-restricted-syntax
-        for (const appComponent of appSpecs.compose) {
+        for (const appComponent of appSpecs.compose.reverse()) {
           // eslint-disable-next-line no-await-in-loop
           await dockerService.appDockerKill(`${appComponent.name}_${appSpecs.name}`);
         }
@@ -398,7 +398,7 @@ async function appPause(req, res) {
         appRes = await dockerService.appDockerPause(appname);
       } else {
         // eslint-disable-next-line no-restricted-syntax
-        for (const appComponent of appSpecs.compose) {
+        for (const appComponent of appSpecs.compose.reverse()) {
           // eslint-disable-next-line no-await-in-loop
           await dockerService.appDockerPause(`${appComponent.name}_${appSpecs.name}`);
         }
@@ -1490,7 +1490,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
     if (appSpecifications.version === 4 && !isComponent) {
       // it is a composed application
       // eslint-disable-next-line no-restricted-syntax
-      for (const appComposedComponent of appSpecifications.compose) {
+      for (const appComposedComponent of appSpecifications.compose.reverse()) {
         isComponent = true;
         appId = dockerService.getAppIdentifier(`${appComposedComponent.name}_${appSpecifications.name}`);
         const appComponentSpecifications = appComposedComponent;
@@ -1686,7 +1686,7 @@ async function softRemoveAppLocally(app, res) {
   if (appSpecifications.version === 4 && !isComponent) {
     // it is a composed application
     // eslint-disable-next-line no-restricted-syntax
-    for (const appComposedComponent of appSpecifications.compose) {
+    for (const appComposedComponent of appSpecifications.compose.reverse()) {
       isComponent = true;
       appId = `${appComposedComponent.name}_${appSpecifications.name}`;
       const appComponentSpecifications = appComposedComponent;
@@ -5658,7 +5658,7 @@ async function reinstallOldApplications() {
             }
             try {
               // eslint-disable-next-line no-restricted-syntax
-              for (const appComponent of appSpecifications.compose) {
+              for (const appComponent of appSpecifications.compose.reverse()) {
                 if (appComponent.tiered) {
                   const hddTier = `hdd${tier}`;
                   const ramTier = `ram${tier}`;
