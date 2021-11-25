@@ -32,12 +32,25 @@ function writeToFile(filepath, args) {
   stream.end();
 }
 
+function debug(args) {
+  try {
+    console.log(args);
+    // write to file
+    const filepath = `${homeDirPath}debug.log`;
+    writeToFile(filepath, args);
+  } catch (err) {
+    console.error('This shall not have happened');
+    console.error(err);
+  }
+}
+
 function error(args) {
   try {
     console.error(args);
     // write to file
     const filepath = `${homeDirPath}error.log`;
     writeToFile(filepath, args);
+    debug(args);
   } catch (err) {
     console.error('This shall not have happened');
     console.error(err);
@@ -50,6 +63,7 @@ function warn(args) {
     // write to file
     const filepath = `${homeDirPath}warn.log`;
     writeToFile(filepath, args);
+    debug(args);
   } catch (err) {
     console.error('This shall not have happened');
     console.error(err);
@@ -62,18 +76,7 @@ function info(args) {
     // write to file
     const filepath = `${homeDirPath}info.log`;
     writeToFile(filepath, args);
-  } catch (err) {
-    console.error('This shall not have happened');
-    console.error(err);
-  }
-}
-
-function debug(args) {
-  try {
-    console.log(args);
-    // write to file
-    const filepath = `${homeDirPath}debug.log`;
-    writeToFile(filepath, args);
+    debug(args);
   } catch (err) {
     console.error('This shall not have happened');
     console.error(err);
