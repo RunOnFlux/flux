@@ -1468,7 +1468,7 @@
                     </template>
                     <template #cell(manage)="row">
                       <b-button
-                        :id="`manage-installed-app-${row.item.name}`"
+                        :id="`manage-local-app-${row.item.name}`"
                         size="sm"
                         class="mr-0"
                         variant="danger"
@@ -1476,7 +1476,7 @@
                         Manage
                       </b-button>
                       <confirm-dialog
-                        :target="`manage-installed-app-${row.item.name}`"
+                        :target="`manage-local-app-${row.item.name}`"
                         confirm-button="Manage App"
                         @confirm="openAppManagement(row.item.name)"
                       />

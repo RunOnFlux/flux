@@ -3391,6 +3391,9 @@ async function checkApplicationUpdateNameRepositoryConflicts(specifications, ver
       }
     }
   });
+  if (!latestPermanentRegistrationMessage) {
+    throw new Error(`Flux App ${specifications.name} update message received but permanent message of parameters does not exist!`);
+  }
   const appSpecs = latestPermanentRegistrationMessage.appSpecifications || latestPermanentRegistrationMessage.zelAppSpecifications;
   if (!appSpecs) {
     throw new Error(`Flux App ${specifications.name} update message received but application does not exists!`);
