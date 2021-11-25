@@ -114,6 +114,29 @@
           </b-row>
         </b-card>
       </b-overlay>
+      <b-card>
+        <h4>Add Peer</h4>
+        <div class="mt-1">
+          IP address:
+        </div>
+        <b-form-input
+          id="ip"
+          v-model="addPeerIP"
+          class="mb-2"
+          placeholder="Eneter IP address"
+          type="text"
+        />
+        <div>
+          <b-button
+            variant="success"
+            aria-label="Initiate connection"
+            class="mb-2"
+            @click="addPeer"
+          >
+            Initiate connection
+          </b-button>
+        </div>
+      </b-card>
     </b-tab>
     <b-tab title="Incoming">
       <b-overlay
@@ -312,6 +335,7 @@ export default {
           loading: true,
         },
       },
+      addPeerIP: '',
     };
   },
   computed: {
@@ -381,6 +405,24 @@ export default {
         }, 2500);
       } else {
         self.fluxIncomingConnectionsInfo();
+      }
+    },
+    async addPeer() {
+      const self = this;
+      const zelidauth = localStorage.getItem('zelidauth');
+      const response = await FluxService.addPeer(zelidauth, this.addPeerIP).catch((error) => {
+        this.showToast('danger', error.message || error);
+      });
+      console.log(response);
+      if (response.data.status === 'success') {
+        this.showToast(response.data.status, response.data.data.message || response.data.data);
+        this.config.incoming.loading = true;
+        setTimeout(() => {
+          self.fluxConnectedPeersInfo();
+        }, 2500);
+      } else {
+        this.showToast('danger', response.data.data.message || response.data.data);
+        self.fluxConnectedPeersInfo();
       }
     },
     onFilteredOutgoing(filteredItems) {
