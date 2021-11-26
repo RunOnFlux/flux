@@ -248,11 +248,9 @@
             <b-card-text class="mr-1 mb-0">
               Block Height
             </b-card-text>
-            <b-form-spinbutton
+            <input-spin-button
               id="sb-vertical"
               v-model="rescanFluxHeight"
-              min="0"
-              max="2000000"
               style="width: 250px;"
             />
             <b-button
@@ -277,11 +275,9 @@
             <b-card-text class="mr-1 mb-0">
               Block Height
             </b-card-text>
-            <b-form-spinbutton
+            <input-spin-button
               id="sb-vertical"
               v-model="rescanExplorerHeight"
-              min="0"
-              max="2000000"
               style="width: 250px;"
             />
             <b-button
@@ -318,11 +314,9 @@
             <b-card-text class="mr-1 mb-0">
               Block Height
             </b-card-text>
-            <b-form-spinbutton
+            <input-spin-button
               id="sb-vertical"
               v-model="rescanGlobalAppsHeight"
-              min="0"
-              max="2000000"
               style="width: 250px;"
             />
             <b-form-checkbox
@@ -470,6 +464,7 @@ import ToastificationContent from '@core/components/toastification/Toastificatio
 import Ripple from 'vue-ripple-directive';
 import axios from 'axios';
 import ConfirmDialog from '@/views/components/ConfirmDialog.vue';
+import InputSpinButton from '@/views/components/InputSpinButton.vue';
 
 import FluxService from '@/services/FluxService';
 import ExplorerService from '@/services/ExplorerService';
@@ -492,6 +487,7 @@ export default {
     ConfirmDialog,
     // eslint-disable-next-line vue/no-unused-components
     ToastificationContent,
+    InputSpinButton,
   },
   directives: {
     'b-tooltip': VBTooltip,

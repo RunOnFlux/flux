@@ -97,11 +97,9 @@
             <b-card-text class="mr-1 mb-0">
               Block Height
             </b-card-text>
-            <b-form-spinbutton
+            <input-spin-button
               id="sb-vertical"
               v-model="rescanDaemonHeight"
-              min="0"
-              max="2000000"
               style="width: 250px;"
             />
             <b-button
@@ -159,13 +157,13 @@ import {
   BCol,
   BCardText,
   BButton,
-  BFormSpinbutton,
   // VBTooltip,
 } from 'bootstrap-vue';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 import Ripple from 'vue-ripple-directive';
 import axios from 'axios';
 import ConfirmDialog from '@/views/components/ConfirmDialog.vue';
+import InputSpinButton from '@/views/components/InputSpinButton.vue';
 
 import DaemonService from '@/services/DaemonService';
 import FluxService from '@/services/FluxService';
@@ -181,7 +179,7 @@ export default {
     BCol,
     BCardText,
     BButton,
-    BFormSpinbutton,
+    InputSpinButton,
     ConfirmDialog,
     // eslint-disable-next-line vue/no-unused-components
     ToastificationContent,
