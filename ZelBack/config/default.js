@@ -90,9 +90,9 @@ module.exports = {
       1: 0, // blockheight v1 is deprecated. Not possible to use api to update to its specs
       2: 0, // blockheight
       3: 983000, // blockheight. Since this blockheight specification of type 3 is active. User can still submit v1 or v2. UI allows only v2, v3
-      4: 990000, // v4 available
+      4: 1004000, // v4 available
     },
-    address: 't1NG7vr4D5iD6UF78fA75uW2U1qwkcpY9pw',
+    address: 't1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6',
     epochstart: 694000,
     publicepochstart: 705000,
     portMin: 31000, // ports 30000 - 30999 are reserved for local applications
@@ -102,24 +102,24 @@ module.exports = {
     maximumInstances: 100,
     maximumAdditionalInstances: 5, // max instances above subscribed amount. In case of min instances, this is minimumInstances + maximumAdditionalInstances
     minOutgoing: 5,
-    minIncoming: 0,
+    minIncoming: 2,
     installation: {
-      probability: 1, // 1%
+      probability: 100, // 1%
       delay: 120, // in seconds
     },
     removal: {
-      probability: 1, // 4%
+      probability: 25, // 4%
       delay: 300,
     },
     redeploy: {
-      probability: 1, // 50%
+      probability: 2, // 50%
       delay: 30,
       composedDelay: 5,
     },
-    blocksLasting: 50, // registered app will live for 22000 of blocks 44000 minutes ~= 1 month
-    expireFluxAppsPeriod: 20, // every 100 blocks we run a check that deletes apps specifications and stops/removes the application from existence if it has been lastly updated more than 22k blocks ago
-    updateFluxAppsPeriod: 4, // every 9 blocks we check for reinstalling of old application versions
-    removeFluxAppsPeriod: 6, // every 11 blocks we check for more than maximum number of instances of an application
+    blocksLasting: 22000, // registered app will live for 22000 of blocks 44000 minutes ~= 1 month
+    expireFluxAppsPeriod: 100, // every 100 blocks we run a check that deletes apps specifications and stops/removes the application from existence if it has been lastly updated more than 22k blocks ago
+    updateFluxAppsPeriod: 9, // every 9 blocks we check for reinstalling of old application versions
+    removeFluxAppsPeriod: 11, // every 11 blocks we check for more than maximum number of instances of an application
   },
   lockedSystemResources: {
     cpu: 10, // 1 cpu core
