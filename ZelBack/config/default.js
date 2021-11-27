@@ -78,11 +78,19 @@ module.exports = {
       ram: 0.1, // per 100mb,
       hdd: 0.05, // per 1gb,
       minPrice: 0.1, // minimum price that has to be paid for registration or update. Flux listens only to message above or equal this price
+    },
+    {
+      height: 1004000, // height from which price spec is valid. Counts from when app was registerd on blockchain! 1004000
+      cpu: 0.06, // per 0.1 cpu core,
+      ram: 0.02, // per 100mb,
+      hdd: 0.01, // per 1gb,
+      minPrice: 0.01, // minimum price that has to be paid for registration or update. Flux listens only to message above or equal this price
     }],
     appSpecsEnforcementHeights: {
-      1: 0, // blockheight
+      1: 0, // blockheight v1 is deprecated. Not possible to use api to update to its specs
       2: 0, // blockheight
       3: 983000, // blockheight. Since this blockheight specification of type 3 is active. User can still submit v1 or v2. UI allows only v2, v3
+      4: 1004000, // v4 available
     },
     address: 't1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6',
     epochstart: 694000,
@@ -91,6 +99,7 @@ module.exports = {
     portMax: 39999,
     maxImageSize: 500000000, // 500mb possibly increase later
     minimumInstances: 3,
+    maximumInstances: 100,
     maximumAdditionalInstances: 5, // max instances above subscribed amount. In case of min instances, this is minimumInstances + maximumAdditionalInstances
     minOutgoing: 5,
     minIncoming: 2,
@@ -105,6 +114,7 @@ module.exports = {
     redeploy: {
       probability: 2, // 50%
       delay: 30,
+      composedDelay: 5,
     },
     blocksLasting: 22000, // registered app will live for 22000 of blocks 44000 minutes ~= 1 month
     expireFluxAppsPeriod: 100, // every 100 blocks we run a check that deletes apps specifications and stops/removes the application from existence if it has been lastly updated more than 22k blocks ago

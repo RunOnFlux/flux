@@ -44,158 +44,233 @@
           v-if="callResponse.data"
           style="text-align: left"
         >
-          <list-entry
-            title="Name"
-            :data="callResponse.data.name"
-            classes="mb-0"
-          />
-          <list-entry
-            title="Description"
-            :data="callResponse.data.description"
-            classes="mb-0"
-          />
-          <list-entry
-            v-if="callResponse.data.domains"
-            title="Domains"
-            :data="callResponse.data.domains.toString()"
-            classes="mb-0"
-          />
-          <list-entry
-            title="Specifications Hash"
-            :data="callResponse.data.hash"
-            classes="mb-0"
-          />
-          <list-entry
-            title="Repository"
-            :data="callResponse.data.repotag"
-            classes="mb-0"
-          />
-          <list-entry
-            title="Owner"
-            :data="callResponse.data.owner"
-            classes="mb-0"
-          />
-          <list-entry
-            title="Registered on Blockheight"
-            :number="callResponse.data.height"
-            classes="mb-0"
-          />
-          <list-entry
-            v-if="callResponse.data.hash && callResponse.data.hash.length === 64"
-            title="Expires on Blockheight"
-            :number="callResponse.data.height + 22000"
-            classes="mb-0"
-          />
-          <list-entry
-            title="Specifications version"
-            :number="callResponse.data.version"
-            classes="mb-0"
-          />
-          <list-entry
-            v-if="callResponse.data.port || callResponse.data.ports"
-            title="Public Ports"
-            :data="(callResponse.data.port || callResponse.data.ports).toString()"
-            classes="mb-0"
-          />
-          <list-entry
-            v-if="callResponse.data.containerPort || callResponse.data.containerPorts"
-            title="Forwarded Ports"
-            :data="(callResponse.data.containerPort || callResponse.data.containerPorts).toString()"
-            classes="mb-0"
-          />
-          <list-entry
-            title="Application Data"
-            :data="callResponse.data.containerData"
-            classes="mb-0"
-          />
-          <list-entry
-            v-if="callResponse.data.enviromentParameters"
-            title="Application Enviroment"
-            :data="callResponse.data.enviromentParameters.toString()"
-            classes="mb-0"
-          />
-          <list-entry
-            v-if="callResponse.data.commands"
-            title="Application Commands"
-            :data="callResponse.data.commands.toString()"
-            classes="mb-0"
-          />
-          <list-entry
-            v-if="callResponse.data.instances"
-            title="Number of Instances"
-            :data="callResponse.data.instances.toString()"
-            classes="mb-0"
-          />
-          <list-entry
-            v-if="callResponse.data.tiered"
-            title="Tiered Specifications"
-            :data="callResponse.data.tiered.toString()"
-            classes="mb-0"
-          />
-          <div v-if="callResponse.data.tiered">
+          <b-card class="mx-2">
             <list-entry
-              title=" - Stratus CPU"
-              :data="`${callResponse.data.cpubamf} Cores`"
-              classes="mb-0"
+              title="Description"
+              :data="callResponse.data.name"
             />
             <list-entry
-              title=" - Stratus RAM"
-              :data="`${callResponse.data.rambamf} MB`"
-              classes="mb-0"
+              title="Description"
+              :data="callResponse.data.description"
             />
             <list-entry
-              title=" - Stratus SSD"
-              :data="`${callResponse.data.hddbamf} GB`"
-              classes="mb-0"
+              title="Owner"
+              :data="callResponse.data.owner"
             />
             <list-entry
-              title=" - Nimbus CPU"
-              :data="`${callResponse.data.cpusuper} Cores`"
-              classes="mb-0"
+              title="Hash"
+              :data="callResponse.data.hash"
             />
             <list-entry
-              title=" - Nimbus RAM"
-              :data="`${callResponse.data.ramsuper} MB`"
-              classes="mb-0"
+              v-if="callResponse.data.instances"
+              title="Instances"
+              :data="callResponse.data.instances.toString()"
             />
             <list-entry
-              title=" - Nimbus SSD"
-              :data="`${callResponse.data.hddsuper} GB`"
-              classes="mb-0"
+              title="Specifications version"
+              :number="callResponse.data.version"
             />
             <list-entry
-              title=" - Cumulus CPU"
-              :data="`${callResponse.data.cpubasic} Cores`"
-              classes="mb-0"
+              title="Registered on Blockheight"
+              :number="callResponse.data.height"
             />
             <list-entry
-              title=" - Cumulus RAM"
-              :data="`${callResponse.data.rambasic} MB`"
-              classes="mb-0"
+              v-if="callResponse.data.hash && callResponse.data.hash.length === 64"
+              title="Expires on Blockheight"
+              :number="callResponse.data.height + 22000"
             />
-            <list-entry
-              title=" - Cumulus SSD"
-              :data="`${callResponse.data.hddbasic} GB`"
-              classes="mb-0"
-            />
-          </div>
-          <div v-else>
-            <list-entry
-              title="CPU"
-              :data="`${callResponse.data.cpu} Cores`"
-              classes="mb-0"
-            />
-            <list-entry
-              title="RAM"
-              :data="`${callResponse.data.ram} MB`"
-              classes="mb-0"
-            />
-            <list-entry
-              title="SSD"
-              :data="`${callResponse.data.hdd} GB`"
-              classes="mb-0"
-            />
-          </div>
+            <h4>Composition</h4>
+            <div v-if="callResponse.data.version <= 3">
+              <b-card>
+                <list-entry
+                  title="Repository"
+                  :data="callResponse.data.repotag"
+                />
+                <list-entry
+                  title="Custom Domains"
+                  :data="callResponse.data.domains.toString() || 'none'"
+                />
+                <list-entry
+                  title="Automatic Domains"
+                  :data="constructAutomaticDomains"
+                />
+                <list-entry
+                  title="Ports"
+                  :data="callResponse.data.ports.toString()"
+                />
+                <list-entry
+                  title="Container Ports"
+                  :data="callResponse.data.containerPorts.toString()"
+                />
+                <list-entry
+                  title="Container Data"
+                  :data="callResponse.data.containerData"
+                />
+                <list-entry
+                  title="Enviroment Parameters"
+                  :data="callResponse.data.enviromentParameters.length > 0 ? callResponse.data.enviromentParameters.toString() : 'none'"
+                />
+                <list-entry
+                  title="Commands"
+                  :data="callResponse.data.commands.length > 0 ? callResponse.data.commands.toString() : 'none'"
+                />
+                <div v-if="callResponse.data.tiered">
+                  <list-entry
+                    title="CPU Cumulus"
+                    :data="callResponse.data.cpubasic + ' vCore'"
+                  />
+                  <list-entry
+                    title="CPU Nimbus"
+                    :data="callResponse.data.cpusuper + ' vCore'"
+                  />
+                  <list-entry
+                    title="CPU Stratus"
+                    :data="callResponse.data.cpubamf + ' vCore'"
+                  />
+                  <list-entry
+                    title="RAM Cumulus"
+                    :data="callResponse.data.rambasic + ' MB'"
+                  />
+                  <list-entry
+                    title="RAM Nimbus"
+                    :data="callResponse.data.ramsuper + ' MB'"
+                  />
+                  <list-entry
+                    title="RAM Stratus"
+                    :data="callResponse.data.rambamf + ' MB'"
+                  />
+                  <list-entry
+                    title="SSD Cumulus"
+                    :data="callResponse.data.hddbasic + ' GB'"
+                  />
+                  <list-entry
+                    title="SSD Nimbus"
+                    :data="callResponse.data.hddsuper + ' GB'"
+                  />
+                  <list-entry
+                    title="SSD Stratus"
+                    :data="callResponse.data.hddbamf + ' GB'"
+                  />
+                </div>
+                <div v-else>
+                  <list-entry
+                    title="CPU"
+                    :data="callResponse.data.cpu + ' vCore'"
+                  />
+                  <list-entry
+                    title="RAM"
+                    :data="callResponse.data.ram + ' MB'"
+                  />
+                  <list-entry
+                    title="SSD"
+                    :data="callResponse.data.hdd + ' GB'"
+                  />
+                </div>
+              </b-card>
+            </div>
+            <div v-else>
+              <b-card
+                v-for="(component, index) in callResponse.data.compose"
+                :key="index"
+              >
+                <b-card-title>
+                  Component {{ component.name }}
+                </b-card-title>
+                <list-entry
+                  title="Name"
+                  :data="component.name"
+                />
+                <list-entry
+                  title="Description"
+                  :data="component.description"
+                />
+                <list-entry
+                  title="Repository"
+                  :data="component.repotag"
+                />
+                <list-entry
+                  title="Custom Domains"
+                  :data="component.domains.toString() || 'none'"
+                />
+                <list-entry
+                  title="Automatic Domains"
+                  :data="constructAutomaticDomains[index]"
+                />
+                <list-entry
+                  title="Ports"
+                  :data="component.ports.toString()"
+                />
+                <list-entry
+                  title="Container Ports"
+                  :data="component.containerPorts.toString()"
+                />
+                <list-entry
+                  title="Container Data"
+                  :data="component.containerData"
+                />
+                <list-entry
+                  title="Enviroment Parameters"
+                  :data="component.enviromentParameters.length > 0 ? component.enviromentParameters.toString() : 'none'"
+                />
+                <list-entry
+                  title="Commands"
+                  :data="component.commands.length > 0 ? component.commands.toString() : 'none'"
+                />
+                <div v-if="component.tiered">
+                  <list-entry
+                    title="CPU Cumulus"
+                    :data="component.cpubasic + ' vCore'"
+                  />
+                  <list-entry
+                    title="CPU Nimbus"
+                    :data="component.cpusuper + ' vCore'"
+                  />
+                  <list-entry
+                    title="CPU Stratus"
+                    :data="component.cpubamf + ' vCore'"
+                  />
+                  <list-entry
+                    title="RAM Cumulus"
+                    :data="component.rambasic + ' MB'"
+                  />
+                  <list-entry
+                    title="RAM Nimbus"
+                    :data="component.ramsuper + ' MB'"
+                  />
+                  <list-entry
+                    title="RAM Stratus"
+                    :data="component.rambamf + ' MB'"
+                  />
+                  <list-entry
+                    title="SSD Cumulus"
+                    :data="component.hddbasic + ' GB'"
+                  />
+                  <list-entry
+                    title="SSD Nimbus"
+                    :data="component.hddsuper + ' GB'"
+                  />
+                  <list-entry
+                    title="SSD Stratus"
+                    :data="component.hddbamf + ' GB'"
+                  />
+                </div>
+                <div v-else>
+                  <list-entry
+                    title="CPU"
+                    :data="component.cpu + ' vCore'"
+                  />
+                  <list-entry
+                    title="RAM"
+                    :data="component.ram + ' MB'"
+                  />
+                  <list-entry
+                    title="SSD"
+                    :data="component.hdd + ' GB'"
+                  />
+                </div>
+              </b-card>
+            </div>
+          </b-card>
         </div>
         <div v-else>
           Local Specifications loading...
@@ -207,158 +282,233 @@
           v-if="callBResponse.data"
           style="text-align: left"
         >
-          <list-entry
-            title="Name"
-            :data="callBResponse.data.name"
-            classes="mb-0"
-          />
-          <list-entry
-            title="Description"
-            :data="callBResponse.data.description"
-            classes="mb-0"
-          />
-          <list-entry
-            v-if="callBResponse.data.domains"
-            title="Domains"
-            :data="callBResponse.data.domains.toString()"
-            classes="mb-0"
-          />
-          <list-entry
-            title="Specifications Hash"
-            :data="callBResponse.data.hash"
-            classes="mb-0"
-          />
-          <list-entry
-            title="Repository"
-            :data="callBResponse.data.repotag"
-            classes="mb-0"
-          />
-          <list-entry
-            title="Owner"
-            :data="callBResponse.data.owner"
-            classes="mb-0"
-          />
-          <list-entry
-            title="Registered on Blockheight"
-            :number="callBResponse.data.height"
-            classes="mb-0"
-          />
-          <list-entry
-            v-if="callBResponse.data.hash && callBResponse.data.hash.length === 64"
-            title="Expires on Blockheight"
-            :number="callBResponse.data.height + 22000"
-            classes="mb-0"
-          />
-          <list-entry
-            title="Specifications version"
-            :number="callBResponse.data.version"
-            classes="mb-0"
-          />
-          <list-entry
-            v-if="callBResponse.data.port || callBResponse.data.ports"
-            title="Public Ports"
-            :data="(callBResponse.data.port || callBResponse.data.ports).toString()"
-            classes="mb-0"
-          />
-          <list-entry
-            v-if="callBResponse.data.containerPort || callBResponse.data.containerPorts"
-            title="Forwarded Ports"
-            :data="(callBResponse.data.containerPort || callBResponse.data.containerPorts).toString()"
-            classes="mb-0"
-          />
-          <list-entry
-            title="Application Data"
-            :data="callBResponse.data.containerData"
-            classes="mb-0"
-          />
-          <list-entry
-            v-if="callBResponse.data.enviromentParameters"
-            title="Application Enviroment"
-            :data="callBResponse.data.enviromentParameters.toString()"
-            classes="mb-0"
-          />
-          <list-entry
-            v-if="callBResponse.data.commands"
-            title="Application Commands"
-            :data="callBResponse.data.commands.toString()"
-            classes="mb-0"
-          />
-          <list-entry
-            v-if="callBResponse.data.instances"
-            title="Number of Instances"
-            :data="callBResponse.data.instances.toString()"
-            classes="mb-0"
-          />
-          <list-entry
-            v-if="callBResponse.data.tiered"
-            title="Tiered Specifications"
-            :data="callBResponse.data.tiered.toString()"
-            classes="mb-0"
-          />
-          <div v-if="callBResponse.data.tiered">
+          <b-card class="mx-2">
             <list-entry
-              title=" - Stratus CPU"
-              :data="`${callBResponse.data.cpubamf} Cores`"
-              classes="mb-0"
+              title="Description"
+              :data="callBResponse.data.name"
             />
             <list-entry
-              title=" - Stratus RAM"
-              :data="`${callBResponse.data.rambamf} MB`"
-              classes="mb-0"
+              title="Description"
+              :data="callBResponse.data.description"
             />
             <list-entry
-              title=" - Stratus SSD"
-              :data="`${callBResponse.data.hddbamf} GB`"
-              classes="mb-0"
+              title="Owner"
+              :data="callBResponse.data.owner"
             />
             <list-entry
-              title=" - Nimbus CPU"
-              :data="`${callBResponse.data.cpusuper} Cores`"
-              classes="mb-0"
+              title="Hash"
+              :data="callBResponse.data.hash"
             />
             <list-entry
-              title=" - Nimbus RAM"
-              :data="`${callBResponse.data.ramsuper} MB`"
-              classes="mb-0"
+              v-if="callBResponse.data.instances"
+              title="Instances"
+              :data="callBResponse.data.instances.toString()"
             />
             <list-entry
-              title=" - Nimbus SSD"
-              :data="`${callBResponse.data.hddsuper} GB`"
-              classes="mb-0"
+              title="Specifications version"
+              :number="callBResponse.data.version"
             />
             <list-entry
-              title=" - Cumulus CPU"
-              :data="`${callBResponse.data.cpubasic} Cores`"
-              classes="mb-0"
+              title="Registered on Blockheight"
+              :number="callBResponse.data.height"
             />
             <list-entry
-              title=" - Cumulus RAM"
-              :data="`${callBResponse.data.rambasic} MB`"
-              classes="mb-0"
+              v-if="callBResponse.data.hash && callBResponse.data.hash.length === 64"
+              title="Expires on Blockheight"
+              :number="callBResponse.data.height + 22000"
             />
-            <list-entry
-              title=" - Cumulus SSD"
-              :data="`${callBResponse.data.hddbasic} GB`"
-              classes="mb-0"
-            />
-          </div>
-          <div v-else>
-            <list-entry
-              title="CPU"
-              :data="`${callBResponse.data.cpu} Cores`"
-              classes="mb-0"
-            />
-            <list-entry
-              title="RAM"
-              :data="`${callBResponse.data.ram} MB`"
-              classes="mb-0"
-            />
-            <list-entry
-              title="SSD"
-              :data="`${callBResponse.data.hdd} GB`"
-              classes="mb-0"
-            />
-          </div>
+            <h4>Composition</h4>
+            <div v-if="callBResponse.data.version <= 3">
+              <b-card>
+                <list-entry
+                  title="Repository"
+                  :data="callBResponse.data.repotag"
+                />
+                <list-entry
+                  title="Custom Domains"
+                  :data="callBResponse.data.domains.toString() || 'none'"
+                />
+                <list-entry
+                  title="Automatic Domains"
+                  :data="constructAutomaticDomainsGlobal"
+                />
+                <list-entry
+                  title="Ports"
+                  :data="callBResponse.data.ports.toString()"
+                />
+                <list-entry
+                  title="Container Ports"
+                  :data="callBResponse.data.containerPorts.toString()"
+                />
+                <list-entry
+                  title="Container Data"
+                  :data="callBResponse.data.containerData"
+                />
+                <list-entry
+                  title="Enviroment Parameters"
+                  :data="callBResponse.data.enviromentParameters.length > 0 ? callBResponse.data.enviromentParameters.toString() : 'none'"
+                />
+                <list-entry
+                  title="Commands"
+                  :data="callBResponse.data.commands.length > 0 ? callBResponse.data.commands.toString() : 'none'"
+                />
+                <div v-if="callBResponse.data.tiered">
+                  <list-entry
+                    title="CPU Cumulus"
+                    :data="callBResponse.data.cpubasic + ' vCore'"
+                  />
+                  <list-entry
+                    title="CPU Nimbus"
+                    :data="callBResponse.data.cpusuper + ' vCore'"
+                  />
+                  <list-entry
+                    title="CPU Stratus"
+                    :data="callBResponse.data.cpubamf + ' vCore'"
+                  />
+                  <list-entry
+                    title="RAM Cumulus"
+                    :data="callBResponse.data.rambasic + ' MB'"
+                  />
+                  <list-entry
+                    title="RAM Nimbus"
+                    :data="callBResponse.data.ramsuper + ' MB'"
+                  />
+                  <list-entry
+                    title="RAM Stratus"
+                    :data="callBResponse.data.rambamf + ' MB'"
+                  />
+                  <list-entry
+                    title="SSD Cumulus"
+                    :data="callBResponse.data.hddbasic + ' GB'"
+                  />
+                  <list-entry
+                    title="SSD Nimbus"
+                    :data="callBResponse.data.hddsuper + ' GB'"
+                  />
+                  <list-entry
+                    title="SSD Stratus"
+                    :data="callBResponse.data.hddbamf + ' GB'"
+                  />
+                </div>
+                <div v-else>
+                  <list-entry
+                    title="CPU"
+                    :data="callBResponse.data.cpu + ' vCore'"
+                  />
+                  <list-entry
+                    title="RAM"
+                    :data="callBResponse.data.ram + ' MB'"
+                  />
+                  <list-entry
+                    title="SSD"
+                    :data="callBResponse.data.hdd + ' GB'"
+                  />
+                </div>
+              </b-card>
+            </div>
+            <div v-else>
+              <b-card
+                v-for="(component, index) in callBResponse.data.compose"
+                :key="index"
+              >
+                <b-card-title>
+                  Component {{ component.name }}
+                </b-card-title>
+                <list-entry
+                  title="Name"
+                  :data="component.name"
+                />
+                <list-entry
+                  title="Description"
+                  :data="component.description"
+                />
+                <list-entry
+                  title="Repository"
+                  :data="component.repotag"
+                />
+                <list-entry
+                  title="Custom Domains"
+                  :data="component.domains.toString() || 'none'"
+                />
+                <list-entry
+                  title="Automatic Domains"
+                  :data="constructAutomaticDomainsGlobal[index]"
+                />
+                <list-entry
+                  title="Ports"
+                  :data="component.ports.toString()"
+                />
+                <list-entry
+                  title="Container Ports"
+                  :data="component.containerPorts.toString()"
+                />
+                <list-entry
+                  title="Container Data"
+                  :data="component.containerData"
+                />
+                <list-entry
+                  title="Enviroment Parameters"
+                  :data="component.enviromentParameters.length > 0 ? component.enviromentParameters.toString() : 'none'"
+                />
+                <list-entry
+                  title="Commands"
+                  :data="component.commands.length > 0 ? component.commands.toString() : 'none'"
+                />
+                <div v-if="component.tiered">
+                  <list-entry
+                    title="CPU Cumulus"
+                    :data="component.cpubasic + ' vCore'"
+                  />
+                  <list-entry
+                    title="CPU Nimbus"
+                    :data="component.cpusuper + ' vCore'"
+                  />
+                  <list-entry
+                    title="CPU Stratus"
+                    :data="component.cpubamf + ' vCore'"
+                  />
+                  <list-entry
+                    title="RAM Cumulus"
+                    :data="component.rambasic + ' MB'"
+                  />
+                  <list-entry
+                    title="RAM Nimbus"
+                    :data="component.ramsuper + ' MB'"
+                  />
+                  <list-entry
+                    title="RAM Stratus"
+                    :data="component.rambamf + ' MB'"
+                  />
+                  <list-entry
+                    title="SSD Cumulus"
+                    :data="component.hddbasic + ' GB'"
+                  />
+                  <list-entry
+                    title="SSD Nimbus"
+                    :data="component.hddsuper + ' GB'"
+                  />
+                  <list-entry
+                    title="SSD Stratus"
+                    :data="component.hddbamf + ' GB'"
+                  />
+                </div>
+                <div v-else>
+                  <list-entry
+                    title="CPU"
+                    :data="component.cpu + ' vCore'"
+                  />
+                  <list-entry
+                    title="RAM"
+                    :data="component.ram + ' MB'"
+                  />
+                  <list-entry
+                    title="SSD"
+                    :data="component.hdd + ' GB'"
+                  />
+                </div>
+              </b-card>
+            </div>
+          </b-card>
         </div>
         <div v-else-if="callBResponse.status === 'error'">
           Global specifications not found!
@@ -371,89 +521,209 @@
         title="Information"
         :disabled="!isApplicationInstalledLocally"
       >
-        <b-form-textarea
-          v-if="callResponse.data"
-          plaintext
-          no-resize
-          rows="30"
-          :value="JSON.stringify(callResponse.data, null, 4)"
-        />
+        <h3>{{ appSpecification.name }}</h3>
+        <div v-if="appSpecification.version >= 4">
+          <div
+            v-for="(component, index) in callResponse.data"
+            :key="index"
+          >
+            <h4>{{ component.name }} Component</h4>
+            <b-form-textarea
+              v-if="component.callData"
+              plaintext
+              no-resize
+              rows="15"
+              :value="JSON.stringify(component.callData, null, 4)"
+            />
+          </div>
+        </div>
+        <div v-else>
+          <b-form-textarea
+            v-if="callResponse.data && callResponse.data[0]"
+            plaintext
+            no-resize
+            rows="15"
+            :value="JSON.stringify(callResponse.data[0].callData, null, 4)"
+          />
+        </div>
       </b-tab>
       <b-tab
         title="Resources"
         :disabled="!isApplicationInstalledLocally"
       >
-        <b-form-textarea
-          v-if="callResponse.data"
-          plaintext
-          no-resize
-          rows="30"
-          :value="stringifiedResponse"
-        />
+        <h3>{{ appSpecification.name }}</h3>
+        <div v-if="appSpecification.version >= 4">
+          <div
+            v-for="(component, index) in callResponse.data"
+            :key="index"
+          >
+            <h4>{{ component.name }} Component</h4>
+            <b-form-textarea
+              v-if="component.callData"
+              plaintext
+              no-resize
+              rows="15"
+              :value="JSON.stringify(component.callData, null, 4)"
+            />
+          </div>
+        </div>
+        <div v-else>
+          <b-form-textarea
+            v-if="callResponse.data && callResponse.data[0]"
+            plaintext
+            no-resize
+            rows="15"
+            :value="JSON.stringify(callResponse.data[0].callData, null, 4)"
+          />
+        </div>
       </b-tab>
       <b-tab
         title="File Changes"
         :disabled="!isApplicationInstalledLocally"
       >
-        <b-form-textarea
-          v-if="callResponse.data"
-          plaintext
-          no-resize
-          rows="30"
-          :value="JSON.stringify(callResponse.data, null, 4)"
-        />
+        <h3>{{ appSpecification.name }}</h3>
+        <div v-if="appSpecification.version >= 4">
+          <div
+            v-for="(component, index) in callResponse.data"
+            :key="index"
+          >
+            <h4>{{ component.name }} Component</h4>
+            <b-form-textarea
+              v-if="component.callData"
+              plaintext
+              no-resize
+              rows="15"
+              :value="JSON.stringify(component.callData, null, 4)"
+            />
+          </div>
+        </div>
+        <div v-else>
+          <b-form-textarea
+            v-if="callResponse.data && callResponse.data[0]"
+            plaintext
+            no-resize
+            rows="15"
+            :value="JSON.stringify(callResponse.data[0].callData, null, 4)"
+          />
+        </div>
       </b-tab>
       <b-tab
         title="Processes"
         :disabled="!isApplicationInstalledLocally"
       >
-        <b-form-textarea
-          v-if="callResponse.data"
-          plaintext
-          no-resize
-          rows="30"
-          :value="JSON.stringify(callResponse.data, null, 4)"
-        />
+        <h3>{{ appSpecification.name }}</h3>
+        <div v-if="appSpecification.version >= 4">
+          <div
+            v-for="(component, index) in callResponse.data"
+            :key="index"
+          >
+            <h4>{{ component.name }} Component</h4>
+            <b-form-textarea
+              v-if="component.callData"
+              plaintext
+              no-resize
+              rows="15"
+              :value="JSON.stringify(component.callData, null, 4)"
+            />
+          </div>
+        </div>
+        <div v-else>
+          <b-form-textarea
+            v-if="callResponse.data && callResponse.data[0]"
+            plaintext
+            no-resize
+            rows="15"
+            :value="JSON.stringify(callResponse.data[0].callData, null, 4)"
+          />
+        </div>
       </b-tab>
       <b-tab
         title="Log File"
         :disabled="!isApplicationInstalledLocally"
       >
-        <div class="text-center">
-          <h6>
-            Click the 'Download Log File' button to download the Log file from your Application debug file. This may take a few minutes depending on file size.
-          </h6>
-          <div>
-            <b-button
-              id="start-download-log"
-              v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-              variant="outline-primary"
-              size="md"
-              class="mt-2"
-            >
-              Download Debug File
-            </b-button>
-            <confirm-dialog
-              target="start-download-log"
-              confirm-button="Download Log"
-              @confirm="downloadApplicationLog()"
-            />
+        <h3>{{ appSpecification.name }}</h3>
+        <div v-if="appSpecification.version >= 4">
+          <div
+            v-for="(component, index) in callResponse.data"
+            :key="index"
+          >
+            <h4>{{ component.name }} Component</h4>
+            <div class="text-center">
+              <h6>
+                Click the 'Download Log File' button to download the Log file from your Application debug file. This may take a few minutes depending on file size.
+              </h6>
+              <div>
+                <b-button
+                  :id="`start-download-log-${component.name}_${appSpecification.name}`"
+                  v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                  variant="outline-primary"
+                  size="md"
+                  class="mt-2"
+                >
+                  Download Debug File
+                </b-button>
+                <confirm-dialog
+                  :target="`start-download-log-${component.name}_${appSpecification.name}`"
+                  confirm-button="Download Log"
+                  @confirm="downloadApplicationLog(`${component.name}_${appSpecification.name}`)"
+                />
+              </div>
+              <div>
+                <b-card-text v-if="total && downloaded">
+                  {{ (downloaded / 1e6).toFixed(2) + " / " + (total / 1e6).toFixed(2) }} MB - {{ ((downloaded / total) * 100).toFixed(2) + "%" }}
+                </b-card-text>
+                <h6 class="mb-1 mt-2">
+                  Last 100 lines of the log file
+                </h6>
+                <b-form-textarea
+                  v-if="component.callData"
+                  plaintext
+                  no-resize
+                  rows="15"
+                  :value="decodeAsciiResponse(component.callData)"
+                  class="mt-1"
+                />
+              </div>
+            </div>
           </div>
-          <div>
-            <b-card-text v-if="total && downloaded">
-              {{ (downloaded / 1e6).toFixed(2) + " / " + (total / 1e6).toFixed(2) }} MB - {{ ((downloaded / total) * 100).toFixed(2) + "%" }}
-            </b-card-text>
-            <h6 class="mb-1 mt-2">
-              Last 100 lines of the log file
+        </div>
+        <div v-else>
+          <div class="text-center">
+            <h6>
+              Click the 'Download Log File' button to download the Log file from your Application debug file. This may take a few minutes depending on file size.
             </h6>
-            <b-form-textarea
-              v-if="callResponse.data"
-              plaintext
-              no-resize
-              rows="30"
-              :value="asciiResponse"
-              class="mt-1"
-            />
+            <div>
+              <b-button
+                id="start-download-log"
+                v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                variant="outline-primary"
+                size="md"
+                class="mt-2"
+              >
+                Download Debug File
+              </b-button>
+              <confirm-dialog
+                target="start-download-log"
+                confirm-button="Download Log"
+                @confirm="downloadApplicationLog(appSpecification.name)"
+              />
+            </div>
+            <div>
+              <b-card-text v-if="total && downloaded">
+                {{ (downloaded / 1e6).toFixed(2) + " / " + (total / 1e6).toFixed(2) }} MB - {{ ((downloaded / total) * 100).toFixed(2) + "%" }}
+              </b-card-text>
+              <h6 class="mb-1 mt-2">
+                Last 100 lines of the log file
+              </h6>
+              <b-form-textarea
+                v-if="callResponse.data && callResponse.data[0]"
+                plaintext
+                no-resize
+                rows="15"
+                :value="decodeAsciiResponse(callResponse.data[0].callData)"
+                class="mt-1"
+              />
+            </div>
           </div>
         </div>
       </b-tab>
@@ -615,57 +885,217 @@
         </b-row>
       </b-tab>
       <b-tab
+        title="Component Control"
+        :disabled="!isApplicationInstalledLocally || appSpecification.version <= 3"
+      >
+        <b-card
+          v-for="(component, index) of appSpecification.compose"
+          :key="index"
+        >
+          <h4>{{ component.name }} Component</h4>
+          <b-row class="match-height">
+            <b-col xs="6">
+              <b-card title="Control">
+                <b-card-text class="mb-2">
+                  General options to control running status of Component.
+                </b-card-text>
+                <div class="text-center">
+                  <b-button
+                    :id="`start-app-${component.name}_${appSpecification.name}`"
+                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                    variant="success"
+                    aria-label="Start Component"
+                    class="mx-1 my-1"
+                  >
+                    Start Component
+                  </b-button>
+                  <confirm-dialog
+                    :target="`start-app-${component.name}_${appSpecification.name}`"
+                    confirm-button="Start Component"
+                    @confirm="startApp(`${component.name}_${appSpecification.name}`)"
+                  />
+                  <b-button
+                    :id="`stop-app-${component.name}_${appSpecification.name}`"
+                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                    variant="success"
+                    aria-label="Stop Component"
+                    class="mx-1 my-1"
+                  >
+                    Stop Component
+                  </b-button>
+                  <confirm-dialog
+                    :target="`stop-app-${component.name}_${appSpecification.name}`"
+                    confirm-button="Stop App"
+                    @confirm="stopAll(`${component.name}_${appSpecification.name}`)"
+                  />
+                  <b-button
+                    :id="`restart-app-${component.name}_${appSpecification.name}`"
+                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                    variant="success"
+                    aria-label="Restart Component"
+                    class="mx-1 my-1"
+                  >
+                    Restart Component
+                  </b-button>
+                  <confirm-dialog
+                    :target="`restart-app-${component.name}_${appSpecification.name}`"
+                    confirm-button="Restart Component"
+                    @confirm="restartApp(`${component.name}_${appSpecification.name}`)"
+                  />
+                </div>
+              </b-card>
+            </b-col>
+            <b-col xs="6">
+              <b-card title="Pause">
+                <b-card-text class="mb-2">
+                  The Pause command suspends all processes in the specified Component.
+                </b-card-text>
+                <div class="text-center">
+                  <b-button
+                    :id="`pause-app-${component.name}_${appSpecification.name}`"
+                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                    variant="success"
+                    aria-label="Pause Component"
+                    class="mx-1 my-1"
+                  >
+                    Pause Component
+                  </b-button>
+                  <confirm-dialog
+                    :target="`pause-app-${component.name}_${appSpecification.name}`"
+                    confirm-button="Pause Component"
+                    @confirm="pauseApp(`${component.name}_${appSpecification.name}`)"
+                  />
+                  <b-button
+                    :id="`unpause-app-${component.name}_${appSpecification.name}`"
+                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                    variant="success"
+                    aria-label="Unpause Component"
+                    class="mx-1 my-1"
+                  >
+                    Unpause Component
+                  </b-button>
+                  <confirm-dialog
+                    :target="`unpause-app-${component.name}_${appSpecification.name}`"
+                    confirm-button="Unpause Component"
+                    @confirm="unpauseApp(`${component.name}_${appSpecification.name}`)"
+                  />
+                </div>
+              </b-card>
+            </b-col>
+          </b-row>
+        </b-card>
+      </b-tab>
+      <b-tab
         title="Execute Commands"
         :disabled="!isApplicationInstalledLocally"
       >
         <div class="text-center">
+          <h3>{{ appSpecification.name }}</h3>
           <h6>Here you can execute some commands with a set of enviroment variables on this local application instance. Both are array of strings. Useful especially for testing and tweaking purposes.</h6>
-          <b-form-group
-            label-cols="4"
-            label-cols-lg="2"
-            label="Commands"
-            label-for="commandInput"
-            class="mt-2"
-          >
-            <b-form-input
-              id="commandInput"
-              v-model="appExec.cmd"
-              placeholder="Array of strings of Commands"
-            />
-          </b-form-group>
-          <b-form-group
-            label-cols="4"
-            label-cols-lg="2"
-            label="Environment"
-            label-for="environmentInput"
-          >
-            <b-form-input
-              id="environmentInput"
-              v-model="appExec.env"
-              placeholder="Array of strings of Environment Parameters"
-            />
-          </b-form-group>
-          <b-button
-            id="execute-commands"
-            v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-            variant="success"
-            aria-label="Execute Commands"
-            class="mx-1 my-1"
-            @click="appExecute"
-          >
-            Execute Commands
-          </b-button>
-          <div v-if="commandExecuting">
-            <v-icon name="spinner" />
+          <div class="mb-2" />
+          <div v-if="appSpecification.compose">
+            <div
+              v-for="(component, index) in appSpecification.compose"
+              :key="index"
+            >
+              <h4>{{ component.name }} Component</h4>
+              <b-form-group
+                label-cols="4"
+                label-cols-lg="2"
+                label="Commands"
+                label-for="commandInput"
+                class="mt-2"
+              >
+                <b-form-input
+                  id="`commandInput-${component.name}_${appSpecification.name}`"
+                  v-model="appExec.cmd"
+                  placeholder="Array of strings of Commands"
+                />
+              </b-form-group>
+              <b-form-group
+                label-cols="4"
+                label-cols-lg="2"
+                label="Environment"
+                label-for="environmentInput"
+              >
+                <b-form-input
+                  :id="`environmentInput-${component.name}_${appSpecification.name}`"
+                  v-model="appExec.env"
+                  placeholder="Array of strings of Environment Parameters"
+                />
+              </b-form-group>
+              <b-button
+                :id="`execute-commands-${component.name}_${appSpecification.name}`"
+                v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                variant="success"
+                aria-label="Execute Commands"
+                class="mx-1 my-1"
+                @click="appExecute(`${component.name}_${appSpecification.name}`)"
+              >
+                Execute Commands
+              </b-button>
+              <div v-if="commandExecuting">
+                <v-icon name="spinner" />
+              </div>
+              <b-form-textarea
+                v-if="callResponse.data && callResponse.data[0] && callResponse.data.find((d) => d.name === `${component.name}_${appSpecification.name}`)"
+                plaintext
+                no-resize
+                rows="15"
+                :value="decodeAsciiResponse(callResponse.data.find((d) => d.name === `${component.name}_${appSpecification.name}`).data)"
+                class="mt-1"
+              />
+              <div class="mb-5" />
+            </div>
           </div>
-          <b-form-textarea
-            v-if="callResponse.data"
-            plaintext
-            no-resize
-            rows="30"
-            :value="asciiResponse"
-            class="mt-1"
-          />
+          <div v-else>
+            <b-form-group
+              label-cols="4"
+              label-cols-lg="2"
+              label="Commands"
+              label-for="commandInput"
+              class="mt-2"
+            >
+              <b-form-input
+                id="commandInput"
+                v-model="appExec.cmd"
+                placeholder="Array of strings of Commands"
+              />
+            </b-form-group>
+            <b-form-group
+              label-cols="4"
+              label-cols-lg="2"
+              label="Environment"
+              label-for="environmentInput"
+            >
+              <b-form-input
+                id="environmentInput"
+                v-model="appExec.env"
+                placeholder="Array of strings of Environment Parameters"
+              />
+            </b-form-group>
+            <b-button
+              id="execute-commands"
+              v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+              variant="success"
+              aria-label="Execute Commands"
+              class="mx-1 my-1"
+              @click="appExecute"
+            >
+              Execute Commands
+            </b-button>
+            <div v-if="commandExecuting">
+              <v-icon name="spinner" />
+            </div>
+            <b-form-textarea
+              v-if="callResponse.data && callResponse.data[0]"
+              plaintext
+              no-resize
+              rows="15"
+              :value="decodeAsciiResponse(callResponse.data[0].data)"
+              class="mt-1"
+            />
+          </div>
         </div>
       </b-tab>
       <b-tab
@@ -683,158 +1113,230 @@
           v-if="callBResponse.data"
           style="text-align: left"
         >
-          <list-entry
-            title="Name"
-            :data="callBResponse.data.name"
-            classes="mb-0"
-          />
-          <list-entry
-            title="Description"
-            :data="callBResponse.data.description"
-            classes="mb-0"
-          />
-          <list-entry
-            v-if="callBResponse.data.domains"
-            title="Domains"
-            :data="callBResponse.data.domains.toString()"
-            classes="mb-0"
-          />
-          <list-entry
-            title="Specifications Hash"
-            :data="callBResponse.data.hash"
-            classes="mb-0"
-          />
-          <list-entry
-            title="Repository"
-            :data="callBResponse.data.repotag"
-            classes="mb-0"
-          />
-          <list-entry
-            title="Owner"
-            :data="callBResponse.data.owner"
-            classes="mb-0"
-          />
-          <list-entry
-            title="Registered on Blockheight"
-            :number="callBResponse.data.height"
-            classes="mb-0"
-          />
-          <list-entry
-            v-if="callBResponse.data.hash && callBResponse.data.hash.length === 64"
-            title="Expires on Blockheight"
-            :number="callBResponse.data.height + 22000"
-            classes="mb-0"
-          />
-          <list-entry
-            title="Specifications version"
-            :number="callBResponse.data.version"
-            classes="mb-0"
-          />
-          <list-entry
-            v-if="callBResponse.data.port || callBResponse.data.ports"
-            title="Public Ports"
-            :data="(callBResponse.data.port || callBResponse.data.ports).toString()"
-            classes="mb-0"
-          />
-          <list-entry
-            v-if="callBResponse.data.containerPort || callBResponse.data.containerPorts"
-            title="Forwarded Ports"
-            :data="(callBResponse.data.containerPort || callBResponse.data.containerPorts).toString()"
-            classes="mb-0"
-          />
-          <list-entry
-            title="Application Data"
-            :data="callBResponse.data.containerData"
-            classes="mb-0"
-          />
-          <list-entry
-            v-if="callBResponse.data.enviromentParameters"
-            title="Application Enviroment"
-            :data="callBResponse.data.enviromentParameters.toString()"
-            classes="mb-0"
-          />
-          <list-entry
-            v-if="callBResponse.data.commands"
-            title="Application Commands"
-            :data="callBResponse.data.commands.toString()"
-            classes="mb-0"
-          />
-          <list-entry
-            v-if="callBResponse.data.instances"
-            title="Number of Instances"
-            :data="callBResponse.data.instances.toString()"
-            classes="mb-0"
-          />
-          <list-entry
-            v-if="callBResponse.data.tiered"
-            title="Tiered Specifications"
-            :data="callBResponse.data.tiered.toString()"
-            classes="mb-0"
-          />
-          <div v-if="callBResponse.data.tiered">
+          <b-card class="mx-2">
             <list-entry
-              title=" - Stratus CPU"
-              :data="`${callBResponse.data.cpubamf} Cores`"
-              classes="mb-0"
+              title="Description"
+              :data="callBResponse.data.name"
             />
             <list-entry
-              title=" - Stratus RAM"
-              :data="`${callBResponse.data.rambamf} MB`"
-              classes="mb-0"
+              title="Description"
+              :data="callBResponse.data.description"
             />
             <list-entry
-              title=" - Stratus SSD"
-              :data="`${callBResponse.data.hddbamf} GB`"
-              classes="mb-0"
+              title="Owner"
+              :data="callBResponse.data.owner"
             />
             <list-entry
-              title=" - Nimbus CPU"
-              :data="`${callBResponse.data.cpusuper} Cores`"
-              classes="mb-0"
+              title="Hash"
+              :data="callBResponse.data.hash"
             />
             <list-entry
-              title=" - Nimbus RAM"
-              :data="`${callBResponse.data.ramsuper} MB`"
-              classes="mb-0"
+              v-if="callBResponse.data.instances"
+              title="Instances"
+              :data="callBResponse.data.instances.toString()"
             />
             <list-entry
-              title=" - Nimbus SSD"
-              :data="`${callBResponse.data.hddsuper} GB`"
-              classes="mb-0"
+              title="Specifications version"
+              :number="callBResponse.data.version"
             />
             <list-entry
-              title=" - Cumulus CPU"
-              :data="`${callBResponse.data.cpubasic} Cores`"
-              classes="mb-0"
+              title="Registered on Blockheight"
+              :number="callBResponse.data.height"
             />
             <list-entry
-              title=" - Cumulus RAM"
-              :data="`${callBResponse.data.rambasic} MB`"
-              classes="mb-0"
+              v-if="callBResponse.data.hash && callBResponse.data.hash.length === 64"
+              title="Expires on Blockheight"
+              :number="callBResponse.data.height + 22000"
             />
-            <list-entry
-              title=" - Cumulus SSD"
-              :data="`${callBResponse.data.hddbasic} GB`"
-              classes="mb-0"
-            />
-          </div>
-          <div v-else>
-            <list-entry
-              title="CPU"
-              :data="`${callBResponse.data.cpu} Cores`"
-              classes="mb-0"
-            />
-            <list-entry
-              title="RAM"
-              :data="`${callBResponse.data.ram} MB`"
-              classes="mb-0"
-            />
-            <list-entry
-              title="SSD"
-              :data="`${callBResponse.data.hdd} GB`"
-              classes="mb-0"
-            />
-          </div>
+            <h4>Composition</h4>
+            <b-card v-if="callBResponse.data.version <= 3">
+              <list-entry
+                title="Repository"
+                :data="callBResponse.data.repotag"
+              />
+              <list-entry
+                title="Custom Domains"
+                :data="callBResponse.data.domains.toString() || 'none'"
+              />
+              <list-entry
+                title="Automatic Domains"
+                :data="constructAutomaticDomainsGlobal"
+              />
+              <list-entry
+                title="Ports"
+                :data="callBResponse.data.ports.toString()"
+              />
+              <list-entry
+                title="Container Ports"
+                :data="callBResponse.data.containerPorts.toString()"
+              />
+              <list-entry
+                title="Container Data"
+                :data="callBResponse.data.containerData"
+              />
+              <list-entry
+                title="Enviroment Parameters"
+                :data="callBResponse.data.enviromentParameters.length > 0 ? callBResponse.data.enviromentParameters.toString() : 'none'"
+              />
+              <list-entry
+                title="Commands"
+                :data="callBResponse.data.commands.length > 0 ? callBResponse.data.commands.toString() : 'none'"
+              />
+              <div v-if="callBResponse.data.tiered">
+                <list-entry
+                  title="CPU Cumulus"
+                  :data="callBResponse.data.cpubasic + ' vCore'"
+                />
+                <list-entry
+                  title="CPU Nimbus"
+                  :data="callBResponse.data.cpusuper + ' vCore'"
+                />
+                <list-entry
+                  title="CPU Stratus"
+                  :data="callBResponse.data.cpubamf + ' vCore'"
+                />
+                <list-entry
+                  title="RAM Cumulus"
+                  :data="callBResponse.data.rambasic + ' MB'"
+                />
+                <list-entry
+                  title="RAM Nimbus"
+                  :data="callBResponse.data.ramsuper + ' MB'"
+                />
+                <list-entry
+                  title="RAM Stratus"
+                  :data="callBResponse.data.rambamf + ' MB'"
+                />
+                <list-entry
+                  title="SSD Cumulus"
+                  :data="callBResponse.data.hddbasic + ' GB'"
+                />
+                <list-entry
+                  title="SSD Nimbus"
+                  :data="callBResponse.data.hddsuper + ' GB'"
+                />
+                <list-entry
+                  title="SSD Stratus"
+                  :data="callBResponse.data.hddbamf + ' GB'"
+                />
+              </div>
+              <div v-else>
+                <list-entry
+                  title="CPU"
+                  :data="callBResponse.data.cpu + ' vCore'"
+                />
+                <list-entry
+                  title="RAM"
+                  :data="callBResponse.data.ram + ' MB'"
+                />
+                <list-entry
+                  title="SSD"
+                  :data="callBResponse.data.hdd + ' GB'"
+                />
+              </div>
+            </b-card>
+            <b-card
+              v-for="(component, index) in callBResponse.data.compose"
+              v-else
+              :key="index"
+            >
+              <b-card-title>
+                Component {{ component.name }}
+              </b-card-title>
+              <list-entry
+                title="Name"
+                :data="component.name"
+              />
+              <list-entry
+                title="Description"
+                :data="component.description"
+              />
+              <list-entry
+                title="Repository"
+                :data="component.repotag"
+              />
+              <list-entry
+                title="Custom Domains"
+                :data="component.domains.toString() || 'none'"
+              />
+              <list-entry
+                title="Automatic Domains"
+                :data="constructAutomaticDomainsGlobal[index]"
+              />
+              <list-entry
+                title="Ports"
+                :data="component.ports.toString()"
+              />
+              <list-entry
+                title="Container Ports"
+                :data="component.containerPorts.toString()"
+              />
+              <list-entry
+                title="Container Data"
+                :data="component.containerData"
+              />
+              <list-entry
+                title="Enviroment Parameters"
+                :data="component.enviromentParameters.length > 0 ? component.enviromentParameters.toString() : 'none'"
+              />
+              <list-entry
+                title="Commands"
+                :data="component.commands.length > 0 ? component.commands.toString() : 'none'"
+              />
+              <div v-if="component.tiered">
+                <list-entry
+                  title="CPU Cumulus"
+                  :data="component.cpubasic + ' vCore'"
+                />
+                <list-entry
+                  title="CPU Nimbus"
+                  :data="component.cpusuper + ' vCore'"
+                />
+                <list-entry
+                  title="CPU Stratus"
+                  :data="component.cpubamf + ' vCore'"
+                />
+                <list-entry
+                  title="RAM Cumulus"
+                  :data="component.rambasic + ' MB'"
+                />
+                <list-entry
+                  title="RAM Nimbus"
+                  :data="component.ramsuper + ' MB'"
+                />
+                <list-entry
+                  title="RAM Stratus"
+                  :data="component.rambamf + ' MB'"
+                />
+                <list-entry
+                  title="SSD Cumulus"
+                  :data="component.hddbasic + ' GB'"
+                />
+                <list-entry
+                  title="SSD Nimbus"
+                  :data="component.hddsuper + ' GB'"
+                />
+                <list-entry
+                  title="SSD Stratus"
+                  :data="component.hddbamf + ' GB'"
+                />
+              </div>
+              <div v-else>
+                <list-entry
+                  title="CPU"
+                  :data="component.cpu + ' vCore'"
+                />
+                <list-entry
+                  title="RAM"
+                  :data="component.ram + ' MB'"
+                />
+                <list-entry
+                  title="SSD"
+                  :data="component.hdd + ' GB'"
+                />
+              </div>
+            </b-card>
+          </b-card>
         </div>
         <div v-else-if="callBResponse.status === 'error'">
           Global specifications not found!
@@ -940,7 +1442,7 @@
                   size="sm"
                   class="mr-0"
                   variant="danger"
-                  @click="openApp(row.item.name, row.item.ip, callBResponse.data.port || callBResponse.data.ports[0])"
+                  @click="openApp(row.item.name, locationRow.item.ip, row.item.port || (row.item.ports ? row.item.ports[0] : row.item.compose[0].ports[0]))"
                 >
                   Visit
                 </b-button>
@@ -970,235 +1472,704 @@
         <h2 class="mb-2">
           Update Application Specifications
         </h2>
-        <b-form>
-          <b-form-group
-            label-cols="2"
-            label-cols-lg="1"
-            label="Version"
-            label-for="version"
+
+        <div v-if="appUpdateSpecification.version >= 4">
+          <b-row class="match-height">
+            <b-col xs="6">
+              <b-card title="Details">
+                <b-form-group
+                  label-cols="2"
+                  label-cols-lg="1"
+                  label="Version"
+                  label-for="version"
+                >
+                  <b-form-input
+                    id="version"
+                    v-model="appUpdateSpecification.version"
+                    :placeholder="appUpdateSpecification.version.toString()"
+                    readonly
+                  />
+                </b-form-group>
+                <b-form-group
+                  label-cols="2"
+                  label-cols-lg="1"
+                  label="Name"
+                  label-for="name"
+                >
+                  <b-form-input
+                    id="name"
+                    v-model="appUpdateSpecification.name"
+                    placeholder="Application Name"
+                    readonly
+                  />
+                </b-form-group>
+                <b-form-group
+                  label-cols="2"
+                  label-cols-lg="1"
+                  label="Desc."
+                  label-for="desc"
+                >
+                  <b-form-textarea
+                    id="desc"
+                    v-model="appUpdateSpecification.description"
+                    placeholder="Description"
+                    rows="3"
+                  />
+                </b-form-group>
+                <b-form-group
+                  label-cols="2"
+                  label-cols-lg="1"
+                  label="Owner"
+                  label-for="owner"
+                >
+                  <b-form-input
+                    id="owner"
+                    v-model="appUpdateSpecification.owner"
+                    placeholder="ZelID of Application Owner"
+                  />
+                </b-form-group>
+              </b-card>
+            </b-col>
+          </b-row>
+          <b-card
+            v-for="(component, index) in appUpdateSpecification.compose"
+            :key="index"
           >
-            <b-form-input
-              id="version"
-              v-model="appUpdateSpecification.version"
-              placeholder="App Version"
-              readonly
-            />
-          </b-form-group>
-          <b-form-group
-            label-cols="2"
-            label-cols-lg="1"
-            label="Name"
-            label-for="name"
-          >
-            <b-form-input
-              id="name"
-              v-model="appUpdateSpecification.name"
-              placeholder="App name"
-              readonly
-            />
-          </b-form-group>
-          <b-form-group
-            label-cols="2"
-            label-cols-lg="1"
-            label="Description"
-            label-for="description"
-          >
-            <b-form-textarea
-              id="description"
-              v-model="appUpdateSpecification.description"
-              rows="3"
-            />
-          </b-form-group>
-          <b-form-group
-            label-cols="2"
-            label-cols-lg="1"
-            label="Repo"
-            label-for="repo"
-          >
-            <b-form-input
-              id="repo"
-              v-model="appUpdateSpecification.repotag"
-              placeholder="Docker Hub namespace/repository:tag"
-              readonly
-            />
-          </b-form-group>
-          <b-form-group
-            label-cols="2"
-            label-cols-lg="1"
-            label="Owner"
-            label-for="owner"
-          >
-            <b-form-input
-              id="owner"
-              v-model="appUpdateSpecification.owner"
-              placeholder="ZelID of application owner"
-            />
-          </b-form-group>
-          <b-form-group
-            label-cols="2"
-            label-cols-lg="1"
-            label="Ports"
-            label-for="ports"
-          >
-            <b-form-input
-              id="ports"
-              v-model="appUpdateSpecification.ports"
-              placeholder="Array of Ports on which application will be available"
-            />
-          </b-form-group>
-          <b-form-group
-            label-cols="2"
-            label-cols-lg="1"
-            label="Domains"
-            label-for="domains"
-          >
-            <b-form-input
-              id="domains"
-              v-model="appUpdateSpecification.domains"
-              placeholder="Array of strings of Domains managed by Flux Domain Manager (FDM). Length has to corresponds to available ports. Use empty strings for no domains"
-            />
-          </b-form-group>
-          <b-form-group
-            label-cols="2"
-            label-cols-lg="1"
-            label="Enviroment"
-            label-for="enviromentParameters"
-          >
-            <b-form-input
-              id="enviromentParameters"
-              v-model="appUpdateSpecification.enviromentParameters"
-              placeholder="Array of strings of Enviromental Parameters"
-            />
-          </b-form-group>
-          <b-form-group
-            label-cols="2"
-            label-cols-lg="1"
-            label="Commands"
-            label-for="commands"
-          >
-            <b-form-input
-              id="commands"
-              v-model="appUpdateSpecification.commands"
-              placeholder="Array of strings of Commands"
-            />
-          </b-form-group>
-          <b-form-group
-            label-cols="2"
-            label-cols-lg="1"
-            label="Cont. Ports"
-            label-for="containerPorts"
-          >
-            <b-form-input
-              id="containerPorts"
-              v-model="appUpdateSpecification.containerPorts"
-              placeholder="Container Ports - array of ports on which your container has"
-            />
-          </b-form-group>
-          <b-form-group
-            label-cols="2"
-            label-cols-lg="1"
-            label="Cont. Data"
-            label-for="containerData"
-          >
-            <b-form-input
-              id="containerData"
-              v-model="appUpdateSpecification.containerData"
-              placeholder="Data folder that is shared by application to App volume"
-            />
-          </b-form-group>
-          <b-form-group
-            label-cols="2"
-            label-cols-lg="1"
-            label="Tiered"
-            label-for="tiered"
-          >
-            <b-form-checkbox
-              id="tiered"
-              v-model="appUpdateSpecification.tiered"
-              switch
-              class="custom-control-primary"
-            />
-          </b-form-group>
-          <b-form-group
-            v-if="appUpdateSpecification.version > 2"
-            label-cols="2"
-            label-cols-lg="1"
-            label="Instances"
-            label-for="instances"
-          >
-            <div class="mx-1">
-              {{ appUpdateSpecification.instances }}
-            </div>
-            <b-form-input
-              id="instances"
-              v-model="appUpdateSpecification.instances"
-              placeholder="Minimum number of application instances to be spawned"
-              type="range"
-              min="3"
-              max="100"
-              step="1"
-            />
-          </b-form-group>
-          <b-form-group
-            v-if="!appUpdateSpecification.tiered"
-            label-cols="2"
-            label-cols-lg="1"
-            label="CPU"
-            label-for="cpu"
-          >
-            <div class="mx-1">
-              {{ appUpdateSpecification.cpu }}
-            </div>
-            <b-form-input
-              id="cpu"
-              v-model="appUpdateSpecification.cpu"
-              placeholder="CPU cores to use by default"
-              type="range"
-              min="0"
-              max="7"
-              step="0.1"
-            />
-          </b-form-group>
-          <b-form-group
-            v-if="!appUpdateSpecification.tiered"
-            label-cols="2"
-            label-cols-lg="1"
-            label="RAM"
-            label-for="ram"
-          >
-            <div class="mx-1">
-              {{ appUpdateSpecification.ram }}
-            </div>
-            <b-form-input
-              id="ram"
-              v-model="appUpdateSpecification.ram"
-              placeholder="RAM in MB value to use by default"
-              type="range"
-              min="0"
-              max="28000"
-              step="100"
-            />
-          </b-form-group>
-          <b-form-group
-            v-if="!appUpdateSpecification.tiered"
-            label-cols="2"
-            label-cols-lg="1"
-            label="SSD"
-            label-for="ssd"
-          >
-            <div class="mx-1">
-              {{ appUpdateSpecification.hdd }}
-            </div>
-            <b-form-input
-              id="ssd"
-              v-model="appUpdateSpecification.hdd"
-              placeholder="SSD in GB value to use by default"
-              type="range"
-              min="0"
-              max="570"
-              step="1"
-            />
-          </b-form-group>
+            <b-card-title>
+              Component {{ component.name }}
+            </b-card-title>
+            <b-row class="match-height">
+              <b-col
+                xs="12"
+                xl="6"
+              >
+                <b-card>
+                  <b-card-title>
+                    General
+                  </b-card-title>
+                  <div class="form-row form-group">
+                    <label class="col-3 col-form-label">
+                      Name
+                      <v-icon
+                        v-b-tooltip.hover.top="'Name of Application Component'"
+                        name="info-circle"
+                        class="mr-1"
+                      />
+                    </label>
+                    <div class="col">
+                      <b-form-input
+                        :id="`repo-${component.name}_${appUpdateSpecification.name}`"
+                        v-model="component.name"
+                        placeholder="Component name"
+                        readonly
+                      />
+                    </div>
+                  </div>
+                  <div class="form-row form-group">
+                    <label class="col-3 col-form-label">
+                      Description
+                      <v-icon
+                        v-b-tooltip.hover.top="'Description of Application Component'"
+                        name="info-circle"
+                        class="mr-1"
+                      />
+                    </label>
+                    <div class="col">
+                      <b-form-input
+                        :id="`repo-${component.name}_${appUpdateSpecification.name}`"
+                        v-model="component.description"
+                        placeholder="Component description"
+                      />
+                    </div>
+                  </div>
+                  <div class="form-row form-group">
+                    <label class="col-3 col-form-label">
+                      Repository
+                      <v-icon
+                        v-b-tooltip.hover.top="'Docker Hub image namespace/repository:tag for component'"
+                        name="info-circle"
+                        class="mr-1"
+                      />
+                    </label>
+                    <div class="col">
+                      <b-form-input
+                        :id="`repo-${component.name}_${appUpdateSpecification.name}`"
+                        v-model="component.repotag"
+                        placeholder="Docker Hub namespace/repository:tag"
+                      />
+                    </div>
+                  </div>
+                  <br>
+                  <b-card-title>
+                    Connectivity
+                  </b-card-title>
+                  <div class="form-row form-group">
+                    <label class="col-3 col-form-label">
+                      Ports
+                      <v-icon
+                        v-b-tooltip.hover.top="'Array of Ports on which application will be available'"
+                        name="info-circle"
+                        class="mr-1"
+                      />
+                    </label>
+                    <div class="col">
+                      <b-form-input
+                        :id="`ports-${component.name}_${appUpdateSpecification.name}`"
+                        v-model="component.ports"
+                      />
+                    </div>
+                  </div>
+                  <div class="form-row form-group">
+                    <label class="col-3 col-form-label">
+                      Domains
+                      <v-icon
+                        v-b-tooltip.hover.top="'Array of strings of Domains managed by Flux Domain Manager (FDM). Length must correspond to available ports. Use empty strings for no domains'"
+                        name="info-circle"
+                        class="mr-1"
+                      />
+                    </label>
+                    <div class="col">
+                      <b-form-input
+                        :id="`domains-${component.name}_${appUpdateSpecification.name}`"
+                        v-model="component.domains"
+                      />
+                    </div>
+                  </div>
+                  <div class="form-row form-group">
+                    <label class="col-3 col-form-label">
+                      Cont. Ports
+                      <v-icon
+                        v-b-tooltip.hover.top="'Container Ports - Array of ports which your container has'"
+                        name="info-circle"
+                        class="mr-1"
+                      />
+                    </label>
+                    <div class="col">
+                      <b-form-input
+                        :id="`containerPorts-${component.name}_${appUpdateSpecification.name}`"
+                        v-model="component.containerPorts"
+                      />
+                    </div>
+                  </div>
+                </b-card>
+              </b-col>
+              <b-col
+                xs="12"
+                xl="6"
+              >
+                <b-card>
+                  <b-card-title>
+                    Environment
+                  </b-card-title>
+                  <div class="form-row form-group">
+                    <label class="col-3 col-form-label">
+                      Environment
+                      <v-icon
+                        v-b-tooltip.hover.top="'Array of strings of Environmental Parameters'"
+                        name="info-circle"
+                        class="mr-1"
+                      />
+                    </label>
+                    <div class="col">
+                      <b-form-input
+                        :id="`enviromentParameters-${component.name}_${appUpdateSpecification.name}`"
+                        v-model="component.enviromentParameters"
+                      />
+                    </div>
+                  </div>
+                  <div class="form-row form-group">
+                    <label class="col-3 col-form-label">
+                      Commands
+                      <v-icon
+                        v-b-tooltip.hover.top="'Array of strings of Commands'"
+                        name="info-circle"
+                        class="mr-1"
+                      />
+                    </label>
+                    <div class="col">
+                      <b-form-input
+                        :id="`commands-${component.name}_${appUpdateSpecification.name}`"
+                        v-model="component.commands"
+                      />
+                    </div>
+                  </div>
+                  <div class="form-row form-group">
+                    <label class="col-3 col-form-label">
+                      Cont. Data
+                      <v-icon
+                        v-b-tooltip.hover.top="'Data folder that is shared by application to App volume'"
+                        name="info-circle"
+                        class="mr-1"
+                      />
+                    </label>
+                    <div class="col">
+                      <b-form-input
+                        :id="`containerData-${component.name}_${appUpdateSpecification.name}`"
+                        v-model="component.containerData"
+                      />
+                    </div>
+                  </div>
+                  <br>
+                  <b-card-title>
+                    Resources &nbsp;&nbsp;&nbsp;<h6 class="inline text-small">
+                      Tiered:
+                      <b-form-checkbox
+                        id="tiered"
+                        v-model="component.tiered"
+                        switch
+                        class="custom-control-primary inline"
+                      />
+                    </h6>
+                  </b-card-title>
+                  <b-form-group
+                    v-if="!component.tiered"
+                    label-cols="3"
+                    label-cols-lg="2"
+                    label="CPU"
+                    label-for="cpu"
+                  >
+                    <div class="mx-1">
+                      {{ component.cpu }}
+                    </div>
+                    <b-form-input
+                      :id="`cpu-${component.name}_${appUpdateSpecification.name}`"
+                      v-model="component.cpu"
+                      placeholder="CPU cores to use by default"
+                      type="range"
+                      min="0.1"
+                      max="7"
+                      step="0.1"
+                    />
+                  </b-form-group>
+                  <b-form-group
+                    v-if="!component.tiered"
+                    label-cols="3"
+                    label-cols-lg="2"
+                    label="RAM"
+                    label-for="ram"
+                  >
+                    <div class="mx-1">
+                      {{ component.ram }}
+                    </div>
+                    <b-form-input
+                      :id="`ram-${component.name}_${appUpdateSpecification.name}`"
+                      v-model="component.ram"
+                      placeholder="RAM in MB value to use by default"
+                      type="range"
+                      min="100"
+                      max="28000"
+                      step="100"
+                    />
+                  </b-form-group>
+                  <b-form-group
+                    v-if="!component.tiered"
+                    label-cols="3"
+                    label-cols-lg="2"
+                    label="SSD"
+                    label-for="ssd"
+                  >
+                    <div class="mx-1">
+                      {{ component.hdd }}
+                    </div>
+                    <b-form-input
+                      :id="`ssd-${component.name}_${appUpdateSpecification.name}`"
+                      v-model="component.hdd"
+                      placeholder="SSD in GB value to use by default"
+                      type="range"
+                      min="1"
+                      max="565"
+                      step="1"
+                    />
+                  </b-form-group>
+                </b-card>
+              </b-col>
+            </b-row>
+            <b-row v-if="component.tiered">
+              <b-col
+                xs="12"
+                md="6"
+                lg="4"
+              >
+                <b-card title="Cumulus">
+                  <div>
+                    CPU: {{ component.cpubasic }}
+                  </div>
+                  <b-form-input
+                    v-model="component.cpubasic"
+                    type="range"
+                    min="0.1"
+                    max="1"
+                    step="0.1"
+                  />
+                  <div>
+                    RAM: {{ component.rambasic }}
+                  </div>
+                  <b-form-input
+                    v-model="component.rambasic"
+                    type="range"
+                    min="100"
+                    max="1000"
+                    step="100"
+                  />
+                  <div>
+                    SSD: {{ component.hddbasic }}
+                  </div>
+                  <b-form-input
+                    v-model="component.hddbasic"
+                    type="range"
+                    min="1"
+                    max="15"
+                    step="1"
+                  />
+                </b-card>
+              </b-col>
+              <b-col
+                xs="12"
+                md="6"
+                lg="4"
+              >
+                <b-card title="Nimbus">
+                  <div>
+                    CPU: {{ component.cpusuper }}
+                  </div>
+                  <b-form-input
+                    v-model="component.cpusuper"
+                    type="range"
+                    min="0.1"
+                    max="3"
+                    step="0.1"
+                  />
+                  <div>
+                    RAM: {{ component.ramsuper }}
+                  </div>
+                  <b-form-input
+                    v-model="component.ramsuper"
+                    type="range"
+                    min="100"
+                    max="5000"
+                    step="100"
+                  />
+                  <div>
+                    SSD: {{ component.hddsuper }}
+                  </div>
+                  <b-form-input
+                    v-model="component.hddsuper"
+                    type="range"
+                    min="1"
+                    max="115"
+                    step="1"
+                  />
+                </b-card>
+              </b-col>
+              <b-col
+                xs="12"
+                lg="4"
+              >
+                <b-card title="Stratus">
+                  <div>
+                    CPU: {{ component.cpubamf }}
+                  </div>
+                  <b-form-input
+                    v-model="component.cpubamf"
+                    type="range"
+                    min="0.1"
+                    max="7"
+                    step="0.1"
+                  />
+                  <div>
+                    RAM: {{ component.rambamf }}
+                  </div>
+                  <b-form-input
+                    v-model="component.rambamf"
+                    type="range"
+                    min="100"
+                    max="28000"
+                    step="100"
+                  />
+                  <div>
+                    SSD: {{ component.hddbamf }}
+                  </div>
+                  <b-form-input
+                    v-model="component.hddbamf"
+                    type="range"
+                    min="1"
+                    max="565"
+                    step="1"
+                  />
+                </b-card>
+              </b-col>
+            </b-row>
+          </b-card>
+        </div>
+        <div v-else>
+          <b-row class="match-height">
+            <b-col
+              xs="12"
+              xl="6"
+            >
+              <b-card title="Details">
+                <b-form-group
+                  label-cols="2"
+                  label="Version"
+                  label-for="version"
+                >
+                  <b-form-input
+                    id="version"
+                    v-model="appUpdateSpecification.version"
+                    :placeholder="appUpdateSpecification.version.toString()"
+                    readonly
+                  />
+                </b-form-group>
+                <b-form-group
+                  label-cols="2"
+                  label="Name"
+                  label-for="name"
+                >
+                  <b-form-input
+                    id="name"
+                    v-model="appUpdateSpecification.name"
+                    placeholder="App Name"
+                    readonly
+                  />
+                </b-form-group>
+                <b-form-group
+                  label-cols="2"
+                  label="Desc."
+                  label-for="desc"
+                >
+                  <b-form-textarea
+                    id="desc"
+                    v-model="appUpdateSpecification.description"
+                    placeholder="Description"
+                    rows="3"
+                  />
+                </b-form-group>
+                <b-form-group
+                  label-cols="2"
+                  label="Repo"
+                  label-for="repo"
+                >
+                  <b-form-input
+                    id="repo"
+                    v-model="appUpdateSpecification.repotag"
+                    placeholder="Docker Hub namespace/repository:tag"
+                    readonly
+                  />
+                </b-form-group>
+                <b-form-group
+                  label-cols="2"
+                  label="Owner"
+                  label-for="owner"
+                >
+                  <b-form-input
+                    id="owner"
+                    v-model="appUpdateSpecification.owner"
+                    placeholder="ZelID of Application Owner"
+                  />
+                </b-form-group>
+              </b-card>
+            </b-col>
+            <b-col
+              xs="12"
+              xl="6"
+            >
+              <b-card title="Environment">
+                <div class="form-row form-group">
+                  <label class="col-3 col-form-label">
+                    Ports
+                    <v-icon
+                      v-b-tooltip.hover.top="'Array of Ports on which application will be available'"
+                      name="info-circle"
+                      class="mr-1"
+                    />
+                  </label>
+                  <div class="col">
+                    <b-form-input
+                      id="ports"
+                      v-model="appUpdateSpecification.ports"
+                    />
+                  </div>
+                </div>
+                <div class="form-row form-group">
+                  <label class="col-3 col-form-label">
+                    Domains
+                    <v-icon
+                      v-b-tooltip.hover.top="'Array of strings of Domains managed by Flux Domain Manager (FDM). Length must correspond to available ports. Use empty strings for no domains'"
+                      name="info-circle"
+                      class="mr-1"
+                    />
+                  </label>
+                  <div class="col">
+                    <b-form-input
+                      id="domains"
+                      v-model="appUpdateSpecification.domains"
+                    />
+                  </div>
+                </div>
+                <div class="form-row form-group">
+                  <label class="col-3 col-form-label">
+                    Environment
+                    <v-icon
+                      v-b-tooltip.hover.top="'Array of strings of Environmental Parameters'"
+                      name="info-circle"
+                      class="mr-1"
+                    />
+                  </label>
+                  <div class="col">
+                    <b-form-input
+                      id="enviromentParameters"
+                      v-model="appUpdateSpecification.enviromentParameters"
+                    />
+                  </div>
+                </div>
+                <div class="form-row form-group">
+                  <label class="col-3 col-form-label">
+                    Commands
+                    <v-icon
+                      v-b-tooltip.hover.top="'Array of strings of Commands'"
+                      name="info-circle"
+                      class="mr-1"
+                    />
+                  </label>
+                  <div class="col">
+                    <b-form-input
+                      id="commands"
+                      v-model="appUpdateSpecification.commands"
+                    />
+                  </div>
+                </div>
+                <div class="form-row form-group">
+                  <label class="col-3 col-form-label">
+                    Cont. Ports
+                    <v-icon
+                      v-b-tooltip.hover.top="'Container Ports - Array of ports which your container has'"
+                      name="info-circle"
+                      class="mr-1"
+                    />
+                  </label>
+                  <div class="col">
+                    <b-form-input
+                      id="containerPorts"
+                      v-model="appUpdateSpecification.containerPorts"
+                    />
+                  </div>
+                </div>
+                <div class="form-row form-group">
+                  <label class="col-3 col-form-label">
+                    Cont. Data
+                    <v-icon
+                      v-b-tooltip.hover.top="'Data folder that is shared by application to App volume'"
+                      name="info-circle"
+                      class="mr-1"
+                    />
+                  </label>
+                  <div class="col">
+                    <b-form-input
+                      id="containerData"
+                      v-model="appUpdateSpecification.containerData"
+                    />
+                  </div>
+                </div>
+              </b-card>
+            </b-col>
+          </b-row>
+          <b-row class="match-height">
+            <b-col xs="12">
+              <b-card>
+                <b-card-title>
+                  Resources &nbsp;&nbsp;&nbsp;<h6 class="inline text-small">
+                    Tiered:
+                    <b-form-checkbox
+                      id="tiered"
+                      v-model="appUpdateSpecification.tiered"
+                      switch
+                      class="custom-control-primary inline"
+                    />
+                  </h6>
+                </b-card-title>
+                <b-form-group
+                  v-if="appUpdateSpecification.version >= 3"
+                  label-cols="2"
+                  label-cols-lg="1"
+                  label="Instances"
+                  label-for="instances"
+                >
+                  <div class="mx-1">
+                    {{ appUpdateSpecification.instances }}
+                  </div>
+                  <b-form-input
+                    id="instances"
+                    v-model="appUpdateSpecification.instances"
+                    placeholder="Minimum number of application instances to be spawned"
+                    type="range"
+                    min="3"
+                    max="100"
+                    step="1"
+                  />
+                </b-form-group>
+                <b-form-group
+                  v-if="!appUpdateSpecification.tiered"
+                  label-cols="2"
+                  label-cols-lg="1"
+                  label="CPU"
+                  label-for="cpu"
+                >
+                  <div class="mx-1">
+                    {{ appUpdateSpecification.cpu }}
+                  </div>
+                  <b-form-input
+                    id="cpu"
+                    v-model="appUpdateSpecification.cpu"
+                    placeholder="CPU cores to use by default"
+                    type="range"
+                    min="0.1"
+                    max="7"
+                    step="0.1"
+                  />
+                </b-form-group>
+                <b-form-group
+                  v-if="!appUpdateSpecification.tiered"
+                  label-cols="2"
+                  label-cols-lg="1"
+                  label="RAM"
+                  label-for="ram"
+                >
+                  <div class="mx-1">
+                    {{ appUpdateSpecification.ram }}
+                  </div>
+                  <b-form-input
+                    id="ram"
+                    v-model="appUpdateSpecification.ram"
+                    placeholder="RAM in MB value to use by default"
+                    type="range"
+                    min="100"
+                    max="28000"
+                    step="100"
+                  />
+                </b-form-group>
+                <b-form-group
+                  v-if="!appUpdateSpecification.tiered"
+                  label-cols="2"
+                  label-cols-lg="1"
+                  label="SSD"
+                  label-for="ssd"
+                >
+                  <div class="mx-1">
+                    {{ appUpdateSpecification.hdd }}
+                  </div>
+                  <b-form-input
+                    id="ssd"
+                    v-model="appUpdateSpecification.hdd"
+                    placeholder="SSD in GB value to use by default"
+                    type="range"
+                    min="1"
+                    max="565"
+                    step="1"
+                  />
+                </b-form-group>
+              </b-card>
+            </b-col>
+          </b-row>
           <b-row v-if="appUpdateSpecification.tiered">
             <b-col
               xs="12"
@@ -1212,7 +2183,7 @@
                 <b-form-input
                   v-model="appUpdateSpecification.cpubasic"
                   type="range"
-                  min="0"
+                  min="0.1"
                   max="1"
                   step="0.1"
                 />
@@ -1222,7 +2193,7 @@
                 <b-form-input
                   v-model="appUpdateSpecification.rambasic"
                   type="range"
-                  min="0"
+                  min="100"
                   max="1000"
                   step="100"
                 />
@@ -1232,8 +2203,8 @@
                 <b-form-input
                   v-model="appUpdateSpecification.hddbasic"
                   type="range"
-                  min="0"
-                  max="20"
+                  min="1"
+                  max="15"
                   step="1"
                 />
               </b-card>
@@ -1250,7 +2221,7 @@
                 <b-form-input
                   v-model="appUpdateSpecification.cpusuper"
                   type="range"
-                  min="0"
+                  min="0.1"
                   max="3"
                   step="0.1"
                 />
@@ -1260,7 +2231,7 @@
                 <b-form-input
                   v-model="appUpdateSpecification.ramsuper"
                   type="range"
-                  min="0"
+                  min="100"
                   max="5000"
                   step="100"
                 />
@@ -1270,8 +2241,8 @@
                 <b-form-input
                   v-model="appUpdateSpecification.hddsuper"
                   type="range"
-                  min="0"
-                  max="120"
+                  min="1"
+                  max="115"
                   step="1"
                 />
               </b-card>
@@ -1287,7 +2258,7 @@
                 <b-form-input
                   v-model="appUpdateSpecification.cpubamf"
                   type="range"
-                  min="0"
+                  min="0.1"
                   max="7"
                   step="0.1"
                 />
@@ -1297,7 +2268,7 @@
                 <b-form-input
                   v-model="appUpdateSpecification.rambamf"
                   type="range"
-                  min="0"
+                  min="100"
                   max="28000"
                   step="100"
                 />
@@ -1307,14 +2278,14 @@
                 <b-form-input
                   v-model="appUpdateSpecification.hddbamf"
                   type="range"
-                  min="0"
-                  max="570"
+                  min="1"
+                  max="565"
                   step="1"
                 />
               </b-card>
             </b-col>
           </b-row>
-        </b-form>
+        </div>
         <div>
           <b-button
             v-ripple.400="'rgba(255, 255, 255, 0.15)'"
@@ -1405,7 +2376,7 @@
               <b-card>
                 <b-card-text>
                   To finish the application update, please make a transaction of {{ appPricePerMonthForUpdate }} FLUX to address
-                  '{{ foundationAddress }}'
+                  '{{ deploymentAddress }}'
                   with the following message:
                   '{{ updateHash }}'
                 </b-card-text>
@@ -1420,7 +2391,7 @@
               lg="4"
             >
               <b-card title="Pay with ZelCore">
-                <a :href="'zel:?action=pay&coin=zelcash&address=' + foundationAddress + '&amount=' + appPricePerMonthForUpdate + '&message=' + updateHash + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png'">
+                <a :href="'zel:?action=pay&coin=zelcash&address=' + deploymentAddress + '&amount=' + appPricePerMonthForUpdate + '&message=' + updateHash + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png'">
                   <img
                     class="zelidLogin"
                     src="@/assets/images/zelID.svg"
@@ -1459,9 +2430,9 @@ import {
   BCol,
   BCard,
   BCardText,
+  BCardTitle,
   BRow,
   BButton,
-  BForm,
   BFormTextarea,
   BFormGroup,
   BFormInput,
@@ -1470,6 +2441,7 @@ import {
   BInputGroup,
   BInputGroupAppend,
   BPagination,
+  VBTooltip,
 } from 'bootstrap-vue';
 
 import Ripple from 'vue-ripple-directive';
@@ -1480,8 +2452,6 @@ import ListEntry from '@/views/components/ListEntry.vue';
 
 import AppsService from '@/services/AppsService';
 import DaemonService from '@/services/DaemonService';
-
-import fluxapps from '@/libs/fluxApps';
 
 const qs = require('qs');
 const store = require('store');
@@ -1495,9 +2465,9 @@ export default {
     BCol,
     BCard,
     BCardText,
+    BCardTitle,
     BRow,
     BButton,
-    BForm,
     BFormTextarea,
     BFormGroup,
     BFormInput,
@@ -1512,6 +2482,7 @@ export default {
     ToastificationContent,
   },
   directives: {
+    'b-tooltip': VBTooltip,
     Ripple,
   },
   props: {
@@ -1530,7 +2501,6 @@ export default {
   },
   data() {
     return {
-      fluxapps,
       timeoptions,
       output: '',
       fluxCommunication: false,
@@ -1547,8 +2517,8 @@ export default {
       signature: '',
       updateHash: '',
       websocket: null,
-      currentHeight: 0,
       selectedAppOwner: '',
+      appSpecification: {},
       callResponse: { // general
         status: '',
         data: '',
@@ -1610,7 +2580,8 @@ export default {
       total: '',
       downloaded: '',
       abortToken: {},
-      foundationAddress: 't1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6',
+      deploymentAddress: '',
+      appPricePerMonthForUpdate: 0,
     };
   },
   computed: {
@@ -1640,36 +2611,6 @@ export default {
       const url = `${backendURL}/zelid/providesign`;
       return encodeURI(url);
     },
-    stringifiedResponse() {
-      if (!this.callResponse || !this.callResponse.data) {
-        return '';
-      }
-      const json = JSON.stringify(this.callResponse.data, null, 4);
-      return json;
-    },
-    appPricePerMonthForUpdate() {
-      const appInfo = this.callBResponse.data;
-      const daemonHeight = this.currentHeight;
-      let actualPriceToPay = this.appPricePerMonthMethod(this.dataForAppUpdate, daemonHeight);
-      console.log(actualPriceToPay);
-      if (appInfo) {
-        const previousSpecsPrice = this.appPricePerMonthMethod(appInfo, daemonHeight);
-        console.log(previousSpecsPrice);
-        // what is the height difference
-        const heightDifference = daemonHeight - appInfo.height; // has to be lower than 22000
-        const perc = (22000 - heightDifference) / 22000;
-        if (perc > 0) {
-          actualPriceToPay -= (perc * previousSpecsPrice);
-        }
-      }
-      const intervals = fluxapps.apps.price.filter((i) => i.height <= daemonHeight);
-      const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
-      if (actualPriceToPay < priceSpecifications.minPrice) {
-        actualPriceToPay = priceSpecifications.minPrice;
-      }
-      actualPriceToPay = Number(Math.ceil(actualPriceToPay * 100) / 100);
-      return actualPriceToPay;
-    },
     validTill() {
       const expTime = this.timestamp + 60 * 60 * 1000; // 1 hour
       return expTime;
@@ -1698,14 +2639,97 @@ export default {
       };
       appInfo.state = appInfo.state.charAt(0).toUpperCase() + appInfo.state.slice(1);
       appInfo.status = appInfo.status.charAt(0).toUpperCase() + appInfo.status.slice(1);
-      const niceString = `${appInfo.name} - ${appInfo.state} - ${appInfo.status}`;
+      let niceString = `${appInfo.name} - ${appInfo.state} - ${appInfo.status}`;
+      if (this.appSpecification) {
+        if (this.appSpecification.version >= 4) {
+          niceString = `${this.appSpecification.name}:`;
+          // eslint-disable-next-line no-restricted-syntax
+          for (const component of this.appSpecification.compose) {
+            const foundAppInfoComponent = this.getAllAppsResponse.data.find((app) => app.Names[0] === this.getAppDockerNameIdentifier(`${component.name}_${this.appSpecification.name}`)) || {};
+            const appInfoComponent = {
+              name: component.name,
+              state: foundAppInfoComponent.State || 'Unknown state',
+              status: foundAppInfoComponent.Status || 'Unknown status',
+            };
+            appInfoComponent.state = appInfoComponent.state.charAt(0).toUpperCase() + appInfoComponent.state.slice(1);
+            appInfoComponent.status = appInfoComponent.status.charAt(0).toUpperCase() + appInfoComponent.status.slice(1);
+            const niceStringComponent = ` ${appInfoComponent.name} - ${appInfoComponent.state} - ${appInfoComponent.status},`;
+            niceString += niceStringComponent;
+          }
+          niceString = niceString.substring(0, niceString.length - 1);
+        }
+      }
       return niceString;
     },
-    asciiResponse() {
-      if (typeof this.callResponse.data === 'string') {
-        return this.callResponse.data.replace(/[^\x20-\x7E\t\r\n\v\f]/g, '');
+    constructAutomaticDomains() {
+      const domainString = 'abcdefghijklmno'; // enough
+      const appName = this.appSpecification.name;
+      if (!appName) {
+        return 'loading...';
       }
-      return '';
+      const lowerCaseName = appName.toLowerCase();
+
+      if (!this.appSpecification.compose) {
+        const ports = JSON.parse(this.callBResponse.data.ports);
+        const domains = [`${lowerCaseName}.app.runonflux.io`];
+        // flux specs dont allow more than 10 ports so domainString is enough
+        for (let i = 0; i < ports.length; i += 1) {
+          const portDomain = `${domainString[i]}.${lowerCaseName}.app.runonflux.io`;
+          domains.push(portDomain);
+        }
+        return JSON.stringify(domains);
+      }
+      const domains = [];
+      this.appSpecification.compose.forEach((component) => {
+        const componentName = component.name;
+        const lowerCaseCopmonentName = componentName.toLowerCase();
+        const domainsComponent = [`${lowerCaseName}.app.runonflux.io`, `${lowerCaseCopmonentName}.${lowerCaseName}.app.runonflux.io`];
+        for (let i = 0; i < JSON.parse(component.ports).length; i += 1) {
+          const portDomain = `${domainString[i]}.${lowerCaseCopmonentName}.${lowerCaseName}.app.runonflux.io`;
+          domainsComponent.push(portDomain);
+        }
+        domains.push(JSON.stringify(domainsComponent));
+      });
+      return domains;
+    },
+    constructAutomaticDomainsGlobal() {
+      const domainString = 'abcdefghijklmno'; // enough
+      if (!this.callBResponse.data) {
+        return 'loading...';
+      }
+
+      console.log(this.callBResponse.data);
+
+      if (!this.callBResponse.data.name) {
+        return 'loading...';
+      }
+
+      const appName = this.callBResponse.data.name;
+
+      const lowerCaseName = appName.toLowerCase();
+
+      if (!this.callBResponse.data.compose) {
+        const ports = JSON.parse(this.callBResponse.data.ports);
+        const domains = [`${lowerCaseName}.app.runonflux.io`];
+        // flux specs dont allow more than 10 ports so domainString is enough
+        for (let i = 0; i < ports.length; i += 1) {
+          const portDomain = `${domainString[i]}.${lowerCaseName}.app.runonflux.io`;
+          domains.push(portDomain);
+        }
+        return JSON.stringify(domains);
+      }
+      const domains = [];
+      this.callBResponse.data.compose.forEach((component) => {
+        const componentName = component.name;
+        const lowerCaseCopmonentName = componentName.toLowerCase();
+        const domainsComponent = [`${lowerCaseName}.app.runonflux.io`, `${lowerCaseCopmonentName}.${lowerCaseName}.app.runonflux.io`];
+        for (let i = 0; i < JSON.parse(component.ports).length; i += 1) {
+          const portDomain = `${domainString[i]}.${lowerCaseCopmonentName}.${lowerCaseName}.app.runonflux.io`;
+          domainsComponent.push(portDomain);
+        }
+        domains.push(JSON.stringify(domainsComponent));
+      });
+      return domains;
     },
   },
   watch: {
@@ -1727,20 +2751,30 @@ export default {
   mounted() {
     this.callBResponse.data = '';
     this.callBResponse.status = '';
+    this.appSpecification = {};
     this.callResponse.data = '';
     this.callResponse.status = '';
     this.appExec.cmd = '';
     this.appExec.env = '';
     this.checkFluxCommunication();
     this.getAppOwner();
-    this.getDaemonInfo();
     this.getGlobalApplicationSpecifics();
     this.appsGetListAllApps();
     if (!global) {
       this.getInstalledApplicationSpecifics();
     }
+    this.appsDeploymentInformation();
   },
   methods: {
+    async appsDeploymentInformation() {
+      const response = await AppsService.appsRegInformation();
+      const { data } = response.data;
+      if (response.data.status === 'success') {
+        this.deploymentAddress = data.address;
+      } else {
+        this.showToast('danger', response.data.data.message || response.data.data);
+      }
+    },
     updateManagementTab(index) {
       this.callResponse.data = '';
       this.callResponse.status = '';
@@ -1776,7 +2810,6 @@ export default {
           break;
         case 12:
           this.getGlobalApplicationSpecifics();
-          this.getDaemonInfo();
           break;
         default:
           break;
@@ -1850,6 +2883,7 @@ export default {
       } else {
         this.callResponse.status = response.data.status;
         this.callResponse.data = response.data.data[0];
+        this.appSpecification = response.data.data[0];
       }
     },
     async getGlobalApplicationSpecifics() {
@@ -1863,32 +2897,29 @@ export default {
         this.callBResponse.data = response.data.data;
         const specs = response.data.data;
         console.log(specs);
-        this.appUpdateSpecification.version = specs.version;
-        this.appUpdateSpecification.name = specs.name;
-        this.appUpdateSpecification.description = specs.description;
-        this.appUpdateSpecification.repotag = specs.repotag;
-        this.appUpdateSpecification.owner = specs.owner;
-        this.appUpdateSpecification.ports = specs.port || this.ensureString(specs.ports); // v1 compatibility
-        this.appUpdateSpecification.domains = this.ensureString(specs.domains);
-        this.appUpdateSpecification.enviromentParameters = this.ensureString(specs.enviromentParameters);
-        this.appUpdateSpecification.commands = this.ensureString(specs.commands);
-        this.appUpdateSpecification.containerPorts = specs.containerPort || this.ensureString(specs.containerPorts); // v1 compatibility
-        this.appUpdateSpecification.containerData = specs.containerData;
+        this.appUpdateSpecification = specs;
         this.appUpdateSpecification.instances = specs.instances || 3;
-        this.appUpdateSpecification.cpu = specs.cpu;
-        this.appUpdateSpecification.ram = specs.ram;
-        this.appUpdateSpecification.hdd = specs.hdd;
-        this.appUpdateSpecification.tiered = specs.tiered;
-        this.appUpdateSpecification.cpubasic = specs.cpubasic;
-        this.appUpdateSpecification.rambasic = specs.rambasic;
-        this.appUpdateSpecification.hddbasic = specs.hddbasic;
-        this.appUpdateSpecification.cpusuper = specs.cpusuper;
-        this.appUpdateSpecification.ramsuper = specs.ramsuper;
-        this.appUpdateSpecification.hddsuper = specs.hddsuper;
-        this.appUpdateSpecification.cpubamf = specs.cpubamf;
-        this.appUpdateSpecification.rambamf = specs.rambamf;
-        this.appUpdateSpecification.hddbamf = specs.hddbamf;
-        if (this.currentHeight > 983000) { // fork height for spec v3
+        if (this.appUpdateSpecification.version <= 3) {
+          this.appUpdateSpecification.ports = specs.port || this.ensureString(specs.ports); // v1 compatibility
+          this.appUpdateSpecification.domains = this.ensureString(specs.domains);
+          this.appUpdateSpecification.enviromentParameters = this.ensureString(specs.enviromentParameters);
+          this.appUpdateSpecification.commands = this.ensureString(specs.commands);
+          this.appUpdateSpecification.containerPorts = specs.containerPort || this.ensureString(specs.containerPorts); // v1 compatibility
+        } else {
+          this.appUpdateSpecification.compose.forEach((component) => {
+            // eslint-disable-next-line no-param-reassign
+            component.ports = this.ensureString(component.ports);
+            // eslint-disable-next-line no-param-reassign
+            component.domains = this.ensureString(component.domains);
+            // eslint-disable-next-line no-param-reassign
+            component.enviromentParameters = this.ensureString(component.enviromentParameters);
+            // eslint-disable-next-line no-param-reassign
+            component.commands = this.ensureString(component.commands);
+            // eslint-disable-next-line no-param-reassign
+            component.containerPorts = this.ensureString(component.containerPorts);
+          });
+        }
+        if (this.appUpdateSpecification.version <= 3) { // fork height for spec v3
           this.appUpdateSpecification.version = 3; // enforce specs version 3
         }
       }
@@ -1926,246 +2957,19 @@ export default {
 
     async checkFluxUpdateSpecificationsAndFormatMessage() {
       try {
-        let appSpecification = this.appUpdateSpecification;
-        console.log(appSpecification);
-        appSpecification = this.ensureObject(appSpecification);
-        let { version } = appSpecification; // shall be 2 or 3
-        let { name } = appSpecification;
-        let { description } = appSpecification;
-        let { repotag } = appSpecification;
-        let { owner } = appSpecification;
-        let { ports } = appSpecification;
-        let { domains } = appSpecification;
-        let { enviromentParameters } = appSpecification;
-        let { commands } = appSpecification;
-        let { containerPorts } = appSpecification;
-        let { containerData } = appSpecification;
-        let { instances } = appSpecification;
-        let { cpu } = appSpecification;
-        let { ram } = appSpecification;
-        let { hdd } = appSpecification;
-        const { tiered } = appSpecification;
-        // check if signature of received data is correct
-        if (!version || !name || !description || !repotag || !owner || !ports || !domains || !enviromentParameters || !commands || !containerPorts || !containerData || !cpu || !ram || !hdd) {
-          throw new Error('Missing App specification parameter');
+        const appSpecification = this.appUpdateSpecification;
+        // call api for verification of app registration specifications that returns formatted specs
+        const responseAppSpecs = await AppsService.appUpdateVerification(appSpecification);
+        if (responseAppSpecs.data.status === 'error') {
+          throw new Error(responseAppSpecs.data.data.message || responseAppSpecs.data.data);
         }
-        version = this.ensureNumber(version);
-        name = this.ensureString(name);
-        description = this.ensureString(description);
-        repotag = this.ensureString(repotag);
-        owner = this.ensureString(owner);
-        ports = this.ensureObject(ports);
-        ports = this.ensureObject(ports);
-        const portsCorrect = [];
-        if (Array.isArray(ports)) {
-          ports.forEach((parameter) => {
-            const param = this.ensureString(parameter); // todo ensureNumber
-            portsCorrect.push(param);
-          });
-        } else {
-          throw new Error('Ports parameters for App are invalid');
+        const appSpecFormatted = responseAppSpecs.data.data;
+        const response = await AppsService.appPrice(appSpecFormatted);
+        this.appPricePerMonthForUpdate = 0;
+        if (response.data.status === 'error') {
+          throw new Error(response.data.data.message || response.data.data);
         }
-        domains = this.ensureObject(domains);
-        const domainsCorrect = [];
-        if (Array.isArray(domains)) {
-          domains.forEach((parameter) => {
-            const param = this.ensureString(parameter);
-            domainsCorrect.push(param);
-          });
-        } else {
-          throw new Error('Enviromental parameters for App are invalid');
-        }
-        enviromentParameters = this.ensureObject(enviromentParameters);
-        const envParamsCorrected = [];
-        if (Array.isArray(enviromentParameters)) {
-          enviromentParameters.forEach((parameter) => {
-            const param = this.ensureString(parameter);
-            envParamsCorrected.push(param);
-          });
-        } else {
-          throw new Error('Enviromental parameters for App are invalid');
-        }
-        commands = this.ensureObject(commands);
-        const commandsCorrected = [];
-        if (Array.isArray(commands)) {
-          commands.forEach((command) => {
-            const cmm = this.ensureString(command);
-            commandsCorrected.push(cmm);
-          });
-        } else {
-          throw new Error('App commands are invalid');
-        }
-        containerPorts = this.ensureObject(containerPorts);
-        const containerportsCorrect = [];
-        if (Array.isArray(containerPorts)) {
-          containerPorts.forEach((parameter) => {
-            const param = this.ensureString(parameter); // todo ensureNumber
-            containerportsCorrect.push(param);
-          });
-        } else {
-          throw new Error('Container Ports parameters for App are invalid');
-        }
-        containerData = this.ensureString(containerData);
-        cpu = this.ensureNumber(cpu);
-        ram = this.ensureNumber(ram);
-        hdd = this.ensureNumber(hdd);
-        if (typeof tiered !== 'boolean') {
-          throw new Error('Invalid tiered value obtained. Only boolean as true or false allowed.');
-        }
-        if (version > 2) {
-          if (!instances) {
-            throw new Error('Missing Flux App specification parameter');
-          }
-          instances = this.ensureNumber(instances);
-          if (typeof instances !== 'number') {
-            throw new Error('Invalid instances specification');
-          }
-          if (Number.isInteger(instances) !== true) {
-            throw new Error('Invalid instances specified');
-          }
-          if (instances < 3) {
-            throw new Error('Minimum number of instances is 3');
-          }
-          if (instances > 100) {
-            throw new Error('Maximum number of instances is 100');
-          }
-        }
-
-        // finalised parameters that will get stored in global database
-        const appSpecFormatted = {
-          version, // integer
-          name, // string
-          description, // string
-          repotag, // string
-          owner, // zelid string
-          ports: portsCorrect, // array of integers
-          domains: domainsCorrect, // array of strings
-          enviromentParameters: envParamsCorrected, // array of strings
-          commands: commandsCorrected, // array of strings
-          containerPorts: containerportsCorrect, // array of integers
-          containerData, // string
-          cpu, // float 0.1 step
-          ram, // integer 100 step (mb)
-          hdd, // integer 1 step
-          tiered, // boolean
-        };
-        if (version > 2) {
-          appSpecFormatted.instances = instances;
-        }
-
-        if (tiered) {
-          let { cpubasic } = appSpecification;
-          let { cpusuper } = appSpecification;
-          let { cpubamf } = appSpecification;
-          let { rambasic } = appSpecification;
-          let { ramsuper } = appSpecification;
-          let { rambamf } = appSpecification;
-          let { hddbasic } = appSpecification;
-          let { hddsuper } = appSpecification;
-          let { hddbamf } = appSpecification;
-          if (!cpubasic || !cpusuper || !cpubamf || !rambasic || !ramsuper || !rambamf || !hddbasic || !hddsuper || !hddbamf) {
-            throw new Error('App was requested as tiered setup but specifications are missing');
-          }
-          cpubasic = this.ensureNumber(cpubasic);
-          cpusuper = this.ensureNumber(cpusuper);
-          cpubamf = this.ensureNumber(cpubamf);
-          rambasic = this.ensureNumber(rambasic);
-          ramsuper = this.ensureNumber(ramsuper);
-          rambamf = this.ensureNumber(rambamf);
-          hddbasic = this.ensureNumber(hddbasic);
-          hddsuper = this.ensureNumber(hddsuper);
-          hddbamf = this.ensureNumber(hddbamf);
-
-          appSpecFormatted.cpubasic = cpubasic;
-          appSpecFormatted.cpusuper = cpusuper;
-          appSpecFormatted.cpubamf = cpubamf;
-          appSpecFormatted.rambasic = rambasic;
-          appSpecFormatted.ramsuper = ramsuper;
-          appSpecFormatted.rambamf = rambamf;
-          appSpecFormatted.hddbasic = hddbasic;
-          appSpecFormatted.hddsuper = hddsuper;
-          appSpecFormatted.hddbamf = hddbamf;
-        }
-        // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
-        if (version !== 2 && version !== 3) {
-          throw new Error('App message version specification is invalid');
-        }
-        if (name.length > 32) {
-          throw new Error('App name is too long');
-        }
-        // furthermore name cannot contain any special character
-        if (!name.match(/^[a-zA-Z0-9]+$/)) {
-          throw new Error('App name contains special characters. Only a-z, A-Z and 0-9 are allowed');
-        }
-        if (name.startsWith('zel')) {
-          throw new Error('App name can not start with zel');
-        }
-        if (name.startsWith('flux')) {
-          throw new Error('App name can not start with flux');
-        }
-        if (name !== this.callBResponse.data.name) {
-          throw new Error('App name can not be changed');
-        }
-        if (repotag !== this.callBResponse.data.repotag) {
-          throw new Error('Repository can not be changed');
-        }
-        if (description.length > 256) {
-          throw new Error('Description is too long. Maximum of 256 characters is allowed');
-        }
-        const parameters = this.checkHWParameters(appSpecFormatted);
-        if (parameters !== true) {
-          const errorMessage = parameters;
-          throw new Error(errorMessage);
-        }
-
-        // check ports is within range
-        appSpecFormatted.ports.forEach((port) => {
-          if (port < fluxapps.apps.portMin || port > fluxapps.apps.portMax) {
-            throw new Error(`Assigned port ${port} is not within Apps range ${fluxapps.apps.portMin}-${fluxapps.apps.portMax}`);
-          }
-        });
-
-        // check if containerPorts makes sense
-        appSpecFormatted.containerPorts.forEach((port) => {
-          if (port < 0 || port > 65535) {
-            throw new Error(`Container Port ${port} is not within system limits 0-65535`);
-          }
-        });
-
-        if (appSpecFormatted.containerPorts.length !== appSpecFormatted.ports.length) {
-          throw new Error('Ports specifications do not match');
-        }
-
-        if (appSpecFormatted.domains.length !== appSpecFormatted.ports.length) {
-          throw new Error('Domains specifications do not match available ports');
-        }
-
-        if (appSpecFormatted.ports.length > 5) {
-          throw new Error('Too many ports defined. Maximum of 5 allowed.');
-        }
-
-        // check wheter shared Folder is not root
-        if (containerData.length < 2) {
-          throw new Error('App container data folder not specified. If no data folder is required, use /tmp');
-        }
-
-        // check repotag if available for download
-        const splittedRepo = appSpecFormatted.repotag.split(':');
-        if (splittedRepo[0] && splittedRepo[1] && !splittedRepo[2]) {
-          const zelidauth = localStorage.getItem('zelidauth');
-          const data = {
-            repotag: appSpecFormatted.repotag,
-          };
-          const resDocker = await AppsService.checkDockerExistance(zelidauth, data).catch((error) => {
-            this.showToast('danger', error.message || error);
-          });
-          console.log(resDocker);
-          if (resDocker.data.status === 'error') {
-            throw resDocker.data.data;
-          }
-        } else {
-          throw new Error('Repository is not in valid format namespace/repository:tag');
-        }
+        this.appPricePerMonthForUpdate = response.data.data;
         this.timestamp = new Date().getTime();
         this.dataForAppUpdate = appSpecFormatted;
         this.dataToSign = this.updatetype + this.version + JSON.stringify(appSpecFormatted) + this.timestamp;
@@ -2176,65 +2980,41 @@ export default {
       }
     },
 
-    checkHWParameters(appSpecs) {
-      // check specs parameters. JS precision
-      if ((appSpecs.cpu * 10) % 1 !== 0 || (appSpecs.cpu * 10) > (fluxapps.fluxSpecifics.cpu.bamf - fluxapps.lockedSystemResources.cpu) || appSpecs.cpu < 0.1) {
-        return new Error('CPU badly assigned');
-      }
-      if (appSpecs.ram % 100 !== 0 || appSpecs.ram > (fluxapps.fluxSpecifics.ram.bamf - fluxapps.lockedSystemResources.ram) || appSpecs.ram < 100) {
-        return new Error('RAM badly assigned');
-      }
-      if (appSpecs.hdd % 1 !== 0 || appSpecs.hdd > (fluxapps.fluxSpecifics.hdd.bamf - fluxapps.lockedSystemResources.hdd) || appSpecs.hdd < 1) {
-        return new Error('SSD badly assigned');
-      }
-      if (appSpecs.tiered) {
-        if ((appSpecs.cpubasic * 10) % 1 !== 0 || (appSpecs.cpubasic * 10) > (fluxapps.fluxSpecifics.cpu.basic - fluxapps.lockedSystemResources.cpu) || appSpecs.cpubasic < 0.1) {
-          return new Error('CPU for Cumulus badly assigned');
+    async appExecute(name = this.appName) {
+      try {
+        const zelidauth = localStorage.getItem('zelidauth');
+        if (!this.appExec.cmd) {
+          this.showToast('danger', 'No commands specified');
+          return;
         }
-        if (appSpecs.rambasic % 100 !== 0 || appSpecs.rambasic > (fluxapps.fluxSpecifics.ram.basic - fluxapps.lockedSystemResources.ram) || appSpecs.rambasic < 100) {
-          return new Error('RAM for Cumulus badly assigned');
+        const env = this.appExec.env ? this.appExec.env : '[]';
+        const { cmd } = this.appExec;
+        this.commandExecuting = true;
+        const response = await AppsService.getAppExec(zelidauth, name, cmd, env);
+        console.log(response);
+        this.commandExecuting = false;
+        this.callResponse.status = response.status;
+        if (!name.includes('_')) {
+          this.callResponse.data = response.data;
+        } else {
+          if (!this.callResponse.data) {
+            this.callResponse.data = [];
+          } else if (!Array.isArray(this.callResponse.data)) {
+            this.callResponse.data = [];
+          }
+          this.callResponse.data.push({
+            name,
+            data: response.data,
+          });
         }
-        if (appSpecs.hddbasic % 1 !== 0 || appSpecs.hddbasic > (fluxapps.fluxSpecifics.hdd.basic - fluxapps.lockedSystemResources.hdd) || appSpecs.hddbasic < 1) {
-          return new Error('SSD for Cumulus badly assigned');
+        console.log(this.callResponse);
+        if (response.data.status === 'error') {
+          this.showToast('danger', response.data.data.message || response.data.data);
         }
-        if ((appSpecs.cpusuper * 10) % 1 !== 0 || (appSpecs.cpusuper * 10) > (fluxapps.fluxSpecifics.cpu.super - fluxapps.lockedSystemResources.cpu) || appSpecs.cpusuper < 0.1) {
-          return new Error('CPU for Nimbus badly assigned');
-        }
-        if (appSpecs.ramsuper % 100 !== 0 || appSpecs.ramsuper > (fluxapps.fluxSpecifics.ram.super - fluxapps.lockedSystemResources.ram) || appSpecs.ramsuper < 100) {
-          return new Error('RAM for Nimbus badly assigned');
-        }
-        if (appSpecs.hddsuper % 1 !== 0 || appSpecs.hddsuper > (fluxapps.fluxSpecifics.hdd.super - fluxapps.lockedSystemResources.hdd) || appSpecs.hddsuper < 1) {
-          return new Error('SSD for Nimbus badly assigned');
-        }
-        if ((appSpecs.cpubamf * 10) % 1 !== 0 || (appSpecs.cpubamf * 10) > (fluxapps.fluxSpecifics.cpu.bamf - fluxapps.lockedSystemResources.cpu) || appSpecs.cpubamf < 0.1) {
-          return new Error('CPU for Stratus badly assigned');
-        }
-        if (appSpecs.rambamf % 100 !== 0 || appSpecs.rambamf > (fluxapps.fluxSpecifics.ram.bamf - fluxapps.lockedSystemResources.ram) || appSpecs.rambamf < 100) {
-          return new Error('RAM for Stratus badly assigned');
-        }
-        if (appSpecs.hddbamf % 1 !== 0 || appSpecs.hddbamf > (fluxapps.fluxSpecifics.hdd.bamf - fluxapps.lockedSystemResources.hdd) || appSpecs.hddbamf < 1) {
-          return new Error('SSD for Stratus badly assigned');
-        }
-      }
-      return true;
-    },
-
-    async appExecute() {
-      const zelidauth = localStorage.getItem('zelidauth');
-      if (!this.appExec.cmd) {
-        this.showToast('danger', 'No commands specified');
-        return;
-      }
-      const env = this.appExec.env ? this.appExec.env : '[]';
-      const { cmd } = this.appExec;
-      this.commandExecuting = true;
-      const response = await AppsService.getAppExec(zelidauth, this.appName, cmd, env);
-      console.log(response);
-      this.commandExecuting = false;
-      this.callResponse.status = response.status;
-      this.callResponse.data = response.data;
-      if (response.data.status === 'error') {
-        this.showToast('danger', response.data.data.message || response.data.data);
+      } catch (error) {
+        this.commandExecuting = false;
+        console.log(error);
+        this.showToast('danger', error.message || error);
       }
     },
 
@@ -2243,7 +3023,7 @@ export default {
       this.downloaded = '';
       this.total = '';
     },
-    async downloadApplicationLog() {
+    async downloadApplicationLog(appName) {
       const self = this;
       this.downloaded = '';
       this.total = '';
@@ -2260,7 +3040,7 @@ export default {
         },
         // cancelToken: self.abortToken.token,
       };
-      const response = await DaemonService.justAPI().get(`/apps/applog/${this.appName}`, axiosConfig);
+      const response = await DaemonService.justAPI().get(`/apps/applog/${appName}`, axiosConfig);
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
@@ -2269,86 +3049,202 @@ export default {
       link.click();
     },
 
-    getAppIdentifier() {
+    getAppIdentifier(appName = this.appName) {
       // this id is used for volumes, docker names so we know it reall belongs to flux
-      if (this.appName && this.appName.startsWith('zel')) {
-        return this.appName;
+      if (appName && appName.startsWith('zel')) {
+        return appName;
       }
-      if (this.appName && this.appName.startsWith('flux')) {
-        return this.appName;
+      if (appName && appName.startsWith('flux')) {
+        return appName;
       }
-      if (this.appName === 'KadenaChainWebNode' || this.appName === 'FoldingAtHomeB') {
-        return `zel${this.appName}`;
+      if (appName === 'KadenaChainWebNode' || appName === 'FoldingAtHomeB') {
+        return `zel${appName}`;
       }
-      return `flux${this.appName}`;
+      return `flux${appName}`;
     },
-    getAppDockerNameIdentifier() {
+    getAppDockerNameIdentifier(appName) {
       // this id is used for volumes, docker names so we know it reall belongs to flux
-      const name = this.getAppIdentifier();
+      const name = this.getAppIdentifier(appName);
       if (name && name.startsWith('/')) {
         return name;
       }
       return `/${name}`;
     },
-    appPricePerMonthMethod(specifications, height = this.currentHeight) {
-      const price = fluxapps.appPricePerMonthMethod(specifications, height);
-      return price;
-    },
 
     async getApplicationInspect() {
       const zelidauth = localStorage.getItem('zelidauth');
-      const response = await AppsService.getAppInspect(zelidauth, this.appName);
-      console.log(response);
-      if (response.data.status === 'error') {
-        this.showToast('danger', response.data.data.message || response.data.data);
+      const callData = [];
+      if (this.appSpecification.version >= 4) {
+        // compose
+        // eslint-disable-next-line no-restricted-syntax
+        for (const component of this.appSpecification.compose) {
+          // eslint-disable-next-line no-await-in-loop
+          const response = await AppsService.getAppInspect(zelidauth, `${component.name}_${this.appSpecification.name}`);
+          if (response.data.status === 'error') {
+            this.showToast('danger', response.data.data.message || response.data.data);
+          } else {
+            const appComponentInspect = {
+              name: component.name,
+              callData: response.data.data,
+            };
+            callData.push(appComponentInspect);
+          }
+        }
       } else {
-        this.callResponse.status = response.data.status;
-        this.callResponse.data = response.data.data;
+        const response = await AppsService.getAppInspect(zelidauth, this.appName);
+        if (response.data.status === 'error') {
+          this.showToast('danger', response.data.data.message || response.data.data);
+        } else {
+          const appComponentInspect = {
+            name: this.appSpecification.name,
+            callData: response.data.data,
+          };
+          callData.push(appComponentInspect);
+        }
+        console.log(response);
       }
+      this.callResponse.status = 'success';
+      this.callResponse.data = callData;
     },
     async getApplicationStats() {
       const zelidauth = localStorage.getItem('zelidauth');
-      const response = await AppsService.getAppStats(zelidauth, this.appName);
-      console.log(response);
-      if (response.data.status === 'error') {
-        this.showToast('danger', response.data.data.message || response.data.data);
+      const callData = [];
+      if (this.appSpecification.version >= 4) {
+        // compose
+        // eslint-disable-next-line no-restricted-syntax
+        for (const component of this.appSpecification.compose) {
+          // eslint-disable-next-line no-await-in-loop
+          const response = await AppsService.getAppStats(zelidauth, `${component.name}_${this.appSpecification.name}`);
+          if (response.data.status === 'error') {
+            this.showToast('danger', response.data.data.message || response.data.data);
+          } else {
+            const appComponentInspect = {
+              name: component.name,
+              callData: response.data.data,
+            };
+            callData.push(appComponentInspect);
+          }
+        }
       } else {
-        this.callResponse.status = response.data.status;
-        this.callResponse.data = response.data.data;
+        const response = await AppsService.getAppStats(zelidauth, this.appName);
+        if (response.data.status === 'error') {
+          this.showToast('danger', response.data.data.message || response.data.data);
+        } else {
+          const appComponentInspect = {
+            name: this.appSpecification.name,
+            callData: response.data.data,
+          };
+          callData.push(appComponentInspect);
+        }
+        console.log(response);
       }
+      this.callResponse.status = 'success';
+      this.callResponse.data = callData;
     },
     async getApplicationChanges() {
       const zelidauth = localStorage.getItem('zelidauth');
-      const response = await AppsService.getAppChanges(zelidauth, this.appName);
-      console.log(response);
-      if (response.data.status === 'error') {
-        this.showToast('danger', response.data.data.message || response.data.data);
+      const callData = [];
+      if (this.appSpecification.version >= 4) {
+        // compose
+        // eslint-disable-next-line no-restricted-syntax
+        for (const component of this.appSpecification.compose) {
+          // eslint-disable-next-line no-await-in-loop
+          const response = await AppsService.getAppChanges(zelidauth, `${component.name}_${this.appSpecification.name}`);
+          if (response.data.status === 'error') {
+            this.showToast('danger', response.data.data.message || response.data.data);
+          } else {
+            const appComponentInspect = {
+              name: component.name,
+              callData: response.data.data,
+            };
+            callData.push(appComponentInspect);
+          }
+        }
       } else {
-        this.callResponse.status = response.data.status;
-        this.callResponse.data = response.data.data;
+        const response = await AppsService.getAppChanges(zelidauth, this.appName);
+        if (response.data.status === 'error') {
+          this.showToast('danger', response.data.data.message || response.data.data);
+        } else {
+          const appComponentInspect = {
+            name: this.appSpecification.name,
+            callData: response.data.data,
+          };
+          callData.push(appComponentInspect);
+        }
+        console.log(response);
       }
+      this.callResponse.status = 'success';
+      this.callResponse.data = callData;
     },
     async getApplicationProcesses() {
       const zelidauth = localStorage.getItem('zelidauth');
-      const response = await AppsService.getAppTop(zelidauth, this.appName);
-      console.log(response);
-      if (response.data.status === 'error') {
-        this.showToast('danger', response.data.data.message || response.data.data);
+      const callData = [];
+      if (this.appSpecification.version >= 4) {
+        // compose
+        // eslint-disable-next-line no-restricted-syntax
+        for (const component of this.appSpecification.compose) {
+          // eslint-disable-next-line no-await-in-loop
+          const response = await AppsService.getAppTop(zelidauth, `${component.name}_${this.appSpecification.name}`);
+          if (response.data.status === 'error') {
+            this.showToast('danger', response.data.data.message || response.data.data);
+          } else {
+            const appComponentInspect = {
+              name: component.name,
+              callData: response.data.data,
+            };
+            callData.push(appComponentInspect);
+          }
+        }
       } else {
-        this.callResponse.status = response.data.status;
-        this.callResponse.data = response.data.data;
+        const response = await AppsService.getAppTop(zelidauth, this.appName);
+        if (response.data.status === 'error') {
+          this.showToast('danger', response.data.data.message || response.data.data);
+        } else {
+          const appComponentInspect = {
+            name: this.appSpecification.name,
+            callData: response.data.data,
+          };
+          callData.push(appComponentInspect);
+        }
+        console.log(response);
       }
+      this.callResponse.status = 'success';
+      this.callResponse.data = callData;
     },
     async getApplicationLogs() {
       const zelidauth = localStorage.getItem('zelidauth');
-      const response = await AppsService.getAppLogsTail(zelidauth, this.appName);
-      console.log(response);
-      if (response.data.status === 'error') {
-        this.showToast('danger', response.data.data.message || response.data.data);
+      const callData = [];
+      if (this.appSpecification.version >= 4) {
+        // compose
+        // eslint-disable-next-line no-restricted-syntax
+        for (const component of this.appSpecification.compose) {
+          // eslint-disable-next-line no-await-in-loop
+          const response = await AppsService.getAppLogsTail(zelidauth, `${component.name}_${this.appSpecification.name}`);
+          if (response.data.status === 'error') {
+            this.showToast('danger', response.data.data.message || response.data.data);
+          } else {
+            const appComponentInspect = {
+              name: component.name,
+              callData: response.data.data,
+            };
+            callData.push(appComponentInspect);
+          }
+        }
       } else {
-        this.callResponse.status = response.data.status;
-        this.callResponse.data = response.data.data;
+        const response = await AppsService.getAppLogsTail(zelidauth, this.appName);
+        if (response.data.status === 'error') {
+          this.showToast('danger', response.data.data.message || response.data.data);
+        } else {
+          const appComponentInspect = {
+            name: this.appSpecification.name,
+            callData: response.data.data,
+          };
+          callData.push(appComponentInspect);
+        }
+        console.log(response);
       }
+      this.callResponse.status = 'success';
+      this.callResponse.data = callData;
     },
     async getApplicationLocations() {
       const response = await AppsService.getAppLocation(this.appName);
@@ -2367,17 +3263,6 @@ export default {
         this.showToast('danger', response.data.data.message || response.data.data);
       }
       this.selectedAppOwner = response.data.data;
-    },
-    async getDaemonInfo() {
-      const daemonGetInfo = await DaemonService.getInfo();
-      if (daemonGetInfo.data.status === 'error') {
-        this.showToast('danger', daemonGetInfo.data.data.message || daemonGetInfo.data.data);
-      } else {
-        this.currentHeight = daemonGetInfo.data.data.blocks;
-        if (this.currentHeight < 983000) { // fork height for spec v3
-          this.appUpdateSpecification.version = 2;
-        }
-      }
     },
 
     async stopAll(app) {
@@ -2473,7 +3358,7 @@ export default {
         if (this.output[this.output.length - 1].status === 'error') {
           this.showToast('danger', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         } else {
-          this.showToast('success', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
+          this.showToast('success', this.output[this.output.length - 1].status);
         }
       }
     },
@@ -2499,7 +3384,7 @@ export default {
         if (this.output[this.output.length - 1].status === 'error') {
           this.showToast('danger', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         } else {
-          this.showToast('success', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
+          this.showToast('success', this.output[this.output.length - 1].status);
         }
         setTimeout(() => {
           self.managedApplication = '';
@@ -2571,6 +3456,13 @@ export default {
           variant,
         },
       });
+    },
+
+    decodeAsciiResponse(data) {
+      if (typeof data === 'string') {
+        return data.replace(/[^\x20-\x7E\t\r\n\v\f]/g, '');
+      }
+      return '';
     },
   },
 };

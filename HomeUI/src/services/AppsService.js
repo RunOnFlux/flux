@@ -2,16 +2,16 @@ import Api from '@/services/Api';
 
 export default {
   listRunningApps() {
-    return Api().get(`/apps/listrunningapps?timestamp=${new Date().getTime()}`);
+    return Api().get('/apps/listrunningapps');
   },
   listAllApps() {
-    return Api().get(`/apps/listallapps?timestamp=${new Date().getTime()}`);
+    return Api().get('/apps/listallapps');
   },
   installedApps() {
-    return Api().get(`/apps/installedapps?timestamp=${new Date().getTime()}`);
+    return Api().get('/apps/installedapps');
   },
   availableApps() {
-    return Api().get(`/apps/availableapps?timestamp=${new Date().getTime()}`);
+    return Api().get('/apps/availableapps');
   },
   stopAll(zelidauthHeader, app) {
     const axiosConfig = {
@@ -93,6 +93,9 @@ export default {
   },
   appsRegInformation() {
     return Api().get('/apps/registrationinformation');
+  },
+  appsDeploymentInformation() {
+    return Api().get('/apps/deploymentinformation');
   },
   getAppLocation(name) {
     return Api().get(`/apps/location/${name}`);
@@ -255,6 +258,15 @@ export default {
         zelidauth: zelidauthHeader,
       },
     });
+  },
+  appPrice(data) {
+    return Api().post('/apps/calculateprice', JSON.stringify(data));
+  },
+  appRegistrationVerificaiton(data) {
+    return Api().post('/apps/verifyappregistrationspecifications', JSON.stringify(data));
+  },
+  appUpdateVerification(data) {
+    return Api().post('/apps/verifyappupdatespecifications', JSON.stringify(data));
   },
   justAPI() {
     return Api();

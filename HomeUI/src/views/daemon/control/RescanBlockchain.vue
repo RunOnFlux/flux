@@ -5,11 +5,9 @@
         for="sb-inline"
         class="mr-1"
       >Block Height</label>
-      <b-form-spinbutton
+      <input-spin-button
         id="sb-inline"
         v-model="rescanDaemonHeight"
-        min="0"
-        :max="blockHeight"
         repeat-step-multiplier="100"
         inline
       />
@@ -19,7 +17,7 @@
         :disabled="blockHeight === 0"
         variant="outline-primary"
         size="md"
-        class="ml-1"
+        class="ml-1 mt-1"
       >
         Rescan Daemon
       </b-button>
@@ -88,7 +86,6 @@
 <script>
 import {
   BCard,
-  BFormSpinbutton,
   BButton,
   BPopover,
   BModal,
@@ -97,15 +94,16 @@ import {
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 import Ripple from 'vue-ripple-directive';
 import DaemonService from '@/services/DaemonService';
+import InputSpinButton from '@/views/components/InputSpinButton.vue';
 
 export default {
   components: {
     BCard,
-    BFormSpinbutton,
     BButton,
     BPopover,
     BModal,
     BCardText,
+    InputSpinButton,
     // eslint-disable-next-line vue/no-unused-components
     ToastificationContent,
   },

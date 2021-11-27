@@ -237,8 +237,8 @@ async function verifyTimestampInFluxBroadcast(data, currentTimeStamp) {
 
 async function sendToAllPeers(data, wsList) {
   try {
-    let removals = [];
-    let ipremovals = [];
+    const removals = [];
+    const ipremovals = [];
     // wsList is always a sublist of outgoingConnections
     const outConList = wsList || outgoingConnections;
     // eslint-disable-next-line no-restricted-syntax
@@ -266,6 +266,8 @@ async function sendToAllPeers(data, wsList) {
           const ip = client._socket.remoteAddress;
           const foundPeer = outgoingPeers.find((peer) => peer.ip === ip);
           ipremovals.push(foundPeer);
+          // eslint-disable-next-line no-use-before-define
+          closeConnection(ip);
         } catch (err) {
           log.error(err);
         }
@@ -284,8 +286,6 @@ async function sendToAllPeers(data, wsList) {
         outgoingConnections.splice(ocIndex, 1);
       }
     }
-    removals = [];
-    ipremovals = [];
   } catch (error) {
     log.error(error);
   }
@@ -293,8 +293,8 @@ async function sendToAllPeers(data, wsList) {
 
 async function sendToAllIncomingConnections(data, wsList) {
   try {
-    let removals = [];
-    let ipremovals = [];
+    const removals = [];
+    const ipremovals = [];
     // wsList is always a sublist of incomingConnections
     const incConList = wsList || incomingConnections;
     // eslint-disable-next-line no-restricted-syntax
@@ -303,6 +303,11 @@ async function sendToAllIncomingConnections(data, wsList) {
         // eslint-disable-next-line no-await-in-loop
         await serviceHelper.delay(100);
         if (client.readyState === WebSocket.OPEN) {
+          if (!data) {
+            client.ping('flux'); // do ping with flux strc instead
+          } else {
+            client.send(data);
+          }
           client.send(data);
         } else {
           throw new Error(`Connection to ${client._socket.remoteAddress} is not open`);
@@ -313,6 +318,8 @@ async function sendToAllIncomingConnections(data, wsList) {
           const ip = client._socket.remoteAddress;
           const foundPeer = incomingPeers.find((peer) => peer.ip === ip);
           ipremovals.push(foundPeer);
+          // eslint-disable-next-line no-use-before-define
+          closeIncomingConnection(ip, [], client); // this is wrong
         } catch (err) {
           log.error(err);
         }
@@ -331,8 +338,6 @@ async function sendToAllIncomingConnections(data, wsList) {
         incomingConnections.splice(ocIndex, 1);
       }
     }
-    removals = [];
-    ipremovals = [];
   } catch (error) {
     log.error(error);
   }
@@ -536,9 +541,9 @@ function handleIncomingConnection(ws, req, expressWS) {
     }
   });
   ws.on('error', async (msg) => {
-    console.log(ws._socket.remoteAddress);
     const ip = ws._socket.remoteAddress;
-    const ocIndex = incomingConnections.indexOf(ws);
+    log.warn(`Incoming connection error ${ip}`);
+    const ocIndex = incomingConnections.findIndex((incomingCon) => ws._socket.remoteAddress === incomingCon._socket.remoteAddress);
     const foundPeer = await incomingPeers.find((mypeer) => mypeer.ip === ip);
     if (ocIndex > -1) {
       incomingConnections.splice(ocIndex, 1);
@@ -549,11 +554,12 @@ function handleIncomingConnection(ws, req, expressWS) {
         incomingPeers.splice(peerIndex, 1);
       }
     }
-    log.error(`Incoming connection errored with: ${msg}`);
+    log.warn(`Incoming connection errored with: ${msg}`);
   });
   ws.on('close', async (msg) => {
     const ip = ws._socket.remoteAddress;
-    const ocIndex = incomingConnections.indexOf(ws);
+    log.warn(`Incoming connection close ${ip}`);
+    const ocIndex = incomingConnections.findIndex((incomingCon) => ws._socket.remoteAddress === incomingCon._socket.remoteAddress);
     const foundPeer = await incomingPeers.find((mypeer) => mypeer.ip === ip);
     if (ocIndex > -1) {
       incomingConnections.splice(ocIndex, 1);
@@ -564,7 +570,7 @@ function handleIncomingConnection(ws, req, expressWS) {
         incomingPeers.splice(peerIndex, 1);
       }
     }
-    log.info(`Incoming connection closed with: ${msg}`);
+    log.warn(`Incoming connection closed with: ${msg}`);
   });
 }
 
@@ -917,6 +923,7 @@ function connectedPeersInfo(req, res) {
 function keepConnectionsAlive() {
   setInterval(() => {
     sendToAllPeers(); // perform ping
+    sendToAllIncomingConnections(); // perform ping
   }, 30 * 1000);
 }
 
@@ -990,10 +997,10 @@ async function closeConnection(ip) {
   return message;
 }
 
-async function closeIncomingConnection(ip, expressWS) {
-  const clientsSet = expressWS.clients;
+async function closeIncomingConnection(ip, expressWS, clientToClose) {
+  const clientsSet = expressWS.clients || [];
   let message;
-  let wsObj = null;
+  let wsObj = null || clientToClose;
   clientsSet.forEach((client) => {
     if (client._socket.remoteAddress === ip) {
       wsObj = client;
@@ -1341,38 +1348,31 @@ async function allowPortApi(req, res) {
 
 async function adjustFirewall() {
   try {
-    const execA = 'sudo ufw status | grep Status';
-    const execB = `sudo ufw allow ${config.server.apiport}`;
-    const execC = `sudo ufw allow out ${config.server.apiport}`;
-    const execD = `sudo ufw allow ${config.server.homeport}`;
-    const execE = `sudo ufw allow out ${config.server.homeport}`;
     const cmdAsync = util.promisify(cmd.get);
-
+    const execA = 'sudo ufw status | grep Status';
+    const ports = [config.server.apiport, config.server.homeport, 80, 443, 16125];
     const cmdresA = await cmdAsync(execA);
     if (serviceHelper.ensureString(cmdresA).includes('Status: active')) {
-      const cmdresB = await cmdAsync(execB);
-      if (serviceHelper.ensureString(cmdresB).includes('updated') || serviceHelper.ensureString(cmdresB).includes('existing') || serviceHelper.ensureString(cmdresB).includes('added')) {
-        log.info('Incoming Firewall adjusted for Flux port');
-      } else {
-        log.info('Failed to adjust Firewall for incoming Flux port');
-      }
-      const cmdresC = await cmdAsync(execC);
-      if (serviceHelper.ensureString(cmdresC).includes('updated') || serviceHelper.ensureString(cmdresC).includes('existing') || serviceHelper.ensureString(cmdresC).includes('added')) {
-        log.info('Outgoing Firewall adjusted for Flux port');
-      } else {
-        log.info('Failed to adjust Firewall for outgoing Flux port');
-      }
-      const cmdresD = await cmdAsync(execD);
-      if (serviceHelper.ensureString(cmdresD).includes('updated') || serviceHelper.ensureString(cmdresD).includes('existing') || serviceHelper.ensureString(cmdresD).includes('added')) {
-        log.info('Incoming Firewall adjusted for Home port');
-      } else {
-        log.info('Failed to adjust Firewall for incoming Home port');
-      }
-      const cmdresE = await cmdAsync(execE);
-      if (serviceHelper.ensureString(cmdresE).includes('updated') || serviceHelper.ensureString(cmdresE).includes('existing') || serviceHelper.ensureString(cmdresE).includes('added')) {
-        log.info('Outgoing Firewall adjusted for Home port');
-      } else {
-        log.info('Failed to adjust Firewall for outgoing Home port');
+      // eslint-disable-next-line no-restricted-syntax
+      for (const port of ports) {
+        const execB = `sudo ufw allow ${port}`;
+        const execC = `sudo ufw allow out ${port}`;
+
+        // eslint-disable-next-line no-await-in-loop
+        const cmdresB = await cmdAsync(execB);
+        if (serviceHelper.ensureString(cmdresB).includes('updated') || serviceHelper.ensureString(cmdresB).includes('existing') || serviceHelper.ensureString(cmdresB).includes('added')) {
+          log.info(`Firewall adjusted for port ${port}`);
+        } else {
+          log.info(`Failed to adjust Firewall for port ${port}`);
+        }
+
+        // eslint-disable-next-line no-await-in-loop
+        const cmdresC = await cmdAsync(execC);
+        if (serviceHelper.ensureString(cmdresC).includes('updated') || serviceHelper.ensureString(cmdresC).includes('existing') || serviceHelper.ensureString(cmdresC).includes('added')) {
+          log.info(`Firewall adjusted for port ${port}`);
+        } else {
+          log.info(`Failed to adjust Firewall for port ${port}`);
+        }
       }
     } else {
       log.info('Firewall is not active. Adjusting not applied');
@@ -1384,7 +1384,7 @@ async function adjustFirewall() {
 
 function isCommunicationEstablished(req, res) {
   let message;
-  if (outgoingPeers.length + incomingPeers.length < config.fluxapps.minOutgoing + config.fluxapps.minIncoming) {
+  if (outgoingPeers.length < config.fluxapps.minOutgoing || incomingPeers.length < config.fluxapps.minIncoming) {
     message = serviceHelper.createErrorMessage('Not enough connections established to Flux network');
   } else {
     message = serviceHelper.createSuccessMessage('Communication to Flux network is properly established');

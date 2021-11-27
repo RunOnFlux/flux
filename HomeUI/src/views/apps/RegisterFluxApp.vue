@@ -20,388 +20,861 @@
         </b-link>.
       </b-card-sub-title>
     </b-card>
-    <b-row class="match-height">
-      <b-col
-        xs="12"
-        xl="6"
+    <div v-if="specificationVersion >= 4">
+      <b-row class="match-height">
+        <b-col xs="6">
+          <b-card title="Details">
+            <b-form-group
+              label-cols="2"
+              label-cols-lg="1"
+              label="Version"
+              label-for="version"
+            >
+              <b-form-input
+                id="version"
+                v-model="appRegistrationSpecification.version"
+                :placeholder="appRegistrationSpecification.version.toString()"
+                readonly
+              />
+            </b-form-group>
+            <b-form-group
+              label-cols="2"
+              label-cols-lg="1"
+              label="Name"
+              label-for="name"
+            >
+              <b-form-input
+                id="name"
+                v-model="appRegistrationSpecification.name"
+                placeholder="Application Name"
+              />
+            </b-form-group>
+            <b-form-group
+              label-cols="2"
+              label-cols-lg="1"
+              label="Desc."
+              label-for="desc"
+            >
+              <b-form-textarea
+                id="desc"
+                v-model="appRegistrationSpecification.description"
+                placeholder="Description"
+                rows="3"
+              />
+            </b-form-group>
+            <b-form-group
+              label-cols="2"
+              label-cols-lg="1"
+              label="Owner"
+              label-for="owner"
+            >
+              <b-form-input
+                id="owner"
+                v-model="appRegistrationSpecification.owner"
+                placeholder="ZelID of Application Owner"
+              />
+            </b-form-group>
+            <br>
+            <b-form-group
+              v-if="appRegistrationSpecification.version >= 3"
+              label-cols="2"
+              label-cols-lg="1"
+              label="Instances"
+              label-for="instances"
+            >
+              <div class="mx-1">
+                {{ appRegistrationSpecification.instances }}
+              </div>
+              <b-form-input
+                id="instances"
+                v-model="appRegistrationSpecification.instances"
+                placeholder="Minimum number of application instances to be spawned"
+                type="range"
+                :min="minInstances"
+                :max="maxInstances"
+                step="1"
+              />
+            </b-form-group>
+          </b-card>
+        </b-col>
+      </b-row>
+      <b-card
+        v-for="(component, index) in appRegistrationSpecification.compose"
+        :key="index"
       >
-        <b-card title="Details">
-          <b-form-group
-            label-cols="2"
-            label="Version"
-            label-for="version"
+        <b-card-title>
+          Component {{ component.name }}
+          <b-button
+            v-if="appRegistrationSpecification.compose.length > 1"
+            v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+            variant="warning"
+            aria-label="Remove Component"
+            class="float-right"
+            size="sm"
+            @click="removeComponent(index)"
           >
+            Remove
+          </b-button>
+        </b-card-title>
+        <b-row class="match-height">
+          <b-col
+            xs="12"
+            xl="6"
+          >
+            <b-card>
+              <b-card-title>
+                General
+              </b-card-title>
+              <div class="form-row form-group">
+                <label class="col-3 col-form-label">
+                  Name
+                  <v-icon
+                    v-b-tooltip.hover.top="'Name of Application Component'"
+                    name="info-circle"
+                    class="mr-1"
+                  />
+                </label>
+                <div class="col">
+                  <b-form-input
+                    id="repo"
+                    v-model="component.name"
+                    placeholder="Component name"
+                  />
+                </div>
+              </div>
+              <div class="form-row form-group">
+                <label class="col-3 col-form-label">
+                  Description
+                  <v-icon
+                    v-b-tooltip.hover.top="'Description of Application Component'"
+                    name="info-circle"
+                    class="mr-1"
+                  />
+                </label>
+                <div class="col">
+                  <b-form-input
+                    id="repo"
+                    v-model="component.description"
+                    placeholder="Component description"
+                  />
+                </div>
+              </div>
+              <div class="form-row form-group">
+                <label class="col-3 col-form-label">
+                  Repository
+                  <v-icon
+                    v-b-tooltip.hover.top="'Docker Hub image namespace/repository:tag for component'"
+                    name="info-circle"
+                    class="mr-1"
+                  />
+                </label>
+                <div class="col">
+                  <b-form-input
+                    id="repo"
+                    v-model="component.repotag"
+                    placeholder="Docker Hub namespace/repository:tag"
+                  />
+                </div>
+              </div>
+              <br>
+              <b-card-title>
+                Connectivity
+              </b-card-title>
+              <div class="form-row form-group">
+                <label class="col-3 col-form-label">
+                  Ports
+                  <v-icon
+                    v-b-tooltip.hover.top="'Array of Ports on which application will be available'"
+                    name="info-circle"
+                    class="mr-1"
+                  />
+                </label>
+                <div class="col">
+                  <b-form-input
+                    id="ports"
+                    v-model="component.ports"
+                  />
+                </div>
+              </div>
+              <div class="form-row form-group">
+                <label class="col-3 col-form-label">
+                  Domains
+                  <v-icon
+                    v-b-tooltip.hover.top="'Array of strings of Domains managed by Flux Domain Manager (FDM). Length must correspond to available ports. Use empty strings for no domains'"
+                    name="info-circle"
+                    class="mr-1"
+                  />
+                </label>
+                <div class="col">
+                  <b-form-input
+                    id="domains"
+                    v-model="component.domains"
+                  />
+                </div>
+              </div>
+              <div class="form-row form-group">
+                <label class="col-3 col-form-label">
+                  Cont. Ports
+                  <v-icon
+                    v-b-tooltip.hover.top="'Container Ports - Array of ports which your container has'"
+                    name="info-circle"
+                    class="mr-1"
+                  />
+                </label>
+                <div class="col">
+                  <b-form-input
+                    id="containerPorts"
+                    v-model="component.containerPorts"
+                  />
+                </div>
+              </div>
+            </b-card>
+          </b-col>
+          <b-col
+            xs="12"
+            xl="6"
+          >
+            <b-card>
+              <b-card-title>
+                Environment
+              </b-card-title>
+              <div class="form-row form-group">
+                <label class="col-3 col-form-label">
+                  Environment
+                  <v-icon
+                    v-b-tooltip.hover.top="'Array of strings of Environmental Parameters'"
+                    name="info-circle"
+                    class="mr-1"
+                  />
+                </label>
+                <div class="col">
+                  <b-form-input
+                    id="enviromentParameters"
+                    v-model="component.enviromentParameters"
+                  />
+                </div>
+              </div>
+              <div class="form-row form-group">
+                <label class="col-3 col-form-label">
+                  Commands
+                  <v-icon
+                    v-b-tooltip.hover.top="'Array of strings of Commands'"
+                    name="info-circle"
+                    class="mr-1"
+                  />
+                </label>
+                <div class="col">
+                  <b-form-input
+                    id="commands"
+                    v-model="component.commands"
+                  />
+                </div>
+              </div>
+              <div class="form-row form-group">
+                <label class="col-3 col-form-label">
+                  Cont. Data
+                  <v-icon
+                    v-b-tooltip.hover.top="'Data folder that is shared by application to App volume'"
+                    name="info-circle"
+                    class="mr-1"
+                  />
+                </label>
+                <div class="col">
+                  <b-form-input
+                    id="containerData"
+                    v-model="component.containerData"
+                  />
+                </div>
+              </div>
+              <br>
+              <b-card-title>
+                Resources &nbsp;&nbsp;&nbsp;<h6 class="inline text-small">
+                  Tiered:
+                  <b-form-checkbox
+                    id="tiered"
+                    v-model="component.tiered"
+                    switch
+                    class="custom-control-primary inline"
+                  />
+                </h6>
+              </b-card-title>
+              <b-form-group
+                v-if="!component.tiered"
+                label-cols="2"
+                label-cols-lg="1"
+                label="CPU"
+                label-for="cpu"
+              >
+                <div class="mx-1">
+                  {{ component.cpu }}
+                </div>
+                <b-form-input
+                  id="cpu"
+                  v-model="component.cpu"
+                  placeholder="CPU cores to use by default"
+                  type="range"
+                  min="0.1"
+                  max="7"
+                  step="0.1"
+                />
+              </b-form-group>
+              <b-form-group
+                v-if="!component.tiered"
+                label-cols="2"
+                label-cols-lg="1"
+                label="RAM"
+                label-for="ram"
+              >
+                <div class="mx-1">
+                  {{ component.ram }}
+                </div>
+                <b-form-input
+                  id="ram"
+                  v-model="component.ram"
+                  placeholder="RAM in MB value to use by default"
+                  type="range"
+                  min="100"
+                  max="28000"
+                  step="100"
+                />
+              </b-form-group>
+              <b-form-group
+                v-if="!component.tiered"
+                label-cols="2"
+                label-cols-lg="1"
+                label="SSD"
+                label-for="ssd"
+              >
+                <div class="mx-1">
+                  {{ component.hdd }}
+                </div>
+                <b-form-input
+                  id="ssd"
+                  v-model="component.hdd"
+                  placeholder="SSD in GB value to use by default"
+                  type="range"
+                  min="1"
+                  max="565"
+                  step="1"
+                />
+              </b-form-group>
+            </b-card>
+          </b-col>
+        </b-row>
+        <b-row v-if="component.tiered">
+          <b-col
+            xs="12"
+            md="6"
+            lg="4"
+          >
+            <b-card title="Cumulus">
+              <div>
+                CPU: {{ component.cpubasic }}
+              </div>
+              <b-form-input
+                v-model="component.cpubasic"
+                type="range"
+                min="0.1"
+                max="1"
+                step="0.1"
+              />
+              <div>
+                RAM: {{ component.rambasic }}
+              </div>
+              <b-form-input
+                v-model="component.rambasic"
+                type="range"
+                min="100"
+                max="1000"
+                step="100"
+              />
+              <div>
+                SSD: {{ component.hddbasic }}
+              </div>
+              <b-form-input
+                v-model="component.hddbasic"
+                type="range"
+                min="1"
+                max="15"
+                step="1"
+              />
+            </b-card>
+          </b-col>
+          <b-col
+            xs="12"
+            md="6"
+            lg="4"
+          >
+            <b-card title="Nimbus">
+              <div>
+                CPU: {{ component.cpusuper }}
+              </div>
+              <b-form-input
+                v-model="component.cpusuper"
+                type="range"
+                min="0.1"
+                max="3"
+                step="0.1"
+              />
+              <div>
+                RAM: {{ component.ramsuper }}
+              </div>
+              <b-form-input
+                v-model="component.ramsuper"
+                type="range"
+                min="100"
+                max="5000"
+                step="100"
+              />
+              <div>
+                SSD: {{ component.hddsuper }}
+              </div>
+              <b-form-input
+                v-model="component.hddsuper"
+                type="range"
+                min="1"
+                max="115"
+                step="1"
+              />
+            </b-card>
+          </b-col>
+          <b-col
+            xs="12"
+            lg="4"
+          >
+            <b-card title="Stratus">
+              <div>
+                CPU: {{ component.cpubamf }}
+              </div>
+              <b-form-input
+                v-model="component.cpubamf"
+                type="range"
+                min="0.1"
+                max="7"
+                step="0.1"
+              />
+              <div>
+                RAM: {{ component.rambamf }}
+              </div>
+              <b-form-input
+                v-model="component.rambamf"
+                type="range"
+                min="1000"
+                max="28000"
+                step="100"
+              />
+              <div>
+                SSD: {{ component.hddbamf }}
+              </div>
+              <b-form-input
+                v-model="component.hddbamf"
+                type="range"
+                min="1"
+                max="565"
+                step="1"
+              />
+            </b-card>
+          </b-col>
+        </b-row>
+      </b-card>
+    </div>
+    <div v-else>
+      <b-row class="match-height">
+        <b-col
+          xs="12"
+          xl="6"
+        >
+          <b-card title="Details">
+            <b-form-group
+              label-cols="2"
+              label="Version"
+              label-for="version"
+            >
+              <b-form-input
+                id="version"
+                v-model="appRegistrationSpecification.version"
+                :placeholder="appRegistrationSpecification.version.toString()"
+                readonly
+              />
+            </b-form-group>
+            <b-form-group
+              label-cols="2"
+              label="Name"
+              label-for="name"
+            >
+              <b-form-input
+                id="name"
+                v-model="appRegistrationSpecification.name"
+                placeholder="App Name"
+              />
+            </b-form-group>
+            <b-form-group
+              label-cols="2"
+              label="Desc."
+              label-for="desc"
+            >
+              <b-form-textarea
+                id="desc"
+                v-model="appRegistrationSpecification.description"
+                placeholder="Description"
+                rows="3"
+              />
+            </b-form-group>
+            <b-form-group
+              label-cols="2"
+              label="Repo"
+              label-for="repo"
+            >
+              <b-form-input
+                id="repo"
+                v-model="appRegistrationSpecification.repotag"
+                placeholder="Docker Hub namespace/repository:tag"
+              />
+            </b-form-group>
+            <b-form-group
+              label-cols="2"
+              label="Owner"
+              label-for="owner"
+            >
+              <b-form-input
+                id="owner"
+                v-model="appRegistrationSpecification.owner"
+                placeholder="ZelID of Application Owner"
+              />
+            </b-form-group>
+          </b-card>
+        </b-col>
+        <b-col
+          xs="12"
+          xl="6"
+        >
+          <b-card title="Environment">
+            <div class="form-row form-group">
+              <label class="col-3 col-form-label">
+                Ports
+                <v-icon
+                  v-b-tooltip.hover.top="'Array of Ports on which application will be available'"
+                  name="info-circle"
+                  class="mr-1"
+                />
+              </label>
+              <div class="col">
+                <b-form-input
+                  id="ports"
+                  v-model="appRegistrationSpecification.ports"
+                />
+              </div>
+            </div>
+            <div class="form-row form-group">
+              <label class="col-3 col-form-label">
+                Domains
+                <v-icon
+                  v-b-tooltip.hover.top="'Array of strings of Domains managed by Flux Domain Manager (FDM). Length must correspond to available ports. Use empty strings for no domains'"
+                  name="info-circle"
+                  class="mr-1"
+                />
+              </label>
+              <div class="col">
+                <b-form-input
+                  id="domains"
+                  v-model="appRegistrationSpecification.domains"
+                />
+              </div>
+            </div>
+            <div class="form-row form-group">
+              <label class="col-3 col-form-label">
+                Environment
+                <v-icon
+                  v-b-tooltip.hover.top="'Array of strings of Environmental Parameters'"
+                  name="info-circle"
+                  class="mr-1"
+                />
+              </label>
+              <div class="col">
+                <b-form-input
+                  id="enviromentParameters"
+                  v-model="appRegistrationSpecification.enviromentParameters"
+                />
+              </div>
+            </div>
+            <div class="form-row form-group">
+              <label class="col-3 col-form-label">
+                Commands
+                <v-icon
+                  v-b-tooltip.hover.top="'Array of strings of Commands'"
+                  name="info-circle"
+                  class="mr-1"
+                />
+              </label>
+              <div class="col">
+                <b-form-input
+                  id="commands"
+                  v-model="appRegistrationSpecification.commands"
+                />
+              </div>
+            </div>
+            <div class="form-row form-group">
+              <label class="col-3 col-form-label">
+                Cont. Ports
+                <v-icon
+                  v-b-tooltip.hover.top="'Container Ports - Array of ports which your container has'"
+                  name="info-circle"
+                  class="mr-1"
+                />
+              </label>
+              <div class="col">
+                <b-form-input
+                  id="containerPorts"
+                  v-model="appRegistrationSpecification.containerPorts"
+                />
+              </div>
+            </div>
+            <div class="form-row form-group">
+              <label class="col-3 col-form-label">
+                Cont. Data
+                <v-icon
+                  v-b-tooltip.hover.top="'Data folder that is shared by application to App volume'"
+                  name="info-circle"
+                  class="mr-1"
+                />
+              </label>
+              <div class="col">
+                <b-form-input
+                  id="containerData"
+                  v-model="appRegistrationSpecification.containerData"
+                />
+              </div>
+            </div>
+          </b-card>
+        </b-col>
+      </b-row>
+      <b-row class="match-height">
+        <b-col xs="12">
+          <b-card>
+            <b-card-title>
+              Resources &nbsp;&nbsp;&nbsp;<h6 class="inline text-small">
+                Tiered:
+                <b-form-checkbox
+                  id="tiered"
+                  v-model="appRegistrationSpecification.tiered"
+                  switch
+                  class="custom-control-primary inline"
+                />
+              </h6>
+            </b-card-title>
+            <b-form-group
+              v-if="appRegistrationSpecification.version >= 3"
+              label-cols="2"
+              label-cols-lg="1"
+              label="Instances"
+              label-for="instances"
+            >
+              <div class="mx-1">
+                {{ appRegistrationSpecification.instances }}
+              </div>
+              <b-form-input
+                id="instances"
+                v-model="appRegistrationSpecification.instances"
+                placeholder="Minimum number of application instances to be spawned"
+                type="range"
+                min="3"
+                max="100"
+                step="1"
+              />
+            </b-form-group>
+            <b-form-group
+              v-if="!appRegistrationSpecification.tiered"
+              label-cols="2"
+              label-cols-lg="1"
+              label="CPU"
+              label-for="cpu"
+            >
+              <div class="mx-1">
+                {{ appRegistrationSpecification.cpu }}
+              </div>
+              <b-form-input
+                id="cpu"
+                v-model="appRegistrationSpecification.cpu"
+                placeholder="CPU cores to use by default"
+                type="range"
+                min="0.1"
+                max="7"
+                step="0.1"
+              />
+            </b-form-group>
+            <b-form-group
+              v-if="!appRegistrationSpecification.tiered"
+              label-cols="2"
+              label-cols-lg="1"
+              label="RAM"
+              label-for="ram"
+            >
+              <div class="mx-1">
+                {{ appRegistrationSpecification.ram }}
+              </div>
+              <b-form-input
+                id="ram"
+                v-model="appRegistrationSpecification.ram"
+                placeholder="RAM in MB value to use by default"
+                type="range"
+                min="100"
+                max="28000"
+                step="100"
+              />
+            </b-form-group>
+            <b-form-group
+              v-if="!appRegistrationSpecification.tiered"
+              label-cols="2"
+              label-cols-lg="1"
+              label="SSD"
+              label-for="ssd"
+            >
+              <div class="mx-1">
+                {{ appRegistrationSpecification.hdd }}
+              </div>
+              <b-form-input
+                id="ssd"
+                v-model="appRegistrationSpecification.hdd"
+                placeholder="SSD in GB value to use by default"
+                type="range"
+                min="1"
+                max="565"
+                step="1"
+              />
+            </b-form-group>
+          </b-card>
+        </b-col>
+      </b-row>
+      <b-row v-if="appRegistrationSpecification.tiered">
+        <b-col
+          xs="12"
+          md="6"
+          lg="4"
+        >
+          <b-card title="Cumulus">
+            <div>
+              CPU: {{ appRegistrationSpecification.cpubasic }}
+            </div>
             <b-form-input
-              id="version"
-              v-model="appRegistrationSpecification.version"
-              :placeholder="appRegistrationSpecification.version"
-              readonly
-            />
-          </b-form-group>
-          <b-form-group
-            label-cols="2"
-            label="Name"
-            label-for="name"
-          >
-            <b-form-input
-              id="name"
-              v-model="appRegistrationSpecification.name"
-              placeholder="App Name"
-            />
-          </b-form-group>
-          <b-form-group
-            label-cols="2"
-            label="Desc."
-            label-for="desc"
-          >
-            <b-form-textarea
-              id="desc"
-              v-model="appRegistrationSpecification.description"
-              placeholder="Description"
-              rows="3"
-            />
-          </b-form-group>
-          <b-form-group
-            label-cols="2"
-            label="Repo"
-            label-for="repo"
-          >
-            <b-form-input
-              id="repo"
-              v-model="appRegistrationSpecification.repotag"
-              placeholder="Docker Hub namespace/repository:tag"
-            />
-          </b-form-group>
-          <b-form-group
-            label-cols="2"
-            label="Owner"
-            label-for="owner"
-          >
-            <b-form-input
-              id="owner"
-              v-model="appRegistrationSpecification.owner"
-              placeholder="ZelID of Application Owner"
-            />
-          </b-form-group>
-        </b-card>
-      </b-col>
-      <b-col
-        xs="12"
-        xl="6"
-      >
-        <b-card title="Environment">
-          <div class="form-row form-group">
-            <label class="col-3 col-form-label">
-              Ports
-              <v-icon
-                v-b-tooltip.hover.top="'Array of Ports on which application will be available'"
-                name="info-circle"
-                class="mr-1"
-              />
-            </label>
-            <div class="col">
-              <b-form-input
-                id="ports"
-                v-model="appRegistrationSpecification.ports"
-              />
-            </div>
-          </div>
-          <div class="form-row form-group">
-            <label class="col-3 col-form-label">
-              Domains
-              <v-icon
-                v-b-tooltip.hover.top="'Array of strings of Domains managed by Flux Domain Manager (FDM). Length must correspond to available ports. Use empty strings for no domains'"
-                name="info-circle"
-                class="mr-1"
-              />
-            </label>
-            <div class="col">
-              <b-form-input
-                id="domains"
-                v-model="appRegistrationSpecification.domains"
-              />
-            </div>
-          </div>
-          <div class="form-row form-group">
-            <label class="col-3 col-form-label">
-              Environment
-              <v-icon
-                v-b-tooltip.hover.top="'Array of strings of Environmental Parameters'"
-                name="info-circle"
-                class="mr-1"
-              />
-            </label>
-            <div class="col">
-              <b-form-input
-                id="enviromentParameters"
-                v-model="appRegistrationSpecification.enviromentParameters"
-              />
-            </div>
-          </div>
-          <div class="form-row form-group">
-            <label class="col-3 col-form-label">
-              Commands
-              <v-icon
-                v-b-tooltip.hover.top="'Array of strings of Commands'"
-                name="info-circle"
-                class="mr-1"
-              />
-            </label>
-            <div class="col">
-              <b-form-input
-                id="commands"
-                v-model="appRegistrationSpecification.commands"
-              />
-            </div>
-          </div>
-          <div class="form-row form-group">
-            <label class="col-3 col-form-label">
-              Cont. Ports
-              <v-icon
-                v-b-tooltip.hover.top="'Container Ports - Array of ports which your container has'"
-                name="info-circle"
-                class="mr-1"
-              />
-            </label>
-            <div class="col">
-              <b-form-input
-                id="containerPorts"
-                v-model="appRegistrationSpecification.containerPorts"
-              />
-            </div>
-          </div>
-          <div class="form-row form-group">
-            <label class="col-3 col-form-label">
-              Cont. Data
-              <v-icon
-                v-b-tooltip.hover.top="'Data folder that is shared by application to App volume'"
-                name="info-circle"
-                class="mr-1"
-              />
-            </label>
-            <div class="col">
-              <b-form-input
-                id="containerData"
-                v-model="appRegistrationSpecification.containerData"
-              />
-            </div>
-          </div>
-        </b-card>
-      </b-col>
-    </b-row>
-    <b-row class="match-height">
-      <b-col xs="12">
-        <b-card>
-          <b-card-title>
-            Resources &nbsp;&nbsp;&nbsp;<h6 class="inline text-small">
-              (Tiered:
-              <b-form-checkbox
-                id="tiered"
-                v-model="appRegistrationSpecification.tiered"
-                switch
-                class="custom-control-primary inline"
-              />
-              )
-            </h6>
-          </b-card-title>
-          <b-form-group
-            v-if="appRegistrationSpecification.version > 2"
-            label-cols="2"
-            label-cols-lg="1"
-            label="Instances"
-            label-for="instances"
-          >
-            <div class="mx-1">
-              {{ appRegistrationSpecification.instances }}
-            </div>
-            <b-form-input
-              id="instances"
-              v-model="appRegistrationSpecification.instances"
-              placeholder="Minimum number of application instances to be spawned"
+              v-model="appRegistrationSpecification.cpubasic"
               type="range"
-              min="3"
-              max="100"
+              min="0.1"
+              max="1"
+              step="0.1"
+            />
+            <div>
+              RAM: {{ appRegistrationSpecification.rambasic }}
+            </div>
+            <b-form-input
+              v-model="appRegistrationSpecification.rambasic"
+              type="range"
+              min="100"
+              max="1000"
+              step="100"
+            />
+            <div>
+              SSD: {{ appRegistrationSpecification.hddbasic }}
+            </div>
+            <b-form-input
+              v-model="appRegistrationSpecification.hddbasic"
+              type="range"
+              min="1"
+              max="15"
               step="1"
             />
-          </b-form-group>
-          <b-form-group
-            v-if="!appRegistrationSpecification.tiered"
-            label-cols="2"
-            label-cols-lg="1"
-            label="CPU"
-            label-for="cpu"
-          >
-            <div class="mx-1">
-              {{ appRegistrationSpecification.cpu }}
+          </b-card>
+        </b-col>
+        <b-col
+          xs="12"
+          md="6"
+          lg="4"
+        >
+          <b-card title="Nimbus">
+            <div>
+              CPU: {{ appRegistrationSpecification.cpusuper }}
             </div>
             <b-form-input
-              id="cpu"
-              v-model="appRegistrationSpecification.cpu"
-              placeholder="CPU cores to use by default"
+              v-model="appRegistrationSpecification.cpusuper"
+              type="range"
+              min="0.1"
+              max="3"
+              step="0.1"
+            />
+            <div>
+              RAM: {{ appRegistrationSpecification.ramsuper }}
+            </div>
+            <b-form-input
+              v-model="appRegistrationSpecification.ramsuper"
+              type="range"
+              min="100"
+              max="5000"
+              step="100"
+            />
+            <div>
+              SSD: {{ appRegistrationSpecification.hddsuper }}
+            </div>
+            <b-form-input
+              v-model="appRegistrationSpecification.hddsuper"
+              type="range"
+              min="1"
+              max="115"
+              step="1"
+            />
+          </b-card>
+        </b-col>
+        <b-col
+          xs="12"
+          lg="4"
+        >
+          <b-card title="Stratus">
+            <div>
+              CPU: {{ appRegistrationSpecification.cpubamf }}
+            </div>
+            <b-form-input
+              v-model="appRegistrationSpecification.cpubamf"
               type="range"
               min="0.1"
               max="7"
               step="0.1"
             />
-          </b-form-group>
-          <b-form-group
-            v-if="!appRegistrationSpecification.tiered"
-            label-cols="2"
-            label-cols-lg="1"
-            label="RAM"
-            label-for="ram"
-          >
-            <div class="mx-1">
-              {{ appRegistrationSpecification.ram }}
+            <div>
+              RAM: {{ appRegistrationSpecification.rambamf }}
             </div>
             <b-form-input
-              id="ram"
-              v-model="appRegistrationSpecification.ram"
-              placeholder="RAM in MB value to use by default"
+              v-model="appRegistrationSpecification.rambamf"
               type="range"
-              min="100"
+              min="1000"
               max="28000"
               step="100"
             />
-          </b-form-group>
-          <b-form-group
-            v-if="!appRegistrationSpecification.tiered"
-            label-cols="2"
-            label-cols-lg="1"
-            label="SSD"
-            label-for="ssd"
-          >
-            <div class="mx-1">
-              {{ appRegistrationSpecification.hdd }}
+            <div>
+              SSD: {{ appRegistrationSpecification.hddbamf }}
             </div>
             <b-form-input
-              id="ssd"
-              v-model="appRegistrationSpecification.hdd"
-              placeholder="SSD in GB value to use by default"
+              v-model="appRegistrationSpecification.hddbamf"
               type="range"
               min="1"
-              max="570"
+              max="565"
               step="1"
             />
-          </b-form-group>
-        </b-card>
-      </b-col>
-    </b-row>
-    <b-row v-if="appRegistrationSpecification.tiered">
-      <b-col
-        xs="12"
-        md="6"
-        lg="4"
+          </b-card>
+        </b-col>
+      </b-row>
+    </div>
+    <div
+      v-if="appRegistrationSpecification.version >= 4 && appRegistrationSpecification.compose.length < 5"
+      class="text-center"
+    >
+      <b-button
+        v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+        variant="secondary"
+        aria-label="Add Component to Application Composition"
+        class="mb-4"
+        @click="addCopmonent"
       >
-        <b-card title="Cumulus">
-          <div>
-            CPU: {{ appRegistrationSpecification.cpubasic }}
-          </div>
-          <b-form-input
-            v-model="appRegistrationSpecification.cpubasic"
-            type="range"
-            min="0.1"
-            max="1"
-            step="0.1"
-          />
-          <div>
-            RAM: {{ appRegistrationSpecification.rambasic }}
-          </div>
-          <b-form-input
-            v-model="appRegistrationSpecification.rambasic"
-            type="range"
-            min="100"
-            max="1000"
-            step="100"
-          />
-          <div>
-            SSD: {{ appRegistrationSpecification.hddbasic }}
-          </div>
-          <b-form-input
-            v-model="appRegistrationSpecification.hddbasic"
-            type="range"
-            min="1"
-            max="20"
-            step="1"
-          />
-        </b-card>
-      </b-col>
-      <b-col
-        xs="12"
-        md="6"
-        lg="4"
-      >
-        <b-card title="Nimbus">
-          <div>
-            CPU: {{ appRegistrationSpecification.cpusuper }}
-          </div>
-          <b-form-input
-            v-model="appRegistrationSpecification.cpusuper"
-            type="range"
-            min="0.1"
-            max="3"
-            step="0.1"
-          />
-          <div>
-            RAM: {{ appRegistrationSpecification.ramsuper }}
-          </div>
-          <b-form-input
-            v-model="appRegistrationSpecification.ramsuper"
-            type="range"
-            min="100"
-            max="5000"
-            step="100"
-          />
-          <div>
-            SSD: {{ appRegistrationSpecification.hddsuper }}
-          </div>
-          <b-form-input
-            v-model="appRegistrationSpecification.hddsuper"
-            type="range"
-            min="1"
-            max="120"
-            step="1"
-          />
-        </b-card>
-      </b-col>
-      <b-col
-        xs="12"
-        lg="4"
-      >
-        <b-card title="Stratus">
-          <div>
-            CPU: {{ appRegistrationSpecification.cpubamf }}
-          </div>
-          <b-form-input
-            v-model="appRegistrationSpecification.cpubamf"
-            type="range"
-            min="0.1"
-            max="7"
-            step="0.1"
-          />
-          <div>
-            RAM: {{ appRegistrationSpecification.rambamf }}
-          </div>
-          <b-form-input
-            v-model="appRegistrationSpecification.rambamf"
-            type="range"
-            min="1000"
-            max="28000"
-            step="100"
-          />
-          <div>
-            SSD: {{ appRegistrationSpecification.hddbamf }}
-          </div>
-          <b-form-input
-            v-model="appRegistrationSpecification.hddbamf"
-            type="range"
-            min="1"
-            max="570"
-            step="1"
-          />
-        </b-card>
-      </b-col>
-    </b-row>
+        Add Component to Application Composition
+      </b-button>
+    </div>
     <div class="text-center">
       <b-button
         v-ripple.400="'rgba(255, 255, 255, 0.15)'"
@@ -489,7 +962,7 @@
           <b-card>
             <b-card-text>
               To finish the application update, please make a transaction of {{ appPricePerMonth }} FLUX to address
-              '{{ fluxapps.apps.address }}'
+              '{{ deploymentAddress }}'
               with the following message:
               '{{ registrationHash }}'
             </b-card-text>
@@ -504,7 +977,7 @@
           lg="4"
         >
           <b-card title="Pay with ZelCore">
-            <a :href="'zel:?action=pay&coin=zelcash&address=' + fluxapps.apps.address + '&amount=' + appPricePerMonth + '&message=' + registrationHash + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png'">
+            <a :href="'zel:?action=pay&coin=zelcash&address=' + deploymentAddress + '&amount=' + appPricePerMonth + '&message=' + registrationHash + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png'">
               <img
                 class="zelidLogin"
                 src="@/assets/images/zelID.svg"
@@ -538,7 +1011,6 @@ import {
 import { mapState } from 'vuex';
 import Ripple from 'vue-ripple-directive';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
-import fluxapps from '@/libs/fluxApps';
 import AppsService from '@/services/AppsService';
 import DaemonService from '@/services/DaemonService';
 
@@ -567,7 +1039,6 @@ export default {
   },
   data() {
     return {
-      fluxapps,
       timeoptions,
       version: 1,
       websocket: null,
@@ -577,19 +1048,78 @@ export default {
       registrationHash: '',
       registrationtype: 'fluxappregister',
       currentHeight: 1,
-      appRegistrationSpecification: {
+      specificationVersion: 4,
+      appRegistrationSpecification: {},
+      appRegistrationSpecificationv3template: {
         version: 3,
         name: '',
         description: '',
-        repotag: '',
         owner: '',
-        ports: '', // []
+        instances: 3,
+        repotag: '',
+        ports: '[]',
         domains: '[]',
         enviromentParameters: '[]',
         commands: '[]',
         containerPorts: '[]',
         containerData: '',
+        cpu: 0.5,
+        ram: 2000,
+        hdd: 40,
+        tiered: false,
+        cpubasic: 0.5,
+        rambasic: 500,
+        hddbasic: 10,
+        cpusuper: 1.5,
+        ramsuper: 2500,
+        hddsuper: 60,
+        cpubamf: 3.5,
+        rambamf: 14000,
+        hddbamf: 285,
+      },
+      appRegistrationSpecificationv4template: {
+        version: 4,
+        name: '',
+        description: '',
+        owner: '',
         instances: 3,
+        compose: [
+          {
+            name: '',
+            description: '',
+            repotag: '',
+            ports: '[]',
+            domains: '[]',
+            enviromentParameters: '[]',
+            commands: '[]',
+            containerPorts: '[]',
+            containerData: '',
+            cpu: 0.5,
+            ram: 2000,
+            hdd: 40,
+            tiered: false,
+            cpubasic: 0.5,
+            rambasic: 500,
+            hddbasic: 10,
+            cpusuper: 1.5,
+            ramsuper: 2500,
+            hddsuper: 60,
+            cpubamf: 3.5,
+            rambamf: 14000,
+            hddbamf: 285,
+          },
+        ],
+      },
+      composeTemplate: {
+        name: '',
+        description: '',
+        repotag: '',
+        ports: '[]',
+        domains: '[]',
+        enviromentParameters: '[]',
+        commands: '[]',
+        containerPorts: '[]',
+        containerData: '',
         cpu: 0.5,
         ram: 2000,
         hdd: 40,
@@ -605,6 +1135,10 @@ export default {
         hddbamf: 285,
       },
       dataForAppRegistration: {},
+      appPricePerMonth: 0,
+      deploymentAddress: '',
+      minInstances: 3,
+      maxInstances: 100,
     };
   },
   computed: {
@@ -612,10 +1146,6 @@ export default {
       'config',
       'privilege',
     ]),
-    appPricePerMonth() {
-      const price = fluxapps.appPricePerMonthMethod(this.dataForAppRegistration, this.currentHeight);
-      return price;
-    },
     validTill() {
       const expTime = this.timestamp + 60 * 60 * 1000; // 1 hour
       return expTime;
@@ -663,10 +1193,12 @@ export default {
       deep: true,
     },
   },
+  beforeMount() {
+    this.appRegistrationSpecification = this.appRegistrationSpecificationv4template;
+  },
   mounted() {
     this.getDaemonInfo();
-    this.getRandomPort();
-    this.registrationInformation();
+    this.appsDeploymentInformation();
     const zelidauth = localStorage.getItem('zelidauth');
     const auth = qs.parse(zelidauth);
     this.appRegistrationSpecification.owner = auth.zelid;
@@ -674,240 +1206,20 @@ export default {
   methods: {
     async checkFluxSpecificationsAndFormatMessage() {
       try {
-        let appSpecification = this.appRegistrationSpecification;
-        console.log(appSpecification);
-        appSpecification = this.ensureObject(appSpecification);
-        let { version } = appSpecification; // shall be 2 or 3
-        let { name } = appSpecification;
-        let { description } = appSpecification;
-        let { repotag } = appSpecification;
-        let { owner } = appSpecification;
-        let { ports } = appSpecification;
-        let { domains } = appSpecification;
-        let { enviromentParameters } = appSpecification;
-        let { commands } = appSpecification;
-        let { containerPorts } = appSpecification;
-        let { containerData } = appSpecification;
-        let { instances } = appSpecification;
-        let { cpu } = appSpecification;
-        let { ram } = appSpecification;
-        let { hdd } = appSpecification;
-        const { tiered } = appSpecification;
-        // check if signature of received data is correct
-        if (!version || !name || !description || !repotag || !owner || !ports || !domains || !enviromentParameters || !commands || !containerPorts || !containerData || !cpu || !ram || !hdd) {
-          throw new Error('Missing App specification parameter');
+        // formation, pre verificaiton
+        const appSpecification = this.appRegistrationSpecification;
+        // call api for verification of app registration specifications that returns formatted specs
+        const responseAppSpecs = await AppsService.appRegistrationVerificaiton(appSpecification);
+        if (responseAppSpecs.data.status === 'error') {
+          throw new Error(responseAppSpecs.data.data.message || responseAppSpecs.data.data);
         }
-        version = this.ensureNumber(version);
-        name = this.ensureString(name);
-        description = this.ensureString(description);
-        repotag = this.ensureString(repotag);
-        owner = this.ensureString(owner);
-        ports = this.ensureObject(ports);
-        const portsCorrect = [];
-        if (Array.isArray(ports)) {
-          ports.forEach((parameter) => {
-            const param = this.ensureString(parameter); // todo ensureNumber
-            portsCorrect.push(param);
-          });
-        } else {
-          throw new Error('Ports parameters for App are invalid');
+        const appSpecFormatted = responseAppSpecs.data.data;
+        const response = await AppsService.appPrice(appSpecFormatted);
+        this.appPricePerMonth = 0;
+        if (response.data.status === 'error') {
+          throw new Error(response.data.data.message || response.data.data);
         }
-        domains = this.ensureObject(domains);
-        const domainsCorrect = [];
-        if (Array.isArray(domains)) {
-          domains.forEach((parameter) => {
-            const param = this.ensureString(parameter);
-            domainsCorrect.push(param);
-          });
-        } else {
-          throw new Error('Domains for Flux App are invalid');
-        }
-        enviromentParameters = this.ensureObject(enviromentParameters);
-        const envParamsCorrected = [];
-        if (Array.isArray(enviromentParameters)) {
-          enviromentParameters.forEach((parameter) => {
-            const param = this.ensureString(parameter);
-            envParamsCorrected.push(param);
-          });
-        } else {
-          throw new Error('Enviromental parameters for App are invalid');
-        }
-        commands = this.ensureObject(commands);
-        const commandsCorrected = [];
-        if (Array.isArray(commands)) {
-          commands.forEach((command) => {
-            const cmm = this.ensureString(command);
-            commandsCorrected.push(cmm);
-          });
-        } else {
-          throw new Error('App commands are invalid');
-        }
-        containerPorts = this.ensureObject(containerPorts);
-        const containerportsCorrect = [];
-        if (Array.isArray(containerPorts)) {
-          containerPorts.forEach((parameter) => {
-            const param = this.ensureString(parameter); // todo ensureNumber
-            containerportsCorrect.push(param);
-          });
-        } else {
-          throw new Error('Container Ports parameters for App are invalid');
-        }
-        containerData = this.ensureString(containerData);
-        cpu = this.ensureNumber(cpu);
-        ram = this.ensureNumber(ram);
-        hdd = this.ensureNumber(hdd);
-        if (typeof tiered !== 'boolean') {
-          throw new Error('Invalid tiered value obtained. Only boolean as true or false allowed.');
-        }
-        if (version > 2) {
-          if (!instances) {
-            throw new Error('Missing Flux App specification parameter');
-          }
-          instances = this.ensureNumber(instances);
-          if (typeof instances !== 'number') {
-            throw new Error('Invalid instances specification');
-          }
-          if (Number.isInteger(instances) !== true) {
-            throw new Error('Invalid instances specified');
-          }
-          if (instances < 3) {
-            throw new Error('Minimum number of instances is 3');
-          }
-          if (instances > 100) {
-            throw new Error('Maximum number of instances is 100');
-          }
-        }
-
-        // finalised parameters that will get stored in global database
-        const appSpecFormatted = {
-          version, // integer
-          name, // string
-          description, // string
-          repotag, // string
-          owner, // zelid string
-          ports: portsCorrect, // array of integers
-          domains: domainsCorrect, //  array of strings
-          enviromentParameters: envParamsCorrected, // array of strings
-          commands: commandsCorrected, // array of strings
-          containerPorts: containerportsCorrect, // array of integers
-          containerData, // string
-          cpu, // float 0.1 step
-          ram, // integer 100 step (mb)
-          hdd, // integer 1 step
-          tiered, // boolean
-        };
-        if (version > 2) {
-          appSpecFormatted.instances = instances;
-        }
-
-        if (tiered) {
-          let { cpubasic } = appSpecification;
-          let { cpusuper } = appSpecification;
-          let { cpubamf } = appSpecification;
-          let { rambasic } = appSpecification;
-          let { ramsuper } = appSpecification;
-          let { rambamf } = appSpecification;
-          let { hddbasic } = appSpecification;
-          let { hddsuper } = appSpecification;
-          let { hddbamf } = appSpecification;
-          if (!cpubasic || !cpusuper || !cpubamf || !rambasic || !ramsuper || !rambamf || !hddbasic || !hddsuper || !hddbamf) {
-            throw new Error('App was requested as tiered setup but specifications are missing');
-          }
-          cpubasic = this.ensureNumber(cpubasic);
-          cpusuper = this.ensureNumber(cpusuper);
-          cpubamf = this.ensureNumber(cpubamf);
-          rambasic = this.ensureNumber(rambasic);
-          ramsuper = this.ensureNumber(ramsuper);
-          rambamf = this.ensureNumber(rambamf);
-          hddbasic = this.ensureNumber(hddbasic);
-          hddsuper = this.ensureNumber(hddsuper);
-          hddbamf = this.ensureNumber(hddbamf);
-
-          appSpecFormatted.cpubasic = cpubasic;
-          appSpecFormatted.cpusuper = cpusuper;
-          appSpecFormatted.cpubamf = cpubamf;
-          appSpecFormatted.rambasic = rambasic;
-          appSpecFormatted.ramsuper = ramsuper;
-          appSpecFormatted.rambamf = rambamf;
-          appSpecFormatted.hddbasic = hddbasic;
-          appSpecFormatted.hddsuper = hddsuper;
-          appSpecFormatted.hddbamf = hddbamf;
-        }
-        // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper port, repotag exists, string lengths, specs are ok
-        if (version !== 2 && version !== 3) {
-          throw new Error('App message version specification is invalid');
-        }
-        if (name.length > 32) {
-          throw new Error('App name is too long');
-        }
-        // furthermore name cannot contain any special character
-        if (!name.match(/^[a-zA-Z0-9]+$/)) {
-          throw new Error('App name contains special characters. Only a-z, A-Z and 0-9 are allowed');
-        }
-        if (name.startsWith('zel')) {
-          throw new Error('App name can not start with zel');
-        }
-        if (name.startsWith('flux')) {
-          throw new Error('App name can not start with flux');
-        }
-        if (description.length > 256) {
-          throw new Error('Description is too long. Maximum of 256 characters is allowed');
-        }
-        const parameters = fluxapps.checkHWParameters(appSpecFormatted);
-        if (parameters !== true) {
-          const errorMessage = parameters;
-          throw new Error(errorMessage);
-        }
-
-        // check ports is within range
-        appSpecFormatted.ports.forEach((port) => {
-          if (port < fluxapps.apps.portMin || port > fluxapps.apps.portMax) {
-            throw new Error(`Assigned port ${port} is not within Apps range ${fluxapps.apps.portMin}-${fluxapps.apps.portMax}`);
-          }
-        });
-
-        // check if containerPorts makes sense
-        appSpecFormatted.containerPorts.forEach((port) => {
-          if (port < 0 || port > 65535) {
-            throw new Error(`Container Port ${port} is not within system limits 0-65535`);
-          }
-        });
-
-        if (appSpecFormatted.containerPorts.length !== appSpecFormatted.ports.length) {
-          throw new Error('Ports specifications do not match');
-        }
-
-        if (appSpecFormatted.domains.length !== appSpecFormatted.ports.length) {
-          throw new Error('Domains specifications do not match available ports');
-        }
-
-        if (appSpecFormatted.ports.length > 5) {
-          throw new Error('Too many ports defined. Maximum of 5 allowed.');
-        }
-
-        // check wheter shared Folder is not root
-        if (containerData.length < 2) {
-          throw new Error('App container data folder not specified. If no data folder is required, use /tmp');
-        }
-
-        // check repotag if available for download
-        const splittedRepo = appSpecFormatted.repotag.split(':');
-        console.log(splittedRepo);
-        if (splittedRepo[0] && splittedRepo[1] && !splittedRepo[2]) {
-          const zelidauth = localStorage.getItem('zelidauth');
-          const data = {
-            repotag: appSpecFormatted.repotag,
-          };
-          const resDocker = await AppsService.checkDockerExistance(zelidauth, data).catch((error) => {
-            this.showToast('danger', error.message || error);
-          });
-          console.log(resDocker);
-          if (resDocker.data.status === 'error') {
-            throw resDocker.data.data;
-          }
-        } else {
-          throw new Error('Repository is not in valid format "namespace/repository:tag"');
-        }
+        this.appPricePerMonth = response.data.data;
         this.timestamp = new Date().getTime();
         this.dataForAppRegistration = appSpecFormatted;
         this.dataToSign = this.registrationtype + this.version + JSON.stringify(appSpecFormatted) + this.timestamp;
@@ -924,8 +1236,19 @@ export default {
       } else {
         this.currentHeight = daemonGetInfo.data.data.blocks;
       }
-      if (this.currentHeight < 983000) { // fork height for spec v3
-        this.appRegistrationSpecification.version = 2;
+      if (this.currentHeight < 990000) { // fork height for spec v4
+        this.specificationVersion = 3;
+        this.appRegistrationSpecification = this.appRegistrationSpecificationv3template;
+        const ports = this.getRandomPort();
+        this.appRegistrationSpecification.ports = ports;
+      } else {
+        this.specificationVersion = 4;
+        this.appRegistrationSpecification = this.appRegistrationSpecificationv4template;
+        this.appRegistrationSpecification.compose.forEach((component) => {
+          const ports = this.getRandomPort();
+          // eslint-disable-next-line no-param-reassign
+          component.ports = ports;
+        });
       }
     },
 
@@ -1001,18 +1324,27 @@ export default {
       }
     },
 
-    async registrationInformation() {
+    async appsDeploymentInformation() {
       const response = await AppsService.appsRegInformation();
       const { data } = response.data;
       if (response.data.status === 'success') {
-        fluxapps.apps.price = data.price;
-        fluxapps.apps.address = data.address;
-        fluxapps.apps.epochstart = data.epochstart;
-        fluxapps.apps.portMin = data.portMin;
-        fluxapps.apps.portMax = data.portMax;
+        this.deploymentAddress = data.address;
+        this.minInstances = data.minimumInstances;
+        this.maxInstances = data.maximumInstances;
       } else {
         this.showToast('danger', response.data.data.message || response.data.data);
       }
+    },
+
+    addCopmonent() {
+      // insert composeTemplate to appSpecs
+      const ports = this.getRandomPort();
+      this.composeTemplate.ports = ports;
+      this.appRegistrationSpecification.compose.push(JSON.parse(JSON.stringify(this.composeTemplate)));
+    },
+
+    removeComponent(index) {
+      this.appRegistrationSpecification.compose.splice(index, 1);
     },
 
     getRandomPort() {
@@ -1021,7 +1353,7 @@ export default {
       const portsArray = [];
       const port = Math.floor(Math.random() * (max - min) + min);
       portsArray.push(port);
-      this.appRegistrationSpecification.ports = JSON.stringify(portsArray);
+      return JSON.stringify(portsArray);
     },
 
     ensureBoolean(parameter) {

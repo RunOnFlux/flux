@@ -4,7 +4,7 @@ code {
   font-size: 90%;
   color: $code-color;
   background-color: $kbd-bg;
-  @include border-radius($border-radius/2);
+  @include border-radius(math.div($border-radius, 2));
 }
 pre {
   background-color: #f7f7f9;
