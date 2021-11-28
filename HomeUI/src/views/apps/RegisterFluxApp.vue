@@ -1236,7 +1236,7 @@ export default {
       } else {
         this.currentHeight = daemonGetInfo.data.data.blocks;
       }
-      if (this.currentHeight < 990000) { // fork height for spec v4
+      if (this.currentHeight < 1004000) { // fork height for spec v4
         this.specificationVersion = 3;
         this.appRegistrationSpecification = this.appRegistrationSpecificationv3template;
         const ports = this.getRandomPort();

@@ -3094,6 +3094,12 @@ async function verifyAppSpecifications(appSpecifications, height) {
       if (appComponent.name.length > 32) {
         throw new Error('Flux App name is too long');
       }
+      if (appComponent.name.startsWith('zel')) {
+        throw new Error('Flux App Component name can not start with zel');
+      }
+      if (appComponent.name.startsWith('flux')) {
+        throw new Error('Flux App Component name can not start with flux');
+      }
       // furthermore name cannot contain any special character
       if (!appComponent.name.match(/^[a-zA-Z0-9]+$/)) {
         throw new Error('Flux App name contains special characters. Only a-z, A-Z and 0-9 are allowed');
