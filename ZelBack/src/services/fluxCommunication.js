@@ -43,6 +43,39 @@ const myCache = new LRU(LRUoptions);
 const myMessageCache = new LRU(250);
 const blockedPubKeysCache = new LRU(LRUoptions);
 
+// rate limiting
+// https://kendru.github.io/javascript/2018/12/28/rate-limiting-in-javascript-with-a-token-bucket/
+const buckets = new Map();
+class TokenBucket {
+  constructor(capacity, fillPerSecond) {
+    this.capacity = capacity;
+    this.fillPerSecond = fillPerSecond;
+
+    this.lastFilled = Math.floor(Date.now() / 1000);
+    this.tokens = capacity;
+  }
+
+  take() {
+    // Calculate how many tokens (if any) should have been added since the last request
+    this.refill();
+
+    if (this.tokens > 0) {
+      this.tokens -= 1;
+      return true;
+    }
+
+    return false;
+  }
+
+  refill() {
+    const now = Math.floor(Date.now() / 1000);
+    const rate = (now - this.lastFilled) / this.fillPerSecond;
+
+    this.tokens = Math.min(this.capacity, this.tokens + Math.floor(rate * this.capacity));
+    this.lastFilled = now;
+  }
+}
+
 let addingNodesToCache = false;
 
 // basic check for a version of other flux.
@@ -487,6 +520,19 @@ async function respondWithAppMessage(message, ws) {
   }
 }
 
+function checkRateLimit(ip, perSecond = 10, maxBurst = 15) {
+  if (!buckets.has(ip)) {
+    buckets.set(ip, new TokenBucket(maxBurst, perSecond));
+  }
+
+  const bucketForIP = buckets.get(ip);
+
+  if (bucketForIP.take()) {
+    return true;
+  }
+  return false;
+}
+
 // eslint-disable-next-line no-unused-vars
 function handleIncomingConnection(ws, req, expressWS) {
   // now we are in connections state. push the websocket to our incomingconnections
@@ -497,6 +543,12 @@ function handleIncomingConnection(ws, req, expressWS) {
   incomingPeers.push(peer);
   // verify data integrity, if not signed, close connection
   ws.on('message', async (msg) => {
+    // check rate limit
+    const rateOK = await checkRateLimit(peer.ip);
+    if (!rateOK) {
+      return; // do not react to the message
+    }
+    // check blocked list
     const dataObj = serviceHelper.ensureObject(msg);
     const { pubKey } = dataObj;
     if (blockedPubKeysCache.has(pubKey)) {
@@ -793,12 +845,28 @@ async function initiateAndHandleConnection(ip) {
   websocket.onmessage = async (evt) => {
     // incoming messages from outgoing connections
     const currentTimeStamp = Date.now(); // ms
+    // check rate limit
+    const rateOK = await checkRateLimit(ip);
+    if (!rateOK) {
+      return; // do not react to the message
+    }
+    // check blocked list
+    const msgObj = serviceHelper.ensureObject(evt.data);
+    const { pubKey } = msgObj;
+    if (blockedPubKeysCache.has(pubKey)) {
+      try {
+        log.info('Closing connection, peer is on blockedList');
+        websocket.close(1000, 'blocked list'); // close as of policy violation?
+      } catch (e) {
+        console.error(e);
+      }
+      return;
+    }
     const messageOK = await verifyOriginalFluxBroadcast(evt.data, undefined, currentTimeStamp);
     if (messageOK === true) {
       const { url } = websocket;
       let conIP = url.split('/')[2];
       conIP = conIP.split(`:${config.server.apiport}`).join('');
-      const msgObj = serviceHelper.ensureObject(evt.data);
       if (msgObj.data.type === 'zelappregister' || msgObj.data.type === 'zelappupdate' || msgObj.data.type === 'fluxappregister' || msgObj.data.type === 'fluxappupdate') {
         handleAppMessages(msgObj, conIP);
       } else if (msgObj.data.type === 'zelapprequest' || msgObj.data.type === 'fluxapprequest') {
@@ -810,8 +878,6 @@ async function initiateAndHandleConnection(ip) {
       // we dont like this peer as it sent wrong message. Lets close the connection
       // and add him to blocklist
       try {
-        const msgObj = serviceHelper.ensureObject(evt.data);
-        const { pubKey } = msgObj;
         // check if message comes from IP belonging to the public Key
         const zl = await deterministicFluxList(pubKey); // this itself is sufficient.
         if (zl.length === 1) { // else continue with blocking this public key
