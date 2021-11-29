@@ -7,6 +7,8 @@ const fluxService = require('./services/fluxService');
 const fluxCommunication = require('./services/fluxCommunication');
 const appsService = require('./services/appsService');
 const explorerService = require('./services/explorerService');
+const fluxshareService = require('./services/fluxshareService');
+const generalService = require('./services/generalService');
 
 function isLocal(req, res, next) {
   const remote = req.ip || req.connection.remoteAddress || req.socket.remoteAddress || req.headers['x-forwarded-for'];
@@ -290,10 +292,10 @@ module.exports = (app, expressWs) => {
     appsService.getAppPrice(req, res);
   });
   app.get('/zelapps/whitelistedrepositories', cache('30 seconds'), (req, res) => {
-    appsService.whitelistedRepositories(req, res);
+    generalService.whitelistedRepositories(req, res);
   });
   app.get('/zelapps/whitelistedzelids', cache('30 seconds'), (req, res) => {
-    appsService.whitelistedZelIDs(req, res);
+    generalService.whitelistedZelIDs(req, res);
   });
 
   // GET PROTECTED API - User level
@@ -833,43 +835,43 @@ module.exports = (app, expressWs) => {
 
   // ZelShare
   app.get('/zelapps/zelshare/getfile/:file?/:token?', (req, res) => {
-    appsService.fluxShareDownloadFile(req, res);
+    fluxshareService.fluxShareDownloadFile(req, res);
   });
   app.get('/zelapps/zelshare/getfolder/:folder?', (req, res) => {
-    appsService.fluxShareGetFolder(req, res);
+    fluxshareService.fluxShareGetFolder(req, res);
   });
   app.get('/zelapps/zelshare/createfolder/:folder?', (req, res) => {
-    appsService.fluxShareCreateFolder(req, res);
+    fluxshareService.fluxShareCreateFolder(req, res);
   });
   app.post('/zelapps/zelshare/uploadfile/:folder?', (req, res) => {
-    appsService.fluxShareUpload(req, res);
+    fluxshareService.fluxShareUpload(req, res);
   });
   app.get('/zelapps/zelshare/removefile/:file?', (req, res) => {
-    appsService.fluxShareRemoveFile(req, res);
+    fluxshareService.fluxShareRemoveFile(req, res);
   });
   app.get('/zelapps/zelshare/removefolder/:folder?', (req, res) => {
-    appsService.fluxShareRemoveFolder(req, res);
+    fluxshareService.fluxShareRemoveFolder(req, res);
   });
   app.get('/zelapps/zelshare/fileexists/:file?', (req, res) => {
-    appsService.fluxShareFileExists(req, res);
+    fluxshareService.fluxShareFileExists(req, res);
   });
   app.get('/zelapps/zelshare/stats', (req, res) => {
-    appsService.fluxShareStorageStats(req, res);
+    fluxshareService.fluxShareStorageStats(req, res);
   });
   app.get('/zelapps/zelshare/sharefile/:file?', (req, res) => {
-    appsService.fluxShareShareFile(req, res);
+    fluxshareService.fluxShareShareFile(req, res);
   });
   app.get('/zelapps/zelshare/unsharefile/:file?', (req, res) => {
-    appsService.fluxShareUnshareFile(req, res);
+    fluxshareService.fluxShareUnshareFile(req, res);
   });
   app.get('/zelapps/zelshare/sharedfiles', (req, res) => {
-    appsService.fluxShareGetSharedFiles(req, res);
+    fluxshareService.fluxShareGetSharedFiles(req, res);
   });
   app.get('/zelapps/zelshare/rename/:oldpath?/:newname?', (req, res) => {
-    appsService.fluxShareRename(req, res);
+    fluxshareService.fluxShareRename(req, res);
   });
   app.get('/zelapps/zelshare/downloadfolder/:folder?', (req, res) => {
-    appsService.fluxShareDownloadFolder(req, res);
+    fluxshareService.fluxShareDownloadFolder(req, res);
   });
 
   // GET PUBLIC methods
@@ -1147,10 +1149,19 @@ module.exports = (app, expressWs) => {
     appsService.getAppPrice(req, res);
   });
   app.get('/apps/whitelistedrepositories', cache('30 seconds'), (req, res) => {
-    appsService.whitelistedRepositories(req, res);
+    generalService.whitelistedRepositories(req, res);
   });
   app.get('/apps/whitelistedzelids', cache('30 seconds'), (req, res) => {
-    appsService.whitelistedZelIDs(req, res);
+    generalService.whitelistedZelIDs(req, res);
+  });
+  app.post('/apps/verifyappregistrationspecifications', (req, res) => { // returns formatted app specifications
+    appsService.verifyAppRegistrationParameters(req, res);
+  });
+  app.post('/apps/verifyappupdatespecifications', (req, res) => { // returns formatted app specifications
+    appsService.verifyAppUpdateParameters(req, res);
+  });
+  app.get('/apps/deploymentinformation', cache('30 seconds'), (req, res) => {
+    appsService.deloymentInformation(req, res);
   });
 
   // app.get('/explorer/allutxos', (req, res) => {
@@ -1747,42 +1758,42 @@ module.exports = (app, expressWs) => {
 
   // FluxShare
   app.get('/apps/fluxshare/getfile/:file?/:token?', (req, res) => {
-    appsService.fluxShareDownloadFile(req, res);
+    fluxshareService.fluxShareDownloadFile(req, res);
   });
   app.get('/apps/fluxshare/getfolder/:folder?', (req, res) => {
-    appsService.fluxShareGetFolder(req, res);
+    fluxshareService.fluxShareGetFolder(req, res);
   });
   app.get('/apps/fluxshare/createfolder/:folder?', (req, res) => {
-    appsService.fluxShareCreateFolder(req, res);
+    fluxshareService.fluxShareCreateFolder(req, res);
   });
   app.post('/apps/fluxshare/uploadfile/:folder?', (req, res) => {
-    appsService.fluxShareUpload(req, res);
+    fluxshareService.fluxShareUpload(req, res);
   });
   app.get('/apps/fluxshare/removefile/:file?', (req, res) => {
-    appsService.fluxShareRemoveFile(req, res);
+    fluxshareService.fluxShareRemoveFile(req, res);
   });
   app.get('/apps/fluxshare/removefolder/:folder?', (req, res) => {
-    appsService.fluxShareRemoveFolder(req, res);
+    fluxshareService.fluxShareRemoveFolder(req, res);
   });
   app.get('/apps/fluxshare/fileexists/:file?', (req, res) => {
-    appsService.fluxShareFileExists(req, res);
+    fluxshareService.fluxShareFileExists(req, res);
   });
   app.get('/apps/fluxshare/stats', (req, res) => {
-    appsService.fluxShareStorageStats(req, res);
+    fluxshareService.fluxShareStorageStats(req, res);
   });
   app.get('/apps/fluxshare/sharefile/:file?', (req, res) => {
-    appsService.fluxShareShareFile(req, res);
+    fluxshareService.fluxShareShareFile(req, res);
   });
   app.get('/apps/fluxshare/unsharefile/:file?', (req, res) => {
-    appsService.fluxShareUnshareFile(req, res);
+    fluxshareService.fluxShareUnshareFile(req, res);
   });
   app.get('/apps/fluxshare/sharedfiles', (req, res) => {
-    appsService.fluxShareGetSharedFiles(req, res);
+    fluxshareService.fluxShareGetSharedFiles(req, res);
   });
   app.get('/apps/fluxshare/rename/:oldpath?/:newname?', (req, res) => {
-    appsService.fluxShareRename(req, res);
+    fluxshareService.fluxShareRename(req, res);
   });
   app.get('/apps/fluxshare/downloadfolder/:folder?', (req, res) => {
-    appsService.fluxShareDownloadFolder(req, res);
+    fluxshareService.fluxShareDownloadFolder(req, res);
   });
 };

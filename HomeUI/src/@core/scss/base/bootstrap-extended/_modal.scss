@@ -130,7 +130,7 @@
   }
 
   .close {
-    top: $modal-header-padding-y / 2;
+    top: math.div($modal-header-padding-y, 2);
     z-index: 10;
     transform: none;
     position: absolute;

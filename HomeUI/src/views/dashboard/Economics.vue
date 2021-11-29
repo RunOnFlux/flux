@@ -26,9 +26,7 @@
         md="6"
         lg="4"
       >
-        <b-card
-          title="Cumulus Rewards"
-        >
+        <b-card title="Cumulus Rewards">
           <b-card-text>10,000 FLUX Collateral</b-card-text>
           <app-timeline class="mt-2">
             <app-timeline-item>
@@ -42,10 +40,6 @@
                     {{ beautifyValue(cumulusWeek * 0.1 * 3 / 7 ) }} FLUX Tokens
                   </h6>
                   <small class="mt-0 mt-1">(${{ beautifyValue(cumulusUSDRewardWeek * 0.1 * 3 / 7) }} USD)</small>
-                  <h6 class="mb-0 mt-1 invisible">
-                    0 KDA
-                  </h6>
-                  <small class="mt-0 invisible">(0 USD)</small>
                   <h6 class="mt-0 mt-1">
                     ~ ${{ beautifyValue((cumulusUSDRewardWeek * 0.1 * 3 / 7 ) + (cumulusUSDRewardWeek / 7)) }} USD
                   </h6>
@@ -64,10 +58,6 @@
                     {{ beautifyValue(cumulusWeek * 0.1 * 3 ) }} FLUX Tokens
                   </h6>
                   <small class="mt-0 mt-1">(${{ beautifyValue(cumulusUSDRewardWeek * 0.1 * 3) }} USD)</small>
-                  <h6 class="mb-0 mt-1 invisible">
-                    0 KDA
-                  </h6>
-                  <small class="mt-0 invisible">(0 USD)</small>
                   <h6 class="mt-0 mt-1">
                     ~ ${{ beautifyValue((cumulusUSDRewardWeek * 0.1 * 3 ) + cumulusUSDRewardWeek) }} USD
                   </h6>
@@ -86,10 +76,6 @@
                     {{ beautifyValue(cumulusWeek * weeksInAMonth * 0.1 * 3 ) }} FLUX Tokens
                   </h6>
                   <small class="mt-0 mt-1">(${{ beautifyValue(cumulusUSDRewardWeek * weeksInAMonth * 0.1 * 3) }} USD)</small>
-                  <h6 class="mb-0 mt-1 invisible">
-                    0 KDA
-                  </h6>
-                  <small class="mt-0 invisible">(0 USD)</small>
                   <h6 class="mt-0 mt-1">
                     ~ ${{ beautifyValue((cumulusUSDRewardWeek * weeksInAMonth * 0.1 * 3) + (cumulusUSDRewardWeek * weeksInAMonth)) }} USD
                   </h6>
@@ -107,7 +93,7 @@
                 Profitability per month
               </b-card-text>
               <h4 class="font-weight-bolder mb-50">
-                Node only: ${{ beautifyValue((cumulusUSDRewardWeek * weeksInAMonth * 0.1 * 3) + (cumulusUSDRewardWeek * weeksInAMonth) - cumulusHostingCost) }} USD
+                ${{ beautifyValue((cumulusUSDRewardWeek * weeksInAMonth * 0.1 * 3) + (cumulusUSDRewardWeek * weeksInAMonth) - cumulusHostingCost) }} USD
               </h4>
               <h4 class="font-weight-bolder mb-50 invisible">
                 With KDA: 0 USD
@@ -121,9 +107,7 @@
         md="6"
         lg="4"
       >
-        <b-card
-          title="Nimbus Rewards"
-        >
+        <b-card title="Nimbus Rewards">
           <b-card-text>25,000 FLUX Collateral</b-card-text>
           <app-timeline class="mt-2">
             <app-timeline-item variant="warning">
@@ -137,12 +121,8 @@
                     {{ beautifyValue(nimbusWeek * 0.1 * 3 / 7 ) }} FLUX Tokens
                   </h6>
                   <small class="mt-0 mt-1">(${{ beautifyValue(nimbusUSDRewardWeek * 0.1 * 3 / 7) }} USD)</small>
-                  <h6 class="mb-0 mt-1">
-                    {{ beautifyValue(kdaNimbusWeek / 7) }} KDA
-                  </h6>
-                  <small class="mt-0">(${{ beautifyValue((nimbusUSDKDARewardWeek / 7)) }} USD)</small>
                   <h6 class="mt-0 mt-1">
-                    ~ ${{ beautifyValue((nimbusUSDRewardWeek * 0.1 * 3 / 7 ) + (nimbusUSDRewardWeek / 7) + (nimbusUSDKDARewardWeek / 7)) }} USD
+                    ~ ${{ beautifyValue((nimbusUSDRewardWeek * 0.1 * 3 / 7 ) + (nimbusUSDRewardWeek / 7)) }} USD
                   </h6>
                 </div>
                 <small class="text-muted">Per Day</small>
@@ -159,12 +139,8 @@
                     {{ beautifyValue(nimbusWeek * 0.1 * 3 ) }} FLUX Tokens
                   </h6>
                   <small class="mt-0 mt-1">(${{ beautifyValue(nimbusUSDRewardWeek * 0.1 * 3) }} USD)</small>
-                  <h6 class="mb-0 mt-1">
-                    {{ beautifyValue(kdaNimbusWeek) }} KDA
-                  </h6>
-                  <small class="mt-0">(${{ beautifyValue((nimbusUSDKDARewardWeek)) }} USD)</small>
                   <h6 class="mt-0 mt-1">
-                    ~ ${{ beautifyValue((nimbusUSDRewardWeek * 0.1 * 3 ) +(nimbusUSDRewardWeek) + (nimbusUSDKDARewardWeek)) }} USD
+                    ~ ${{ beautifyValue((nimbusUSDRewardWeek * 0.1 * 3 ) +(nimbusUSDRewardWeek)) }} USD
                   </h6>
                 </div>
                 <small class="text-muted">Per Week</small>
@@ -181,12 +157,8 @@
                     {{ beautifyValue(nimbusWeek * weeksInAMonth * 0.1 * 3 ) }} FLUX Tokens
                   </h6>
                   <small class="mt-0 mt-1">(${{ beautifyValue(nimbusUSDRewardWeek * weeksInAMonth * 0.1 * 3) }} USD)</small>
-                  <h6 class="mb-0 mt-1">
-                    {{ beautifyValue(kdaNimbusWeek * weeksInAMonth) }} KDA
-                  </h6>
-                  <small class="mt-0">(${{ beautifyValue((nimbusUSDKDARewardWeek * weeksInAMonth)) }} USD)</small>
                   <h6 class="mt-0 mt-1">
-                    ~ ${{ beautifyValue((nimbusUSDRewardWeek * weeksInAMonth * 0.1 * 3) + (nimbusUSDRewardWeek * weeksInAMonth) + (nimbusUSDKDARewardWeek * weeksInAMonth)) }} USD
+                    ~ ${{ beautifyValue((nimbusUSDRewardWeek * weeksInAMonth * 0.1 * 3) + (nimbusUSDRewardWeek * weeksInAMonth)) }} USD
                   </h6>
                   <h6 class="mb-0 mt-1">
                     VPS Cost ~ 13 USD
@@ -202,11 +174,11 @@
                 Profitability per month
               </b-card-text>
               <h4 class="font-weight-bolder mb-50">
-                Node only: ${{ beautifyValue((nimbusUSDRewardWeek * weeksInAMonth * 0.1 * 3) + (nimbusUSDRewardWeek * weeksInAMonth) - nimbusHostingCost) }} USD
+                ${{ beautifyValue((nimbusUSDRewardWeek * weeksInAMonth * 0.1 * 3) + (nimbusUSDRewardWeek * weeksInAMonth) - nimbusHostingCost) }} USD
               </h4>
-              <h4 class="font-weight-bolder mb-50">
-                With KDA: ${{ beautifyValue((nimbusUSDRewardWeek * weeksInAMonth * 0.1 * 3) +(nimbusUSDRewardWeek * weeksInAMonth) + (nimbusUSDKDARewardWeek * weeksInAMonth) - nimbusHostingCost) }} USD
-              </h4>
+              <b-card-text class="text-muted mt-1">
+                Plus KDA rewards
+              </b-card-text>
             </b-col>
           </b-row>
         </b-card>
@@ -216,9 +188,7 @@
         md="12"
         lg="4"
       >
-        <b-card
-          title="Stratus Rewards"
-        >
+        <b-card title="Stratus Rewards">
           <b-card-text>100,000 FLUX Collateral</b-card-text>
           <app-timeline class="mt-2">
             <app-timeline-item variant="danger">
@@ -232,12 +202,8 @@
                     {{ beautifyValue(stratusWeek * 0.1 * 3 / 7 ) }} FLUX Tokens
                   </h6>
                   <small class="mt-0 mt-1">(${{ beautifyValue(stratusUSDRewardWeek * 0.1 * 3 / 7) }} USD)</small>
-                  <h6 class="mb-0 mt-1">
-                    {{ beautifyValue(kdaStratusWeek / 7) }} KDA
-                  </h6>
-                  <small class="mt-0">(${{ beautifyValue((stratusUSDKDARewardWeek / 7)) }} USD)</small>
                   <h6 class="mt-0 mt-1">
-                    ~ ${{ beautifyValue((stratusUSDRewardWeek * 0.1 * 3 / 7) + (stratusUSDRewardWeek / 7) + (stratusUSDKDARewardWeek / 7)) }} USD
+                    ~ ${{ beautifyValue((stratusUSDRewardWeek * 0.1 * 3 / 7) + (stratusUSDRewardWeek / 7)) }} USD
                   </h6>
                 </div>
                 <small class="text-muted">Per Day</small>
@@ -254,12 +220,8 @@
                     {{ beautifyValue(stratusWeek * 0.1 * 3 ) }} FLUX Tokens
                   </h6>
                   <small class="mt-0 mt-1">(${{ beautifyValue(stratusUSDRewardWeek * 0.1 * 3) }} USD)</small>
-                  <h6 class="mb-0 mt-1">
-                    {{ beautifyValue(kdaStratusWeek) }} KDA
-                  </h6>
-                  <small class="mt-0">(${{ beautifyValue((stratusUSDKDARewardWeek)) }} USD)</small>
                   <h6 class="mt-0 mt-1">
-                    ~ ${{ beautifyValue((stratusUSDRewardWeek * 0.1 * 3) + (stratusUSDRewardWeek) + (stratusUSDKDARewardWeek)) }} USD
+                    ~ ${{ beautifyValue((stratusUSDRewardWeek * 0.1 * 3) + (stratusUSDRewardWeek)) }} USD
                   </h6>
                 </div>
                 <small class="text-muted">Per Week</small>
@@ -276,12 +238,8 @@
                     {{ beautifyValue(stratusWeek * weeksInAMonth * 0.1 * 3 ) }} FLUX Tokens
                   </h6>
                   <small class="mt-0 mt-1">(${{ beautifyValue(stratusUSDRewardWeek * weeksInAMonth * 0.1 * 3) }} USD)</small>
-                  <h6 class="mb-0 mt-1">
-                    {{ beautifyValue(kdaStratusWeek * weeksInAMonth) }} KDA
-                  </h6>
-                  <small class="mt-0">(${{ beautifyValue((stratusUSDKDARewardWeek * weeksInAMonth)) }} USD)</small>
                   <h6 class="mt-0 mt-1">
-                    ~ ${{ beautifyValue((stratusUSDRewardWeek * weeksInAMonth * 0.1 * 3) + (stratusUSDRewardWeek * weeksInAMonth) + (stratusUSDKDARewardWeek * weeksInAMonth)) }} USD
+                    ~ ${{ beautifyValue((stratusUSDRewardWeek * weeksInAMonth * 0.1 * 3) + (stratusUSDRewardWeek * weeksInAMonth)) }} USD
                   </h6>
                   <h6 class="mb-0 mt-1">
                     VPS Cost ~ 25 USD
@@ -297,11 +255,11 @@
                 Profitability per month
               </b-card-text>
               <h4 class="font-weight-bolder mb-50">
-                Node only: ${{ beautifyValue((stratusUSDRewardWeek * weeksInAMonth * 0.1 * 3) + (stratusUSDRewardWeek * weeksInAMonth) - stratusHostingCost) }} USD
+                ${{ beautifyValue((stratusUSDRewardWeek * weeksInAMonth * 0.1 * 3) + (stratusUSDRewardWeek * weeksInAMonth) - stratusHostingCost) }} USD
               </h4>
-              <h4 class="font-weight-bolder mb-50">
-                With KDA: ${{ beautifyValue((stratusUSDRewardWeek * weeksInAMonth * 0.1 * 3) + (stratusUSDRewardWeek * weeksInAMonth) + (stratusUSDKDARewardWeek * weeksInAMonth) - stratusHostingCost) }} USD
-              </h4>
+              <b-card-text class="text-muted mt-1">
+                Plus KDA Rewards
+              </b-card-text>
             </b-col>
           </b-row>
         </b-card>
@@ -321,10 +279,13 @@ import {
 } from 'bootstrap-vue';
 import AppTimeline from '@core/components/app-timeline/AppTimeline.vue';
 import AppTimelineItem from '@core/components/app-timeline/AppTimelineItem.vue';
+import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 import Ripple from 'vue-ripple-directive';
 import VueApexCharts from 'vue-apexcharts';
 
 import { $themeColors } from '@themeConfig';
+
+import DashboardService from '@/services/DashboardService';
 
 const rax = require('retry-axios');
 const axios = require('axios');
@@ -340,6 +301,8 @@ export default {
     AppTimeline,
     AppTimelineItem,
     VueApexCharts,
+    // eslint-disable-next-line vue/no-unused-components
+    ToastificationContent,
   },
   directives: {
     Ripple,
@@ -359,10 +322,6 @@ export default {
       cumulusUSDRewardWeek: 0,
       nimbusUSDRewardWeek: 0,
       stratusUSDRewardWeek: 0,
-      nimbusUSDKDARewardWeek: 0,
-      stratusUSDKDARewardWeek: 0,
-      kdaNimbusWeek: 0,
-      kdaStratusWeek: 0,
       latestPrice: 0,
       lineChart: {
         series: [],
@@ -481,64 +440,64 @@ export default {
         });
     },
     async getZelNodeCount() {
-      axios.get('https://api.runonflux.io/daemon/getzelnodecount', this.retryOptions)
-        .then((result) => {
-          const fluxNodesData = result.data.data;
-          const counts = {};
-          counts['stratus-enabled'] = fluxNodesData['stratus-enabled'];
-          counts['bamf-enabled'] = fluxNodesData['stratus-enabled'];
-          counts['nimbus-enabled'] = fluxNodesData['cumulus-enabled']; // flipped until new fluxd release
+      const response = await DashboardService.zelnodeCount();
+      if (response.data.status === 'error') {
+        this.$toast({
+          component: ToastificationContent,
+          props: {
+            title: response.data.data.message || response.data.data,
+            icon: 'InfoIcon',
+            variant: 'danger',
+          },
+        });
+      } else {
+        const fluxNodesData = response.data.data;
+        const counts = {};
+        counts['stratus-enabled'] = fluxNodesData['stratus-enabled'];
+        counts['bamf-enabled'] = fluxNodesData['stratus-enabled'];
+        if (fluxNodesData['cumulus-enabled'] > fluxNodesData['nimbus-enabled']) {
+          counts['nimbus-enabled'] = fluxNodesData['nimbus-enabled'];
+          counts['super-enabled'] = fluxNodesData['nimbus-enabled'];
+          counts['cumulus-enabled'] = fluxNodesData['cumulus-enabled'];
+          counts['basic-enabled'] = fluxNodesData['cumulus-enabled'];
+        } else { // flipped until new fluxd release
+          counts['nimbus-enabled'] = fluxNodesData['cumulus-enabled'];
           counts['super-enabled'] = fluxNodesData['cumulus-enabled'];
           counts['cumulus-enabled'] = fluxNodesData['nimbus-enabled'];
           counts['basic-enabled'] = fluxNodesData['nimbus-enabled'];
-          this.generateEconomics(counts);
-        });
+        }
+        this.generateEconomics(counts);
+      }
     },
-    async generateEconomics(zelnodecounts) {
-      const stratuses = zelnodecounts['stratus-enabled'];
-      const nimbuses = zelnodecounts['nimbus-enabled'];
-      const cumuluses = zelnodecounts['cumulus-enabled'];
-      axios.get('https://stats.runonflux.io/kadena/eligiblestats/7', this.retryOptions)
-        .then((resKDAEligible) => {
-          const kdaData = resKDAEligible.data.data;
-          const kdaCoins = 1000;
-          const totalNimbuss = kdaData.nimbus;
-          const totalStratuss = kdaData.stratus;
-          const overallTotal = totalNimbuss + (4 * totalStratuss);
-          const perNimbusWeek = Number((kdaCoins / overallTotal).toFixed(4)); // KDA
-          const perStratusWeek = Number(((kdaCoins / overallTotal) * 4).toFixed(4)); // KDA
-          const perCumulusNode = 5.625;
-          const perNimbusNode = 9.375;
-          const perStratusNode = 22.5;
-          // eslint-disable-next-line no-mixed-operators
-          const cumulusWeek = perCumulusNode * 720 * 7 / cumuluses;
-          // eslint-disable-next-line no-mixed-operators
-          const nimbusWeek = perNimbusNode * 720 * 7 / nimbuses;
-          // eslint-disable-next-line no-mixed-operators
-          const stratusWeek = perStratusNode * 720 * 7 / stratuses;
-          const cumulusUSDReward = this.getFiatRate('ZEL') * perCumulusNode; // per one go
-          const nimbusUSDReward = this.getFiatRate('ZEL') * perNimbusNode; // per one go
-          const stratusUSDReward = this.getFiatRate('ZEL') * perStratusNode; // per one go
-          const nimbusUSDKDARewardWeek = this.getFiatRate('KDA') * perNimbusWeek; // per week
-          const stratusUSDKDARewardWeek = this.getFiatRate('KDA') * perStratusWeek; // per week
-          // 720 blocks per day.
-          // eslint-disable-next-line no-mixed-operators
-          const cumulusUSDRewardWeek = 7 * 720 * cumulusUSDReward / cumuluses;
-          // eslint-disable-next-line no-mixed-operators
-          const nimbusUSDRewardWeek = 7 * 720 * nimbusUSDReward / nimbuses;
-          // eslint-disable-next-line no-mixed-operators
-          const stratusUSDRewardWeek = 7 * 720 * stratusUSDReward / stratuses;
-          this.cumulusWeek = cumulusWeek;
-          this.nimbusWeek = nimbusWeek;
-          this.stratusWeek = stratusWeek;
-          this.cumulusUSDRewardWeek = cumulusUSDRewardWeek;
-          this.nimbusUSDRewardWeek = nimbusUSDRewardWeek;
-          this.stratusUSDRewardWeek = stratusUSDRewardWeek;
-          this.nimbusUSDKDARewardWeek = nimbusUSDKDARewardWeek;
-          this.stratusUSDKDARewardWeek = stratusUSDKDARewardWeek;
-          this.kdaNimbusWeek = perNimbusWeek;
-          this.kdaStratusWeek = perStratusWeek;
-        });
+    async generateEconomics(fluxnodecounts) {
+      const stratuses = fluxnodecounts['stratus-enabled'];
+      const nimbuses = fluxnodecounts['nimbus-enabled'];
+      const cumuluses = fluxnodecounts['cumulus-enabled'];
+      const perCumulusNode = 5.625;
+      const perNimbusNode = 9.375;
+      const perStratusNode = 22.5;
+      // eslint-disable-next-line no-mixed-operators
+      const cumulusWeek = perCumulusNode * 720 * 7 / cumuluses;
+      // eslint-disable-next-line no-mixed-operators
+      const nimbusWeek = perNimbusNode * 720 * 7 / nimbuses;
+      // eslint-disable-next-line no-mixed-operators
+      const stratusWeek = perStratusNode * 720 * 7 / stratuses;
+      const cumulusUSDReward = this.getFiatRate('FLUX') * perCumulusNode; // per one go
+      const nimbusUSDReward = this.getFiatRate('FLUX') * perNimbusNode; // per one go
+      const stratusUSDReward = this.getFiatRate('FLUX') * perStratusNode; // per one go
+      // 720 blocks per day.
+      // eslint-disable-next-line no-mixed-operators
+      const cumulusUSDRewardWeek = 7 * 720 * cumulusUSDReward / cumuluses;
+      // eslint-disable-next-line no-mixed-operators
+      const nimbusUSDRewardWeek = 7 * 720 * nimbusUSDReward / nimbuses;
+      // eslint-disable-next-line no-mixed-operators
+      const stratusUSDRewardWeek = 7 * 720 * stratusUSDReward / stratuses;
+      this.cumulusWeek = cumulusWeek;
+      this.nimbusWeek = nimbusWeek;
+      this.stratusWeek = stratusWeek;
+      this.cumulusUSDRewardWeek = cumulusUSDRewardWeek;
+      this.nimbusUSDRewardWeek = nimbusUSDRewardWeek;
+      this.stratusUSDRewardWeek = stratusUSDRewardWeek;
     },
     getFiatRate(coin) {
       const coinRateToUse = 'USD';
@@ -562,5 +521,4 @@ export default {
 </script>
 
 <style>
-
 </style>

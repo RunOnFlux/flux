@@ -13,8 +13,13 @@ export default {
     },
     privilege: 'none', // user, admin, fluxteam
     fluxVersion: '',
+    xdaoOpen: 0,
   },
-  getters: {},
+  getters: {
+    xdaoOpen(state) {
+      return state.xdaoOpen;
+    },
+  },
   mutations: {
     setPrivilege(state, privilege) {
       state.privilege = privilege;
@@ -27,6 +32,9 @@ export default {
     },
     setUserIp(state, externalip) {
       state.userconfig.externalip = externalip;
+    },
+    setXDAOOpen(state, open) {
+      state.xdaoOpen = open;
     },
   },
   actions: {},

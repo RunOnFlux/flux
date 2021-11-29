@@ -12,9 +12,7 @@
           xxl="4"
         >
           <b-card no-body>
-            <b-card-body
-              class="d-flex justify-content-between align-items-center"
-            >
+            <b-card-body class="d-flex justify-content-between align-items-center">
               <div>
                 <h2 class="mt-0 truncate">
                   Total Nodes: {{ totalNodes }}
@@ -45,9 +43,7 @@
           xxl="8"
         >
           <b-card no-body>
-            <b-card-body
-              class="d-flex justify-content-between align-items-center"
-            >
+            <b-card-body class="d-flex justify-content-between align-items-center">
               <div>
                 <h2 class="mt-0 truncate">
                   Node History
@@ -79,9 +75,7 @@
           xxl="4"
         >
           <b-card no-body>
-            <b-card-body
-              class="d-flex justify-content-between align-items-center"
-            >
+            <b-card-body class="d-flex justify-content-between align-items-center">
               <div>
                 <h2 class="mt-0 truncate">
                   Locked Supply: {{ beautifyValue(lockedSupply, 0) }}
@@ -413,8 +407,12 @@ export default {
         const resCount = await DashboardService.zelnodeCount();
         const counts = resCount.data.data;
         const stratuses = counts['stratus-enabled'];
-        const nimbuses = counts['nimbus-enabled'];
-        const cumuluses = counts['cumulus-enabled'];
+        let nimbuses = counts['nimbus-enabled'];
+        let cumuluses = counts['cumulus-enabled'];
+        if (counts['cumulus-enabled'] < counts['nimbus-enabled']) { // bug in daemon
+          nimbuses = counts['cumulus-enabled'];
+          cumuluses = counts['nimbus-enabled'];
+        }
         const supply = stratuses * 100000 + nimbuses * 25000 + cumuluses * 10000;
         this.lockedSupply = supply;
         this.lockedSupplyPerc = Number(((supply / this.circulatingSupply) * 100).toFixed(2));
@@ -431,5 +429,4 @@ export default {
 </script>
 
 <style>
-
 </style>

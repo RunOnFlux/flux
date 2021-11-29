@@ -24,12 +24,12 @@
       />
       <span class="menu-title text-truncate">{{ t(item.title) }}</span>
       <b-badge
-        v-if="item.tag"
+        v-if="item.tag && item.tag.value > 0"
         pill
         :variant="item.tagVariant || 'primary'"
         class="mr-1 ml-auto"
       >
-        {{ item.tag }}
+        {{ item.tag.value }}
       </b-badge>
     </b-link>
     <b-collapse
