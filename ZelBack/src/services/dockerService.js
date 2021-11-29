@@ -259,7 +259,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent) {
     AttachStdout: true,
     AttachStderr: true,
     Cmd: appSpecifications.commands,
-    Env: appSpecifications.enviromentParameters,
+    Env: appSpecifications.environmentParameters || appSpecifications.enviromentParameters,
     Tty: false,
     ExposedPorts: exposedPorts,
     HostConfig: {

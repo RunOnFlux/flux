@@ -2826,11 +2826,11 @@ function verifyCorrectnessOfApp(appSpecification) {
     if (Array.isArray(enviromentParameters)) {
       enviromentParameters.forEach((parameter) => {
         if (typeof parameter !== 'string') {
-          throw new Error('Enviromental parameters for Flux App are invalid');
+          throw new Error('Environmental parameters for Flux App are invalid');
         }
       });
     } else {
-      throw new Error('Enviromental parameters for Flux App are invalid');
+      throw new Error('Environmental parameters for Flux App are invalid');
     }
     if (Array.isArray(commands)) {
       commands.forEach((command) => {
@@ -2902,14 +2902,14 @@ function verifyCorrectnessOfApp(appSpecification) {
       } else {
         throw new Error(`Domains for Flux App component ${appComponent.name} are invalid`);
       }
-      if (Array.isArray(appComponent.enviromentParameters)) {
-        appComponent.enviromentParameters.forEach((parameter) => {
+      if (Array.isArray(appComponent.environmentParameters)) {
+        appComponent.environmentParameters.forEach((parameter) => {
           if (typeof parameter !== 'string') {
-            throw new Error(`Enviromental parameters for Flux App component ${appComponent.name} are invalid`);
+            throw new Error(`Environment parameters for Flux App component ${appComponent.name} are invalid`);
           }
         });
       } else {
-        throw new Error(`Enviromental parameters for Flux App component ${appComponent.name} are invalid`);
+        throw new Error(`Environment parameters for Flux App component ${appComponent.name} are invalid`);
       }
       if (Array.isArray(appComponent.commands)) {
         appComponent.commands.forEach((command) => {
@@ -3237,7 +3237,7 @@ async function verifyAppSpecifications(appSpecifications, height) {
       'version', 'name', 'description', 'owner', 'compose', 'instances',
     ];
     const componentSpecifications = [
-      'name', 'description', 'repotag', 'ports', 'containerPorts', 'enviromentParameters', 'commands', 'containerData', 'domains',
+      'name', 'description', 'repotag', 'ports', 'containerPorts', 'environmentParameters', 'commands', 'containerData', 'domains',
       'cpu', 'ram', 'hdd', 'tiered', 'cpubasic', 'rambasic', 'hddbasic', 'cpusuper', 'ramsuper', 'hddsuper', 'cpubamf', 'rambamf', 'hddbamf',
     ];
     const specsKeys = Object.keys(appSpecifications);
@@ -3768,7 +3768,7 @@ function specificationFormatter(appSpecification) {
         envParamsCorrected.push(param);
       });
     } else {
-      throw new Error('Enviromental parameters for Flux App are invalid');
+      throw new Error('Environmental parameters for Flux App are invalid');
     }
     commands = serviceHelper.ensureObject(commands);
     const commandsCorrected = [];
@@ -3882,16 +3882,16 @@ function specificationFormatter(appSpecification) {
       } else {
         throw new Error(`Domains for Flux App component ${appComponent.name} are invalid`);
       }
-      appComponentCorrect.enviromentParameters = serviceHelper.ensureObject(appComponent.enviromentParameters);
+      appComponentCorrect.environmentParameters = serviceHelper.ensureObject(appComponent.environmentParameters);
       const envParamsCorrected = [];
-      if (Array.isArray(appComponentCorrect.enviromentParameters)) {
-        appComponentCorrect.enviromentParameters.forEach((parameter) => {
+      if (Array.isArray(appComponentCorrect.environmentParameters)) {
+        appComponentCorrect.environmentParameters.forEach((parameter) => {
           const param = serviceHelper.ensureString(parameter);
           envParamsCorrected.push(param);
         });
-        appComponentCorrect.enviromentParameters = envParamsCorrected;
+        appComponentCorrect.environmentParameters = envParamsCorrected;
       } else {
-        throw new Error(`Enviromental parameters for Flux App component ${appComponent.name} are invalid`);
+        throw new Error(`Environmental parameters for Flux App component ${appComponent.name} are invalid`);
       }
       appComponentCorrect.commands = serviceHelper.ensureObject(appComponent.commands);
       const commandsCorrected = [];
@@ -4365,7 +4365,7 @@ async function updateAppSpecifications(appSpecs) {
     //       ports: '[30001]', // array of ints
     //       containerPorts: '[7396]', // array of ints
     //       domains: '[""]', // array of strings
-    //       enviromentParameters: '["USER=foldingUser", "TEAM=262156", "ENABLE_GPU=false", "ENABLE_SMP=true"]', // array of strings
+    //       environmentParameters: '["USER=foldingUser", "TEAM=262156", "ENABLE_GPU=false", "ENABLE_SMP=true"]', // array of strings
     //       commands: '["--allow","0/0","--web-allow","0/0"]', // array of strings
     //       containerData: '/config', // string
     //       cpu: 0.5, // float

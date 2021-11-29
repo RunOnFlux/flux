@@ -249,8 +249,8 @@
                 </label>
                 <div class="col">
                   <b-form-input
-                    id="enviromentParameters"
-                    v-model="component.enviromentParameters"
+                    id="environmentParameters"
+                    v-model="component.environmentParameters"
                   />
                 </div>
               </div>
@@ -592,7 +592,7 @@
               </label>
               <div class="col">
                 <b-form-input
-                  id="enviromentParameters"
+                  id="environmentParameters"
                   v-model="appRegistrationSpecification.enviromentParameters"
                 />
               </div>
@@ -1090,7 +1090,7 @@ export default {
             repotag: '',
             ports: '[]',
             domains: '[]',
-            enviromentParameters: '[]',
+            environmentParameters: '[]',
             commands: '[]',
             containerPorts: '[]',
             containerData: '',
@@ -1116,7 +1116,7 @@ export default {
         repotag: '',
         ports: '[]',
         domains: '[]',
-        enviromentParameters: '[]',
+        environmentParameters: '[]',
         commands: '[]',
         containerPorts: '[]',
         containerData: '',

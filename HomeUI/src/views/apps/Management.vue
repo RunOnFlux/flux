@@ -107,7 +107,7 @@
                   :data="callResponse.data.containerData"
                 />
                 <list-entry
-                  title="Enviroment Parameters"
+                  title="Environment Parameters"
                   :data="callResponse.data.enviromentParameters.length > 0 ? callResponse.data.enviromentParameters.toString() : 'none'"
                 />
                 <list-entry
@@ -209,8 +209,8 @@
                   :data="component.containerData"
                 />
                 <list-entry
-                  title="Enviroment Parameters"
-                  :data="component.enviromentParameters.length > 0 ? component.enviromentParameters.toString() : 'none'"
+                  title="Environment Parameters"
+                  :data="component.environmentParameters.length > 0 ? component.environmentParameters.toString() : 'none'"
                 />
                 <list-entry
                   title="Commands"
@@ -345,7 +345,7 @@
                   :data="callBResponse.data.containerData"
                 />
                 <list-entry
-                  title="Enviroment Parameters"
+                  title="Environment Parameters"
                   :data="callBResponse.data.enviromentParameters.length > 0 ? callBResponse.data.enviromentParameters.toString() : 'none'"
                 />
                 <list-entry
@@ -447,8 +447,8 @@
                   :data="component.containerData"
                 />
                 <list-entry
-                  title="Enviroment Parameters"
-                  :data="component.enviromentParameters.length > 0 ? component.enviromentParameters.toString() : 'none'"
+                  title="Environment Parameters"
+                  :data="component.environmentParameters.length > 0 ? component.environmentParameters.toString() : 'none'"
                 />
                 <list-entry
                   title="Commands"
@@ -991,7 +991,7 @@
       >
         <div class="text-center">
           <h3>{{ appSpecification.name }}</h3>
-          <h6>Here you can execute some commands with a set of enviroment variables on this local application instance. Both are array of strings. Useful especially for testing and tweaking purposes.</h6>
+          <h6>Here you can execute some commands with a set of environment variables on this local application instance. Both are array of strings. Useful especially for testing and tweaking purposes.</h6>
           <div class="mb-2" />
           <div v-if="appSpecification.compose">
             <div
@@ -1175,7 +1175,7 @@
                 :data="callBResponse.data.containerData"
               />
               <list-entry
-                title="Enviroment Parameters"
+                title="Environment Parameters"
                 :data="callBResponse.data.enviromentParameters.length > 0 ? callBResponse.data.enviromentParameters.toString() : 'none'"
               />
               <list-entry
@@ -1276,8 +1276,8 @@
                 :data="component.containerData"
               />
               <list-entry
-                title="Enviroment Parameters"
-                :data="component.enviromentParameters.length > 0 ? component.enviromentParameters.toString() : 'none'"
+                title="Environment Parameters"
+                :data="component.environmentParameters.length > 0 ? component.environmentParameters.toString() : 'none'"
               />
               <list-entry
                 title="Commands"
@@ -1672,8 +1672,8 @@
                     </label>
                     <div class="col">
                       <b-form-input
-                        :id="`enviromentParameters-${component.name}_${appUpdateSpecification.name}`"
-                        v-model="component.enviromentParameters"
+                        :id="`environmentParameters-${component.name}_${appUpdateSpecification.name}`"
+                        v-model="component.environmentParameters"
                       />
                     </div>
                   </div>
@@ -2017,7 +2017,7 @@
                   </label>
                   <div class="col">
                     <b-form-input
-                      id="enviromentParameters"
+                      id="environmentParameters"
                       v-model="appUpdateSpecification.enviromentParameters"
                     />
                   </div>
@@ -2912,7 +2912,7 @@ export default {
             // eslint-disable-next-line no-param-reassign
             component.domains = this.ensureString(component.domains);
             // eslint-disable-next-line no-param-reassign
-            component.enviromentParameters = this.ensureString(component.enviromentParameters);
+            component.environmentParameters = this.ensureString(component.environmentParameters);
             // eslint-disable-next-line no-param-reassign
             component.commands = this.ensureString(component.commands);
             // eslint-disable-next-line no-param-reassign
