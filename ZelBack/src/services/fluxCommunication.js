@@ -1536,26 +1536,6 @@ async function broadcastAppRunningMessage(message) {
   return 0;
 }
 
-async function adjustGitRepository() {
-  try {
-    const nodedpath = path.join(__dirname, '../../../');
-    const execGetRepo = `cd ${nodedpath} && git remote -v`;
-    const execAdjustRepo = `cd ${nodedpath} && git remote set-url origin https://github.com/runonflux/flux`;
-    const cmdAsync = util.promisify(cmd.get);
-    const cmdres = await cmdAsync(execGetRepo);
-    log.info(cmdres);
-    if (cmdres.includes('zelcash/zelflux')) {
-      await cmdAsync(execAdjustRepo);
-      log.info('Flux repository adjusted');
-      const cmdresB = await cmdAsync(execGetRepo);
-      log.info(cmdresB);
-    }
-  } catch (err) {
-    log.error(err);
-    log.error(`Error adusting Flux repository: ${err.message}`, err.name, err.code);
-  }
-}
-
 module.exports = {
   getFluxMessageSignature,
   verifyOriginalFluxBroadcast,
@@ -1592,5 +1572,4 @@ module.exports = {
   keepConnectionsAlive,
   adjustFirewall,
   checkDeterministicNodesCollisions,
-  adjustGitRepository,
 };

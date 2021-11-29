@@ -935,7 +935,7 @@
           xs="6"
           lg="4"
         >
-          <b-card title="Sign with ZelCore">
+          <b-card title="Sign with Zelcore">
             <a
               :href="'zel:?action=sign&message=' + dataToSign + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=' + callbackValue"
               @click="initiateSignWS"
@@ -976,7 +976,7 @@
           xs="6"
           lg="4"
         >
-          <b-card title="Pay with ZelCore">
+          <b-card title="Pay with Zelcore">
             <a :href="'zel:?action=pay&coin=zelcash&address=' + deploymentAddress + '&amount=' + appPricePerMonth + '&message=' + registrationHash + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png'">
               <img
                 class="zelidLogin"
