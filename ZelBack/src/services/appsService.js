@@ -3292,6 +3292,7 @@ async function assignedPortsApps() {
       app.compose.forEach((composeApp) => {
         appSpecs.ports = appSpecs.ports.concat(composeApp.ports);
       });
+      apps.push(appSpecs);
     }
   });
   return apps;
