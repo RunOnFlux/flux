@@ -532,8 +532,19 @@ function handleIncomingConnection(ws, req, expressWS) {
       // we dont like this peer as it sent wrong message. Lets close the connection
       // and add him to blocklist
       try {
+        // check if message comes from IP belonging to the public Key
+        const zl = await deterministicFluxList(pubKey); // this itself is sufficient.
+        if (zl.length === 1) { // else continue with blocking this public key
+          if (zl[0].pubkey === pubKey) { // else continue with blocking this public key
+            const { ip } = zl[0];
+            // if IP does not match IP of user that send us the message, pubkey was spoofed. Throw an error so we do not block a valid peer, else continue with pubkey blocking
+            if (ip !== peer.ip) {
+              throw new Error(`Message received from incoming peer ${peer.ip} but origin should come from ${ip}.`);
+            }
+          }
+        }
         blockedPubKeysCache.set(pubKey, pubKey);
-        log.info('closing connection, adding peer to the blockedList');
+        log.warn('closing connection, adding peer to the blockedList');
         ws.close(1000, 'invalid message, blocked'); // close as of policy violation?
       } catch (e) {
         console.error(e);
@@ -795,7 +806,30 @@ async function initiateAndHandleConnection(ip) {
       } else if (msgObj.data.type === 'zelapprunning' || msgObj.data.type === 'fluxapprunning') {
         handleAppRunningMessage(msgObj, websocket);
       }
-    } // else we do not react to this message;
+    } else {
+      // we dont like this peer as it sent wrong message. Lets close the connection
+      // and add him to blocklist
+      try {
+        const msgObj = serviceHelper.ensureObject(evt.data);
+        const { pubKey } = msgObj;
+        // check if message comes from IP belonging to the public Key
+        const zl = await deterministicFluxList(pubKey); // this itself is sufficient.
+        if (zl.length === 1) { // else continue with blocking this public key
+          if (zl[0].pubkey === pubKey) { // else continue with blocking this public key
+            const expectedIP = zl[0].ip;
+            // if IP does not match IP of user that send us the message, pubkey was spoofed. Throw an error so we do not block a valid peer, else continue with pubkey blocking
+            if (expectedIP !== ip) {
+              throw new Error(`Message received from outgoing peer ${ip} but origin should come from ${expectedIP}.`);
+            }
+          }
+        }
+        blockedPubKeysCache.set(pubKey, pubKey);
+        log.warn('closing connection, adding peer to the blockedList');
+        websocket.close(1000, 'invalid message, blocked'); // close as of policy violation?
+      } catch (e) {
+        console.error(e);
+      }
+    }
   };
 
   websocket.onerror = (evt) => {
