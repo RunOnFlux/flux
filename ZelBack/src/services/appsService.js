@@ -3272,14 +3272,17 @@ async function assignedPortsApps() {
     if (app.version === 1) {
       const appSpecs = {
         name: app.name,
-        ports: [app.port],
+        ports: [Number(app.port)],
       };
       apps.push(appSpecs);
     } else if (app.version <= 3) {
       const appSpecs = {
         name: app.name,
-        ports: app.ports,
+        ports: [],
       };
+      app.ports.forEach((port) => {
+        appSpecs.ports.push(Number(port));
+      });
       apps.push(appSpecs);
     } else if (app.version >= 4) {
       const appSpecs = {
@@ -3294,22 +3297,31 @@ async function assignedPortsApps() {
   return apps;
 }
 
+function appPortsUnique(portsArray) {
+  return (new Set(portsArray)).size === portsArray.length;
+}
+
 async function ensureCorrectApplicationPort(appSpecFormatted) {
   const currentAppsPorts = await assignedPortsApps();
   if (appSpecFormatted.version === 1) {
-    const portAssigned = currentAppsPorts.find((app) => app.ports.includes(appSpecFormatted.port));
+    const portAssigned = currentAppsPorts.find((app) => app.ports.includes(Number(appSpecFormatted.port)));
     if (portAssigned && portAssigned.name !== appSpecFormatted.name) {
       throw new Error(`Flux App ${appSpecFormatted.name} port ${appSpecFormatted.port} already registered with different application. Your Flux App has to use different port.`);
     }
   } else if (appSpecFormatted.version <= 3) {
     // eslint-disable-next-line no-restricted-syntax
     for (const port of appSpecFormatted.ports) {
-      const portAssigned = currentAppsPorts.find((app) => app.ports.includes(port));
+      const portAssigned = currentAppsPorts.find((app) => app.ports.includes(Number(port)));
       if (portAssigned && portAssigned.name !== appSpecFormatted.name) {
         throw new Error(`Flux App ${appSpecFormatted.name} port ${port} already registered with different application. Your Flux App has to use different port.`);
       }
     }
+    const portsUnique = appPortsUnique(appSpecFormatted.ports);
+    if (!portsUnique) {
+      throw new Error(`Flux App ${appSpecFormatted.name} must have unique ports specified`);
+    }
   } else {
+    const allPorts = [];
     // eslint-disable-next-line no-restricted-syntax
     for (const appComponent of appSpecFormatted.compose) {
       // eslint-disable-next-line no-restricted-syntax
@@ -3318,7 +3330,12 @@ async function ensureCorrectApplicationPort(appSpecFormatted) {
         if (portAssigned && portAssigned.name !== appSpecFormatted.name) {
           throw new Error(`Flux App ${appSpecFormatted.name} port ${port} already registered with different application. Your Flux App has to use different port.`);
         }
+        allPorts.push(port);
       }
+    }
+    const portsUnique = appPortsUnique(allPorts);
+    if (!portsUnique) {
+      throw new Error(`Flux App ${appSpecFormatted.name} must have unique ports specified accross all composition`);
     }
   }
   return true;
