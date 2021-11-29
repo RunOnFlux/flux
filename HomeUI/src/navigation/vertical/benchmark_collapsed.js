@@ -1,5 +1,5 @@
 import control from './benchmark/control';
-import zelnode from './benchmark/fluxnode';
+import fluxnode from './benchmark/fluxnode';
 import benchmarks from './benchmark/benchmarks';
 
 export default [
@@ -9,7 +9,7 @@ export default [
     spacing: true,
     children: [
       ...control,
-      ...zelnode,
+      ...fluxnode,
       ...benchmarks,
       {
         title: 'Debug',

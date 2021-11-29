@@ -83,7 +83,7 @@
                               :data="row.item.containerData"
                             />
                             <list-entry
-                              title="Enviroment Parameters"
+                              title="Environment Parameters"
                               :data="row.item.enviromentParameters.length > 0 ? row.item.enviromentParameters.toString() : 'none'"
                             />
                             <list-entry
@@ -185,8 +185,8 @@
                               :data="component.containerData"
                             />
                             <list-entry
-                              title="Enviroment Parameters"
-                              :data="component.enviromentParameters.length > 0 ? component.enviromentParameters.toString() : 'none'"
+                              title="Environment Parameters"
+                              :data="component.environmentParameters.length > 0 ? component.environmentParameters.toString() : 'none'"
                             />
                             <list-entry
                               title="Commands"
@@ -366,7 +366,7 @@
                               :data="row.item.containerData"
                             />
                             <list-entry
-                              title="Enviroment Parameters"
+                              title="Environment Parameters"
                               :data="row.item.enviromentParameters.length > 0 ? row.item.enviromentParameters.toString() : 'none'"
                             />
                             <list-entry
@@ -468,8 +468,8 @@
                               :data="component.containerData"
                             />
                             <list-entry
-                              title="Enviroment Parameters"
-                              :data="component.enviromentParameters.length > 0 ? component.enviromentParameters.toString() : 'none'"
+                              title="Environment Parameters"
+                              :data="component.environmentParameters.length > 0 ? component.environmentParameters.toString() : 'none'"
                             />
                             <list-entry
                               title="Commands"
@@ -761,7 +761,7 @@
                               :data="row.item.containerData"
                             />
                             <list-entry
-                              title="Enviroment Parameters"
+                              title="Environment Parameters"
                               :data="row.item.enviromentParameters.length > 0 ? row.item.enviromentParameters.toString() : 'none'"
                             />
                             <list-entry
@@ -863,8 +863,8 @@
                               :data="component.containerData"
                             />
                             <list-entry
-                              title="Enviroment Parameters"
-                              :data="component.enviromentParameters.length > 0 ? component.enviromentParameters.toString() : 'none'"
+                              title="Environment Parameters"
+                              :data="component.environmentParameters.length > 0 ? component.environmentParameters.toString() : 'none'"
                             />
                             <list-entry
                               title="Commands"
@@ -1272,8 +1272,8 @@
                               :data="component.containerData"
                             />
                             <list-entry
-                              title="Enviroment Parameters"
-                              :data="component.enviromentParameters.length > 0 ? component.enviromentParameters.toString() : 'none'"
+                              title="Environment Parameters"
+                              :data="component.environmentParameters.length > 0 ? component.environmentParameters.toString() : 'none'"
                             />
                             <list-entry
                               title="Commands"

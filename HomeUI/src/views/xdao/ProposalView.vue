@@ -220,7 +220,7 @@
               <p>You haven't voted yet! You have a total of {{ myNumberOfVotes }} available.</p>
               <div>
                 <p>
-                  To vote you need to first sign a message with ZelCore with your ZelID corresponding to your Flux Nodes.
+                  To vote you need to first sign a message with Zelcore with your ZelID corresponding to your Flux Nodes.
                 </p>
                 <div>
                   <a
