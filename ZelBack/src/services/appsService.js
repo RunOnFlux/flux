@@ -1321,7 +1321,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
         const command = job.command();
         const cmdsplit = command.split(' ');
         // eslint-disable-next-line prefer-destructuring
-        volumepath = cmdsplit[4]; // sudo mount -o loop /home/abcapp2TEMP /root/zelflux/ZelApps/abcapp2 is an example
+        volumepath = cmdsplit[4]; // sudo mount -o loop /home/abcapp2TEMP /root/flux/ZelApps/abcapp2 is an example
         if (!job || !job.isValid()) {
           // remove the job as its invalid anyway
           crontab.remove(job);
