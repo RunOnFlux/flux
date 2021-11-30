@@ -548,7 +548,7 @@ export default {
         mybackend += config.value.apiPort;
       }
       const backendURL = store.get('backendURL') || mybackend;
-      const url = `${backendURL}/zelid/providesign`;
+      const url = `${backendURL}/id/providesign`;
       return encodeURI(url);
     };
 

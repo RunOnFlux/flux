@@ -1173,7 +1173,7 @@ export default {
         mybackend += this.config.apiPort;
       }
       const backendURL = store.get('backendURL') || mybackend;
-      const url = `${backendURL}/zelid/providesign`;
+      const url = `${backendURL}/id/providesign`;
       return encodeURI(url);
     },
   },
@@ -1236,7 +1236,7 @@ export default {
       } else {
         this.currentHeight = daemonGetInfo.data.data.blocks;
       }
-      if (this.currentHeight < 1004000) { // fork height for spec v4
+      if (this.currentHeight < 104000) { // fork height for spec v4
         this.specificationVersion = 3;
         this.appRegistrationSpecification = this.appRegistrationSpecificationv3template;
         const ports = this.getRandomPort();

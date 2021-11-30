@@ -181,7 +181,7 @@ export default {
     ]),
     callbackValue() {
       const backendURL = this.backendURL();
-      const url = `${backendURL}/zelid/verifylogin`;
+      const url = `${backendURL}/id/verifylogin`;
       return encodeURI(url);
     },
   },
