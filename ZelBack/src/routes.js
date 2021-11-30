@@ -198,6 +198,12 @@ module.exports = (app, expressWs) => {
   app.get('/id/emergencyphrase', (req, res) => {
     idService.emergencyPhrase(req, res);
   });
+  app.get('/zelid/loginphrase', (req, res) => {
+    idService.loginPhrase(req, res);
+  });
+  app.get('/zelid/emergencyphrase', (req, res) => {
+    idService.emergencyPhrase(req, res);
+  });
 
   app.get('/flux/nodetier', cache('30 seconds'), (req, res) => {
     fluxService.getNodeTier(req, res);
@@ -215,6 +221,9 @@ module.exports = (app, expressWs) => {
     fluxService.getFluxIP(req, res);
   });
   app.get('/flux/zelid', cache('30 seconds'), (req, res) => {
+    fluxService.getFluxZelID(req, res);
+  });
+  app.get('/flux/id', cache('30 seconds'), (req, res) => {
     fluxService.getFluxZelID(req, res);
   });
   app.get('/flux/cruxid', cache('30 seconds'), (req, res) => {
@@ -359,6 +368,15 @@ module.exports = (app, expressWs) => {
     idService.logoutCurrentSession(req, res);
   });
   app.get('/id/logoutallsessions', cache('30 seconds'), (req, res) => {
+    idService.logoutAllSessions(req, res);
+  });
+  app.get('/zelid/loggedsessions', cache('30 seconds'), (req, res) => {
+    idService.loggedSessions(req, res);
+  });
+  app.get('/zelid/logoutcurrentsession', cache('30 seconds'), (req, res) => {
+    idService.logoutCurrentSession(req, res);
+  });
+  app.get('/zelid/logoutallsessions', cache('30 seconds'), (req, res) => {
     idService.logoutAllSessions(req, res);
   });
 
@@ -576,6 +594,15 @@ module.exports = (app, expressWs) => {
     idService.activeLoginPhrases(req, res);
   });
   app.get('/id/logoutallusers', (req, res) => {
+    idService.logoutAllUsers(req, res);
+  });
+  app.get('/zelid/loggedusers', (req, res) => {
+    idService.loggedUsers(req, res);
+  });
+  app.get('/zelid/activeloginphrases', (req, res) => {
+    idService.activeLoginPhrases(req, res);
+  });
+  app.get('/zelid/logoutallusers', (req, res) => {
     idService.logoutAllUsers(req, res);
   });
 
@@ -802,6 +829,15 @@ module.exports = (app, expressWs) => {
   app.post('/id/checkprivilege', (req, res) => {
     idService.checkLoggedUser(req, res);
   });
+  app.post('/zelid/verifylogin', (req, res) => {
+    idService.verifyLogin(req, res);
+  });
+  app.post('/zelid/providesign', (req, res) => {
+    idService.provideSign(req, res);
+  });
+  app.post('/zelid/checkprivilege', (req, res) => {
+    idService.checkLoggedUser(req, res);
+  });
 
   app.post('/daemon/createrawtransaction', (req, res) => {
     daemonService.createRawTransactionPost(req, res);
@@ -827,6 +863,9 @@ module.exports = (app, expressWs) => {
 
   // POST PROTECTED API - USER LEVEL
   app.post('/id/logoutspecificsession', (req, res) => { // requires the knowledge of a session loginPhrase so users level is sufficient and user cannot logout another user as he does not know the loginPhrase.
+    idService.logoutSpecificSession(req, res);
+  });
+  app.post('/zelid/logoutspecificsession', (req, res) => { // requires the knowledge of a session loginPhrase so users level is sufficient and user cannot logout another user as he does not know the loginPhrase.
     idService.logoutSpecificSession(req, res);
   });
 
@@ -890,6 +929,9 @@ module.exports = (app, expressWs) => {
 
   // WebSockets PUBLIC
   app.ws('/ws/id/:loginphrase', (ws, req) => {
+    idService.wsRespondLoginPhrase(ws, req);
+  });
+  app.ws('/ws/zelid/:loginphrase', (ws, req) => {
     idService.wsRespondLoginPhrase(ws, req);
   });
   app.ws('/ws/sign/:message', (ws, req) => {
