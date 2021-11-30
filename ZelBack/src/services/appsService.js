@@ -2790,6 +2790,22 @@ function verifyCorrectnessOfApp(appSpecification) {
     throw new Error('Missing Flux App specification parameter');
   }
 
+  if (typeof version !== 'number') {
+    throw new Error('Invalid Flux App version');
+  }
+
+  if (typeof name !== 'string') {
+    throw new Error('Invalid Flux App name');
+  }
+
+  if (typeof description !== 'string') {
+    throw new Error('Invalid Flux App description');
+  }
+
+  if (typeof owner !== 'string') {
+    throw new Error('Invalid Flux App owner');
+  }
+
   if (version === 1) {
     if (!port || !containerPort) {
       throw new Error('Missing Flux App specification parameter');
@@ -2884,6 +2900,12 @@ function verifyCorrectnessOfApp(appSpecification) {
       throw new Error('Flux App has too many components');
     }
     compose.forEach((appComponent) => {
+      if (typeof appComponent.name !== 'string') {
+        throw new Error('Invalid Flux App component name');
+      }
+      if (typeof appComponent.description !== 'string') {
+        throw new Error(`Invalid Flux App component ${appComponent.name} description`);
+      }
       if (Array.isArray(appComponent.ports)) {
         appComponent.ports.forEach((parameter) => {
           if (typeof parameter !== 'number') {
@@ -3255,8 +3277,10 @@ async function verifyAppSpecifications(appSpecifications, height) {
       });
     });
   }
-  // check ZelID whitelisted
-  await generalService.checkWhitelistedZelID(appSpecifications.owner);
+  if (height < 1004000) {
+    // check ZelID whitelisted
+    await generalService.checkWhitelistedZelID(appSpecifications.owner);
+  }
 }
 
 async function assignedPortsApps() {

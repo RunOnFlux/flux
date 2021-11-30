@@ -2,7 +2,7 @@
   <div>
     <b-card>
       <b-card-sub-title>
-        Note: Only verified developers and images can currently run on Flux. To become a verified developer with whitelisted images, please contact the Flux Team via
+        Note: Only verified images can currently run on Flux. To whitelist your image, please contact the Flux Team via
         <b-link
           href="https://discord.io/runonflux"
           target="_blank"
