@@ -220,7 +220,7 @@
               <p>You haven't voted yet! You have a total of {{ myNumberOfVotes }} available.</p>
               <div>
                 <p>
-                  To vote you need to first sign a message with ZelCore with your ZelID corresponding to your Flux Nodes.
+                  To vote you need to first sign a message with Zelcore with your ZelID corresponding to your Flux Nodes.
                 </p>
                 <div>
                   <a
@@ -548,7 +548,7 @@ export default {
         mybackend += config.value.apiPort;
       }
       const backendURL = store.get('backendURL') || mybackend;
-      const url = `${backendURL}/zelid/providesign`;
+      const url = `${backendURL}/id/providesign`;
       return encodeURI(url);
     };
 

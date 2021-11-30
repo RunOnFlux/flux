@@ -161,7 +161,7 @@
               >
                 <div class="text-center">
                   <p>
-                    Pay with ZelCore
+                    Pay with Zelcore
                   </p>
                   <div>
                     <a

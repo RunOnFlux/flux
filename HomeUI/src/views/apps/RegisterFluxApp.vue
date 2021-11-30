@@ -2,7 +2,7 @@
   <div>
     <b-card>
       <b-card-sub-title>
-        Note: Only verified developers and images can currently run on Flux. To become a verified developer with whitelisted images, please contact the Flux Team via
+        Note: Only verified images can currently run on Flux. To whitelist your image, please contact the Flux Team via
         <b-link
           href="https://discord.io/runonflux"
           target="_blank"
@@ -249,8 +249,8 @@
                 </label>
                 <div class="col">
                   <b-form-input
-                    id="enviromentParameters"
-                    v-model="component.enviromentParameters"
+                    id="environmentParameters"
+                    v-model="component.environmentParameters"
                   />
                 </div>
               </div>
@@ -592,7 +592,7 @@
               </label>
               <div class="col">
                 <b-form-input
-                  id="enviromentParameters"
+                  id="environmentParameters"
                   v-model="appRegistrationSpecification.enviromentParameters"
                 />
               </div>
@@ -935,7 +935,7 @@
           xs="6"
           lg="4"
         >
-          <b-card title="Sign with ZelCore">
+          <b-card title="Sign with Zelcore">
             <a
               :href="'zel:?action=sign&message=' + dataToSign + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=' + callbackValue"
               @click="initiateSignWS"
@@ -976,7 +976,7 @@
           xs="6"
           lg="4"
         >
-          <b-card title="Pay with ZelCore">
+          <b-card title="Pay with Zelcore">
             <a :href="'zel:?action=pay&coin=zelcash&address=' + deploymentAddress + '&amount=' + appPricePerMonth + '&message=' + registrationHash + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png'">
               <img
                 class="zelidLogin"
@@ -1090,7 +1090,7 @@ export default {
             repotag: '',
             ports: '[]',
             domains: '[]',
-            enviromentParameters: '[]',
+            environmentParameters: '[]',
             commands: '[]',
             containerPorts: '[]',
             containerData: '',
@@ -1116,7 +1116,7 @@ export default {
         repotag: '',
         ports: '[]',
         domains: '[]',
-        enviromentParameters: '[]',
+        environmentParameters: '[]',
         commands: '[]',
         containerPorts: '[]',
         containerData: '',
@@ -1173,7 +1173,7 @@ export default {
         mybackend += this.config.apiPort;
       }
       const backendURL = store.get('backendURL') || mybackend;
-      const url = `${backendURL}/zelid/providesign`;
+      const url = `${backendURL}/id/providesign`;
       return encodeURI(url);
     },
   },

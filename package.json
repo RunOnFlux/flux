@@ -1,6 +1,6 @@
 {
   "name": "flux",
-  "version": "3.0.1",
+  "version": "3.0.4",
   "description": "Flux, Your Gateway to a Decentralized World",
   "repository": {
     "type": "git",
@@ -52,7 +52,6 @@
     "homedev": "vue-cli-service serve --port 16126",
     "homeprod": "nodemon homeServer.js",
     "homebuild": "vue-cli-service build",
-    "homebuildwatch": "echo 'ZelFront is deprecated'",
     "fluxdev": "nodemon apiServer.js",
     "flux": "nodemon app.js",
     "start": "npm install --production && node init.js && npm run flux",

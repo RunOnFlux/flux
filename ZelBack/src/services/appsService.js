@@ -1321,7 +1321,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
         const command = job.command();
         const cmdsplit = command.split(' ');
         // eslint-disable-next-line prefer-destructuring
-        volumepath = cmdsplit[4]; // sudo mount -o loop /home/abcapp2TEMP /root/zelflux/ZelApps/abcapp2 is an example
+        volumepath = cmdsplit[4]; // sudo mount -o loop /home/abcapp2TEMP /root/flux/ZelApps/abcapp2 is an example
         if (!job || !job.isValid()) {
           // remove the job as its invalid anyway
           crontab.remove(job);
@@ -2790,6 +2790,22 @@ function verifyCorrectnessOfApp(appSpecification) {
     throw new Error('Missing Flux App specification parameter');
   }
 
+  if (typeof version !== 'number') {
+    throw new Error('Invalid Flux App version');
+  }
+
+  if (typeof name !== 'string') {
+    throw new Error('Invalid Flux App name');
+  }
+
+  if (typeof description !== 'string') {
+    throw new Error('Invalid Flux App description');
+  }
+
+  if (typeof owner !== 'string') {
+    throw new Error('Invalid Flux App owner');
+  }
+
   if (version === 1) {
     if (!port || !containerPort) {
       throw new Error('Missing Flux App specification parameter');
@@ -2826,11 +2842,11 @@ function verifyCorrectnessOfApp(appSpecification) {
     if (Array.isArray(enviromentParameters)) {
       enviromentParameters.forEach((parameter) => {
         if (typeof parameter !== 'string') {
-          throw new Error('Enviromental parameters for Flux App are invalid');
+          throw new Error('Environmental parameters for Flux App are invalid');
         }
       });
     } else {
-      throw new Error('Enviromental parameters for Flux App are invalid');
+      throw new Error('Environmental parameters for Flux App are invalid');
     }
     if (Array.isArray(commands)) {
       commands.forEach((command) => {
@@ -2884,6 +2900,12 @@ function verifyCorrectnessOfApp(appSpecification) {
       throw new Error('Flux App has too many components');
     }
     compose.forEach((appComponent) => {
+      if (typeof appComponent.name !== 'string') {
+        throw new Error('Invalid Flux App component name');
+      }
+      if (typeof appComponent.description !== 'string') {
+        throw new Error(`Invalid Flux App component ${appComponent.name} description`);
+      }
       if (Array.isArray(appComponent.ports)) {
         appComponent.ports.forEach((parameter) => {
           if (typeof parameter !== 'number') {
@@ -2902,14 +2924,14 @@ function verifyCorrectnessOfApp(appSpecification) {
       } else {
         throw new Error(`Domains for Flux App component ${appComponent.name} are invalid`);
       }
-      if (Array.isArray(appComponent.enviromentParameters)) {
-        appComponent.enviromentParameters.forEach((parameter) => {
+      if (Array.isArray(appComponent.environmentParameters)) {
+        appComponent.environmentParameters.forEach((parameter) => {
           if (typeof parameter !== 'string') {
-            throw new Error(`Enviromental parameters for Flux App component ${appComponent.name} are invalid`);
+            throw new Error(`Environment parameters for Flux App component ${appComponent.name} are invalid`);
           }
         });
       } else {
-        throw new Error(`Enviromental parameters for Flux App component ${appComponent.name} are invalid`);
+        throw new Error(`Environment parameters for Flux App component ${appComponent.name} are invalid`);
       }
       if (Array.isArray(appComponent.commands)) {
         appComponent.commands.forEach((command) => {
@@ -3237,7 +3259,7 @@ async function verifyAppSpecifications(appSpecifications, height) {
       'version', 'name', 'description', 'owner', 'compose', 'instances',
     ];
     const componentSpecifications = [
-      'name', 'description', 'repotag', 'ports', 'containerPorts', 'enviromentParameters', 'commands', 'containerData', 'domains',
+      'name', 'description', 'repotag', 'ports', 'containerPorts', 'environmentParameters', 'commands', 'containerData', 'domains',
       'cpu', 'ram', 'hdd', 'tiered', 'cpubasic', 'rambasic', 'hddbasic', 'cpusuper', 'ramsuper', 'hddsuper', 'cpubamf', 'rambamf', 'hddbamf',
     ];
     const specsKeys = Object.keys(appSpecifications);
@@ -3255,8 +3277,10 @@ async function verifyAppSpecifications(appSpecifications, height) {
       });
     });
   }
-  // check ZelID whitelisted
-  await generalService.checkWhitelistedZelID(appSpecifications.owner);
+  if (height < 1004000) {
+    // check ZelID whitelisted
+    await generalService.checkWhitelistedZelID(appSpecifications.owner);
+  }
 }
 
 async function assignedPortsApps() {
@@ -3272,14 +3296,17 @@ async function assignedPortsApps() {
     if (app.version === 1) {
       const appSpecs = {
         name: app.name,
-        ports: [app.port],
+        ports: [Number(app.port)],
       };
       apps.push(appSpecs);
     } else if (app.version <= 3) {
       const appSpecs = {
         name: app.name,
-        ports: app.ports,
+        ports: [],
       };
+      app.ports.forEach((port) => {
+        appSpecs.ports.push(Number(port));
+      });
       apps.push(appSpecs);
     } else if (app.version >= 4) {
       const appSpecs = {
@@ -3289,27 +3316,37 @@ async function assignedPortsApps() {
       app.compose.forEach((composeApp) => {
         appSpecs.ports = appSpecs.ports.concat(composeApp.ports);
       });
+      apps.push(appSpecs);
     }
   });
   return apps;
 }
 
+function appPortsUnique(portsArray) {
+  return (new Set(portsArray)).size === portsArray.length;
+}
+
 async function ensureCorrectApplicationPort(appSpecFormatted) {
   const currentAppsPorts = await assignedPortsApps();
   if (appSpecFormatted.version === 1) {
-    const portAssigned = currentAppsPorts.find((app) => app.ports.includes(appSpecFormatted.port));
+    const portAssigned = currentAppsPorts.find((app) => app.ports.includes(Number(appSpecFormatted.port)));
     if (portAssigned && portAssigned.name !== appSpecFormatted.name) {
       throw new Error(`Flux App ${appSpecFormatted.name} port ${appSpecFormatted.port} already registered with different application. Your Flux App has to use different port.`);
     }
   } else if (appSpecFormatted.version <= 3) {
     // eslint-disable-next-line no-restricted-syntax
     for (const port of appSpecFormatted.ports) {
-      const portAssigned = currentAppsPorts.find((app) => app.ports.includes(port));
+      const portAssigned = currentAppsPorts.find((app) => app.ports.includes(Number(port)));
       if (portAssigned && portAssigned.name !== appSpecFormatted.name) {
         throw new Error(`Flux App ${appSpecFormatted.name} port ${port} already registered with different application. Your Flux App has to use different port.`);
       }
     }
+    const portsUnique = appPortsUnique(appSpecFormatted.ports);
+    if (!portsUnique) {
+      throw new Error(`Flux App ${appSpecFormatted.name} must have unique ports specified`);
+    }
   } else {
+    const allPorts = [];
     // eslint-disable-next-line no-restricted-syntax
     for (const appComponent of appSpecFormatted.compose) {
       // eslint-disable-next-line no-restricted-syntax
@@ -3318,7 +3355,12 @@ async function ensureCorrectApplicationPort(appSpecFormatted) {
         if (portAssigned && portAssigned.name !== appSpecFormatted.name) {
           throw new Error(`Flux App ${appSpecFormatted.name} port ${port} already registered with different application. Your Flux App has to use different port.`);
         }
+        allPorts.push(port);
       }
+    }
+    const portsUnique = appPortsUnique(allPorts);
+    if (!portsUnique) {
+      throw new Error(`Flux App ${appSpecFormatted.name} must have unique ports specified accross all composition`);
     }
   }
   return true;
@@ -3768,7 +3810,7 @@ function specificationFormatter(appSpecification) {
         envParamsCorrected.push(param);
       });
     } else {
-      throw new Error('Enviromental parameters for Flux App are invalid');
+      throw new Error('Environmental parameters for Flux App are invalid');
     }
     commands = serviceHelper.ensureObject(commands);
     const commandsCorrected = [];
@@ -3882,16 +3924,16 @@ function specificationFormatter(appSpecification) {
       } else {
         throw new Error(`Domains for Flux App component ${appComponent.name} are invalid`);
       }
-      appComponentCorrect.enviromentParameters = serviceHelper.ensureObject(appComponent.enviromentParameters);
+      appComponentCorrect.environmentParameters = serviceHelper.ensureObject(appComponent.environmentParameters);
       const envParamsCorrected = [];
-      if (Array.isArray(appComponentCorrect.enviromentParameters)) {
-        appComponentCorrect.enviromentParameters.forEach((parameter) => {
+      if (Array.isArray(appComponentCorrect.environmentParameters)) {
+        appComponentCorrect.environmentParameters.forEach((parameter) => {
           const param = serviceHelper.ensureString(parameter);
           envParamsCorrected.push(param);
         });
-        appComponentCorrect.enviromentParameters = envParamsCorrected;
+        appComponentCorrect.environmentParameters = envParamsCorrected;
       } else {
-        throw new Error(`Enviromental parameters for Flux App component ${appComponent.name} are invalid`);
+        throw new Error(`Environmental parameters for Flux App component ${appComponent.name} are invalid`);
       }
       appComponentCorrect.commands = serviceHelper.ensureObject(appComponent.commands);
       const commandsCorrected = [];
@@ -4365,7 +4407,7 @@ async function updateAppSpecifications(appSpecs) {
     //       ports: '[30001]', // array of ints
     //       containerPorts: '[7396]', // array of ints
     //       domains: '[""]', // array of strings
-    //       enviromentParameters: '["USER=foldingUser", "TEAM=262156", "ENABLE_GPU=false", "ENABLE_SMP=true"]', // array of strings
+    //       environmentParameters: '["USER=foldingUser", "TEAM=262156", "ENABLE_GPU=false", "ENABLE_SMP=true"]', // array of strings
     //       commands: '["--allow","0/0","--web-allow","0/0"]', // array of strings
     //       containerData: '/config', // string
     //       cpu: 0.5, // float
