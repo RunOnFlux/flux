@@ -61,8 +61,8 @@
             <b-dropdown-item :to="{ name: $route.name, query: { ...$route.query, sort: 'ram' } }">
               Sort by RAM
             </b-dropdown-item>
-            <b-dropdown-item :to="{ name: $route.name, query: { ...$route.query, sort: 'ssd' } }">
-              Sort by SSD
+            <b-dropdown-item :to="{ name: $route.name, query: { ...$route.query, sort: 'hdd' } }">
+              Sort by HDD
             </b-dropdown-item>
             <b-dropdown-item :to="{ name: $route.name, query: { ...$route.query, sort: 'price' } }">
               Sort by price
@@ -96,12 +96,12 @@
                 <div class="app-item-action">
                   <div class="badge-wrapper mr-1">
                     <b-badge
-                      v-if="singleApp.extraDetail.category"
+                      v-if="singleApp.extraDetail.name"
                       pill
                       :variant="`light-${resolveTagVariant(singleApp.extraDetail)}`"
                       class="text-capitalize"
                     >
-                      {{ singleApp.extraDetail.category }}
+                      {{ singleApp.extraDetail.name }}
                     </b-badge>
                   </div>
                   <!-- <small class="text-nowrap text-muted mr-1">{{ formatDate(task.dueDate, { month: 'short', day: 'numeric'}) }}</small> -->
@@ -112,7 +112,7 @@
                       :variant="`light-${resolveAvatarVariant(singleApp.extraDetail)}`"
                     >
                       <v-icon
-                        scale="2"
+                        scale="1.75"
                         :name="`${resolveAvatarIcon(singleApp.extraDetail)}`"
                       />
                     </b-avatar>
@@ -126,6 +126,20 @@
                   </h6>
                 </div>
               </div>
+              <div class="app-title-area">
+                <div class="title-wrapper">
+                  <h6 class="text-nowrap text-muted mr-1 app-description">
+                    CPU: {{ resolveCpu(singleApp) }} cores - RAM: {{ resolveRam(singleApp) }} MB - HDD: {{ resolveHdd(singleApp) }} GB
+                  </h6>
+                </div>
+              </div>
+              <div class="app-title-area">
+                <div class="title-wrapper">
+                  <h5 class="text-nowrap mr-1 app-description">
+                    Price: {{ singleApp.price }} Flux / month
+                  </h5>
+                </div>
+              </div>
             </b-media-body>
           </b-media>
         </ul>
@@ -133,7 +147,7 @@
           class="no-results"
           :class="{'show': filteredApps.length === 0}"
         >
-          <h5>No Proposals Found</h5>
+          <h5>No Marketplace Apps Found</h5>
         </div>
       </vue-perfect-scrollbar>
     </div>
@@ -143,8 +157,7 @@
       :class="{'show': isAppViewActive}"
       :app-data="app"
       :zelid="zelid"
-      :has-next-proposal="true"
-      :has-previous-proposal="true"
+      :tier="tier"
       @close-app-view="isAppViewActive = false"
     />
 
@@ -183,9 +196,12 @@ import Ripple from 'vue-ripple-directive';
 import { useToast } from 'vue-toastification/composition';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 import VuePerfectScrollbar from 'vue-perfect-scrollbar';
+import DaemonService from '@/services/DaemonService';
+import AppsService from '@/services/AppsService';
 
 import AppView from './AppView.vue';
 import CategorySidebar from './CategorySidebar.vue';
+import { categories, defaultCategory } from '../../../libs/marketplaceCategories';
 
 const qs = require('qs');
 const axios = require('axios');
@@ -216,6 +232,7 @@ export default {
   setup() {
     const appListRef = ref(null);
     const zelid = ref(null);
+    const tier = ref('');
 
     // Use toast
     const toast = useToast();
@@ -225,6 +242,12 @@ export default {
       const auth = qs.parse(zelidauth);
       zelid.value = auth.zelid;
     });
+
+    const resolveCpu = (app) => app.compose.reduce((total, component) => total + component.cpu, 0);
+
+    const resolveRam = (app) => app.compose.reduce((total, component) => total + component.ram, 0);
+
+    const resolveHdd = (app) => app.compose.reduce((total, component) => total + component.hdd, 0);
 
     const { showDetailSidebar } = useResponsiveAppLeftSidebarVisibility();
     // eslint-disable-next-line no-unused-vars
@@ -247,6 +270,9 @@ export default {
       'title-asc',
       'title-desc',
       'end-date',
+      'cpu',
+      'ram',
+      'hdd',
     ];
 
     const sortBy = ref(routeSortBy.value);
@@ -276,31 +302,26 @@ export default {
       });
     };
 
-    const categories = [
-      { category: 'Games', variant: 'success', icon: 'gamepad' },
-      { category: 'Productivity', variant: 'danger', icon: 'gamepad' },
-    ];
-
     const resolveTagVariant = (extraDetail) => {
-      const filteredCategories = categories.filter((cat) => cat.category === extraDetail.category);
+      const filteredCategories = categories.filter((cat) => cat.name === extraDetail.name);
       if (filteredCategories.length === 0) {
-        return 'primary';
+        return defaultCategory.variant;
       }
       return filteredCategories[0].variant;
     };
 
     const resolveAvatarVariant = (extraDetail) => {
-      const filteredCategories = categories.filter((cat) => cat.category === extraDetail.category);
+      const filteredCategories = categories.filter((cat) => cat.name === extraDetail.name);
       if (filteredCategories.length === 0) {
-        return 'primary';
+        return defaultCategory.variant;
       }
       return filteredCategories[0].variant;
     };
 
     const resolveAvatarIcon = (extraDetail) => {
-      const filteredCategories = categories.filter((cat) => cat.category === extraDetail.category);
+      const filteredCategories = categories.filter((cat) => cat.name === extraDetail.name);
       if (filteredCategories.length === 0) {
-        return '';
+        return defaultCategory.icon;
       }
       return filteredCategories[0].icon;
     };
@@ -321,14 +342,28 @@ export default {
       router.replace({ name: route.name, query: currentRouteQuery });
     };
 
+    const getCategory = (categoryToFind) => {
+      const foundCategory = categories.find((category) => {
+        console.log(category);
+        return category.name === categoryToFind;
+      });
+      if (!foundCategory) return defaultCategory;
+      return foundCategory;
+    };
+
     const fetchApps = async () => {
-      const response = await axios.get('https://api.runonflux.io/apps/globalappsspecifications');
+      const response = await axios.get('http://192.168.1.69:8123/marketplace/listapps');
+      const allAppsResponse = await AppsService.globalAppSpecifications();
+      console.log(`ZelID: ${zelid.value}`);
+      console.log(response);
+      console.log(allAppsResponse);
       // console.log(response)
       if (response.data.status === 'success') {
         filteredApps.value = response.data.data;
         filteredApps.value.forEach((appData) => {
           // eslint-disable-next-line no-param-reassign
-          appData.extraDetail = categories[Math.floor(Math.random() * categories.length)];
+          appData.extraDetail = getCategory(appData.category);
+          console.log(appData.extraDetail);
         });
         console.log(filteredApps.value);
         if (router.currentRoute.params.filter) {
@@ -364,8 +399,8 @@ export default {
             if (sortBy.value === 'ram') {
               return a.ram - b.ram;
             }
-            if (sortBy.value === 'ssd') {
-              return a.ssd - b.ssd;
+            if (sortBy.value === 'hdd') {
+              return a.hdd - b.hdd;
             }
             return 0;
           });
@@ -375,7 +410,16 @@ export default {
       }
     };
 
-    fetchApps();
+    const getZelNodeStatus = async () => {
+      const response = await DaemonService.getZelNodeStatus();
+      console.log(response);
+      if (response.data.status === 'success') {
+        tier.value = response.data.data.tier;
+        console.log(`Tier: ${tier.value}`);
+      }
+      fetchApps();
+    };
+    getZelNodeStatus();
 
     const isAppViewActive = ref(false);
 
@@ -392,6 +436,7 @@ export default {
       // route,
       // router,
       zelid,
+      tier,
       appListRef,
       timeoptions,
       app,
@@ -408,6 +453,9 @@ export default {
       avatarText,
       isAppViewActive,
       showDetailSidebar,
+      resolveHdd,
+      resolveCpu,
+      resolveRam,
     };
   },
 };

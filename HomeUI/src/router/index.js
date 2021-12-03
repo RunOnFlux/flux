@@ -80,9 +80,11 @@ router.beforeEach(async (to, from, next) => {
   if (auth && auth.zelid && auth.signature) {
     try {
       const response = await IDService.checkUserLogged(auth.zelid, auth.signature);
+      console.log(response);
       const privilege = response.data.data.message;
       store.commit('flux/setPrivilege', privilege);
       if (privilege === 'none') {
+        console.log('Remove zelidauth in router');
         localStorage.removeItem('zelidauth');
       }
     } catch (error) {

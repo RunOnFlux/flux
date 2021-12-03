@@ -198,6 +198,9 @@ $email_details_header_height: 5rem;
       transition: all 0.25s ease, color 0s;
       transform: translateX(0%);
     }
+    .app-requirements-header {
+      position: absolute;
+    }
     .app-detail-header {
       display: flex;
       flex-wrap: wrap;
