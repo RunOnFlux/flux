@@ -620,33 +620,33 @@
                       {{ row.item.description }}
                     </template>
                     <template #cell(actions)="row">
-                        <b-button
-                          :id="`start-installed-app-${row.item.name}`"
-                          size="sm"
-                          class="w-100 mr-1"
-                          style="margin-bottom: 2px;"
-                          variant="danger"
-                        >
-                          Start
-                        </b-button>
-                        <confirm-dialog
-                          :target="`start-installed-app-${row.item.name}`"
-                          confirm-button="Start App"
-                          @confirm="startApp(row.item.name)"
-                        />
-                        <b-button
-                          :id="`restart-installed-app-${row.item.name}`"
-                          size="sm"
-                          class="w-100 mr-1"
-                          variant="danger"
-                        >
-                          Restart
-                        </b-button>
-                        <confirm-dialog
-                          :target="`restart-installed-app-${row.item.name}`"
-                          confirm-button="Restart App"
-                          @confirm="restartApp(row.item.name)"
-                        />
+                      <b-button
+                        :id="`start-installed-app-${row.item.name}`"
+                        size="sm"
+                        class="w-100 mr-1"
+                        style="margin-bottom: 2px;"
+                        variant="danger"
+                      >
+                        Start
+                      </b-button>
+                      <confirm-dialog
+                        :target="`start-installed-app-${row.item.name}`"
+                        confirm-button="Start App"
+                        @confirm="startApp(row.item.name)"
+                      />
+                      <b-button
+                        :id="`restart-installed-app-${row.item.name}`"
+                        size="sm"
+                        class="w-100 mr-1"
+                        variant="danger"
+                      >
+                        Restart
+                      </b-button>
+                      <confirm-dialog
+                        :target="`restart-installed-app-${row.item.name}`"
+                        confirm-button="Restart App"
+                        @confirm="restartApp(row.item.name)"
+                      />
                     </template>
                     <template #cell(remove)="row">
                       <b-button
