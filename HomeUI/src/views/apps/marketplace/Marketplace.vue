@@ -359,7 +359,7 @@ export default {
       console.log(allAppsResponse);
       // console.log(response)
       if (response.data.status === 'success') {
-        filteredApps.value = response.data.data;
+        filteredApps.value = response.data.data.filter((val) => val.visible);
         filteredApps.value.forEach((appData) => {
           // eslint-disable-next-line no-param-reassign
           appData.extraDetail = getCategory(appData.category);
