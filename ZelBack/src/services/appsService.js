@@ -4190,7 +4190,7 @@ async function updateAppGlobalyApi(req, res) {
       if (!appInfo) {
         throw new Error('Flux App update received but application to update does not exists!');
       }
-      if (appInfo.repotag !== appSpecFormatted.repotag) {
+      if (appInfo.repotag !== appSpecFormatted.repotag) { // this is OK. <= v3 cannot change, v4 can but does not have this in specifications as its compose
         throw new Error('Flux App update of repotag is not allowed');
       }
       const appOwner = appInfo.owner; // ensure previous app owner is signing this message
@@ -5186,6 +5186,33 @@ async function getApplicationOwnerAPI(req, res) {
   }
 }
 
+async function checkApplicationImagesComplience(appSpecs) {
+  const resBlockedRepo = await serviceHelper.axiosGet('https://raw.githubusercontent.com/runonflux/flux/master/helpers/blockedrepositories.json');
+
+  if (!resBlockedRepo) {
+    throw new Error('Unable to communicate with Flux Services! Try again later.');
+  }
+
+  const repos = resBlockedRepo.data;
+
+  const images = [];
+  if (appSpecs.version <= 3) {
+    images.push(appSpecs.repotag);
+  } else {
+    appSpecs.compose.forEach((component) => {
+      images.push(component.repotag);
+    });
+  }
+
+  images.forEach((image) => {
+    if (repos.includes(image)) {
+      throw new Error(`Repository ${image} is blocked. Application ${appSpecs.name} connot be spawned.`);
+    }
+  });
+
+  return true;
+}
+
 async function trySpawningGlobalApplication() {
   try {
     // how do we continue with this function function?
@@ -5268,6 +5295,9 @@ async function trySpawningGlobalApplication() {
     if (!appSpecifications) {
       throw new Error(`Specifications for application ${randomApp} were not found!`);
     }
+
+    // check if application image is not blacklisted
+    await checkApplicationImagesComplience(appSpecifications);
 
     // verify requirements
     await checkAppRequirements(appSpecifications);
