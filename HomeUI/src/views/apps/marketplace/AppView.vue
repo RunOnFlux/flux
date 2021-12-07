@@ -41,7 +41,9 @@
               class="mt-1"
               no-body
             >
-              <b-tabs>
+              <b-tabs
+                @activate-tab="componentSelected"
+              >
                 <b-tab
                   v-for="(component, index) in appData.compose"
                   :key="index"
@@ -51,50 +53,51 @@
                     title="Description"
                     :data="component.description"
                   />
-                  <div class="form-row form-group">
-                    <label class="col-3 col-form-label">
-                      Environment
-                      <v-icon
-                        v-b-tooltip.hover.top="'Array of strings of Environmental Parameters'"
-                        name="info-circle"
-                        class="mr-1"
-                      />
-                    </label>
-                    <div class="col">
-                      <b-form-input
-                        id="enviromentParameters"
-                        v-model="component.environmentParametersModel"
-                      />
-                    </div>
-                  </div>
                   <list-entry
                     title="Repository"
                     :data="component.repotag"
                   />
-                  <list-entry
-                    title="Custom Domains"
-                    :data="component.domains.join(', ') || 'none'"
-                  />
-                  <list-entry
-                    title="Automatic Domains"
-                    :data="constructAutomaticDomains(component.ports, component.name, appData.name).join(', ')"
-                  />
-                  <list-entry
-                    title="Ports"
-                    :data="component.ports.join(', ')"
-                  />
-                  <list-entry
-                    title="Container Ports"
-                    :data="component.containerPorts.join(', ')"
-                  />
-                  <list-entry
-                    title="Container Data"
-                    :data="component.containerData"
-                  />
-                  <list-entry
-                    title="Commands"
-                    :data="component.commands.length > 0 ? component.commands.join(', ') : 'none'"
-                  />
+                  <b-card
+                    v-if="component.userParameters"
+                    title="Parameters"
+                    border-variant="primary"
+                  >
+                    <b-tabs v-if="component.userParameters">
+                      <b-tab
+                        v-for="(parameter, paramIndex) in component.userParameters"
+                        :key="paramIndex"
+                        :title="parameter.name"
+                      >
+                        <div class="form-row form-group">
+                          <label class="col-2 col-form-label">
+                            Value
+                            <v-icon
+                              v-b-tooltip.hover.top="parameter.description"
+                              name="info-circle"
+                              class="mr-1"
+                            />
+                          </label>
+                          <div class="col">
+                            <b-form-input
+                              id="enviromentParameters"
+                              v-model="parameter.value"
+                              :placeholder="parameter.placeholder"
+                            />
+                          </div>
+                        </div>
+                      </b-tab>
+                    </b-tabs>
+                  </b-card>
+                  <b-button
+                    v-if="userZelid"
+                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                    variant="outline-warning"
+                    aria-label="View Additional Details"
+                    class="mb-2"
+                    @click="componentParamsModalShowing = true"
+                  >
+                    View Additional Details
+                  </b-button>
                 </b-tab>
               </b-tabs>
             </b-card>
@@ -149,7 +152,18 @@
           </b-card>
         </b-col>
       </b-row>
-      <div class="text-center">
+      <div
+        v-if="!appData.enabled"
+        class="text-center"
+      >
+        <h4>
+          This app is temporarily disabled
+        </h4>
+      </div>
+      <div
+        v-else
+        class="text-center"
+      >
         <b-button
           v-if="userZelid"
           v-ripple.400="'rgba(255, 255, 255, 0.15)'"
@@ -165,6 +179,47 @@
         </h4>
       </div>
     </vue-perfect-scrollbar>
+
+    <b-modal
+      v-model="componentParamsModalShowing"
+      title="Extra Component Parameters"
+      size="lg"
+      centered
+      button-size="sm"
+      ok-only
+      ok-title="Close"
+    >
+      <div v-if="currentComponent">
+        <list-entry
+          title="Static Parameters"
+          :data="currentComponent.environmentParameters.join(', ')"
+        />
+        <list-entry
+          title="Custom Domains"
+          :data="currentComponent.domains.join(', ') || 'none'"
+        />
+        <list-entry
+          title="Automatic Domains"
+          :data="constructAutomaticDomains(currentComponent.ports, currentComponent.name, appData.name).join(', ')"
+        />
+        <list-entry
+          title="Ports"
+          :data="currentComponent.ports.join(', ')"
+        />
+        <list-entry
+          title="Container Ports"
+          :data="currentComponent.containerPorts.join(', ')"
+        />
+        <list-entry
+          title="Container Data"
+          :data="currentComponent.containerData"
+        />
+        <list-entry
+          title="Commands"
+          :data="currentComponent.commands.length > 0 ? currentComponent.commands.join(', ') : 'none'"
+        />
+      </div>
+    </b-modal>
 
     <b-modal
       v-model="launchModalShowing"
@@ -240,7 +295,7 @@
               variant="success"
               aria-label="Register Flux App"
               class="my-1"
-              :disabled="registrationHash"
+              :disabled="registrationHash && registrationHash.length > 0"
               @click="register"
             >
               Register Flux App
@@ -409,7 +464,13 @@ export default {
     const userZelid = ref('');
     userZelid.value = props.zelid;
 
+    // Variables to control showing dialogs
     const launchModalShowing = ref(false);
+    const componentParamsModalShowing = ref(false);
+
+    // Holds the currently selected component, for viewing
+    // additional parameters in a modal dialog
+    const currentComponent = ref(null);
 
     // Registration variables
     const version = ref(1);
@@ -423,8 +484,8 @@ export default {
     const websocket = ref(null);
 
     const config = computed(() => ctx.root.$store.state.flux.config);
-    const validTill = computed(() => timestamp.value + 60 * 60 * 1000);
-    const subscribedTill = computed(() => timestamp.value + 30 * 24 * 60 * 60 * 1000 + 60 * 60 * 1000);
+    const validTill = computed(() => timestamp.value + 60 * 60 * 1000); // 1 hour
+    const subscribedTill = computed(() => timestamp.value + 30 * 24 * 60 * 60 * 1000 + 60 * 60 * 1000); // 1 month
 
     const callbackValue = computed(() => {
       const { protocol, hostname } = window.location;
@@ -556,10 +617,6 @@ export default {
       series: [],
     });
 
-    let latestAppCount = 0;
-
-    const separator = 'v';
-
     watch(() => props.appData, () => {
       if (websocket.value !== null) {
         websocket.value.close();
@@ -599,34 +656,62 @@ export default {
         });
       });
 
+      // Evaluate any user parameters from the database
+      props.appData.compose.forEach((component) => {
+        try {
+          const paramModel = component.userEnvironmentParameters;
+          // eslint-disable-next-line no-param-reassign
+          component.userParameters = paramModel;
+
+          // check if any of these parameters are special 'port' parameters
+          component.userParameters.forEach((parameter) => {
+            if (Object.prototype.hasOwnProperty.call(parameter, 'port')) {
+              // eslint-disable-next-line no-param-reassign
+              parameter.value = component.ports[parameter.port];
+            }
+          });
+        } catch (error) {
+          console.log(error);
+        }
+      });
+
+      currentComponent.value = props.appData.compose[0];
+
       // Work out the current number of these apps on the network
       // so we can generate a unique name for the app
       console.log(globalApps.value);
       const appNames = globalApps.value.map((app) => app.name);
       // ok, for testing there are no matching marketplace apps
-      appNames.push(`${props.appData.name}${separator}${userZelid.value.substring(userZelid.value.length - 2, userZelid.value.length)}1`);
-      appNames.push(`${props.appData.name}${separator}${userZelid.value.substring(userZelid.value.length - 2, userZelid.value.length)}2`);
-      appNames.push(`${props.appData.name}${separator}${userZelid.value.substring(userZelid.value.length - 2, userZelid.value.length)}3`);
-      appNames.push(`${props.appData.name}${separator}${userZelid.value.substring(userZelid.value.length - 2, userZelid.value.length)}4`);
-      appNames.push(`${props.appData.name}${separator}${userZelid.value.substring(userZelid.value.length - 2, userZelid.value.length)}15`);
+      const now = Date.now();
+      appNames.push(`${props.appData.name}${now - 100000}`);
+      appNames.push(`${props.appData.name}${now - 50000}`);
+      appNames.push(`${props.appData.name}${now - 25000}`);
+      appNames.push(`${props.appData.name}${now - 10000}`);
+      appNames.push(`${props.appData.name}${now - 5000}`);
       console.log(appNames);
-      const marketplaceApps = appNames.filter((name) => name.includes(`${props.appData.name}${separator}`));
+      const marketplaceApps = appNames.filter((name) => {
+        if (name.length < 14) return false;
+        const possibleDateString = name.substring(name.length - 13, name.length);
+        const possibleDate = Number(possibleDateString);
+        if (Number.isNaN(possibleDate)) return false;
+        return true;
+      });
       console.log(marketplaceApps);
-      const bitBeforenumberLength = `${props.appData.name}${separator}`.length + 2;
-      const marketplaceAppsMaxNumber = marketplaceApps.map((name) => Number(name.substring(bitBeforenumberLength, name.length))).reduce((acc, value) => Math.max(acc, value));
-      latestAppCount = marketplaceAppsMaxNumber;
-      console.log(marketplaceAppsMaxNumber);
+      // const bitBeforenumberLength = `${props.appData.name}${separator}`.length + 2;
+      // const marketplaceAppsMaxNumber = marketplaceApps.map((name) => Number(name.substring(bitBeforenumberLength, name.length))).reduce((acc, value) => Math.max(acc, value));
+      // latestAppCount = marketplaceAppsMaxNumber;
+      // console.log(marketplaceAppsMaxNumber);
     });
 
-    const constructUniqueAppName = (appName) => `${appName}${separator}${userZelid.value.substring(userZelid.value.length - 2, userZelid.value.length)}${latestAppCount + 1}`;
+    const constructUniqueAppName = (appName) => `${appName}${Date.now()}`;
 
     const constructAutomaticDomains = (ports, componentName = '', appName) => {
       if (!userZelid.value) {
         return ['No ZelID'];
       }
       const domainString = 'abcdefghijklmno'; // enough
-      const appNameWithZelID = constructUniqueAppName(appName);
-      const lowerCaseName = appNameWithZelID.toLowerCase();
+      const appNameWithTimestamp = constructUniqueAppName(appName);
+      const lowerCaseName = appNameWithTimestamp.toLowerCase();
       const lowerCaseCopmonentName = componentName.toLowerCase();
       if (!lowerCaseCopmonentName) {
         const domains = [`${lowerCaseName}.app.runonflux.io`];
@@ -677,19 +762,23 @@ export default {
           version: props.appData.version,
           name: constructUniqueAppName(props.appData.name),
           description: props.appData.description,
-          owner: props.appData.owner,
+          owner: userZelid.value,
           instances: props.appData.instances,
           compose: [],
         };
         // formation, pre verificaiton
         props.appData.compose.forEach((component) => {
+          const envParams = component.environmentParameters;
+          component.userParameters.forEach((param) => {
+            envParams.push(`${param.name}=${param.value}`);
+          });
           const appComponent = {
             name: component.name,
             description: component.description,
             repotag: component.repotag,
             ports: component.ports,
             containerPorts: component.containerPorts,
-            environmentParameters: component.environmentParametersModel.split(','),
+            environmentParameters: envParams,
             commands: component.commands,
             containerData: component.containerData,
             domains: component.domains,
@@ -715,17 +804,16 @@ export default {
         const responseAppSpecs = await AppsService.appRegistrationVerificaiton(appSpecification);
         console.log(responseAppSpecs);
         if (responseAppSpecs.data.status === 'error') {
-          // throw new Error(responseAppSpecs.data.data.message || responseAppSpecs.data.data);
+          throw new Error(responseAppSpecs.data.data.message || responseAppSpecs.data.data);
         }
-        const appSpecFormatted = appSpecification;
-        // const appSpecFormatted = responseAppSpecs.data.data;
-        // const response = await AppsService.appPrice(appSpecFormatted);
-        // console.log(response);
-        // this.appPricePerMonth = 0;
-        // if (response.data.status === 'error') {
-        //  throw new Error(response.data.data.message || response.data.data);
-        // }
-        // this.appPricePerMonth = response.data.data;
+        const appSpecFormatted = responseAppSpecs.data.data;
+        const response = await AppsService.appPrice(appSpecFormatted);
+        if (response.data.status === 'error') {
+          throw new Error(response.data.data.message || response.data.data);
+        }
+        if (response.data.data > props.appData.price) {
+          throw new Error('Marketplace App Price is too low');
+        }
         timestamp.value = new Date().getTime();
         dataForAppRegistration.value = appSpecFormatted;
         appPricePerMonth.value = props.appData.price;
@@ -942,8 +1030,7 @@ export default {
     };
 
     const register = async () => {
-      registrationHash.value = 'mynameisjeff';
-      /* const zelidauth = localStorage.getItem('zelidauth');
+      const zelidauth = localStorage.getItem('zelidauth');
       const data = {
         type: registrationtype.value,
         version: version.value,
@@ -956,11 +1043,15 @@ export default {
       });
       console.log(response);
       if (response.data.status === 'success') {
-        registrationHash.value = response.data.data;0
+        registrationHash.value = response.data.data;
         showToast('success', response.data.data.message || response.data.data);
       } else {
         showToast('danger', response.data.data.message || response.data.data);
-      } */
+      }
+    };
+
+    const componentSelected = (component) => {
+      currentComponent.value = props.appData.compose[component];
     };
 
     return {
@@ -976,8 +1067,6 @@ export default {
       constructAutomaticDomains,
       checkFluxSpecificationsAndFormatMessage,
 
-      // useEmail
-      // resolveLabelColor,
       timeoptions,
 
       cpuRadialBar,
@@ -1004,6 +1093,10 @@ export default {
       initiateSignWS,
 
       launchModalShowing,
+      componentParamsModalShowing,
+
+      currentComponent,
+      componentSelected,
 
       tierColors,
     };
