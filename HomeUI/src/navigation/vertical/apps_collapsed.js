@@ -23,7 +23,6 @@ export default [
         title: 'Marketplace',
         icon: 'shopping-basket',
         route: 'apps-marketplace',
-        // privilege: ['admin'],
       },
       {
         title: 'My FluxShare',

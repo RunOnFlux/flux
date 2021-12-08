@@ -59,7 +59,6 @@ export default [
     meta: {
       contentRenderer: 'sidebar-left',
       contentClass: 'marketplace-application',
-      // privilege: ['admin'],
     },
   },
   {
@@ -70,26 +69,10 @@ export default [
       contentRenderer: 'sidebar-left',
       contentClass: 'marketplace-application',
       navActiveLink: 'apps-marketplace',
-      // privilege: ['admin'],
     },
     beforeEnter(to, _, next) {
       const filterCategories = categories.map((category) => category.name.toLowerCase());
       if (filterCategories.includes(to.params.filter)) next();
-      else next({ name: 'error-404' });
-    },
-  },
-  {
-    path: '/apps/marketplace/:tag',
-    name: 'apps-marketplace-tag',
-    component: () => import('@/views/apps/marketplace/Marketplace.vue'),
-    meta: {
-      contentRenderer: 'sidebar-left',
-      contentClass: 'marketplace-application',
-      navActiveLink: 'apps-marketplace',
-      // privilege: ['admin'],
-    },
-    beforeEnter(to, _, next) {
-      if (['games', 'productivity'].includes(to.params.tag)) next();
       else next({ name: 'error-404' });
     },
   },
