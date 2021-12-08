@@ -104,7 +104,6 @@
                       {{ singleApp.extraDetail.name }}
                     </b-badge>
                   </div>
-                  <!-- <small class="text-nowrap text-muted mr-1">{{ formatDate(task.dueDate, { month: 'short', day: 'numeric'}) }}</small> -->
                   <div>
                     <b-avatar
                       v-if="singleApp.extraDetail"
@@ -197,7 +196,6 @@ import { useToast } from 'vue-toastification/composition';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 import VuePerfectScrollbar from 'vue-perfect-scrollbar';
 import DaemonService from '@/services/DaemonService';
-import AppsService from '@/services/AppsService';
 
 import AppView from './AppView.vue';
 import CategorySidebar from './CategorySidebar.vue';
@@ -250,18 +248,10 @@ export default {
     const resolveHdd = (app) => app.compose.reduce((total, component) => total + component.hdd, 0);
 
     const { showDetailSidebar } = useResponsiveAppLeftSidebarVisibility();
-    // eslint-disable-next-line no-unused-vars
     const { route, router } = useRouter();
-    // eslint-disable-next-line no-unused-vars
     const routeSortBy = computed(() => route.value.query.sort);
-    // eslint-disable-next-line no-unused-vars
     const routeQuery = computed(() => route.value.query.q);
-    // eslint-disable-next-line no-unused-vars
     const routeParams = computed(() => route.value.params);
-    watch(routeParams, () => {
-      // eslint-disable-next-line no-use-before-define
-      fetchApps();
-    });
 
     const filteredApps = ref([]);
 
@@ -331,8 +321,7 @@ export default {
     watch(routeQuery, (val) => {
       searchQuery.value = val;
     });
-    // eslint-disable-next-line no-use-before-define
-    watch([searchQuery, sortBy], () => fetchApps());
+
     const updateRouteQuery = (val) => {
       const currentRouteQuery = JSON.parse(JSON.stringify(route.value.query));
 
@@ -343,37 +332,23 @@ export default {
     };
 
     const getCategory = (categoryToFind) => {
-      const foundCategory = categories.find((category) => {
-        console.log(category);
-        return category.name === categoryToFind;
-      });
+      const foundCategory = categories.find((category) => category.name === categoryToFind);
       if (!foundCategory) return defaultCategory;
       return foundCategory;
     };
 
     const fetchApps = async () => {
-      const response = await axios.get('http://192.168.1.69:8123/marketplace/listapps');
-      const allAppsResponse = await AppsService.globalAppSpecifications();
-      console.log(`ZelID: ${zelid.value}`);
+      const response = await axios.get('https://stats.runonflux.io/marketplace/listapps');
       console.log(response);
-      console.log(allAppsResponse);
-      // console.log(response)
       if (response.data.status === 'success') {
         filteredApps.value = response.data.data.filter((val) => val.visible);
         filteredApps.value.forEach((appData) => {
           // eslint-disable-next-line no-param-reassign
           appData.extraDetail = getCategory(appData.category);
-          console.log(appData.extraDetail);
         });
-        console.log(filteredApps.value);
         if (router.currentRoute.params.filter) {
           // Filter
-          if (router.currentRoute.params.filter === 'games') {
-            filteredApps.value = filteredApps.value.filter((appData) => appData.extraDetail.category === 'Games');
-          }
-          if (router.currentRoute.params.filter === 'productivity') {
-            filteredApps.value = filteredApps.value.filter((appData) => appData.extraDetail.category === 'Productivity');
-          }
+          filteredApps.value = filteredApps.value.filter((appData) => appData.extraDetail.name.toLowerCase() === router.currentRoute.params.filter.toLowerCase());
         }
         if (searchQuery.value) {
           filteredApps.value = filteredApps.value.filter((appData) => {
@@ -410,12 +385,15 @@ export default {
       }
     };
 
+    watch([searchQuery, sortBy], () => fetchApps());
+    watch(routeParams, () => {
+      fetchApps();
+    });
+
     const getZelNodeStatus = async () => {
       const response = await DaemonService.getZelNodeStatus();
-      console.log(response);
       if (response.data.status === 'success') {
         tier.value = response.data.data.tier;
-        console.log(`Tier: ${tier.value}`);
       }
       fetchApps();
     };
@@ -433,8 +411,6 @@ export default {
     };
 
     return {
-      // route,
-      // router,
       zelid,
       tier,
       appListRef,
