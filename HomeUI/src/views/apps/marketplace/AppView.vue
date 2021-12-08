@@ -58,13 +58,13 @@
                     :data="component.repotag"
                   />
                   <b-card
-                    v-if="component.userParameters"
+                    v-if="component.userEnvironmentParameters"
                     title="Parameters"
                     border-variant="primary"
                   >
-                    <b-tabs v-if="component.userParameters">
+                    <b-tabs v-if="component.userEnvironmentParameters">
                       <b-tab
-                        v-for="(parameter, paramIndex) in component.userParameters"
+                        v-for="(parameter, paramIndex) in component.userEnvironmentParameters"
                         :key="paramIndex"
                         :title="parameter.name"
                       >
@@ -239,6 +239,7 @@
         layout="vertical"
         back-button-text="Previous"
         class="wizard-vertical mb-3"
+        @on-complete="launchModalShowing = false"
       >
         <tab-content title="Check Registration">
           <b-card
@@ -550,7 +551,8 @@ export default {
       let backendURL = store.get('backendURL') || mybackend;
       backendURL = backendURL.replace('https://', 'wss://');
       backendURL = backendURL.replace('http://', 'ws://');
-      const signatureMessage = props.appData.owner + timestamp.value;
+      const signatureMessage = userZelid.value + timestamp.value;
+      console.log(`signatureMessage: ${signatureMessage}`);
       const wsuri = `${backendURL}/ws/sign/${signatureMessage}`;
       const ws = new WebSocket(wsuri);
       websocket.value = ws;
@@ -631,11 +633,6 @@ export default {
       hdd.value = {
         series: [((resolveHdd(props.appData) / 570) * 100)],
       };
-      // String model for the editable environment parameters
-      props.appData.compose.forEach((component) => {
-        // eslint-disable-next-line no-param-reassign
-        component.environmentParametersModel = component.environmentParameters.join(', ');
-      });
 
       // Create a random port from the app's port specs that is not present on any other app
       props.appData.compose.forEach((component) => {
@@ -658,49 +655,17 @@ export default {
 
       // Evaluate any user parameters from the database
       props.appData.compose.forEach((component) => {
-        try {
-          const paramModel = component.userEnvironmentParameters;
-          // eslint-disable-next-line no-param-reassign
-          component.userParameters = paramModel;
-
-          // check if any of these parameters are special 'port' parameters
-          component.userParameters.forEach((parameter) => {
-            if (Object.prototype.hasOwnProperty.call(parameter, 'port')) {
-              // eslint-disable-next-line no-param-reassign
-              parameter.value = component.ports[parameter.port];
-            }
-          });
-        } catch (error) {
-          console.log(error);
-        }
+        const paramModel = component.userEnvironmentParameters;
+        // check if any of these parameters are special 'port' parameters
+        paramModel.forEach((parameter) => {
+          if (Object.prototype.hasOwnProperty.call(parameter, 'port')) {
+            // eslint-disable-next-line no-param-reassign
+            parameter.value = component.ports[parameter.port];
+          }
+        });
       });
 
       currentComponent.value = props.appData.compose[0];
-
-      // Work out the current number of these apps on the network
-      // so we can generate a unique name for the app
-      console.log(globalApps.value);
-      const appNames = globalApps.value.map((app) => app.name);
-      // ok, for testing there are no matching marketplace apps
-      const now = Date.now();
-      appNames.push(`${props.appData.name}${now - 100000}`);
-      appNames.push(`${props.appData.name}${now - 50000}`);
-      appNames.push(`${props.appData.name}${now - 25000}`);
-      appNames.push(`${props.appData.name}${now - 10000}`);
-      appNames.push(`${props.appData.name}${now - 5000}`);
-      console.log(appNames);
-      const marketplaceApps = appNames.filter((name) => {
-        if (name.length < 14) return false;
-        const possibleDateString = name.substring(name.length - 13, name.length);
-        const possibleDate = Number(possibleDateString);
-        if (Number.isNaN(possibleDate)) return false;
-        return true;
-      });
-      console.log(marketplaceApps);
-      // const bitBeforenumberLength = `${props.appData.name}${separator}`.length + 2;
-      // const marketplaceAppsMaxNumber = marketplaceApps.map((name) => Number(name.substring(bitBeforenumberLength, name.length))).reduce((acc, value) => Math.max(acc, value));
-      // latestAppCount = marketplaceAppsMaxNumber;
-      // console.log(marketplaceAppsMaxNumber);
     });
 
     const constructUniqueAppName = (appName) => `${appName}${Date.now()}`;
@@ -768,8 +733,8 @@ export default {
         };
         // formation, pre verificaiton
         props.appData.compose.forEach((component) => {
-          const envParams = component.environmentParameters;
-          component.userParameters.forEach((param) => {
+          const envParams = JSON.parse(JSON.stringify(component.environmentParameters));
+          component.userEnvironmentParameters.forEach((param) => {
             envParams.push(`${param.name}=${param.value}`);
           });
           const appComponent = {
@@ -799,7 +764,6 @@ export default {
           appSpecification.compose.push(appComponent);
         });
 
-        console.log(appSpecification);
         // call api for verification of app registration specifications that returns formatted specs
         const responseAppSpecs = await AppsService.appRegistrationVerificaiton(appSpecification);
         console.log(responseAppSpecs);
@@ -814,10 +778,16 @@ export default {
         if (response.data.data > props.appData.price) {
           throw new Error('Marketplace App Price is too low');
         }
+        if (websocket.value !== null) {
+          websocket.value.close();
+          websocket.value = null;
+        }
         timestamp.value = new Date().getTime();
         dataForAppRegistration.value = appSpecFormatted;
         appPricePerMonth.value = props.appData.price;
         dataToSign.value = `${registrationtype.value}${version.value}${JSON.stringify(appSpecFormatted)}${new Date().getTime()}`;
+        registrationHash.value = null;
+        signature.value = null;
         launchModalShowing.value = true;
       } catch (error) {
         console.log(error);
