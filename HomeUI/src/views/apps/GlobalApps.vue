@@ -547,6 +547,9 @@
                       </b-table>
                     </b-card>
                   </template>
+                  <template #cell(name)="row">
+                    {{ getDisplayName(row.item.name) }}
+                  </template>
                   <template #cell(visit)="row">
                     <b-button
                       size="sm"
@@ -667,14 +670,15 @@ export default {
           ],
         },
       },
+      allApps: [],
     };
   },
   computed: {
     myGlobalApps() {
       const zelidauth = localStorage.getItem('zelidauth');
       const auth = qs.parse(zelidauth);
-      if (this.tableconfig.active.apps) {
-        return this.tableconfig.active.apps.filter((app) => app.owner === auth.zelid);
+      if (this.allApps) {
+        return this.allApps.filter((app) => app.owner === auth.zelid);
       }
       return [];
     },
@@ -693,7 +697,17 @@ export default {
       this.tableconfig.active.loading = true;
       const response = await AppsService.globalAppSpecifications();
       console.log(response);
-      this.tableconfig.active.apps = response.data.data;
+      this.allApps = response.data.data;
+      // remove marketplace apps from the list and extract
+      // marketplace apps to parse the title
+      this.tableconfig.active.apps = this.allApps.filter((app) => {
+        if (app.name.length >= 14) {
+          const possibleDateString = app.name.substring(app.name.length - 13, app.name.length);
+          const possibleDate = Number(possibleDateString);
+          if (!Number.isNaN(possibleDate)) return false;
+        }
+        return true;
+      });
       this.tableconfig.active.loading = false;
     },
     openApp(name, _ip, _port) {
@@ -793,6 +807,11 @@ export default {
         domains.push(portDomain);
       }
       return domains;
+    },
+    getDisplayName(name) {
+      const possibleDateString = name.substring(name.length - 13, name.length);
+      const possibleDate = Number(possibleDateString);
+      return `${name.substring(0, name.length - 13)} - ${new Date(possibleDate).toLocaleString()}`;
     },
   },
 };
