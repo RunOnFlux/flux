@@ -1,6 +1,6 @@
 <template>
   <div class="app-details">
-    <!-- Email Header -->
+    <!-- App Header -->
     <div class="app-detail-header">
       <!-- Header: Left -->
       <div class="app-header-left d-flex align-items-center">
@@ -18,16 +18,17 @@
       </div>
     </div>
 
-    <!-- Email Details -->
+    <!-- App Details -->
     <vue-perfect-scrollbar
       :settings="perfectScrollbarSettings"
-      class="proposal-scroll-area scroll-area"
+      class="app-scroll-area scroll-area"
     >
       <b-row class="match-height">
         <b-col
           xxl="9"
           xl="8"
-          lg="6"
+          lg="8"
+          md="12"
         >
           <b-card title="Details">
             <b-form-textarea
@@ -106,7 +107,8 @@
         <b-col
           xxl="3"
           xl="4"
-          lg="6"
+          lg="4"
+          class="d-lg-flex d-none"
         >
           <b-card no-body>
             <b-card-header class="app-requirements-header">
@@ -151,6 +153,122 @@
             />
           </b-card>
         </b-col>
+        <b-row
+          class="d-lg-none d-sm-none d-md-flex d-none"
+        >
+          <b-col
+            md="4"
+          >
+            <b-card no-body>
+              <b-card-header class="app-requirements-header">
+                <h5 class="mb-0">
+                  CPU
+                </h5>
+              </b-card-header>
+              <vue-apex-charts
+                class="mt-1"
+                type="radialBar"
+                height="200"
+                :options="cpuRadialBar"
+                :series="cpu.series"
+              />
+            </b-card>
+          </b-col>
+          <b-col
+            md="4"
+          >
+            <b-card no-body>
+              <b-card-header class="app-requirements-header">
+                <h5 class="mb-0">
+                  RAM
+                </h5>
+              </b-card-header>
+              <vue-apex-charts
+                class="mt-1"
+                type="radialBar"
+                height="200"
+                :options="ramRadialBar"
+                :series="ram.series"
+              />
+            </b-card>
+          </b-col>
+          <b-col
+            md="4"
+          >
+            <b-card no-body>
+              <b-card-header class="app-requirements-header">
+                <h5 class="mb-0">
+                  HDD
+                </h5>
+              </b-card-header>
+              <vue-apex-charts
+                class="mt-1"
+                type="radialBar"
+                height="200"
+                :options="hddRadialBar"
+                :series="hdd.series"
+              />
+            </b-card>
+          </b-col>
+        </b-row>
+        <b-row
+          class="d-md-none"
+        >
+          <b-col
+            cols="4"
+          >
+            <b-card no-body>
+              <b-card-header class="app-requirements-header">
+                <h6 class="mb-0">
+                  CPU
+                </h6>
+              </b-card-header>
+              <vue-apex-charts
+                class="mt-3"
+                type="radialBar"
+                height="130"
+                :options="cpuRadialBarSmall"
+                :series="cpu.series"
+              />
+            </b-card>
+          </b-col>
+          <b-col
+            cols="4"
+          >
+            <b-card no-body>
+              <b-card-header class="app-requirements-header">
+                <h6 class="mb-0">
+                  RAM
+                </h6>
+              </b-card-header>
+              <vue-apex-charts
+                class="mt-3"
+                type="radialBar"
+                height="130"
+                :options="ramRadialBarSmall"
+                :series="ram.series"
+              />
+            </b-card>
+          </b-col>
+          <b-col
+            cols="4"
+          >
+            <b-card no-body>
+              <b-card-header class="app-requirements-header">
+                <h6 class="mb-0">
+                  HDD
+                </h6>
+              </b-card-header>
+              <vue-apex-charts
+                class="mt-3"
+                type="radialBar"
+                height="130"
+                :options="hddRadialBarSmall"
+                :series="hdd.series"
+              />
+            </b-card>
+          </b-col>
+        </b-row>
       </b-row>
       <div
         v-if="!appData.enabled"
@@ -795,21 +913,38 @@ export default {
       }
     };
 
-    const cpuRadialBar = {
-      chart: {
-        height: 200,
-        type: 'radialBar',
-        sparkline: {
-          enabled: true,
-        },
-        dropShadow: {
-          enabled: true,
-          blur: 3,
-          left: 1,
-          top: 1,
-          opacity: 0.1,
-        },
+    const smallchart = {
+      height: 100,
+      type: 'radialBar',
+      sparkline: {
+        enabled: true,
       },
+      dropShadow: {
+        enabled: true,
+        blur: 3,
+        left: 1,
+        top: 1,
+        opacity: 0.1,
+      },
+    };
+
+    const largechart = {
+      height: 200,
+      type: 'radialBar',
+      sparkline: {
+        enabled: true,
+      },
+      dropShadow: {
+        enabled: true,
+        blur: 3,
+        left: 1,
+        top: 1,
+        opacity: 0.1,
+      },
+    };
+
+    const cpuRadialBar = {
+      chart: largechart,
       colors: [$themeColors.primary],
       labels: ['Cores'],
       plotOptions: {
@@ -863,21 +998,63 @@ export default {
       },
     };
 
-    const ramRadialBar = {
-      chart: {
-        height: 200,
-        type: 'radialBar',
-        sparkline: {
-          enabled: true,
-        },
-        dropShadow: {
-          enabled: true,
-          blur: 3,
-          left: 1,
-          top: 1,
-          opacity: 0.1,
+    const cpuRadialBarSmall = {
+      chart: smallchart,
+      colors: [$themeColors.primary],
+      labels: ['Cores'],
+      plotOptions: {
+        radialBar: {
+          offsetY: -10,
+          startAngle: -150,
+          endAngle: 150,
+          hollow: {
+            size: '70%',
+          },
+          track: {
+            background: $themeColors.dark,
+            strokeWidth: '50%',
+          },
+          dataLabels: {
+            name: {
+              offsetY: -15,
+              color: $themeColors.light,
+              fontSize: '1.2rem',
+            },
+            value: {
+              formatter: (val) => ((parseFloat(val) * 7) / 100).toFixed(1),
+              offsetY: 10,
+              color: $themeColors.light,
+              fontSize: '2rem',
+              fontWeight: '400',
+            },
+          },
         },
       },
+      fill: {
+        type: 'gradient',
+        gradient: {
+          shade: 'dark',
+          type: 'horizontal',
+          shadeIntensity: 0.5,
+          gradientToColors: [$themeColors.success],
+          inverseColors: true,
+          opacityFrom: 1,
+          opacityTo: 1,
+          stops: [0, 100],
+        },
+      },
+      stroke: {
+        lineCap: 'round',
+      },
+      grid: {
+        padding: {
+          bottom: 10,
+        },
+      },
+    };
+
+    const ramRadialBar = {
+      chart: largechart,
       colors: [$themeColors.primary],
       labels: ['MB'],
       plotOptions: {
@@ -931,21 +1108,63 @@ export default {
       },
     };
 
-    const hddRadialBar = {
-      chart: {
-        height: 200,
-        type: 'radialBar',
-        sparkline: {
-          enabled: true,
-        },
-        dropShadow: {
-          enabled: true,
-          blur: 3,
-          left: 1,
-          top: 1,
-          opacity: 0.1,
+    const ramRadialBarSmall = {
+      chart: smallchart,
+      colors: [$themeColors.primary],
+      labels: ['MB'],
+      plotOptions: {
+        radialBar: {
+          offsetY: -10,
+          startAngle: -150,
+          endAngle: 150,
+          hollow: {
+            size: '70%',
+          },
+          track: {
+            background: $themeColors.dark,
+            strokeWidth: '50%',
+          },
+          dataLabels: {
+            name: {
+              offsetY: -15,
+              color: $themeColors.light,
+              fontSize: '1.2rem',
+            },
+            value: {
+              formatter: (val) => ((parseFloat(val) * 28000) / 100).toFixed(0),
+              offsetY: 10,
+              color: $themeColors.light,
+              fontSize: '2rem',
+              fontWeight: '400',
+            },
+          },
         },
       },
+      fill: {
+        type: 'gradient',
+        gradient: {
+          shade: 'dark',
+          type: 'horizontal',
+          shadeIntensity: 0.5,
+          gradientToColors: [$themeColors.success],
+          inverseColors: true,
+          opacityFrom: 1,
+          opacityTo: 1,
+          stops: [0, 100],
+        },
+      },
+      stroke: {
+        lineCap: 'round',
+      },
+      grid: {
+        padding: {
+          bottom: 10,
+        },
+      },
+    };
+
+    const hddRadialBar = {
+      chart: largechart,
       colors: [$themeColors.primary],
       labels: ['GB'],
       plotOptions: {
@@ -999,6 +1218,61 @@ export default {
       },
     };
 
+    const hddRadialBarSmall = {
+      chart: smallchart,
+      colors: [$themeColors.primary],
+      labels: ['GB'],
+      plotOptions: {
+        radialBar: {
+          offsetY: -10,
+          startAngle: -150,
+          endAngle: 150,
+          hollow: {
+            size: '70%',
+          },
+          track: {
+            background: $themeColors.dark,
+            strokeWidth: '50%',
+          },
+          dataLabels: {
+            name: {
+              offsetY: -15,
+              color: $themeColors.light,
+              fontSize: '1.2rem',
+            },
+            value: {
+              formatter: (val) => ((parseFloat(val) * 570) / 100).toFixed(0),
+              offsetY: 10,
+              color: $themeColors.light,
+              fontSize: '2rem',
+              fontWeight: '400',
+            },
+          },
+        },
+      },
+      fill: {
+        type: 'gradient',
+        gradient: {
+          shade: 'dark',
+          type: 'horizontal',
+          shadeIntensity: 0.5,
+          gradientToColors: [$themeColors.success],
+          inverseColors: true,
+          opacityFrom: 1,
+          opacityTo: 1,
+          stops: [0, 100],
+        },
+      },
+      stroke: {
+        lineCap: 'round',
+      },
+      grid: {
+        padding: {
+          bottom: 10,
+        },
+      },
+    };
+
     const register = async () => {
       const zelidauth = localStorage.getItem('zelidauth');
       const data = {
@@ -1040,12 +1314,15 @@ export default {
       timeoptions,
 
       cpuRadialBar,
+      cpuRadialBarSmall,
       cpu,
 
       ramRadialBar,
+      ramRadialBarSmall,
       ram,
 
       hddRadialBar,
+      hddRadialBarSmall,
       hdd,
 
       userZelid,
