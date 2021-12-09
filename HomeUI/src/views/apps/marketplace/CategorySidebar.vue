@@ -58,8 +58,6 @@ export default {
 
     const taskFilters = [
       { title: 'All Categories', icon: 'inbox', route: { name: 'apps-marketplace' } },
-      // { title: 'Games', icon: 'StarIcon', route: { name: 'apps-marketplace-filter', params: { filter: 'games' } } },
-      // { title: 'Productivity', icon: 'CheckIcon', route: { name: 'apps-marketplace-filter', params: { filter: 'productivity' } } },
     ];
 
     categories.forEach((category) => {
