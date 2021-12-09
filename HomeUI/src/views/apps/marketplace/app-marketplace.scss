@@ -1,7 +1,7 @@
 @import '@core/scss/base/bootstrap-extended/include'; // Bootstrap includes
 @import '@core/scss/base/components/include'; // Components includes
 
-$email_details_header_height: 5rem;
+$app_details_header_height: 5rem;
 
 // Todo Application css starts
 .marketplace-application {
@@ -211,7 +211,7 @@ $email_details_header_height: 5rem;
       position: relative;
       padding: 0.5rem 2rem;
       // background-color: $white;
-      height: $email_details_header_height;
+      height: $app_details_header_height;
     }
     .app-header-left {
       .app-name {
@@ -222,10 +222,10 @@ $email_details_header_height: 5rem;
       }
     }
     // Email detail scroll area
-    .proposal-scroll-area {
+    .app-scroll-area {
       padding: 0 2rem;
       position: relative;
-      height: calc(100% - #{$email_details_header_height});
+      height: calc(100% - #{$app_details_header_height});
 
       .badge {
         font-size: 1.6rem;
@@ -304,7 +304,7 @@ $email_details_header_height: 5rem;
   .marketplace-application {
     .content-area-wrapper {
       .sidebar-left {
-        .xdao-sidebar {
+        .marketplace-sidebar {
           transform: translateX(-110%);
           transition: all 0.3s ease-in-out;
           left: 0;
@@ -314,7 +314,7 @@ $email_details_header_height: 5rem;
           border-bottom-left-radius: $border-radius-sm;
         }
         &.show {
-          .xdao-sidebar {
+          .marketplace-sidebar {
             transform: translateX(0%);
             transition: all 0.3s ease;
           }
@@ -327,7 +327,7 @@ $email_details_header_height: 5rem;
           border-top-left-radius: $border-radius;
         }
       }
-      .proposal-details {
+      .app-details {
         width: 100%;
       }
           // ? Responsive Todo list in columns
@@ -358,10 +358,10 @@ $email_details_header_height: 5rem;
   }
 }
 @media (max-width: 349.98px) {
-  .marketplace-application .content-area-wrapper .sidebar .xdao-sidebar {
+  .marketplace-application .content-area-wrapper .sidebar .marketplace-sidebar {
     width: 230px;
   }
 }
-.horizontal-menu .marketplace-application .content-area-wrapper .content-right .xdao-task-list-wrapper {
+.horizontal-menu .marketplace-application .content-area-wrapper .content-right {
   height: calc(100% - 3.6rem); // ? search box height (48.79px + 1px border = 3.56), horizontal needs 1 decimal point
 }
