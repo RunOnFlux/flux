@@ -980,7 +980,7 @@ async function fluxDiscovery() {
         const clientIncomingExists = incomingConnections.find((client) => client._socket.remoteAddress === ip);
         if (!sameConnectedIp && !clientExists && !clientIncomingExists) {
           log.info(`Adding Flux peer: ${ip}`);
-          sameConnectedIp.push(ip);
+          currentIpsConnTried.push(ip);
           initiateAndHandleConnection(ip);
           // eslint-disable-next-line no-await-in-loop
           await serviceHelper.delay(500);
