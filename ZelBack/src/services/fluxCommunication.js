@@ -961,8 +961,8 @@ async function fluxDiscovery() {
     const maxPeers = 20;
     numberOfFluxNodes = nodeList.length;
     const currentIpsConnTried = [];
-    const requiredNumberOfConnections = numberOfFluxNodes / 75; // 1.5%
-    const maxNumberOfConnections = numberOfFluxNodes / 45; // 2%
+    const requiredNumberOfConnections = numberOfFluxNodes / 50; // 2%
+    const maxNumberOfConnections = numberOfFluxNodes / 45;
     const minCon = Math.max(minPeers, requiredNumberOfConnections); // awlays maintain at least 10 or 1% of nodes whatever is higher
     const maxCon = Math.max(maxPeers, maxNumberOfConnections); // have a maximum of 20 or 2% of nodes whatever is higher
     log.info(`Current number of outgoing connections:${outgoingConnections.length}`);
