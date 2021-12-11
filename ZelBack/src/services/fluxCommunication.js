@@ -39,6 +39,8 @@ const LRUoptions = {
   maxAge: 1000 * 150, // 150 seconds slightly over average blocktime. Allowing 1 block expired too.
 };
 
+let numberOfFluxNodes = 0;
+
 const myCache = new LRU(LRUoptions);
 const myMessageCache = new LRU(250);
 const blockedPubKeysCache = new LRU(LRUoptions);
@@ -278,7 +280,7 @@ async function sendToAllPeers(data, wsList) {
     for (const client of outConList) {
       try {
         // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay(100);
+        await serviceHelper.delay(50);
         if (client.readyState === WebSocket.OPEN) {
           if (!data) {
             const pingTime = new Date().getTime();
@@ -334,7 +336,7 @@ async function sendToAllIncomingConnections(data, wsList) {
     for (const client of incConList) {
       try {
         // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay(100);
+        await serviceHelper.delay(50);
         if (client.readyState === WebSocket.OPEN) {
           if (!data) {
             client.ping('flux'); // do ping with flux strc instead
@@ -536,6 +538,12 @@ function checkRateLimit(ip, perSecond = 10, maxBurst = 15) {
 // eslint-disable-next-line no-unused-vars
 function handleIncomingConnection(ws, req, expressWS) {
   // now we are in connections state. push the websocket to our incomingconnections
+  const maxPeers = 20;
+  const maxNumberOfConnections = numberOfFluxNodes / 40;
+  const maxCon = Math.max(maxPeers, maxNumberOfConnections);
+  if(incomingConnections.length > maxCon){
+    ws.close(1000, 'Max number of incomming connections reached');
+  }
   incomingConnections.push(ws);
   const peer = {
     ip: ws._socket.remoteAddress,
@@ -950,9 +958,9 @@ async function fluxDiscovery() {
     }
     const minPeers = 12;
     const maxPeers = 20;
-    const numberOfFluxNodes = nodeList.length;
+    numberOfFluxNodes = nodeList.length;
     const currentIpsConnTried = [];
-    const requiredNumberOfConnections = numberOfFluxNodes / 100; // 1%
+    const requiredNumberOfConnections = numberOfFluxNodes / 75; // 1.5%
     const maxNumberOfConnections = numberOfFluxNodes / 50; // 2%
     const minCon = Math.max(minPeers, requiredNumberOfConnections); // awlays maintain at least 10 or 1% of nodes whatever is higher
     const maxCon = Math.max(maxPeers, maxNumberOfConnections); // have a maximum of 20 or 2% of nodes whatever is higher
@@ -971,13 +979,14 @@ async function fluxDiscovery() {
         const clientIncomingExists = incomingConnections.find((client) => client._socket.remoteAddress === ip);
         if (!sameConnectedIp && !clientExists && !clientIncomingExists) {
           log.info(`Adding Flux peer: ${ip}`);
+          sameConnectedIp.push(ip);
           initiateAndHandleConnection(ip);
           // eslint-disable-next-line no-await-in-loop
-          await serviceHelper.delay(1000);
+          await serviceHelper.delay(500);
         }
       }
       // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay(1000);
+      await serviceHelper.delay(500);
     }
     if (outgoingConnections.length < maxCon) {
       const ip = await getRandomConnection();
@@ -1508,7 +1517,7 @@ async function broadcastTemporaryAppMessage(message) {
   }
   // to all outoing
   await broadcastMessageToOutgoing(message);
-  await serviceHelper.delay(2345);
+  await serviceHelper.delay(500);
   // to all incoming. Delay broadcast in case message is processing
   await broadcastMessageToIncoming(message);
   return 0;
@@ -1530,7 +1539,7 @@ async function broadcastAppRunningMessage(message) {
   }
   // to all outoing
   await broadcastMessageToOutgoing(message);
-  await serviceHelper.delay(2345);
+  await serviceHelper.delay(500);
   // to all incoming. Delay broadcast in case message is processing
   await broadcastMessageToIncoming(message);
   return 0;

@@ -4333,7 +4333,7 @@ async function requestAppMessage(hash) {
     hash,
   };
   await fluxCommunication.broadcastMessageToOutgoing(message);
-  await serviceHelper.delay(2345);
+  await serviceHelper.delay(500);
   await fluxCommunication.broadcastMessageToIncoming(message);
 }
 
@@ -5442,11 +5442,9 @@ async function checkAndNotifyPeersOfRunningApps() {
         // eslint-disable-next-line no-await-in-loop
         await storeAppRunningMessage(newAppRunningMessage);
         // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay(2345);
-        // eslint-disable-next-line no-await-in-loop
         await fluxCommunication.broadcastMessageToOutgoing(newAppRunningMessage);
         // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay(2345);
+        await serviceHelper.delay(500);
         // eslint-disable-next-line no-await-in-loop
         await fluxCommunication.broadcastMessageToIncoming(newAppRunningMessage);
         // broadcast messages about running apps to all peers
