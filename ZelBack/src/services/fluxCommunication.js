@@ -543,6 +543,7 @@ function handleIncomingConnection(ws, req, expressWS) {
   const maxCon = Math.max(maxPeers, maxNumberOfConnections);
   if(incomingConnections.length > maxCon){
     ws.close(1000, 'Max number of incomming connections reached');
+    return;
   }
   incomingConnections.push(ws);
   const peer = {
