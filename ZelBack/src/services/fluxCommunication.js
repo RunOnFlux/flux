@@ -542,7 +542,9 @@ function handleIncomingConnection(ws, req, expressWS) {
   const maxNumberOfConnections = numberOfFluxNodes / 40;
   const maxCon = Math.max(maxPeers, maxNumberOfConnections);
   if(incomingConnections.length > maxCon){
-    ws.close(1000, 'Max number of incomming connections reached');
+    setTimeout(() => {
+      ws.close(1000, 'Max number of incomming connections reached');
+    }, 1000);
     return;
   }
   incomingConnections.push(ws);
@@ -957,6 +959,7 @@ async function fluxDiscovery() {
         throw new Error('Flux IP not detected. Flux discovery is awaiting.');
       }
     }
+    nodeList = await deterministicFluxList();
     const minPeers = 12;
     const maxPeers = 20;
     numberOfFluxNodes = nodeList.length;
