@@ -30,8 +30,6 @@ let storedFluxBenchAllowed = null;
 // my external Flux IP from benchmark
 let myFluxIP = null;
 
-let myNodePubKey = null;
-
 let response = serviceHelper.createErrorMessage();
 // default cache
 const LRUoptions = {
@@ -541,7 +539,7 @@ function handleIncomingConnection(ws, req, expressWS) {
   const maxPeers = 20;
   const maxNumberOfConnections = numberOfFluxNodes / 40;
   const maxCon = Math.max(maxPeers, maxNumberOfConnections);
-  if(incomingConnections.length > maxCon){
+  if (incomingConnections.length > maxCon) {
     setTimeout(() => {
       ws.close(1000, 'Max number of incomming connections reached');
     }, 1000);
@@ -939,27 +937,16 @@ async function fluxDiscovery() {
 
     let nodeList = [];
 
-    if (myNodePubKey) {
-      nodeList = await deterministicFluxList(myNodePubKey);
-      if (nodeList.length === 0) {
-        myNodePubKey = null;
-        throw new Error('Node no longer confirmed. Flux discovery is awaiting.');
+    const myIP = await getMyFluxIP();
+    if (myIP) {
+      nodeList = await deterministicFluxList();
+      const fluxNode = nodeList.find((node) => node.ip === myIP);
+      if (!fluxNode) {
+        throw new Error('Node not confirmed. Flux discovery is awaiting.');
       }
     } else {
-      const myIP = await getMyFluxIP();
-      if (myIP) {
-        nodeList = await deterministicFluxList();
-        const fluxNode = nodeList.find((node) => node.ip === myIP);
-        if (fluxNode) {
-          myNodePubKey = fluxNode.pubkey;
-        } else {
-          throw new Error('Node not confirmed. Flux discovery is awaiting.');
-        }
-      } else {
-        throw new Error('Flux IP not detected. Flux discovery is awaiting.');
-      }
+      throw new Error('Flux IP not detected. Flux discovery is awaiting.');
     }
-    nodeList = await deterministicFluxList();
     const minPeers = 12;
     const maxPeers = 20;
     numberOfFluxNodes = nodeList.length;
@@ -1001,7 +988,10 @@ async function fluxDiscovery() {
         const clientIncomingExists = incomingConnections.find((client) => client._socket.remoteAddress === ip);
         if (!sameConnectedIp && !clientExists && !clientIncomingExists) {
           log.info(`Adding Flux peer: ${ip}`);
+          currentIpsConnTried.push(ip);
           initiateAndHandleConnection(ip);
+          // eslint-disable-next-line no-await-in-loop
+          await serviceHelper.delay(500);
         }
       }
     }
