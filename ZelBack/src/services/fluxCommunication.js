@@ -411,7 +411,7 @@ async function handleAppMessages(message, fromIP) {
       const wsListOut = outgoingConnections.filter((client) => client._socket.remoteAddress !== fromIP);
       sendToAllPeers(messageString, wsListOut);
       await serviceHelper.delay(2345);
-      const wsList = incomingConnections.filter((client) => client._socket.remoteAddress !== fromIP);
+      const wsList = incomingConnections.filter((client) => client._socket.remoteAddress.replace('::ffff:', '') !== fromIP);
       sendToAllIncomingConnections(messageString, wsList);
     }
   } catch (error) {
@@ -432,7 +432,7 @@ async function handleAppRunningMessage(message, fromIP) {
       const wsListOut = outgoingConnections.filter((client) => client._socket.remoteAddress !== fromIP);
       sendToAllPeers(messageString, wsListOut);
       await serviceHelper.delay(2345);
-      const wsList = incomingConnections.filter((client) => client._socket.remoteAddress !== fromIP);
+      const wsList = incomingConnections.filter((client) => client._socket.remoteAddress.replace('::ffff:', '') !== fromIP);
       sendToAllIncomingConnections(messageString, wsList);
     }
   } catch (error) {
@@ -577,11 +577,11 @@ function handleIncomingConnection(ws, req, expressWS) {
         try {
           const msgObj = serviceHelper.ensureObject(msg);
           if (msgObj.data.type === 'zelappregister' || msgObj.data.type === 'zelappupdate' || msgObj.data.type === 'fluxappregister' || msgObj.data.type === 'fluxappupdate') {
-            handleAppMessages(msgObj, peer.ip);
+            handleAppMessages(msgObj, peer.ip.replace('::ffff:', ''));
           } else if (msgObj.data.type === 'zelapprequest' || msgObj.data.type === 'fluxapprequest') {
             respondWithAppMessage(msgObj, ws);
           } else if (msgObj.data.type === 'zelapprunning' || msgObj.data.type === 'fluxapprunning') {
-            handleAppRunningMessage(msgObj, ws);
+            handleAppRunningMessage(msgObj, peer.ip.replace('::ffff:', ''));
           } else {
             log.warn(`Unrecognised message type of ${msgObj.data.type}`);
           }
@@ -599,7 +599,7 @@ function handleIncomingConnection(ws, req, expressWS) {
           if (zl[0].pubkey === pubKey) { // else continue with blocking this public key
             const { ip } = zl[0];
             // if IP does not match IP of user that send us the message, pubkey was spoofed. Throw an error so we do not block a valid peer, else continue with pubkey blocking
-            if (ip !== peer.ip) {
+            if (ip !== peer.ip.replace('::ffff:', '')) {
               throw new Error(`Message received from incoming peer ${peer.ip} but origin should come from ${ip}.`);
             }
           }
@@ -881,7 +881,7 @@ async function initiateAndHandleConnection(ip) {
       } else if (msgObj.data.type === 'zelapprequest' || msgObj.data.type === 'fluxapprequest') {
         respondWithAppMessage(msgObj, websocket);
       } else if (msgObj.data.type === 'zelapprunning' || msgObj.data.type === 'fluxapprunning') {
-        handleAppRunningMessage(msgObj, websocket);
+        handleAppRunningMessage(msgObj, conIP);
       }
     } else {
       // we dont like this peer as it sent wrong message. Lets close the connection
@@ -967,7 +967,7 @@ async function fluxDiscovery() {
         // additional precaution
         const sameConnectedIp = currentIpsConnTried.find((connectedIP) => connectedIP === ip);
         const clientExists = outgoingConnections.find((client) => client._socket.remoteAddress === ip);
-        const clientIncomingExists = incomingConnections.find((client) => client._socket.remoteAddress === ip);
+        const clientIncomingExists = incomingConnections.find((client) => client._socket.remoteAddress.replace('::ffff:', '') === ip);
         if (!sameConnectedIp && !clientExists && !clientIncomingExists) {
           log.info(`Adding Flux peer: ${ip}`);
           currentIpsConnTried.push(ip);
@@ -985,7 +985,7 @@ async function fluxDiscovery() {
         // additional precaution
         const sameConnectedIp = currentIpsConnTried.find((connectedIP) => connectedIP === ip);
         const clientExists = outgoingConnections.find((client) => client._socket.remoteAddress === ip);
-        const clientIncomingExists = incomingConnections.find((client) => client._socket.remoteAddress === ip);
+        const clientIncomingExists = incomingConnections.find((client) => client._socket.remoteAddress.replace('::ffff:', '') === ip);
         if (!sameConnectedIp && !clientExists && !clientIncomingExists) {
           log.info(`Adding Flux peer: ${ip}`);
           currentIpsConnTried.push(ip);
