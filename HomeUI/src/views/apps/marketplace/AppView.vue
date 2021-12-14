@@ -340,6 +340,25 @@
     </b-modal>
 
     <b-modal
+      v-model="confirmLaunchDialogCloseShowing"
+      title="Finish Launching App?"
+      size="sm"
+      centered
+      button-size="sm"
+      ok-title="Yes"
+      cancel-title="No"
+      @ok="confirmLaunchDialogCloseShowing = false; launchModalShowing = false;"
+    >
+      <h3 class="text-center">
+        Please ensure that you have paid for your app, or saved the payment details for later.
+      </h3>
+      <br>
+      <h4 class="text-center">
+        Close the Launch App dialog?
+      </h4>
+    </b-modal>
+
+    <b-modal
       v-model="launchModalShowing"
       title="Launching Marketplace App"
       size="xlg"
@@ -349,6 +368,7 @@
       button-size="sm"
       ok-only
       ok-title="Cancel"
+      @ok="confirmLaunchDialogCancel"
     >
       <form-wizard
         :color="tierColors.cumulus"
@@ -357,7 +377,7 @@
         layout="vertical"
         back-button-text="Previous"
         class="wizard-vertical mb-3"
-        @on-complete="launchModalShowing = false"
+        @on-complete="confirmLaunchDialogFinish()"
       >
         <tab-content title="Check Registration">
           <b-card
@@ -586,6 +606,7 @@ export default {
     // Variables to control showing dialogs
     const launchModalShowing = ref(false);
     const componentParamsModalShowing = ref(false);
+    const confirmLaunchDialogCloseShowing = ref(false);
 
     // Holds the currently selected component, for viewing
     // additional parameters in a modal dialog
@@ -1298,6 +1319,17 @@ export default {
       currentComponent.value = props.appData.compose[component];
     };
 
+    const confirmLaunchDialogFinish = () => {
+      confirmLaunchDialogCloseShowing.value = true;
+    };
+
+    const confirmLaunchDialogCancel = (modalEvt) => {
+      if (registrationHash.value !== null) {
+        modalEvt.preventDefault();
+        confirmLaunchDialogCloseShowing.value = true;
+      }
+    };
+
     return {
 
       // UI
@@ -1341,6 +1373,9 @@ export default {
 
       launchModalShowing,
       componentParamsModalShowing,
+      confirmLaunchDialogCloseShowing,
+      confirmLaunchDialogFinish,
+      confirmLaunchDialogCancel,
 
       currentComponent,
       componentSelected,
