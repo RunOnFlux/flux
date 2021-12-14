@@ -990,8 +990,6 @@ async function fluxDiscovery() {
           log.info(`Adding Flux peer: ${ip}`);
           currentIpsConnTried.push(ip);
           initiateAndHandleConnection(ip);
-          // eslint-disable-next-line no-await-in-loop
-          await serviceHelper.delay(500);
         }
       }
     }
