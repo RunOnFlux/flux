@@ -988,7 +988,6 @@ async function fluxDiscovery() {
         const clientIncomingExists = incomingConnections.find((client) => client._socket.remoteAddress.replace('::ffff:', '') === ip);
         if (!sameConnectedIp && !clientExists && !clientIncomingExists) {
           log.info(`Adding Flux peer: ${ip}`);
-          currentIpsConnTried.push(ip);
           initiateAndHandleConnection(ip);
         }
       }
