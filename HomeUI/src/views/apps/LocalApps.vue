@@ -623,7 +623,8 @@
                       <b-button
                         :id="`start-installed-app-${row.item.name}`"
                         size="sm"
-                        class="mr-1"
+                        class="w-100 mr-1"
+                        style="margin-bottom: 2px;"
                         variant="danger"
                       >
                         Start
@@ -636,7 +637,7 @@
                       <b-button
                         :id="`restart-installed-app-${row.item.name}`"
                         size="sm"
-                        class="mr-0"
+                        class="w-100 mr-1"
                         variant="danger"
                       >
                         Restart
@@ -1427,7 +1428,8 @@
                       <b-button
                         :id="`start-local-app-${row.item.name}`"
                         size="sm"
-                        class="mr-1"
+                        class="w-100 mr-1"
+                        style="margin-bottom: 2px;"
                         variant="danger"
                       >
                         Start
@@ -1440,7 +1442,7 @@
                       <b-button
                         :id="`restart-local-app-${row.item.name}`"
                         size="sm"
-                        class="mr-0"
+                        class="w-100 mr-1"
                         variant="danger"
                       >
                         Restart

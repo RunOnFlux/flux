@@ -1,3 +1,5 @@
+import { categories } from '../../../libs/marketplaceCategories';
+
 export default [
   {
     path: '/apps/localapps',
@@ -48,6 +50,30 @@ export default [
           active: true,
         },
       ],
+    },
+  },
+  {
+    path: '/apps/marketplace',
+    name: 'apps-marketplace',
+    component: () => import('@/views/apps/marketplace/Marketplace.vue'),
+    meta: {
+      contentRenderer: 'sidebar-left',
+      contentClass: 'marketplace-application',
+    },
+  },
+  {
+    path: '/apps/marketplace/:filter',
+    name: 'apps-marketplace-filter',
+    component: () => import('@/views/apps/marketplace/Marketplace.vue'),
+    meta: {
+      contentRenderer: 'sidebar-left',
+      contentClass: 'marketplace-application',
+      navActiveLink: 'apps-marketplace',
+    },
+    beforeEnter(to, _, next) {
+      const filterCategories = categories.map((category) => category.name.toLowerCase());
+      if (filterCategories.includes(to.params.filter)) next();
+      else next({ name: 'error-404' });
     },
   },
   {
