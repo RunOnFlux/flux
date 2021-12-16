@@ -82,6 +82,15 @@
   }
 }
 
+// Modal XLG
+@media (min-width: 1200px) {
+  .modal-xlg {
+    margin-left: 10%;
+    margin-right: 10%;
+    max-width: 80%;
+  }
+}
+
 // Slide In Modal //
 .modal-slide-in,
 .modal-slide-in .modal {

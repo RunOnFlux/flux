@@ -46,7 +46,7 @@ function debug(args) {
 
 function error(args) {
   try {
-    console.error(args);
+    // console.error(args);
     // write to file
     const filepath = `${homeDirPath}error.log`;
     writeToFile(filepath, args);
@@ -59,7 +59,7 @@ function error(args) {
 
 function warn(args) {
   try {
-    console.warn(args);
+    // console.warn(args);
     // write to file
     const filepath = `${homeDirPath}warn.log`;
     writeToFile(filepath, args);
@@ -72,7 +72,7 @@ function warn(args) {
 
 function info(args) {
   try {
-    console.log(args);
+    // console.log(args);
     // write to file
     const filepath = `${homeDirPath}info.log`;
     writeToFile(filepath, args);

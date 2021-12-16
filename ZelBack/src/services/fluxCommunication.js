@@ -30,14 +30,14 @@ let storedFluxBenchAllowed = null;
 // my external Flux IP from benchmark
 let myFluxIP = null;
 
-let myNodePubKey = null;
-
 let response = serviceHelper.createErrorMessage();
 // default cache
 const LRUoptions = {
   max: 2000, // currently 750 nodes lets put a value expecting increase in the numbers.
   maxAge: 1000 * 150, // 150 seconds slightly over average blocktime. Allowing 1 block expired too.
 };
+
+let numberOfFluxNodes = 0;
 
 const myCache = new LRU(LRUoptions);
 const myMessageCache = new LRU(250);
@@ -278,7 +278,7 @@ async function sendToAllPeers(data, wsList) {
     for (const client of outConList) {
       try {
         // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay(100);
+        await serviceHelper.delay(50);
         if (client.readyState === WebSocket.OPEN) {
           if (!data) {
             const pingTime = new Date().getTime();
@@ -334,7 +334,7 @@ async function sendToAllIncomingConnections(data, wsList) {
     for (const client of incConList) {
       try {
         // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay(100);
+        await serviceHelper.delay(50);
         if (client.readyState === WebSocket.OPEN) {
           if (!data) {
             client.ping('flux'); // do ping with flux strc instead
@@ -411,7 +411,7 @@ async function handleAppMessages(message, fromIP) {
       const wsListOut = outgoingConnections.filter((client) => client._socket.remoteAddress !== fromIP);
       sendToAllPeers(messageString, wsListOut);
       await serviceHelper.delay(2345);
-      const wsList = incomingConnections.filter((client) => client._socket.remoteAddress !== fromIP);
+      const wsList = incomingConnections.filter((client) => client._socket.remoteAddress.replace('::ffff:', '') !== fromIP);
       sendToAllIncomingConnections(messageString, wsList);
     }
   } catch (error) {
@@ -432,7 +432,7 @@ async function handleAppRunningMessage(message, fromIP) {
       const wsListOut = outgoingConnections.filter((client) => client._socket.remoteAddress !== fromIP);
       sendToAllPeers(messageString, wsListOut);
       await serviceHelper.delay(2345);
-      const wsList = incomingConnections.filter((client) => client._socket.remoteAddress !== fromIP);
+      const wsList = incomingConnections.filter((client) => client._socket.remoteAddress.replace('::ffff:', '') !== fromIP);
       sendToAllIncomingConnections(messageString, wsList);
     }
   } catch (error) {
@@ -536,6 +536,15 @@ function checkRateLimit(ip, perSecond = 10, maxBurst = 15) {
 // eslint-disable-next-line no-unused-vars
 function handleIncomingConnection(ws, req, expressWS) {
   // now we are in connections state. push the websocket to our incomingconnections
+  const maxPeers = 20;
+  const maxNumberOfConnections = numberOfFluxNodes / 40;
+  const maxCon = Math.max(maxPeers, maxNumberOfConnections);
+  if (incomingConnections.length > maxCon) {
+    setTimeout(() => {
+      ws.close(1000, 'Max number of incomming connections reached');
+    }, 1000);
+    return;
+  }
   incomingConnections.push(ws);
   const peer = {
     ip: ws._socket.remoteAddress,
@@ -568,11 +577,11 @@ function handleIncomingConnection(ws, req, expressWS) {
         try {
           const msgObj = serviceHelper.ensureObject(msg);
           if (msgObj.data.type === 'zelappregister' || msgObj.data.type === 'zelappupdate' || msgObj.data.type === 'fluxappregister' || msgObj.data.type === 'fluxappupdate') {
-            handleAppMessages(msgObj, peer.ip);
+            handleAppMessages(msgObj, peer.ip.replace('::ffff:', ''));
           } else if (msgObj.data.type === 'zelapprequest' || msgObj.data.type === 'fluxapprequest') {
             respondWithAppMessage(msgObj, ws);
           } else if (msgObj.data.type === 'zelapprunning' || msgObj.data.type === 'fluxapprunning') {
-            handleAppRunningMessage(msgObj, ws);
+            handleAppRunningMessage(msgObj, peer.ip.replace('::ffff:', ''));
           } else {
             log.warn(`Unrecognised message type of ${msgObj.data.type}`);
           }
@@ -590,7 +599,7 @@ function handleIncomingConnection(ws, req, expressWS) {
           if (zl[0].pubkey === pubKey) { // else continue with blocking this public key
             const { ip } = zl[0];
             // if IP does not match IP of user that send us the message, pubkey was spoofed. Throw an error so we do not block a valid peer, else continue with pubkey blocking
-            if (ip !== peer.ip) {
+            if (ip !== peer.ip.replace('::ffff:', '')) {
               throw new Error(`Message received from incoming peer ${peer.ip} but origin should come from ${ip}.`);
             }
           }
@@ -872,7 +881,7 @@ async function initiateAndHandleConnection(ip) {
       } else if (msgObj.data.type === 'zelapprequest' || msgObj.data.type === 'fluxapprequest') {
         respondWithAppMessage(msgObj, websocket);
       } else if (msgObj.data.type === 'zelapprunning' || msgObj.data.type === 'fluxapprunning') {
-        handleAppRunningMessage(msgObj, websocket);
+        handleAppRunningMessage(msgObj, conIP);
       }
     } else {
       // we dont like this peer as it sent wrong message. Lets close the connection
@@ -928,32 +937,22 @@ async function fluxDiscovery() {
 
     let nodeList = [];
 
-    if (myNodePubKey) {
-      nodeList = await deterministicFluxList(myNodePubKey);
-      if (nodeList.length === 0) {
-        myNodePubKey = null;
-        throw new Error('Node no longer confirmed. Flux discovery is awaiting.');
+    const myIP = await getMyFluxIP();
+    if (myIP) {
+      nodeList = await deterministicFluxList();
+      const fluxNode = nodeList.find((node) => node.ip === myIP);
+      if (!fluxNode) {
+        throw new Error('Node not confirmed. Flux discovery is awaiting.');
       }
     } else {
-      const myIP = await getMyFluxIP();
-      if (myIP) {
-        nodeList = await deterministicFluxList();
-        const fluxNode = nodeList.find((node) => node.ip === myIP);
-        if (fluxNode) {
-          myNodePubKey = fluxNode.pubkey;
-        } else {
-          throw new Error('Node not confirmed. Flux discovery is awaiting.');
-        }
-      } else {
-        throw new Error('Flux IP not detected. Flux discovery is awaiting.');
-      }
+      throw new Error('Flux IP not detected. Flux discovery is awaiting.');
     }
     const minPeers = 12;
     const maxPeers = 20;
-    const numberOfFluxNodes = nodeList.length;
+    numberOfFluxNodes = nodeList.length;
     const currentIpsConnTried = [];
-    const requiredNumberOfConnections = numberOfFluxNodes / 100; // 1%
-    const maxNumberOfConnections = numberOfFluxNodes / 50; // 2%
+    const requiredNumberOfConnections = numberOfFluxNodes / 50; // 2%
+    const maxNumberOfConnections = numberOfFluxNodes / 45;
     const minCon = Math.max(minPeers, requiredNumberOfConnections); // awlays maintain at least 10 or 1% of nodes whatever is higher
     const maxCon = Math.max(maxPeers, maxNumberOfConnections); // have a maximum of 20 or 2% of nodes whatever is higher
     log.info(`Current number of outgoing connections:${outgoingConnections.length}`);
@@ -968,16 +967,17 @@ async function fluxDiscovery() {
         // additional precaution
         const sameConnectedIp = currentIpsConnTried.find((connectedIP) => connectedIP === ip);
         const clientExists = outgoingConnections.find((client) => client._socket.remoteAddress === ip);
-        const clientIncomingExists = incomingConnections.find((client) => client._socket.remoteAddress === ip);
+        const clientIncomingExists = incomingConnections.find((client) => client._socket.remoteAddress.replace('::ffff:', '') === ip);
         if (!sameConnectedIp && !clientExists && !clientIncomingExists) {
           log.info(`Adding Flux peer: ${ip}`);
+          currentIpsConnTried.push(ip);
           initiateAndHandleConnection(ip);
           // eslint-disable-next-line no-await-in-loop
-          await serviceHelper.delay(1000);
+          await serviceHelper.delay(500);
         }
       }
       // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay(1000);
+      await serviceHelper.delay(500);
     }
     if (outgoingConnections.length < maxCon) {
       const ip = await getRandomConnection();
@@ -985,7 +985,7 @@ async function fluxDiscovery() {
         // additional precaution
         const sameConnectedIp = currentIpsConnTried.find((connectedIP) => connectedIP === ip);
         const clientExists = outgoingConnections.find((client) => client._socket.remoteAddress === ip);
-        const clientIncomingExists = incomingConnections.find((client) => client._socket.remoteAddress === ip);
+        const clientIncomingExists = incomingConnections.find((client) => client._socket.remoteAddress.replace('::ffff:', '') === ip);
         if (!sameConnectedIp && !clientExists && !clientIncomingExists) {
           log.info(`Adding Flux peer: ${ip}`);
           initiateAndHandleConnection(ip);
@@ -1508,7 +1508,7 @@ async function broadcastTemporaryAppMessage(message) {
   }
   // to all outoing
   await broadcastMessageToOutgoing(message);
-  await serviceHelper.delay(2345);
+  await serviceHelper.delay(500);
   // to all incoming. Delay broadcast in case message is processing
   await broadcastMessageToIncoming(message);
   return 0;
@@ -1530,7 +1530,7 @@ async function broadcastAppRunningMessage(message) {
   }
   // to all outoing
   await broadcastMessageToOutgoing(message);
-  await serviceHelper.delay(2345);
+  await serviceHelper.delay(500);
   // to all incoming. Delay broadcast in case message is processing
   await broadcastMessageToIncoming(message);
   return 0;
