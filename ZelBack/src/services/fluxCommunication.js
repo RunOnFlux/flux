@@ -272,6 +272,7 @@ async function sendToAllPeers(data, wsList) {
   try {
     const removals = [];
     const ipremovals = [];
+    let messagesSent = 0;
     // wsList is always a sublist of outgoingConnections
     const outConList = wsList || outgoingConnections;
     // eslint-disable-next-line no-restricted-syntax
@@ -288,12 +289,14 @@ async function sendToAllPeers(data, wsList) {
               foundPeer.lastPingTime = pingTime;
             }
           } else {
+            messagesSent += 1;
             client.send(data);
           }
         } else {
           throw new Error(`Connection to ${client._socket.remoteAddress} is not open`);
         }
       } catch (e) {
+        messagesSent -= 1;
         removals.push(client);
         try {
           const ip = client._socket.remoteAddress;
@@ -319,6 +322,7 @@ async function sendToAllPeers(data, wsList) {
         outgoingConnections.splice(ocIndex, 1);
       }
     }
+    return messagesSent;
   } catch (error) {
     log.error(error);
   }
@@ -328,6 +332,7 @@ async function sendToAllIncomingConnections(data, wsList) {
   try {
     const removals = [];
     const ipremovals = [];
+    let messagesSent = 0;
     // wsList is always a sublist of incomingConnections
     const incConList = wsList || incomingConnections;
     // eslint-disable-next-line no-restricted-syntax
@@ -339,13 +344,14 @@ async function sendToAllIncomingConnections(data, wsList) {
           if (!data) {
             client.ping('flux'); // do ping with flux strc instead
           } else {
+            messagesSent += 1;
             client.send(data);
           }
-          client.send(data);
         } else {
           throw new Error(`Connection to ${client._socket.remoteAddress} is not open`);
         }
       } catch (e) {
+        messagesSent -= 1;
         removals.push(client);
         try {
           const ip = client._socket.remoteAddress;
@@ -371,6 +377,7 @@ async function sendToAllIncomingConnections(data, wsList) {
         incomingConnections.splice(ocIndex, 1);
       }
     }
+    return messagesSent;
   } catch (error) {
     log.error(error);
   }
@@ -648,12 +655,12 @@ function handleIncomingConnection(ws, req, expressWS) {
 
 async function broadcastMessageToOutgoing(dataToBroadcast) {
   const serialisedData = await serialiseAndSignFluxBroadcast(dataToBroadcast);
-  sendToAllPeers(serialisedData);
+  return sendToAllPeers(serialisedData);
 }
 
 async function broadcastMessageToIncoming(dataToBroadcast) {
   const serialisedData = await serialiseAndSignFluxBroadcast(dataToBroadcast);
-  sendToAllIncomingConnections(serialisedData);
+  return sendToAllIncomingConnections(serialisedData);
 }
 
 async function broadcastMessageToOutgoingFromUser(req, res) {
@@ -1507,11 +1514,12 @@ async function broadcastTemporaryAppMessage(message) {
     return new Error('Invalid Flux App message for storing');
   }
   // to all outoing
-  await broadcastMessageToOutgoing(message);
+  let numberOfMessagesBroadcasted = 0
+  numberOfMessagesBroadcasted += await broadcastMessageToOutgoing(message);
   await serviceHelper.delay(500);
   // to all incoming. Delay broadcast in case message is processing
-  await broadcastMessageToIncoming(message);
-  return 0;
+  numberOfMessagesBroadcasted += await broadcastMessageToIncoming(message);
+  return numberOfMessagesBroadcasted;
 }
 
 async function broadcastAppRunningMessage(message) {
