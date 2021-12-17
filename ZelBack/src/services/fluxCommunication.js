@@ -417,7 +417,7 @@ async function handleAppMessages(message, fromIP) {
       const messageString = serviceHelper.ensureString(message);
       const wsListOut = outgoingConnections.filter((client) => client._socket.remoteAddress !== fromIP);
       sendToAllPeers(messageString, wsListOut);
-      await serviceHelper.delay(2345);
+      await serviceHelper.delay(500);
       const wsList = incomingConnections.filter((client) => client._socket.remoteAddress.replace('::ffff:', '') !== fromIP);
       sendToAllIncomingConnections(messageString, wsList);
     }
