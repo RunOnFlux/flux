@@ -2545,7 +2545,12 @@ async function getAppsPermanentMessages(req, res) {
   const db = serviceHelper.databaseConnection();
 
   const database = db.db(config.database.appsglobal.database);
-  const query = {};
+  let query = {};
+  let { hash } = req.params;
+  hash = hash || req.query.hash;
+  if (hash) {
+    query = { hash };
+  }
   const projection = { projection: { _id: 0 } };
   const results = await serviceHelper.findInDatabase(database, globalAppsMessages, query, projection).catch((error) => {
     const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
@@ -4105,10 +4110,7 @@ async function registerAppGlobalyApi(req, res) {
         signature,
       };
       await storeAppTemporaryMessage(temporaryAppMessage, false);
-      const totalMessagesSent = await fluxCommunication.broadcastTemporaryAppMessage(temporaryAppMessage);
-      if ( totalMessagesSent < config.fluxapps.minIncoming + config.fluxapps.minOutgoing) {
-        throw new Error('Sorry, the application information was not sent to enough peers on the network');
-      }
+      await fluxCommunication.broadcastTemporaryAppMessage(temporaryAppMessage, false);
       return res.json(responseHash);
     } catch (error) {
       log.warn(error);
@@ -4218,10 +4220,7 @@ async function updateAppGlobalyApi(req, res) {
       // verify that app exists, does not change repotag (for v1-v3), does not change name and does not change component names
       await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, temporaryAppMessage.timestamp);
       await storeAppTemporaryMessage(temporaryAppMessage, false);
-      const totalMessagesSent = await fluxCommunication.broadcastTemporaryAppMessage(temporaryAppMessage);
-      if ( totalMessagesSent < config.fluxapps.minIncoming + config.fluxapps.minOutgoing) {
-        throw new Error('Sorry, the application information was not sent to enough peers on the network');
-      }
+      await fluxCommunication.broadcastTemporaryAppMessage(temporaryAppMessage, true);
       return res.json(responseHash);
     } catch (error) {
       log.warn(error);

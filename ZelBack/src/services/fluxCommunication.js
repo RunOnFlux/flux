@@ -3,6 +3,8 @@ const WebSocket = require('ws');
 const bitcoinjs = require('bitcoinjs-lib');
 const config = require('config');
 const cmd = require('node-cmd');
+const axios = require('axios');
+const rateLimit = require('axios-rate-limit');
 const LRU = require('lru-cache');
 const fs = require('fs').promises;
 const path = require('path');
@@ -38,6 +40,17 @@ const LRUoptions = {
 };
 
 let numberOfFluxNodes = 0;
+
+const axiosConfig = {
+  timeout: 5000,
+};
+
+const httpFluxInfo = rateLimit(axios.create(), { maxRequests: 10, perMilliseconds: 1000 });
+
+let nodesWithAppRegisterMessage = [];
+let nodesWithAppUpdateMessage = [];
+let checkingNodesWithRegisterAppRunning = false;
+let checkingNodesWithUpdateAppRunning = false;
 
 const myCache = new LRU(LRUoptions);
 const myMessageCache = new LRU(250);
@@ -80,9 +93,6 @@ let addingNodesToCache = false;
 
 // basic check for a version of other flux.
 async function isFluxAvailable(ip) {
-  const axiosConfig = {
-    timeout: 5000,
-  };
   try {
     const fluxResponse = await serviceHelper.axiosGet(`http://${ip}:${config.server.apiport}/flux/version`, axiosConfig);
     if (fluxResponse.data.status === 'success') {
@@ -272,7 +282,6 @@ async function sendToAllPeers(data, wsList) {
   try {
     const removals = [];
     const ipremovals = [];
-    let messagesSent = 0;
     // wsList is always a sublist of outgoingConnections
     const outConList = wsList || outgoingConnections;
     // eslint-disable-next-line no-restricted-syntax
@@ -289,14 +298,12 @@ async function sendToAllPeers(data, wsList) {
               foundPeer.lastPingTime = pingTime;
             }
           } else {
-            messagesSent += 1;
             client.send(data);
           }
         } else {
           throw new Error(`Connection to ${client._socket.remoteAddress} is not open`);
         }
       } catch (e) {
-        messagesSent -= 1;
         removals.push(client);
         try {
           const ip = client._socket.remoteAddress;
@@ -322,7 +329,6 @@ async function sendToAllPeers(data, wsList) {
         outgoingConnections.splice(ocIndex, 1);
       }
     }
-    return messagesSent;
   } catch (error) {
     log.error(error);
   }
@@ -332,7 +338,6 @@ async function sendToAllIncomingConnections(data, wsList) {
   try {
     const removals = [];
     const ipremovals = [];
-    let messagesSent = 0;
     // wsList is always a sublist of incomingConnections
     const incConList = wsList || incomingConnections;
     // eslint-disable-next-line no-restricted-syntax
@@ -344,14 +349,12 @@ async function sendToAllIncomingConnections(data, wsList) {
           if (!data) {
             client.ping('flux'); // do ping with flux strc instead
           } else {
-            messagesSent += 1;
             client.send(data);
           }
         } else {
           throw new Error(`Connection to ${client._socket.remoteAddress} is not open`);
         }
       } catch (e) {
-        messagesSent -= 1;
         removals.push(client);
         try {
           const ip = client._socket.remoteAddress;
@@ -377,7 +380,6 @@ async function sendToAllIncomingConnections(data, wsList) {
         incomingConnections.splice(ocIndex, 1);
       }
     }
-    return messagesSent;
   } catch (error) {
     log.error(error);
   }
@@ -1222,10 +1224,10 @@ async function checkMyFluxAvailability(retryNumber = 0) {
     myIP = `[${myIP}]`;
   }
   let availabilityError = null;
-  const axiosConfig = {
+  const axiosConfigAux = {
     timeout: 7000,
   };
-  const resMyAvailability = await serviceHelper.axiosGet(`http://${askingIP}:${config.server.apiport}/flux/checkfluxavailability/${myIP}`, axiosConfig).catch((error) => {
+  const resMyAvailability = await serviceHelper.axiosGet(`http://${askingIP}:${config.server.apiport}/flux/checkfluxavailability/${myIP}`, axiosConfigAux).catch((error) => {
     log.error(`${askingIP} is not reachable`);
     log.error(error);
     availabilityError = true;
@@ -1499,7 +1501,95 @@ function isCommunicationEstablished(req, res) {
   res.json(message);
 }
 
-async function broadcastTemporaryAppMessage(message) {
+async function checkAppRegisterFluxNode(ip, message, timeoutConfig) {
+  try {
+    const fluxCheckAppUrl = `http://${ip}:16127/apps/permanentmessages?hash=${message}`;
+    const fluxRes = await httpFluxInfo.get(fluxCheckAppUrl, timeoutConfig);
+    if (fluxRes.data.status === 'success') {
+      if (fluxRes.data.data.length === 1) {
+        nodesWithAppRegisterMessage.push(ip);
+      }
+      log.warn(`Apps PermanentMessages ${message} not present on IP ${ip}`);
+      return;
+    }
+    log.warn(`Apps PermanentMessages of IP ${ip} is bad`);
+  } catch (e) {
+    log.error(`Apps PermanentMessages of IP ${ip} error: ${e}`);
+  }
+}
+
+async function checkAppUpdateFluxNode(ip, message, timeoutConfig) {
+  try {
+    const fluxCheckAppUrl = `http://${ip}:16127/apps/permanentmessages?hash=${message}`;
+    const fluxRes = await httpFluxInfo.get(fluxCheckAppUrl, timeoutConfig);
+    if (fluxRes.data.status === 'success') {
+      if (fluxRes.data.data.length === 1) {
+        nodesWithAppUpdateMessage.push(ip);
+      }
+      log.warn(`Apps PermanentMessages ${message} not present on IP ${ip}`);
+      return;
+    }
+    log.warn(`Apps PermanentMessages of IP ${ip} is bad`);
+  } catch (e) {
+    log.error(`Apps PermanentMessages of IP ${ip} error: ${e}`);
+  }
+}
+
+async function checkPeersWithAppRegisterMessage(message) {
+  try {
+    while (checkingNodesWithRegisterAppRunning) {
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay(500);
+    }
+    checkingNodesWithRegisterAppRunning = true;
+    const promiseArray = [];
+    nodesWithAppRegisterMessage = [];
+    // eslint-disable-next-line no-restricted-syntax
+    for (const client of outgoingConnections) {
+      promiseArray.push(checkAppRegisterFluxNode(client._socket.remoteAddress, message, axiosConfig));
+    }
+    // eslint-disable-next-line no-restricted-syntax
+    for (const client of incomingConnections) {
+      promiseArray.push(checkAppRegisterFluxNode(client._socket.remoteAddress, message, axiosConfig));
+    }
+    await Promise.allSettled(promiseArray);
+    return nodesWithAppRegisterMessage.length;
+  } catch (error) {
+    log.error(`checkPeersWithAppRegisterMessage error${error}`);
+    return 0;
+  } finally {
+    checkingNodesWithRegisterAppRunning = false;
+  }
+}
+
+async function checkPeersWithAppUpdateMessage(message) {
+  try {
+    while (checkingNodesWithUpdateAppRunning) {
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay(500);
+    }
+    checkingNodesWithUpdateAppRunning = true;
+    const promiseArray = [];
+    nodesWithAppUpdateMessage = [];
+    // eslint-disable-next-line no-restricted-syntax
+    for (const client of outgoingConnections) {
+      promiseArray.push(checkAppUpdateFluxNode(client._socket.remoteAddress, message, axiosConfig));
+    }
+    // eslint-disable-next-line no-restricted-syntax
+    for (const client of incomingConnections) {
+      promiseArray.push(checkAppUpdateFluxNode(client._socket.remoteAddress, message, axiosConfig));
+    }
+    await Promise.allSettled(promiseArray);
+    return nodesWithAppRegisterMessage.length;
+  } catch (error) {
+    log.error(`checkPeersWithAppRegisterMessage error${error}`);
+    return 0;
+  } finally {
+    checkingNodesWithUpdateAppRunning = false;
+  }
+}
+
+async function broadcastTemporaryAppMessage(message, update) {
   /* message object
   * @param type string
   * @param version number
@@ -1514,34 +1604,26 @@ async function broadcastTemporaryAppMessage(message) {
     return new Error('Invalid Flux App message for storing');
   }
   // to all outoing
-  let numberOfMessagesBroadcasted = 0
-  numberOfMessagesBroadcasted += await broadcastMessageToOutgoing(message);
-  await serviceHelper.delay(500);
-  // to all incoming. Delay broadcast in case message is processing
-  numberOfMessagesBroadcasted += await broadcastMessageToIncoming(message);
-  return numberOfMessagesBroadcasted;
-}
-
-async function broadcastAppRunningMessage(message) {
-  /* message object
-  * @param type string
-  * @param version number
-  * @param broadcastedAt number
-  * @param name string
-  * @param hash string
-  * @param ip string
-  */
-  log.info(message);
-  // no verification of message before broadcasting. Broadcasting happens always after data have been verified and are stored in our db. It is up to receiving node to verify it and store and rebroadcast.
-  if (typeof message !== 'object' && typeof message.type !== 'string' && typeof message.version !== 'number' && typeof message.broadcastedAt !== 'number' && typeof message.name !== 'string' && typeof message.hash !== 'string' && typeof message.ip !== 'string') {
-    return new Error('Invalid Flux App Running message for storing');
-  }
-  // to all outoing
   await broadcastMessageToOutgoing(message);
-  await serviceHelper.delay(500);
   // to all incoming. Delay broadcast in case message is processing
   await broadcastMessageToIncoming(message);
-  return 0;
+  await serviceHelper.delay(1000);
+  let numberOfPeers = 0;
+  numberOfPeers = update ? await checkPeersWithAppUpdateMessage(message) : await checkPeersWithAppRegisterMessage(message);
+  if (numberOfPeers < config.fluxapps.minIncoming + config.fluxapps.minOutgoing) {
+    // lets rebroadcast
+    // to all outoing
+    await broadcastMessageToOutgoing(message);
+    // to all incoming. Delay broadcast in case message is processing
+    await broadcastMessageToIncoming(message);
+    await serviceHelper.delay(1000);
+    numberOfPeers = update ? await checkPeersWithAppUpdateMessage(message) : await checkPeersWithAppRegisterMessage(message);
+    if (numberOfPeers < config.fluxapps.minIncoming + config.fluxapps.minOutgoing) {
+      return new Error('Sorry, the application information was not sent to enough peers on the network');
+    }
+  }
+  log.info(`Message broadcasted to ${numberOfPeers} peers`);
+  return numberOfPeers;
 }
 
 module.exports = {
@@ -1576,7 +1658,6 @@ module.exports = {
   incomingPeers,
   isCommunicationEstablished,
   broadcastTemporaryAppMessage,
-  broadcastAppRunningMessage,
   keepConnectionsAlive,
   adjustFirewall,
   checkDeterministicNodesCollisions,
