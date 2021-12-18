@@ -4137,8 +4137,8 @@ async function registerAppGlobalyApi(req, res) {
       // request app message is quite slow and from performance testing message will appear roughly 5 seconds after ask
       await serviceHelper.delay(1200); // 1200 ms mas for processing - peer sends message back to us
       // check temporary message storage
-      let tempMessage = await checkAppTemporaryMessageExistence(messageHASH);
-      for (let i = 0; i < 20; i += 1) { // ask for up to 20 times - 10 seconds. Must have been processed by that time or it failed.
+      let tempMessage = await checkAppTemporaryMessageExistence(messageHASH); // Cumulus measurement: after roughly 8 seconds here
+      for (let i = 0; i < 20; i += 1) { // ask for up to 20 times - 10 seconds. Must have been processed by that time or it failed. Cumulus measurement: Approx 5-6 seconds
         if (!tempMessage) {
           // eslint-disable-next-line no-await-in-loop
           await serviceHelper.delay(500);
