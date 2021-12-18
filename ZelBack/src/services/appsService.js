@@ -3532,33 +3532,28 @@ async function getPreviousAppSpecifications(specifications, message) {
 }
 
 async function checkAppMessageExistence(hash) {
-  try {
-    const dbopen = serviceHelper.databaseConnection();
-    const appsDatabase = dbopen.db(config.database.appsglobal.database);
-    const appsQuery = { hash };
-    const appsProjection = {};
-    // a permanent global zelappmessage looks like this:
-    // const permanentAppMessage = {
-    //   type: messageType,
-    //   version: typeVersion,
-    //   zelAppSpecifications: appSpecFormatted,
-    //   appSpecifications: appSpecFormatted,
-    //   hash: messageHASH,
-    //   timestamp,
-    //   signature,
-    //   txid,
-    //   height,
-    //   valueSat,
-    // };
-    const appResult = await serviceHelper.findOneInDatabase(appsDatabase, globalAppsMessages, appsQuery, appsProjection);
-    if (appResult) {
-      return appResult;
-    }
-    return false;
-  } catch (error) {
-    log.error(error);
-    return error;
+  const dbopen = serviceHelper.databaseConnection();
+  const appsDatabase = dbopen.db(config.database.appsglobal.database);
+  const appsQuery = { hash };
+  const appsProjection = {};
+  // a permanent global zelappmessage looks like this:
+  // const permanentAppMessage = {
+  //   type: messageType,
+  //   version: typeVersion,
+  //   zelAppSpecifications: appSpecFormatted,
+  //   appSpecifications: appSpecFormatted,
+  //   hash: messageHASH,
+  //   timestamp,
+  //   signature,
+  //   txid,
+  //   height,
+  //   valueSat,
+  // };
+  const appResult = await serviceHelper.findOneInDatabase(appsDatabase, globalAppsMessages, appsQuery, appsProjection);
+  if (appResult) {
+    return appResult;
   }
+  return false;
 }
 
 async function checkAppTemporaryMessageExistence(hash) {
