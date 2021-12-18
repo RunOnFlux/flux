@@ -2526,40 +2526,55 @@ function checkComposeHWParameters(appSpecsComposed) {
 }
 
 async function getAppsTemporaryMessages(req, res) {
-  const db = serviceHelper.databaseConnection();
+  try {
+    const db = serviceHelper.databaseConnection();
 
-  const database = db.db(config.database.appsglobal.database);
-  const query = {};
-  const projection = { projection: { _id: 0 } };
-  const results = await serviceHelper.findInDatabase(database, globalAppsTempMessages, query, projection).catch((error) => {
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
-    res.json(errMessage);
+    const database = db.db(config.database.appsglobal.database);
+    let query = {};
+    let { hash } = req.params;
+    hash = hash || req.query.hash;
+    if (hash) {
+      query = { hash };
+    }
+    const projection = { projection: { _id: 0 } };
+    const results = await serviceHelper.findInDatabase(database, globalAppsTempMessages, query, projection);
+    const resultsResponse = serviceHelper.createDataMessage(results);
+    res.json(resultsResponse);
+  } catch (error) {
     log.error(error);
-    throw error;
-  });
-  const resultsResponse = serviceHelper.createDataMessage(results);
-  res.json(resultsResponse);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
 }
 
 async function getAppsPermanentMessages(req, res) {
-  const db = serviceHelper.databaseConnection();
+  try {
+    const db = serviceHelper.databaseConnection();
 
-  const database = db.db(config.database.appsglobal.database);
-  let query = {};
-  let { hash } = req.params;
-  hash = hash || req.query.hash;
-  if (hash) {
-    query = { hash };
-  }
-  const projection = { projection: { _id: 0 } };
-  const results = await serviceHelper.findInDatabase(database, globalAppsMessages, query, projection).catch((error) => {
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
-    res.json(errMessage);
+    const database = db.db(config.database.appsglobal.database);
+    let query = {};
+    let { hash } = req.params;
+    hash = hash || req.query.hash;
+    if (hash) {
+      query = { hash };
+    }
+    const projection = { projection: { _id: 0 } };
+    const results = await serviceHelper.findInDatabase(database, globalAppsMessages, query, projection);
+    const resultsResponse = serviceHelper.createDataMessage(results);
+    res.json(resultsResponse);
+  } catch (error) {
     log.error(error);
-    throw error;
-  });
-  const resultsResponse = serviceHelper.createDataMessage(results);
-  res.json(resultsResponse);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
 }
 
 async function getGlobalAppsSpecifications(req, res) {
@@ -3731,6 +3746,20 @@ async function storeAppRunningMessage(message) {
   return true;
 }
 
+async function requestAppMessage(hash) {
+  // some message type request app message, message hash
+  // peer responds with data from permanent database or temporary database. If does not have it requests further
+  console.log(hash);
+  const message = {
+    type: 'fluxapprequest',
+    version: 1,
+    hash,
+  };
+  await fluxCommunication.broadcastMessageToOutgoing(message);
+  await serviceHelper.delay(200);
+  await fluxCommunication.broadcastMessageToIncoming(message);
+}
+
 function specificationFormatter(appSpecification) {
   let { version } = appSpecification;
   let { name } = appSpecification;
@@ -4035,7 +4064,8 @@ async function registerAppGlobalyApi(req, res) {
       const authorized = await serviceHelper.verifyPrivilege('user', req);
       if (!authorized) {
         const errMessage = serviceHelper.errUnauthorizedMessage();
-        return res.json(errMessage);
+        res.json(errMessage);
+        return;
       }
       // first  check if this node is available for application registration
       if (fluxCommunication.outgoingPeers.length < config.fluxapps.minOutgoing) {
@@ -4104,9 +4134,18 @@ async function registerAppGlobalyApi(req, res) {
         timestamp,
         signature,
       };
-      await storeAppTemporaryMessage(temporaryAppMessage, false);
-      await fluxCommunication.broadcastTemporaryAppMessage(temporaryAppMessage, false);
-      return res.json(responseHash);
+      await fluxCommunication.broadcastTemporaryAppMessage(temporaryAppMessage);
+      // above takes 2-3 seconds
+      await serviceHelper.delay(200); // 200 ms mas for processing
+      // this operations takes 2.5-3.5 seconds and is heavy, message gets verified again.
+      await requestAppMessage(messageHASH); // this itself verifies that Peers received our message broadcast AND peers send us the message back. By peers sending the message back we finally store it to our temporary message storage and rebroadcast it again
+      await serviceHelper.delay(200); // 200 ms mas for processing
+      // check temporary message storage
+      const tempMessage = await checkAppTemporaryMessageExistence(messageHASH);
+      if (tempMessage && typeof tempMessage === 'object' && !Array.isArray(tempMessage)) {
+        res.json(responseHash); // all ok
+      }
+      throw new Error('Unable to register application on the network. Try again later.');
     } catch (error) {
       log.warn(error);
       const errorResponse = serviceHelper.createErrorMessage(
@@ -4114,7 +4153,7 @@ async function registerAppGlobalyApi(req, res) {
         error.name,
         error.code,
       );
-      return res.json(errorResponse);
+      res.json(errorResponse);
     }
   });
 }
@@ -4130,7 +4169,8 @@ async function updateAppGlobalyApi(req, res) {
       const authorized = await serviceHelper.verifyPrivilege('user', req);
       if (!authorized) {
         const errMessage = serviceHelper.errUnauthorizedMessage();
-        return res.json(errMessage);
+        res.json(errMessage);
+        return;
       }
       // first  check if this node is available for application registration
       if (fluxCommunication.outgoingPeers.length < config.fluxapps.minOutgoing) {
@@ -4214,9 +4254,18 @@ async function updateAppGlobalyApi(req, res) {
       };
       // verify that app exists, does not change repotag (for v1-v3), does not change name and does not change component names
       await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, temporaryAppMessage.timestamp);
-      await storeAppTemporaryMessage(temporaryAppMessage, false);
-      await fluxCommunication.broadcastTemporaryAppMessage(temporaryAppMessage, true);
-      return res.json(responseHash);
+      await fluxCommunication.broadcastTemporaryAppMessage(temporaryAppMessage);
+      // above takes 2-3 seconds
+      await serviceHelper.delay(200); // 200 ms mas for processing
+      // this operations takes 2.5-3.5 seconds and is heavy, message gets verified again.
+      await requestAppMessage(messageHASH); // this itself verifies that Peers received our message broadcast AND peers send us the message back. By peers sending the message back we finally store it to our temporary message storage and rebroadcast it again
+      await serviceHelper.delay(200); // 200 ms mas for processing
+      // check temporary message storage
+      const tempMessage = await checkAppTemporaryMessageExistence(messageHASH);
+      if (tempMessage && typeof tempMessage === 'object' && !Array.isArray(tempMessage)) {
+        res.json(responseHash); // all ok
+      }
+      throw new Error('Unable to update application on the network. Try again later.');
     } catch (error) {
       log.warn(error);
       const errorResponse = serviceHelper.createErrorMessage(
@@ -4224,7 +4273,7 @@ async function updateAppGlobalyApi(req, res) {
         error.name,
         error.code,
       );
-      return res.json(errorResponse);
+      res.json(errorResponse);
     }
   });
 }
@@ -4321,20 +4370,6 @@ async function installTemporaryLocalApplication(req, res) {
     );
     res.json(errorResponse);
   }
-}
-
-async function requestAppMessage(hash) {
-  // some message type request app message, message hash
-  // peer responds with data from permanent database or temporary database. If does not have it requests further
-  console.log(hash);
-  const message = {
-    type: 'fluxapprequest',
-    version: 1,
-    hash,
-  };
-  await fluxCommunication.broadcastMessageToOutgoing(message);
-  await serviceHelper.delay(500);
-  await fluxCommunication.broadcastMessageToIncoming(message);
 }
 
 async function storeAppPermanentMessage(message) {
@@ -4640,7 +4675,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
         }
       } else {
         // request the message and broadcast the message further to our connected peers.
-        requestAppMessage(hash);
+        await requestAppMessage(hash);
         // rerun this after 1 min delay
         // stop this loop after 7 mins, as it might be a scammy message or simply this message is nowhere on the network, we dont have connections etc. We also have continous checkup for it every 8 min
         if (i < 7) {
