@@ -4131,14 +4131,15 @@ async function registerAppGlobalyApi(req, res) {
       };
       await fluxCommunication.broadcastTemporaryAppMessage(temporaryAppMessage);
       // above takes 2-3 seconds
-      await serviceHelper.delay(200); // 200 ms mas for processing
+      await serviceHelper.delay(400); // 400 ms mas for processing
       // this operations takes 2.5-3.5 seconds and is heavy, message gets verified again.
       await requestAppMessage(messageHASH); // this itself verifies that Peers received our message broadcast AND peers send us the message back. By peers sending the message back we finally store it to our temporary message storage and rebroadcast it again
-      await serviceHelper.delay(200); // 200 ms mas for processing
+      await serviceHelper.delay(600); // 600 ms mas for processing
       // check temporary message storage
       const tempMessage = await checkAppTemporaryMessageExistence(messageHASH);
       if (tempMessage && typeof tempMessage === 'object' && !Array.isArray(tempMessage)) {
         res.json(responseHash); // all ok
+        return;
       }
       throw new Error('Unable to register application on the network. Try again later.');
     } catch (error) {
@@ -4251,14 +4252,15 @@ async function updateAppGlobalyApi(req, res) {
       await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, temporaryAppMessage.timestamp);
       await fluxCommunication.broadcastTemporaryAppMessage(temporaryAppMessage);
       // above takes 2-3 seconds
-      await serviceHelper.delay(200); // 200 ms mas for processing
+      await serviceHelper.delay(400); // 400 ms mas for processing
       // this operations takes 2.5-3.5 seconds and is heavy, message gets verified again.
       await requestAppMessage(messageHASH); // this itself verifies that Peers received our message broadcast AND peers send us the message back. By peers sending the message back we finally store it to our temporary message storage and rebroadcast it again
-      await serviceHelper.delay(200); // 200 ms mas for processing
+      await serviceHelper.delay(600); // 600 ms mas for processing
       // check temporary message storage
       const tempMessage = await checkAppTemporaryMessageExistence(messageHASH);
       if (tempMessage && typeof tempMessage === 'object' && !Array.isArray(tempMessage)) {
         res.json(responseHash); // all ok
+        return;
       }
       throw new Error('Unable to update application on the network. Try again later.');
     } catch (error) {
