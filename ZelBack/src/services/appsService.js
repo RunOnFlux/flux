@@ -2526,35 +2526,55 @@ function checkComposeHWParameters(appSpecsComposed) {
 }
 
 async function getAppsTemporaryMessages(req, res) {
-  const db = serviceHelper.databaseConnection();
+  try {
+    const db = serviceHelper.databaseConnection();
 
-  const database = db.db(config.database.appsglobal.database);
-  const query = {};
-  const projection = { projection: { _id: 0 } };
-  const results = await serviceHelper.findInDatabase(database, globalAppsTempMessages, query, projection).catch((error) => {
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
-    res.json(errMessage);
+    const database = db.db(config.database.appsglobal.database);
+    let query = {};
+    let { hash } = req.params;
+    hash = hash || req.query.hash;
+    if (hash) {
+      query = { hash };
+    }
+    const projection = { projection: { _id: 0 } };
+    const results = await serviceHelper.findInDatabase(database, globalAppsTempMessages, query, projection);
+    const resultsResponse = serviceHelper.createDataMessage(results);
+    res.json(resultsResponse);
+  } catch (error) {
     log.error(error);
-    throw error;
-  });
-  const resultsResponse = serviceHelper.createDataMessage(results);
-  res.json(resultsResponse);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
 }
 
 async function getAppsPermanentMessages(req, res) {
-  const db = serviceHelper.databaseConnection();
+  try {
+    const db = serviceHelper.databaseConnection();
 
-  const database = db.db(config.database.appsglobal.database);
-  const query = {};
-  const projection = { projection: { _id: 0 } };
-  const results = await serviceHelper.findInDatabase(database, globalAppsMessages, query, projection).catch((error) => {
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
-    res.json(errMessage);
+    const database = db.db(config.database.appsglobal.database);
+    let query = {};
+    let { hash } = req.params;
+    hash = hash || req.query.hash;
+    if (hash) {
+      query = { hash };
+    }
+    const projection = { projection: { _id: 0 } };
+    const results = await serviceHelper.findInDatabase(database, globalAppsMessages, query, projection);
+    const resultsResponse = serviceHelper.createDataMessage(results);
+    res.json(resultsResponse);
+  } catch (error) {
     log.error(error);
-    throw error;
-  });
-  const resultsResponse = serviceHelper.createDataMessage(results);
-  res.json(resultsResponse);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
 }
 
 async function getGlobalAppsSpecifications(req, res) {
@@ -3527,61 +3547,51 @@ async function getPreviousAppSpecifications(specifications, message) {
 }
 
 async function checkAppMessageExistence(hash) {
-  try {
-    const dbopen = serviceHelper.databaseConnection();
-    const appsDatabase = dbopen.db(config.database.appsglobal.database);
-    const appsQuery = { hash };
-    const appsProjection = {};
-    // a permanent global zelappmessage looks like this:
-    // const permanentAppMessage = {
-    //   type: messageType,
-    //   version: typeVersion,
-    //   zelAppSpecifications: appSpecFormatted,
-    //   appSpecifications: appSpecFormatted,
-    //   hash: messageHASH,
-    //   timestamp,
-    //   signature,
-    //   txid,
-    //   height,
-    //   valueSat,
-    // };
-    const appResult = await serviceHelper.findOneInDatabase(appsDatabase, globalAppsMessages, appsQuery, appsProjection);
-    if (appResult) {
-      return appResult;
-    }
-    return false;
-  } catch (error) {
-    log.error(error);
-    return error;
+  const dbopen = serviceHelper.databaseConnection();
+  const appsDatabase = dbopen.db(config.database.appsglobal.database);
+  const appsQuery = { hash };
+  const appsProjection = {};
+  // a permanent global zelappmessage looks like this:
+  // const permanentAppMessage = {
+  //   type: messageType,
+  //   version: typeVersion,
+  //   zelAppSpecifications: appSpecFormatted,
+  //   appSpecifications: appSpecFormatted,
+  //   hash: messageHASH,
+  //   timestamp,
+  //   signature,
+  //   txid,
+  //   height,
+  //   valueSat,
+  // };
+  const appResult = await serviceHelper.findOneInDatabase(appsDatabase, globalAppsMessages, appsQuery, appsProjection);
+  if (appResult) {
+    return appResult;
   }
+  return false;
 }
 
 async function checkAppTemporaryMessageExistence(hash) {
-  try {
-    const dbopen = serviceHelper.databaseConnection();
-    const appsDatabase = dbopen.db(config.database.appsglobal.database);
-    const appsQuery = { hash };
-    const appsProjection = {};
-    // a temporary zelappmessage looks like this:
-    // const newMessage = {
-    //   appSpecifications: message.appSpecifications,
-    //   type: message.type,
-    //   version: message.version,
-    //   hash: message.hash,
-    //   timestamp: message.timestamp,
-    //   signature: message.signature,
-    //   createdAt: new Date(message.timestamp),
-    //   expireAt: new Date(validTill),
-    // };
-    const appResult = await serviceHelper.findOneInDatabase(appsDatabase, globalAppsTempMessages, appsQuery, appsProjection);
-    if (appResult) {
-      return appResult;
-    }
-    return false;
-  } catch (error) {
-    log.error(error);
-    return error;
+  const dbopen = serviceHelper.databaseConnection();
+  const appsDatabase = dbopen.db(config.database.appsglobal.database);
+  const appsQuery = { hash };
+  const appsProjection = {};
+  // a temporary zelappmessage looks like this:
+  // const newMessage = {
+  //   appSpecifications: message.appSpecifications,
+  //   type: message.type,
+  //   version: message.version,
+  //   hash: message.hash,
+  //   timestamp: message.timestamp,
+  //   signature: message.signature,
+  //   createdAt: new Date(message.timestamp),
+  //   expireAt: new Date(validTill),
+  // };
+  const appResult = await serviceHelper.findOneInDatabase(appsDatabase, globalAppsTempMessages, appsQuery, appsProjection);
+  if (appResult) {
+    return appResult;
   }
+  return false;
 }
 
 async function storeAppTemporaryMessage(message, furtherVerification = false) {
@@ -3622,6 +3632,7 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
   }
 
   // data shall already be verified by the broadcasting node. But verify all again.
+  // this takes roughly at least 1 second
   if (furtherVerification) {
     if (message.type === 'zelappregister' || message.type === 'fluxappregister') {
       const syncStatus = daemonService.isDaemonSynced();
@@ -3729,6 +3740,20 @@ async function storeAppRunningMessage(message) {
   await serviceHelper.updateOneInDatabase(database, globalAppsLocations, queryUpdate, update, options);
   // it is now stored, rebroadcast
   return true;
+}
+
+async function requestAppMessage(hash) {
+  // some message type request app message, message hash
+  // peer responds with data from permanent database or temporary database. If does not have it requests further
+  console.log(hash);
+  const message = {
+    type: 'fluxapprequest',
+    version: 1,
+    hash,
+  };
+  await fluxCommunication.broadcastMessageToOutgoing(message);
+  await serviceHelper.delay(100);
+  await fluxCommunication.broadcastMessageToIncoming(message);
 }
 
 function specificationFormatter(appSpecification) {
@@ -4035,7 +4060,8 @@ async function registerAppGlobalyApi(req, res) {
       const authorized = await serviceHelper.verifyPrivilege('user', req);
       if (!authorized) {
         const errMessage = serviceHelper.errUnauthorizedMessage();
-        return res.json(errMessage);
+        res.json(errMessage);
+        return;
       }
       // first  check if this node is available for application registration
       if (fluxCommunication.outgoingPeers.length < config.fluxapps.minOutgoing) {
@@ -4094,7 +4120,6 @@ async function registerAppGlobalyApi(req, res) {
       // We respond with a hash that is supposed to go to transaction.
       const message = messageType + typeVersion + JSON.stringify(appSpecFormatted) + timestamp + signature;
       const messageHASH = await generalService.messageHash(message);
-      const responseHash = serviceHelper.createDataMessage(messageHASH);
       // now all is great. Store appSpecFormatted, timestamp, signature and hash in appsTemporaryMessages. with 1 hours expiration time. Broadcast this message to all outgoing connections.
       const temporaryAppMessage = { // specification of temp message
         type: messageType,
@@ -4104,9 +4129,29 @@ async function registerAppGlobalyApi(req, res) {
         timestamp,
         signature,
       };
-      await storeAppTemporaryMessage(temporaryAppMessage, false);
       await fluxCommunication.broadcastTemporaryAppMessage(temporaryAppMessage);
-      return res.json(responseHash);
+      // above takes 2-3 seconds
+      await serviceHelper.delay(1200); // it takes receiving node at least 1 second to process the message. Add 1200 ms mas for processing
+      // this operations takes 2.5-3.5 seconds and is heavy, message gets verified again.
+      await requestAppMessage(messageHASH); // this itself verifies that Peers received our message broadcast AND peers send us the message back. By peers sending the message back we finally store it to our temporary message storage and rebroadcast it again
+      // request app message is quite slow and from performance testing message will appear roughly 5 seconds after ask
+      await serviceHelper.delay(1200); // 1200 ms mas for processing - peer sends message back to us
+      // check temporary message storage
+      let tempMessage = await checkAppTemporaryMessageExistence(messageHASH); // Cumulus measurement: after roughly 8 seconds here
+      for (let i = 0; i < 20; i += 1) { // ask for up to 20 times - 10 seconds. Must have been processed by that time or it failed. Cumulus measurement: Approx 5-6 seconds
+        if (!tempMessage) {
+          // eslint-disable-next-line no-await-in-loop
+          await serviceHelper.delay(500);
+          // eslint-disable-next-line no-await-in-loop
+          tempMessage = await checkAppTemporaryMessageExistence(messageHASH);
+        }
+      }
+      if (tempMessage && typeof tempMessage === 'object' && !Array.isArray(tempMessage)) {
+        const responseHash = serviceHelper.createDataMessage(tempMessage.hash);
+        res.json(responseHash); // all ok
+        return;
+      }
+      throw new Error('Unable to register application on the network. Try again later.');
     } catch (error) {
       log.warn(error);
       const errorResponse = serviceHelper.createErrorMessage(
@@ -4114,7 +4159,7 @@ async function registerAppGlobalyApi(req, res) {
         error.name,
         error.code,
       );
-      return res.json(errorResponse);
+      res.json(errorResponse);
     }
   });
 }
@@ -4130,7 +4175,8 @@ async function updateAppGlobalyApi(req, res) {
       const authorized = await serviceHelper.verifyPrivilege('user', req);
       if (!authorized) {
         const errMessage = serviceHelper.errUnauthorizedMessage();
-        return res.json(errMessage);
+        res.json(errMessage);
+        return;
       }
       // first  check if this node is available for application registration
       if (fluxCommunication.outgoingPeers.length < config.fluxapps.minOutgoing) {
@@ -4202,7 +4248,6 @@ async function updateAppGlobalyApi(req, res) {
       // We respond with a hash that is supposed to go to transaction.
       const message = messageType + typeVersion + JSON.stringify(appSpecFormatted) + timestamp + signature;
       const messageHASH = await generalService.messageHash(message);
-      const responseHash = serviceHelper.createDataMessage(messageHASH);
       // now all is great. Store appSpecFormatted, timestamp, signature and hash in appsTemporaryMessages. with 1 hours expiration time. Broadcast this message to all outgoing connections.
       const temporaryAppMessage = { // specification of temp message
         type: messageType,
@@ -4214,9 +4259,28 @@ async function updateAppGlobalyApi(req, res) {
       };
       // verify that app exists, does not change repotag (for v1-v3), does not change name and does not change component names
       await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, temporaryAppMessage.timestamp);
-      await storeAppTemporaryMessage(temporaryAppMessage, false);
       await fluxCommunication.broadcastTemporaryAppMessage(temporaryAppMessage);
-      return res.json(responseHash);
+      // above takes 2-3 seconds
+      await serviceHelper.delay(1200); // it takes receiving node at least 1 second to process the message. Add 1200 ms mas for processing
+      // this operations takes 2.5-3.5 seconds and is heavy, message gets verified again.
+      await requestAppMessage(messageHASH); // this itself verifies that Peers received our message broadcast AND peers send us the message back. By peers sending the message back we finally store it to our temporary message storage and rebroadcast it again
+      await serviceHelper.delay(1200); // 1200 ms mas for processing - peer sends message back to us
+      // check temporary message storage
+      let tempMessage = await checkAppTemporaryMessageExistence(messageHASH);
+      for (let i = 0; i < 20; i += 1) { // ask for up to 20 times - 10 seconds. Must have been processed by that time or it failed.
+        if (!tempMessage) {
+          // eslint-disable-next-line no-await-in-loop
+          await serviceHelper.delay(500);
+          // eslint-disable-next-line no-await-in-loop
+          tempMessage = await checkAppTemporaryMessageExistence(messageHASH);
+        }
+      }
+      if (tempMessage && typeof tempMessage === 'object' && !Array.isArray(tempMessage)) {
+        const responseHash = serviceHelper.createDataMessage(tempMessage.hash);
+        res.json(responseHash); // all ok
+        return;
+      }
+      throw new Error('Unable to update application on the network. Try again later.');
     } catch (error) {
       log.warn(error);
       const errorResponse = serviceHelper.createErrorMessage(
@@ -4224,7 +4288,7 @@ async function updateAppGlobalyApi(req, res) {
         error.name,
         error.code,
       );
-      return res.json(errorResponse);
+      res.json(errorResponse);
     }
   });
 }
@@ -4321,20 +4385,6 @@ async function installTemporaryLocalApplication(req, res) {
     );
     res.json(errorResponse);
   }
-}
-
-async function requestAppMessage(hash) {
-  // some message type request app message, message hash
-  // peer responds with data from permanent database or temporary database. If does not have it requests further
-  console.log(hash);
-  const message = {
-    type: 'fluxapprequest',
-    version: 1,
-    hash,
-  };
-  await fluxCommunication.broadcastMessageToOutgoing(message);
-  await serviceHelper.delay(500);
-  await fluxCommunication.broadcastMessageToIncoming(message);
 }
 
 async function storeAppPermanentMessage(message) {
@@ -4640,7 +4690,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
         }
       } else {
         // request the message and broadcast the message further to our connected peers.
-        requestAppMessage(hash);
+        await requestAppMessage(hash);
         // rerun this after 1 min delay
         // stop this loop after 7 mins, as it might be a scammy message or simply this message is nowhere on the network, we dont have connections etc. We also have continous checkup for it every 8 min
         if (i < 7) {
@@ -4897,7 +4947,7 @@ async function rescanGlobalAppsInformationAPI(req, res) {
 
 async function continuousFluxAppHashesCheck() {
   try {
-    const knownWrongTxids = ['e56e08a8dbe9523ad10ca328fca84ee1da775ea5f466abed06ec357daa192940', 'e56e08a8dbe9523ad10ca328fca84ee1da775ea5f466abed06ec357daa192940'];
+    const knownWrongTxids = ['e56e08a8dbe9523ad10ca328fca84ee1da775ea5f466abed06ec357daa192940'];
     log.info('Requesting missing Flux App messages');
     // get flux app hashes that do not have a message;
     const dbopen = serviceHelper.databaseConnection();
@@ -6059,6 +6109,60 @@ async function deloymentInformation(req, res) {
   }
 }
 
+async function reconstructAppMessagesHashCollection() {
+  // go through our appsHashesCollection and check if globalAppsMessages trully has the message or not
+  const db = serviceHelper.databaseConnection();
+  const databaseApps = db.db(config.database.appsglobal.database);
+  const databaseDaemon = db.db(config.database.daemon.database);
+  const query = {};
+  const projection = { projection: { _id: 0 } };
+  const permanentMessages = await serviceHelper.findInDatabase(databaseApps, globalAppsMessages, query, projection);
+  const appHashes = await serviceHelper.findInDatabase(databaseDaemon, appsHashesCollection, query, projection);
+  // eslint-disable-next-line no-restricted-syntax
+  for (const appHash of appHashes) {
+    const options = {};
+    const queryUpdate = {
+      hash: appHash.hash,
+      txid: appHash.txid,
+    };
+    const permanentMessageFound = permanentMessages.find((message) => message.hash === appHash.hash);
+    if (permanentMessageFound) {
+      // update that we have the message
+      const update = { $set: { message: true } };
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.updateOneInDatabase(databaseDaemon, appsHashesCollection, queryUpdate, update, options);
+    } else {
+      // update that we do not have the message
+      const update = { $set: { message: false } };
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.updateOneInDatabase(databaseDaemon, appsHashesCollection, queryUpdate, update, options);
+    }
+  }
+  return 'Reconstruct success';
+}
+
+async function reconstructAppMessagesHashCollectionAPI(req, res) {
+  try {
+    const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+    if (authorized) {
+      const result = await reconstructAppMessagesHashCollection();
+      const message = serviceHelper.createSuccessMessage(result);
+      res.json(message);
+    } else {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
+}
+
 module.exports = {
   appPull,
   listRunningApps,
@@ -6133,4 +6237,6 @@ module.exports = {
   verifyAppRegistrationParameters,
   verifyAppUpdateParameters,
   deloymentInformation,
+  reconstructAppMessagesHashCollection,
+  reconstructAppMessagesHashCollectionAPI,
 };

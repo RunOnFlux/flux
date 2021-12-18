@@ -216,7 +216,7 @@ async function processBlockTransactions(txs, height) {
     const txContent = await processTransaction(transaction, height);
     transactions.push(txContent);
     // eslint-disable-next-line no-await-in-loop
-    await serviceHelper.delay(50); // delay of 50ms to not kill mongodb
+    await serviceHelper.delay(75); // delay of 75ms to not kill mongodb 800 transactions per minute.
   }
   return transactions;
 }

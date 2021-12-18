@@ -275,10 +275,10 @@ module.exports = (app, expressWs) => {
   app.get('/apps/registrationinformation', cache('30 seconds'), (req, res) => {
     appsService.registrationInformation(req, res);
   });
-  app.get('/apps/temporarymessages', cache('30 seconds'), (req, res) => {
+  app.get('/apps/temporarymessages/:hash?', cache('5 seconds'), (req, res) => {
     appsService.getAppsTemporaryMessages(req, res);
   });
-  app.get('/apps/permanentmessages', cache('30 seconds'), (req, res) => {
+  app.get('/apps/permanentmessages/:hash?', cache('30 seconds'), (req, res) => {
     appsService.getAppsPermanentMessages(req, res);
   });
   app.get('/apps/globalappsspecifications', cache('30 seconds'), (req, res) => {
@@ -817,6 +817,9 @@ module.exports = (app, expressWs) => {
   });
   app.get('/apps/redeploy/:appname?/:force?', (req, res) => {
     appsService.redeployAPI(req, res);
+  });
+  app.get('/apps/reconstructhashes', (req, res) => {
+    appsService.reconstructAppMessagesHashCollectionAPI(req, res);
   });
 
   // POST PUBLIC methods route

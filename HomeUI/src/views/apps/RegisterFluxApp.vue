@@ -1312,6 +1312,7 @@ export default {
         timestamp: this.timestamp,
         signature: this.signature,
       };
+      this.showToast('info', 'Propagating message accross Flux network...');
       const response = await AppsService.registerApp(zelidauth, data).catch((error) => {
         this.showToast('danger', error.message || error);
       });

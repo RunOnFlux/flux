@@ -39,6 +39,10 @@ const LRUoptions = {
 
 let numberOfFluxNodes = 0;
 
+const axiosConfig = {
+  timeout: 5000,
+};
+
 const myCache = new LRU(LRUoptions);
 const myMessageCache = new LRU(250);
 const blockedPubKeysCache = new LRU(LRUoptions);
@@ -80,9 +84,6 @@ let addingNodesToCache = false;
 
 // basic check for a version of other flux.
 async function isFluxAvailable(ip) {
-  const axiosConfig = {
-    timeout: 5000,
-  };
   try {
     const fluxResponse = await serviceHelper.axiosGet(`http://${ip}:${config.server.apiport}/flux/version`, axiosConfig);
     if (fluxResponse.data.status === 'success') {
@@ -278,11 +279,11 @@ async function sendToAllPeers(data, wsList) {
     for (const client of outConList) {
       try {
         // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay(50);
+        await serviceHelper.delay(25);
         if (client.readyState === WebSocket.OPEN) {
           if (!data) {
             const pingTime = new Date().getTime();
-            client.ping('flux'); // do ping with flux strc instead
+            client.ping('flux'); // do ping with flux str instead
             const foundPeer = outgoingPeers.find((peer) => peer.ip === client._socket.remoteAddress);
             if (foundPeer) {
               foundPeer.lastPingTime = pingTime;
@@ -334,14 +335,13 @@ async function sendToAllIncomingConnections(data, wsList) {
     for (const client of incConList) {
       try {
         // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay(50);
+        await serviceHelper.delay(25);
         if (client.readyState === WebSocket.OPEN) {
           if (!data) {
-            client.ping('flux'); // do ping with flux strc instead
+            client.ping('flux'); // do ping with flux str instead
           } else {
             client.send(data);
           }
-          client.send(data);
         } else {
           throw new Error(`Connection to ${client._socket.remoteAddress} is not open`);
         }
@@ -410,7 +410,7 @@ async function handleAppMessages(message, fromIP) {
       const messageString = serviceHelper.ensureString(message);
       const wsListOut = outgoingConnections.filter((client) => client._socket.remoteAddress !== fromIP);
       sendToAllPeers(messageString, wsListOut);
-      await serviceHelper.delay(2345);
+      await serviceHelper.delay(100);
       const wsList = incomingConnections.filter((client) => client._socket.remoteAddress.replace('::ffff:', '') !== fromIP);
       sendToAllIncomingConnections(messageString, wsList);
     }
@@ -648,31 +648,40 @@ function handleIncomingConnection(ws, req, expressWS) {
 
 async function broadcastMessageToOutgoing(dataToBroadcast) {
   const serialisedData = await serialiseAndSignFluxBroadcast(dataToBroadcast);
-  sendToAllPeers(serialisedData);
+  await sendToAllPeers(serialisedData);
 }
 
 async function broadcastMessageToIncoming(dataToBroadcast) {
   const serialisedData = await serialiseAndSignFluxBroadcast(dataToBroadcast);
-  sendToAllIncomingConnections(serialisedData);
+  await sendToAllIncomingConnections(serialisedData);
 }
 
 async function broadcastMessageToOutgoingFromUser(req, res) {
-  let { data } = req.params;
-  data = data || req.query.data;
-  if (data === undefined || data === null) {
-    const errMessage = serviceHelper.createErrorMessage('No message to broadcast attached.');
-    return res.json(errMessage);
-  }
-  const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+  try {
+    let { data } = req.params;
+    data = data || req.query.data;
+    if (data === undefined || data === null) {
+      throw new Error('No message to broadcast attached.');
+    }
+    const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
 
-  if (authorized === true) {
-    broadcastMessageToOutgoing(data);
-    const message = serviceHelper.createSuccessMessage('Message successfully broadcasted to Flux network');
-    response = message;
-  } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    if (authorized === true) {
+      await broadcastMessageToOutgoing(data);
+      const message = serviceHelper.createSuccessMessage('Message successfully broadcasted to Flux network');
+      response = message;
+    } else {
+      response = serviceHelper.errUnauthorizedMessage();
+    }
+    res.json(response);
+  } catch (error) {
+    log.error(error);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
   }
-  return res.json(response);
 }
 
 async function broadcastMessageToOutgoingFromUserPost(req, res) {
@@ -681,41 +690,58 @@ async function broadcastMessageToOutgoingFromUserPost(req, res) {
     body += data;
   });
   req.on('end', async () => {
-    const processedBody = serviceHelper.ensureObject(body);
-    if (processedBody === undefined || processedBody === null || processedBody === '') {
-      const errMessage = serviceHelper.createErrorMessage('No message to broadcast attached.');
-      response = errMessage;
-    } else {
+    try {
+      const processedBody = serviceHelper.ensureObject(body);
+      if (processedBody === undefined || processedBody === null || processedBody === '') {
+        throw new Error('No message to broadcast attached.');
+      }
       const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
       if (authorized === true) {
-        broadcastMessageToOutgoing(processedBody);
+        await broadcastMessageToOutgoing(processedBody);
         const message = serviceHelper.createSuccessMessage('Message successfully broadcasted to Flux network');
         response = message;
       } else {
         response = serviceHelper.errUnauthorizedMessage();
       }
+      res.json(response);
+    } catch (error) {
+      log.error(error);
+      const errorResponse = serviceHelper.createErrorMessage(
+        error.message || error,
+        error.name,
+        error.code,
+      );
+      res.json(errorResponse);
     }
-    return res.json(response);
   });
 }
 
 async function broadcastMessageToIncomingFromUser(req, res) {
-  let { data } = req.params;
-  data = data || req.query.data;
-  if (data === undefined || data === null) {
-    const errMessage = serviceHelper.createErrorMessage('No message to broadcast attached.');
-    return res.json(errMessage);
-  }
-  const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+  try {
+    let { data } = req.params;
+    data = data || req.query.data;
+    if (data === undefined || data === null) {
+      throw new Error('No message to broadcast attached.');
+    }
+    const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
 
-  if (authorized === true) {
-    broadcastMessageToIncoming(data);
-    const message = serviceHelper.createSuccessMessage('Message successfully broadcasted to Flux network');
-    response = message;
-  } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    if (authorized === true) {
+      await broadcastMessageToIncoming(data);
+      const message = serviceHelper.createSuccessMessage('Message successfully broadcasted to Flux network');
+      response = message;
+    } else {
+      response = serviceHelper.errUnauthorizedMessage();
+    }
+    res.json(response);
+  } catch (error) {
+    log.error(error);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
   }
-  return res.json(response);
 }
 
 async function broadcastMessageToIncomingFromUserPost(req, res) {
@@ -724,42 +750,59 @@ async function broadcastMessageToIncomingFromUserPost(req, res) {
     body += data;
   });
   req.on('end', async () => {
-    const processedBody = serviceHelper.ensureObject(body);
-    if (processedBody === undefined || processedBody === null || processedBody === '') {
-      const errMessage = serviceHelper.createErrorMessage('No message to broadcast attached.');
-      response = errMessage;
-    } else {
+    try {
+      const processedBody = serviceHelper.ensureObject(body);
+      if (processedBody === undefined || processedBody === null || processedBody === '') {
+        throw new Error('No message to broadcast attached.');
+      }
       const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
       if (authorized === true) {
-        broadcastMessageToIncoming(processedBody);
+        await broadcastMessageToIncoming(processedBody);
         const message = serviceHelper.createSuccessMessage('Message successfully broadcasted to Flux network');
         response = message;
       } else {
         response = serviceHelper.errUnauthorizedMessage();
       }
+      res.json(response);
+    } catch (error) {
+      log.error(error);
+      const errorResponse = serviceHelper.createErrorMessage(
+        error.message || error,
+        error.name,
+        error.code,
+      );
+      res.json(errorResponse);
     }
-    return res.json(response);
   });
 }
 
 async function broadcastMessageFromUser(req, res) {
-  let { data } = req.params;
-  data = data || req.query.data;
-  if (data === undefined || data === null) {
-    const errMessage = serviceHelper.createErrorMessage('No message to broadcast attached.');
-    return res.json(errMessage);
-  }
-  const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+  try {
+    let { data } = req.params;
+    data = data || req.query.data;
+    if (data === undefined || data === null) {
+      throw new Error('No message to broadcast attached.');
+    }
+    const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
 
-  if (authorized === true) {
-    broadcastMessageToOutgoing(data);
-    broadcastMessageToIncoming(data);
-    const message = serviceHelper.createSuccessMessage('Message successfully broadcasted to Flux network');
-    response = message;
-  } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    if (authorized === true) {
+      await broadcastMessageToOutgoing(data);
+      await broadcastMessageToIncoming(data);
+      const message = serviceHelper.createSuccessMessage('Message successfully broadcasted to Flux network');
+      response = message;
+    } else {
+      response = serviceHelper.errUnauthorizedMessage();
+    }
+    res.json(response);
+  } catch (error) {
+    log.error(error);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
   }
-  return res.json(response);
 }
 
 async function broadcastMessageFromUserPost(req, res) {
@@ -768,22 +811,30 @@ async function broadcastMessageFromUserPost(req, res) {
     body += data;
   });
   req.on('end', async () => {
-    const processedBody = serviceHelper.ensureObject(body);
-    if (processedBody === undefined || processedBody === null || processedBody === '') {
-      const errMessage = serviceHelper.createErrorMessage('No message to broadcast attached.');
-      response = errMessage;
-    } else {
+    try {
+      const processedBody = serviceHelper.ensureObject(body);
+      if (processedBody === undefined || processedBody === null || processedBody === '') {
+        throw new Error('No message to broadcast attached.');
+      }
       const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
       if (authorized === true) {
-        broadcastMessageToOutgoing(processedBody);
-        broadcastMessageToIncoming(processedBody);
+        await broadcastMessageToOutgoing(processedBody);
+        await broadcastMessageToIncoming(processedBody);
         const message = serviceHelper.createSuccessMessage('Message successfully broadcasted to Flux network');
         response = message;
       } else {
         response = serviceHelper.errUnauthorizedMessage();
       }
+      res.json(response);
+    } catch (error) {
+      log.error(error);
+      const errorResponse = serviceHelper.createErrorMessage(
+        error.message || error,
+        error.name,
+        error.code,
+      );
+      res.json(errorResponse);
     }
-    return res.json(response);
   });
 }
 
@@ -1215,10 +1266,10 @@ async function checkMyFluxAvailability(retryNumber = 0) {
     myIP = `[${myIP}]`;
   }
   let availabilityError = null;
-  const axiosConfig = {
+  const axiosConfigAux = {
     timeout: 7000,
   };
-  const resMyAvailability = await serviceHelper.axiosGet(`http://${askingIP}:${config.server.apiport}/flux/checkfluxavailability/${myIP}`, axiosConfig).catch((error) => {
+  const resMyAvailability = await serviceHelper.axiosGet(`http://${askingIP}:${config.server.apiport}/flux/checkfluxavailability/${myIP}`, axiosConfigAux).catch((error) => {
     log.error(`${askingIP} is not reachable`);
     log.error(error);
     availabilityError = true;
@@ -1492,6 +1543,7 @@ function isCommunicationEstablished(req, res) {
   res.json(message);
 }
 
+// how long can this take?
 async function broadcastTemporaryAppMessage(message) {
   /* message object
   * @param type string
@@ -1504,36 +1556,12 @@ async function broadcastTemporaryAppMessage(message) {
   log.info(message);
   // no verification of message before broadcasting. Broadcasting happens always after data have been verified and are stored in our db. It is up to receiving node to verify it and store and rebroadcast.
   if (typeof message !== 'object' && typeof message.type !== 'string' && typeof message.version !== 'number' && typeof message.appSpecifications !== 'object' && typeof message.signature !== 'string' && typeof message.timestamp !== 'number' && typeof message.hash !== 'string') {
-    return new Error('Invalid Flux App message for storing');
+    throw new Error('Invalid Flux App message for storing');
   }
   // to all outoing
-  await broadcastMessageToOutgoing(message);
-  await serviceHelper.delay(500);
+  await broadcastMessageToOutgoing(message); // every outgoing peer AT LEAST 50ms - suppose 40 outgoing - 0.8 seconds
   // to all incoming. Delay broadcast in case message is processing
-  await broadcastMessageToIncoming(message);
-  return 0;
-}
-
-async function broadcastAppRunningMessage(message) {
-  /* message object
-  * @param type string
-  * @param version number
-  * @param broadcastedAt number
-  * @param name string
-  * @param hash string
-  * @param ip string
-  */
-  log.info(message);
-  // no verification of message before broadcasting. Broadcasting happens always after data have been verified and are stored in our db. It is up to receiving node to verify it and store and rebroadcast.
-  if (typeof message !== 'object' && typeof message.type !== 'string' && typeof message.version !== 'number' && typeof message.broadcastedAt !== 'number' && typeof message.name !== 'string' && typeof message.hash !== 'string' && typeof message.ip !== 'string') {
-    return new Error('Invalid Flux App Running message for storing');
-  }
-  // to all outoing
-  await broadcastMessageToOutgoing(message);
-  await serviceHelper.delay(500);
-  // to all incoming. Delay broadcast in case message is processing
-  await broadcastMessageToIncoming(message);
-  return 0;
+  await broadcastMessageToIncoming(message); // every incoing peer AT LEAST 50ms. Suppose 50 incoming - 1 second
 }
 
 module.exports = {
@@ -1568,7 +1596,6 @@ module.exports = {
   incomingPeers,
   isCommunicationEstablished,
   broadcastTemporaryAppMessage,
-  broadcastAppRunningMessage,
   keepConnectionsAlive,
   adjustFirewall,
   checkDeterministicNodesCollisions,
