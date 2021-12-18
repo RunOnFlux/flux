@@ -3751,7 +3751,7 @@ async function requestAppMessage(hash) {
     hash,
   };
   await fluxCommunication.broadcastMessageToOutgoing(message);
-  await serviceHelper.delay(200);
+  await serviceHelper.delay(100);
   await fluxCommunication.broadcastMessageToIncoming(message);
 }
 
@@ -4128,12 +4128,16 @@ async function registerAppGlobalyApi(req, res) {
         timestamp,
         signature,
       };
+      log.warn(new Date().getTime());
       await fluxCommunication.broadcastTemporaryAppMessage(temporaryAppMessage);
+      log.warn(new Date().getTime());
       // above takes 2-3 seconds
-      await serviceHelper.delay(400); // 400 ms mas for processing
+      await serviceHelper.delay(200); // 200 ms mas for processing
       // this operations takes 2.5-3.5 seconds and is heavy, message gets verified again.
+      log.warn(new Date().getTime());
       await requestAppMessage(messageHASH); // this itself verifies that Peers received our message broadcast AND peers send us the message back. By peers sending the message back we finally store it to our temporary message storage and rebroadcast it again
-      await serviceHelper.delay(600); // 600 ms mas for processing
+      log.warn(new Date().getTime());
+      await serviceHelper.delay(1000); // 1000 ms mas for processing - peer sends message back to us
       // check temporary message storage
       const tempMessage = await checkAppTemporaryMessageExistence(messageHASH);
       if (tempMessage && typeof tempMessage === 'object' && !Array.isArray(tempMessage)) {
@@ -4251,10 +4255,10 @@ async function updateAppGlobalyApi(req, res) {
       await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, temporaryAppMessage.timestamp);
       await fluxCommunication.broadcastTemporaryAppMessage(temporaryAppMessage);
       // above takes 2-3 seconds
-      await serviceHelper.delay(400); // 400 ms mas for processing
+      await serviceHelper.delay(100); // 100 ms mas for processing
       // this operations takes 2.5-3.5 seconds and is heavy, message gets verified again.
       await requestAppMessage(messageHASH); // this itself verifies that Peers received our message broadcast AND peers send us the message back. By peers sending the message back we finally store it to our temporary message storage and rebroadcast it again
-      await serviceHelper.delay(600); // 600 ms mas for processing
+      await serviceHelper.delay(1000); // 1000 ms mas for processing
       // check temporary message storage
       const tempMessage = await checkAppTemporaryMessageExistence(messageHASH);
       if (tempMessage && typeof tempMessage === 'object' && !Array.isArray(tempMessage)) {

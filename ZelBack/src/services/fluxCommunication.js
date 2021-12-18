@@ -279,11 +279,11 @@ async function sendToAllPeers(data, wsList) {
     for (const client of outConList) {
       try {
         // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay(20);
+        await serviceHelper.delay(25);
         if (client.readyState === WebSocket.OPEN) {
           if (!data) {
             const pingTime = new Date().getTime();
-            client.ping('flux'); // do ping with flux strc instead
+            client.ping('flux'); // do ping with flux str instead
             const foundPeer = outgoingPeers.find((peer) => peer.ip === client._socket.remoteAddress);
             if (foundPeer) {
               foundPeer.lastPingTime = pingTime;
@@ -335,10 +335,10 @@ async function sendToAllIncomingConnections(data, wsList) {
     for (const client of incConList) {
       try {
         // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay(20);
+        await serviceHelper.delay(25);
         if (client.readyState === WebSocket.OPEN) {
           if (!data) {
-            client.ping('flux'); // do ping with flux strc instead
+            client.ping('flux'); // do ping with flux str instead
           } else {
             client.send(data);
           }
@@ -410,7 +410,7 @@ async function handleAppMessages(message, fromIP) {
       const messageString = serviceHelper.ensureString(message);
       const wsListOut = outgoingConnections.filter((client) => client._socket.remoteAddress !== fromIP);
       sendToAllPeers(messageString, wsListOut);
-      await serviceHelper.delay(500);
+      await serviceHelper.delay(100);
       const wsList = incomingConnections.filter((client) => client._socket.remoteAddress.replace('::ffff:', '') !== fromIP);
       sendToAllIncomingConnections(messageString, wsList);
     }
