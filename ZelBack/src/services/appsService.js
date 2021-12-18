@@ -3630,6 +3630,8 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
     // do not rebroadcast further
     return false;
   }
+  log.warn('0');
+  log.warn(new Date().getTime());
 
   // data shall already be verified by the broadcasting node. But verify all again.
   if (furtherVerification) {
@@ -3659,6 +3661,8 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
       throw new Error('Invalid Flux App message received');
     }
   }
+  log.warn('1');
+  log.warn(new Date().getTime());
 
   const receivedAt = Date.now();
   const validTill = receivedAt + (60 * 60 * 1000); // 60 minutes
@@ -3678,6 +3682,8 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
   const db = serviceHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
   await serviceHelper.insertOneToDatabase(database, globalAppsTempMessages, value);
+  log.warn('2');
+  log.warn(new Date().getTime());
   // it is stored and rebroadcasted
   return true;
 }
@@ -4140,6 +4146,9 @@ async function registerAppGlobalyApi(req, res) {
       await serviceHelper.delay(1000); // 1000 ms mas for processing - peer sends message back to us
       // check temporary message storage
       const tempMessage = await checkAppTemporaryMessageExistence(messageHASH);
+      log.warn('a');
+      log.warn(tempMessage);
+      log.warn(new Date().getTime());
       if (tempMessage && typeof tempMessage === 'object' && !Array.isArray(tempMessage)) {
         const responseHash = serviceHelper.createDataMessage(tempMessage.hash);
         res.json(responseHash); // all ok
