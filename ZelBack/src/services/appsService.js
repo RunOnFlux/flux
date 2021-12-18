@@ -3630,10 +3630,9 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
     // do not rebroadcast further
     return false;
   }
-  log.warn('0');
-  log.warn(new Date().getTime());
 
   // data shall already be verified by the broadcasting node. But verify all again.
+  // this takes roughly at least 1 second
   if (furtherVerification) {
     if (message.type === 'zelappregister' || message.type === 'fluxappregister') {
       const syncStatus = daemonService.isDaemonSynced();
@@ -3661,8 +3660,6 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
       throw new Error('Invalid Flux App message received');
     }
   }
-  log.warn('1');
-  log.warn(new Date().getTime());
 
   const receivedAt = Date.now();
   const validTill = receivedAt + (60 * 60 * 1000); // 60 minutes
@@ -3682,8 +3679,6 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
   const db = serviceHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
   await serviceHelper.insertOneToDatabase(database, globalAppsTempMessages, value);
-  log.warn('2');
-  log.warn(new Date().getTime());
   // it is stored and rebroadcasted
   return true;
 }
@@ -4134,21 +4129,23 @@ async function registerAppGlobalyApi(req, res) {
         timestamp,
         signature,
       };
-      log.warn(new Date().getTime());
       await fluxCommunication.broadcastTemporaryAppMessage(temporaryAppMessage);
-      log.warn(new Date().getTime());
       // above takes 2-3 seconds
-      await serviceHelper.delay(200); // 200 ms mas for processing
+      await serviceHelper.delay(1200); // it takes receiving node at least 1 second to process the message. Add 1200 ms mas for processing
       // this operations takes 2.5-3.5 seconds and is heavy, message gets verified again.
-      log.warn(new Date().getTime());
       await requestAppMessage(messageHASH); // this itself verifies that Peers received our message broadcast AND peers send us the message back. By peers sending the message back we finally store it to our temporary message storage and rebroadcast it again
-      log.warn(new Date().getTime());
-      await serviceHelper.delay(1000); // 1000 ms mas for processing - peer sends message back to us
+      // request app message is quite slow and from performance testing message will appear roughly 5 seconds after ask
+      await serviceHelper.delay(1200); // 1200 ms mas for processing - peer sends message back to us
       // check temporary message storage
-      const tempMessage = await checkAppTemporaryMessageExistence(messageHASH);
-      log.warn('a');
-      log.warn(tempMessage);
-      log.warn(new Date().getTime());
+      let tempMessage = await checkAppTemporaryMessageExistence(messageHASH);
+      for (let i = 0; i < 20; i += 1) { // ask for up to 20 times - 10 seconds. Must have been processed by that time or it failed.
+        if (!tempMessage) {
+          // eslint-disable-next-line no-await-in-loop
+          await serviceHelper.delay(500);
+          // eslint-disable-next-line no-await-in-loop
+          tempMessage = await checkAppTemporaryMessageExistence(messageHASH);
+        }
+      }
       if (tempMessage && typeof tempMessage === 'object' && !Array.isArray(tempMessage)) {
         const responseHash = serviceHelper.createDataMessage(tempMessage.hash);
         res.json(responseHash); // all ok
@@ -4264,12 +4261,20 @@ async function updateAppGlobalyApi(req, res) {
       await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, temporaryAppMessage.timestamp);
       await fluxCommunication.broadcastTemporaryAppMessage(temporaryAppMessage);
       // above takes 2-3 seconds
-      await serviceHelper.delay(100); // 100 ms mas for processing
+      await serviceHelper.delay(1200); // it takes receiving node at least 1 second to process the message. Add 1200 ms mas for processing
       // this operations takes 2.5-3.5 seconds and is heavy, message gets verified again.
       await requestAppMessage(messageHASH); // this itself verifies that Peers received our message broadcast AND peers send us the message back. By peers sending the message back we finally store it to our temporary message storage and rebroadcast it again
-      await serviceHelper.delay(1000); // 1000 ms mas for processing
+      await serviceHelper.delay(1200); // 1200 ms mas for processing - peer sends message back to us
       // check temporary message storage
-      const tempMessage = await checkAppTemporaryMessageExistence(messageHASH);
+      let tempMessage = await checkAppTemporaryMessageExistence(messageHASH);
+      for (let i = 0; i < 20; i += 1) { // ask for up to 20 times - 10 seconds. Must have been processed by that time or it failed.
+        if (!tempMessage) {
+          // eslint-disable-next-line no-await-in-loop
+          await serviceHelper.delay(500);
+          // eslint-disable-next-line no-await-in-loop
+          tempMessage = await checkAppTemporaryMessageExistence(messageHASH);
+        }
+      }
       if (tempMessage && typeof tempMessage === 'object' && !Array.isArray(tempMessage)) {
         const responseHash = serviceHelper.createDataMessage(tempMessage.hash);
         res.json(responseHash); // all ok
