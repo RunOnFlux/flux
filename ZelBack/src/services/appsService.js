@@ -4119,7 +4119,6 @@ async function registerAppGlobalyApi(req, res) {
       // We respond with a hash that is supposed to go to transaction.
       const message = messageType + typeVersion + JSON.stringify(appSpecFormatted) + timestamp + signature;
       const messageHASH = await generalService.messageHash(message);
-      const responseHash = serviceHelper.createDataMessage(messageHASH);
       // now all is great. Store appSpecFormatted, timestamp, signature and hash in appsTemporaryMessages. with 1 hours expiration time. Broadcast this message to all outgoing connections.
       const temporaryAppMessage = { // specification of temp message
         type: messageType,
@@ -4138,6 +4137,7 @@ async function registerAppGlobalyApi(req, res) {
       // check temporary message storage
       const tempMessage = await checkAppTemporaryMessageExistence(messageHASH);
       if (tempMessage && typeof tempMessage === 'object' && !Array.isArray(tempMessage)) {
+        const responseHash = serviceHelper.createDataMessage(tempMessage.hash);
         res.json(responseHash); // all ok
         return;
       }
@@ -4238,7 +4238,6 @@ async function updateAppGlobalyApi(req, res) {
       // We respond with a hash that is supposed to go to transaction.
       const message = messageType + typeVersion + JSON.stringify(appSpecFormatted) + timestamp + signature;
       const messageHASH = await generalService.messageHash(message);
-      const responseHash = serviceHelper.createDataMessage(messageHASH);
       // now all is great. Store appSpecFormatted, timestamp, signature and hash in appsTemporaryMessages. with 1 hours expiration time. Broadcast this message to all outgoing connections.
       const temporaryAppMessage = { // specification of temp message
         type: messageType,
@@ -4259,6 +4258,7 @@ async function updateAppGlobalyApi(req, res) {
       // check temporary message storage
       const tempMessage = await checkAppTemporaryMessageExistence(messageHASH);
       if (tempMessage && typeof tempMessage === 'object' && !Array.isArray(tempMessage)) {
+        const responseHash = serviceHelper.createDataMessage(tempMessage.hash);
         res.json(responseHash); // all ok
         return;
       }
