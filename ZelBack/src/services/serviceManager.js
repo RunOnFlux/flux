@@ -47,6 +47,12 @@ async function startFluxFunctions() {
     log.info('Flux checks operational');
     fluxCommunication.fluxDiscovery();
     log.info('Flux Discovery started');
+    try {
+      appsService.reconstructAppMessagesHashCollection();
+      log.info('Validation of App Messages Hash Collection');
+    } catch (error) {
+      log.error(error);
+    }
     setTimeout(() => { // wait as of restarts due to ui building
       explorerService.initiateBlockProcessor(true, true);
       log.info('Flux Block Processing Service started');

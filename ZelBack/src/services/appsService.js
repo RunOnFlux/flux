@@ -3572,31 +3572,26 @@ async function checkAppMessageExistence(hash) {
 }
 
 async function checkAppTemporaryMessageExistence(hash) {
-  try {
-    const dbopen = serviceHelper.databaseConnection();
-    const appsDatabase = dbopen.db(config.database.appsglobal.database);
-    const appsQuery = { hash };
-    const appsProjection = {};
-    // a temporary zelappmessage looks like this:
-    // const newMessage = {
-    //   appSpecifications: message.appSpecifications,
-    //   type: message.type,
-    //   version: message.version,
-    //   hash: message.hash,
-    //   timestamp: message.timestamp,
-    //   signature: message.signature,
-    //   createdAt: new Date(message.timestamp),
-    //   expireAt: new Date(validTill),
-    // };
-    const appResult = await serviceHelper.findOneInDatabase(appsDatabase, globalAppsTempMessages, appsQuery, appsProjection);
-    if (appResult) {
-      return appResult;
-    }
-    return false;
-  } catch (error) {
-    log.error(error);
-    return error;
+  const dbopen = serviceHelper.databaseConnection();
+  const appsDatabase = dbopen.db(config.database.appsglobal.database);
+  const appsQuery = { hash };
+  const appsProjection = {};
+  // a temporary zelappmessage looks like this:
+  // const newMessage = {
+  //   appSpecifications: message.appSpecifications,
+  //   type: message.type,
+  //   version: message.version,
+  //   hash: message.hash,
+  //   timestamp: message.timestamp,
+  //   signature: message.signature,
+  //   createdAt: new Date(message.timestamp),
+  //   expireAt: new Date(validTill),
+  // };
+  const appResult = await serviceHelper.findOneInDatabase(appsDatabase, globalAppsTempMessages, appsQuery, appsProjection);
+  if (appResult) {
+    return appResult;
   }
+  return false;
 }
 
 async function storeAppTemporaryMessage(message, furtherVerification = false) {
@@ -4932,7 +4927,7 @@ async function rescanGlobalAppsInformationAPI(req, res) {
 
 async function continuousFluxAppHashesCheck() {
   try {
-    const knownWrongTxids = ['e56e08a8dbe9523ad10ca328fca84ee1da775ea5f466abed06ec357daa192940', 'e56e08a8dbe9523ad10ca328fca84ee1da775ea5f466abed06ec357daa192940'];
+    const knownWrongTxids = ['e56e08a8dbe9523ad10ca328fca84ee1da775ea5f466abed06ec357daa192940'];
     log.info('Requesting missing Flux App messages');
     // get flux app hashes that do not have a message;
     const dbopen = serviceHelper.databaseConnection();
@@ -6094,6 +6089,60 @@ async function deloymentInformation(req, res) {
   }
 }
 
+async function reconstructAppMessagesHashCollection() {
+  // go through our appsHashesCollection and check if globalAppsMessages trully has the message or not
+  const db = serviceHelper.databaseConnection();
+  const databaseApps = db.db(config.database.appsglobal.database);
+  const databaseDaemon = db.db(config.database.daemon.database);
+  const query = {};
+  const projection = { projection: { _id: 0 } };
+  const permanentMessages = await serviceHelper.findInDatabase(databaseApps, globalAppsMessages, query, projection);
+  const appHashes = await serviceHelper.findInDatabase(databaseDaemon, appsHashesCollection, query, projection);
+  // eslint-disable-next-line no-restricted-syntax
+  for (const appHash of appHashes) {
+    const options = {};
+    const queryUpdate = {
+      hash: appHash.hash,
+      txid: appHash.txid,
+    };
+    const permanentMessageFound = permanentMessages.find((message) => message.hash === appHash.hash);
+    if (permanentMessageFound) {
+      // update that we have the message
+      const update = { $set: { message: true } };
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.updateOneInDatabase(databaseDaemon, appsHashesCollection, queryUpdate, update, options);
+    } else {
+      // update that we do not have the message
+      const update = { $set: { message: false } };
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.updateOneInDatabase(databaseDaemon, appsHashesCollection, queryUpdate, update, options);
+    }
+  }
+  return 'Reconstruct success';
+}
+
+async function reconstructAppMessagesHashCollectionAPI(req, res) {
+  try {
+    const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+    if (authorized) {
+      const result = await reconstructAppMessagesHashCollection();
+      const message = serviceHelper.createSuccessMessage(result);
+      res.json(message);
+    } else {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
+}
+
 module.exports = {
   appPull,
   listRunningApps,
@@ -6168,4 +6217,6 @@ module.exports = {
   verifyAppRegistrationParameters,
   verifyAppUpdateParameters,
   deloymentInformation,
+  reconstructAppMessagesHashCollection,
+  reconstructAppMessagesHashCollectionAPI,
 };

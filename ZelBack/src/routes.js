@@ -818,6 +818,9 @@ module.exports = (app, expressWs) => {
   app.get('/apps/redeploy/:appname?/:force?', (req, res) => {
     appsService.redeployAPI(req, res);
   });
+  app.get('/apps/reconstructhashes', (req, res) => {
+    appsService.reconstructAppMessagesHashCollectionAPI(req, res);
+  });
 
   // POST PUBLIC methods route
   app.post('/id/verifylogin', (req, res) => {
