@@ -401,7 +401,7 @@
             class="text-center wizard-card"
           >
             <a
-              :href="'zel:?action=sign&message=' + dataToSign + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=' + callbackValue"
+              :href="'zel:?action=sign&message=' + dataToSign + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=' + callbackValue()"
               @click="initiateSignWS"
             >
               <img
@@ -627,7 +627,7 @@ export default {
     const validTill = computed(() => timestamp.value + 60 * 60 * 1000); // 1 hour
     const subscribedTill = computed(() => timestamp.value + 30 * 24 * 60 * 60 * 1000 + 60 * 60 * 1000); // 1 month
 
-    const callbackValue = computed(() => {
+    const callbackValue = () => {
       const { protocol, hostname } = window.location;
       let mybackend = '';
       mybackend += protocol;
@@ -648,7 +648,7 @@ export default {
       const backendURL = store.get('backendURL') || mybackend;
       const url = `${backendURL}/id/providesign`;
       return encodeURI(url);
-    });
+    };
 
     const onError = (evt) => {
       console.log(evt);
@@ -1303,7 +1303,7 @@ export default {
         timestamp: timestamp.value,
         signature: signature.value,
       };
-      this.showToast('info', 'Propagating message accross Flux network...');
+      showToast('info', 'Propagating message accross Flux network...');
       const response = await AppsService.registerApp(zelidauth, data).catch((error) => {
         showToast('danger', error.message || error);
       });
