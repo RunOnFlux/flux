@@ -4064,10 +4064,7 @@ async function registerAppGlobalyApi(req, res) {
         return;
       }
       // first  check if this node is available for application registration
-      if (fluxCommunication.outgoingPeers.length < config.fluxapps.minOutgoing) {
-        throw new Error('Sorry, This Flux does not have enough peers for safe application registration');
-      }
-      if (fluxCommunication.incomingPeers.length < config.fluxapps.minIncoming) {
+      if (fluxCommunication.outgoingPeers.length + fluxCommunication.incomingPeers.length < config.fluxapps.minOutgoing + config.fluxapps.minIncoming) {
         throw new Error('Sorry, This Flux does not have enough peers for safe application registration');
       }
       const processedBody = serviceHelper.ensureObject(body);
