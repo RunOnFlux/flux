@@ -5318,6 +5318,17 @@ async function trySpawningGlobalApplication() {
       throw new Error(`Specifications for application ${randomApp} were not found!`);
     }
 
+    // eslint-disable-next-line no-restricted-syntax
+    for (const appComponent of appSpecifications.compose) {
+      if (runningApps.data.find((app) => app.Image === appComponent.repotag)) {
+        log.info(`${appComponent.repotag} Image is already running on this Flux`);
+        // eslint-disable-next-line no-await-in-loop
+        await serviceHelper.delay(adjustedDelay);
+        trySpawningGlobalApplication();
+        return;
+      }
+    }
+
     // check if application image is not blacklisted
     await checkApplicationImagesComplience(appSpecifications);
 
