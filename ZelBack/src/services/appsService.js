@@ -49,31 +49,6 @@ const nodeSpecs = {
   ssdStorage: 0,
 };
 
-async function appPull(req, res) {
-  try {
-    const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
-    if (authorized) {
-      let { repotag } = req.params;
-      repotag = repotag || req.query.repotag;
-      if (!repotag) {
-        throw new Error('No Docker repository specified');
-      }
-      await dockerPullStreamPromise(repotag, res);
-    } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
-      res.json(errMessage);
-    }
-  } catch (error) {
-    log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    res.json(errorResponse);
-  }
-}
-
 async function listRunningApps(req, res) {
   try {
     let apps = await dockerService.dockerListContainers(false);
@@ -6161,7 +6136,6 @@ async function reconstructAppMessagesHashCollectionAPI(req, res) {
 }
 
 module.exports = {
-  appPull,
   listRunningApps,
   listAllApps,
   listAppsImages,
