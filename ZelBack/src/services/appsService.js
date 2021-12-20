@@ -6080,7 +6080,7 @@ async function verifyAppUpdateParameters(req, res) {
   });
 }
 
-async function deloymentInformation(req, res) {
+async function deploymentInformation(req, res) {
   try {
     // respond with information needed for application deployment regarding specification limitation and prices
     const information = {
@@ -6233,7 +6233,7 @@ module.exports = {
   redeployAPI,
   verifyAppRegistrationParameters,
   verifyAppUpdateParameters,
-  deloymentInformation,
+  deploymentInformation,
   reconstructAppMessagesHashCollection,
   reconstructAppMessagesHashCollectionAPI,
 };

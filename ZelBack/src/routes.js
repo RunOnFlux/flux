@@ -315,7 +315,7 @@ module.exports = (app, expressWs) => {
     appsService.verifyAppUpdateParameters(req, res);
   });
   app.get('/apps/deploymentinformation', cache('30 seconds'), (req, res) => {
-    appsService.deloymentInformation(req, res);
+    appsService.deploymentInformation(req, res);
   });
 
   // app.get('/explorer/allutxos', (req, res) => {
