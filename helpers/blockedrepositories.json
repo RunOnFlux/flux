@@ -1,1 +1,1 @@
-["pengdocker/firefox:latest"]
+["pengdocker/firefox:latest", "krislululu/showdoc:latest"]
