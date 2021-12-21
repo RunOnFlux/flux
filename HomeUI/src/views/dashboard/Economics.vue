@@ -37,11 +37,11 @@
                   </h6>
                   <small class="mt-0">(${{ beautifyValue(cumulusUSDRewardWeek / 7) }} USD)</small>
                   <h6 class="mb-0 mt-1">
-                    {{ beautifyValue(cumulusWeek * 0.1 * 4 / 7 ) }} FLUX Tokens
+                    {{ beautifyValue(cumulusWeek * 0.1 * 5 / 7 ) }} FLUX Tokens
                   </h6>
-                  <small class="mt-0 mt-1">(${{ beautifyValue(cumulusUSDRewardWeek * 0.1 * 4 / 7) }} USD)</small>
+                  <small class="mt-0 mt-1">(${{ beautifyValue(cumulusUSDRewardWeek * 0.1 * 5 / 7) }} USD)</small>
                   <h6 class="mt-0 mt-1">
-                    ~ ${{ beautifyValue((cumulusUSDRewardWeek * 0.1 * 4 / 7 ) + (cumulusUSDRewardWeek / 7)) }} USD
+                    ~ ${{ beautifyValue((cumulusUSDRewardWeek * 0.1 * 5 / 7 ) + (cumulusUSDRewardWeek / 7)) }} USD
                   </h6>
                 </div>
                 <small class="text-muted">Per Day</small>
@@ -55,11 +55,11 @@
                   </h6>
                   <small class="mt-0">(${{ beautifyValue(cumulusUSDRewardWeek) }} USD)</small>
                   <h6 class="mb-0 mt-1">
-                    {{ beautifyValue(cumulusWeek * 0.1 * 4 ) }} FLUX Tokens
+                    {{ beautifyValue(cumulusWeek * 0.1 * 5 ) }} FLUX Tokens
                   </h6>
-                  <small class="mt-0 mt-1">(${{ beautifyValue(cumulusUSDRewardWeek * 0.1 * 4) }} USD)</small>
+                  <small class="mt-0 mt-1">(${{ beautifyValue(cumulusUSDRewardWeek * 0.1 * 5) }} USD)</small>
                   <h6 class="mt-0 mt-1">
-                    ~ ${{ beautifyValue((cumulusUSDRewardWeek * 0.1 * 4 ) + cumulusUSDRewardWeek) }} USD
+                    ~ ${{ beautifyValue((cumulusUSDRewardWeek * 0.1 * 5 ) + cumulusUSDRewardWeek) }} USD
                   </h6>
                 </div>
                 <small class="text-muted">Per Week</small>
@@ -73,11 +73,11 @@
                   </h6>
                   <small class="mt-0">(${{ beautifyValue(cumulusUSDRewardWeek * weeksInAMonth) }} USD)</small>
                   <h6 class="mb-0 mt-1">
-                    {{ beautifyValue(cumulusWeek * weeksInAMonth * 0.1 * 4 ) }} FLUX Tokens
+                    {{ beautifyValue(cumulusWeek * weeksInAMonth * 0.1 * 5 ) }} FLUX Tokens
                   </h6>
-                  <small class="mt-0 mt-1">(${{ beautifyValue(cumulusUSDRewardWeek * weeksInAMonth * 0.1 * 4) }} USD)</small>
+                  <small class="mt-0 mt-1">(${{ beautifyValue(cumulusUSDRewardWeek * weeksInAMonth * 0.1 * 5) }} USD)</small>
                   <h6 class="mt-0 mt-1">
-                    ~ ${{ beautifyValue((cumulusUSDRewardWeek * weeksInAMonth * 0.1 * 4) + (cumulusUSDRewardWeek * weeksInAMonth)) }} USD
+                    ~ ${{ beautifyValue((cumulusUSDRewardWeek * weeksInAMonth * 0.1 * 5) + (cumulusUSDRewardWeek * weeksInAMonth)) }} USD
                   </h6>
                   <h6 class="mb-0 mt-1">
                     VPS Cost ~ 7 USD
@@ -93,7 +93,7 @@
                 Profitability per month
               </b-card-text>
               <h4 class="font-weight-bolder mb-50">
-                ${{ beautifyValue((cumulusUSDRewardWeek * weeksInAMonth * 0.1 * 4) + (cumulusUSDRewardWeek * weeksInAMonth) - cumulusHostingCost) }} USD
+                ${{ beautifyValue((cumulusUSDRewardWeek * weeksInAMonth * 0.1 * 5) + (cumulusUSDRewardWeek * weeksInAMonth) - cumulusHostingCost) }} USD
               </h4>
               <h4 class="font-weight-bolder mb-50 invisible">
                 With KDA: 0 USD
@@ -118,11 +118,11 @@
                   </h6>
                   <small class="mt-0">(${{ beautifyValue((nimbusUSDRewardWeek / 7)) }} USD)</small>
                   <h6 class="mb-0 mt-1">
-                    {{ beautifyValue(nimbusWeek * 0.1 * 4 / 7 ) }} FLUX Tokens
+                    {{ beautifyValue(nimbusWeek * 0.1 * 5 / 7 ) }} FLUX Tokens
                   </h6>
-                  <small class="mt-0 mt-1">(${{ beautifyValue(nimbusUSDRewardWeek * 0.1 * 4 / 7) }} USD)</small>
+                  <small class="mt-0 mt-1">(${{ beautifyValue(nimbusUSDRewardWeek * 0.1 * 5 / 7) }} USD)</small>
                   <h6 class="mt-0 mt-1">
-                    ~ ${{ beautifyValue((nimbusUSDRewardWeek * 0.1 * 4 / 7 ) + (nimbusUSDRewardWeek / 7)) }} USD
+                    ~ ${{ beautifyValue((nimbusUSDRewardWeek * 0.1 * 5 / 7 ) + (nimbusUSDRewardWeek / 7)) }} USD
                   </h6>
                 </div>
                 <small class="text-muted">Per Day</small>
@@ -136,11 +136,11 @@
                   </h6>
                   <small class="mt-0">(${{ beautifyValue((nimbusUSDRewardWeek)) }} USD)</small>
                   <h6 class="mb-0 mt-1">
-                    {{ beautifyValue(nimbusWeek * 0.1 * 4 ) }} FLUX Tokens
+                    {{ beautifyValue(nimbusWeek * 0.1 * 5 ) }} FLUX Tokens
                   </h6>
-                  <small class="mt-0 mt-1">(${{ beautifyValue(nimbusUSDRewardWeek * 0.1 * 4) }} USD)</small>
+                  <small class="mt-0 mt-1">(${{ beautifyValue(nimbusUSDRewardWeek * 0.1 * 5) }} USD)</small>
                   <h6 class="mt-0 mt-1">
-                    ~ ${{ beautifyValue((nimbusUSDRewardWeek * 0.1 * 4 ) +(nimbusUSDRewardWeek)) }} USD
+                    ~ ${{ beautifyValue((nimbusUSDRewardWeek * 0.1 * 5 ) +(nimbusUSDRewardWeek)) }} USD
                   </h6>
                 </div>
                 <small class="text-muted">Per Week</small>
@@ -154,11 +154,11 @@
                   </h6>
                   <small class="mt-0">(${{ beautifyValue((nimbusUSDRewardWeek * weeksInAMonth)) }} USD)</small>
                   <h6 class="mb-0 mt-1">
-                    {{ beautifyValue(nimbusWeek * weeksInAMonth * 0.1 * 4 ) }} FLUX Tokens
+                    {{ beautifyValue(nimbusWeek * weeksInAMonth * 0.1 * 5 ) }} FLUX Tokens
                   </h6>
-                  <small class="mt-0 mt-1">(${{ beautifyValue(nimbusUSDRewardWeek * weeksInAMonth * 0.1 * 4) }} USD)</small>
+                  <small class="mt-0 mt-1">(${{ beautifyValue(nimbusUSDRewardWeek * weeksInAMonth * 0.1 * 5) }} USD)</small>
                   <h6 class="mt-0 mt-1">
-                    ~ ${{ beautifyValue((nimbusUSDRewardWeek * weeksInAMonth * 0.1 * 4) + (nimbusUSDRewardWeek * weeksInAMonth)) }} USD
+                    ~ ${{ beautifyValue((nimbusUSDRewardWeek * weeksInAMonth * 0.1 * 5) + (nimbusUSDRewardWeek * weeksInAMonth)) }} USD
                   </h6>
                   <h6 class="mb-0 mt-1">
                     VPS Cost ~ 13 USD
@@ -174,7 +174,7 @@
                 Profitability per month
               </b-card-text>
               <h4 class="font-weight-bolder mb-50">
-                ${{ beautifyValue((nimbusUSDRewardWeek * weeksInAMonth * 0.1 * 4) + (nimbusUSDRewardWeek * weeksInAMonth) - nimbusHostingCost) }} USD
+                ${{ beautifyValue((nimbusUSDRewardWeek * weeksInAMonth * 0.1 * 5) + (nimbusUSDRewardWeek * weeksInAMonth) - nimbusHostingCost) }} USD
               </h4>
               <b-card-text class="text-muted mt-1">
                 Plus KDA rewards
@@ -199,11 +199,11 @@
                   </h6>
                   <small class="mt-0">(${{ beautifyValue((stratusUSDRewardWeek / 7)) }} USD)</small>
                   <h6 class="mb-0 mt-1">
-                    {{ beautifyValue(stratusWeek * 0.1 * 4 / 7 ) }} FLUX Tokens
+                    {{ beautifyValue(stratusWeek * 0.1 * 5 / 7 ) }} FLUX Tokens
                   </h6>
-                  <small class="mt-0 mt-1">(${{ beautifyValue(stratusUSDRewardWeek * 0.1 * 4 / 7) }} USD)</small>
+                  <small class="mt-0 mt-1">(${{ beautifyValue(stratusUSDRewardWeek * 0.1 * 5 / 7) }} USD)</small>
                   <h6 class="mt-0 mt-1">
-                    ~ ${{ beautifyValue((stratusUSDRewardWeek * 0.1 * 4 / 7) + (stratusUSDRewardWeek / 7)) }} USD
+                    ~ ${{ beautifyValue((stratusUSDRewardWeek * 0.1 * 5 / 7) + (stratusUSDRewardWeek / 7)) }} USD
                   </h6>
                 </div>
                 <small class="text-muted">Per Day</small>
@@ -217,11 +217,11 @@
                   </h6>
                   <small class="mt-0">(${{ beautifyValue((stratusUSDRewardWeek)) }} USD)</small>
                   <h6 class="mb-0 mt-1">
-                    {{ beautifyValue(stratusWeek * 0.1 * 4 ) }} FLUX Tokens
+                    {{ beautifyValue(stratusWeek * 0.1 * 5 ) }} FLUX Tokens
                   </h6>
-                  <small class="mt-0 mt-1">(${{ beautifyValue(stratusUSDRewardWeek * 0.1 * 4) }} USD)</small>
+                  <small class="mt-0 mt-1">(${{ beautifyValue(stratusUSDRewardWeek * 0.1 * 5) }} USD)</small>
                   <h6 class="mt-0 mt-1">
-                    ~ ${{ beautifyValue((stratusUSDRewardWeek * 0.1 * 4) + (stratusUSDRewardWeek)) }} USD
+                    ~ ${{ beautifyValue((stratusUSDRewardWeek * 0.1 * 5) + (stratusUSDRewardWeek)) }} USD
                   </h6>
                 </div>
                 <small class="text-muted">Per Week</small>
@@ -235,11 +235,11 @@
                   </h6>
                   <small class="mt-0">(${{ beautifyValue((stratusUSDRewardWeek * weeksInAMonth)) }} USD)</small>
                   <h6 class="mb-0 mt-1">
-                    {{ beautifyValue(stratusWeek * weeksInAMonth * 0.1 * 4 ) }} FLUX Tokens
+                    {{ beautifyValue(stratusWeek * weeksInAMonth * 0.1 * 5 ) }} FLUX Tokens
                   </h6>
-                  <small class="mt-0 mt-1">(${{ beautifyValue(stratusUSDRewardWeek * weeksInAMonth * 0.1 * 4) }} USD)</small>
+                  <small class="mt-0 mt-1">(${{ beautifyValue(stratusUSDRewardWeek * weeksInAMonth * 0.1 * 5) }} USD)</small>
                   <h6 class="mt-0 mt-1">
-                    ~ ${{ beautifyValue((stratusUSDRewardWeek * weeksInAMonth * 0.1 * 4) + (stratusUSDRewardWeek * weeksInAMonth)) }} USD
+                    ~ ${{ beautifyValue((stratusUSDRewardWeek * weeksInAMonth * 0.1 * 5) + (stratusUSDRewardWeek * weeksInAMonth)) }} USD
                   </h6>
                   <h6 class="mb-0 mt-1">
                     VPS Cost ~ 25 USD
@@ -255,7 +255,7 @@
                 Profitability per month
               </b-card-text>
               <h4 class="font-weight-bolder mb-50">
-                ${{ beautifyValue((stratusUSDRewardWeek * weeksInAMonth * 0.1 * 4) + (stratusUSDRewardWeek * weeksInAMonth) - stratusHostingCost) }} USD
+                ${{ beautifyValue((stratusUSDRewardWeek * weeksInAMonth * 0.1 * 5) + (stratusUSDRewardWeek * weeksInAMonth) - stratusHostingCost) }} USD
               </h4>
               <b-card-text class="text-muted mt-1">
                 Plus KDA Rewards
