@@ -49,31 +49,6 @@ const nodeSpecs = {
   ssdStorage: 0,
 };
 
-async function appPull(req, res) {
-  try {
-    const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
-    if (authorized) {
-      let { repotag } = req.params;
-      repotag = repotag || req.query.repotag;
-      if (!repotag) {
-        throw new Error('No Docker repository specified');
-      }
-      await dockerPullStreamPromise(repotag, res);
-    } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
-      res.json(errMessage);
-    }
-  } catch (error) {
-    log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    res.json(errorResponse);
-  }
-}
-
 async function listRunningApps(req, res) {
   try {
     let apps = await dockerService.dockerListContainers(false);
@@ -4065,10 +4040,10 @@ async function registerAppGlobalyApi(req, res) {
       }
       // first  check if this node is available for application registration
       if (fluxCommunication.outgoingPeers.length < config.fluxapps.minOutgoing) {
-        throw new Error('Sorry, This Flux does not have enough peers for safe application registration');
+        throw new Error('Sorry, This Flux does not have enough outgoing peers for safe application registration');
       }
       if (fluxCommunication.incomingPeers.length < config.fluxapps.minIncoming) {
-        throw new Error('Sorry, This Flux does not have enough peers for safe application registration');
+        throw new Error('Sorry, This Flux does not have enough incoming peers for safe application registration');
       }
       const processedBody = serviceHelper.ensureObject(body);
       // Note. Actually signature, timestamp is not needed. But we require it only to verify that user indeed has access to the private key of the owner zelid.
@@ -4178,12 +4153,12 @@ async function updateAppGlobalyApi(req, res) {
         res.json(errMessage);
         return;
       }
-      // first  check if this node is available for application registration
+      // first  check if this node is available for application update
       if (fluxCommunication.outgoingPeers.length < config.fluxapps.minOutgoing) {
-        throw new Error('Sorry, This Flux does not have enough peers for safe application registration');
+        throw new Error('Sorry, This Flux does not have enough outgoing peers for safe application update');
       }
       if (fluxCommunication.incomingPeers.length < config.fluxapps.minIncoming) {
-        throw new Error('Sorry, This Flux does not have enough peers for safe application registration');
+        throw new Error('Sorry, This Flux does not have enough incoming peers for safe application update');
       }
       const processedBody = serviceHelper.ensureObject(body);
       // Note. Actually signature, timestamp is not needed. But we require it only to verify that user indeed has access to the private key of the owner zelid.
@@ -5346,6 +5321,47 @@ async function trySpawningGlobalApplication() {
       throw new Error(`Specifications for application ${randomApp} were not found!`);
     }
 
+    // eslint-disable-next-line no-restricted-syntax
+    const dbopen = serviceHelper.databaseConnection();
+    const appsDatabase = dbopen.db(config.database.appslocal.database);
+    const appsQuery = {}; // all
+    const appsProjection = {
+      projection: {
+        _id: 0,
+        name: 1,
+        version: 1,
+        repotag: 1,
+        compose: 1,
+      },
+    };
+    const apps = await serviceHelper.findInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+    const appExists = apps.find((app) => app.name === appSpecifications.name);
+    if (appExists) { // double checked in installation process.
+      log.info(`Application ${appSpecifications.name} is already installed`);
+      await serviceHelper.delay(adjustedDelay);
+      trySpawningGlobalApplication();
+      return;
+    }
+    // TODO evaluate later to move to more broad check as image can be shared among multiple apps
+    const compositedSpecification = appSpecifications.compose || [appSpecifications]; // use compose array if v4+ OR if not defined its <= 3 do an array of appSpecs.
+    // eslint-disable-next-line no-restricted-syntax
+    for (const componentToInstall of compositedSpecification) {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const installedApp of apps) {
+        const installedAppCompositedSpecification = installedApp.compose || [installedApp];
+        // eslint-disable-next-line no-restricted-syntax
+        for (const component of installedAppCompositedSpecification) {
+          if (component.repotag === componentToInstall.repotag) {
+            log.info(`${componentToInstall.repotag} Image is already running on this Flux`);
+            // eslint-disable-next-line no-await-in-loop
+            await serviceHelper.delay(adjustedDelay);
+            trySpawningGlobalApplication();
+            return;
+          }
+        }
+      }
+    }
+
     // check if application image is not blacklisted
     await checkApplicationImagesComplience(appSpecifications);
 
@@ -6083,7 +6099,7 @@ async function verifyAppUpdateParameters(req, res) {
   });
 }
 
-async function deloymentInformation(req, res) {
+async function deploymentInformation(req, res) {
   try {
     // respond with information needed for application deployment regarding specification limitation and prices
     const information = {
@@ -6164,7 +6180,6 @@ async function reconstructAppMessagesHashCollectionAPI(req, res) {
 }
 
 module.exports = {
-  appPull,
   listRunningApps,
   listAllApps,
   listAppsImages,
@@ -6236,7 +6251,7 @@ module.exports = {
   redeployAPI,
   verifyAppRegistrationParameters,
   verifyAppUpdateParameters,
-  deloymentInformation,
+  deploymentInformation,
   reconstructAppMessagesHashCollection,
   reconstructAppMessagesHashCollectionAPI,
 };
