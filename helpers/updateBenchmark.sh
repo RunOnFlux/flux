@@ -37,7 +37,9 @@ sudo apt-get purge --auto-remove "$BENCH_NAME" zelbench -y >/dev/null 2>&1 && sl
 sudo rm /etc/apt/sources.list.d/zelcash.list > /dev/null 2>&1
 sudo rm /etc/apt/sources.list.d/flux.list > /dev/null 2>&1
 
-   
+# update cert
+sudo apt install ca-certificates -y > /dev/null 2>&1
+
 if [[ "$(lsb_release -cs)" == "xenial" ]]; then
    
      echo 'deb https://apt.runonflux.io/ '$(lsb_release -cs)' main' | sudo tee --append /etc/apt/sources.list.d/flux.list > /dev/null 2>&1  
