@@ -188,7 +188,9 @@ import {
   ref, computed, watch, onBeforeMount,
 } from '@vue/composition-api';
 
+// eslint-disable-next-line import/no-cycle
 import { avatarText } from '@core/utils/filter';
+// eslint-disable-next-line import/no-cycle
 import { useRouter } from '@core/utils/utils';
 import { useResponsiveAppLeftSidebarVisibility } from '@core/comp-functions/ui/app';
 import Ripple from 'vue-ripple-directive';
