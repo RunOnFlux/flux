@@ -811,7 +811,10 @@ export default {
     getDisplayName(name) {
       const possibleDateString = name.substring(name.length - 13, name.length);
       const possibleDate = Number(possibleDateString);
-      return `${name.substring(0, name.length - 13)} - ${new Date(possibleDate).toLocaleString()}`;
+      if (!Number.isNaN(possibleDate)) {
+        return `${name.substring(0, name.length - 13)} - ${new Date(possibleDate).toLocaleString()}`;
+      }
+      return name;
     },
   },
 };
