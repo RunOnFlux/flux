@@ -786,8 +786,22 @@ async function fluxUsage(req, res) {
     };
     const appsResult = await serviceHelper.findInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
     let appsCpusLocked = 0;
+    const tier = await generalService.nodeTier().catch((error) => log.error(error));
+    const cpuTier = `cpu${tier}`;
     appsResult.forEach((app) => {
-      appsCpusLocked += serviceHelper.ensureNumber(app.cpu) || 0;
+      if (app.version >= 4) {
+        app.compose.forEach((component) => {
+          if (component.tiered && tier) {
+            appsCpusLocked += serviceHelper.ensureNumber(component[cpuTier] || component.cpu) || 0;
+          } else {
+            appsCpusLocked += serviceHelper.ensureNumber(component.cpu) || 0;
+          }
+        });
+      } else if (app.tiered && tier) {
+        appsCpusLocked += serviceHelper.ensureNumber(app[cpuTier] || app.cpu) || 0;
+      } else {
+        appsCpusLocked += serviceHelper.ensureNumber(app.cpu) || 0;
+      }
     });
 
     cpuUsage += appsCpusLocked;
@@ -831,10 +845,32 @@ async function appsResources(req, res) {
     let appsCpusLocked = 0;
     let appsRamLocked = 0;
     let appsHddLocked = 0;
+    const tier = await generalService.nodeTier().catch((error) => log.error(error));
+    const hddTier = `hdd${tier}`;
+    const ramTier = `ram${tier}`;
+    const cpuTier = `cpu${tier}`;
     appsResult.forEach((app) => {
-      appsCpusLocked += serviceHelper.ensureNumber(app.cpu) || 0;
-      appsRamLocked += serviceHelper.ensureNumber(app.ram) || 0;
-      appsHddLocked += serviceHelper.ensureNumber(app.hdd) || 0;
+      if (app.version >= 4) {
+        app.compose.forEach((component) => {
+          if (component.tiered && tier) {
+            appsCpusLocked += serviceHelper.ensureNumber(component[cpuTier] || component.cpu) || 0;
+            appsRamLocked += serviceHelper.ensureNumber(component[ramTier] || component.ram) || 0;
+            appsHddLocked += serviceHelper.ensureNumber(component[hddTier] || component.hdd) || 0;
+          } else {
+            appsCpusLocked += serviceHelper.ensureNumber(component.cpu) || 0;
+            appsRamLocked += serviceHelper.ensureNumber(component.ram) || 0;
+            appsHddLocked += serviceHelper.ensureNumber(component.hdd) || 0;
+          }
+        });
+      } else if (app.tiered && tier) {
+        appsCpusLocked += serviceHelper.ensureNumber(app[cpuTier] || app.cpu) || 0;
+        appsRamLocked += serviceHelper.ensureNumber(app[ramTier] || app.ram) || 0;
+        appsHddLocked += serviceHelper.ensureNumber(app[hddTier] || app.hdd) || 0;
+      } else {
+        appsCpusLocked += serviceHelper.ensureNumber(app.cpu) || 0;
+        appsRamLocked += serviceHelper.ensureNumber(app.ram) || 0;
+        appsHddLocked += serviceHelper.ensureNumber(app.hdd) || 0;
+      }
     });
     const appsUsage = {
       appsCpusLocked,
