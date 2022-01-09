@@ -1792,9 +1792,9 @@ function totalAppHWRequirements(appSpecifications, myNodeTier) {
         ram += appComponent[ramTier] || appComponent.ram;
         hdd += appComponent[hddTier] || appComponent.hdd;
       } else {
-        cpu += appSpecifications.cpu;
-        ram += appSpecifications.ram;
-        hdd += appSpecifications.hdd;
+        cpu += appComponent.cpu;
+        ram += appComponent.ram;
+        hdd += appComponent.hdd;
       }
     });
   }
@@ -1816,6 +1816,9 @@ async function checkAppRequirements(appSpecs) {
   const appHWrequirements = totalAppHWRequirements(appSpecs, tier);
   await getNodeSpecs();
   const totalSpaceOnNode = nodeSpecs.ssdStorage;
+  if (totalSpaceOnNode === 0) {
+    throw new Error('Insufficient space on Flux Node to spawn an application');
+  }
   const useableSpaceOnNode = totalSpaceOnNode - config.lockedSystemResources.hdd;
   const hddLockedByApps = resourcesLocked.data.apsHddLocked;
   const availableSpaceForApps = useableSpaceOnNode - hddLockedByApps;
