@@ -777,7 +777,9 @@ async function fluxUsage(req, res) {
 
     // load usedResources of apps
     const appsDatabase = dbopen.db(config.database.appslocal.database);
-    const appsResult = await serviceHelper.findInDatabase(appsDatabase, localAppsInformation);
+    const appsQuery = {};
+    const appsProjection = { projection: { _id: 0 } };
+    const appsResult = await serviceHelper.findInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
     let appsCpusLocked = 0;
     const tier = await generalService.nodeTier().catch((error) => log.error(error));
     const cpuTier = `cpu${tier}`;
@@ -826,7 +828,9 @@ async function appsResources(req, res) {
   try {
     const dbopen = serviceHelper.databaseConnection();
     const appsDatabase = dbopen.db(config.database.appslocal.database);
-    const appsResult = await serviceHelper.findInDatabase(appsDatabase, localAppsInformation);
+    const appsQuery = {};
+    const appsProjection = { projection: { _id: 0 } };
+    const appsResult = await serviceHelper.findInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
     let appsCpusLocked = 0;
     let appsRamLocked = 0;
     let appsHddLocked = 0;
