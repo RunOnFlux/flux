@@ -6,6 +6,8 @@ const explorerService = require('./explorerService');
 const fluxCommunication = require('./fluxCommunication');
 const appsService = require('./appsService');
 const daemonService = require('./daemonService');
+const fluxService = require('./fluxService');
+
 
 async function startFluxFunctions() {
   try {
@@ -43,6 +45,7 @@ async function startFluxFunctions() {
     log.info('Connections polling prepared');
     daemonService.daemonBlockchainInfoService();
     log.info('Flux Daemon Info Service Started');
+    fluxService.InstallFluxWatchTower();
     fluxCommunication.checkDeterministicNodesCollisions();
     log.info('Flux checks operational');
     fluxCommunication.fluxDiscovery();
