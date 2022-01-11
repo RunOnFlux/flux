@@ -123,7 +123,7 @@
           id="ip"
           v-model="addPeerIP"
           class="mb-2"
-          placeholder="Eneter IP address"
+          placeholder="Enter IP address"
           type="text"
         />
         <div>

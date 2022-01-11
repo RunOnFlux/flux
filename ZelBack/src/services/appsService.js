@@ -777,17 +777,26 @@ async function fluxUsage(req, res) {
 
     // load usedResources of apps
     const appsDatabase = dbopen.db(config.database.appslocal.database);
-    const appsQuery = { cpu: { $gte: 0 } };
-    const appsProjection = {
-      projection: {
-        _id: 0,
-        cpu: 1,
-      },
-    };
+    const appsQuery = {};
+    const appsProjection = { projection: { _id: 0 } };
     const appsResult = await serviceHelper.findInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
     let appsCpusLocked = 0;
+    const tier = await generalService.nodeTier().catch((error) => log.error(error));
+    const cpuTier = `cpu${tier}`;
     appsResult.forEach((app) => {
-      appsCpusLocked += serviceHelper.ensureNumber(app.cpu) || 0;
+      if (app.version >= 4) {
+        app.compose.forEach((component) => {
+          if (component.tiered && tier) {
+            appsCpusLocked += serviceHelper.ensureNumber(component[cpuTier] || component.cpu) || 0;
+          } else {
+            appsCpusLocked += serviceHelper.ensureNumber(component.cpu) || 0;
+          }
+        });
+      } else if (app.tiered && tier) {
+        appsCpusLocked += serviceHelper.ensureNumber(app[cpuTier] || app.cpu) || 0;
+      } else {
+        appsCpusLocked += serviceHelper.ensureNumber(app.cpu) || 0;
+      }
     });
 
     cpuUsage += appsCpusLocked;
@@ -815,26 +824,42 @@ async function fluxUsage(req, res) {
 }
 
 async function appsResources(req, res) {
+  log.info('Checking appsResources');
   try {
     const dbopen = serviceHelper.databaseConnection();
     const appsDatabase = dbopen.db(config.database.appslocal.database);
-    const appsQuery = { cpu: { $gte: 0 } };
-    const appsProjection = {
-      projection: {
-        _id: 0,
-        cpu: 1,
-        ram: 1,
-        hdd: 1,
-      },
-    };
+    const appsQuery = {};
+    const appsProjection = { projection: { _id: 0 } };
     const appsResult = await serviceHelper.findInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
     let appsCpusLocked = 0;
     let appsRamLocked = 0;
     let appsHddLocked = 0;
+    const tier = await generalService.nodeTier().catch((error) => log.error(error));
+    const hddTier = `hdd${tier}`;
+    const ramTier = `ram${tier}`;
+    const cpuTier = `cpu${tier}`;
     appsResult.forEach((app) => {
-      appsCpusLocked += serviceHelper.ensureNumber(app.cpu) || 0;
-      appsRamLocked += serviceHelper.ensureNumber(app.ram) || 0;
-      appsHddLocked += serviceHelper.ensureNumber(app.hdd) || 0;
+      if (app.version >= 4) {
+        app.compose.forEach((component) => {
+          if (component.tiered && tier) {
+            appsCpusLocked += serviceHelper.ensureNumber(component[cpuTier] || component.cpu) || 0;
+            appsRamLocked += serviceHelper.ensureNumber(component[ramTier] || component.ram) || 0;
+            appsHddLocked += serviceHelper.ensureNumber(component[hddTier] || component.hdd) || 0;
+          } else {
+            appsCpusLocked += serviceHelper.ensureNumber(component.cpu) || 0;
+            appsRamLocked += serviceHelper.ensureNumber(component.ram) || 0;
+            appsHddLocked += serviceHelper.ensureNumber(component.hdd) || 0;
+          }
+        });
+      } else if (app.tiered && tier) {
+        appsCpusLocked += serviceHelper.ensureNumber(app[cpuTier] || app.cpu) || 0;
+        appsRamLocked += serviceHelper.ensureNumber(app[ramTier] || app.ram) || 0;
+        appsHddLocked += serviceHelper.ensureNumber(app[hddTier] || app.hdd) || 0;
+      } else {
+        appsCpusLocked += serviceHelper.ensureNumber(app.cpu) || 0;
+        appsRamLocked += serviceHelper.ensureNumber(app.ram) || 0;
+        appsHddLocked += serviceHelper.ensureNumber(app.hdd) || 0;
+      }
     });
     const appsUsage = {
       appsCpusLocked,
@@ -1771,9 +1796,9 @@ function totalAppHWRequirements(appSpecifications, myNodeTier) {
         ram += appComponent[ramTier] || appComponent.ram;
         hdd += appComponent[hddTier] || appComponent.hdd;
       } else {
-        cpu += appSpecifications.cpu;
-        ram += appSpecifications.ram;
-        hdd += appSpecifications.hdd;
+        cpu += appComponent.cpu;
+        ram += appComponent.ram;
+        hdd += appComponent.hdd;
       }
     });
   }
@@ -1795,6 +1820,9 @@ async function checkAppRequirements(appSpecs) {
   const appHWrequirements = totalAppHWRequirements(appSpecs, tier);
   await getNodeSpecs();
   const totalSpaceOnNode = nodeSpecs.ssdStorage;
+  if (totalSpaceOnNode === 0) {
+    throw new Error('Insufficient space on Flux Node to spawn an application');
+  }
   const useableSpaceOnNode = totalSpaceOnNode - config.lockedSystemResources.hdd;
   const hddLockedByApps = resourcesLocked.data.apsHddLocked;
   const availableSpaceForApps = useableSpaceOnNode - hddLockedByApps;
