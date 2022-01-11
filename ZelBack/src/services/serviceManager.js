@@ -69,6 +69,9 @@ async function startFluxFunctions() {
       log.info('Starting to spawn applications');
       appsService.trySpawningGlobalApplication();
     }, 14 * 60 * 1000);
+    setTimeout(() => {
+      appsService.stopAllNonFluxRunningApps();
+    }, 1 * 60 * 1000);
   } catch (e) {
     log.error(e);
     setTimeout(() => {

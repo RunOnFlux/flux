@@ -6207,6 +6207,34 @@ async function reconstructAppMessagesHashCollectionAPI(req, res) {
   }
 }
 
+async function stopAllNonFluxRunningApps() {
+  log.info('Flux Stop All Non Flux Running Apps Started');
+  try {
+    let apps = await dockerService.dockerListContainers(false);
+    if (apps.length > 0) {
+      apps = apps.filter((app) => (app.Names[0].substr(1, 3) !== 'zel' && app.Names[0].substr(1, 4) !== 'flux'));
+    }
+    log.info(`Found ${apps.length} apps to be stopped.`);
+    for (let i = 0; i < apps.length; i += 1) {
+      const app = apps[i];
+      log.warning(`Stopping non flux application: ${app.Names[0]}`);
+      // eslint-disable-next-line no-await-in-loop
+      await dockerService.appDockerStop(app.Id);
+    }
+    if (apps.length > 0) {
+      log.info('All apps stopped.');
+    }
+    setTimeout(() => {
+      stopAllNonFluxRunningApps();
+    }, 2 * 60 * 60 * 1000); // execute every 2h
+  } catch (error) {
+    log.error(error);
+    setTimeout(() => {
+      stopAllNonFluxRunningApps();
+    }, 30 * 60 * 1000); // In case of a error execute after 30m
+  }
+}
+
 module.exports = {
   listRunningApps,
   listAllApps,
@@ -6282,4 +6310,5 @@ module.exports = {
   deploymentInformation,
   reconstructAppMessagesHashCollection,
   reconstructAppMessagesHashCollectionAPI,
+  stopAllNonFluxRunningApps,
 };
