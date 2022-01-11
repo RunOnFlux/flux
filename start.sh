@@ -17,7 +17,7 @@ if [[ "$arch" = *amd* ]]; then
     --name fluxwatchtower \
     -v /var/run/docker.sock:/var/run/docker.sock \
     containrrr/watchtower \
-    --label-enable --cleanup --interval $random 2> /dev/null)
+    --cleanup --interval $random 2> /dev/null)
 
       if [[ $apps_id =~ ^[[:alnum:]]+$ ]]; then
         echo -e "FluxWatchtower installed successful, id: ${GREEN}$apps_id${NC}"
@@ -41,7 +41,7 @@ if [[ "$arch" = *amd* ]]; then
     --name fluxwatchtower \
     -v /var/run/docker.sock:/var/run/docker.sock \
     containrrr/watchtower \
-    --label-enable --cleanup --interval $random 2> /dev/null)
+    --cleanup --interval $random 2> /dev/null)
 
       if [[ $apps_id =~ ^[[:alnum:]]+$ ]]; then
         echo -e "FluxWatchtower installed successful, id: ${GREEN}$apps_id${NC}"
