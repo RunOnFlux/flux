@@ -160,12 +160,30 @@
       @close-app-view="isAppViewActive = false"
     />
 
+    <managed-services-view
+      :class="{'show': isManagedServicesViewActive}"
+      :app-data="app"
+      :zelid="zelid"
+      :tier="tier"
+      @close-app-view="isManagedServicesViewActive = false"
+    />
+
+    <shared-nodes-view
+      :class="{'show': isSharedNodesViewActive}"
+      :app-data="app"
+      :zelid="zelid"
+      :tier="tier"
+      @close-app-view="isSharedNodesViewActive = false"
+    />
+
     <!-- Sidebar -->
     <portal to="content-renderer-sidebar-left">
       <category-sidebar
         :class="{'show': showDetailSidebar}"
         @close-left-sidebar="showDetailSidebar = false"
-        @close-app-view="isAppViewActive = false"
+        @close-app-view="isAppViewActive = false; isManagedServicesViewActive = false; isSharedNodesViewActive = false"
+        @open-managed-services="isManagedServicesViewActive = true"
+        @open-shared-nodes="isSharedNodesViewActive = true"
       />
     </portal>
   </div>
@@ -200,6 +218,8 @@ import VuePerfectScrollbar from 'vue-perfect-scrollbar';
 import DaemonService from '@/services/DaemonService';
 
 import AppView from './AppView.vue';
+import ManagedServicesView from './ManagedServicesView.vue';
+import SharedNodesView from './SharedNodesView.vue';
 import CategorySidebar from './CategorySidebar.vue';
 import { categories, defaultCategory } from '../../../libs/marketplaceCategories';
 
@@ -220,6 +240,8 @@ export default {
     BAvatar,
 
     AppView,
+    ManagedServicesView,
+    SharedNodesView,
     CategorySidebar,
 
     VuePerfectScrollbar,
@@ -341,7 +363,10 @@ export default {
 
     const fetchApps = async () => {
       const response = await axios.get('https://stats.runonflux.io/marketplace/listapps');
-      console.log(response);
+      // console.log(response);
+
+      console.log(route);
+
       if (response.data.status === 'success') {
         filteredApps.value = response.data.data.filter((val) => val.visible);
         filteredApps.value.forEach((appData) => {
@@ -402,6 +427,8 @@ export default {
     getZelNodeStatus();
 
     const isAppViewActive = ref(false);
+    const isManagedServicesViewActive = ref(route.value.path === '/apps/managed-nodes');
+    const isSharedNodesViewActive = ref(route.value.path === '/apps/shared-nodes');
 
     const handleAppClick = (appData) => {
       app.value = appData;
@@ -430,6 +457,8 @@ export default {
       resolveAvatarIcon,
       avatarText,
       isAppViewActive,
+      isManagedServicesViewActive,
+      isSharedNodesViewActive,
       showDetailSidebar,
       resolveHdd,
       resolveCpu,

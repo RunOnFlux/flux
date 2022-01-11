@@ -26,6 +26,24 @@
                 <span class="line-height-2">{{ filter.title }}</span>
               </b-list-group-item>
             </b-list-group>
+            <hr>
+            <b-list-group class="list-group-filters">
+              <b-list-group-item
+                v-for="action in nodeActions"
+                :key="action.title + $route.path"
+                :to="action.route"
+                :active="isDynamicRouteActive(action.route)"
+                @click="$emit('close-app-view'); $emit('close-left-sidebar'); $emit(action.event)"
+              >
+                <v-icon
+                  :name="action.icon"
+                  scale="1.55"
+                  class="mr-75 icon-spacing"
+                />
+
+                <span class="line-height-2">{{ action.title }}</span>
+              </b-list-group-item>
+            </b-list-group>
           </vue-perfect-scrollbar>
         </div>
       </div>
@@ -72,10 +90,25 @@ export default {
         },
       });
     });
+    const nodeActions = [
+      {
+        title: 'Managed Services',
+        icon: 'server',
+        event: 'open-managed-services',
+        route: { name: 'apps-marketplace-managedservices' },
+      },
+      {
+        title: 'Shared Nodes',
+        icon: 'inbox',
+        event: 'open-shared-nodes',
+        route: { name: 'apps-marketplace-sharednodes' },
+      },
+    ];
 
     return {
       perfectScrollbarSettings,
       taskFilters,
+      nodeActions,
       isDynamicRouteActive,
     };
   },
