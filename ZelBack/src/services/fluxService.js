@@ -2,6 +2,7 @@ const cmd = require('node-cmd');
 const path = require('path');
 const config = require('config');
 const fullnode = require('fullnode');
+const util = require('util');
 const fs = require('fs');
 
 const fsPromises = fs.promises;
@@ -744,6 +745,15 @@ async function getNodeTier(req, res) {
   }
 }
 
+async function InstallFluxWatchTower() {
+    const nodedpath = path.join(__dirname, '../../../helpers');
+    const exec = `cd ${nodedpath} && bash fluxwatchtower.sh`;
+    const cmdAsync = util.promisify(cmd.get);
+    const cmdres = await cmdAsync(exec);
+    console.log(cmdres);
+}
+
+
 module.exports = {
   startDaemon,
   updateFlux,
@@ -780,4 +790,5 @@ module.exports = {
   adjustKadenaAccount,
   fluxBackendFolder,
   getNodeTier,
+  InstallFluxWatchTower,
 };
