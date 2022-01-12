@@ -16,6 +16,7 @@ if [[ "$apps_check" == "" ]]; then
   random=$(shuf -i 7500-35000 -n 1)
   echo "Interval: $random sec."
   apps_id=$(docker run -d \
+  --restart unless-stopped \
   --name fluxwatchtower \
   -v /var/run/docker.sock:/var/run/docker.sock \
   containrrr/watchtower \
