@@ -129,7 +129,7 @@ async function updateDaemon(req, res) {
   const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
   if (authorized === true) {
     const nodedpath = path.join(__dirname, '../../../helpers');
-    const exec = `cd ${nodedpath} && sh updateDaemon.sh`;
+    const exec = `cd ${nodedpath} && bash updateDaemon.sh`;
     cmd.get(exec, (err) => {
       if (err) {
         const errMessage = serviceHelper.createErrorMessage(`Error updating Daemon: ${err.message}`, err.name, err.code);
@@ -149,7 +149,7 @@ async function updateBenchmark(req, res) {
   const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
   if (authorized === true) {
     const nodedpath = path.join(__dirname, '../../../helpers');
-    const exec = `cd ${nodedpath} && sh updateBenchmark.sh`;
+    const exec = `cd ${nodedpath} && bash updateBenchmark.sh`;
     cmd.get(exec, (err) => {
       if (err) {
         const errMessage = serviceHelper.createErrorMessage(`Error updating Benchmark: ${err.message}`, err.name, err.code);
@@ -192,7 +192,7 @@ async function restartBenchmark(req, res) {
   const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
   if (authorized === true) {
     const nodedpath = path.join(__dirname, '../../../helpers');
-    const exec = `cd ${nodedpath} && sh restartBenchmark.sh`;
+    const exec = `cd ${nodedpath} && bash restartBenchmark.sh`;
     cmd.get(exec, (err) => {
       if (err) {
         const errMessage = serviceHelper.createErrorMessage(`Error restarting Benchmark: ${err.message}`, err.name, err.code);
@@ -236,7 +236,7 @@ async function restartDaemon(req, res) {
   const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
   if (authorized === true) {
     const nodedpath = path.join(__dirname, '../../../helpers');
-    const exec = `cd ${nodedpath} && sh restartDaemon.sh`;
+    const exec = `cd ${nodedpath} && bash restartDaemon.sh`;
     cmd.get(exec, (err) => {
       if (err) {
         const errMessage = serviceHelper.createErrorMessage(`Error restarting Daemon: ${err.message}`, err.name, err.code);
@@ -257,7 +257,7 @@ async function reindexDaemon(req, res) {
   const authorized = await serviceHelper.verifyAdminSession(req.headers);
   if (authorized === true) {
     const nodedpath = path.join(__dirname, '../../../helpers');
-    const exec = `cd ${nodedpath} && sh reindexDaemon.sh`;
+    const exec = `cd ${nodedpath} && bash reindexDaemon.sh`;
     cmd.get(exec, (err) => {
       if (err) {
         const errMessage = serviceHelper.createErrorMessage(`Error reindexing Daemon: ${err.message}`, err.name, err.code);
@@ -748,7 +748,7 @@ async function getNodeTier(req, res) {
 async function InstallFluxWatchTower() {
   try {
     const nodedpath = path.join(__dirname, '../../../helpers');
-    const exec = `cd ${nodedpath} && sh fluxwatchtower.sh`;
+    const exec = `cd ${nodedpath} && bash fluxwatchtower.sh`;
     const cmdAsync = util.promisify(cmd.get);
     const cmdres = await cmdAsync(exec);
     log.info(cmdres);
