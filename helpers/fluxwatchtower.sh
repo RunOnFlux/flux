@@ -1,15 +1,15 @@
 #!/bin/bash
 
-echo "Checking if fluxwatchtower is installed..."
-apps_check=$(docker ps | grep "fluxwatchtower")
+echo "Checking if flux_watchtower is installed..."
+apps_check=$(docker ps | grep "flux_watchtower")
 
 if [[ "$apps_check" == "" ]]; then
 
-  echo "Stopping fluxwatchtower..."
-  docker stop fluxwatchtower > /dev/null 2>&1
+  echo "Stopping flux_watchtower..."
+  docker stop flux_watchtower > /dev/null 2>&1
   sleep 2
-  echo "Removing fluxwatchtower..."
-  docker rm fluxwatchtower > /dev/null 2>&1
+  echo "Removing flux_watchtower..."
+  docker rm flux_watchtower > /dev/null 2>&1
   echo "Downloading containrrr/watchtower image..."
   docker pull containrrr/watchtower:latest > /dev/null 2>&1
   echo "Starting containrrr/watchtower..."
@@ -17,17 +17,17 @@ if [[ "$apps_check" == "" ]]; then
   echo "Interval: $random sec."
   apps_id=$(docker run -d \
   --restart unless-stopped \
-  --name fluxwatchtower \
+  --name flux_watchtower \
   -v /var/run/docker.sock:/var/run/docker.sock \
   containrrr/watchtower \
   --cleanup --interval $random 2> /dev/null)
 
   if [[ $apps_id =~ ^[[:alnum:]]+$ ]]; then
-    echo "FluxWatchtower installed successful, id: $apps_id"
+    echo "flux_watchtower installed successful, id: $apps_id"
   else
-    echo "FluxWatchtower installion failed..."
+    echo "flux_watchtower installion failed..."
   fi
 
 else
-  echo "Fluxwatchtower already installed!..."
+  echo "flux_watchtower already installed!..."
 fi

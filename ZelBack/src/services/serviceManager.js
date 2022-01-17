@@ -8,7 +8,6 @@ const appsService = require('./appsService');
 const daemonService = require('./daemonService');
 const fluxService = require('./fluxService');
 
-
 async function startFluxFunctions() {
   try {
     log.info('Initiating MongoDB connection');
