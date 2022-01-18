@@ -6,6 +6,7 @@ const explorerService = require('./explorerService');
 const fluxCommunication = require('./fluxCommunication');
 const appsService = require('./appsService');
 const daemonService = require('./daemonService');
+const fluxService = require('./fluxService');
 
 async function startFluxFunctions() {
   try {
@@ -43,6 +44,7 @@ async function startFluxFunctions() {
     log.info('Connections polling prepared');
     daemonService.daemonBlockchainInfoService();
     log.info('Flux Daemon Info Service Started');
+    fluxService.InstallFluxWatchTower();
     fluxCommunication.checkDeterministicNodesCollisions();
     log.info('Flux checks operational');
     fluxCommunication.fluxDiscovery();
@@ -69,6 +71,9 @@ async function startFluxFunctions() {
       log.info('Starting to spawn applications');
       appsService.trySpawningGlobalApplication();
     }, 14 * 60 * 1000);
+    setTimeout(() => {
+      appsService.stopAllNonFluxRunningApps();
+    }, 1 * 60 * 1000);
   } catch (e) {
     log.error(e);
     setTimeout(() => {

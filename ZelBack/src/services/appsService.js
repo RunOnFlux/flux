@@ -6207,6 +6207,38 @@ async function reconstructAppMessagesHashCollectionAPI(req, res) {
   }
 }
 
+async function stopAllNonFluxRunningApps() {
+  try {
+    log.info('Running non Flux apps check...');
+    let apps = await dockerService.dockerListContainers(false);
+    apps = apps.filter((app) => (app.Names[0].substr(1, 3) !== 'zel' && app.Names[0].substr(1, 4) !== 'flux'));
+    if (apps.length > 0) {
+      log.info(`Found ${apps.length} apps to be stopped...`);
+      // eslint-disable-next-line no-restricted-syntax
+      for (const app of apps) {
+        try {
+          log.info(`Stopping non Flux app ${app.Names[0]}`);
+          // eslint-disable-next-line no-await-in-loop
+          await dockerService.appDockerStop(app.Id); // continue if failed to stop one app
+          log.info(`Non Flux app ${app.Names[0]} stopped.`);
+        } catch (error) {
+          log.error(`Failed to stop non Flux app ${app.Names[0]}.`);
+        }
+      }
+    } else {
+      log.info('Only Flux apps are running.');
+    }
+    setTimeout(() => {
+      stopAllNonFluxRunningApps();
+    }, 2 * 60 * 60 * 1000); // execute every 2h
+  } catch (error) {
+    log.error(error);
+    setTimeout(() => {
+      stopAllNonFluxRunningApps();
+    }, 30 * 60 * 1000); // In case of an error execute after 30m
+  }
+}
+
 module.exports = {
   listRunningApps,
   listAllApps,
@@ -6282,4 +6314,5 @@ module.exports = {
   deploymentInformation,
   reconstructAppMessagesHashCollection,
   reconstructAppMessagesHashCollectionAPI,
+  stopAllNonFluxRunningApps,
 };
