@@ -200,7 +200,7 @@ async function getFluxNodePublicKey(privatekey) {
 }
 
 // return boolean
-async function verifyFluxBroadcast(data, obtainedFluxNodesList, currentTimeStamp, ip) {
+async function verifyFluxBroadcast(data, obtainedFluxNodesList, currentTimeStamp) {
   const dataObj = serviceHelper.ensureObject(data);
   const { pubKey } = dataObj;
   const { timestamp } = dataObj; // ms
@@ -218,35 +218,17 @@ async function verifyFluxBroadcast(data, obtainedFluxNodesList, currentTimeStamp
     return false;
   }
 
-  let node = null;
   if (obtainedFluxNodesList) { // for test purposes.
-    const possibleNodes = obtainedFluxNodesList.filter((key) => key.pubkey === pubKey);
-    if (possibleNodes.length > 1) {
-      node = possibleNodes.find((n) => n.ip === ip);
-    } else {
-      node = possibleNodes[0];
-    }
-    if (!node) {
+    // node that broadcasted the message has to be on list
+    // pubkey of the broadcast has to be on the list
+    const nodeExistsA = obtainedFluxNodesList.find((key) => key.pubkey === pubKey);
+    if (!nodeExistsA) {
       return false;
     }
   }
-  if (!node) {
-    const zl = await deterministicFluxList(pubKey); // this itself is sufficient.
-    if (zl.length === 1) {
-      if (zl[0].pubkey === pubKey) {
-        node = zl[0];
-      }
-    } else {
-      const possibleNodes = zl.filter((key) => key.pubkey === pubKey); // another check in case sufficient check failed on daemon level
-      if (possibleNodes.length > 1) {
-        node = possibleNodes.find((n) => n.ip === ip);
-      } else {
-        node = possibleNodes[0];
-      }
-    }
-  }
-  if (!node) {
-    log.warn(data, ip);
+  const zl = await deterministicFluxList(pubKey); // this itself is sufficient.
+  const nodeExistsA = zl.find((key) => key.pubkey === pubKey); // another check in case sufficient check failed on daemon level
+  if (!nodeExistsA) {
     return false;
   }
   const messageToVerify = version + message + timestamp;
@@ -254,12 +236,11 @@ async function verifyFluxBroadcast(data, obtainedFluxNodesList, currentTimeStamp
   if (verified === true) {
     return true;
   }
-  log.warn(data, ip);
   return false;
 }
 
 // extends verifyFluxBroadcast by not allowing request older than 5 mins.
-async function verifyOriginalFluxBroadcast(data, obtainedFluxNodeList, currentTimeStamp, ip) {
+async function verifyOriginalFluxBroadcast(data, obtainedFluxNodeList, currentTimeStamp) {
   // eslint-disable-next-line no-param-reassign
   const dataObj = serviceHelper.ensureObject(data);
   const { timestamp } = dataObj; // ms
@@ -268,7 +249,7 @@ async function verifyOriginalFluxBroadcast(data, obtainedFluxNodeList, currentTi
   if (currentTimeStamp > (timestamp + 300000)) { // bigger than 5 mins
     return false;
   }
-  const verified = await verifyFluxBroadcast(data, obtainedFluxNodeList, currentTimeStamp, ip);
+  const verified = await verifyFluxBroadcast(data, obtainedFluxNodeList, currentTimeStamp);
   return verified;
 }
 
@@ -585,7 +566,7 @@ function handleIncomingConnection(ws, req, expressWS) {
       return;
     }
     const currentTimeStamp = Date.now();
-    const messageOK = await verifyFluxBroadcast(msg, undefined, currentTimeStamp, peer.ip.replace('::ffff:', ''));
+    const messageOK = await verifyFluxBroadcast(msg, undefined, currentTimeStamp);
     if (messageOK === true) {
       const timestampOK = await verifyTimestampInFluxBroadcast(msg, currentTimeStamp);
       if (timestampOK === true) {
@@ -605,31 +586,21 @@ function handleIncomingConnection(ws, req, expressWS) {
         }
       }
     } else {
-      // we dont like this peer as it sent wrong message. Lets close the connection
+      // we dont like this peer as it sent wrong message (wrong, or message belonging to node no longer on network). Lets close the connection
       // and add him to blocklist
       try {
         // check if message comes from IP belonging to the public Key
         const zl = await deterministicFluxList(pubKey); // this itself is sufficient.
-        if (zl.length === 1) { // else continue with blocking this public key
-          if (zl[0].pubkey === pubKey) { // else continue with blocking this public key
-            const { ip } = zl[0];
-            // if IP does not match IP of user that send us the message, pubkey was spoofed. Throw an error so we do not block a valid peer, else continue with pubkey blocking
-            if (ip !== peer.ip.replace('::ffff:', '')) {
-              throw new Error(`Message received from incoming peer ${peer.ip} but origin should come from ${ip}.`);
-            }
-          }
+        const possibleNodes = zl.filter((key) => key.pubkey === pubKey); // another check in case sufficient check failed on daemon level
+        const nodeFound = possibleNodes.find((n) => n.ip === peer.ip.replace('::ffff:', ''));
+        if (!nodeFound) {
+          log.warn(`Message received from incoming peer ${peer.ip} but is not an originating node of ${pubKey}.`);
+          ws.close(1000, 'invalid message, disconnect'); // close as of policy violation
         } else {
-          const possibleNodes = zl.filter((key) => key.pubkey === pubKey); // another check in case sufficient check failed on daemon level
-          if (possibleNodes.length > 1) {
-            const nodeFound = possibleNodes.find((n) => n.ip === peer.ip.replace('::ffff:', ''));
-            if (!nodeFound) {
-              throw new Error(`Message received from incoming peer ${peer.ip} but originating node was not found in ${JSON.stringify(possibleNodes)}`);
-            }
-          }
+          blockedPubKeysCache.set(pubKey, pubKey); // blocks ALL the nodes corresponding to the pubKey
+          log.warn(`closing incoming connection, adding peers ${pubKey} to the blockedList. Originated from ${peer.ip}.`);
+          ws.close(1000, 'invalid message, blocked'); // close as of policy violation?
         }
-        blockedPubKeysCache.set(pubKey, pubKey); // blocks ALL the nodes corresponding to the pubKey
-        log.warn(`closing incoming connection, adding peers ${pubKey} to the blockedList. Originated from ${peer.ip}.`);
-        ws.close(1000, 'invalid message, blocked'); // close as of policy violation?
       } catch (e) {
         console.error(e);
       }
@@ -945,7 +916,7 @@ async function initiateAndHandleConnection(ip) {
       }
       return;
     }
-    const messageOK = await verifyOriginalFluxBroadcast(evt.data, undefined, currentTimeStamp, ip);
+    const messageOK = await verifyOriginalFluxBroadcast(evt.data, undefined, currentTimeStamp);
     if (messageOK === true) {
       const { url } = websocket;
       let conIP = url.split('/')[2];
@@ -958,31 +929,21 @@ async function initiateAndHandleConnection(ip) {
         handleAppRunningMessage(msgObj, conIP);
       }
     } else {
-      // we dont like this peer as it sent wrong message. Lets close the connection
+      // we dont like this peer as it sent wrong message (wrong, or message belonging to node no longer on network). Lets close the connection
       // and add him to blocklist
       try {
         // check if message comes from IP belonging to the public Key
         const zl = await deterministicFluxList(pubKey); // this itself is sufficient.
-        if (zl.length === 1) { // else continue with blocking this public key
-          if (zl[0].pubkey === pubKey) { // else continue with blocking this public key
-            const expectedIP = zl[0].ip;
-            // if IP does not match IP of user that send us the message, pubkey was spoofed. Throw an error so we do not block a valid peer, else continue with pubkey blocking
-            if (expectedIP !== ip) {
-              throw new Error(`Message received from outgoing peer ${ip} but origin should come from ${expectedIP}.`);
-            }
-          }
+        const possibleNodes = zl.filter((key) => key.pubkey === pubKey); // another check in case sufficient check failed on daemon level
+        const nodeFound = possibleNodes.find((n) => n.ip === ip);
+        if (!nodeFound) {
+          log.warn(`Message received from outgoing peer ${ip} but is not an originating node of ${pubKey}.`);
+          websocket.close(1000, 'invalid message, disconnect'); // close as of policy violation
         } else {
-          const possibleNodes = zl.filter((key) => key.pubkey === pubKey); // another check in case sufficient check failed on daemon level
-          if (possibleNodes.length > 1) {
-            const nodeFound = possibleNodes.find((n) => n.ip === ip);
-            if (!nodeFound) {
-              throw new Error(`Message received from incoming peer ${ip} but originating node was not found in ${JSON.stringify(possibleNodes)}`);
-            }
-          }
+          blockedPubKeysCache.set(pubKey, pubKey); // blocks ALL the nodes corresponding to the pubKey
+          log.warn(`closing outgoing connection, adding peers ${pubKey} to the blockedList. Originated from ${ip}.`);
+          websocket.close(1000, 'invalid message, blocked'); // close as of policy violation?
         }
-        blockedPubKeysCache.set(pubKey, pubKey); // blocks ALL the nodes corresponding to the pubKey
-        log.warn(`closing outgoing connection, adding peers ${pubKey} to the blockedList. Originated from ${ip}.`);
-        websocket.close(1000, 'invalid message, blocked'); // close as of policy violation?
       } catch (e) {
         console.error(e);
       }
