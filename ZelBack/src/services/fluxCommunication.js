@@ -245,6 +245,7 @@ async function verifyFluxBroadcast(data, obtainedFluxNodesList, currentTimeStamp
     }
   }
   if (!node) {
+    log.warn(data, ip);
     return false;
   }
   const messageToVerify = version + message + timestamp;
@@ -252,6 +253,7 @@ async function verifyFluxBroadcast(data, obtainedFluxNodesList, currentTimeStamp
   if (verified === true) {
     return true;
   }
+  log.warn(data, ip);
   return false;
 }
 
@@ -574,7 +576,7 @@ function handleIncomingConnection(ws, req, expressWS) {
     const { pubKey } = dataObj;
     if (blockedPubKeysCache.has(pubKey)) {
       try {
-        log.info('Closing connection, peer is on blockedList');
+        log.info('Closing incoming connection, peer is on blockedList');
         ws.close(1000, 'blocked list'); // close as of policy violation?
       } catch (e) {
         console.error(e);
@@ -625,7 +627,7 @@ function handleIncomingConnection(ws, req, expressWS) {
           }
         }
         blockedPubKeysCache.set(pubKey, pubKey); // blocks ALL the nodes corresponding to the pubKey
-        log.warn(`closing connection, adding peers ${pubKey} to the blockedList`);
+        log.warn(`closing incoming connection, adding peers ${pubKey} to the blockedList. Originated from ${peer.ip}.`);
         ws.close(1000, 'invalid message, blocked'); // close as of policy violation?
       } catch (e) {
         console.error(e);
@@ -935,7 +937,7 @@ async function initiateAndHandleConnection(ip) {
     const { pubKey } = msgObj;
     if (blockedPubKeysCache.has(pubKey)) {
       try {
-        log.info('Closing connection, peer is on blockedList');
+        log.info('Closing outgoing connection, peer is on blockedList');
         websocket.close(1000, 'blocked list'); // close as of policy violation?
       } catch (e) {
         console.error(e);
@@ -978,7 +980,7 @@ async function initiateAndHandleConnection(ip) {
           }
         }
         blockedPubKeysCache.set(pubKey, pubKey); // blocks ALL the nodes corresponding to the pubKey
-        log.warn(`closing connection, adding peers ${pubKey} to the blockedList`);
+        log.warn(`closing outgoing connection, adding peers ${pubKey} to the blockedList. Originated from ${ip}.`);
         websocket.close(1000, 'invalid message, blocked'); // close as of policy violation?
       } catch (e) {
         console.error(e);
