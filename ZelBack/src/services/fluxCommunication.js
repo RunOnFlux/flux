@@ -199,7 +199,7 @@ async function getFluxNodePublicKey(privatekey) {
 }
 
 // return boolean
-async function verifyFluxBroadcast(data, obtainedFluxNodesList, currentTimeStamp) {
+async function verifyFluxBroadcast(data, obtainedFluxNodesList, currentTimeStamp, ip) {
   const dataObj = serviceHelper.ensureObject(data);
   const { pubKey } = dataObj;
   const { timestamp } = dataObj; // ms
@@ -219,7 +219,12 @@ async function verifyFluxBroadcast(data, obtainedFluxNodesList, currentTimeStamp
 
   let node = null;
   if (obtainedFluxNodesList) { // for test purposes.
-    node = await obtainedFluxNodesList.find((key) => key.pubkey === pubKey);
+    const possibleNodes = obtainedFluxNodesList.filter((key) => key.pubkey === pubKey);
+    if (possibleNodes.length > 1) {
+      node = possibleNodes.find((n) => n.ip === ip);
+    } else {
+      node = possibleNodes[0];
+    }
     if (!node) {
       return false;
     }
@@ -228,7 +233,14 @@ async function verifyFluxBroadcast(data, obtainedFluxNodesList, currentTimeStamp
     const zl = await deterministicFluxList(pubKey); // this itself is sufficient.
     if (zl.length === 1) {
       if (zl[0].pubkey === pubKey) {
-        [node] = zl;
+        node = zl[0];
+      }
+    } else {
+      const possibleNodes = zl.filter((key) => key.pubkey === pubKey); // another check in case sufficient check failed on daemon level
+      if (possibleNodes.length > 1) {
+        node = possibleNodes.find((n) => n.ip === ip);
+      } else {
+        node = possibleNodes[0];
       }
     }
   }
@@ -244,7 +256,7 @@ async function verifyFluxBroadcast(data, obtainedFluxNodesList, currentTimeStamp
 }
 
 // extends verifyFluxBroadcast by not allowing request older than 5 mins.
-async function verifyOriginalFluxBroadcast(data, obtainedFluxNodeList, currentTimeStamp) {
+async function verifyOriginalFluxBroadcast(data, obtainedFluxNodeList, currentTimeStamp, ip) {
   // eslint-disable-next-line no-param-reassign
   const dataObj = serviceHelper.ensureObject(data);
   const { timestamp } = dataObj; // ms
@@ -253,7 +265,7 @@ async function verifyOriginalFluxBroadcast(data, obtainedFluxNodeList, currentTi
   if (currentTimeStamp > (timestamp + 300000)) { // bigger than 5 mins
     return false;
   }
-  const verified = await verifyFluxBroadcast(data, obtainedFluxNodeList, currentTimeStamp);
+  const verified = await verifyFluxBroadcast(data, obtainedFluxNodeList, currentTimeStamp, ip);
   return verified;
 }
 
@@ -570,7 +582,7 @@ function handleIncomingConnection(ws, req, expressWS) {
       return;
     }
     const currentTimeStamp = Date.now();
-    const messageOK = await verifyFluxBroadcast(msg, undefined, currentTimeStamp);
+    const messageOK = await verifyFluxBroadcast(msg, undefined, currentTimeStamp, peer.ip.replace('::ffff:', ''));
     if (messageOK === true) {
       const timestampOK = await verifyTimestampInFluxBroadcast(msg, currentTimeStamp);
       if (timestampOK === true) {
@@ -603,9 +615,17 @@ function handleIncomingConnection(ws, req, expressWS) {
               throw new Error(`Message received from incoming peer ${peer.ip} but origin should come from ${ip}.`);
             }
           }
+        } else {
+          const possibleNodes = zl.filter((key) => key.pubkey === pubKey); // another check in case sufficient check failed on daemon level
+          if (possibleNodes.length > 1) {
+            const nodeFound = possibleNodes.find((n) => n.ip === peer.ip.replace('::ffff:', ''));
+            if (!nodeFound) {
+              throw new Error(`Message received from incoming peer ${peer.ip} but originating node was not found in ${JSON.stringify(possibleNodes)}`);
+            }
+          }
         }
-        blockedPubKeysCache.set(pubKey, pubKey);
-        log.warn('closing connection, adding peer to the blockedList');
+        blockedPubKeysCache.set(pubKey, pubKey); // blocks ALL the nodes corresponding to the pubKey
+        log.warn(`closing connection, adding peers ${pubKey} to the blockedList`);
         ws.close(1000, 'invalid message, blocked'); // close as of policy violation?
       } catch (e) {
         console.error(e);
@@ -922,7 +942,7 @@ async function initiateAndHandleConnection(ip) {
       }
       return;
     }
-    const messageOK = await verifyOriginalFluxBroadcast(evt.data, undefined, currentTimeStamp);
+    const messageOK = await verifyOriginalFluxBroadcast(evt.data, undefined, currentTimeStamp, ip);
     if (messageOK === true) {
       const { url } = websocket;
       let conIP = url.split('/')[2];
@@ -948,9 +968,17 @@ async function initiateAndHandleConnection(ip) {
               throw new Error(`Message received from outgoing peer ${ip} but origin should come from ${expectedIP}.`);
             }
           }
+        } else {
+          const possibleNodes = zl.filter((key) => key.pubkey === pubKey); // another check in case sufficient check failed on daemon level
+          if (possibleNodes.length > 1) {
+            const nodeFound = possibleNodes.find((n) => n.ip === ip);
+            if (!nodeFound) {
+              throw new Error(`Message received from incoming peer ${ip} but originating node was not found in ${JSON.stringify(possibleNodes)}`);
+            }
+          }
         }
-        blockedPubKeysCache.set(pubKey, pubKey);
-        log.warn('closing connection, adding peer to the blockedList');
+        blockedPubKeysCache.set(pubKey, pubKey); // blocks ALL the nodes corresponding to the pubKey
+        log.warn(`closing connection, adding peers ${pubKey} to the blockedList`);
         websocket.close(1000, 'invalid message, blocked'); // close as of policy violation?
       } catch (e) {
         console.error(e);
