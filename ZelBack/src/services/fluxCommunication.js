@@ -159,10 +159,11 @@ async function deterministicFluxList(filter) {
       const daemonFluxNodesList = await daemonService.viewDeterministicZelNodeList(request);
       if (daemonFluxNodesList.status === 'success') {
         fluxList = daemonFluxNodesList.data || [];
-        fluxList.forEach((item) => {
-          myCache.set(`fluxList${serviceHelper.ensureString(item.pubkey)}`, [item]);
-        });
         myCache.set('fluxList', fluxList);
+        if (filter) {
+          const filterFluxList = fluxList.filter((node) => node.pubkey === filter);
+          myCache.set(`fluxList${serviceHelper.ensureString(filter)}`, filterFluxList);
+        }
       }
       addingNodesToCache = false;
       if (filter) {
