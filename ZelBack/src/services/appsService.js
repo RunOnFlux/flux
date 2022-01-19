@@ -37,7 +37,12 @@ const LRUoptions = {
   max: 500, // store 500 values, we shall not have more values at any period
   maxAge: 1000 * 60 * 10, // 10 minutes
 };
+
+const GlobalAppsSpawnLRUoptions = {
+  maxAge: 1000 * 60 * 30, // 30 minutes
+};
 const myCache = new LRU(LRUoptions);
+const trySpawningGlobalAppCache = new LRU(GlobalAppsSpawnLRUoptions);
 
 let removalInProgress = false;
 let installationInProgress = false;
@@ -5297,6 +5302,16 @@ async function trySpawningGlobalApplication() {
       trySpawningGlobalApplication();
       return;
     }
+
+    // Check if App was checked in the last 30m.
+    // This is a small help because random can be getting the same app over and over
+    if (trySpawningGlobalAppCache.has(serviceHelper.ensureString(randomApp))) {
+      log.info(`App ${randomApp} was already evaluated in the last 30m.`);
+      trySpawningGlobalApplication();
+      return;
+    }
+    trySpawningGlobalAppCache.set(randomApp, null);
+
     // check if there is < 5 instances of nodes running the app
     // TODO evaluate if its not better to check locally running applications!
     const runningAppList = await getRunningAppList(randomApp);
