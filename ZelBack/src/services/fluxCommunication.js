@@ -138,15 +138,11 @@ async function getMyFluxIP() {
 // filter can only be a publicKey!
 async function deterministicFluxList(filter) {
   try {
-    if (addingNodesToCache) {
+    while (addingNodesToCache) {
       // prevent several instances filling the cache at the same time.
+      // eslint-disable-next-line no-await-in-loop
       await serviceHelper.delay(100);
-      return deterministicFluxList(filter);
     }
-    const request = {
-      params: {},
-      query: {},
-    };
     let fluxList;
     if (filter) {
       fluxList = myCache.get(`fluxList${serviceHelper.ensureString(filter)}`);
@@ -154,20 +150,32 @@ async function deterministicFluxList(filter) {
       fluxList = myCache.get('fluxList');
     }
     if (!fluxList) {
-      // not present in cache lets get fluxList again and cache it.
+      const generalFluxList = myCache.get('fluxList');
       addingNodesToCache = true;
-      const daemonFluxNodesList = await daemonService.viewDeterministicZelNodeList(request);
-      if (daemonFluxNodesList.status === 'success') {
-        fluxList = daemonFluxNodesList.data || [];
-        myCache.set('fluxList', fluxList);
-        if (filter) {
-          const filterFluxList = fluxList.filter((node) => node.pubkey === filter);
-          myCache.set(`fluxList${serviceHelper.ensureString(filter)}`, filterFluxList);
+      if (!generalFluxList) {
+        const request = {
+          params: {},
+          query: {},
+        };
+        const daemonFluxNodesList = await daemonService.viewDeterministicZelNodeList(request);
+        if (daemonFluxNodesList.status === 'success') {
+          fluxList = daemonFluxNodesList.data || [];
+          myCache.set('fluxList', fluxList);
         }
+      } else { // surely in filtered branch too
+        const filterFluxList = generalFluxList.filter((node) => node.pubkey === filter);
+        myCache.set(`fluxList${serviceHelper.ensureString(filter)}`, filterFluxList);
+      }
+
+      if (filter) {
+        const filterFluxList = fluxList.filter((node) => node.pubkey === filter);
+        myCache.set(`fluxList${serviceHelper.ensureString(filter)}`, filterFluxList);
       }
       addingNodesToCache = false;
       if (filter) {
         fluxList = myCache.get(`fluxList${serviceHelper.ensureString(filter)}`);
+      } else {
+        fluxList = myCache.get('fluxList');
       }
     }
     return fluxList || [];
@@ -990,12 +998,12 @@ async function fluxDiscovery() {
     } else {
       throw new Error('Flux IP not detected. Flux discovery is awaiting.');
     }
-    const minPeers = 12;
+    const minPeers = 10;
     const maxPeers = 20;
     numberOfFluxNodes = nodeList.length;
     const currentIpsConnTried = [];
-    const requiredNumberOfConnections = numberOfFluxNodes / 50; // 2%
-    const maxNumberOfConnections = numberOfFluxNodes / 45;
+    const requiredNumberOfConnections = numberOfFluxNodes / 100; // 1%
+    const maxNumberOfConnections = numberOfFluxNodes / 50; // 2%
     const minCon = Math.max(minPeers, requiredNumberOfConnections); // awlays maintain at least 10 or 1% of nodes whatever is higher
     const maxCon = Math.max(maxPeers, maxNumberOfConnections); // have a maximum of 20 or 2% of nodes whatever is higher
     log.info(`Current number of outgoing connections:${outgoingConnections.length}`);
