@@ -225,17 +225,20 @@ async function verifyFluxBroadcast(data, obtainedFluxNodesList, currentTimeStamp
     return false;
   }
 
+  let node = null;
   if (obtainedFluxNodesList) { // for test purposes.
-    // node that broadcasted the message has to be on list
-    // pubkey of the broadcast has to be on the list
-    const nodeExistsA = obtainedFluxNodesList.find((key) => key.pubkey === pubKey);
-    if (!nodeExistsA) {
+    node = obtainedFluxNodesList.find((key) => key.pubkey === pubKey);
+    if (!node) {
       return false;
     }
   }
-  const zl = await deterministicFluxList(pubKey); // this itself is sufficient.
-  const nodeExistsA = zl.find((key) => key.pubkey === pubKey); // another check in case sufficient check failed on daemon level
-  if (!nodeExistsA) {
+  if (!node) {
+    // node that broadcasted the message has to be on list
+    // pubkey of the broadcast has to be on the list
+    const zl = await deterministicFluxList(pubKey); // this itself is sufficient.
+    node = zl.find((key) => key.pubkey === pubKey); // another check in case sufficient check failed on daemon level
+  }
+  if (!node) {
     return false;
   }
   const messageToVerify = version + message + timestamp;
