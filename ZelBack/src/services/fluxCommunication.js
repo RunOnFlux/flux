@@ -150,7 +150,7 @@ async function deterministicFluxList(filter) {
       fluxList = myCache.get('fluxList');
     }
     if (!fluxList) {
-      const generalFluxList = myCache.get('fluxList');
+      let generalFluxList = myCache.get('fluxList');
       addingNodesToCache = true;
       if (!generalFluxList) {
         const request = {
@@ -159,16 +159,15 @@ async function deterministicFluxList(filter) {
         };
         const daemonFluxNodesList = await daemonService.viewDeterministicZelNodeList(request);
         if (daemonFluxNodesList.status === 'success') {
-          fluxList = daemonFluxNodesList.data || [];
-          myCache.set('fluxList', fluxList);
+          generalFluxList = daemonFluxNodesList.data || [];
+          myCache.set('fluxList', generalFluxList);
+          if (filter) {
+            const filterFluxList = generalFluxList.filter((node) => node.pubkey === filter);
+            myCache.set(`fluxList${serviceHelper.ensureString(filter)}`, filterFluxList);
+          }
         }
       } else { // surely in filtered branch too
         const filterFluxList = generalFluxList.filter((node) => node.pubkey === filter);
-        myCache.set(`fluxList${serviceHelper.ensureString(filter)}`, filterFluxList);
-      }
-
-      if (filter) {
-        const filterFluxList = fluxList.filter((node) => node.pubkey === filter);
         myCache.set(`fluxList${serviceHelper.ensureString(filter)}`, filterFluxList);
       }
       addingNodesToCache = false;
