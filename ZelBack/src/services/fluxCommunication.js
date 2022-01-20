@@ -138,15 +138,11 @@ async function getMyFluxIP() {
 // filter can only be a publicKey!
 async function deterministicFluxList(filter) {
   try {
-    if (addingNodesToCache) {
+    while (addingNodesToCache) {
       // prevent several instances filling the cache at the same time.
+      // eslint-disable-next-line no-await-in-loop
       await serviceHelper.delay(100);
-      return deterministicFluxList(filter);
     }
-    const request = {
-      params: {},
-      query: {},
-    };
     let fluxList;
     if (filter) {
       fluxList = myCache.get(`fluxList${serviceHelper.ensureString(filter)}`);
@@ -154,19 +150,31 @@ async function deterministicFluxList(filter) {
       fluxList = myCache.get('fluxList');
     }
     if (!fluxList) {
-      // not present in cache lets get fluxList again and cache it.
+      let generalFluxList = myCache.get('fluxList');
       addingNodesToCache = true;
-      const daemonFluxNodesList = await daemonService.viewDeterministicZelNodeList(request);
-      if (daemonFluxNodesList.status === 'success') {
-        fluxList = daemonFluxNodesList.data || [];
-        fluxList.forEach((item) => {
-          myCache.set(`fluxList${serviceHelper.ensureString(item.pubkey)}`, [item]);
-        });
-        myCache.set('fluxList', fluxList);
+      if (!generalFluxList) {
+        const request = {
+          params: {},
+          query: {},
+        };
+        const daemonFluxNodesList = await daemonService.viewDeterministicZelNodeList(request);
+        if (daemonFluxNodesList.status === 'success') {
+          generalFluxList = daemonFluxNodesList.data || [];
+          myCache.set('fluxList', generalFluxList);
+          if (filter) {
+            const filterFluxList = generalFluxList.filter((node) => node.pubkey === filter);
+            myCache.set(`fluxList${serviceHelper.ensureString(filter)}`, filterFluxList);
+          }
+        }
+      } else { // surely in filtered branch too
+        const filterFluxList = generalFluxList.filter((node) => node.pubkey === filter);
+        myCache.set(`fluxList${serviceHelper.ensureString(filter)}`, filterFluxList);
       }
       addingNodesToCache = false;
       if (filter) {
         fluxList = myCache.get(`fluxList${serviceHelper.ensureString(filter)}`);
+      } else {
+        fluxList = myCache.get('fluxList');
       }
     }
     return fluxList || [];
@@ -219,18 +227,16 @@ async function verifyFluxBroadcast(data, obtainedFluxNodesList, currentTimeStamp
 
   let node = null;
   if (obtainedFluxNodesList) { // for test purposes.
-    node = await obtainedFluxNodesList.find((key) => key.pubkey === pubKey);
+    node = obtainedFluxNodesList.find((key) => key.pubkey === pubKey);
     if (!node) {
       return false;
     }
   }
   if (!node) {
+    // node that broadcasted the message has to be on list
+    // pubkey of the broadcast has to be on the list
     const zl = await deterministicFluxList(pubKey); // this itself is sufficient.
-    if (zl.length === 1) {
-      if (zl[0].pubkey === pubKey) {
-        [node] = zl;
-      }
-    }
+    node = zl.find((key) => key.pubkey === pubKey); // another check in case sufficient check failed on daemon level
   }
   if (!node) {
     return false;
@@ -537,7 +543,7 @@ function checkRateLimit(ip, perSecond = 10, maxBurst = 15) {
 function handleIncomingConnection(ws, req, expressWS) {
   // now we are in connections state. push the websocket to our incomingconnections
   const maxPeers = 20;
-  const maxNumberOfConnections = numberOfFluxNodes / 40;
+  const maxNumberOfConnections = numberOfFluxNodes / 40 < 120 ? numberOfFluxNodes / 40 : 120;
   const maxCon = Math.max(maxPeers, maxNumberOfConnections);
   if (incomingConnections.length > maxCon) {
     setTimeout(() => {
@@ -562,7 +568,7 @@ function handleIncomingConnection(ws, req, expressWS) {
     const { pubKey } = dataObj;
     if (blockedPubKeysCache.has(pubKey)) {
       try {
-        log.info('Closing connection, peer is on blockedList');
+        log.info('Closing incoming connection, peer is on blockedList');
         ws.close(1000, 'blocked list'); // close as of policy violation?
       } catch (e) {
         console.error(e);
@@ -590,23 +596,21 @@ function handleIncomingConnection(ws, req, expressWS) {
         }
       }
     } else {
-      // we dont like this peer as it sent wrong message. Lets close the connection
+      // we dont like this peer as it sent wrong message (wrong, or message belonging to node no longer on network). Lets close the connection
       // and add him to blocklist
       try {
         // check if message comes from IP belonging to the public Key
         const zl = await deterministicFluxList(pubKey); // this itself is sufficient.
-        if (zl.length === 1) { // else continue with blocking this public key
-          if (zl[0].pubkey === pubKey) { // else continue with blocking this public key
-            const { ip } = zl[0];
-            // if IP does not match IP of user that send us the message, pubkey was spoofed. Throw an error so we do not block a valid peer, else continue with pubkey blocking
-            if (ip !== peer.ip.replace('::ffff:', '')) {
-              throw new Error(`Message received from incoming peer ${peer.ip} but origin should come from ${ip}.`);
-            }
-          }
+        const possibleNodes = zl.filter((key) => key.pubkey === pubKey); // another check in case sufficient check failed on daemon level
+        const nodeFound = possibleNodes.find((n) => n.ip === peer.ip.replace('::ffff:', ''));
+        if (!nodeFound) {
+          log.warn(`Message received from incoming peer ${peer.ip} but is not an originating node of ${pubKey}.`);
+          ws.close(1000, 'invalid message, disconnect'); // close as of policy violation
+        } else {
+          blockedPubKeysCache.set(pubKey, pubKey); // blocks ALL the nodes corresponding to the pubKey
+          log.warn(`closing incoming connection, adding peers ${pubKey} to the blockedList. Originated from ${peer.ip}.`);
+          ws.close(1000, 'invalid message, blocked'); // close as of policy violation?
         }
-        blockedPubKeysCache.set(pubKey, pubKey);
-        log.warn('closing connection, adding peer to the blockedList');
-        ws.close(1000, 'invalid message, blocked'); // close as of policy violation?
       } catch (e) {
         console.error(e);
       }
@@ -915,7 +919,7 @@ async function initiateAndHandleConnection(ip) {
     const { pubKey } = msgObj;
     if (blockedPubKeysCache.has(pubKey)) {
       try {
-        log.info('Closing connection, peer is on blockedList');
+        log.info('Closing outgoing connection, peer is on blockedList');
         websocket.close(1000, 'blocked list'); // close as of policy violation?
       } catch (e) {
         console.error(e);
@@ -935,23 +939,21 @@ async function initiateAndHandleConnection(ip) {
         handleAppRunningMessage(msgObj, conIP);
       }
     } else {
-      // we dont like this peer as it sent wrong message. Lets close the connection
+      // we dont like this peer as it sent wrong message (wrong, or message belonging to node no longer on network). Lets close the connection
       // and add him to blocklist
       try {
         // check if message comes from IP belonging to the public Key
         const zl = await deterministicFluxList(pubKey); // this itself is sufficient.
-        if (zl.length === 1) { // else continue with blocking this public key
-          if (zl[0].pubkey === pubKey) { // else continue with blocking this public key
-            const expectedIP = zl[0].ip;
-            // if IP does not match IP of user that send us the message, pubkey was spoofed. Throw an error so we do not block a valid peer, else continue with pubkey blocking
-            if (expectedIP !== ip) {
-              throw new Error(`Message received from outgoing peer ${ip} but origin should come from ${expectedIP}.`);
-            }
-          }
+        const possibleNodes = zl.filter((key) => key.pubkey === pubKey); // another check in case sufficient check failed on daemon level
+        const nodeFound = possibleNodes.find((n) => n.ip === ip);
+        if (!nodeFound) {
+          log.warn(`Message received from outgoing peer ${ip} but is not an originating node of ${pubKey}.`);
+          websocket.close(1000, 'invalid message, disconnect'); // close as of policy violation
+        } else {
+          blockedPubKeysCache.set(pubKey, pubKey); // blocks ALL the nodes corresponding to the pubKey
+          log.warn(`closing outgoing connection, adding peers ${pubKey} to the blockedList. Originated from ${ip}.`);
+          websocket.close(1000, 'invalid message, blocked'); // close as of policy violation?
         }
-        blockedPubKeysCache.set(pubKey, pubKey);
-        log.warn('closing connection, adding peer to the blockedList');
-        websocket.close(1000, 'invalid message, blocked'); // close as of policy violation?
       } catch (e) {
         console.error(e);
       }
@@ -998,12 +1000,12 @@ async function fluxDiscovery() {
     } else {
       throw new Error('Flux IP not detected. Flux discovery is awaiting.');
     }
-    const minPeers = 12;
+    const minPeers = 10;
     const maxPeers = 20;
     numberOfFluxNodes = nodeList.length;
     const currentIpsConnTried = [];
-    const requiredNumberOfConnections = numberOfFluxNodes / 50; // 2%
-    const maxNumberOfConnections = numberOfFluxNodes / 45;
+    const requiredNumberOfConnections = numberOfFluxNodes / 100 < 40 ? numberOfFluxNodes / 100 : 40; // 1%
+    const maxNumberOfConnections = numberOfFluxNodes / 75 < 50 ? numberOfFluxNodes / 75 : 50; // 1.5%
     const minCon = Math.max(minPeers, requiredNumberOfConnections); // awlays maintain at least 10 or 1% of nodes whatever is higher
     const maxCon = Math.max(maxPeers, maxNumberOfConnections); // have a maximum of 20 or 2% of nodes whatever is higher
     log.info(`Current number of outgoing connections:${outgoingConnections.length}`);
