@@ -5346,6 +5346,7 @@ async function trySpawningGlobalApplication() {
     if (runningAppList.find((document) => document.ip === myIP)) {
       log.info(`Application ${randomApp} is reported as already running on this Flux`);
       await serviceHelper.delay(adjustedDelay);
+      trySpawningGlobalAppCache.set(randomApp, randomApp);
       trySpawningGlobalApplication();
       return;
     }
@@ -5357,6 +5358,7 @@ async function trySpawningGlobalApplication() {
     if (runningApps.data.find((app) => app.Names[0].substr(5, app.Names[0].length) === randomApp)) {
       log.info(`${randomApp} application is already running on this Flux`);
       await serviceHelper.delay(adjustedDelay);
+      trySpawningGlobalAppCache.set(randomApp, randomApp);
       trySpawningGlobalApplication();
       return;
     }
@@ -5364,6 +5366,7 @@ async function trySpawningGlobalApplication() {
     // get app specifications
     const appSpecifications = await getApplicationGlobalSpecifications(randomApp);
     if (!appSpecifications) {
+      trySpawningGlobalAppCache.set(randomApp, randomApp);
       throw new Error(`Specifications for application ${randomApp} were not found!`);
     }
 
@@ -5385,6 +5388,7 @@ async function trySpawningGlobalApplication() {
     if (appExists) { // double checked in installation process.
       log.info(`Application ${appSpecifications.name} is already installed`);
       await serviceHelper.delay(adjustedDelay);
+      trySpawningGlobalAppCache.set(randomApp, randomApp);
       trySpawningGlobalApplication();
       return;
     }
@@ -5401,6 +5405,7 @@ async function trySpawningGlobalApplication() {
             log.info(`${componentToInstall.repotag} Image is already running on this Flux`);
             // eslint-disable-next-line no-await-in-loop
             await serviceHelper.delay(adjustedDelay);
+            trySpawningGlobalAppCache.set(randomApp, randomApp);
             trySpawningGlobalApplication();
             return;
           }
