@@ -5305,12 +5305,14 @@ async function trySpawningGlobalApplication() {
 
     // Check if App was checked in the last 30m.
     // This is a small help because random can be getting the same app over and over
-    if (trySpawningGlobalAppCache.has(serviceHelper.ensureString(randomApp))) {
+    if (trySpawningGlobalAppCache.has(randomApp)) {
       log.info(`App ${randomApp} was already evaluated in the last 30m.`);
+      if (numberOfGlobalApps < 20) {
+        await serviceHelper.delay(config.fluxapps.installation.delay * 1000);
+      }
       trySpawningGlobalApplication();
       return;
     }
-    trySpawningGlobalAppCache.set(randomApp, null);
 
     // check if there is < 5 instances of nodes running the app
     // TODO evaluate if its not better to check locally running applications!
@@ -5323,6 +5325,7 @@ async function trySpawningGlobalApplication() {
     if (runningAppList.length >= config.fluxapps.minimumInstances) {
       log.info(`Application ${randomApp} is already spawned on ${runningAppList.length} instances`);
       await serviceHelper.delay(adjustedDelay);
+      trySpawningGlobalAppCache.set(randomApp, randomApp);
       trySpawningGlobalApplication();
       return;
     }
