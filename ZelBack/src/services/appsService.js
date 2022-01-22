@@ -5322,13 +5322,6 @@ async function trySpawningGlobalApplication() {
     const probLn = Math.log(2 + numberOfGlobalApps); // from ln(2) -> ln(2 + x)
     const adjustedDelay = delay / probLn;
 
-    if (runningAppList.length >= config.fluxapps.minimumInstances) {
-      log.info(`Application ${randomApp} is already spawned on ${runningAppList.length} instances`);
-      await serviceHelper.delay(adjustedDelay);
-      trySpawningGlobalAppCache.set(randomApp, randomApp);
-      trySpawningGlobalApplication();
-      return;
-    }
     // get my external IP and check that it is longer than 5 in length.
     const benchmarkResponse = await daemonService.getBenchmarks();
     let myIP = null;
@@ -5362,12 +5355,21 @@ async function trySpawningGlobalApplication() {
       trySpawningGlobalApplication();
       return;
     }
-    // check if node is capable to run it according to specifications
+
     // get app specifications
     const appSpecifications = await getApplicationGlobalSpecifications(randomApp);
     if (!appSpecifications) {
       trySpawningGlobalAppCache.set(randomApp, randomApp);
       throw new Error(`Specifications for application ${randomApp} were not found!`);
+    }
+
+    // check if app is installed on the number of instances requested
+    if (runningAppList.length >= appSpecifications.instances) {
+      log.info(`Application ${randomApp} is already spawned on ${runningAppList.length} instances`);
+      await serviceHelper.delay(adjustedDelay);
+      trySpawningGlobalAppCache.set(randomApp, randomApp);
+      trySpawningGlobalApplication();
+      return;
     }
 
     // eslint-disable-next-line no-restricted-syntax
