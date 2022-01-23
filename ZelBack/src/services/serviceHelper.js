@@ -1,13 +1,13 @@
 const axios = require('axios');
 const mongodb = require('mongodb');
-const config = require('config');
+const config =  require('../../config/default');
 const bitcoinMessage = require('bitcoinjs-message');
 const bitcoinjs = require('bitcoinjs-lib');
 const zeltrezjs = require('zeltrezjs');
 const { randomBytes } = require('crypto');
 const qs = require('qs');
 
-const userconfig = require('../../../config/userconfig');
+const userconfig = require('../../config/default');
 const log = require('../lib/log');
 
 const { MongoClient } = mongodb;
