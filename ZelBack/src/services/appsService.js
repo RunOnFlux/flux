@@ -37,7 +37,12 @@ const LRUoptions = {
   max: 500, // store 500 values, we shall not have more values at any period
   maxAge: 1000 * 60 * 10, // 10 minutes
 };
+
+const GlobalAppsSpawnLRUoptions = {
+  maxAge: 1000 * 60 * 30, // 30 minutes
+};
 const myCache = new LRU(LRUoptions);
+const trySpawningGlobalAppCache = new LRU(GlobalAppsSpawnLRUoptions);
 
 let removalInProgress = false;
 let installationInProgress = false;
@@ -2635,7 +2640,7 @@ async function availableApps(req, res) {
         + 'Chainweb is a braided, parallelized Proof Of Work consensus mechanism that improves throughput and scalability in executing transactions on the blockchain while maintaining the security and integrity found in Bitcoin. '
         + 'The healthy information tells you if your node is running and synced. If you just installed the docker it can say unhealthy for long time because on first run a bootstrap is downloaded and extracted to make your node sync faster before the node is started. '
         + 'Do not stop or restart the docker in the first hour after installation. You can also check if your kadena node is synced, by going to running apps and press visit button on kadena and compare your node height with Kadena explorer. Thank you.',
-      repotag: 'runonflux/kadena-chainweb-node:2.12.0',
+      repotag: 'runonflux/kadena-chainweb-node:2.12.1',
       owner: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
       ports: [30004, 30005],
       containerPorts: [30004, 30005],
@@ -2647,7 +2652,7 @@ async function availableApps(req, res) {
       enviromentParameters: ['CHAINWEB_P2P_PORT=30004', 'CHAINWEB_SERVICE_PORT=30005', 'LOGLEVEL=warn'],
       commands: ['/bin/bash', '-c', '(test -d /data/chainweb-db/0 && ./run-chainweb-node.sh) || (/chainweb/initialize-db.sh && ./run-chainweb-node.sh)'],
       containerData: '/data', // cannot be root todo in verification
-      hash: 'localSpecificationsVersion15', // hash of app message
+      hash: 'localSpecificationsVersion16', // hash of app message
       height: 680000, // height of tx on which it was
     },
     {
@@ -5297,6 +5302,18 @@ async function trySpawningGlobalApplication() {
       trySpawningGlobalApplication();
       return;
     }
+
+    // Check if App was checked in the last 30m.
+    // This is a small help because random can be getting the same app over and over
+    if (trySpawningGlobalAppCache.has(randomApp)) {
+      log.info(`App ${randomApp} was already evaluated in the last 30m.`);
+      if (numberOfGlobalApps < 20) {
+        await serviceHelper.delay(config.fluxapps.installation.delay * 1000);
+      }
+      trySpawningGlobalApplication();
+      return;
+    }
+
     // check if there is < 5 instances of nodes running the app
     // TODO evaluate if its not better to check locally running applications!
     const runningAppList = await getRunningAppList(randomApp);
@@ -5305,12 +5322,6 @@ async function trySpawningGlobalApplication() {
     const probLn = Math.log(2 + numberOfGlobalApps); // from ln(2) -> ln(2 + x)
     const adjustedDelay = delay / probLn;
 
-    if (runningAppList.length >= config.fluxapps.minimumInstances) {
-      log.info(`Application ${randomApp} is already spawned on ${runningAppList.length} instances`);
-      await serviceHelper.delay(adjustedDelay);
-      trySpawningGlobalApplication();
-      return;
-    }
     // get my external IP and check that it is longer than 5 in length.
     const benchmarkResponse = await daemonService.getBenchmarks();
     let myIP = null;
@@ -5328,6 +5339,7 @@ async function trySpawningGlobalApplication() {
     if (runningAppList.find((document) => document.ip === myIP)) {
       log.info(`Application ${randomApp} is reported as already running on this Flux`);
       await serviceHelper.delay(adjustedDelay);
+      trySpawningGlobalAppCache.set(randomApp, randomApp);
       trySpawningGlobalApplication();
       return;
     }
@@ -5339,14 +5351,26 @@ async function trySpawningGlobalApplication() {
     if (runningApps.data.find((app) => app.Names[0].substr(5, app.Names[0].length) === randomApp)) {
       log.info(`${randomApp} application is already running on this Flux`);
       await serviceHelper.delay(adjustedDelay);
+      trySpawningGlobalAppCache.set(randomApp, randomApp);
       trySpawningGlobalApplication();
       return;
     }
-    // check if node is capable to run it according to specifications
+
     // get app specifications
     const appSpecifications = await getApplicationGlobalSpecifications(randomApp);
     if (!appSpecifications) {
+      trySpawningGlobalAppCache.set(randomApp, randomApp);
       throw new Error(`Specifications for application ${randomApp} were not found!`);
+    }
+
+    // check if app is installed on the number of instances requested
+    const minInstances = appSpecifications.instances || config.fluxapps.minimumInstances; // introduced in v3 of apps specs
+    if (runningAppList.length >= minInstances) {
+      log.info(`Application ${randomApp} is already spawned on ${runningAppList.length} instances`);
+      await serviceHelper.delay(adjustedDelay);
+      trySpawningGlobalAppCache.set(randomApp, randomApp);
+      trySpawningGlobalApplication();
+      return;
     }
 
     // eslint-disable-next-line no-restricted-syntax
@@ -5367,6 +5391,7 @@ async function trySpawningGlobalApplication() {
     if (appExists) { // double checked in installation process.
       log.info(`Application ${appSpecifications.name} is already installed`);
       await serviceHelper.delay(adjustedDelay);
+      trySpawningGlobalAppCache.set(randomApp, randomApp);
       trySpawningGlobalApplication();
       return;
     }
@@ -5383,6 +5408,7 @@ async function trySpawningGlobalApplication() {
             log.info(`${componentToInstall.repotag} Image is already running on this Flux`);
             // eslint-disable-next-line no-await-in-loop
             await serviceHelper.delay(adjustedDelay);
+            trySpawningGlobalAppCache.set(randomApp, randomApp);
             trySpawningGlobalApplication();
             return;
           }
@@ -6207,6 +6233,38 @@ async function reconstructAppMessagesHashCollectionAPI(req, res) {
   }
 }
 
+async function stopAllNonFluxRunningApps() {
+  try {
+    log.info('Running non Flux apps check...');
+    let apps = await dockerService.dockerListContainers(false);
+    apps = apps.filter((app) => (app.Names[0].substr(1, 3) !== 'zel' && app.Names[0].substr(1, 4) !== 'flux'));
+    if (apps.length > 0) {
+      log.info(`Found ${apps.length} apps to be stopped...`);
+      // eslint-disable-next-line no-restricted-syntax
+      for (const app of apps) {
+        try {
+          log.info(`Stopping non Flux app ${app.Names[0]}`);
+          // eslint-disable-next-line no-await-in-loop
+          await dockerService.appDockerStop(app.Id); // continue if failed to stop one app
+          log.info(`Non Flux app ${app.Names[0]} stopped.`);
+        } catch (error) {
+          log.error(`Failed to stop non Flux app ${app.Names[0]}.`);
+        }
+      }
+    } else {
+      log.info('Only Flux apps are running.');
+    }
+    setTimeout(() => {
+      stopAllNonFluxRunningApps();
+    }, 2 * 60 * 60 * 1000); // execute every 2h
+  } catch (error) {
+    log.error(error);
+    setTimeout(() => {
+      stopAllNonFluxRunningApps();
+    }, 30 * 60 * 1000); // In case of an error execute after 30m
+  }
+}
+
 module.exports = {
   listRunningApps,
   listAllApps,
@@ -6282,4 +6340,5 @@ module.exports = {
   deploymentInformation,
   reconstructAppMessagesHashCollection,
   reconstructAppMessagesHashCollectionAPI,
+  stopAllNonFluxRunningApps,
 };
