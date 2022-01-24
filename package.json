@@ -44,6 +44,7 @@
   "homepage": "https://github.com/runonflux/flux#readme",
   "scripts": {
     "vuelint": "vue-cli-service lint",
+    "test:service": "mocha tests/unit/serviceHelperTest",
     "lint": "eslint --ext .js,.vue ZelBack/ HomeUI/",
     "lint:fix": "eslint --ext .js,.vue ZelBack/ HomeUI/ --fix",
     "test:e2e": "vue-cli-service test:e2e",
