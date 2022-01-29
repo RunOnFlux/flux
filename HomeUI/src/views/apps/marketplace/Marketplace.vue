@@ -162,9 +162,7 @@
 
     <managed-services-view
       :class="{'show': isManagedServicesViewActive}"
-      :app-data="app"
       :zelid="zelid"
-      :tier="tier"
       @close-app-view="isManagedServicesViewActive = false"
     />
 

@@ -13,9 +13,23 @@
           />
         </span>
         <h4 class="app-name mb-0">
-          {{ appData.name }}
+          Managed Services
         </h4>
       </div>
+      <b-tabs
+        pills
+        nav-class="nav-pill-warning"
+        class="currency-selector d-flex align-items-center"
+      >
+        <b-tab
+          title="USD"
+          active
+        />
+        <b-tab
+          title="Flux"
+          active
+        />
+      </b-tabs>
     </div>
 
     <!-- App Details -->
@@ -23,344 +37,136 @@
       :settings="perfectScrollbarSettings"
       class="app-scroll-area scroll-area"
     >
-      <b-row class="match-height">
-        <b-col
-          xxl="9"
-          xl="8"
-          lg="8"
-          md="12"
-        >
-          <b-card title="Details">
-            <b-form-textarea
-              id="textarea-rows"
-              rows="2"
-              readonly
-              :value="appData.description"
-              class="description-text"
-            />
-            <b-card
-              class="mt-1"
-              no-body
-            >
-              <b-tabs
-                @activate-tab="componentSelected"
+      <b-row
+        v-for="service in config.managed"
+        :key="service.title"
+      >
+        <b-col>
+          <b-card
+            :title="service.title"
+            class="managedservice-container"
+          >
+            <b-row class="match-height">
+              <b-col
+                cols="3"
+                class="managedservice-card"
               >
-                <b-tab
-                  v-for="(component, index) in appData.compose"
-                  :key="index"
-                  :title="component.name"
+                <b-card
+                  no-body
+                  class="text-center"
+                  :style="`background-color: ${tierColors[service.title.toLowerCase()]}`"
                 >
-                  <list-entry
-                    title="Description"
-                    :data="component.description"
-                  />
-                  <list-entry
-                    title="Repository"
-                    :data="component.repotag"
-                  />
-                  <b-card
-                    v-if="component.userEnvironmentParameters"
-                    title="Parameters"
-                    border-variant="primary"
-                  >
-                    <b-tabs v-if="component.userEnvironmentParameters">
-                      <b-tab
-                        v-for="(parameter, paramIndex) in component.userEnvironmentParameters"
-                        :key="paramIndex"
-                        :title="parameter.name"
-                      >
-                        <div class="form-row form-group">
-                          <label class="col-2 col-form-label">
-                            Value
-                            <v-icon
-                              v-b-tooltip.hover.top="parameter.description"
-                              name="info-circle"
-                              class="mr-1"
-                            />
-                          </label>
-                          <div class="col">
-                            <b-form-input
-                              id="enviromentParameters"
-                              v-model="parameter.value"
-                              :placeholder="parameter.placeholder"
-                            />
-                          </div>
-                        </div>
-                      </b-tab>
-                    </b-tabs>
-                  </b-card>
-                  <b-button
-                    v-if="userZelid"
-                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                    variant="outline-warning"
-                    aria-label="View Additional Details"
-                    class="mb-2"
-                    @click="componentParamsModalShowing = true"
-                  >
-                    View Additional Details
-                  </b-button>
-                </b-tab>
-              </b-tabs>
-            </b-card>
+                  <b-card-header>
+                    <h3>Collateral</h3>
+                  </b-card-header>
+                  <b-card-body class="d-flex align-items-center justify-content-center">
+                    <b-card-text>
+                      <h1>{{ service.collateral.toLocaleString() }}</h1>
+                      <h3>Flux</h3>
+                    </b-card-text>
+                  </b-card-body>
+                </b-card>
+              </b-col>
+              <b-col
+                cols="3"
+                class="managedservice-card"
+              >
+                <b-card
+                  no-body
+                  class="text-center"
+                  :style="`background-color: ${tierColors[service.title.toLowerCase()]}`"
+                >
+                  <b-card-header>
+                    <h3>Specs</h3>
+                  </b-card-header>
+                  <b-card-body>
+                    <b-card-text>
+                      <h3>>= {{ service.cores }} vCores</h3>
+                      <h3>>= {{ service.ram }}GB RAM</h3>
+                      <h3>>= {{ service.storage }}GB Storage</h3>
+                    </b-card-text>
+                  </b-card-body>
+                </b-card>
+              </b-col>
+              <b-col
+                cols="6"
+                class="managedservice-card"
+              >
+                <b-card
+                  class="text-center pricing-card"
+                  no-body
+                  :style="`border-color: ${tierColors[service.title.toLowerCase()]}`"
+                >
+                  <b-card-header>
+                    <h3>Pricing</h3>
+                  </b-card-header>
+                  <b-card-body class="d-flex align-items-center justify-content-center">
+                    <b-row class="match-height">
+                      <b-col cols="4">
+                        <b-button
+                          :style="`background-color: ${tierColors[service.title.toLowerCase()]} !important; border-color: ${tierColors[service.title.toLowerCase()]} !important`"
+                          @click="openPurchaseDialog(service, 3);"
+                        >
+                          <h3
+                            style="white-space: nowrap"
+                          >
+                            3 Months
+                          </h3>
+                          <h4>${{ service.priceUSD["3m"] }}</h4>
+                        </b-button>
+                      </b-col>
+                      <b-col cols="4">
+                        <b-button :style="`background-color: ${tierColors[service.title.toLowerCase()]} !important; border-color: ${tierColors[service.title.toLowerCase()]} !important`">
+                          <h3
+                            style="white-space: nowrap"
+                          >
+                            6 Months
+                          </h3>
+                          <h4>${{ service.priceUSD["6m"] }}</h4>
+                        </b-button>
+                      </b-col>
+                      <b-col cols="4">
+                        <b-button :style="`background-color: ${tierColors[service.title.toLowerCase()]} !important; border-color: ${tierColors[service.title.toLowerCase()]} !important`">
+                          <h3
+                            style="white-space: nowrap"
+                          >
+                            12 Months
+                          </h3>
+                          <h4>${{ service.priceUSD["12m"] }}</h4>
+                        </b-button>
+                      </b-col>
+                    </b-row>
+                  </b-card-body>
+                </b-card>
+              </b-col>
+            </b-row>
           </b-card>
         </b-col>
-        <b-col
-          xxl="3"
-          xl="4"
-          lg="4"
-          class="d-lg-flex d-none"
-        >
-          <b-card no-body>
-            <b-card-header class="app-requirements-header">
-              <h4 class="mb-0">
-                CPU
-              </h4>
-            </b-card-header>
-            <vue-apex-charts
-              class="mt-1"
-              type="radialBar"
-              height="200"
-              :options="cpuRadialBar"
-              :series="cpu.series"
-            />
-          </b-card>
-          <b-card no-body>
-            <b-card-header class="app-requirements-header">
-              <h4 class="mb-0">
-                RAM
-              </h4>
-            </b-card-header>
-            <vue-apex-charts
-              class="mt-1"
-              type="radialBar"
-              height="200"
-              :options="ramRadialBar"
-              :series="ram.series"
-            />
-          </b-card>
-          <b-card no-body>
-            <b-card-header class="app-requirements-header">
-              <h4 class="mb-0">
-                HDD
-              </h4>
-            </b-card-header>
-            <vue-apex-charts
-              class="mt-1"
-              type="radialBar"
-              height="200"
-              :options="hddRadialBar"
-              :series="hdd.series"
-            />
-          </b-card>
-        </b-col>
-        <b-row
-          class="d-lg-none d-sm-none d-md-flex d-none"
-        >
-          <b-col
-            md="4"
-          >
-            <b-card no-body>
-              <b-card-header class="app-requirements-header">
-                <h5 class="mb-0">
-                  CPU
-                </h5>
-              </b-card-header>
-              <vue-apex-charts
-                class="mt-1"
-                type="radialBar"
-                height="200"
-                :options="cpuRadialBar"
-                :series="cpu.series"
-              />
-            </b-card>
-          </b-col>
-          <b-col
-            md="4"
-          >
-            <b-card no-body>
-              <b-card-header class="app-requirements-header">
-                <h5 class="mb-0">
-                  RAM
-                </h5>
-              </b-card-header>
-              <vue-apex-charts
-                class="mt-1"
-                type="radialBar"
-                height="200"
-                :options="ramRadialBar"
-                :series="ram.series"
-              />
-            </b-card>
-          </b-col>
-          <b-col
-            md="4"
-          >
-            <b-card no-body>
-              <b-card-header class="app-requirements-header">
-                <h5 class="mb-0">
-                  HDD
-                </h5>
-              </b-card-header>
-              <vue-apex-charts
-                class="mt-1"
-                type="radialBar"
-                height="200"
-                :options="hddRadialBar"
-                :series="hdd.series"
-              />
-            </b-card>
-          </b-col>
-        </b-row>
-        <b-row
-          class="d-md-none"
-        >
-          <b-col
-            cols="4"
-          >
-            <b-card no-body>
-              <b-card-header class="app-requirements-header">
-                <h6 class="mb-0">
-                  CPU
-                </h6>
-              </b-card-header>
-              <vue-apex-charts
-                class="mt-3"
-                type="radialBar"
-                height="130"
-                :options="cpuRadialBarSmall"
-                :series="cpu.series"
-              />
-            </b-card>
-          </b-col>
-          <b-col
-            cols="4"
-          >
-            <b-card no-body>
-              <b-card-header class="app-requirements-header">
-                <h6 class="mb-0">
-                  RAM
-                </h6>
-              </b-card-header>
-              <vue-apex-charts
-                class="mt-3"
-                type="radialBar"
-                height="130"
-                :options="ramRadialBarSmall"
-                :series="ram.series"
-              />
-            </b-card>
-          </b-col>
-          <b-col
-            cols="4"
-          >
-            <b-card no-body>
-              <b-card-header class="app-requirements-header">
-                <h6 class="mb-0">
-                  HDD
-                </h6>
-              </b-card-header>
-              <vue-apex-charts
-                class="mt-3"
-                type="radialBar"
-                height="130"
-                :options="hddRadialBarSmall"
-                :series="hdd.series"
-              />
-            </b-card>
-          </b-col>
-        </b-row>
       </b-row>
-      <div
-        v-if="!appData.enabled"
-        class="text-center"
-      >
-        <h4>
-          This app is temporarily disabled
-        </h4>
-      </div>
-      <div
-        v-else
-        class="text-center"
-      >
-        <b-button
-          v-if="userZelid"
-          v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-          variant="success"
-          aria-label="Launch Marketplace App"
-          class="mb-2"
-          @click="checkFluxSpecificationsAndFormatMessage"
-        >
-          Start Launching Marketplace App
-        </b-button>
-        <h4 v-else>
-          Please login using your ZelID to deploy Marketplace Apps
-        </h4>
-      </div>
     </vue-perfect-scrollbar>
 
     <b-modal
-      v-model="componentParamsModalShowing"
-      title="Extra Component Parameters"
-      size="lg"
-      centered
-      button-size="sm"
-      ok-only
-      ok-title="Close"
-    >
-      <div v-if="currentComponent">
-        <list-entry
-          title="Static Parameters"
-          :data="currentComponent.environmentParameters.join(', ')"
-        />
-        <list-entry
-          title="Custom Domains"
-          :data="currentComponent.domains.join(', ') || 'none'"
-        />
-        <list-entry
-          title="Automatic Domains"
-          :data="constructAutomaticDomains(currentComponent.ports, currentComponent.name, appData.name).join(', ')"
-        />
-        <list-entry
-          title="Ports"
-          :data="currentComponent.ports.join(', ')"
-        />
-        <list-entry
-          title="Container Ports"
-          :data="currentComponent.containerPorts.join(', ')"
-        />
-        <list-entry
-          title="Container Data"
-          :data="currentComponent.containerData"
-        />
-        <list-entry
-          title="Commands"
-          :data="currentComponent.commands.length > 0 ? currentComponent.commands.join(', ') : 'none'"
-        />
-      </div>
-    </b-modal>
-
-    <b-modal
-      v-model="confirmLaunchDialogCloseShowing"
-      title="Finish Launching App?"
+      v-model="confirmPurchaseDialogCloseShowing"
+      title="Finish Purchasing Service?"
       size="sm"
       centered
       button-size="sm"
       ok-title="Yes"
       cancel-title="No"
-      @ok="confirmLaunchDialogCloseShowing = false; launchModalShowing = false;"
+      @ok="confirmPurchaseDialogCloseShowing = false; purchaseModalShowing = false;"
     >
       <h3 class="text-center">
-        Please ensure that you have paid for your app, or saved the payment details for later.
+        Please ensure that you have paid for your service, or saved the payment details for later.
       </h3>
       <br>
       <h4 class="text-center">
-        Close the Launch App dialog?
+        Close the Purchase Service dialog?
       </h4>
     </b-modal>
 
     <b-modal
-      v-model="launchModalShowing"
-      title="Launching Marketplace App"
+      v-model="purchaseModalShowing"
+      title="Purchasing Managed Service"
       size="xlg"
       centered
       no-close-on-backdrop
@@ -368,7 +174,7 @@
       button-size="sm"
       ok-only
       ok-title="Cancel"
-      @ok="confirmLaunchDialogCancel"
+      @ok="confirmPurchaseDialogCancel"
     >
       <form-wizard
         :color="tierColors.cumulus"
@@ -383,110 +189,27 @@
           <b-card
             title="Registration Message"
             class="text-center wizard-card"
-          >
-            <b-form-textarea
-              id="registrationmessage"
-              v-model="dataToSign"
-              rows="6"
-              readonly
-            />
-          </b-card>
+          />
         </tab-content>
-        <tab-content
-          title="Sign App Message"
-          :before-change="() => signature !== null"
-        >
+        <tab-content title="Sign App Message">
           <b-card
             title="Sign App Message with Zelcore"
             class="text-center wizard-card"
-          >
-            <a
-              :href="'zel:?action=sign&message=' + dataToSign + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=' + callbackValue()"
-              @click="initiateSignWS"
-            >
-              <img
-                class="zelidLogin mb-2"
-                src="@/assets/images/zelID.svg"
-                alt="Zel ID"
-                height="100%"
-                width="100%"
-              >
-            </a>
-            <b-form-input
-              id="signature"
-              v-model="signature"
-            />
-          </b-card>
+          />
         </tab-content>
-        <tab-content
-          title="Register App"
-          :before-change="() => registrationHash !== null"
-        >
+        <tab-content title="Register App">
           <b-card
             title="Register App"
             class="text-center wizard-card"
-          >
-            <b-card-text>
-              Price per Month: {{ appPricePerMonth }} FLUX
-            </b-card-text>
-            <b-button
-              v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-              variant="success"
-              aria-label="Register Flux App"
-              class="my-1"
-              :disabled="registrationHash && registrationHash.length > 0"
-              @click="register"
-            >
-              Register Flux App
-            </b-button>
-            <b-card-text
-              v-if="registrationHash"
-              v-b-tooltip
-              :title="registrationHash"
-              class="mt-1"
-            >
-              Registration Hash received
-            </b-card-text>
-          </b-card>
+          />
         </tab-content>
         <tab-content title="Send Payment">
           <b-row class="match-height">
-            <b-col
-              lg="8"
-            >
+            <b-col>
               <b-card
                 title="Send Payment"
                 class="text-center wizard-card"
-              >
-                <b-card-text>
-                  To finish the application update, please make a transaction of {{ appPricePerMonth }} FLUX to address<br>
-                  '{{ deploymentAddress }}'<br>
-                  with the following message<br>
-                  '{{ registrationHash }}'
-                </b-card-text>
-                <br>
-                The transaction must be mined by {{ new Date(validTill).toLocaleString('en-GB', timeoptions.shortDate) }}
-                <br><br>
-                The application will be subscribed until {{ new Date(subscribedTill).toLocaleString('en-GB', timeoptions.shortDate) }}
-              </b-card>
-            </b-col>
-            <b-col
-              lg="4"
-            >
-              <b-card
-                title="Pay with Zelcore"
-                class="text-center wizard-card"
-              >
-                <a :href="'zel:?action=pay&coin=zelcash&address=' + deploymentAddress + '&amount=' + appPricePerMonth + '&message=' + registrationHash + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png'">
-                  <img
-                    class="zelidLogin"
-                    src="@/assets/images/zelID.svg"
-                    alt="Zel ID"
-                    height="100%"
-                    width="100%"
-                  >
-                </a>
-              </b-card>
+              />
             </b-col>
           </b-row>
         </tab-content>
@@ -499,11 +222,12 @@
 import {
   BButton,
   BCard,
+  BCardBody,
   BCardHeader,
   BCardText,
   BCol,
-  BFormInput,
-  BFormTextarea,
+  // BFormInput,
+  // BFormTextarea,
   BModal,
   BRow,
   BTabs,
@@ -517,37 +241,36 @@ import {
   TabContent,
 } from 'vue-form-wizard';
 import VuePerfectScrollbar from 'vue-perfect-scrollbar';
-import VueApexCharts from 'vue-apexcharts';
+// import VueApexCharts from 'vue-apexcharts';
 import Ripple from 'vue-ripple-directive';
 import { useToast } from 'vue-toastification/composition';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 
-import { $themeColors } from '@themeConfig';
 import 'vue-form-wizard/dist/vue-form-wizard.min.css';
 
 import {
   ref,
-  watch,
-  computed,
 } from '@vue/composition-api';
 
-import ListEntry from '@/views/components/ListEntry.vue';
-import AppsService from '@/services/AppsService';
+// import ListEntry from '@/views/components/ListEntry.vue';
+// import AppsService from '@/services/AppsService';
 import tierColors from '@/libs/colors';
+import config from './services.json';
 
-const qs = require('qs');
-const store = require('store');
-const timeoptions = require('@/libs/dateFormat');
+// const qs = require('qs');
+// const store = require('store');
+// const timeoptions = require('@/libs/dateFormat');
 
 export default {
   components: {
     BButton,
     BCard,
+    BCardBody,
     BCardHeader,
     BCardText,
     BCol,
-    BFormInput,
-    BFormTextarea,
+    // BFormInput,
+    // BFormTextarea,
     BModal,
     BRow,
     BTabs,
@@ -558,11 +281,11 @@ export default {
 
     // eslint-disable-next-line vue/no-unused-components
     ToastificationContent,
-    ListEntry,
+    // ListEntry,
 
     // 3rd Party
     VuePerfectScrollbar,
-    VueApexCharts,
+    // VueApexCharts,
   },
   directives: {
     Ripple,
@@ -571,268 +294,23 @@ export default {
     'b-tooltip': VBTooltip,
   },
   props: {
-    appData: {
-      type: Object,
-      required: true,
-    },
     zelid: {
       type: String,
       required: false,
       default: '',
     },
-    tier: {
-      type: String,
-      required: true,
-      default: '',
-    },
   },
-  setup(props, ctx) {
+  setup(props) {
     // Use toast
     const toast = useToast();
 
-    const resolveTagVariant = (status) => {
-      if (status === 'Open') return 'warning';
-      if (status === 'Passed') return 'success';
-      if (status === 'Unpaid') return 'info';
-      if (status && status.startsWith('Rejected')) return 'danger';
-      return 'primary';
-    };
-
-    const tier = ref('');
-    tier.value = props.tier;
     const userZelid = ref('');
     userZelid.value = props.zelid;
-
-    // Variables to control showing dialogs
-    const launchModalShowing = ref(false);
-    const componentParamsModalShowing = ref(false);
-    const confirmLaunchDialogCloseShowing = ref(false);
-
-    // Holds the currently selected component, for viewing
-    // additional parameters in a modal dialog
-    const currentComponent = ref(null);
-
-    // Registration variables
-    const version = ref(1);
-    const registrationtype = ref('fluxappregister');
-    const dataToSign = ref(null);
-    const signature = ref(null);
-    const dataForAppRegistration = ref(null);
-    const timestamp = ref(null);
-    const appPricePerMonth = ref(0);
-    const registrationHash = ref(null);
-    const websocket = ref(null);
-
-    const config = computed(() => ctx.root.$store.state.flux.config);
-    const validTill = computed(() => timestamp.value + 60 * 60 * 1000); // 1 hour
-    const subscribedTill = computed(() => timestamp.value + 30 * 24 * 60 * 60 * 1000 + 60 * 60 * 1000); // 1 month
-
-    const callbackValue = () => {
-      const { protocol, hostname } = window.location;
-      let mybackend = '';
-      mybackend += protocol;
-      mybackend += '//';
-      const regex = /[A-Za-z]/g;
-      if (hostname.match(regex)) {
-        const names = hostname.split('.');
-        names[0] = 'api';
-        mybackend += names.join('.');
-      } else {
-        if (typeof hostname === 'string') {
-          ctx.root.$store.commit('flux/setUserIp', hostname);
-        }
-        mybackend += hostname;
-        mybackend += ':';
-        mybackend += config.value.apiPort;
-      }
-      const backendURL = store.get('backendURL') || mybackend;
-      const url = `${backendURL}/id/providesign`;
-      return encodeURI(url);
-    };
-
-    const onError = (evt) => {
-      console.log(evt);
-    };
-    const onMessage = (evt) => {
-      const data = qs.parse(evt.data);
-      if (data.status === 'success' && data.data) {
-        // user is now signed. Store their values
-        signature.value = data.data.signature;
-      }
-      console.log(data);
-      console.log(evt);
-    };
-    const onClose = (evt) => {
-      console.log(evt);
-    };
-    const onOpen = (evt) => {
-      console.log(evt);
-    };
-
-    const initiateSignWS = () => {
-      const { protocol, hostname } = window.location;
-      let mybackend = '';
-      mybackend += protocol;
-      mybackend += '//';
-      const regex = /[A-Za-z]/g;
-      if (hostname.match(regex)) {
-        const names = hostname.split('.');
-        names[0] = 'api';
-        mybackend += names.join('.');
-      } else {
-        if (typeof hostname === 'string') {
-          ctx.root.$store.commit('flux/setUserIp', hostname);
-        }
-        mybackend += hostname;
-        mybackend += ':';
-        mybackend += config.value.apiPort;
-      }
-      let backendURL = store.get('backendURL') || mybackend;
-      backendURL = backendURL.replace('https://', 'wss://');
-      backendURL = backendURL.replace('http://', 'ws://');
-      const signatureMessage = userZelid.value + timestamp.value;
-      console.log(`signatureMessage: ${signatureMessage}`);
-      const wsuri = `${backendURL}/ws/sign/${signatureMessage}`;
-      const ws = new WebSocket(wsuri);
-      websocket.value = ws;
-
-      ws.onopen = (evt) => { onOpen(evt); };
-      ws.onclose = (evt) => { onClose(evt); };
-      ws.onmessage = (evt) => { onMessage(evt); };
-      ws.onerror = (evt) => { onError(evt); };
-    };
+    const purchaseModalShowing = ref(false);
+    const confirmPurchaseDialogCloseShowing = ref(false);
 
     const perfectScrollbarSettings = {
       maxScrollbarLength: 150,
-    };
-
-    const globalApps = ref([]);
-    const getGlobalAppList = async () => {
-      const response = await AppsService.globalAppSpecifications();
-      globalApps.value = response.data.data;
-    };
-    const isPortInUse = (port) => {
-      for (let i = 0; i < globalApps.value.length; i += 1) {
-        const app = globalApps.value[i];
-        if (app.version <= 3) {
-          if (app.ports.length > 0) {
-            const used = app.ports.every((value) => Number(value) === port);
-            if (used) return true;
-          }
-        } else {
-          // v4 apps have 1 or more components
-          for (let c = 0; c < app.compose.length; c += 1) {
-            const component = app.compose[c];
-            if (component.ports.length > 0) {
-              const used = component.ports.every((value) => Number(value) === port);
-              if (used) return true;
-            }
-          }
-        }
-      }
-      // Check the current app spec, incase of a duplicate port from another component
-      for (let c = 0; c < props.appData.compose.length; c += 1) {
-        const component = props.appData.compose[c];
-        if (component.ports.length > 0) {
-          const used = component.ports.every((value) => Number(value) === port);
-          if (used) return true;
-        }
-      }
-      return false;
-    };
-    getGlobalAppList();
-
-    const resolveCpu = (app) => app.compose.reduce((total, component) => total + component.cpu, 0);
-
-    const resolveRam = (app) => app.compose.reduce((total, component) => total + component.ram, 0);
-
-    const resolveHdd = (app) => app.compose.reduce((total, component) => total + component.hdd, 0);
-
-    const cpu = ref({
-      series: [],
-    });
-    const ram = ref({
-      series: [],
-    });
-    const hdd = ref({
-      series: [],
-    });
-
-    watch(() => props.appData, () => {
-      if (websocket.value !== null) {
-        websocket.value.close();
-        websocket.value = null;
-      }
-      cpu.value = {
-        series: [((resolveCpu(props.appData) / 7) * 100)],
-      };
-      ram.value = {
-        series: [((resolveRam(props.appData) / 28000) * 100)],
-      };
-      hdd.value = {
-        series: [((resolveHdd(props.appData) / 570) * 100)],
-      };
-
-      // Create a random port from the app's port specs that is not present on any other app
-      props.appData.compose.forEach((component) => {
-        // eslint-disable-next-line no-param-reassign
-        component.ports = [];
-        component.portSpecs.forEach((portSpec) => {
-          const portSpecParsed = portSpec.split('-');
-          const minPort = Number(portSpecParsed[0]);
-          const maxPort = Number(portSpecParsed[1]);
-          let checking = true;
-          do {
-            const newPort = minPort + Math.round(Math.random() * (maxPort - minPort));
-            if (!isPortInUse(newPort)) {
-              checking = false;
-              component.ports.push(newPort);
-            }
-          } while (checking);
-        });
-      });
-
-      // Evaluate any user parameters from the database
-      props.appData.compose.forEach((component) => {
-        const paramModel = component.userEnvironmentParameters;
-        // check if any of these parameters are special 'port' parameters
-        paramModel.forEach((parameter) => {
-          if (Object.prototype.hasOwnProperty.call(parameter, 'port')) {
-            // eslint-disable-next-line no-param-reassign
-            parameter.value = component.ports[parameter.port];
-          }
-        });
-      });
-
-      currentComponent.value = props.appData.compose[0];
-    });
-
-    const constructUniqueAppName = (appName) => `${appName}${Date.now()}`;
-
-    const constructAutomaticDomains = (ports, componentName = '', appName) => {
-      if (!userZelid.value) {
-        return ['No ZelID'];
-      }
-      const domainString = 'abcdefghijklmno'; // enough
-      const appNameWithTimestamp = constructUniqueAppName(appName);
-      const lowerCaseName = appNameWithTimestamp.toLowerCase();
-      const lowerCaseCopmonentName = componentName.toLowerCase();
-      if (!lowerCaseCopmonentName) {
-        const domains = [`${lowerCaseName}.app.runonflux.io`];
-        // flux specs dont allow more than 10 ports so domainString is enough
-        for (let i = 0; i < ports.length; i += 1) {
-          const portDomain = `${domainString[i]}.${lowerCaseName}.app.runonflux.io`;
-          domains.push(portDomain);
-        }
-        return domains;
-      }
-      const domains = [`${lowerCaseName}.app.runonflux.io`, `${lowerCaseCopmonentName}.${lowerCaseName}.app.runonflux.io`];
-      // flux specs dont allow more than 10 ports so domainString is enough
-      for (let i = 0; i < ports.length; i += 1) {
-        const portDomain = `${domainString[i]}.${lowerCaseCopmonentName}.${lowerCaseName}.app.runonflux.io`;
-        domains.push(portDomain);
-      }
-      return domains;
     };
 
     const showToast = (variant, title, icon = 'InfoIcon') => {
@@ -846,542 +324,41 @@ export default {
       });
     };
 
-    const deploymentAddress = ref(null);
-    const appsDeploymentInformation = async () => {
-      const response = await AppsService.appsRegInformation();
-      const { data } = response.data;
-      if (response.data.status === 'success') {
-        deploymentAddress.value = data.address;
-      } else {
-        showToast('danger', response.data.data.message || response.data.data);
-      }
-    };
-    appsDeploymentInformation();
-
-    const checkFluxSpecificationsAndFormatMessage = async () => {
-      try {
-        // construct a valid v4 app spec from the marketplace app spec,
-        // filtering out unnecessary fields like 'price' and 'category'
-        const appSpecification = {
-          version: props.appData.version,
-          name: constructUniqueAppName(props.appData.name),
-          description: props.appData.description,
-          owner: userZelid.value,
-          instances: props.appData.instances,
-          compose: [],
-        };
-        // formation, pre verificaiton
-        props.appData.compose.forEach((component) => {
-          const envParams = JSON.parse(JSON.stringify(component.environmentParameters));
-          component.userEnvironmentParameters.forEach((param) => {
-            envParams.push(`${param.name}=${param.value}`);
-          });
-          const appComponent = {
-            name: component.name,
-            description: component.description,
-            repotag: component.repotag,
-            ports: component.ports,
-            containerPorts: component.containerPorts,
-            environmentParameters: envParams,
-            commands: component.commands,
-            containerData: component.containerData,
-            domains: component.domains,
-            cpu: component.cpu,
-            ram: component.ram,
-            hdd: component.hdd,
-            tiered: component.tiered,
-            cpubasic: component.cpubasic,
-            rambasic: component.rambasic,
-            hddbasic: component.hddbasic,
-            cpusuper: component.cpusuper,
-            ramsuper: component.ramsuper,
-            hddsuper: component.hddsuper,
-            cpubamf: component.cpubamf,
-            rambamf: component.rambamf,
-            hddbamf: component.hddbamf,
-          };
-          appSpecification.compose.push(appComponent);
-        });
-
-        // call api for verification of app registration specifications that returns formatted specs
-        const responseAppSpecs = await AppsService.appRegistrationVerificaiton(appSpecification);
-        console.log(responseAppSpecs);
-        if (responseAppSpecs.data.status === 'error') {
-          throw new Error(responseAppSpecs.data.data.message || responseAppSpecs.data.data);
-        }
-        const appSpecFormatted = responseAppSpecs.data.data;
-        const response = await AppsService.appPrice(appSpecFormatted);
-        if (response.data.status === 'error') {
-          throw new Error(response.data.data.message || response.data.data);
-        }
-        if (response.data.data > props.appData.price) {
-          throw new Error('Marketplace App Price is too low');
-        }
-        if (websocket.value !== null) {
-          websocket.value.close();
-          websocket.value = null;
-        }
-        timestamp.value = new Date().getTime();
-        dataForAppRegistration.value = appSpecFormatted;
-        appPricePerMonth.value = props.appData.price;
-        dataToSign.value = `${registrationtype.value}${version.value}${JSON.stringify(appSpecFormatted)}${new Date().getTime()}`;
-        registrationHash.value = null;
-        signature.value = null;
-        launchModalShowing.value = true;
-      } catch (error) {
-        console.log(error);
-        showToast('danger', error.message || error);
-      }
+    const confirmPurchaseDialogFinish = () => {
+      confirmPurchaseDialogCloseShowing.value = true;
     };
 
-    const smallchart = {
-      height: 100,
-      type: 'radialBar',
-      sparkline: {
-        enabled: true,
-      },
-      dropShadow: {
-        enabled: true,
-        blur: 3,
-        left: 1,
-        top: 1,
-        opacity: 0.1,
-      },
+    const confirmPurchaseDialogCancel = (modalEvt) => {
+      // if (registrationHash.value !== null) {
+      modalEvt.preventDefault();
+      confirmPurchaseDialogCloseShowing.value = true;
+      // }
     };
 
-    const largechart = {
-      height: 200,
-      type: 'radialBar',
-      sparkline: {
-        enabled: true,
-      },
-      dropShadow: {
-        enabled: true,
-        blur: 3,
-        left: 1,
-        top: 1,
-        opacity: 0.1,
-      },
-    };
-
-    const cpuRadialBar = {
-      chart: largechart,
-      colors: [$themeColors.primary],
-      labels: ['Cores'],
-      plotOptions: {
-        radialBar: {
-          offsetY: -10,
-          startAngle: -150,
-          endAngle: 150,
-          hollow: {
-            size: '77%',
-          },
-          track: {
-            background: $themeColors.dark,
-            strokeWidth: '50%',
-          },
-          dataLabels: {
-            name: {
-              offsetY: -15,
-              color: $themeColors.light,
-              fontSize: '1.5rem',
-            },
-            value: {
-              formatter: (val) => ((parseFloat(val) * 7) / 100).toFixed(1),
-              offsetY: 10,
-              color: $themeColors.light,
-              fontSize: '2.86rem',
-              fontWeight: '600',
-            },
-          },
-        },
-      },
-      fill: {
-        type: 'gradient',
-        gradient: {
-          shade: 'dark',
-          type: 'horizontal',
-          shadeIntensity: 0.5,
-          gradientToColors: [$themeColors.success],
-          inverseColors: true,
-          opacityFrom: 1,
-          opacityTo: 1,
-          stops: [0, 100],
-        },
-      },
-      stroke: {
-        lineCap: 'round',
-      },
-      grid: {
-        padding: {
-          bottom: 30,
-        },
-      },
-    };
-
-    const cpuRadialBarSmall = {
-      chart: smallchart,
-      colors: [$themeColors.primary],
-      labels: ['Cores'],
-      plotOptions: {
-        radialBar: {
-          offsetY: -10,
-          startAngle: -150,
-          endAngle: 150,
-          hollow: {
-            size: '70%',
-          },
-          track: {
-            background: $themeColors.dark,
-            strokeWidth: '50%',
-          },
-          dataLabels: {
-            name: {
-              offsetY: -15,
-              color: $themeColors.light,
-              fontSize: '1.2rem',
-            },
-            value: {
-              formatter: (val) => ((parseFloat(val) * 7) / 100).toFixed(1),
-              offsetY: 10,
-              color: $themeColors.light,
-              fontSize: '2rem',
-              fontWeight: '400',
-            },
-          },
-        },
-      },
-      fill: {
-        type: 'gradient',
-        gradient: {
-          shade: 'dark',
-          type: 'horizontal',
-          shadeIntensity: 0.5,
-          gradientToColors: [$themeColors.success],
-          inverseColors: true,
-          opacityFrom: 1,
-          opacityTo: 1,
-          stops: [0, 100],
-        },
-      },
-      stroke: {
-        lineCap: 'round',
-      },
-      grid: {
-        padding: {
-          bottom: 10,
-        },
-      },
-    };
-
-    const ramRadialBar = {
-      chart: largechart,
-      colors: [$themeColors.primary],
-      labels: ['MB'],
-      plotOptions: {
-        radialBar: {
-          offsetY: -10,
-          startAngle: -150,
-          endAngle: 150,
-          hollow: {
-            size: '77%',
-          },
-          track: {
-            background: $themeColors.dark,
-            strokeWidth: '50%',
-          },
-          dataLabels: {
-            name: {
-              offsetY: -15,
-              color: $themeColors.light,
-              fontSize: '1.5rem',
-            },
-            value: {
-              formatter: (val) => ((parseFloat(val) * 28000) / 100).toFixed(0),
-              offsetY: 10,
-              color: $themeColors.light,
-              fontSize: '2.86rem',
-              fontWeight: '600',
-            },
-          },
-        },
-      },
-      fill: {
-        type: 'gradient',
-        gradient: {
-          shade: 'dark',
-          type: 'horizontal',
-          shadeIntensity: 0.5,
-          gradientToColors: [$themeColors.success],
-          inverseColors: true,
-          opacityFrom: 1,
-          opacityTo: 1,
-          stops: [0, 100],
-        },
-      },
-      stroke: {
-        lineCap: 'round',
-      },
-      grid: {
-        padding: {
-          bottom: 30,
-        },
-      },
-    };
-
-    const ramRadialBarSmall = {
-      chart: smallchart,
-      colors: [$themeColors.primary],
-      labels: ['MB'],
-      plotOptions: {
-        radialBar: {
-          offsetY: -10,
-          startAngle: -150,
-          endAngle: 150,
-          hollow: {
-            size: '70%',
-          },
-          track: {
-            background: $themeColors.dark,
-            strokeWidth: '50%',
-          },
-          dataLabels: {
-            name: {
-              offsetY: -15,
-              color: $themeColors.light,
-              fontSize: '1.2rem',
-            },
-            value: {
-              formatter: (val) => ((parseFloat(val) * 28000) / 100).toFixed(0),
-              offsetY: 10,
-              color: $themeColors.light,
-              fontSize: '2rem',
-              fontWeight: '400',
-            },
-          },
-        },
-      },
-      fill: {
-        type: 'gradient',
-        gradient: {
-          shade: 'dark',
-          type: 'horizontal',
-          shadeIntensity: 0.5,
-          gradientToColors: [$themeColors.success],
-          inverseColors: true,
-          opacityFrom: 1,
-          opacityTo: 1,
-          stops: [0, 100],
-        },
-      },
-      stroke: {
-        lineCap: 'round',
-      },
-      grid: {
-        padding: {
-          bottom: 10,
-        },
-      },
-    };
-
-    const hddRadialBar = {
-      chart: largechart,
-      colors: [$themeColors.primary],
-      labels: ['GB'],
-      plotOptions: {
-        radialBar: {
-          offsetY: -10,
-          startAngle: -150,
-          endAngle: 150,
-          hollow: {
-            size: '77%',
-          },
-          track: {
-            background: $themeColors.dark,
-            strokeWidth: '50%',
-          },
-          dataLabels: {
-            name: {
-              offsetY: -15,
-              color: $themeColors.light,
-              fontSize: '1.5rem',
-            },
-            value: {
-              formatter: (val) => ((parseFloat(val) * 570) / 100).toFixed(0),
-              offsetY: 10,
-              color: $themeColors.light,
-              fontSize: '2.86rem',
-              fontWeight: '600',
-            },
-          },
-        },
-      },
-      fill: {
-        type: 'gradient',
-        gradient: {
-          shade: 'dark',
-          type: 'horizontal',
-          shadeIntensity: 0.5,
-          gradientToColors: [$themeColors.success],
-          inverseColors: true,
-          opacityFrom: 1,
-          opacityTo: 1,
-          stops: [0, 100],
-        },
-      },
-      stroke: {
-        lineCap: 'round',
-      },
-      grid: {
-        padding: {
-          bottom: 30,
-        },
-      },
-    };
-
-    const hddRadialBarSmall = {
-      chart: smallchart,
-      colors: [$themeColors.primary],
-      labels: ['GB'],
-      plotOptions: {
-        radialBar: {
-          offsetY: -10,
-          startAngle: -150,
-          endAngle: 150,
-          hollow: {
-            size: '70%',
-          },
-          track: {
-            background: $themeColors.dark,
-            strokeWidth: '50%',
-          },
-          dataLabels: {
-            name: {
-              offsetY: -15,
-              color: $themeColors.light,
-              fontSize: '1.2rem',
-            },
-            value: {
-              formatter: (val) => ((parseFloat(val) * 570) / 100).toFixed(0),
-              offsetY: 10,
-              color: $themeColors.light,
-              fontSize: '2rem',
-              fontWeight: '400',
-            },
-          },
-        },
-      },
-      fill: {
-        type: 'gradient',
-        gradient: {
-          shade: 'dark',
-          type: 'horizontal',
-          shadeIntensity: 0.5,
-          gradientToColors: [$themeColors.success],
-          inverseColors: true,
-          opacityFrom: 1,
-          opacityTo: 1,
-          stops: [0, 100],
-        },
-      },
-      stroke: {
-        lineCap: 'round',
-      },
-      grid: {
-        padding: {
-          bottom: 10,
-        },
-      },
-    };
-
-    const register = async () => {
-      const zelidauth = localStorage.getItem('zelidauth');
-      const data = {
-        type: registrationtype.value,
-        version: version.value,
-        appSpecification: dataForAppRegistration.value,
-        timestamp: timestamp.value,
-        signature: signature.value,
-      };
-      showToast('info', 'Propagating message accross Flux network...');
-      const response = await AppsService.registerApp(zelidauth, data).catch((error) => {
-        showToast('danger', error.message || error);
-      });
-      console.log(response);
-      if (response.data.status === 'success') {
-        registrationHash.value = response.data.data;
-        showToast('success', response.data.data.message || response.data.data);
-      } else {
-        showToast('danger', response.data.data.message || response.data.data);
-      }
-    };
-
-    const componentSelected = (component) => {
-      currentComponent.value = props.appData.compose[component];
-    };
-
-    const confirmLaunchDialogFinish = () => {
-      confirmLaunchDialogCloseShowing.value = true;
-    };
-
-    const confirmLaunchDialogCancel = (modalEvt) => {
-      if (registrationHash.value !== null) {
-        modalEvt.preventDefault();
-        confirmLaunchDialogCloseShowing.value = true;
-      }
+    const openPurchaseDialog = (service, months) => {
+      console.log(service);
+      console.log(months);
+      purchaseModalShowing.value = true;
     };
 
     return {
 
       // UI
       perfectScrollbarSettings,
-      resolveTagVariant,
-
-      resolveCpu,
-      resolveRam,
-      resolveHdd,
-
-      constructAutomaticDomains,
-      checkFluxSpecificationsAndFormatMessage,
-
-      timeoptions,
-
-      cpuRadialBar,
-      cpuRadialBarSmall,
-      cpu,
-
-      ramRadialBar,
-      ramRadialBarSmall,
-      ram,
-
-      hddRadialBar,
-      hddRadialBarSmall,
-      hdd,
 
       userZelid,
-      dataToSign,
-      signature,
-      appPricePerMonth,
-      registrationHash,
-      deploymentAddress,
 
-      validTill,
-      subscribedTill,
+      openPurchaseDialog,
+      purchaseModalShowing,
 
-      register,
-      callbackValue,
-      initiateSignWS,
+      confirmPurchaseDialogCloseShowing,
+      confirmPurchaseDialogFinish,
+      confirmPurchaseDialogCancel,
 
-      launchModalShowing,
-      componentParamsModalShowing,
-      confirmLaunchDialogCloseShowing,
-      confirmLaunchDialogFinish,
-      confirmLaunchDialogCancel,
-
-      currentComponent,
-      componentSelected,
+      config,
 
       tierColors,
+      showToast,
     };
   },
 };
@@ -1413,6 +390,43 @@ a:hover img {
 }
 .wizard-card {
   height: 250px;
+}
+
+.managedservice-card .card .card-header + .card-body {
+  padding-top: 0.6rem;
+}
+
+.managedservice-card .card .card-header {
+  background-color: rgba(34, 41, 47, 0.03);
+  border-bottom: 1px solid rgba(34, 41, 47, 0.125);
+  display: block;
+  font-size: 1.8rem;
+  padding: 0.6rem;
+}
+.managedservice-card .card .card-header h3 {
+  margin-bottom: 0.1rem;
+}
+.managedservice-card .card {
+  margin-bottom: 0.2rem;
+}
+.managedservice-card .pricing-card {
+  border: 3px solid;
+}
+.managedservice-container {
+  margin-bottom: 0.3rem;
+}
+.managedservice-container .card-body {
+  padding: 0.8rem;
+}
+.managedservice-container .card-title {
+  margin-bottom: 0.3rem;
+}
+.currency-selector {
+  margin-top: 0rem;
+  margin-bottom: 0rem;
+}
+.nav-pills {
+  margin-bottom: 0rem !important;
 }
 </style>
 <style lang="scss">

@@ -1,0 +1,60 @@
+{
+  "livePrices": true,
+  "roundFluxTo": 2,
+  "managed": [
+    {
+      "title": "Cumulus",
+      "collateral": 1000,
+      "cores": 4,
+      "ram": 8,
+      "storage": 220,
+      "priceUSD": {
+        "3m": 70,
+        "6m": 140,
+        "12m": 280
+      },
+      "priceFlux": {
+        "3m": 35,
+        "6m": 70,
+        "12m": 140
+      }
+    },
+    {
+      "title": "Nimbus",
+      "collateral": 12500,
+      "cores": 8,
+      "ram": 32,
+      "storage": 440,
+      "priceUSD": {
+        "3m": 120,
+        "6m": 240,
+        "12m": 480
+      },
+      "priceFlux": {
+        "3m": 60,
+        "6m": 120,
+        "12m": 240
+      }
+    },
+    {
+      "title": "Stratus",
+      "collateral": 40000,
+      "cores": 16,
+      "ram": 64,
+      "storage": 880,
+      "priceUSD": {
+        "3m": 190,
+        "6m": 380,
+        "12m": 760
+      },
+      "priceFlux": {
+        "3m": 95,
+        "6m": 190,
+        "12m": 380
+      }
+    }
+  ],
+  "shared": {
+
+  }
+}
