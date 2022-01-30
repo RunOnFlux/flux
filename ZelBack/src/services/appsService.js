@@ -3028,6 +3028,34 @@ function verifyCorrectnessOfApp(appSpecification) {
   return true;
 }
 
+function appPortsUnique(portsArray) {
+  return (new Set(portsArray)).size === portsArray.length;
+}
+
+function ensureAppUniquePorts(appSpecFormatted) {
+  if (appSpecFormatted.version === 1) {
+    return true;
+  }
+  if (appSpecFormatted.version <= 3) {
+    const portsUnique = appPortsUnique(appSpecFormatted.ports);
+    if (!portsUnique) {
+      throw new Error(`Flux App ${appSpecFormatted.name} must have unique ports specified`);
+    }
+  } else {
+    const allPorts = [];
+    appSpecFormatted.compose.forEach((component) => {
+      component.ports.forEach((port) => {
+        allPorts.push(port);
+      });
+    });
+    const portsUnique = appPortsUnique(allPorts);
+    if (!portsUnique) {
+      throw new Error(`Flux App ${appSpecFormatted.name} must have unique ports specified accross all composition`);
+    }
+  }
+  return true;
+}
+
 async function verifyAppSpecifications(appSpecifications, height) {
   if (!appSpecifications) {
     throw new Error('Invalid Flux App Specifications');
@@ -3220,6 +3248,9 @@ async function verifyAppSpecifications(appSpecifications, height) {
     }
   }
 
+  // verify ports are unique accross app
+  ensureAppUniquePorts();
+
   // check for Object.keys in applications. App can have only the fields that are in the version specification.
   if (appSpecifications.version === 1) {
     // appSpecs: {
@@ -3311,13 +3342,13 @@ async function verifyAppSpecifications(appSpecifications, height) {
   }
 }
 
-async function assignedPortsApps() {
+async function assignedPortsInstalledApps() {
   // construct object ob app name and ports array
   const db = serviceHelper.databaseConnection();
-  const database = db.db(config.database.appsglobal.database);
+  const database = db.db(config.database.appslocal.database);
   const query = {};
   const projection = { projection: { _id: 0 } };
-  const results = await serviceHelper.findInDatabase(database, globalAppsInformation, query, projection);
+  const results = await serviceHelper.findInDatabase(database, localAppsInformation, query, projection);
   const apps = [];
   results.forEach((app) => {
     // there is no app
@@ -3350,45 +3381,31 @@ async function assignedPortsApps() {
   return apps;
 }
 
-function appPortsUnique(portsArray) {
-  return (new Set(portsArray)).size === portsArray.length;
-}
-
-async function ensureCorrectApplicationPort(appSpecFormatted) {
-  const currentAppsPorts = await assignedPortsApps();
+async function ensureApplicationPortsNotUsed(appSpecFormatted) {
+  const currentAppsPorts = await assignedPortsInstalledApps();
   if (appSpecFormatted.version === 1) {
     const portAssigned = currentAppsPorts.find((app) => app.ports.includes(Number(appSpecFormatted.port)));
     if (portAssigned && portAssigned.name !== appSpecFormatted.name) {
-      throw new Error(`Flux App ${appSpecFormatted.name} port ${appSpecFormatted.port} already registered with different application. Your Flux App has to use different port.`);
+      throw new Error(`Flux App ${appSpecFormatted.name} port ${appSpecFormatted.port} already used with different application. Installation aborted.`);
     }
   } else if (appSpecFormatted.version <= 3) {
     // eslint-disable-next-line no-restricted-syntax
     for (const port of appSpecFormatted.ports) {
       const portAssigned = currentAppsPorts.find((app) => app.ports.includes(Number(port)));
       if (portAssigned && portAssigned.name !== appSpecFormatted.name) {
-        throw new Error(`Flux App ${appSpecFormatted.name} port ${port} already registered with different application. Your Flux App has to use different port.`);
+        throw new Error(`Flux App ${appSpecFormatted.name} port ${port} already used with different application. Installation aborted.`);
       }
     }
-    const portsUnique = appPortsUnique(appSpecFormatted.ports);
-    if (!portsUnique) {
-      throw new Error(`Flux App ${appSpecFormatted.name} must have unique ports specified`);
-    }
   } else {
-    const allPorts = [];
     // eslint-disable-next-line no-restricted-syntax
     for (const appComponent of appSpecFormatted.compose) {
       // eslint-disable-next-line no-restricted-syntax
       for (const port of appComponent.ports) {
         const portAssigned = currentAppsPorts.find((app) => app.ports.includes(port));
         if (portAssigned && portAssigned.name !== appSpecFormatted.name) {
-          throw new Error(`Flux App ${appSpecFormatted.name} port ${port} already registered with different application. Your Flux App has to use different port.`);
+          throw new Error(`Flux App ${appSpecFormatted.name} port ${port} already used with different application. Installation aborted.`);
         }
-        allPorts.push(port);
       }
-    }
-    const portsUnique = appPortsUnique(allPorts);
-    if (!portsUnique) {
-      throw new Error(`Flux App ${appSpecFormatted.name} must have unique ports specified accross all composition`);
     }
   }
   return true;
@@ -3647,7 +3664,6 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
       const daemonHeight = syncStatus.data.height;
       await verifyAppSpecifications(specifications, daemonHeight);
       await verifyAppHash(message);
-      await ensureCorrectApplicationPort(specifications);
       await checkApplicationRegistrationNameConflicts(specifications);
       await verifyAppMessageSignature(message.type, message.version, specifications, message.timestamp, message.signature);
     } else if (message.type === 'zelappupdate' || message.type === 'fluxappupdate') {
@@ -3656,7 +3672,6 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
       // stadard verifications
       await verifyAppSpecifications(specifications, daemonHeight);
       await verifyAppHash(message);
-      await ensureCorrectApplicationPort(specifications);
       // verify that app exists, does not change repotag (for v1-v3), does not change name and does not change component names
       await checkApplicationUpdateNameRepositoryConflicts(specifications, message.timestamp);
       // get previousAppSpecifications as we need previous owner
@@ -4116,9 +4131,6 @@ async function registerAppGlobalyApi(req, res) {
       // check if name is not yet registered
       await checkApplicationRegistrationNameConflicts(appSpecFormatted);
 
-      // check if ports is not yet registered
-      await ensureCorrectApplicationPort(appSpecFormatted);
-
       // check if zelid owner is correct ( done in message verification )
       // if signature is not correct, then specifications are not correct type or bad message received. Respond with 'Received message is invalid';
       await verifyAppMessageSignature(messageType, typeVersion, appSpecFormatted, timestamp, signature);
@@ -4227,8 +4239,6 @@ async function updateAppGlobalyApi(req, res) {
 
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
       await verifyAppSpecifications(appSpecFormatted, daemonHeight);
-      // check if ports are not conflicting
-      await ensureCorrectApplicationPort(appSpecFormatted);
 
       // verify that app exists, does not change repotag and is signed by app owner.
       const db = serviceHelper.databaseConnection();
@@ -5422,6 +5432,9 @@ async function trySpawningGlobalApplication() {
     // verify requirements
     await checkAppRequirements(appSpecifications);
 
+    // ensure ports unused
+    await ensureApplicationPortsNotUsed(appSpecifications);
+
     // if all ok Check hashes comparison if its out turn to start the app. 1% probability.
     const randomNumber = Math.floor((Math.random() * (config.fluxapps.installation.probability / probLn))); // higher probability for more apps on network
     if (randomNumber !== 0) {
@@ -6089,9 +6102,6 @@ async function verifyAppRegistrationParameters(req, res) {
       // check if name is not yet registered
       await checkApplicationRegistrationNameConflicts(appSpecFormatted);
 
-      // check if ports is not yet registered
-      await ensureCorrectApplicationPort(appSpecFormatted);
-
       // app is valid and can be registered
       // respond with formatted specifications
       const respondPrice = serviceHelper.createDataMessage(appSpecFormatted);
@@ -6133,9 +6143,6 @@ async function verifyAppUpdateParameters(req, res) {
       // check if name is not yet registered
       const timestamp = new Date().getTime();
       await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, timestamp);
-
-      // check if ports is not yet registered
-      await ensureCorrectApplicationPort(appSpecFormatted);
 
       // app is valid and can be registered
       // respond with formatted specifications
