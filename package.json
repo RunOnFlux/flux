@@ -147,7 +147,6 @@
     "vue-sweetalert2": "^5.0.2",
     "vue-template-compiler": "^2.6.14",
     "vue-toastification": "^1.7.14",
-    "vue-tour": "^2.0.0",
     "vue2-leaflet": "^2.7.1",
     "vuex": "^3.6.2",
     "webpack": "^4.46.0"
