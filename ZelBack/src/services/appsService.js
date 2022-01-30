@@ -11,6 +11,7 @@ const util = require('util');
 const fluxCommunication = require('./fluxCommunication');
 const serviceHelper = require('./serviceHelper');
 const daemonService = require('./daemonService');
+const benchmarkService = require('./benchmarkService');
 const dockerService = require('./dockerService');
 const generalService = require('./generalService');
 const log = require('../lib/log');
@@ -2776,8 +2777,14 @@ async function verifyRepository(repotag) {
     if (!resDocker.data.images[0]) {
       throw new Error('Docker image not found3');
     }
+    // eslint-disable-next-line no-restricted-syntax
+    for (const image of resDocker.data.images) {
+      if (image.size > config.fluxapps.maxImageSize) {
+        throw new Error(`Docker image ${repotag} of architecture ${image.architecture} size is over Flux limit`);
+      }
+    }
     if (resDocker.data.full_size > config.fluxapps.maxImageSize) {
-      throw new Error('Docker image size is over Flux limit');
+      throw new Error(`Docker image ${repotag} size is over Flux limit`);
     }
   } else {
     throw new Error(`Repository ${repotag} is not in valid format namespace/repository:tag`);
@@ -3409,6 +3416,78 @@ async function ensureApplicationPortsNotUsed(appSpecFormatted) {
     }
   }
   return true;
+}
+
+async function repositoryArchitectures(repotag) {
+  if (typeof repotag !== 'string') {
+    throw new Error('Invalid repotag');
+  }
+  const splittedRepo = repotag.split(':');
+  if (splittedRepo[0] && splittedRepo[1] && !splittedRepo[2]) {
+    let repoToFetch = splittedRepo[0];
+    if (!repoToFetch.includes('/')) {
+      repoToFetch = `library/${splittedRepo[0]}`;
+    }
+    const resDocker = await serviceHelper.axiosGet(`https://hub.docker.com/v2/repositories/${repoToFetch}/tags/${splittedRepo[1]}`).catch(() => {
+      throw new Error(`Repository ${repotag} is not found on docker hub in expected format`);
+    });
+    if (!resDocker) {
+      throw new Error('Unable to communicate with Docker Hub! Try again later.');
+    }
+    if (resDocker.data.errinfo) {
+      throw new Error('Docker image not found');
+    }
+    if (!resDocker.data.images) {
+      throw new Error('Docker image not found2');
+    }
+    if (!resDocker.data.images[0]) {
+      throw new Error('Docker image not found3');
+    }
+    const architectures = [];
+    // eslint-disable-next-line no-restricted-syntax
+    for (const image of resDocker.data.images) {
+      architectures.push(image.architecture);
+    }
+    return architectures;
+  }
+  throw new Error(`Repository ${repotag} is not in valid format namespace/repository:tag`);
+}
+
+async function systemArchitecture() {
+  // get benchmark architecture - valid are arm64, amd64
+  const benchmarkBenchRes = await benchmarkService.getBenchmarks();
+  if (benchmarkBenchRes.status === 'error') {
+    throw benchmarkBenchRes.data;
+  }
+  return benchmarkBenchRes.data.architecture;
+}
+
+async function ensureApplicationImagesExistsForPlatform(appSpecFormatted) {
+  const architecture = await systemArchitecture();
+  if (architecture !== 'arm64' && architecture !== 'amd64') {
+    throw new Error(`Invalid architecture ${architecture} detected.`);
+  }
+  // get all images in apps specifications
+  const appRepos = [];
+  if (appSpecFormatted.version <= 3) {
+    appRepos.push(appSpecFormatted.repotag);
+  } else {
+    // eslint-disable-next-line no-restricted-syntax
+    for (const appComponent of appSpecFormatted.compose) {
+      appRepos.push(appComponent.repotag);
+    }
+  }
+  // eslint-disable-next-line no-restricted-syntax
+  for (const appRepo of appRepos) {
+    // eslint-disable-next-line no-await-in-loop
+    const repoArchitectures = await repositoryArchitectures(appRepo);
+    if (!repoArchitectures.includes(architecture)) { // if my system architecture is not in the image
+      return false;
+    }
+    // eslint-disable-next-line no-await-in-loop
+    await serviceHelper.delay(500); // catch for potential rate limit
+  }
+  return true; // all images have my system architecture
 }
 
 async function checkApplicationRegistrationNameConflicts(appSpecFormatted) {
@@ -5427,13 +5506,32 @@ async function trySpawningGlobalApplication() {
     }
 
     // check if application image is not blacklisted
-    await checkApplicationImagesComplience(appSpecifications);
+    await checkApplicationImagesComplience(appSpecifications).catch((error) => {
+      log.error(error);
+      trySpawningGlobalAppCache.set(randomApp, randomApp);
+      throw error;
+    });
 
     // verify requirements
-    await checkAppRequirements(appSpecifications);
+    await checkAppRequirements(appSpecifications).catch((error) => { // catch it so we can add it to prevention of spawning
+      log.error(error);
+      trySpawningGlobalAppCache.set(randomApp, randomApp);
+      throw error; // throw it again so we begin new cycle
+    });
 
     // ensure ports unused
-    await ensureApplicationPortsNotUsed(appSpecifications);
+    await ensureApplicationPortsNotUsed(appSpecifications).catch((error) => {
+      log.error(error);
+      trySpawningGlobalAppCache.set(randomApp, randomApp);
+      throw error;
+    });
+
+    // ensure images exists for platform
+    await ensureApplicationImagesExistsForPlatform(appSpecifications).catch((error) => {
+      log.error(error);
+      trySpawningGlobalAppCache.set(randomApp, randomApp);
+      throw error;
+    });
 
     // if all ok Check hashes comparison if its out turn to start the app. 1% probability.
     const randomNumber = Math.floor((Math.random() * (config.fluxapps.installation.probability / probLn))); // higher probability for more apps on network
