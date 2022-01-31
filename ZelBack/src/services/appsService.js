@@ -5424,9 +5424,10 @@ async function trySpawningGlobalApplication() {
     if (myIP === null) {
       throw new Error('Unable to detect Flux IP address');
     }
+    myIP = myIP.split(':')[0]; // just IP
     // check if app not running on this device
     if (runningAppList.find((document) => document.ip === myIP)) {
-      log.info(`Application ${randomApp} is reported as already running on this Flux`);
+      log.info(`Application ${randomApp} is reported as already running on this IP`);
       await serviceHelper.delay(adjustedDelay);
       trySpawningGlobalAppCache.set(randomApp, randomApp);
       trySpawningGlobalApplication();
@@ -5570,6 +5571,7 @@ async function checkAndNotifyPeersOfRunningApps() {
     if (myIP === null) {
       throw new Error('Unable to detect Flux IP address');
     }
+    myIP = myIP.split(':')[0]; // just IP address
     // get list of locally installed apps. Store them in database as running and send info to our peers.
     // check if they are running?
     const installedAppsRes = await installedApps();

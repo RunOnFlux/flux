@@ -7,6 +7,8 @@ const express = require('express');
 
 const home = path.join(__dirname, './HomeUI/dist');
 
+const userconfig = require('./config/userconfig');
+
 const homeApp = express();
 homeApp.use(compression());
 homeApp.use(express.static(home));
@@ -20,6 +22,8 @@ homeApp.get('*', (req, res) => {
   res.sendFile(path.join(home, 'index.html'));
 });
 
-homeApp.listen(config.server.homeport, () => {
-  console.log(`Flux Home running on port ${config.server.homeport}!`);
+const homePort = userconfig.homeport || config.server.homeport;
+
+homeApp.listen(homePort, () => {
+  console.log(`Flux Home running on port ${homePort}!`);
 });

@@ -247,7 +247,7 @@ module.exports = (app, expressWs) => {
   app.get('/flux/incomingconnectionsinfo', cache('30 seconds'), (req, res) => {
     fluxCommunication.getIncomingConnectionsInfo(req, res, expressWs.getWss('/ws/flux'));
   });
-  app.get('/flux/checkfluxavailability/:ip?', cache('30 seconds'), (req, res) => {
+  app.get('/flux/checkfluxavailability/:ip?/:port?', cache('30 seconds'), (req, res) => {
     fluxCommunication.checkFluxAvailability(req, res);
   });
 

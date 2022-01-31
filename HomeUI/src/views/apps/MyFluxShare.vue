@@ -342,6 +342,8 @@ export default {
   },
   computed: {
     ...mapState('flux', [
+      'userconfig',
+      'config',
     ]),
     percentage() {
       const perc = (this.storage.used / this.storage.total) * 100;
@@ -367,11 +369,12 @@ export default {
       return filteredFolder.filter((data) => data.name !== '.gitkeep');
     },
     getUploadFolder() {
+      const port = this.userconfig.apiPort || this.config.apiPort;
       if (this.currentFolder) {
         const folder = encodeURIComponent(this.currentFolder);
-        return `${this.ipAddress}:16127/apps/fluxshare/uploadfile/${folder}`;
+        return `${this.ipAddress}:${port}/apps/fluxshare/uploadfile/${folder}`;
       }
-      return `${this.ipAddress}:16127/apps/fluxshare/uploadfile`;
+      return `${this.ipAddress}:${port}/apps/fluxshare/uploadfile`;
     },
   },
   mounted() {
@@ -638,7 +641,8 @@ export default {
       return true;
     },
     createfluxshareLink(name, token) {
-      return `${this.ipAddress}:16127/apps/fluxshare/getfile/${name}?token=${token}`;
+      const port = this.userconfig.apiPort || this.config.apiPort;
+      return `${this.ipAddress}:${port}/apps/fluxshare/getfile/${name}?token=${token}`;
     },
     copyLinkToClipboard(link) {
       const el = document.createElement('textarea');

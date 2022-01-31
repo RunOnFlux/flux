@@ -10,6 +10,8 @@ const app = require('./ZelBack/src/lib/server');
 const log = require('./ZelBack/src/lib/log');
 const serviceManager = require('./ZelBack/src/services/serviceManager');
 
+const userconfig = require('./config/userconfig');
+
 // const key = fs.readFileSync(path.join(__dirname, './certs/selfsigned.key'), 'utf8');
 // const cert = fs.readFileSync(path.join(__dirname, './certs/selfsigned.crt'), 'utf8');
 // const credentials = { key, cert };
@@ -19,8 +21,11 @@ const serviceManager = require('./ZelBack/src/services/serviceManager');
 //   log.info(`Flux  https listening on port ${config.server.apiporthttps}!`);
 // });
 
-app.listen(config.server.apiport, () => {
-  log.info(`Flux running on port ${config.server.apiport}!`);
+const apiPort = userconfig.apiport || config.server.apiport;
+const homePort = userconfig.homeport || config.server.homeport;
+
+app.listen(apiPort, () => {
+  log.info(`Flux running on port ${apiPort}!`);
   serviceManager.startFluxFunctions();
 });
 
@@ -40,6 +45,6 @@ homeApp.get('*', (req, res) => {
   res.sendFile(path.join(home, 'index.html'));
 });
 
-homeApp.listen(config.server.homeport, () => {
-  log.info(`Flux Home running on port ${config.server.homeport}!`);
+homeApp.listen(homePort, () => {
+  log.info(`Flux Home running on port ${homePort}!`);
 });
