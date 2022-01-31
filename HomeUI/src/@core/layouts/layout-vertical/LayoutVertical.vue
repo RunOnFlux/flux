@@ -86,7 +86,6 @@
 
 <script>
 import { onUnmounted } from '@vue/composition-api';
-import AppNavbarVerticalLayout from '@core/layouts/components/app-navbar/AppNavbarVerticalLayout.vue';
 import AppFooter from '@core/layouts/components/AppFooter.vue';
 import useAppConfig from '@core/app-config/useAppConfig';
 import { BNavbar } from 'bootstrap-vue';
@@ -99,8 +98,6 @@ import mixinVerticalLayout from './mixinVerticalLayout';
 
 export default {
   components: {
-    // AppBreadcrumb,
-    AppNavbarVerticalLayout,
     AppFooter,
     VerticalNavMenu,
     BNavbar,
