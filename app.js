@@ -22,7 +22,7 @@ const userconfig = require('./config/userconfig');
 // });
 
 const apiPort = userconfig.apiport || config.server.apiport;
-const homePort = userconfig.homeport || config.server.homeport;
+const homePort = apiPort - 1;
 
 app.listen(apiPort, () => {
   log.info(`Flux running on port ${apiPort}!`);

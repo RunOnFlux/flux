@@ -22,7 +22,7 @@ homeApp.get('*', (req, res) => {
   res.sendFile(path.join(home, 'index.html'));
 });
 
-const homePort = userconfig.homeport || config.server.homeport;
+const homePort = (userconfig.apiport || config.server.apiport) - 1;
 
 homeApp.listen(homePort, () => {
   console.log(`Flux Home running on port ${homePort}!`);

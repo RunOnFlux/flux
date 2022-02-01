@@ -52,7 +52,6 @@ function showQuestions() {
         ipaddress: '${answers.ipaddr}',
         zelid: '${answers.zelid}',
         testnet: false,
-        homeport: 16126,
         apiport: 16127,
       }
     }`;

@@ -659,7 +659,6 @@ async function adjustCruxID(req, res) {
     zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
     kadena: '${userconfig.initial.kadena || ''}',
     testnet: ${userconfig.initial.testnet || false},
-    homeport: ${userconfig.initial.homeport || 16126},
     apiport: ${userconfig.initial.apiport || 16127},
   }
 }`;
@@ -705,7 +704,6 @@ async function adjustKadenaAccount(req, res) {
     zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
     kadena: '${kadenaURI}',
     testnet: ${userconfig.initial.testnet || false},
-    homeport: ${userconfig.initial.homeport || 16126},
     apiport: ${userconfig.initial.apiport || 16127},
   }
 }`;
