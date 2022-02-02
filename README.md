@@ -198,7 +198,7 @@ sudo ufw allow 16127/tcp
 Install Flux dependancies (Ubuntu/CentOS/Redhat):
 
 ```bash
-cd Flux
+cd flux
 
 npm install
 ```
