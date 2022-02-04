@@ -17,31 +17,57 @@ async function confirmNodeTierHardware() {
     const tier = await generalService.nodeTier().catch((error) => {
       log.error(error);
     });
+
+    const collateral = await generalService.nodeCollateral().catch((error) => {
+      log.error(error);
+    });
     const nodeRam = os.totalmem() / 1024 / 1024 / 1024;
     const nodeCpuCores = os.cpus().length;
     log.info(`Node Tier: ${tier}`);
+    log.info(`Node Collateral: ${collateral}`);
     log.info(`Node Total Ram: ${nodeRam}`);
     log.info(`Node Cpu Cores: ${nodeCpuCores}`);
-    if (tier === 'bamf') {
-      if (nodeRam < 31) {
+    if (tier === 'bamf' && collateral === 100000) {
+      if (nodeRam < 30) {
         throw new Error(`Node Total Ram (${nodeRam}) below Stratus requirements`);
       }
       if (nodeCpuCores < 8) {
         throw new Error(`Node Cpu Cores (${nodeCpuCores}) below Stratus requirements`);
       }
-    } else if (tier === 'super') {
+    } else if (tier === 'super' && collateral === 25000) {
       if (nodeRam < 7) {
         throw new Error(`Node Total Ram (${nodeRam}) below Nimbus requirements`);
       }
       if (nodeCpuCores < 4) {
         throw new Error(`Node Cpu Cores (${nodeCpuCores}) below Nimbus requirements`);
       }
-    } else if (tier === 'basic') {
+    } else if (tier === 'basic' && collateral === 10000) {
       if (nodeRam < 3) {
         throw new Error(`Node Total Ram (${nodeRam}) below Cumulus requirements`);
       }
       if (nodeCpuCores < 2) {
         throw new Error(`Node Cpu Cores (${nodeCpuCores}) below Cumulus requirements`);
+      }
+    } else if (tier === 'bamf' && collateral === 40000) {
+      if (nodeRam < 61) {
+        throw new Error(`Node Total Ram (${nodeRam}) below new Stratus requirements`);
+      }
+      if (nodeCpuCores < 16) {
+        throw new Error(`Node Cpu Cores (${nodeCpuCores}) below new Stratus requirements`);
+      }
+    } else if (tier === 'super' && collateral === 12500) {
+      if (nodeRam < 30) {
+        throw new Error(`Node Total Ram (${nodeRam}) below new Nimbus requirements`);
+      }
+      if (nodeCpuCores < 8) {
+        throw new Error(`Node Cpu Cores (${nodeCpuCores}) below new Nimbus requirements`);
+      }
+    } else if (tier === 'basic' && collateral === 1000) {
+      if (nodeRam < 7) {
+        throw new Error(`Node Total Ram (${nodeRam}) below new Cumulus requirements`);
+      }
+      if (nodeCpuCores < 4) {
+        throw new Error(`Node Cpu Cores (${nodeCpuCores}) below new Cumulus requirements`);
       }
     }
     return true;
