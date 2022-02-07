@@ -63,7 +63,7 @@ async function confirmNodeTierHardware() {
         throw new Error(`Node Cpu Cores (${nodeCpuCores}) below new Nimbus requirements`);
       }
     } else if (tier === 'basic' && collateral === 1000) {
-      if (nodeRam < 7) {
+      if (nodeRam < 3) {
         throw new Error(`Node Total Ram (${nodeRam}) below new Cumulus requirements`);
       }
       if (nodeCpuCores < 4) {
