@@ -10,7 +10,7 @@ const fnconfig = new fullnode.Config();
 const isTestnet = userconfig.initial.testnet;
 const rpcuser = fnconfig.rpcuser() || 'rpcuser';
 const rpcpassword = fnconfig.rpcpassword() || 'rpcpassword';
-const rpcport = fnconfig.rpcport() || (isTestnet === true ? config.daemon.testnetrpcport : config.daemon.rpcport);
+const rpcport = fnconfig.rpcport() || (isTestnet === true ? config.daemon.rpcporttestnet : config.daemon.rpcport);
 
 let currentDaemonHeight = 0;
 let currentDaemonHeader = 1000;
