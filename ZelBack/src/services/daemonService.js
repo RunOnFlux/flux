@@ -13,7 +13,7 @@ const rpcpassword = fnconfig.rpcpassword() || 'rpcpassword';
 const rpcport = fnconfig.rpcport() || (isTestnet === true ? config.daemon.testnetrpcport : config.daemon.rpcport);
 
 let currentDaemonHeight = 0;
-let currentDaemonHeader = 973000;
+let currentDaemonHeader = 1000;
 
 const client = new daemonrpc.Client({
   port: rpcport,

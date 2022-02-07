@@ -8,7 +8,8 @@ const daemonService = require('./daemonService');
 
 const scannedHeightCollection = config.database.daemon.collections.scannedHeight;
 
-let storedTier = '';
+let storedTier = null;
+let storedCollateral = null;
 
 function getCollateralInfo(collateralOutpoint) {
   const a = collateralOutpoint;
@@ -44,17 +45,92 @@ async function nodeTier() {
   const { value } = txInformation.data.vout[collateralInformation.txindex];
   if (value === 10000) {
     storedTier = 'basic';
+    storedCollateral = 10000;
     return storedTier;
   }
   if (value === 25000) {
     storedTier = 'super';
+    storedCollateral = 25000;
     return storedTier;
   }
   if (value === 100000) {
     storedTier = 'bamf';
+    storedCollateral = 100000;
+    return storedTier;
+  }
+  if (value === 1000) {
+    storedTier = 'basic';
+    storedCollateral = 1000;
+    return storedTier;
+  }
+  if (value === 12500) {
+    storedTier = 'super';
+    storedCollateral = 12500;
+    return storedTier;
+  }
+  if (value === 40000) {
+    storedTier = 'bamf';
+    storedCollateral = 40000;
     return storedTier;
   }
   throw new Error('Unrecognised Flux Node tier');
+}
+
+async function nodeCollateral() {
+  if (storedCollateral) {
+    return storedCollateral; // node collateral is not changing. We can use globally cached value.
+  }
+  // get our collateral information to decide if app specifications are basic, super, bamf
+  // getzlenodestatus.collateral
+  const nodeStatus = await daemonService.getZelNodeStatus();
+  if (nodeStatus.status === 'error') {
+    throw nodeStatus.data;
+  }
+  const collateralInformation = getCollateralInfo(nodeStatus.data.collateral);
+  // get transaction information about collateralInformation.txhash
+  const request = {
+    params: {
+      txid: collateralInformation.txhash,
+      verbose: 1,
+    },
+  };
+  const txInformation = await daemonService.getRawTransaction(request);
+  if (txInformation.status === 'error') {
+    throw txInformation.data;
+  }
+  // get collateralInformation.txindex vout
+  const { value } = txInformation.data.vout[collateralInformation.txindex];
+  if (value === 10000) {
+    storedTier = 'basic';
+    storedCollateral = 10000;
+    return storedCollateral;
+  }
+  if (value === 25000) {
+    storedTier = 'super';
+    storedCollateral = 25000;
+    return storedCollateral;
+  }
+  if (value === 100000) {
+    storedTier = 'bamf';
+    storedCollateral = 100000;
+    return storedCollateral;
+  }
+  if (value === 1000) {
+    storedTier = 'basic';
+    storedCollateral = 1000;
+    return storedCollateral;
+  }
+  if (value === 12500) {
+    storedTier = 'super';
+    storedCollateral = 12500;
+    return storedCollateral;
+  }
+  if (value === 40000) {
+    storedTier = 'bamf';
+    storedCollateral = 40000;
+    return storedCollateral;
+  }
+  throw new Error('Unrecognised Flux Node Collateral');
 }
 
 async function isNodeStatusConfirmed() {
@@ -188,4 +264,5 @@ module.exports = {
   whitelistedRepositories,
   whitelistedZelIDs,
   messageHash,
+  nodeCollateral,
 };
