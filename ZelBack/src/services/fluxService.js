@@ -734,7 +734,7 @@ async function getNodeTier(req, res) {
       responseAux = 'nimbus';
     } else if (tier === 'bamf' && nodeCollateral === 100000) {
       responseAux = 'stratus';
-    } if (tier === 'basic' && nodeCollateral === 1000) {
+    } else if (tier === 'basic' && nodeCollateral === 1000) {
       responseAux = 'cumulus_new';
     } else if (tier === 'super' && nodeCollateral === 12500) {
       responseAux = 'nimbus_new';
