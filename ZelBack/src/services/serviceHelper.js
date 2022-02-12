@@ -124,6 +124,7 @@ async function connectMongoDb(url) {
     useNewUrlParser: true,
     useUnifiedTopology: true,
     maxPoolSize: 100,
+    maxIdleTimeMS: 12 * 60 * 1000,
   };
   const db = await MongoClient.connect(connectUrl, mongoSettings);
   return db;
