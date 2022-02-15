@@ -315,6 +315,14 @@ describe('serviceHelper tests', () => {
     });
   });
 
-
+  describe.only('connectMongoDb', () => {
+    before(mochaAsync(async () => {
+        await serviceHelper.initiateDB();
+    }))
+    it("should ensure that MongoDB is connected", mochaAsync(async () => {
+        openDBConnection = await serviceHelper.connectMongoDb();
+        expect(typeof (openDBConnection)).to.be.equal('object')
+    }));
+})
 });
 
