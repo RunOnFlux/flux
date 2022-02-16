@@ -1,7 +1,10 @@
-process.env.NODE_CONFIG_DIR = `${process.cwd()}/ZelBack/config/`;
+process.env.NODE_CONFIG_DIR = `${process.cwd()}/tests/unit/testconfig`;
 const chai = require('chai');
+const config = require('config');
+const { ObjectId, MongoClient } = require('mongodb');
 const expect = chai.expect;
 const serviceHelper = require("../../ZelBack/src/services/serviceHelper");
+
 describe('serviceHelper tests', () => {
   describe('ensureBoolean function tests', () => {
     const falseBools = ['false', false, 0, '0'];
@@ -315,14 +318,70 @@ describe('serviceHelper tests', () => {
     });
   });
 
-  describe.only('connectMongoDb', () => {
-    before(mochaAsync(async () => {
-        await serviceHelper.initiateDB();
-    }))
-    it("should ensure that MongoDB is connected", mochaAsync(async () => {
-        openDBConnection = await serviceHelper.connectMongoDb();
-        expect(typeof (openDBConnection)).to.be.equal('object')
-    }));
-})
+  describe('getApplicationOwner tests', () => {
+    beforeEach(async () => {
+      await serviceHelper.initiateDB();
+      const db = serviceHelper.databaseConnection();
+      const database = db.db(config.database.appsglobal.database)
+      const collection = config.database.appsglobal.collections.appsInformation
+      const insertApp = {
+        "_id": ObjectId("6147045cd774409b374d253d"),
+        "name": "PolkadotNode",
+        "commands": [],
+        "containerData": "/chaindata",
+        "containerPorts": [
+          "30333",
+          "9933",
+          "9944"
+        ],
+        "cpu": 0.8,
+        "description": "Polkadot is a heterogeneous multi-chain interchange.",
+        "domains": [
+          "polkadot.runonflux.io",
+          "polkadot.runonflux.io",
+          "polkadot.runonflux.io"
+        ],
+        "enviromentParameters": [],
+        "hash": "6f03b288240df90eb0d5a77c17c8fbea091619926ae66062da639b798fcf4ee5",
+        "hdd": 20,
+        "height": 988063,
+        "owner": "196GJWyLxzAw3MirTT7Bqs2iGpUQio29GH",
+        "ports": [
+          "31116",
+          "31115",
+          "31114"
+        ],
+        "ram": 1800,
+        "repotag": "runonflux/polkadot-docker:latest",
+        "tiered": false,
+        "version": 2
+      }
+
+      await database.collection(collection).drop();
+      await serviceHelper.insertOneToDatabase(database, collection, insertApp);
+    });
+
+    it("should return application owner if app exists in database", async () => {
+      const appOwner = '196GJWyLxzAw3MirTT7Bqs2iGpUQio29GH';
+      const getOwnerResult = await serviceHelper.getApplicationOwner('PolkadotNode');
+
+      expect(getOwnerResult).to.equal(appOwner);
+    });
+
+    it("should return application owner if app is in available apps, but not in db", async () => {
+      const appOwner = '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC';
+      const getOwnerResult = await serviceHelper.getApplicationOwner('FoldingAtHomeB');
+
+      expect(getOwnerResult).to.equal(appOwner);
+    });
+
+    it("should return null if the app does not exist", async () => {
+      const getOwnerResult = await serviceHelper.getApplicationOwner('testing');
+
+      expect(getOwnerResult).to.be.null;
+    });
+  });
+
+  
 });
 

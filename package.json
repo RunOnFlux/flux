@@ -49,7 +49,7 @@
     "test:e2e": "vue-cli-service test:e2e",
     "test:unit": "vue-cli-service test:unit",
     "test:zelback": "mocha tests/ZelBack",
-    "test:zelback:unit": "mocha tests/unit/*.test.js",
+    "test:zelback:unit": "mocha tests/unit/*.test.js --exit",
     "homedev": "vue-cli-service serve --port 16126",
     "homeprod": "nodemon homeServer.js",
     "homebuild": "vue-cli-service build",
