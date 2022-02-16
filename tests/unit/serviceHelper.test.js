@@ -1,9 +1,11 @@
-process.env.NODE_CONFIG_DIR = `${process.cwd()}/tests/unit/testconfig`;
+process.env.NODE_CONFIG_DIR = `${process.cwd()}/tests/unit/globalconfig`;
 const chai = require('chai');
 const config = require('config');
-const { ObjectId, MongoClient } = require('mongodb');
+const { ObjectId } = require('mongodb');
+var proxyquire = require('proxyquire');
 const expect = chai.expect;
-const serviceHelper = require("../../ZelBack/src/services/serviceHelper");
+
+let serviceHelper = require("../../ZelBack/src/services/serviceHelper");
 
 describe('serviceHelper tests', () => {
   describe('ensureBoolean function tests', () => {
@@ -322,8 +324,8 @@ describe('serviceHelper tests', () => {
     beforeEach(async () => {
       await serviceHelper.initiateDB();
       const db = serviceHelper.databaseConnection();
-      const database = db.db(config.database.appsglobal.database)
-      const collection = config.database.appsglobal.collections.appsInformation
+      const database = db.db(config.database.appsglobal.database);
+      const collection = config.database.appsglobal.collections.appsInformation;
       const insertApp = {
         "_id": ObjectId("6147045cd774409b374d253d"),
         "name": "PolkadotNode",
@@ -357,7 +359,11 @@ describe('serviceHelper tests', () => {
         "version": 2
       }
 
-      await database.collection(collection).drop();
+      try{
+        await database.collection(collection).drop();
+      } catch (err) {
+        console.log('Collection not found.');
+      }
       await serviceHelper.insertOneToDatabase(database, collection, insertApp);
     });
 
@@ -382,6 +388,50 @@ describe('serviceHelper tests', () => {
     });
   });
 
-  
+  describe('verifyAdminSession tests', () => {
+    beforeEach(async () => {
+      const adminConfig = {
+        initial: {
+          ipaddress: '83.51.212.243',
+          zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+          testnet: true
+        }
+      }
+      serviceHelper = proxyquire('../../ZelBack/src/services/serviceHelper',
+        { '../../../config/userconfig': adminConfig });
+
+      await serviceHelper.initiateDB();
+      const db = serviceHelper.databaseConnection();
+      const database = db.db(config.database.local.database);
+      const collection = config.database.local.collections.loggedUsers;
+      const insertUser = {
+        "_id": ObjectId("60cad0767247ac0a779fb3f0"),
+        "zelid": "1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC",
+        "loginPhrase": "16125160820394ddsh5skgwv0ipodku92y0jbwvpyj17bh68lzrjlxq9",
+        "signature": "IH9d68fk/dYQtuMlNN7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc="
+      }
+
+      try{
+        await database.collection(collection).drop();
+      } catch (err) {
+        console.log('Collection not found.');
+      }
+
+      await serviceHelper.insertOneToDatabase(database, collection, insertUser);
+    });
+
+
+    it("should return true when requested by admin", async () => {
+      const headers = {
+        zelidauth: {
+          zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+          signature: 'IH9d68fk/dYQtuMlNN7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc='
+        }
+      }
+
+      const verifyResponse = await serviceHelper.verifyAdminSession(headers);
+      console.log(verifyResponse);
+    });
+  })
 });
 
