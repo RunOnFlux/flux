@@ -420,7 +420,6 @@ describe('serviceHelper tests', () => {
       await serviceHelper.insertOneToDatabase(database, collection, insertUser);
     });
 
-
     it("should return true when requested by admin", async () => {
       const headers = {
         zelidauth: {
@@ -429,8 +428,51 @@ describe('serviceHelper tests', () => {
         }
       }
 
-      const verifyResponse = await serviceHelper.verifyAdminSession(headers);
-      console.log(verifyResponse);
+      const isAdmin = await serviceHelper.verifyAdminSession(headers);
+      expect(isAdmin).to.be.true;
+    });
+
+    it("should return false if signature is invalid", async () => {
+      const headers = {
+        zelidauth: {
+          zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+          signature: 'IH9d68fk/dYQtzMlNN7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc='
+        }
+      }
+
+      const isAdmin = await serviceHelper.verifyAdminSession(headers);
+      expect(isAdmin).to.be.false;
+    });
+
+    it("should return false if zelID is invalid", async () => {
+      const headers = {
+        zelidauth: {
+          zelid: '2CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+          signature: 'IH9d68fk/dYQtuMlNN7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc='
+        }
+      }
+
+      const isAdmin = await serviceHelper.verifyAdminSession(headers);
+      expect(isAdmin).to.be.false;
+    });
+    
+    it("should return false if header values are empty", async () => {
+      const headers = {
+        zelidauth: {
+          zelid: '',
+          signature: ''
+        }
+      }
+
+      const isAdmin = await serviceHelper.verifyAdminSession(headers);
+      expect(isAdmin).to.be.false;
+    });
+
+    it("should return false if header is empty", async () => {
+      const headers = {}
+
+      const isAdmin = await serviceHelper.verifyAdminSession(headers);
+      expect(isAdmin).to.be.false;
     });
   })
 });
