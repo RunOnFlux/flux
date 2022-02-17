@@ -1,4 +1,3 @@
-process.env.NODE_CONFIG_DIR = `${process.cwd()}/tests/unit/globalconfig`;
 const chai = require('chai');
 const config = require('config');
 const { ObjectId } = require('mongodb');
@@ -15,65 +14,51 @@ describe('serviceHelper tests', () => {
     const restOfFalsyValues = [0n, null, undefined, NaN, ''];
 
     for (let falseBool of falseBools) {
-      it(`parameter ${typeof falseBool === 'string' ? `"${falseBool}"` : falseBool} should return false`, () => {
+      it(`parameter ${falseBool} of type ${typeof falseBool} should return false`, () => {
         expect(serviceHelper.ensureBoolean(falseBool)).to.equal(false);
       });
     }
+
     for (let trueBool of trueBools) {
-      it(`parameter ${typeof trueBool === 'string' ? `"${trueBool}"` : trueBool} should return false`, () => {
+      it(`parameter ${trueBool} of type ${typeof trueBool}  should return false`, () => {
         expect(serviceHelper.ensureBoolean(trueBool)).to.equal(true);
       });
     }
+
     for (let truthyValue of restOfTruthyValues) {
-      it(`parameter ${typeof truthyValue === 'string' ? `"${truthyValue}"` : truthyValue} should return undefined`, () => {
+      it(`parameter ${truthyValue} of type ${typeof truthyValue}  should return undefined`, () => {
         expect(serviceHelper.ensureBoolean(truthyValue)).to.be.undefined;
       });
     }
+
     for (let falsyValue of restOfFalsyValues) {
-      it(`parameter ${typeof falsyValue === 'string' ? `"${falsyValue}"` : falsyValue} should return undefined`, () => {
+      it(`parameter ${falsyValue} of type ${typeof falsyValue}  should return undefined`, () => {
         expect(serviceHelper.ensureBoolean(falsyValue)).to.be.undefined;
       });
     }
+
     it('empty parameter should return undefined', () => {
       expect(serviceHelper.ensureBoolean()).to.be.undefined;
     });
   });
 
   describe('ensureNumber function tests', () => {
-    it('parameter 1 should return 1', () => {
-      const ensureNumberOutput = serviceHelper.ensureNumber(1);
-      const expected = 1;
+    const numbersList = [1, '1', 2.5, '2.5']
 
-      expect(ensureNumberOutput).to.equal(expected)
-      expect(ensureNumberOutput).to.be.a('number')
-    });
-    it('parameter "1" should return 1', () => {
-      const ensureNumberOutput = serviceHelper.ensureNumber("1");
-      const expected = 1;
+    for (let number of numbersList) {
+      it(`parameter ${number} should return number value`, () => {
+        const ensureNumberOutput = serviceHelper.ensureNumber(1);
 
-      expect(ensureNumberOutput).to.equal(expected)
-      expect(ensureNumberOutput).to.be.a('number')
-    });
-    it('parameter "2.5" should return 2.5', () => {
-      const ensureNumberOutput = serviceHelper.ensureNumber("2.5");
-      const expected = 2.5;
+        expect(ensureNumberOutput).to.be.a('number')
+      });
+    }
 
-      expect(ensureNumberOutput).to.equal(expected)
-      expect(ensureNumberOutput).to.be.a('number')
-    });
-    it('parameter 2.5 should return 2.5', () => {
-      const ensureNumberOutput = serviceHelper.ensureNumber(2.5);
-      const expected = 2.5;
-
-      expect(ensureNumberOutput).to.equal(expected)
-      expect(ensureNumberOutput).to.be.a('number')
-    });
-    it('parameter "test" should return NaN', () => {
+    it('parameter "test" of type string should return NaN', () => {
       const ensureNumberOutput = serviceHelper.ensureNumber("test");
 
       expect(ensureNumberOutput).to.be.NaN
     });
-    it('parameter {name: 1} should return NaN', () => {
+    it('parameter {name: 1} of type object should return NaN', () => {
       const ensureNumberOutput = serviceHelper.ensureNumber({ name: 1 });
 
       expect(ensureNumberOutput).to.be.NaN
@@ -100,7 +85,7 @@ describe('serviceHelper tests', () => {
     });
 
     it('parameter of type json string should return an object', () => {
-      const stringObject = '{"id": 1,"username": "Testing user"}';
+      stringObject = JSON.stringify({ "id": 1, "username": "Testing user" })
       const expected = {
         id: 1,
         username: 'Testing user'
@@ -198,10 +183,10 @@ describe('serviceHelper tests', () => {
     it('should return a proper data message when called correctly', () => {
       const testData = { id: 55, message: 'this is my test message' };
 
-      const createDataMessageOutput = serviceHelper.createDataMessage(testData);
+      const { status, data } = serviceHelper.createDataMessage(testData);
 
-      expect(createDataMessageOutput.status).to.equal('success');
-      expect(createDataMessageOutput.data).to.equal(testData);
+      expect(status).to.equal('success');
+      expect(data).to.equal(testData);
     });
   });
 
@@ -211,12 +196,12 @@ describe('serviceHelper tests', () => {
       const name = 'Successful transfer';
       const message = 'Your funds were transfered properly!';
 
-      const createSuccessMessageOutput = serviceHelper.createSuccessMessage(message, name, code);
+      const { status, data } = serviceHelper.createSuccessMessage(message, name, code);
 
-      expect(createSuccessMessageOutput.status).to.equal('success');
-      expect(createSuccessMessageOutput.data.code).to.equal(code);
-      expect(createSuccessMessageOutput.data.name).to.equal(name);
-      expect(createSuccessMessageOutput.data.message).to.equal(message);
+      expect(status).to.equal('success');
+      expect(data.code).to.equal(code);
+      expect(data.name).to.equal(name);
+      expect(data.message).to.equal(message);
     });
   });
 
@@ -226,12 +211,12 @@ describe('serviceHelper tests', () => {
       const name = 'Successful transfer';
       const message = 'Your funds were transfered properly!';
 
-      const createSuccessMessageOutput = serviceHelper.createSuccessMessage(message, name, code);
+      const { status, data } = serviceHelper.createSuccessMessage(message, name, code);
 
-      expect(createSuccessMessageOutput.status).to.equal('success');
-      expect(createSuccessMessageOutput.data.code).to.equal(code);
-      expect(createSuccessMessageOutput.data.name).to.equal(name);
-      expect(createSuccessMessageOutput.data.message).to.equal(message);
+      expect(status).to.equal('success');
+      expect(data.code).to.equal(code);
+      expect(data.name).to.equal(name);
+      expect(data.message).to.equal(message);
     });
 
     it('should return a proper success message when called with empty message', () => {
@@ -239,12 +224,12 @@ describe('serviceHelper tests', () => {
       const name = 'Successful transfer';
       const message = '';
 
-      const createSuccessMessageOutput = serviceHelper.createSuccessMessage(message, name, code);
+      const { status, data } = serviceHelper.createSuccessMessage(message, name, code);
 
-      expect(createSuccessMessageOutput.status).to.equal('success');
-      expect(createSuccessMessageOutput.data.code).to.equal(code);
-      expect(createSuccessMessageOutput.data.name).to.equal(name);
-      expect(createSuccessMessageOutput.data.message).to.equal(message);
+      expect(status).to.equal('success');
+      expect(data.code).to.equal(code);
+      expect(data.name).to.equal(name);
+      expect(data.message).to.equal(message);
     });
   });
 
@@ -254,12 +239,12 @@ describe('serviceHelper tests', () => {
       const name = 'Warning!';
       const message = 'There was a slight issue!';
 
-      const createWarningMessageOutput = serviceHelper.createWarningMessage(message, name, code);
+      const { status, data } = serviceHelper.createWarningMessage(message, name, code);
 
-      expect(createWarningMessageOutput.status).to.equal('warning');
-      expect(createWarningMessageOutput.data.code).to.equal(code);
-      expect(createWarningMessageOutput.data.name).to.equal(name);
-      expect(createWarningMessageOutput.data.message).to.equal(message);
+      expect(status).to.equal('warning');
+      expect(data.code).to.equal(code);
+      expect(data.name).to.equal(name);
+      expect(data.message).to.equal(message);
     });
 
     it('should return a proper warning message when called with empty message', () => {
@@ -267,12 +252,12 @@ describe('serviceHelper tests', () => {
       const name = 'Warning!';
       const message = '';
 
-      const createSuccessMessageOutput = serviceHelper.createWarningMessage(message, name, code);
+      const { status, data } = serviceHelper.createWarningMessage(message, name, code);
 
-      expect(createSuccessMessageOutput.status).to.equal('warning');
-      expect(createSuccessMessageOutput.data.code).to.equal(code);
-      expect(createSuccessMessageOutput.data.name).to.equal(name);
-      expect(createSuccessMessageOutput.data.message).to.equal(message);
+      expect(status).to.equal('warning');
+      expect(data.code).to.equal(code);
+      expect(data.name).to.equal(name);
+      expect(data.message).to.equal(message);
     });
   });
 
@@ -282,12 +267,12 @@ describe('serviceHelper tests', () => {
       const name = 'Error happened!!';
       const message = 'There was a big error!';
 
-      const createErrorMessageOutput = serviceHelper.createErrorMessage(message, name, code);
+      const { status, data } = serviceHelper.createErrorMessage(message, name, code);
 
-      expect(createErrorMessageOutput.status).to.equal('error');
-      expect(createErrorMessageOutput.data.code).to.equal(code);
-      expect(createErrorMessageOutput.data.name).to.equal(name);
-      expect(createErrorMessageOutput.data.message).to.equal(message);
+      expect(status).to.equal('error');
+      expect(data.code).to.equal(code);
+      expect(data.name).to.equal(name);
+      expect(data.message).to.equal(message);
     });
 
     it('should return a proper error message when called with empty message', () => {
@@ -296,12 +281,12 @@ describe('serviceHelper tests', () => {
       const message = '';
       const expectedMessage = 'Unknown error';
 
-      const createErrorMessageOutput = serviceHelper.createErrorMessage(message, name, code);
+      const { status, data } = serviceHelper.createErrorMessage(message, name, code);
 
-      expect(createErrorMessageOutput.status).to.equal('error');
-      expect(createErrorMessageOutput.data.code).to.equal(code);
-      expect(createErrorMessageOutput.data.name).to.equal(name);
-      expect(createErrorMessageOutput.data.message).to.equal(expectedMessage);
+      expect(status).to.equal('error');
+      expect(data.code).to.equal(code);
+      expect(data.name).to.equal(name);
+      expect(data.message).to.equal(expectedMessage);
     });
   });
 
@@ -311,12 +296,12 @@ describe('serviceHelper tests', () => {
       const name = 'Unauthorized';
       const message = 'Unauthorized. Access denied.';
 
-      const errUnauthorizedMessageOutput = serviceHelper.errUnauthorizedMessage(message, name, code);
+      const { status, data } = serviceHelper.errUnauthorizedMessage(message, name, code);
 
-      expect(errUnauthorizedMessageOutput.status).to.equal('error');
-      expect(errUnauthorizedMessageOutput.data.code).to.equal(code);
-      expect(errUnauthorizedMessageOutput.data.name).to.equal(name);
-      expect(errUnauthorizedMessageOutput.data.message).to.equal(message);
+      expect(status).to.equal('error');
+      expect(data.code).to.equal(code);
+      expect(data.name).to.equal(name);
+      expect(data.message).to.equal(message);
     });
   });
 
@@ -329,37 +314,11 @@ describe('serviceHelper tests', () => {
       const insertApp = {
         "_id": ObjectId("6147045cd774409b374d253d"),
         "name": "PolkadotNode",
-        "commands": [],
-        "containerData": "/chaindata",
-        "containerPorts": [
-          "30333",
-          "9933",
-          "9944"
-        ],
-        "cpu": 0.8,
         "description": "Polkadot is a heterogeneous multi-chain interchange.",
-        "domains": [
-          "polkadot.runonflux.io",
-          "polkadot.runonflux.io",
-          "polkadot.runonflux.io"
-        ],
-        "enviromentParameters": [],
-        "hash": "6f03b288240df90eb0d5a77c17c8fbea091619926ae66062da639b798fcf4ee5",
-        "hdd": 20,
-        "height": 988063,
         "owner": "196GJWyLxzAw3MirTT7Bqs2iGpUQio29GH",
-        "ports": [
-          "31116",
-          "31115",
-          "31114"
-        ],
-        "ram": 1800,
-        "repotag": "runonflux/polkadot-docker:latest",
-        "tiered": false,
-        "version": 2
       }
 
-      try{
+      try {
         await database.collection(collection).drop();
       } catch (err) {
         console.log('Collection not found.');
@@ -411,7 +370,7 @@ describe('serviceHelper tests', () => {
         "signature": "IH9d68fk/dYQtuMlNN7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc="
       }
 
-      try{
+      try {
         await database.collection(collection).drop();
       } catch (err) {
         console.log('Collection not found.');
@@ -429,6 +388,7 @@ describe('serviceHelper tests', () => {
       }
 
       const isAdmin = await serviceHelper.verifyAdminSession(headers);
+
       expect(isAdmin).to.be.true;
     });
 
@@ -441,6 +401,7 @@ describe('serviceHelper tests', () => {
       }
 
       const isAdmin = await serviceHelper.verifyAdminSession(headers);
+
       expect(isAdmin).to.be.false;
     });
 
@@ -453,9 +414,10 @@ describe('serviceHelper tests', () => {
       }
 
       const isAdmin = await serviceHelper.verifyAdminSession(headers);
+
       expect(isAdmin).to.be.false;
     });
-    
+
     it("should return false if header values are empty", async () => {
       const headers = {
         zelidauth: {
@@ -465,6 +427,7 @@ describe('serviceHelper tests', () => {
       }
 
       const isAdmin = await serviceHelper.verifyAdminSession(headers);
+
       expect(isAdmin).to.be.false;
     });
 
@@ -472,8 +435,89 @@ describe('serviceHelper tests', () => {
       const headers = {}
 
       const isAdmin = await serviceHelper.verifyAdminSession(headers);
+
       expect(isAdmin).to.be.false;
     });
-  })
+  });
+
+  describe('verifyUserSession tests', () => {
+    beforeEach(async () => {
+      await serviceHelper.initiateDB();
+      const db = serviceHelper.databaseConnection();
+      const database = db.db(config.database.local.database);
+      const collection = config.database.local.collections.loggedUsers;
+      const insertUser = {
+        "_id": ObjectId("601f403878cbf33af2b07e63"),
+        "zelid": "1LZe3AUYQC4aT5YWLhgEcH1nLLdoKNBi9t",
+        "loginPhrase": "16126607802409ki3t43zmwinlys5p0dxaokf420w59gvrio2bij61dzs",
+        "signature": "IMDMG1GuDasjPMkrGaRQhkLpFO0saBV+v+N6h3wP6/QlF3J9ymLAPZy7DCBd/RnOSzUxmTHruenVeR7LghzRnHA="
+      }
+
+      try {
+        await database.collection(collection).drop();
+      } catch (err) {
+        console.log('Collection not found.');
+      }
+
+      await serviceHelper.insertOneToDatabase(database, collection, insertUser);
+    });
+
+    it("should return true when requested by logged user", async () => {
+      const headers = {
+        zelidauth: {
+          zelid: '1LZe3AUYQC4aT5YWLhgEcH1nLLdoKNBi9t',
+          signature: 'IMDMG1GuDasjPMkrGaRQhkLpFO0saBV+v+N6h3wP6/QlF3J9ymLAPZy7DCBd/RnOSzUxmTHruenVeR7LghzRnHA='
+        }
+      }
+
+      const isLoggedUser = await serviceHelper.verifyUserSession(headers);
+
+      expect(isLoggedUser).to.be.true;
+    });
+
+    it("should return false if called with a wrong zelid", async () => {
+      const headers = {
+        zelidauth: {
+          zelid: '1LZe3AUYQC4aT5YWLhgEcH1nLLdoKNBu9t',
+          signature: 'IMDMG1GuDasjPMkrGaRQhkLpFO0saBV+v+N6h3wP6/QlF3J9ymLAPZy7DCBd/RnOSzUxmTHruenVeR7LghzRnHA='
+        }
+      }
+
+      const isLoggedUser = await serviceHelper.verifyUserSession(headers);
+
+      expect(isLoggedUser).to.be.false;
+    });
+
+    it("should return false if called with a wrong signature", async () => {
+      const headers = {
+        zelidauth: {
+          zelid: '1LZe3AUYQC4aT5YWLhgEcH1nLLdoKNBi9t',
+          signature: 'IMDMG1GuDasjPMkrGaRQhkLpFO0saBZ+v+N6h3wP6/QlF3J9ymLAPZy7DCBd/RnOSzUxmTHruenVeR7LghzRnHA='
+        }
+      }
+
+      const isLoggedUser = await serviceHelper.verifyUserSession(headers);
+
+      expect(isLoggedUser).to.be.false;
+    });
+    it("should return false if called with no header", async () => {
+      const isLoggedUser = await serviceHelper.verifyUserSession();
+
+      expect(isLoggedUser).to.be.false;
+    });
+
+    it("should return false if called with empty data", async () => {
+      const headers = {
+        zelidauth: {
+          zelid: '',
+          signature: ''
+        }
+      }
+
+      const isLoggedUser = await serviceHelper.verifyUserSession(headers);
+
+      expect(isLoggedUser).to.be.false;
+    });
+  });
 });
 
