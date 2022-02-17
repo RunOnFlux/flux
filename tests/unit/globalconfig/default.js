@@ -62,7 +62,7 @@ module.exports = {
     porttestnet: 26125,
     rpcporttestnet: 26124,
   },
-  fluxTeamZelId: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
+  fluxTeamZelId: '1NH9BP155Rp3HSf5ef6NpUbE8JcyLRruAM',
   fluxapps: {
     // in flux main chain per month (blocksLasting)
     price: [{ // any price fork can be done by adjusting object similarily.

@@ -6,6 +6,17 @@ const expect = chai.expect;
 
 let serviceHelper = require("../../ZelBack/src/services/serviceHelper");
 
+const adminConfig = {
+  initial: {
+    ipaddress: '83.51.212.243',
+    zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+    testnet: true
+  }
+}
+serviceHelper = proxyquire('../../ZelBack/src/services/serviceHelper',
+  { '../../../config/userconfig': adminConfig });
+
+
 describe('serviceHelper tests', () => {
   describe('ensureBoolean function tests', () => {
     const falseBools = ['false', false, 0, '0'];
@@ -349,26 +360,21 @@ describe('serviceHelper tests', () => {
 
   describe('verifyAdminSession tests', () => {
     beforeEach(async () => {
-      const adminConfig = {
-        initial: {
-          ipaddress: '83.51.212.243',
-          zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-          testnet: true
-        }
-      }
-      serviceHelper = proxyquire('../../ZelBack/src/services/serviceHelper',
-        { '../../../config/userconfig': adminConfig });
-
       await serviceHelper.initiateDB();
       const db = serviceHelper.databaseConnection();
       const database = db.db(config.database.local.database);
       const collection = config.database.local.collections.loggedUsers;
-      const insertUser = {
+      const insertUsers = [{
         "_id": ObjectId("60cad0767247ac0a779fb3f0"),
-        "zelid": "1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC",
+        "zelid": "1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC", // admin
         "loginPhrase": "16125160820394ddsh5skgwv0ipodku92y0jbwvpyj17bh68lzrjlxq9",
         "signature": "IH9d68fk/dYQtuMlNN7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc="
-      }
+      }, {
+        "_id": ObjectId("6108fbb9f04dfe1ef624b819"),
+        "zelid": "1hjy4bCYBJr4mny4zCE85J94RXa8W6q37",  // regular user
+        "loginPhrase": "162797868130153vt9r89dzjjjfg6kf34ntf1d8aa5zqlk04j3zy8z40ni",
+        "signature": "H9oD/ZA7mEVQMWYWNIGDF7T2J++R/EG8tYPfB+fQ+XvQIbOXIcBEhxZwPYmh0HRj531oMc/HfcXPAYjWlN9wCn4="
+      }];
 
       try {
         await database.collection(collection).drop();
@@ -376,7 +382,9 @@ describe('serviceHelper tests', () => {
         console.log('Collection not found.');
       }
 
-      await serviceHelper.insertOneToDatabase(database, collection, insertUser);
+      for (let insertUser of insertUsers) {
+        await serviceHelper.insertOneToDatabase(database, collection, insertUser);
+      }
     });
 
     it("should return true when requested by admin", async () => {
@@ -390,6 +398,19 @@ describe('serviceHelper tests', () => {
       const isAdmin = await serviceHelper.verifyAdminSession(headers);
 
       expect(isAdmin).to.be.true;
+    });
+
+    it("should return false when requested by regular user", async () => {
+      const headers = {
+        zelidauth: {
+          zelid: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
+          signature: 'H9oD/ZA7mEVQMWYWNIGDF7T2J++R/EG8tYPfB+fQ+XvQIbOXIcBEhxZwPYmh0HRj531oMc/HfcXPAYjWlN9wCn4='
+        }
+      }
+
+      const isAdmin = await serviceHelper.verifyAdminSession(headers);
+
+      expect(isAdmin).to.be.false;
     });
 
     it("should return false if signature is invalid", async () => {
@@ -517,6 +538,269 @@ describe('serviceHelper tests', () => {
       const isLoggedUser = await serviceHelper.verifyUserSession(headers);
 
       expect(isLoggedUser).to.be.false;
+    });
+  });
+
+  describe('verifyFluxTeamSession tests', () => {
+    beforeEach(async () => {
+      await serviceHelper.initiateDB();
+      const db = serviceHelper.databaseConnection();
+      const database = db.db(config.database.local.database);
+      const collection = config.database.local.collections.loggedUsers;
+      const insertUsers = [{
+        "_id": ObjectId("60cad0767247ac0a779fb3f0"),
+        "zelid": "1NH9BP155Rp3HSf5ef6NpUbE8JcyLRruAM",  // flux team
+        "loginPhrase": "1623904359736pja76q7y68deb4264olbml6o8gyhot2yvj5oevgv9k2",
+        "signature": "H4lWS4PcrR1tMo8RCLzeYYrd042tsJC9PteIKZvn091ZAYE4K9ydfri8M1KKWe905NHdS4LPPsClqvA4nY/G+II="
+      }, {
+        "_id": ObjectId("6108fbb9f04dfe1ef624b819"),
+        "zelid": "1hjy4bCYBJr4mny4zCE85J94RXa8W6q37", // regular user
+        "loginPhrase": "162797868130153vt9r89dzjjjfg6kf34ntf1d8aa5zqlk04j3zy8z40ni",
+        "signature": "H9oD/ZA7mEVQMWYWNIGDF7T2J++R/EG8tYPfB+fQ+XvQIbOXIcBEhxZwPYmh0HRj531oMc/HfcXPAYjWlN9wCn4="
+      }];
+      try {
+        await database.collection(collection).drop();
+      } catch (err) {
+        console.log('Collection not found.');
+      }
+
+      for (let insertUser of insertUsers) {
+        await serviceHelper.insertOneToDatabase(database, collection, insertUser);
+      }
+    });
+
+    it("should return true when requested by the flux team", async () => {
+      const headers = {
+        zelidauth: {
+          zelid: '1NH9BP155Rp3HSf5ef6NpUbE8JcyLRruAM',
+          signature: 'H4lWS4PcrR1tMo8RCLzeYYrd042tsJC9PteIKZvn091ZAYE4K9ydfri8M1KKWe905NHdS4LPPsClqvA4nY/G+II='
+        }
+      };
+
+      const isFluxTeamSession = await serviceHelper.verifyFluxTeamSession(headers);
+
+      expect(isFluxTeamSession).to.be.true;
+    });
+
+    it("should return false when zelid is not the flux team", async () => {
+      const headers = {
+        zelidauth: {
+          zelid: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
+          signature: 'H9oD/ZA7mEVQMWYWNIGDF7T2J++R/EG8tYPfB+fQ+XvQIbOXIcBEhxZwPYmh0HRj531oMc/HfcXPAYjWlN9wCn4='
+        }
+      };
+
+      const isFluxTeamSession = await serviceHelper.verifyFluxTeamSession(headers);
+
+      expect(isFluxTeamSession).to.be.false;
+    });
+
+
+    it("should return false when signature is invalid", async () => {
+      const headers = {
+        zelidauth: {
+          zelid: '1NH9BP155Rp3HSf5ef6NpUbE8JcyLRruAM',
+          signature: 'N4lWS4PcrR1tMo8RCLzeYYrd042tsJC9PteIKZvn091ZAYE4K9ydfri8M1KKWe905NHdS4LPPsClqvA4nY/G+II='
+        }
+      };
+
+      const isFluxTeamSession = await serviceHelper.verifyFluxTeamSession(headers);
+
+      expect(isFluxTeamSession).to.be.false;
+    });
+
+    it("should return false when zelid is invalid", async () => {
+      const headers = {
+        zelidauth: {
+          zelid: '1NH9BP1z5Rp3HSf5ef6NpUbE8JcyLRruAM',
+          signature: 'H4lWS4PcrR1tMo8RCLzeYYrd042tsJC9PteIKZvn091ZAYE4K9ydfri8M1KKWe905NHdS4LPPsClqvA4nY/G+II='
+        }
+      };
+
+      const isFluxTeamSession = await serviceHelper.verifyFluxTeamSession(headers);
+
+      expect(isFluxTeamSession).to.be.false;
+    });
+
+    it("should return false when data is empty", async () => {
+      const headers = {
+        zelidauth: {
+          zelid: '',
+          signature: ''
+        }
+      };
+
+      const isFluxTeamSession = await serviceHelper.verifyFluxTeamSession(headers);
+
+      expect(isFluxTeamSession).to.be.false;
+    });
+
+    it("should return false when data are true bools", async () => {
+      const headers = {
+        zelidauth: {
+          zelid: true,
+          signature: true
+        }
+      };
+
+      const isFluxTeamSession = await serviceHelper.verifyFluxTeamSession(headers);
+
+      expect(isFluxTeamSession).to.be.false;
+    });
+
+    it("should return false when header is empty", async () => {
+      const headers = {};
+
+      const isFluxTeamSession = await serviceHelper.verifyFluxTeamSession(headers);
+
+      expect(isFluxTeamSession).to.be.false;
+    });
+
+    it("should return false when no header is passed", async () => {
+      const isFluxTeamSession = await serviceHelper.verifyFluxTeamSession();
+
+      expect(isFluxTeamSession).to.be.false;
+    });
+  });
+
+  describe('verifyAdminAndFluxTeamSession tests', () => {
+    beforeEach(async () => {
+      await serviceHelper.initiateDB();
+      const db = serviceHelper.databaseConnection();
+      const database = db.db(config.database.local.database);
+      const collection = config.database.local.collections.loggedUsers;
+      const insertUsers = [{
+        "_id": ObjectId("61967125f3178f082a296100"),
+        "zelid": "1NH9BP155Rp3HSf5ef6NpUbE8JcyLRruAM",   // Flux team
+        "loginPhrase": "1623904359736pja76q7y68deb4264olbml6o8gyhot2yvj5oevgv9k2",
+        "signature": "H4lWS4PcrR1tMo8RCLzeYYrd042tsJC9PteIKZvn091ZAYE4K9ydfri8M1KKWe905NHdS4LPPsClqvA4nY/G+II="
+      }, {
+        "_id": ObjectId("6108fbb9f04dfe1ef624b819"),
+        "zelid": "1hjy4bCYBJr4mny4zCE85J94RXa8W6q37",  // regular user
+        "loginPhrase": "162797868130153vt9r89dzjjjfg6kf34ntf1d8aa5zqlk04j3zy8z40ni",
+        "signature": "H9oD/ZA7mEVQMWYWNIGDF7T2J++R/EG8tYPfB+fQ+XvQIbOXIcBEhxZwPYmh0HRj531oMc/HfcXPAYjWlN9wCn4="
+      }, {
+        "_id": ObjectId("60cad0767247ac0a779fb3f0"),
+        "zelid": "1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC", // admin
+        "loginPhrase": "16125160820394ddsh5skgwv0ipodku92y0jbwvpyj17bh68lzrjlxq9",
+        "signature": "IH9d68fk/dYQtuMlNN7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc="
+      }
+      ];
+      try {
+        await database.collection(collection).drop();
+      } catch (err) {
+        console.log('Collection not found.');
+      }
+
+      for (let insertUser of insertUsers) {
+        await serviceHelper.insertOneToDatabase(database, collection, insertUser);
+      }
+    });
+
+    it("should return true when requested by the flux team", async () => {
+      const headers = {
+        zelidauth: {
+          zelid: '1NH9BP155Rp3HSf5ef6NpUbE8JcyLRruAM',
+          signature: 'H4lWS4PcrR1tMo8RCLzeYYrd042tsJC9PteIKZvn091ZAYE4K9ydfri8M1KKWe905NHdS4LPPsClqvA4nY/G+II='
+        }
+      };
+
+      const isAdminOrFluxTeam = await serviceHelper.verifyAdminAndFluxTeamSession(headers);
+
+      expect(isAdminOrFluxTeam).to.be.true;
+    });
+
+    it("should return true when requested by the admin", async () => {
+      const headers = {
+        zelidauth: {
+          zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+          signature: 'IH9d68fk/dYQtuMlNN7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc='
+        }
+      };
+
+      const isAdminOrFluxTeam = await serviceHelper.verifyAdminAndFluxTeamSession(headers);
+
+      expect(isAdminOrFluxTeam).to.be.true;
+    });
+
+    it("should return false when zelid is not the flux team", async () => {
+      const headers = {
+        zelidauth: {
+          zelid: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
+          signature: 'H9oD/ZA7mEVQMWYWNIGDF7T2J++R/EG8tYPfB+fQ+XvQIbOXIcBEhxZwPYmh0HRj531oMc/HfcXPAYjWlN9wCn4='
+        }
+      };
+
+      const isAdminOrFluxTeam = await serviceHelper.verifyAdminAndFluxTeamSession(headers);
+
+      expect(isAdminOrFluxTeam).to.be.false;
+    });
+
+
+    it("should return false when signature is invalid", async () => {
+      const headers = {
+        zelidauth: {
+          zelid: '1NH9BP155Rp3HSf5ef6NpUbE8JcyLRruAM',
+          signature: 'N4lWS4PcrR1tMo8RCLzeYYrd042tsJC9PteIKZvn091ZAYE4K9ydfri8M1KKWe905NHdS4LPPsClqvA4nY/G+II='
+        }
+      };
+
+      const isAdminOrFluxTeam = await serviceHelper.verifyAdminAndFluxTeamSession(headers);
+
+      expect(isAdminOrFluxTeam).to.be.false;
+    });
+
+    it("should return false when zelid is invalid", async () => {
+      const headers = {
+        zelidauth: {
+          zelid: '1NH9BP1z5Rp3HSf5ef6NpUbE8JcyLRruAM',
+          signature: 'H4lWS4PcrR1tMo8RCLzeYYrd042tsJC9PteIKZvn091ZAYE4K9ydfri8M1KKWe905NHdS4LPPsClqvA4nY/G+II='
+        }
+      };
+
+      const isAdminOrFluxTeam = await serviceHelper.verifyAdminAndFluxTeamSession(headers);
+
+      expect(isAdminOrFluxTeam).to.be.false;
+    });
+
+    it("should return false when data is empty", async () => {
+      const headers = {
+        zelidauth: {
+          zelid: '',
+          signature: ''
+        }
+      };
+
+      const isAdminOrFluxTeam = await serviceHelper.verifyAdminAndFluxTeamSession(headers);
+
+      expect(isAdminOrFluxTeam).to.be.false;
+    });
+
+    it("should return false when data are true bools", async () => {
+      const headers = {
+        zelidauth: {
+          zelid: true,
+          signature: true
+        }
+      };
+
+      const isAdminOrFluxTeam = await serviceHelper.verifyAdminAndFluxTeamSession(headers);
+
+      expect(isAdminOrFluxTeam).to.be.false;
+    });
+
+    it("should return false when header is empty", async () => {
+      const headers = {};
+
+      const isAdminOrFluxTeam = await serviceHelper.verifyAdminAndFluxTeamSession(headers);
+
+      expect(isAdminOrFluxTeam).to.be.false;
+    });
+
+    it("should return false when no header is passed", async () => {
+      const isAdminOrFluxTeam = await serviceHelper.verifyAdminAndFluxTeamSession();
+
+      expect(isAdminOrFluxTeam).to.be.false;
     });
   });
 });
