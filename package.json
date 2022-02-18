@@ -130,6 +130,7 @@
     "retry-axios": "^2.6.0",
     "sass": "^1.43.4",
     "sass-loader": "^10.1.1",
+    "sinon": "^13.0.1",
     "supertest": "^6.1.6",
     "uuid": "^8.3.2",
     "vee-validate": "^3.4.13",

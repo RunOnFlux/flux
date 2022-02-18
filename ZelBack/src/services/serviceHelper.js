@@ -224,11 +224,7 @@ async function getApplicationOwner(appName) {
 async function verifyAdminSession(headers) {
   if (headers && headers.zelidauth) {
     const auth = ensureObject(headers.zelidauth);
-    console.log(auth);
     if (auth.zelid && auth.signature) {
-      console.log(auth.zelid);
-      console.log(auth.signature);
-      console.log(userconfig.initial.zelid);
       if (auth.zelid === userconfig.initial.zelid) {
         const db = databaseConnection();
         const database = db.db(config.database.local.database);
@@ -267,7 +263,6 @@ async function verifyAdminSession(headers) {
 async function verifyUserSession(headers) {
   if (headers && headers.zelidauth) {
     const auth = ensureObject(headers.zelidauth);
-    console.log(auth);
     if (auth.zelid && auth.signature) {
       const db = databaseConnection();
       const database = db.db(config.database.local.database);

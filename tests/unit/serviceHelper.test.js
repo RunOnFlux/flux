@@ -3,6 +3,7 @@ const config = require('config');
 const { ObjectId } = require('mongodb');
 var proxyquire = require('proxyquire');
 const expect = chai.expect;
+const sinon = require('sinon');
 
 let serviceHelper = require("../../ZelBack/src/services/serviceHelper");
 
@@ -684,8 +685,7 @@ describe('serviceHelper tests', () => {
         "zelid": "1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC", // admin
         "loginPhrase": "16125160820394ddsh5skgwv0ipodku92y0jbwvpyj17bh68lzrjlxq9",
         "signature": "IH9d68fk/dYQtuMlNN7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc="
-      }
-      ];
+      }];
       try {
         await database.collection(collection).drop();
       } catch (err) {
@@ -803,5 +803,276 @@ describe('serviceHelper tests', () => {
       expect(isAdminOrFluxTeam).to.be.false;
     });
   });
-});
 
+  describe('verifyAppOwnerSession tests', () => {
+    beforeEach(async () => {
+      await serviceHelper.initiateDB();
+      const db = serviceHelper.databaseConnection();
+      const databaseLocal = db.db(config.database.local.database);
+      const collectionLoggedUsers = config.database.local.collections.loggedUsers;
+      const insertUsers = [{
+        "_id": ObjectId("6108fbb9f04dfe1ef624b819"),
+        "zelid": "1hjy4bCYBJr4mny4zCE85J94RXa8W6q37",  // regular user
+        "loginPhrase": "162797868130153vt9r89dzjjjfg6kf34ntf1d8aa5zqlk04j3zy8z40ni",
+        "signature": "H9oD/ZA7mEVQMWYWNIGDF7T2J++R/EG8tYPfB+fQ+XvQIbOXIcBEhxZwPYmh0HRj531oMc/HfcXPAYjWlN9wCn4="
+      }, {
+        "_id": ObjectId("60cad0767247ac0a779fb3f0"),
+        "zelid": "1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC", // admin
+        "loginPhrase": "16125160820394ddsh5skgwv0ipodku92y0jbwvpyj17bh68lzrjlxq9",
+        "signature": "IH9d68fk/dYQtuMlNN7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc="
+      }, {
+        "_id": ObjectId("620bbc40c04b4966674013a8"),
+        "zelid": "1LZe3AUYQC4aT5YWLhgEcH1nLLdoKNBi9t", // app owner
+        "loginPhrase": "1644935889016mtmbo4uah32tvvwrmzg4j8qzv04ba8g8n56cevn6b",
+        "signature": "H4bL1HhNXiYiHywCnUeptHtLQY/YiGmLt14N+BBNXRIKd6BkP+kFr9CvaGLELQxN1A31OXoy3SMBoHj2/OqiK6c="
+      }
+      ];
+      try {
+        await databaseLocal.collection(collectionLoggedUsers).drop();
+      } catch (err) {
+        console.log('Collection not found.');
+      }
+
+      for (let insertUser of insertUsers) {
+        await serviceHelper.insertOneToDatabase(databaseLocal, collectionLoggedUsers, insertUser);
+      }
+
+
+      const databaseGlobal = db.db(config.database.appsglobal.database);
+      const collectionApps = config.database.appsglobal.collections.appsInformation;
+      const insertApp = {
+        "_id": ObjectId("6147045cd774409b374d253d"),
+        "name": "PolkadotNode",
+        "description": "Polkadot is a heterogeneous multi-chain interchange.",
+        "owner": "1LZe3AUYQC4aT5YWLhgEcH1nLLdoKNBi9t",
+      }
+
+      try {
+        await databaseGlobal.collection(collectionApps).drop();
+      } catch (err) {
+        console.log('Collection not found.');
+      }
+      await serviceHelper.insertOneToDatabase(databaseGlobal, collectionApps, insertApp);
+
+    });
+
+    it("should return true when requested by the app owner", async () => {
+      const headers = {
+        zelidauth: {
+          zelid: '1LZe3AUYQC4aT5YWLhgEcH1nLLdoKNBi9t',
+          signature: 'H4bL1HhNXiYiHywCnUeptHtLQY/YiGmLt14N+BBNXRIKd6BkP+kFr9CvaGLELQxN1A31OXoy3SMBoHj2/OqiK6c='
+        }
+      };
+      const appName = 'PolkadotNode';
+      const isOwnerSession = await serviceHelper.verifyAppOwnerSession(headers, appName);
+
+      expect(isOwnerSession).to.be.true;
+    });
+
+    it("should return false when requested by the admin", async () => {
+      const headers = {
+        zelidauth: {
+          zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+          signature: 'IH9d68fk/dYQtuMlNN7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc='
+        }
+      };
+      const appName = 'PolkadotNode';
+      const isOwnerSession = await serviceHelper.verifyAppOwnerSession(headers, appName);
+
+      expect(isOwnerSession).to.be.false;
+    });
+
+    it("should return false when requested by the owner with a wrong signature", async () => {
+      const headers = {
+        zelidauth: {
+          zelid: '1LZe3AUYQC4aT5YWLhgEcH1nLLdoKNBi9t',
+          signature: 'IH9d68fk/dYQtuMlNN7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc='
+        }
+      };
+      const appName = 'PolkadotNode';
+      const isOwnerSession = await serviceHelper.verifyAppOwnerSession(headers, appName);
+
+      expect(isOwnerSession).to.be.false;
+    });
+
+    it("should return false when requested with empty header data", async () => {
+      const headers = {
+        zelidauth: {
+          zelid: '',
+          signature: ''
+        }
+      };
+      const appName = 'PolkadotNode';
+      const isOwnerSession = await serviceHelper.verifyAppOwnerSession(headers, appName);
+
+      expect(isOwnerSession).to.be.false;
+    });
+
+    it("should return false when requested with empty header ", async () => {
+      const headers = {};
+
+      const appName = 'PolkadotNode';
+      const isOwnerSession = await serviceHelper.verifyAppOwnerSession(headers, appName);
+
+      expect(isOwnerSession).to.be.false;
+    });
+
+    it("should return true when requested with an empty app name", async () => {
+      const headers = {
+        zelidauth: {
+          zelid: '1LZe3AUYQC4aT5YWLhgEcH1nLLdoKNBi9t',
+          signature: 'H4bL1HhNXiYiHywCnUeptHtLQY/YiGmLt14N+BBNXRIKd6BkP+kFr9CvaGLELQxN1A31OXoy3SMBoHj2/OqiK6c='
+        }
+      };
+      const appName = '';
+      const isOwnerSession = await serviceHelper.verifyAppOwnerSession(headers, appName);
+
+      expect(isOwnerSession).to.be.false;
+    });
+  });
+
+  describe('verifyAppOwnerSessionOrHigher tests', () => {
+    beforeEach(async () => {
+      await serviceHelper.initiateDB();
+      const db = serviceHelper.databaseConnection();
+      const databaseLocal = db.db(config.database.local.database);
+      const collectionLoggedUsers = config.database.local.collections.loggedUsers;
+      const insertUsers = [{
+        "_id": ObjectId("6108fbb9f04dfe1ef624b819"),
+        "zelid": "1hjy4bCYBJr4mny4zCE85J94RXa8W6q37",  // regular user
+        "loginPhrase": "162797868130153vt9r89dzjjjfg6kf34ntf1d8aa5zqlk04j3zy8z40ni",
+        "signature": "H9oD/ZA7mEVQMWYWNIGDF7T2J++R/EG8tYPfB+fQ+XvQIbOXIcBEhxZwPYmh0HRj531oMc/HfcXPAYjWlN9wCn4="
+      }, {
+        "_id": ObjectId("60cad0767247ac0a779fb3f0"),
+        "zelid": "1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC", // admin
+        "loginPhrase": "16125160820394ddsh5skgwv0ipodku92y0jbwvpyj17bh68lzrjlxq9",
+        "signature": "IH9d68fk/dYQtuMlNN7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc="
+      }, {
+        "_id": ObjectId("620bbc40c04b4966674013a8"),
+        "zelid": "1LZe3AUYQC4aT5YWLhgEcH1nLLdoKNBi9t", // app owner
+        "loginPhrase": "1644935889016mtmbo4uah32tvvwrmzg4j8qzv04ba8g8n56cevn6b",
+        "signature": "H4bL1HhNXiYiHywCnUeptHtLQY/YiGmLt14N+BBNXRIKd6BkP+kFr9CvaGLELQxN1A31OXoy3SMBoHj2/OqiK6c="
+      }, {
+        "_id": ObjectId("61967125f3178f082a296100"),
+        "zelid": "1NH9BP155Rp3HSf5ef6NpUbE8JcyLRruAM",   // Flux team
+        "loginPhrase": "1623904359736pja76q7y68deb4264olbml6o8gyhot2yvj5oevgv9k2",
+        "signature": "H4lWS4PcrR1tMo8RCLzeYYrd042tsJC9PteIKZvn091ZAYE4K9ydfri8M1KKWe905NHdS4LPPsClqvA4nY/G+II="
+      }
+      ];
+      try {
+        await databaseLocal.collection(collectionLoggedUsers).drop();
+      } catch (err) {
+        console.log('Collection not found.');
+      }
+
+      for (let insertUser of insertUsers) {
+        await serviceHelper.insertOneToDatabase(databaseLocal, collectionLoggedUsers, insertUser);
+      }
+
+
+      const databaseGlobal = db.db(config.database.appsglobal.database);
+      const collectionApps = config.database.appsglobal.collections.appsInformation;
+      const insertApp = {
+        "_id": ObjectId("6147045cd774409b374d253d"),
+        "name": "PolkadotNode",
+        "description": "Polkadot is a heterogeneous multi-chain interchange.",
+        "owner": "1LZe3AUYQC4aT5YWLhgEcH1nLLdoKNBi9t",
+      }
+
+      try {
+        await databaseGlobal.collection(collectionApps).drop();
+      } catch (err) {
+        console.log('Collection not found.');
+      }
+      await serviceHelper.insertOneToDatabase(databaseGlobal, collectionApps, insertApp);
+
+    });
+
+    it("should return true when requested by the app owner", async () => {
+      const headers = {
+        zelidauth: {
+          zelid: '1LZe3AUYQC4aT5YWLhgEcH1nLLdoKNBi9t',
+          signature: 'H4bL1HhNXiYiHywCnUeptHtLQY/YiGmLt14N+BBNXRIKd6BkP+kFr9CvaGLELQxN1A31OXoy3SMBoHj2/OqiK6c='
+        }
+      };
+      const appName = 'PolkadotNode';
+      const isOwnerOrHigherSession = await serviceHelper.verifyAppOwnerOrHigherSession(headers, appName);
+
+      expect(isOwnerOrHigherSession).to.be.true;
+    });
+
+    it("should return true when requested by the admin", async () => {
+      const headers = {
+        zelidauth: {
+          zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+          signature: 'IH9d68fk/dYQtuMlNN7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc='
+        }
+      };
+      const appName = 'PolkadotNode';
+      const isOwnerOrHigherSession = await serviceHelper.verifyAppOwnerOrHigherSession(headers, appName);
+
+      expect(isOwnerOrHigherSession).to.be.true;
+    });
+
+    it("should return true when requested by the flux team", async () => {
+      const headers = {
+        zelidauth: {
+          zelid: '1NH9BP155Rp3HSf5ef6NpUbE8JcyLRruAM',
+          signature: 'H4lWS4PcrR1tMo8RCLzeYYrd042tsJC9PteIKZvn091ZAYE4K9ydfri8M1KKWe905NHdS4LPPsClqvA4nY/G+II='
+        }
+      };
+      const appName = 'PolkadotNode';
+      const isOwnerOrHigherSession = await serviceHelper.verifyAppOwnerOrHigherSession(headers, appName);
+
+      expect(isOwnerOrHigherSession).to.be.true;
+    });
+
+    it("should return false when requested by the owner with a wrong signature", async () => {
+      const headers = {
+        zelidauth: {
+          zelid: '1LZe3AUYQC4aT5YWLhgEcH1nLLdoKNBi9t',
+          signature: 'IH9d68fk/dYQtuMlNN7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc='
+        }
+      };
+      const appName = 'PolkadotNode';
+      const isOwnerOrHigherSession = await serviceHelper.verifyAppOwnerOrHigherSession(headers, appName);
+
+      expect(isOwnerOrHigherSession).to.be.false;
+    });
+
+    it("should return false when requested with empty header data", async () => {
+      const headers = {
+        zelidauth: {
+          zelid: '',
+          signature: ''
+        }
+      };
+      const appName = 'PolkadotNode';
+      const isOwnerOrHigherSession = await serviceHelper.verifyAppOwnerOrHigherSession(headers, appName);
+
+      expect(isOwnerOrHigherSession).to.be.false;
+    });
+
+    it("should return false when requested with empty header ", async () => {
+      const headers = {};
+
+      const appName = 'PolkadotNode';
+      const isOwnerOrHigherSession = await serviceHelper.verifyAppOwnerOrHigherSession(headers, appName);
+
+      expect(isOwnerOrHigherSession).to.be.false;
+    });
+
+    it("should return true when requested with an empty app name", async () => {
+      const headers = {
+        zelidauth: {
+          zelid: '1LZe3AUYQC4aT5YWLhgEcH1nLLdoKNBi9t',
+          signature: 'H4bL1HhNXiYiHywCnUeptHtLQY/YiGmLt14N+BBNXRIKd6BkP+kFr9CvaGLELQxN1A31OXoy3SMBoHj2/OqiK6c='
+        }
+      };
+      const appName = '';
+      const isOwnerOrHigherSession = await serviceHelper.verifyAppOwnerOrHigherSession(headers, appName);
+
+      expect(isOwnerOrHigherSession).to.be.false;
+    });
+  });
+});
