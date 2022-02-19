@@ -10,10 +10,10 @@ const fnconfig = new fullnode.Config();
 const isTestnet = userconfig.initial.testnet;
 const rpcuser = fnconfig.rpcuser() || 'rpcuser';
 const rpcpassword = fnconfig.rpcpassword() || 'rpcpassword';
-const rpcport = fnconfig.rpcport() || (isTestnet === true ? config.daemon.testnetrpcport : config.daemon.rpcport);
+const rpcport = fnconfig.rpcport() || (isTestnet === true ? config.daemon.rpcporttestnet : config.daemon.rpcport);
 
 let currentDaemonHeight = 0;
-let currentDaemonHeader = 973000;
+let currentDaemonHeader = isTestnet === true ? 58494 : 1060453;
 
 const client = new daemonrpc.Client({
   port: rpcport,
@@ -2757,7 +2757,7 @@ async function fluxDaemonBlockchainInfo() {
     const daemonBlockChainInfo = await getBlockchainInfo();
     if (daemonBlockChainInfo.status === 'success') {
       currentDaemonHeight = daemonBlockChainInfo.data.blocks;
-      if (daemonBlockChainInfo.data.headers > 770000) {
+      if (daemonBlockChainInfo.data.headers >= currentDaemonHeader) {
         currentDaemonHeader = daemonBlockChainInfo.data.headers;
       }
       log.info(`Daemon Sync status: ${currentDaemonHeight}/${currentDaemonHeader}`);
