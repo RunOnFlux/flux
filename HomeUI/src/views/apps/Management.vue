@@ -2662,7 +2662,6 @@ export default {
       return niceString;
     },
     constructAutomaticDomains() {
-      const domainString = 'abcdefghijklmno'; // enough
       const appName = this.appSpecification.name;
       if (!appName) {
         return 'loading...';
@@ -2674,26 +2673,21 @@ export default {
         const domains = [`${lowerCaseName}.app.runonflux.io`];
         // flux specs dont allow more than 10 ports so domainString is enough
         for (let i = 0; i < ports.length; i += 1) {
-          const portDomain = `${domainString[i]}.${lowerCaseName}.app.runonflux.io`;
+          const portDomain = `${lowerCaseName}_${ports[i]}.app.runonflux.io`;
           domains.push(portDomain);
         }
-        return JSON.stringify(domains);
+        return domains;
       }
-      const domains = [];
+      const domains = [`${lowerCaseName}.app.runonflux.io`];
       this.appSpecification.compose.forEach((component) => {
-        const componentName = component.name;
-        const lowerCaseCopmonentName = componentName.toLowerCase();
-        const domainsComponent = [`${lowerCaseName}.app.runonflux.io`, `${lowerCaseCopmonentName}.${lowerCaseName}.app.runonflux.io`];
-        for (let i = 0; i < JSON.parse(component.ports).length; i += 1) {
-          const portDomain = `${domainString[i]}.${lowerCaseCopmonentName}.${lowerCaseName}.app.runonflux.io`;
-          domainsComponent.push(portDomain);
+        for (let i = 0; i < component.ports.length; i += 1) {
+          const portDomain = `${lowerCaseName}_${component.ports[i]}.app.runonflux.io`;
+          domains.push(portDomain);
         }
-        domains.push(JSON.stringify(domainsComponent));
       });
       return domains;
     },
     constructAutomaticDomainsGlobal() {
-      const domainString = 'abcdefghijklmno'; // enough
       if (!this.callBResponse.data) {
         return 'loading...';
       }
@@ -2713,21 +2707,17 @@ export default {
         const domains = [`${lowerCaseName}.app.runonflux.io`];
         // flux specs dont allow more than 10 ports so domainString is enough
         for (let i = 0; i < ports.length; i += 1) {
-          const portDomain = `${domainString[i]}.${lowerCaseName}.app.runonflux.io`;
+          const portDomain = `${lowerCaseName}_${ports[i]}.app.runonflux.io`;
           domains.push(portDomain);
         }
-        return JSON.stringify(domains);
+        return domains;
       }
       const domains = [];
       this.callBResponse.data.compose.forEach((component) => {
-        const componentName = component.name;
-        const lowerCaseCopmonentName = componentName.toLowerCase();
-        const domainsComponent = [`${lowerCaseName}.app.runonflux.io`, `${lowerCaseCopmonentName}.${lowerCaseName}.app.runonflux.io`];
-        for (let i = 0; i < JSON.parse(component.ports).length; i += 1) {
-          const portDomain = `${domainString[i]}.${lowerCaseCopmonentName}.${lowerCaseName}.app.runonflux.io`;
-          domainsComponent.push(portDomain);
+        for (let i = 0; i < component.ports.length; i += 1) {
+          const portDomain = `${lowerCaseName}_${component.ports[i]}.app.runonflux.io`;
+          domains.push(portDomain);
         }
-        domains.push(JSON.stringify(domainsComponent));
       });
       return domains;
     },
