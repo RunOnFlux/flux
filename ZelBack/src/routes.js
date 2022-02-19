@@ -83,7 +83,7 @@ module.exports = (app, expressWs) => {
   app.get('/daemon/getblockdeltas/:hash?', cache('30 seconds'), (req, res) => {
     daemonService.getBlockDeltas(req, res);
   });
-  app.get('/daemon/getblockhashes/:high?/:low?/:noOrphans?/:logicalTimes?', cache('30 seconds'), (req, res) => {
+  app.get('/daemon/getblockhashes/:high?/:low?/:noorphans?/:logicaltimes?', cache('30 seconds'), (req, res) => {
     daemonService.getBlockHashes(req, res);
   });
   app.get('/daemon/getblockhash/:index?', cache('30 seconds'), (req, res) => {
