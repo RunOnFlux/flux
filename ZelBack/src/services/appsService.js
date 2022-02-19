@@ -3256,7 +3256,10 @@ async function verifyAppSpecifications(appSpecifications, height) {
   }
 
   // verify ports are unique accross app
-  ensureAppUniquePorts();
+  const portsAreUnique = ensureAppUniquePorts();
+  if (portsAreUnique !== true) {
+    throw new Error('Application ports are not unique');
+  }
 
   // check for Object.keys in applications. App can have only the fields that are in the version specification.
   if (appSpecifications.version === 1) {
