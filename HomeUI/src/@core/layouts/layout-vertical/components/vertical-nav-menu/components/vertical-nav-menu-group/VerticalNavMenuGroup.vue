@@ -1,6 +1,6 @@
 <template>
   <li
-    v-if="hasPrivilegeLevel(item) && canViewVerticalNavMenuGroup(item)"
+    v-if="hasPrivilegeLevel(item)"
     class="nav-item has-sub"
     :class="{
       'open': isOpen,
@@ -57,7 +57,6 @@ import {
 } from 'bootstrap-vue';
 import { resolveVerticalNavMenuItemComponent as resolveNavItemComponent } from '@core/layouts/utils';
 import { useUtils as useI18nUtils } from '@core/libs/i18n';
-import { useUtils as useAclUtils } from '@core/libs/acl';
 import { mapState } from 'vuex';
 import VerticalNavMenuHeader from '../vertical-nav-menu-header';
 import VerticalNavMenuLink from '../vertical-nav-menu-link/VerticalNavMenuLink.vue';
@@ -92,7 +91,6 @@ export default {
     } = useVerticalNavMenuGroup(props.item);
 
     const { t } = useI18nUtils();
-    const { canViewVerticalNavMenuGroup } = useAclUtils();
 
     return {
       resolveNavItemComponent,
@@ -100,9 +98,6 @@ export default {
       isActive,
       updateGroupOpen,
       updateIsActive,
-
-      // ACL
-      canViewVerticalNavMenuGroup,
 
       // i18n
       t,
