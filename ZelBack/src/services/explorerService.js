@@ -736,7 +736,9 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
       const isInsightExplorer = daemonService.isInsightExplorer();
       if (isInsightExplorer) {
         // if node is insight explorer based, we are only processing flux app messages
-        scannedBlockHeight = config.fluxapps.epochstart - 1;
+        if (scannedBlockHeight < config.fluxapps.epochstart - 1) {
+          scannedBlockHeight = config.fluxapps.epochstart - 1;
+        }
       }
       processBlock(scannedBlockHeight + 1, isInsightExplorer);
     } else {
@@ -906,24 +908,51 @@ async function getAddressUtxos(req, res) {
     if (!address) {
       throw new Error('No address provided');
     }
-    const dbopen = serviceHelper.databaseConnection();
-    const database = dbopen.db(config.database.daemon.database);
-    const query = { address };
-    const projection = {
-      projection: {
-        _id: 0,
-        txid: 1,
-        vout: 1,
-        height: 1,
-        address: 1,
-        satoshis: 1,
-        scriptPubKey: 1,
-        coinbase: 1,
-      },
-    };
-    const results = await serviceHelper.findInDatabase(database, utxoIndexCollection, query, projection);
-    const resMessage = serviceHelper.createDataMessage(results);
-    res.json(resMessage);
+    const isInsightExplorer = daemonService.isInsightExplorer();
+    if (isInsightExplorer) {
+      const daemonRequest = {
+        params: {
+          address,
+        },
+      };
+      const insightResult = daemonService.getSingleAddressUtxos(daemonRequest);
+      const syncStatus = daemonService.isDaemonSynced();
+      const curHeight = syncStatus.data.height;
+      const utxos = [];
+      insightResult.data.forEach((utxo) => {
+        const adjustedUtxo = {
+          address: utxo.address,
+          txid: utxo.txid,
+          vout: utxo.outputIndex,
+          height: utxo.height,
+          satoshis: utxo.satoshis,
+          scriptPubKey: utxo.script,
+          confirmations: curHeight - utxo.height, // HERE DIFFERS, insight more compatible with zelcore as coinbase is spendable after 100
+        };
+        utxos.push(adjustedUtxo);
+      });
+      const resMessage = serviceHelper.createDataMessage(utxos);
+      res.json(resMessage);
+    } else {
+      const dbopen = serviceHelper.databaseConnection();
+      const database = dbopen.db(config.database.daemon.database);
+      const query = { address };
+      const projection = {
+        projection: {
+          _id: 0,
+          txid: 1,
+          vout: 1,
+          height: 1,
+          address: 1,
+          satoshis: 1,
+          scriptPubKey: 1,
+          coinbase: 1, // HERE DIFFERS
+        },
+      };
+      const results = await serviceHelper.findInDatabase(database, utxoIndexCollection, query, projection);
+      const resMessage = serviceHelper.createDataMessage(results);
+      res.json(resMessage);
+    }
   } catch (error) {
     log.error(error);
     const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
@@ -1026,15 +1055,28 @@ async function getAddressTransactions(req, res) {
     if (!address) {
       throw new Error('No address provided');
     }
-    const dbopen = serviceHelper.databaseConnection();
-    const database = dbopen.db(config.database.daemon.database);
-    const query = { address };
-    const distinct = 'transactions';
-    const results = await serviceHelper.distinctDatabase(database, addressTransactionIndexCollection, distinct, query);
-    // TODO FIX documentation. UPDATE for an amount of last txs needed.
-    // now we have array of transactions [{txid, height}, {}...]
-    const resMessage = serviceHelper.createDataMessage(results);
-    res.json(resMessage);
+    const isInsightExplorer = daemonService.isInsightExplorer();
+    if (isInsightExplorer) {
+      const daemonRequest = {
+        params: {
+          address,
+        },
+      };
+      const insightResult = daemonService.getSingleAddresssTxids(daemonRequest);
+      const txids = insightResult.data.reverse();
+      const resMessage = serviceHelper.createDataMessage(txids);
+      res.json(resMessage);
+    } else {
+      const dbopen = serviceHelper.databaseConnection();
+      const database = dbopen.db(config.database.daemon.database);
+      const query = { address };
+      const distinct = 'transactions';
+      const results = await serviceHelper.distinctDatabase(database, addressTransactionIndexCollection, distinct, query);
+      // TODO FIX documentation. UPDATE for an amount of last txs needed.
+      // now we have array of transactions [{txid, height}, {}...]
+      const resMessage = serviceHelper.createDataMessage(results);
+      res.json(resMessage);
+    }
   } catch (error) {
     log.error(error);
     const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
@@ -1234,28 +1276,41 @@ async function getAddressBalance(req, res) {
     if (!address) {
       throw new Error('No address provided');
     }
-    const dbopen = serviceHelper.databaseConnection();
-    const database = dbopen.db(config.database.daemon.database);
-    const query = { address };
-    const projection = {
-      projection: {
-        _id: 0,
-        // txid: 1,
-        // vout: 1,
-        // height: 1,
-        // address: 1,
-        satoshis: 1,
-        // scriptPubKey: 1,
-        // coinbase: 1,
-      },
-    };
-    const results = await serviceHelper.findInDatabase(database, utxoIndexCollection, query, projection);
-    let balance = 0;
-    results.forEach((utxo) => {
-      balance += utxo.satoshis;
-    });
-    const resMessage = serviceHelper.createDataMessage(balance);
-    res.json(resMessage);
+    const isInsightExplorer = daemonService.isInsightExplorer();
+    if (isInsightExplorer) {
+      const daemonRequest = {
+        params: {
+          address,
+        },
+      };
+      const insightResult = daemonService.getSingleAddressBalance(daemonRequest);
+      const { balance } = insightResult.data;
+      const resMessage = serviceHelper.createDataMessage(balance);
+      res.json(resMessage);
+    } else {
+      const dbopen = serviceHelper.databaseConnection();
+      const database = dbopen.db(config.database.daemon.database);
+      const query = { address };
+      const projection = {
+        projection: {
+          _id: 0,
+          // txid: 1,
+          // vout: 1,
+          // height: 1,
+          // address: 1,
+          satoshis: 1,
+          // scriptPubKey: 1,
+          // coinbase: 1,
+        },
+      };
+      const results = await serviceHelper.findInDatabase(database, utxoIndexCollection, query, projection);
+      let balance = 0;
+      results.forEach((utxo) => {
+        balance += utxo.satoshis;
+      });
+      const resMessage = serviceHelper.createDataMessage(balance);
+      res.json(resMessage);
+    }
   } catch (error) {
     log.error(error);
     const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);

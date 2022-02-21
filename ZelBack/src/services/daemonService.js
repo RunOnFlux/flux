@@ -800,7 +800,7 @@ async function getSingleAddresssTxids(req, res) {
     end,
   };
 
-  const rpccall = 'getaddressdeltas';
+  const rpccall = 'getaddresstxids';
   const rpcparameters = [options];
 
   response = await executeCall(rpccall, rpcparameters);
