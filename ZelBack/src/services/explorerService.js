@@ -914,6 +914,7 @@ async function getAddressUtxos(req, res) {
         params: {
           address,
         },
+        query: {},
       };
       const insightResult = daemonService.getSingleAddressUtxos(daemonRequest);
       const syncStatus = daemonService.isDaemonSynced();
@@ -1061,6 +1062,7 @@ async function getAddressTransactions(req, res) {
         params: {
           address,
         },
+        query: {},
       };
       const insightResult = daemonService.getSingleAddresssTxids(daemonRequest);
       const txids = insightResult.data.reverse();
@@ -1282,6 +1284,7 @@ async function getAddressBalance(req, res) {
         params: {
           address,
         },
+        query: {},
       };
       const insightResult = daemonService.getSingleAddressBalance(daemonRequest);
       const { balance } = insightResult.data;
