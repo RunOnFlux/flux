@@ -509,7 +509,7 @@ async function getBlockDeltas(req, res) {
   let { hash } = req.params;
   hash = hash || req.query.hash;
 
-  const rpccall = 'getBlockDeltas';
+  const rpccall = 'getblockdeltas';
   const rpcparameters = [];
   if (hash) {
     rpcparameters.push(hash);
@@ -530,7 +530,7 @@ async function getBlockHashes(req, res) {
   let { logicalTimes } = req.params;
   logicalTimes = logicalTimes || req.query.logicalTimes;
 
-  const rpccall = 'getBlockHashes';
+  const rpccall = 'getblockhashes';
   const rpcparameters = [];
   if (high) {
     high = serviceHelper.ensureNumber(high);
@@ -566,7 +566,7 @@ async function getBlockHashesPost(req, res) {
     const processedBody = serviceHelper.ensureObject(body);
     const { high, low, options } = processedBody;
 
-    const rpccall = 'submitBlock';
+    const rpccall = 'getblockhashes';
     const rpcparameters = [high, low];
 
     if (options) {
@@ -728,7 +728,7 @@ async function getSpentInfo(req, res) {
   let { index } = req.params;
   index = index || req.query.index;
 
-  const rpccall = 'getSpentInfo';
+  const rpccall = 'getspentinfo';
   const options = {
     txid: serviceHelper.ensureString(txid),
     index: serviceHelper.ensureNumber(index),
@@ -754,7 +754,7 @@ async function getSpentInfoPost(req, res) {
     };
     const optionsString = serviceHelper.ensureString(options);
 
-    const rpccall = 'getSpentInfo';
+    const rpccall = 'getspentinfo';
     const rpcparameters = [optionsString];
 
     response = await executeCall(rpccall, rpcparameters);
@@ -781,7 +781,7 @@ async function getAddressTxids(req, res) {
 
     const optionsString = serviceHelper.ensureString(options);
 
-    const rpccall = 'getAddressTxids';
+    const rpccall = 'getaddresstxids';
     const rpcparameters = [optionsString];
 
     response = await executeCall(rpccall, rpcparameters);
@@ -805,7 +805,7 @@ async function getAddressBalance(req, res) {
 
     const optionsString = serviceHelper.ensureString(options);
 
-    const rpccall = 'getAddressBalance';
+    const rpccall = 'getaddressbalance';
     const rpcparameters = [optionsString];
 
     response = await executeCall(rpccall, rpcparameters);
@@ -834,7 +834,7 @@ async function getAddressDeltas(req, res) {
 
     const optionsString = serviceHelper.ensureString(options);
 
-    const rpccall = 'getAddressDeltas';
+    const rpccall = 'getaddressdeltas';
     const rpcparameters = [optionsString];
 
     response = await executeCall(rpccall, rpcparameters);
@@ -861,7 +861,7 @@ async function getAddressUtxos(req, res) {
 
     const optionsString = serviceHelper.ensureString(options);
 
-    const rpccall = 'getAddressUtxos';
+    const rpccall = 'getaddressutxos';
     const rpcparameters = [optionsString];
 
     response = await executeCall(rpccall, rpcparameters);
@@ -887,7 +887,7 @@ async function getAddressMempool(req, res) {
 
     const optionsString = serviceHelper.ensureString(options);
 
-    const rpccall = 'getAddressMempool';
+    const rpccall = 'getaddressmempool';
     const rpcparameters = [optionsString];
 
     response = await executeCall(rpccall, rpcparameters);
