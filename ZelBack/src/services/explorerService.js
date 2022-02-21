@@ -64,7 +64,7 @@ async function getSenderForFluxTxInsight(txid, vout) {
     };
     const transaction = await daemonService.getRawTransaction(req);
     if (transaction.status === 'success' && transaction.data.vout && transaction.data.vout[0]) {
-      const transactionOutput = transaction.data.vout.find((txVout) => txVout.n === vout);
+      const transactionOutput = transaction.data.vout.find((txVout) => +txVout.n === +vout);
       if (transactionOutput) {
         const adjustedTxContent = {
           txid,
