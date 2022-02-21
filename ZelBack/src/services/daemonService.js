@@ -548,8 +548,7 @@ async function getBlockHashes(req, res) {
     options.logicalTimes = serviceHelper.ensureBoolean(logicalTimes);
   }
   if (options.noOrphans !== undefined || options.logicalTimes !== undefined) {
-    const optionsString = serviceHelper.ensureString(options);
-    rpcparameters.push(optionsString);
+    rpcparameters.push(options);
   }
 
   response = await executeCall(rpccall, rpcparameters);
@@ -570,7 +569,7 @@ async function getBlockHashesPost(req, res) {
     const rpcparameters = [high, low];
 
     if (options) {
-      rpcparameters.push(serviceHelper.ensureString(options));
+      rpcparameters.push(options);
     }
     response = await executeCall(rpccall, rpcparameters);
 
@@ -733,7 +732,7 @@ async function getSpentInfo(req, res) {
     txid: serviceHelper.ensureString(txid),
     index: serviceHelper.ensureNumber(index),
   };
-  const rpcparameters = [serviceHelper.ensureString(options)];
+  const rpcparameters = [options];
 
   response = await executeCall(rpccall, rpcparameters);
 
@@ -752,10 +751,9 @@ async function getSpentInfoPost(req, res) {
       txid,
       index,
     };
-    const optionsString = serviceHelper.ensureString(options);
 
     const rpccall = 'getspentinfo';
-    const rpcparameters = [optionsString];
+    const rpcparameters = [options];
 
     response = await executeCall(rpccall, rpcparameters);
 
@@ -779,15 +777,35 @@ async function getAddressTxids(req, res) {
       end,
     };
 
-    const optionsString = serviceHelper.ensureString(options);
-
     const rpccall = 'getaddresstxids';
-    const rpcparameters = [optionsString];
+    const rpcparameters = [options];
 
     response = await executeCall(rpccall, rpcparameters);
 
     return res.json(response);
   });
+}
+
+async function getSingleAddresssTxids(req, res) {
+  let { address } = req.params;
+  address = address || req.query.address;
+  let { start } = req.params;
+  start = start || req.query.start;
+  let { end } = req.params;
+  end = end || req.query.end;
+
+  const options = {
+    addresses: [address],
+    start,
+    end,
+  };
+
+  const rpccall = 'getaddressdeltas';
+  const rpcparameters = [options];
+
+  response = await executeCall(rpccall, rpcparameters);
+
+  return res ? res.json(response) : response;
 }
 
 async function getAddressBalance(req, res) {
@@ -803,15 +821,29 @@ async function getAddressBalance(req, res) {
       addresses,
     };
 
-    const optionsString = serviceHelper.ensureString(options);
-
     const rpccall = 'getaddressbalance';
-    const rpcparameters = [optionsString];
+    const rpcparameters = [options];
 
     response = await executeCall(rpccall, rpcparameters);
 
     return res.json(response);
   });
+}
+
+async function getSingleAddressBalance(req, res) {
+  let { address } = req.params;
+  address = address || req.query.address;
+
+  const options = {
+    addresses: [address],
+  };
+
+  const rpccall = 'getaddressbalance';
+  const rpcparameters = [options];
+
+  response = await executeCall(rpccall, rpcparameters);
+
+  return res ? res.json(response) : response;
 }
 
 async function getAddressDeltas(req, res) {
@@ -832,15 +864,38 @@ async function getAddressDeltas(req, res) {
       chainInfo,
     };
 
-    const optionsString = serviceHelper.ensureString(options);
-
     const rpccall = 'getaddressdeltas';
-    const rpcparameters = [optionsString];
+    const rpcparameters = [options];
 
     response = await executeCall(rpccall, rpcparameters);
 
     return res.json(response);
   });
+}
+
+async function getSingleAddressDeltas(req, res) {
+  let { address } = req.params;
+  address = address || req.query.address;
+  let { start } = req.params;
+  start = start || req.query.start;
+  let { end } = req.params;
+  end = end || req.query.end;
+  let { chaininfo } = req.params;
+  chaininfo = chaininfo || req.query.chaininfo;
+
+  const options = {
+    addresses: [address],
+    start,
+    end,
+    chainInfo: chaininfo,
+  };
+
+  const rpccall = 'getaddressdeltas';
+  const rpcparameters = [options];
+
+  response = await executeCall(rpccall, rpcparameters);
+
+  return res ? res.json(response) : response;
 }
 
 async function getAddressUtxos(req, res) {
@@ -859,15 +914,32 @@ async function getAddressUtxos(req, res) {
       chainInfo,
     };
 
-    const optionsString = serviceHelper.ensureString(options);
-
     const rpccall = 'getaddressutxos';
-    const rpcparameters = [optionsString];
+    const rpcparameters = [options];
 
     response = await executeCall(rpccall, rpcparameters);
 
     return res.json(response);
   });
+}
+
+async function getSingleAddressUtxos(req, res) {
+  let { address } = req.params;
+  address = address || req.query.address;
+  let { chaininfo } = req.params;
+  chaininfo = chaininfo || req.query.chaininfo;
+
+  const options = {
+    addresses: [address],
+    chainInfo: chaininfo,
+  };
+
+  const rpccall = 'getaddressutxos';
+  const rpcparameters = [options];
+
+  response = await executeCall(rpccall, rpcparameters);
+
+  return res ? res.json(response) : response;
 }
 
 async function getAddressMempool(req, res) {
@@ -885,15 +957,29 @@ async function getAddressMempool(req, res) {
       addresses,
     };
 
-    const optionsString = serviceHelper.ensureString(options);
-
     const rpccall = 'getaddressmempool';
-    const rpcparameters = [optionsString];
+    const rpcparameters = [options];
 
     response = await executeCall(rpccall, rpcparameters);
 
     return res.json(response);
   });
+}
+
+async function getSingleAddressMempool(req, res) {
+  let { address } = req.params;
+  address = address || req.query.address;
+
+  const options = {
+    addresses: [address],
+  };
+
+  const rpccall = 'getaddressmempool';
+  const rpcparameters = [options];
+
+  response = await executeCall(rpccall, rpcparameters);
+
+  return res ? res.json(response) : response;
 }
 
 // == Mining ==
@@ -3093,10 +3179,15 @@ module.exports = {
 
   // == AddressIndex ==
   getAddressTxids, // insight explorer
+  getSingleAddresssTxids,
   getAddressBalance, // insight explorer
+  getSingleAddressBalance,
   getAddressDeltas, // insight explorer
+  getSingleAddressDeltas,
   getAddressUtxos, // insight explorer
+  getSingleAddressUtxos,
   getAddressMempool, // insight explorer
+  getSingleAddressMempool,
 
   // == Disclosure ==
   // intentionally left out as of experimental feature

@@ -595,6 +595,21 @@ module.exports = (app, expressWs) => {
   app.get('/daemon/zcsamplejoinsplit', (req, res) => {
     daemonService.zcSampleJoinSplit(req, res);
   });
+  app.get('/daemon/getaddresstxids/:address?/:start?/:end?', (req, res) => {
+    daemonService.getSingleAddresssTxids(req, res);
+  });
+  app.get('/daemon/getaddressbalance/:address?', (req, res) => {
+    daemonService.getSingleAddressBalance(req, res);
+  });
+  app.get('/daemon/getaddressdeltas/:address?/:start?/:end?/:chaininfo?', (req, res) => {
+    daemonService.getSingleAddressDeltas(req, res);
+  });
+  app.get('/daemon/getaddressutxos/:address?/:chaininfo?', (req, res) => {
+    daemonService.getSingleAddressUtxos(req, res);
+  });
+  app.get('/daemon/getaddressmempool/:address?', (req, res) => {
+    daemonService.getSingleAddressMempool(req, res);
+  });
 
   app.get('/id/loggedusers', (req, res) => {
     idService.loggedUsers(req, res);
