@@ -340,7 +340,7 @@ module.exports = (app, expressWs) => {
   //   explorerService.getAllFluxTransactions(req, res);
   // });
   // filter can be IP, address, collateralHash.
-  app.get('/explorer/fluxtxs/:filter?', cache('30 seconds'), (req, res) => { // deprecated
+  app.get('/explorer/fluxtxs/:filter?', cache('30 seconds'), (req, res) => {
     explorerService.getFilteredFluxTxs(req, res);
   });
   app.get('/explorer/utxo/:address?', cache('30 seconds'), (req, res) => {

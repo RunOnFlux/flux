@@ -35,20 +35,65 @@ async function getSenderTransactionFromDaemon(txid) {
   throw txContent.data;
 }
 
+async function getSenderForFluxTxInsight(txid, vout) {
+  const db = serviceHelper.databaseConnection();
+  const database = db.db(config.database.daemon.database);
+  const queryFluxTx = {
+    collateralHash: txid,
+    collateralIndex: vout,
+  };
+  // we do not need other data as we are just asking what the sender address is.
+  const projectionFluxTx = {
+    projection: {
+      _id: 0,
+      collateralHash: 1,
+      zelAddress: 1,
+      lockedAmount: 1,
+    },
+  };
+  // find previous flux transaction that
+  const txContent = await serviceHelper.findOneInDatabase(database, fluxTransactionCollection, queryFluxTx, projectionFluxTx);
+  if (!txContent) {
+    // ask blockchain for the transaction
+    const verbose = 1;
+    const req = {
+      params: {
+        txid,
+        verbose,
+      },
+    };
+    const transaction = await daemonService.getRawTransaction(req);
+    if (transaction.status === 'success' && transaction.data.vout && transaction.data.vout[0]) {
+      const transactionOutput = transaction.data.vout.find((txVout) => txVout.n === vout);
+      if (transactionOutput) {
+        const adjustedTxContent = {
+          txid,
+          address: transactionOutput.scriptPubKey.addresses[0],
+          satoshis: transactionOutput.valueSat,
+        };
+        return adjustedTxContent;
+      }
+    }
+  }
+  if (!txContent) {
+    log.warn(`Transaction ${txid} ${vout} was not found anywhere. Uncomplete tx!`);
+    const adjustedTxContent = {
+      txid,
+      address: undefined,
+      satoshis: undefined,
+    };
+    return adjustedTxContent;
+  }
+  const sender = txContent;
+  return sender;
+}
+
 async function getSenderForFluxTx(txid, vout) {
   const db = serviceHelper.databaseConnection();
   const database = db.db(config.database.daemon.database);
   const query = {
-    $and: [
-      { txid: new RegExp(`^${txid}`) },
-      { vout },
-      {
-        $or: [
-          { satoshis: 1000000000000 },
-          { satoshis: 2500000000000 },
-          { satoshis: 10000000000000 },
-        ],
-      }],
+    txid,
+    vout,
   };
   // we do not need other data as we are just asking what the sender address is.
   const projection = {
@@ -69,16 +114,8 @@ async function getSenderForFluxTx(txid, vout) {
   if (!txContent) {
     log.info(`Transaction ${txid} ${vout} not found in database. Falling back to previous Flux transaction`);
     const queryFluxTx = {
-      $and: [
-        { collateralHash: new RegExp(`^${txid}`) },
-        { collateralIndex: vout },
-        {
-          $or: [
-            { lockedAmount: 1000000000000 },
-            { lockedAmount: 2500000000000 },
-            { lockedAmount: 10000000000000 },
-          ],
-        }],
+      collateralHash: txid,
+      collateralIndex: vout,
     };
     // we do not need other data as we are just asking what the sender address is.
     const projectionFluxTx = {
@@ -307,6 +344,27 @@ async function processInsight(blockDataVerbose, database) {
           log.error(error);
         }
       }
+    } else if (tx.version === 5) {
+      // todo include to daemon better information about hash and index and preferably address associated
+      const collateralHash = tx.txhash;
+      const collateralIndex = tx.outidx;
+      // eslint-disable-next-line no-await-in-loop
+      const senderInfo = await getSenderForFluxTxInsight(collateralHash, collateralIndex);
+      const fluxTxData = {
+        txid: tx.txid,
+        version: tx.version,
+        type: tx.type,
+        updateType: tx.update_type,
+        ip: tx.ip,
+        benchTier: tx.benchmark_tier,
+        collateralHash,
+        collateralIndex,
+        zelAddress: senderInfo.address || senderInfo.zelAddress,
+        lockedAmount: senderInfo.satoshis || senderInfo.lockedAmount,
+        height: blockDataVerbose.height,
+      };
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.insertOneToDatabase(database, fluxTransactionCollection, fluxTxData);
     }
   }
 }
@@ -1066,7 +1124,13 @@ async function getAddressTransactions(req, res) {
       };
       const insightResult = await daemonService.getSingleAddresssTxids(daemonRequest);
       const txids = insightResult.data.reverse();
-      const resMessage = serviceHelper.createDataMessage(txids);
+      const txidsOK = [];
+      txids.forEach((txid) => {
+        txidsOK.push({
+          txid,
+        });
+      });
+      const resMessage = serviceHelper.createDataMessage(txidsOK);
       res.json(resMessage);
     } else {
       const dbopen = serviceHelper.databaseConnection();
