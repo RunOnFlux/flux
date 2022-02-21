@@ -794,8 +794,8 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
       const isInsightExplorer = daemonService.isInsightExplorer();
       if (isInsightExplorer) {
         // if node is insight explorer based, we are only processing flux app messages
-        if (scannedBlockHeight < config.fluxapps.epochstart - 1) {
-          scannedBlockHeight = config.fluxapps.epochstart - 1;
+        if (scannedBlockHeight < config.deterministicNodesStart - 1) {
+          scannedBlockHeight = config.deterministicNodesStart - 1;
         }
       }
       processBlock(scannedBlockHeight + 1, isInsightExplorer);
