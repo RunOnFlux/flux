@@ -3256,7 +3256,7 @@ async function verifyAppSpecifications(appSpecifications, height) {
   }
 
   // verify ports are unique accross app
-  const portsAreUnique = ensureAppUniquePorts();
+  const portsAreUnique = ensureAppUniquePorts(appSpecifications);
   if (portsAreUnique !== true) {
     throw new Error('Application ports are not unique');
   }
