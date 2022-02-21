@@ -221,8 +221,7 @@ async function processBlockTransactions(txs, height) {
   return transactions;
 }
 
-async function getVerboseBlock(heightOrHash) {
-  const verbosity = 2;
+async function getVerboseBlock(heightOrHash, verbosity = 2) {
   const req = {
     params: {
       hashheight: heightOrHash,
@@ -249,6 +248,67 @@ function decodeMessage(asm) {
     }
   }
   return message;
+}
+
+async function processInsight(blockDataVerbose, database) {
+  // get Block Deltas information
+  const txs = blockDataVerbose.tx;
+  // go through each transaction in deltas
+  // eslint-disable-next-line no-restricted-syntax
+  for (const tx in txs) {
+    if (tx.version < 5 && tx.version > 0) {
+      let message = '';
+      let isFluxAppMessageValue = 0;
+      tx.vout.forEach((receiver) => {
+        if (receiver.scriptPubKey.addresses) { // count for messages
+          if (receiver.scriptPubKey.addresses[0] === config.fluxapps.address) {
+            // it is an app message. Get Satoshi amount
+            isFluxAppMessageValue += receiver.valueSat;
+          }
+        }
+        if (receiver.scriptPubKey.asm) {
+          message = decodeMessage(receiver.scriptPubKey.asm);
+        }
+      });
+      const intervals = config.fluxapps.price.filter((i) => i.height <= blockDataVerbose.height);
+      const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
+      // MAY contain App transaction. Store it.
+      if (isFluxAppMessageValue >= (priceSpecifications.minPrice * 1e8) && message.length === 64 && blockDataVerbose.height >= config.fluxapps.epochstart) { // min of 1 flux had to be paid for us bothering checking
+        const appTxRecord = {
+          txid: tx.txid, height: blockDataVerbose.height, hash: message, value: isFluxAppMessageValue, message: false, // message is boolean saying if we already have it stored as permanent message
+        };
+        // Unique hash - If we already have a hash of this app in our database, do not insert it!
+        try {
+          // 5501c7dd6516c3fc2e68dee8d4fdd20d92f57f8cfcdc7b4fcbad46499e43ed6f
+          const querySearch = {
+            hash: message,
+          };
+          const projectionSearch = {
+            projection: {
+              _id: 0,
+              txid: 1,
+              hash: 1,
+              height: 1,
+              value: 1,
+              message: 1,
+            },
+          };
+          // eslint-disable-next-line no-await-in-loop
+          const result = await serviceHelper.findOneInDatabase(database, appsHashesCollection, querySearch, projectionSearch); // this search can be later removed if nodes rescan apps and reconstruct the index for unique
+          if (!result) {
+            // eslint-disable-next-line no-await-in-loop
+            await serviceHelper.insertOneToDatabase(database, appsHashesCollection, appTxRecord);
+            appsService.checkAndRequestApp(message, tx.txid, blockDataVerbose.height, isFluxAppMessageValue);
+          } else {
+            throw new Error(`Found an existing hash app ${serviceHelper.ensureString(result)}`);
+          }
+        } catch (error) {
+          log.error(`Hash ${message} already exists. Not adding at height ${blockDataVerbose.height}`);
+          log.error(error);
+        }
+      }
+    }
+  }
 }
 
 async function processStandard(blockDataVerbose, database) {
@@ -366,13 +426,14 @@ async function processBlock(blockHeight, isInsightExplorer) {
     const db = serviceHelper.databaseConnection();
     const database = db.db(config.database.daemon.database);
     // get Block information
-    const blockDataVerbose = await getVerboseBlock(blockHeight);
+    const verbosity = 2;
+    const blockDataVerbose = await getVerboseBlock(blockHeight, verbosity);
     if (blockDataVerbose.height % 50 === 0) {
       console.log(blockDataVerbose.height);
     }
     if (isInsightExplorer) {
-      // we essentially only care about
-      await processStandard(blockDataVerbose, database); // TODO
+      // only process Flux transactions
+      await processInsight(blockDataVerbose, database);
     } else {
       await processStandard(blockDataVerbose, database);
     }
@@ -673,6 +734,10 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
       }
       isInInitiationOfBP = false;
       const isInsightExplorer = daemonService.isInsightExplorer();
+      if (isInsightExplorer) {
+        // if node is insight explorer based, we are only processing flux app messages
+        scannedBlockHeight = config.fluxapps.epochstart - 1;
+      }
       processBlock(scannedBlockHeight + 1, isInsightExplorer);
     } else {
       isInInitiationOfBP = false;
