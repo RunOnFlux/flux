@@ -292,7 +292,7 @@ async function processInsight(blockDataVerbose, database) {
   const txs = blockDataVerbose.tx;
   // go through each transaction in deltas
   // eslint-disable-next-line no-restricted-syntax
-  for (const tx in txs) {
+  for (const tx of txs) {
     if (tx.version < 5 && tx.version > 0) {
       let message = '';
       let isFluxAppMessageValue = 0;
@@ -496,14 +496,16 @@ async function processBlock(blockHeight, isInsightExplorer) {
       await processStandard(blockDataVerbose, database);
     }
     if (blockHeight % config.fluxapps.expireFluxAppsPeriod === 0) {
-      const result = await serviceHelper.collectionStats(database, utxoIndexCollection);
-      const resultB = await serviceHelper.collectionStats(database, addressTransactionIndexCollection);
+      if (!isInsightExplorer) {
+        const result = await serviceHelper.collectionStats(database, utxoIndexCollection);
+        const resultB = await serviceHelper.collectionStats(database, addressTransactionIndexCollection);
+        const resultFusion = await serviceHelper.collectionStats(database, coinbaseFusionIndexCollection);
+        log.info(`UTXO documents: ${result.size}, ${result.count}, ${result.avgObjSize}`);
+        log.info(`ADDR documents: ${resultB.size}, ${resultB.count}, ${resultB.avgObjSize}`);
+        log.info(`Fusion documents: ${resultFusion.size}, ${resultFusion.count}, ${resultFusion.avgObjSize}`);
+      }
       const resultC = await serviceHelper.collectionStats(database, fluxTransactionCollection);
-      log.info(`UTXO documents: ${result.size}, ${result.count}, ${result.avgObjSize}`);
-      log.info(`ADDR documents: ${resultB.size}, ${resultB.count}, ${resultB.avgObjSize}`);
       log.info(`FLUX documents: ${resultC.size}, ${resultC.count}, ${resultC.avgObjSize}`);
-      const resultFusion = await serviceHelper.collectionStats(database, coinbaseFusionIndexCollection);
-      log.info(`Fusion documents: ${resultFusion.size}, ${resultFusion.count}, ${resultFusion.avgObjSize}`);
       if (blockDataVerbose.height >= config.fluxapps.epochstart) {
         appsService.expireGlobalApplications();
       }
