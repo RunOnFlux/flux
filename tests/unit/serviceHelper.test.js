@@ -359,23 +359,83 @@ describe('serviceHelper tests', () => {
     });
   });
 
-  describe('verifyAdminSession tests', () => {
+  describe('verifyZelID tests', () => {
+    it('should throw error if ZelID is empty', () => {
+      const isValid = serviceHelper.verifyZelID();
+      expect(isValid).to.be.an('error');
+    });
+
+    it('should return throw error if ZelID is invalid', () => {
+      const isValid = serviceHelper.verifyZelID('34xp4vRoCGJym3xR7yCVPFHoCNxv4Twseo');
+      expect(isValid).to.be.an('error');
+
+    });
+
+    it('should return true if ZelID is valid', () => {
+      const isValid = serviceHelper.verifyZelID('1P5ZEDWTKTFGxQjZphgWPQUpe554WKDfHQ');
+      expect(isValid).to.be.true;
+    });
+  });
+
+  describe('verifyMessage tests', () => {
+    const message = 'test';
+    const publicKey = '0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab';
+    const validSignature = 'G6wvdaMqtuQYqa5BAtKsLHFCYQwB4PXoTwG0YSGtWU6ude/brDNM5MraSBfT64HU3XPhObGohFjLLo6KjtMgnlc=';
+    const address = '1KoXq8mLxpNt3BSnNLq2HzKC39Ne2pVJtF';
+
+    it('should return true if message is signed properly with a public key', () => {
+      const verification = serviceHelper.verifyMessage(message, publicKey, validSignature);
+      expect(verification).to.be.true;
+    });
+
+    it('should return true if message is signed properly with an address', () => {
+      const verification = serviceHelper.verifyMessage(message, address, validSignature);
+      expect(verification).to.be.true;
+    });
+
+    it('should return error if the address is invalid', () => {
+      const verification = serviceHelper.verifyMessage(message, '12355', validSignature);
+      expect(verification).to.be.an('error');
+    });
+
+    it('should return false if the publicKey is invalid', () => {
+      const verification = serviceHelper.verifyMessage(message, '0474eb4690689bb408139249eda7f361b7881c4254ccbe30', validSignature);
+      expect(verification).to.be.false;
+    });
+
+    it('should return error if there is no signature', () => {
+      const verification = serviceHelper.verifyMessage(message, address);
+      expect(verification).to.be.an('error');
+    });
+
+    it('should return false if the address is wrong', () => {
+      const verification = serviceHelper.verifyMessage(message, '1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2', validSignature);
+      expect(verification).to.be.false;
+    });
+
+    it('should return error if the signature is invalid', () => {
+      const verification = serviceHelper.verifyMessage(message, address, '1234567ASDFG');
+      expect(verification).to.be.an('error');
+    });
+  });
+
+  describe.only('deleteLoginPhrase tests', () => {
+    const query = { "loginPhrase": { $eq: "1644935809116x5fpl862o5fnyl29vfpmd9vzmgaddlgqbud8cxks8hj" } };
+    const loginPhrase = {
+      "_id": ObjectId("620bba81c04b4966674013a4"),
+      "loginPhrase": "1644935809116x5fpl862o5fnyl29vfpmd9vzmgaddlgqbud8cxks8hj",
+      "createdAt": new Date("2022-02-15T14:36:49.116Z"),
+      "expireAt": new Date("2022-02-15T14:51:49.116Z")
+    }
+    let db;
+    let database;
+    let collection;
+
     beforeEach(async () => {
       await serviceHelper.initiateDB();
-      const db = serviceHelper.databaseConnection();
-      const database = db.db(config.database.local.database);
-      const collection = config.database.local.collections.loggedUsers;
-      const insertUsers = [{
-        "_id": ObjectId("60cad0767247ac0a779fb3f0"),
-        "zelid": "1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC", // admin
-        "loginPhrase": "16125160820394ddsh5skgwv0ipodku92y0jbwvpyj17bh68lzrjlxq9",
-        "signature": "IH9d68fk/dYQtuMlNN7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc="
-      }, {
-        "_id": ObjectId("6108fbb9f04dfe1ef624b819"),
-        "zelid": "1hjy4bCYBJr4mny4zCE85J94RXa8W6q37",  // regular user
-        "loginPhrase": "162797868130153vt9r89dzjjjfg6kf34ntf1d8aa5zqlk04j3zy8z40ni",
-        "signature": "H9oD/ZA7mEVQMWYWNIGDF7T2J++R/EG8tYPfB+fQ+XvQIbOXIcBEhxZwPYmh0HRj531oMc/HfcXPAYjWlN9wCn4="
-      }];
+      db = serviceHelper.databaseConnection();
+      database = db.db(config.database.local.database);
+      collection = config.database.local.collections.activeLoginPhrases;
 
       try {
         await database.collection(collection).drop();
@@ -383,82 +443,16 @@ describe('serviceHelper tests', () => {
         console.log('Collection not found.');
       }
 
-      for (let insertUser of insertUsers) {
-        await serviceHelper.insertOneToDatabase(database, collection, insertUser);
-      }
+      await database.collection(collection).insertOne(loginPhrase);
+
+      const initialInsert = await database.collection(collection).findOne(query);
+      expect(initialInsert).to.eql(loginPhrase);
     });
 
-    it("should return true when requested by admin", async () => {
-      const headers = {
-        zelidauth: {
-          zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-          signature: 'IH9d68fk/dYQtuMlNN7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc='
-        }
-      }
-
-      const isAdmin = await serviceHelper.verifyAdminSession(headers);
-
-      expect(isAdmin).to.be.true;
-    });
-
-    it("should return false when requested by regular user", async () => {
-      const headers = {
-        zelidauth: {
-          zelid: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
-          signature: 'H9oD/ZA7mEVQMWYWNIGDF7T2J++R/EG8tYPfB+fQ+XvQIbOXIcBEhxZwPYmh0HRj531oMc/HfcXPAYjWlN9wCn4='
-        }
-      }
-
-      const isAdmin = await serviceHelper.verifyAdminSession(headers);
-
-      expect(isAdmin).to.be.false;
-    });
-
-    it("should return false if signature is invalid", async () => {
-      const headers = {
-        zelidauth: {
-          zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-          signature: 'IH9d68fk/dYQtzMlNN7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc='
-        }
-      }
-
-      const isAdmin = await serviceHelper.verifyAdminSession(headers);
-
-      expect(isAdmin).to.be.false;
-    });
-
-    it("should return false if zelID is invalid", async () => {
-      const headers = {
-        zelidauth: {
-          zelid: '2CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-          signature: 'IH9d68fk/dYQtuMlNN7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc='
-        }
-      }
-
-      const isAdmin = await serviceHelper.verifyAdminSession(headers);
-
-      expect(isAdmin).to.be.false;
-    });
-
-    it("should return false if header values are empty", async () => {
-      const headers = {
-        zelidauth: {
-          zelid: '',
-          signature: ''
-        }
-      }
-
-      const isAdmin = await serviceHelper.verifyAdminSession(headers);
-
-      expect(isAdmin).to.be.false;
-    });
-
-    it("should return false if header is empty", async () => {
-      const headers = {}
-
-      const isAdmin = await serviceHelper.verifyAdminSession(headers);
-
-      expect(isAdmin).to.be.false;
+    it('should delete the login phrase properly', async () => {
+      await serviceHelper.deleteLoginPhrase('1644935809116x5fpl862o5fnyl29vfpmd9vzmgaddlgqbud8cxks8hj');
+      const afterDeletionResult = await database.collection(collection).findOne(query);
+      expect(afterDeletionResult).to.be.null;
     });
   });
 

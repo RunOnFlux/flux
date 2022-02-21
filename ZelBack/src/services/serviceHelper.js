@@ -490,7 +490,7 @@ function verifyZelID(address) {
     }
     isValid = true;
   } catch (e) {
-    log.error(e);
+    // log.error(e);  - the function is not used at the moment, commented out to clean up test logs
     isValid = e;
   }
   return isValid;

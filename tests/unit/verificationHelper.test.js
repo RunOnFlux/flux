@@ -5,7 +5,7 @@ const sinon = require('sinon');
 const verificationHelperUtils = require("../../ZelBack/src/services/verificationHelperUtils");
 const { verifyPrivilege } = require("../../ZelBack/src/services/verificationHelper");
 
-//placeholders - verification functions are mocked, since they've already been tested in verificationHelperUtils.test
+//placeholders - verification functions are mocked, they have already been tested in verificationHelperUtils.test
 const req = {
   headers: {
     zelidauth: {
@@ -78,14 +78,14 @@ describe('verificationHelper tests', () => {
     stub.reset();
   });
 
-  it('should return false when a wrong flag - "test" is passed', async () => {
+  it('should return false when a wrong flag - string "test" is passed', async () => {
     const privilege = 'test';
     const verifyPrivilegeResult = await verifyPrivilege(privilege, req);
 
     expect(verifyPrivilegeResult).to.be.false;
   });
 
-  it('should return false when a wrong flag - true is passed', async () => {
+  it('should return false when a wrong flag - bool true is passed', async () => {
     const privilege = true;
     const verifyPrivilegeResult = await verifyPrivilege(privilege, req);
 

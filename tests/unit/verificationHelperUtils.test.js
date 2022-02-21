@@ -46,6 +46,96 @@ const insertApp = {
 }
 
 describe('verificationHelperUtils tests', () => {
+  describe('verifyAdminSession tests', () => {
+    beforeEach(async () => {
+      await serviceHelper.initiateDB();
+      const db = serviceHelper.databaseConnection();
+      const database = db.db(config.database.local.database);
+      const collection = config.database.local.collections.loggedUsers;
+
+      try {
+        await database.collection(collection).drop();
+      } catch (err) {
+        console.log('Collection not found.');
+      }
+
+      await database.collection(collection).insertMany(insertUsers);
+    });
+
+    it("should return true when requested by admin", async () => {
+      const headers = {
+        zelidauth: {
+          zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+          signature: 'IH9d68fk/dYQtuMlNN7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc='
+        }
+      }
+
+      const isAdmin = await verificationHelperUtils.verifyAdminSession(headers);
+
+      expect(isAdmin).to.be.true;
+    });
+
+    it("should return false when requested by regular user", async () => {
+      const headers = {
+        zelidauth: {
+          zelid: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
+          signature: 'H9oD/ZA7mEVQMWYWNIGDF7T2J++R/EG8tYPfB+fQ+XvQIbOXIcBEhxZwPYmh0HRj531oMc/HfcXPAYjWlN9wCn4='
+        }
+      }
+
+      const isAdmin = await verificationHelperUtils.verifyAdminSession(headers);
+
+      expect(isAdmin).to.be.false;
+    });
+
+    it("should return false if signature is invalid", async () => {
+      const headers = {
+        zelidauth: {
+          zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+          signature: 'IH9d68fk/dYQtzMlNN7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc='
+        }
+      }
+
+      const isAdmin = await verificationHelperUtils.verifyAdminSession(headers);
+
+      expect(isAdmin).to.be.false;
+    });
+
+    it("should return false if zelID is invalid", async () => {
+      const headers = {
+        zelidauth: {
+          zelid: '2CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+          signature: 'IH9d68fk/dYQtuMlNN7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc='
+        }
+      }
+
+      const isAdmin = await verificationHelperUtils.verifyAdminSession(headers);
+
+      expect(isAdmin).to.be.false;
+    });
+
+    it("should return false if header values are empty", async () => {
+      const headers = {
+        zelidauth: {
+          zelid: '',
+          signature: ''
+        }
+      }
+
+      const isAdmin = await verificationHelperUtils.verifyAdminSession(headers);
+
+      expect(isAdmin).to.be.false;
+    });
+
+    it("should return false if header is empty", async () => {
+      const headers = {}
+
+      const isAdmin = await verificationHelperUtils.verifyAdminSession(headers);
+
+      expect(isAdmin).to.be.false;
+    });
+  });
+
   describe('verifyUserSession tests', () => {
     beforeEach(async () => {
       await serviceHelper.initiateDB();
@@ -59,7 +149,7 @@ describe('verificationHelperUtils tests', () => {
         console.log('Collection not found.');
       }
 
-      
+
       await database.collection(collection).insertMany(insertUsers);
     });
 
