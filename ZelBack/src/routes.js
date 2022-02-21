@@ -340,7 +340,7 @@ module.exports = (app, expressWs) => {
   //   explorerService.getAllFluxTransactions(req, res);
   // });
   // filter can be IP, address, collateralHash.
-  app.get('/explorer/fluxtxs/:filter?', cache('30 seconds'), (req, res) => {
+  app.get('/explorer/fluxtxs/:filter?', cache('30 seconds'), (req, res) => { // deprecated
     explorerService.getFilteredFluxTxs(req, res);
   });
   app.get('/explorer/utxo/:address?', cache('30 seconds'), (req, res) => {
@@ -358,7 +358,7 @@ module.exports = (app, expressWs) => {
   // app.get('/explorer/fusion/coinbase/all', cache('30 seconds'), (req, res) => {
   //   explorerService.getAllFusionCoinbase(req, res);
   // });
-  app.get('/explorer/fusion/coinbase/:address?', cache('30 seconds'), (req, res) => {
+  app.get('/explorer/fusion/coinbase/:address?', cache('30 seconds'), (req, res) => { // deprecated
     explorerService.getAddressFusionCoinbase(req, res);
   });
 
