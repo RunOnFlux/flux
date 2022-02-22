@@ -880,10 +880,6 @@ async function getAllFusionCoinbase(req, res) {
 
 async function getAllFluxTransactions(req, res) {
   try {
-    const isInsightExplorer = daemonService.isInsightExplorer();
-    if (isInsightExplorer) {
-      throw new Error('Data unavailable. Deprecated');
-    }
     const dbopen = serviceHelper.databaseConnection();
     const database = dbopen.db(config.database.daemon.database);
     const query = {};
@@ -1059,10 +1055,6 @@ async function getAddressFusionCoinbase(req, res) {
 
 async function getFilteredFluxTxs(req, res) {
   try {
-    const isInsightExplorer = daemonService.isInsightExplorer();
-    if (isInsightExplorer) {
-      throw new Error('Data unavailable. Deprecated');
-    }
     let { filter } = req.params; // we accept both help/command and help?command=getinfo
     filter = filter || req.query.filter;
     let query = {};
