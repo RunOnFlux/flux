@@ -14,6 +14,7 @@ const rpcport = fnconfig.rpcport() || (isTestnet === true ? config.daemon.rpcpor
 
 let currentDaemonHeight = 0;
 let currentDaemonHeader = isTestnet === true ? 58494 : 1060453;
+let isDaemonInsightExplorer = null;
 
 const client = new daemonrpc.Client({
   port: rpcport,
@@ -109,10 +110,15 @@ function getConfigValue(parameter) {
 }
 
 function isInsightExplorer() {
+  if (isDaemonInsightExplorer != null) {
+    return isDaemonInsightExplorer;
+  }
   const insightValue = getConfigValue('insightexplorer');
   if (insightValue === 1 || insightValue === '1') {
+    isDaemonInsightExplorer = true;
     return true;
   }
+  isDaemonInsightExplorer = false;
   return false;
 }
 
