@@ -491,7 +491,9 @@ async function processBlock(blockHeight, isInsightExplorer) {
     }
     if (isInsightExplorer) {
       // only process Flux transactions
-      await processInsight(blockDataVerbose, database);
+      if (blockDataVerbose.height >= config.fluxapps.epochstart) {
+        await processInsight(blockDataVerbose, database);
+      }
     } else {
       await processStandard(blockDataVerbose, database);
     }
