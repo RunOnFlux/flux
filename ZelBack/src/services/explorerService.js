@@ -2,6 +2,7 @@ const config = require('config');
 
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
+const verificationHelper = require('./verificationHelper');
 const daemonService = require('./daemonService');
 const appsService = require('./appsService');
 
@@ -988,7 +989,7 @@ async function checkBlockProcessingStopped(i, callback) {
 }
 
 async function stopBlockProcessing(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
     const i = 0;
     checkBlockProcessingStopped(i, async (response) => {
@@ -1002,7 +1003,7 @@ async function stopBlockProcessing(req, res) {
 }
 
 async function restartBlockProcessing(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
     const i = 0;
     checkBlockProcessingStopped(i, async () => {
@@ -1017,7 +1018,7 @@ async function restartBlockProcessing(req, res) {
 }
 
 async function reindexExplorer(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
     // stop block processing
     const i = 0;
@@ -1061,7 +1062,7 @@ async function reindexExplorer(req, res) {
 
 async function rescanExplorer(req, res) {
   try {
-    const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized === true) {
       // since what blockheight
       let { blockheight } = req.params; // we accept both help/command and help?command=getinfo

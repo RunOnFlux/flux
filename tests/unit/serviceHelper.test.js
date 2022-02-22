@@ -419,7 +419,7 @@ describe('serviceHelper tests', () => {
     });
   });
 
-  describe.only('deleteLoginPhrase tests', () => {
+  describe('deleteLoginPhrase tests', () => {
     const query = { "loginPhrase": { $eq: "1644935809116x5fpl862o5fnyl29vfpmd9vzmgaddlgqbud8cxks8hj" } };
     const loginPhrase = {
       "_id": ObjectId("620bba81c04b4966674013a4"),
