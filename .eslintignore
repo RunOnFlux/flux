@@ -2,5 +2,5 @@
 /config/userconfig.js
 /lib/zelcashrpc/
 /lib/daemonrpc/
-/tests/
+/tests/e2e/
 /ZelApps/

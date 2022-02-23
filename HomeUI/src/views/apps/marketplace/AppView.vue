@@ -42,9 +42,7 @@
               class="mt-1"
               no-body
             >
-              <b-tabs
-                @activate-tab="componentSelected"
-              >
+              <b-tabs @activate-tab="componentSelected">
                 <b-tab
                   v-for="(component, index) in appData.compose"
                   :key="index"
@@ -153,12 +151,8 @@
             />
           </b-card>
         </b-col>
-        <b-row
-          class="d-lg-none d-sm-none d-md-flex d-none"
-        >
-          <b-col
-            md="4"
-          >
+        <b-row class="d-lg-none d-sm-none d-md-flex d-none">
+          <b-col md="4">
             <b-card no-body>
               <b-card-header class="app-requirements-header">
                 <h5 class="mb-0">
@@ -174,9 +168,7 @@
               />
             </b-card>
           </b-col>
-          <b-col
-            md="4"
-          >
+          <b-col md="4">
             <b-card no-body>
               <b-card-header class="app-requirements-header">
                 <h5 class="mb-0">
@@ -192,9 +184,7 @@
               />
             </b-card>
           </b-col>
-          <b-col
-            md="4"
-          >
+          <b-col md="4">
             <b-card no-body>
               <b-card-header class="app-requirements-header">
                 <h5 class="mb-0">
@@ -211,12 +201,8 @@
             </b-card>
           </b-col>
         </b-row>
-        <b-row
-          class="d-md-none"
-        >
-          <b-col
-            cols="4"
-          >
+        <b-row class="d-md-none">
+          <b-col cols="4">
             <b-card no-body>
               <b-card-header class="app-requirements-header">
                 <h6 class="mb-0">
@@ -232,9 +218,7 @@
               />
             </b-card>
           </b-col>
-          <b-col
-            cols="4"
-          >
+          <b-col cols="4">
             <b-card no-body>
               <b-card-header class="app-requirements-header">
                 <h6 class="mb-0">
@@ -250,9 +234,7 @@
               />
             </b-card>
           </b-col>
-          <b-col
-            cols="4"
-          >
+          <b-col cols="4">
             <b-card no-body>
               <b-card-header class="app-requirements-header">
                 <h6 class="mb-0">
@@ -451,9 +433,7 @@
         </tab-content>
         <tab-content title="Send Payment">
           <b-row class="match-height">
-            <b-col
-              lg="8"
-            >
+            <b-col lg="8">
               <b-card
                 title="Send Payment"
                 class="text-center wizard-card"
@@ -470,9 +450,7 @@
                 The application will be subscribed until {{ new Date(subscribedTill).toLocaleString('en-GB', timeoptions.shortDate) }}
               </b-card>
             </b-col>
-            <b-col
-              lg="4"
-            >
+            <b-col lg="4">
               <b-card
                 title="Pay with Zelcore"
                 class="text-center wizard-card"
@@ -813,7 +791,6 @@ export default {
       if (!userZelid.value) {
         return ['No ZelID'];
       }
-      const domainString = 'abcdefghijklmno'; // enough
       const appNameWithTimestamp = constructUniqueAppName(appName);
       const lowerCaseName = appNameWithTimestamp.toLowerCase();
       const lowerCaseCopmonentName = componentName.toLowerCase();
@@ -821,15 +798,15 @@ export default {
         const domains = [`${lowerCaseName}.app.runonflux.io`];
         // flux specs dont allow more than 10 ports so domainString is enough
         for (let i = 0; i < ports.length; i += 1) {
-          const portDomain = `${domainString[i]}.${lowerCaseName}.app.runonflux.io`;
+          const portDomain = `${lowerCaseName}_${ports[i]}.app.runonflux.io`;
           domains.push(portDomain);
         }
         return domains;
       }
-      const domains = [`${lowerCaseName}.app.runonflux.io`, `${lowerCaseCopmonentName}.${lowerCaseName}.app.runonflux.io`];
+      const domains = [`${lowerCaseName}.app.runonflux.io`];
       // flux specs dont allow more than 10 ports so domainString is enough
       for (let i = 0; i < ports.length; i += 1) {
-        const portDomain = `${domainString[i]}.${lowerCaseCopmonentName}.${lowerCaseName}.app.runonflux.io`;
+        const portDomain = `${lowerCaseName}_${ports[i]}.app.runonflux.io`;
         domains.push(portDomain);
       }
       return domains;
@@ -1416,5 +1393,5 @@ a:hover img {
 }
 </style>
 <style lang="scss">
-  @import '@core/scss/vue/libs/vue-wizard.scss';
+@import "@core/scss/vue/libs/vue-wizard.scss";
 </style>

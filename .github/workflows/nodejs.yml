@@ -5,11 +5,11 @@ on: [push]
 jobs:
   build:
 
-    runs-on: ubuntu-18.04
+    runs-on: ubuntu-20.04
 
     strategy:
       matrix:
-        node-version: [12.x]
+        node-version: [14.x]
 
     services:
       mongodb:
@@ -29,5 +29,6 @@ jobs:
         npm run ciconfig
         npm run homebuild
         npm run test:zelback
+        npm run test:zelback:unit
       env:
         CI: true
