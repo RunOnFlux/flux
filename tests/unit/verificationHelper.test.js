@@ -1,21 +1,21 @@
 const chai = require('chai');
-const expect = chai.expect;
+
+const { expect } = chai;
 const sinon = require('sinon');
 
-const verificationHelperUtils = require("../../ZelBack/src/services/verificationHelperUtils");
-const { verifyPrivilege } = require("../../ZelBack/src/services/verificationHelper");
+const verificationHelperUtils = require('../../ZelBack/src/services/verificationHelperUtils');
+const { verifyPrivilege } = require('../../ZelBack/src/services/verificationHelper');
 
-//placeholders - verification functions are mocked, they have already been tested in verificationHelperUtils.test
+// placeholders - verification functions are mocked, they have already been tested in verificationHelperUtils.test
 const req = {
   headers: {
     zelidauth: {
       zelid: 'testing1',
-      signature: 'testing2'
-    }
-  }
+      signature: 'testing2',
+    },
+  },
 };
 const appName = 'myTestAppName';
-
 
 describe('verificationHelper tests', () => {
   it('should call verifyAdminSession when flag "admin" is passed', async () => {

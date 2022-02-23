@@ -1,10 +1,10 @@
 process.env.NODE_CONFIG_DIR = `${process.cwd()}/ZelBack/config/`;
-const communication = require('../../ZelBack/src/services/fluxCommunication');
-const fluxList = require('./data/listfluxnodes.json')
 const chai = require('chai');
-const expect = chai.expect;
-const qs = require('qs');
 const WebSocket = require('ws');
+const communication = require('../../ZelBack/src/services/fluxCommunication');
+const fluxList = require('./data/listfluxnodes.json');
+
+const { expect } = chai;
 
 describe('getFluxMessageSignature', () => {
   it('correctly signs Flux message', async () => {
@@ -24,8 +24,8 @@ describe('getFluxMessageSignature', () => {
     const badPubKey = '074eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab';
     const data = {
       app: 'testapp',
-      data: 'test'
-    }
+      data: 'test',
+    };
     const message = JSON.stringify(data);
     const messageToSign = version + message + timeStamp;
     const signature = await communication.getFluxMessageSignature(messageToSign, privKey);
@@ -35,8 +35,8 @@ describe('getFluxMessageSignature', () => {
       pubKey,
       timestamp: timeStamp,
       data,
-      signature
-    }
+      signature,
+    };
     const validRequest = await communication.verifyOriginalFluxBroadcast(dataToSend, fluxList);
     expect(validRequest).to.equal(true);
     const dataToSend2 = {
@@ -44,8 +44,8 @@ describe('getFluxMessageSignature', () => {
       pubKey,
       timestamp: timeStamp - 500000,
       data,
-      signature
-    }
+      signature,
+    };
     const invalidRequest = await communication.verifyOriginalFluxBroadcast(dataToSend2, fluxList);
     expect(invalidRequest).to.equal(false);
     const dataToSend3 = {
@@ -53,8 +53,8 @@ describe('getFluxMessageSignature', () => {
       pubKey: badPubKey,
       timestamp: timeStamp,
       data,
-      signature
-    }
+      signature,
+    };
     const invalidRequest2 = await communication.verifyOriginalFluxBroadcast(dataToSend3, fluxList);
     expect(invalidRequest2).to.equal(false);
     const dataToSend4 = {
@@ -62,8 +62,8 @@ describe('getFluxMessageSignature', () => {
       pubKey,
       timestamp: timeStamp,
       data,
-      signature: 'abc'
-    }
+      signature: 'abc',
+    };
     const invalidRequest3 = await communication.verifyOriginalFluxBroadcast(dataToSend4, fluxList);
     expect(invalidRequest3).to.equal(false);
   }).timeout(5000);
@@ -73,10 +73,11 @@ describe('getFluxMessageSignature', () => {
     const privKey = '5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh';
     const messageToSend = await communication.serialiseAndSignFluxBroadcast(data, privKey);
     console.log(messageToSend);
-    const wsuri = `ws://62.171.163.150:16127/ws/flux/`; // locally running 127.0.0.1
+    const wsuri = 'ws://62.171.163.150:16127/ws/flux/'; // locally running 127.0.0.1
     const websocket = new WebSocket(wsuri);
 
     websocket.on('open', (msg) => {
+      console.log(msg);
       websocket.send(messageToSend);
     });
     websocket.on('message', (msg) => {

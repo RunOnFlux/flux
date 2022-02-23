@@ -1,22 +1,22 @@
+/* eslint-disable no-restricted-syntax */
 const chai = require('chai');
 const config = require('config');
 const { ObjectId } = require('mongodb');
-var proxyquire = require('proxyquire');
-const expect = chai.expect;
-const sinon = require('sinon');
+const proxyquire = require('proxyquire');
 
-let serviceHelper = require("../../ZelBack/src/services/serviceHelper");
+const { expect } = chai;
+
+let serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 
 const adminConfig = {
   initial: {
     ipaddress: '83.51.212.243',
     zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-    testnet: true
-  }
-}
+    testnet: true,
+  },
+};
 serviceHelper = proxyquire('../../ZelBack/src/services/serviceHelper',
   { '../../../config/userconfig': adminConfig });
-
 
 describe('serviceHelper tests', () => {
   describe('ensureBoolean function tests', () => {
@@ -25,25 +25,25 @@ describe('serviceHelper tests', () => {
     const restOfTruthyValues = [3, 3n, 'test', [1, 2], { name: 'testobject' }];
     const restOfFalsyValues = [0n, null, undefined, NaN, ''];
 
-    for (let falseBool of falseBools) {
+    for (const falseBool of falseBools) {
       it(`parameter ${falseBool} of type ${typeof falseBool} should return false`, () => {
         expect(serviceHelper.ensureBoolean(falseBool)).to.equal(false);
       });
     }
 
-    for (let trueBool of trueBools) {
+    for (const trueBool of trueBools) {
       it(`parameter ${trueBool} of type ${typeof trueBool}  should return false`, () => {
         expect(serviceHelper.ensureBoolean(trueBool)).to.equal(true);
       });
     }
 
-    for (let truthyValue of restOfTruthyValues) {
+    for (const truthyValue of restOfTruthyValues) {
       it(`parameter ${truthyValue} of type ${typeof truthyValue}  should return undefined`, () => {
         expect(serviceHelper.ensureBoolean(truthyValue)).to.be.undefined;
       });
     }
 
-    for (let falsyValue of restOfFalsyValues) {
+    for (const falsyValue of restOfFalsyValues) {
       it(`parameter ${falsyValue} of type ${typeof falsyValue}  should return undefined`, () => {
         expect(serviceHelper.ensureBoolean(falsyValue)).to.be.undefined;
       });
@@ -55,25 +55,25 @@ describe('serviceHelper tests', () => {
   });
 
   describe('ensureNumber function tests', () => {
-    const numbersList = [1, '1', 2.5, '2.5']
+    const numbersList = [1, '1', 2.5, '2.5'];
 
-    for (let number of numbersList) {
+    for (const number of numbersList) {
       it(`parameter ${number} should return number value`, () => {
         const ensureNumberOutput = serviceHelper.ensureNumber(1);
 
-        expect(ensureNumberOutput).to.be.a('number')
+        expect(ensureNumberOutput).to.be.a('number');
       });
     }
 
     it('parameter "test" of type string should return NaN', () => {
-      const ensureNumberOutput = serviceHelper.ensureNumber("test");
+      const ensureNumberOutput = serviceHelper.ensureNumber('test');
 
-      expect(ensureNumberOutput).to.be.NaN
+      expect(ensureNumberOutput).to.be.NaN;
     });
     it('parameter {name: 1} of type object should return NaN', () => {
       const ensureNumberOutput = serviceHelper.ensureNumber({ name: 1 });
 
-      expect(ensureNumberOutput).to.be.NaN
+      expect(ensureNumberOutput).to.be.NaN;
     });
   });
 
@@ -81,8 +81,8 @@ describe('serviceHelper tests', () => {
     it('parameter of type object should return the same object', () => {
       const testObject = {
         id: 1,
-        username: 'Testing user'
-      }
+        username: 'Testing user',
+      };
 
       const ensureObjectOutput = serviceHelper.ensureObject(testObject);
 
@@ -97,11 +97,11 @@ describe('serviceHelper tests', () => {
     });
 
     it('parameter of type json string should return an object', () => {
-      stringObject = JSON.stringify({ "id": 1, "username": "Testing user" })
+      const stringObject = JSON.stringify({ id: 1, username: 'Testing user' });
       const expected = {
         id: 1,
-        username: 'Testing user'
-      }
+        username: 'Testing user',
+      };
 
       const ensureObjectOutput = serviceHelper.ensureObject(stringObject);
 
@@ -113,8 +113,8 @@ describe('serviceHelper tests', () => {
       const queryString = 'username=Tester&id=1';
       const expected = {
         id: '1',
-        username: 'Tester'
-      }
+        username: 'Tester',
+      };
 
       const ensureObjectOutput = serviceHelper.ensureObject(queryString);
 
@@ -125,8 +125,8 @@ describe('serviceHelper tests', () => {
     it('parameter of type string should return an object', () => {
       const testString = 'test';
       const expected = {
-        test: "",
-      }
+        test: '',
+      };
 
       const ensureObjectOutput = serviceHelper.ensureObject(testString);
 
@@ -143,8 +143,8 @@ describe('serviceHelper tests', () => {
       expect(ensureObjectOutput).to.eql(testArr);
     });
 
-    const otherTypes = [1, true]
-    for (let param of otherTypes) {
+    const otherTypes = [1, true];
+    for (const param of otherTypes) {
       it(`parameter of type ${typeof param} should return undefined`, () => {
         expect(serviceHelper.ensureObject(param)).to.be.an('object').that.is.empty;
       });
@@ -164,9 +164,9 @@ describe('serviceHelper tests', () => {
     it('parameter of type object should return a string', () => {
       const testObject = {
         id: 1,
-        username: 'Testing user'
-      }
-      const expected = '{"id":1,"username":"Testing user"}'
+        username: 'Testing user',
+      };
+      const expected = '{"id":1,"username":"Testing user"}';
 
       const ensureStringOutput = serviceHelper.ensureString(testObject);
 
@@ -176,7 +176,7 @@ describe('serviceHelper tests', () => {
 
     it('parameter of type number should return a string', () => {
       const testNumber = 42;
-      const expected = '42'
+      const expected = '42';
 
       const ensureStringOutput = serviceHelper.ensureString(testNumber);
 
@@ -324,11 +324,11 @@ describe('serviceHelper tests', () => {
       const database = db.db(config.database.appsglobal.database);
       const collection = config.database.appsglobal.collections.appsInformation;
       const insertApp = {
-        "_id": ObjectId("6147045cd774409b374d253d"),
-        "name": "PolkadotNode",
-        "description": "Polkadot is a heterogeneous multi-chain interchange.",
-        "owner": "196GJWyLxzAw3MirTT7Bqs2iGpUQio29GH",
-      }
+        _id: ObjectId('6147045cd774409b374d253d'),
+        name: 'PolkadotNode',
+        description: 'Polkadot is a heterogeneous multi-chain interchange.',
+        owner: '196GJWyLxzAw3MirTT7Bqs2iGpUQio29GH',
+      };
 
       try {
         await database.collection(collection).drop();
@@ -338,21 +338,21 @@ describe('serviceHelper tests', () => {
       await serviceHelper.insertOneToDatabase(database, collection, insertApp);
     });
 
-    it("should return application owner if app exists in database", async () => {
+    it('should return application owner if app exists in database', async () => {
       const appOwner = '196GJWyLxzAw3MirTT7Bqs2iGpUQio29GH';
       const getOwnerResult = await serviceHelper.getApplicationOwner('PolkadotNode');
 
       expect(getOwnerResult).to.equal(appOwner);
     });
 
-    it("should return application owner if app is in available apps, but not in db", async () => {
+    it('should return application owner if app is in available apps, but not in db', async () => {
       const appOwner = '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC';
       const getOwnerResult = await serviceHelper.getApplicationOwner('FoldingAtHomeB');
 
       expect(getOwnerResult).to.equal(appOwner);
     });
 
-    it("should return null if the app does not exist", async () => {
+    it('should return null if the app does not exist', async () => {
       const getOwnerResult = await serviceHelper.getApplicationOwner('testing');
 
       expect(getOwnerResult).to.be.null;
@@ -368,7 +368,6 @@ describe('serviceHelper tests', () => {
     it('should return throw error if ZelID is invalid', () => {
       const isValid = serviceHelper.verifyZelID('34xp4vRoCGJym3xR7yCVPFHoCNxv4Twseo');
       expect(isValid).to.be.an('error');
-
     });
 
     it('should return true if ZelID is valid', () => {
@@ -420,13 +419,13 @@ describe('serviceHelper tests', () => {
   });
 
   describe('deleteLoginPhrase tests', () => {
-    const query = { "loginPhrase": { $eq: "1644935809116x5fpl862o5fnyl29vfpmd9vzmgaddlgqbud8cxks8hj" } };
+    const query = { loginPhrase: { $eq: '1644935809116x5fpl862o5fnyl29vfpmd9vzmgaddlgqbud8cxks8hj' } };
     const loginPhrase = {
-      "_id": ObjectId("620bba81c04b4966674013a4"),
-      "loginPhrase": "1644935809116x5fpl862o5fnyl29vfpmd9vzmgaddlgqbud8cxks8hj",
-      "createdAt": new Date("2022-02-15T14:36:49.116Z"),
-      "expireAt": new Date("2022-02-15T14:51:49.116Z")
-    }
+      _id: ObjectId('620bba81c04b4966674013a4'),
+      loginPhrase: '1644935809116x5fpl862o5fnyl29vfpmd9vzmgaddlgqbud8cxks8hj',
+      createdAt: new Date('2022-02-15T14:36:49.116Z'),
+      expireAt: new Date('2022-02-15T14:51:49.116Z'),
+    };
     let db;
     let database;
     let collection;
@@ -455,5 +454,4 @@ describe('serviceHelper tests', () => {
       expect(afterDeletionResult).to.be.null;
     });
   });
-
 });

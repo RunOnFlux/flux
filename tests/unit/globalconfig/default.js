@@ -56,13 +56,14 @@ module.exports = {
     rpcporttestnet: 26224,
   },
   daemon: {
-    chainValidHeight: 770000,
+    chainValidHeight: 1062000,
     port: 16125,
     rpcport: 16124,
     porttestnet: 26125,
     rpcporttestnet: 26124,
   },
   fluxTeamZelId: '1NH9BP155Rp3HSf5ef6NpUbE8JcyLRruAM',
+  deterministicNodesStart: 558000,
   fluxapps: {
     // in flux main chain per month (blocksLasting)
     price: [{ // any price fork can be done by adjusting object similarily.
@@ -126,7 +127,7 @@ module.exports = {
     ram: 2000, // 2000mb
     hdd: 30, // 30gb // this value is likely to rise
   },
-  fluxSpecifics: {
+  fluxSpecifics: { // tbd during forks
     cpu: {
       basic: 20, // 10 available for apps
       super: 40, // 30 available for apps
@@ -142,7 +143,7 @@ module.exports = {
       super: 150, // 120 for apps
       bamf: 600, // 570 for apps
     },
-    collateral: {
+    collateral: { // tbd during forks
       basic: 10000,
       super: 25000,
       bamf: 100000,
