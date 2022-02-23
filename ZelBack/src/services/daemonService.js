@@ -11,10 +11,11 @@ const fnconfig = new fullnode.Config();
 const isTestnet = userconfig.initial.testnet;
 const rpcuser = fnconfig.rpcuser() || 'rpcuser';
 const rpcpassword = fnconfig.rpcpassword() || 'rpcpassword';
-const rpcport = fnconfig.rpcport() || (isTestnet === true ? config.daemon.testnetrpcport : config.daemon.rpcport);
+const rpcport = fnconfig.rpcport() || (isTestnet === true ? config.daemon.rpcporttestnet : config.daemon.rpcport);
 
 let currentDaemonHeight = 0;
-let currentDaemonHeader = 973000;
+let currentDaemonHeader = isTestnet === true ? 58494 : 1060453;
+let isDaemonInsightExplorer = null;
 
 const client = new daemonrpc.Client({
   port: rpcport,
@@ -107,6 +108,19 @@ async function executeCall(rpc, params) {
 function getConfigValue(parameter) {
   const value = fnconfig.get(parameter);
   return value;
+}
+
+function isInsightExplorer() {
+  if (isDaemonInsightExplorer != null) {
+    return isDaemonInsightExplorer;
+  }
+  const insightValue = getConfigValue('insightexplorer');
+  if (insightValue === 1 || insightValue === '1') {
+    isDaemonInsightExplorer = true;
+    return true;
+  }
+  isDaemonInsightExplorer = false;
+  return false;
 }
 
 // == Control ==
@@ -498,6 +512,78 @@ async function getBlockHash(req, res) {
   return res ? res.json(response) : response;
 }
 
+async function getBlockDeltas(req, res) {
+  let { hash } = req.params;
+  hash = hash || req.query.hash;
+
+  const rpccall = 'getblockdeltas';
+  const rpcparameters = [];
+  if (hash) {
+    rpcparameters.push(hash);
+  }
+
+  response = await executeCall(rpccall, rpcparameters);
+
+  return res ? res.json(response) : response;
+}
+
+async function getBlockHashes(req, res) {
+  let { high } = req.params;
+  high = high || req.query.high;
+  let { low } = req.params;
+  low = low || req.query.low;
+  let { noOrphans } = req.params;
+  noOrphans = noOrphans || req.query.noOrphans;
+  let { logicalTimes } = req.params;
+  logicalTimes = logicalTimes || req.query.logicalTimes;
+
+  const rpccall = 'getblockhashes';
+  const rpcparameters = [];
+  if (high) {
+    high = serviceHelper.ensureNumber(high);
+    rpcparameters.push(high);
+  }
+  if (low) {
+    low = serviceHelper.ensureNumber(low);
+    rpcparameters.push(low);
+  }
+  const options = {};
+  if (noOrphans !== undefined && noOrphans !== null) {
+    options.noOrphans = serviceHelper.ensureBoolean(noOrphans);
+  }
+  if (logicalTimes !== undefined && logicalTimes !== null) {
+    options.logicalTimes = serviceHelper.ensureBoolean(logicalTimes);
+  }
+  if (options.noOrphans !== undefined || options.logicalTimes !== undefined) {
+    rpcparameters.push(options);
+  }
+
+  response = await executeCall(rpccall, rpcparameters);
+
+  return res ? res.json(response) : response;
+}
+
+async function getBlockHashesPost(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const { high, low, options } = processedBody;
+
+    const rpccall = 'getblockhashes';
+    const rpcparameters = [high, low];
+
+    if (options) {
+      rpcparameters.push(options);
+    }
+    response = await executeCall(rpccall, rpcparameters);
+
+    return res.json(response);
+  });
+}
+
 async function getBlockHeader(req, res) {
   let { hash } = req.params;
   hash = hash || req.query.hash;
@@ -636,6 +722,267 @@ async function verifyTxOutProof(req, res) {
   if (proof) {
     rpcparameters.push(proof);
   }
+
+  response = await executeCall(rpccall, rpcparameters);
+
+  return res ? res.json(response) : response;
+}
+
+async function getSpentInfo(req, res) {
+  let { txid } = req.params;
+  txid = txid || req.query.txid;
+  let { index } = req.params;
+  index = index || req.query.index;
+
+  const rpccall = 'getspentinfo';
+  const options = {
+    txid: serviceHelper.ensureString(txid),
+    index: serviceHelper.ensureNumber(index),
+  };
+  const rpcparameters = [options];
+
+  response = await executeCall(rpccall, rpcparameters);
+
+  return res ? res.json(response) : response;
+}
+
+async function getSpentInfoPost(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const { txid, index } = processedBody;
+    const options = {
+      txid,
+      index,
+    };
+
+    const rpccall = 'getspentinfo';
+    const rpcparameters = [options];
+
+    response = await executeCall(rpccall, rpcparameters);
+
+    return res.json(response);
+  });
+}
+
+// == Address Index ==
+async function getAddressTxids(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const { addresses, start, end } = processedBody;
+
+    const options = {
+      addresses,
+      start,
+      end,
+    };
+
+    const rpccall = 'getaddresstxids';
+    const rpcparameters = [options];
+
+    response = await executeCall(rpccall, rpcparameters);
+
+    return res.json(response);
+  });
+}
+
+async function getSingleAddresssTxids(req, res) {
+  let { address } = req.params;
+  address = address || req.query.address;
+  let { start } = req.params;
+  start = start || req.query.start;
+  let { end } = req.params;
+  end = end || req.query.end;
+
+  const options = {
+    addresses: [address],
+    start,
+    end,
+  };
+
+  const rpccall = 'getaddresstxids';
+  const rpcparameters = [options];
+
+  response = await executeCall(rpccall, rpcparameters);
+
+  return res ? res.json(response) : response;
+}
+
+async function getAddressBalance(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const { addresses } = processedBody;
+
+    const options = {
+      addresses,
+    };
+
+    const rpccall = 'getaddressbalance';
+    const rpcparameters = [options];
+
+    response = await executeCall(rpccall, rpcparameters);
+
+    return res.json(response);
+  });
+}
+
+async function getSingleAddressBalance(req, res) {
+  let { address } = req.params;
+  address = address || req.query.address;
+
+  const options = {
+    addresses: [address],
+  };
+
+  const rpccall = 'getaddressbalance';
+  const rpcparameters = [options];
+
+  response = await executeCall(rpccall, rpcparameters);
+
+  return res ? res.json(response) : response;
+}
+
+async function getAddressDeltas(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const {
+      addresses, start, end, chainInfo,
+    } = processedBody;
+
+    const options = {
+      addresses,
+      start,
+      end,
+      chainInfo,
+    };
+
+    const rpccall = 'getaddressdeltas';
+    const rpcparameters = [options];
+
+    response = await executeCall(rpccall, rpcparameters);
+
+    return res.json(response);
+  });
+}
+
+async function getSingleAddressDeltas(req, res) {
+  let { address } = req.params;
+  address = address || req.query.address;
+  let { start } = req.params;
+  start = start || req.query.start;
+  let { end } = req.params;
+  end = end || req.query.end;
+  let { chaininfo } = req.params;
+  chaininfo = chaininfo || req.query.chaininfo;
+
+  const options = {
+    addresses: [address],
+    start,
+    end,
+    chainInfo: chaininfo,
+  };
+
+  const rpccall = 'getaddressdeltas';
+  const rpcparameters = [options];
+
+  response = await executeCall(rpccall, rpcparameters);
+
+  return res ? res.json(response) : response;
+}
+
+async function getAddressUtxos(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const {
+      addresses, chainInfo,
+    } = processedBody;
+
+    const options = {
+      addresses,
+      chainInfo,
+    };
+
+    const rpccall = 'getaddressutxos';
+    const rpcparameters = [options];
+
+    response = await executeCall(rpccall, rpcparameters);
+
+    return res.json(response);
+  });
+}
+
+async function getSingleAddressUtxos(req, res) {
+  let { address } = req.params;
+  address = address || req.query.address;
+  let { chaininfo } = req.params;
+  chaininfo = chaininfo || req.query.chaininfo;
+
+  const options = {
+    addresses: [address],
+    chainInfo: chaininfo,
+  };
+
+  const rpccall = 'getaddressutxos';
+  const rpcparameters = [options];
+
+  response = await executeCall(rpccall, rpcparameters);
+
+  return res ? res.json(response) : response;
+}
+
+async function getAddressMempool(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const {
+      addresses,
+    } = processedBody;
+
+    const options = {
+      addresses,
+    };
+
+    const rpccall = 'getaddressmempool';
+    const rpcparameters = [options];
+
+    response = await executeCall(rpccall, rpcparameters);
+
+    return res.json(response);
+  });
+}
+
+async function getSingleAddressMempool(req, res) {
+  let { address } = req.params;
+  address = address || req.query.address;
+
+  const options = {
+    addresses: [address],
+  };
+
+  const rpccall = 'getaddressmempool';
+  const rpcparameters = [options];
 
   response = await executeCall(rpccall, rpcparameters);
 
@@ -2758,7 +3105,7 @@ async function fluxDaemonBlockchainInfo() {
     const daemonBlockChainInfo = await getBlockchainInfo();
     if (daemonBlockChainInfo.status === 'success') {
       currentDaemonHeight = daemonBlockChainInfo.data.blocks;
-      if (daemonBlockChainInfo.data.headers > 770000) {
+      if (daemonBlockChainInfo.data.headers >= currentDaemonHeader) {
         currentDaemonHeader = daemonBlockChainInfo.data.headers;
       }
       log.info(`Daemon Sync status: ${currentDaemonHeight}/${currentDaemonHeader}`);
@@ -2787,6 +3134,7 @@ function daemonBlockchainInfoService() {
 
 module.exports = {
   getConfigValue,
+  isInsightExplorer,
   // == Control ==
   help,
   getInfo,
@@ -2819,22 +3167,35 @@ module.exports = {
   getBlock,
   getBlockchainInfo,
   getBlockCount,
+  getBlockDeltas, // experimental feataure, insight explorer
+  getBlockHashes, // experimental feataure, insight explorer
+  getBlockHashesPost, // experimental feataure, insight explorer
   getBlockHash,
-  // getBlockHashes, // intentionally left out as of experimental feataure
   getBlockHeader,
   getChainTips,
   getDifficulty,
   getMempoolInfo,
   getRawMemPool,
-  // getSpentInfo, // intentionally left out as of experimental feature
   getTxOut,
   getTxOutProof,
   getTxOutSetInfo,
   verifyChain,
   verifyTxOutProof,
+  getSpentInfo, // experimental feature, insight explorer
+  getSpentInfoPost, // experimental feature, insight explorer
 
   // == AddressIndex ==
-  // intentianlly left out as requires addressindex
+  getAddressTxids, // insight explorer
+  getSingleAddresssTxids,
+  getAddressBalance, // insight explorer
+  getSingleAddressBalance,
+  getAddressDeltas, // insight explorer
+  getSingleAddressDeltas,
+  getAddressUtxos, // insight explorer
+  getSingleAddressUtxos,
+  getAddressMempool, // insight explorer
+  getSingleAddressMempool,
+
   // == Disclosure ==
   // intentionally left out as of experimental feature
   // == Generating ==

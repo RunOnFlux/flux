@@ -1080,7 +1080,7 @@
               variant="success"
               aria-label="Execute Commands"
               class="mx-1 my-1"
-              @click="appExecute"
+              @click="appExecute(appSpecification.name)"
             >
               Execute Commands
             </b-button>
@@ -1088,11 +1088,11 @@
               <v-icon name="spinner" />
             </div>
             <b-form-textarea
-              v-if="callResponse.data && callResponse.data[0]"
+              v-if="callResponse.data"
               plaintext
               no-resize
               rows="15"
-              :value="decodeAsciiResponse(callResponse.data[0].data)"
+              :value="decodeAsciiResponse(callResponse.data)"
               class="mt-1"
             />
           </div>
@@ -2662,7 +2662,6 @@ export default {
       return niceString;
     },
     constructAutomaticDomains() {
-      const domainString = 'abcdefghijklmno'; // enough
       const appName = this.appSpecification.name;
       if (!appName) {
         return 'loading...';
@@ -2674,26 +2673,21 @@ export default {
         const domains = [`${lowerCaseName}.app.runonflux.io`];
         // flux specs dont allow more than 10 ports so domainString is enough
         for (let i = 0; i < ports.length; i += 1) {
-          const portDomain = `${domainString[i]}.${lowerCaseName}.app.runonflux.io`;
+          const portDomain = `${lowerCaseName}_${ports[i]}.app.runonflux.io`;
           domains.push(portDomain);
         }
-        return JSON.stringify(domains);
+        return domains;
       }
-      const domains = [];
+      const domains = [`${lowerCaseName}.app.runonflux.io`];
       this.appSpecification.compose.forEach((component) => {
-        const componentName = component.name;
-        const lowerCaseCopmonentName = componentName.toLowerCase();
-        const domainsComponent = [`${lowerCaseName}.app.runonflux.io`, `${lowerCaseCopmonentName}.${lowerCaseName}.app.runonflux.io`];
-        for (let i = 0; i < JSON.parse(component.ports).length; i += 1) {
-          const portDomain = `${domainString[i]}.${lowerCaseCopmonentName}.${lowerCaseName}.app.runonflux.io`;
-          domainsComponent.push(portDomain);
+        for (let i = 0; i < component.ports.length; i += 1) {
+          const portDomain = `${lowerCaseName}_${component.ports[i]}.app.runonflux.io`;
+          domains.push(portDomain);
         }
-        domains.push(JSON.stringify(domainsComponent));
       });
       return domains;
     },
     constructAutomaticDomainsGlobal() {
-      const domainString = 'abcdefghijklmno'; // enough
       if (!this.callBResponse.data) {
         return 'loading...';
       }
@@ -2713,21 +2707,17 @@ export default {
         const domains = [`${lowerCaseName}.app.runonflux.io`];
         // flux specs dont allow more than 10 ports so domainString is enough
         for (let i = 0; i < ports.length; i += 1) {
-          const portDomain = `${domainString[i]}.${lowerCaseName}.app.runonflux.io`;
+          const portDomain = `${lowerCaseName}_${ports[i]}.app.runonflux.io`;
           domains.push(portDomain);
         }
-        return JSON.stringify(domains);
+        return domains;
       }
       const domains = [];
       this.callBResponse.data.compose.forEach((component) => {
-        const componentName = component.name;
-        const lowerCaseCopmonentName = componentName.toLowerCase();
-        const domainsComponent = [`${lowerCaseName}.app.runonflux.io`, `${lowerCaseCopmonentName}.${lowerCaseName}.app.runonflux.io`];
-        for (let i = 0; i < JSON.parse(component.ports).length; i += 1) {
-          const portDomain = `${domainString[i]}.${lowerCaseCopmonentName}.${lowerCaseName}.app.runonflux.io`;
-          domainsComponent.push(portDomain);
+        for (let i = 0; i < component.ports.length; i += 1) {
+          const portDomain = `${lowerCaseName}_${component.ports[i]}.app.runonflux.io`;
+          domains.push(portDomain);
         }
-        domains.push(JSON.stringify(domainsComponent));
       });
       return domains;
     },
@@ -2981,7 +2971,7 @@ export default {
       }
     },
 
-    async appExecute(name = this.appName) {
+    async appExecute(name = this.appSpecification.name) {
       try {
         const zelidauth = localStorage.getItem('zelidauth');
         if (!this.appExec.cmd) {
@@ -2991,26 +2981,27 @@ export default {
         const env = this.appExec.env ? this.appExec.env : '[]';
         const { cmd } = this.appExec;
         this.commandExecuting = true;
+        console.log('here');
         const response = await AppsService.getAppExec(zelidauth, name, cmd, env);
         console.log(response);
-        this.commandExecuting = false;
-        this.callResponse.status = response.status;
-        if (!name.includes('_')) {
-          this.callResponse.data = response.data;
-        } else {
-          if (!this.callResponse.data) {
-            this.callResponse.data = [];
-          } else if (!Array.isArray(this.callResponse.data)) {
-            this.callResponse.data = [];
-          }
-          this.callResponse.data.push({
-            name,
-            data: response.data,
-          });
-        }
-        console.log(this.callResponse);
         if (response.data.status === 'error') {
           this.showToast('danger', response.data.data.message || response.data.data);
+        } else {
+          this.commandExecuting = false;
+          this.callResponse.status = response.status;
+          if (!name.includes('_')) {
+            this.callResponse.data = response.data;
+          } else {
+            if (!this.callResponse.data) {
+              this.callResponse.data = [];
+            } else if (!Array.isArray(this.callResponse.data)) {
+              this.callResponse.data = [];
+            }
+            this.callResponse.data.push({
+              name,
+              data: response.data,
+            });
+          }
         }
       } catch (error) {
         this.commandExecuting = false;
