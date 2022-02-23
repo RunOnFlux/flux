@@ -1,13 +1,13 @@
+/**
+ * @module
+ * Contains utility functions to be used only by verificationHelper.
+ * To verify privilege use verifyPrivilege from verificationHelper module.
+ */
+
 const config = require('config');
 const bitcoinMessage = require('bitcoinjs-message');
 const serviceHelper = require('./serviceHelper');
 const userconfig = require('../../../config/userconfig');
-
-/**
- * @module
- * Contains utility functions to be used only by verificationHelper.
- * To verify privilage use verifyPrivilege from verificationHelper module.
- */
 
 /**
  * Verifies admin session
