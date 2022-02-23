@@ -8,6 +8,7 @@ const archiver = require('archiver');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
 const serviceHelper = require('./serviceHelper');
+const verificationHelper = require('./verificationHelper');
 const generalService = require('./generalService');
 const log = require('../lib/log');
 
@@ -140,7 +141,7 @@ async function fluxShareSharedFiles() {
 
 async function fluxShareGetSharedFiles(req, res) {
   try {
-    const authorized = await serviceHelper.verifyPrivilege('admin', req);
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
     if (authorized) {
       const files = await fluxShareSharedFiles();
       const resultsResponse = serviceHelper.createDataMessage(files);
@@ -167,7 +168,7 @@ async function fluxShareGetSharedFiles(req, res) {
 
 async function fluxShareUnshareFile(req, res) {
   try {
-    const authorized = await serviceHelper.verifyPrivilege('admin', req);
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
     if (authorized) {
       let { file } = req.params;
       file = file || req.query.file;
@@ -197,7 +198,7 @@ async function fluxShareUnshareFile(req, res) {
 
 async function fluxShareShareFile(req, res) {
   try {
-    const authorized = await serviceHelper.verifyPrivilege('admin', req);
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
     if (authorized) {
       let { file } = req.params;
       file = file || req.query.file;
@@ -229,7 +230,7 @@ async function fluxShareDownloadFolder(req, res, authorized = false) {
   try {
     let auth = authorized;
     if (!auth) {
-      auth = await serviceHelper.verifyPrivilege('admin', req);
+      auth = await verificationHelper.verifyPrivilege('admin', req);
     }
 
     if (auth) {
@@ -286,7 +287,7 @@ async function fluxShareDownloadFolder(req, res, authorized = false) {
 
 async function fluxShareDownloadFile(req, res) {
   try {
-    const authorized = await serviceHelper.verifyPrivilege('admin', req);
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
     if (authorized) {
       let { file } = req.params;
       file = file || req.query.file;
@@ -366,7 +367,7 @@ async function fluxShareDownloadFile(req, res) {
 // oldpath is relative path to default fluxshare directory; newname is just a new name of folder/file
 async function fluxShareRename(req, res) {
   try {
-    const authorized = await serviceHelper.verifyPrivilege('admin', req);
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
     if (authorized) {
       let { oldpath } = req.params;
       oldpath = oldpath || req.query.oldpath;
@@ -420,7 +421,7 @@ async function fluxShareRename(req, res) {
 
 async function fluxShareRemoveFile(req, res) {
   try {
-    const authorized = await serviceHelper.verifyPrivilege('admin', req);
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
     if (authorized) {
       let { file } = req.params;
       file = file || req.query.file;
@@ -460,7 +461,7 @@ async function fluxShareRemoveFile(req, res) {
 
 async function fluxShareRemoveFolder(req, res) {
   try {
-    const authorized = await serviceHelper.verifyPrivilege('admin', req);
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
     if (authorized) {
       let { folder } = req.params;
       folder = folder || req.query.folder;
@@ -496,7 +497,7 @@ async function fluxShareRemoveFolder(req, res) {
 
 async function fluxShareGetFolder(req, res) {
   try {
-    const authorized = await serviceHelper.verifyPrivilege('admin', req);
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
     if (authorized) {
       let { folder } = req.params;
       folder = folder || req.query.folder || '';
@@ -562,7 +563,7 @@ async function fluxShareGetFolder(req, res) {
 
 async function fluxShareCreateFolder(req, res) {
   try {
-    const authorized = await serviceHelper.verifyPrivilege('admin', req);
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
     if (authorized) {
       let { folder } = req.params;
       folder = folder || req.query.folder || '';
@@ -587,7 +588,7 @@ async function fluxShareCreateFolder(req, res) {
 
 async function fluxShareFileExists(req, res) {
   try {
-    const authorized = await serviceHelper.verifyPrivilege('admin', req);
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
     if (authorized) {
       let { file } = req.params;
       file = file || req.query.file;
@@ -661,7 +662,7 @@ async function getSpaceAvailableForFluxShare() {
 
 async function fluxShareStorageStats(req, res) {
   try {
-    const authorized = await serviceHelper.verifyPrivilege('admin', req);
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
     if (authorized) {
       const spaceAvailableForFluxShare = await getSpaceAvailableForFluxShare();
       let spaceUsedByFluxShare = getFluxShareSize();
@@ -686,7 +687,7 @@ async function fluxShareStorageStats(req, res) {
 
 async function fluxShareUpload(req, res) {
   try {
-    const authorized = await serviceHelper.verifyPrivilege('admin', req);
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
     if (!authorized) {
       throw new Error('Unauthorized. Access denied.');
     }
