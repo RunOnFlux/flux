@@ -291,6 +291,8 @@ function decodeMessage(asm) {
 async function processInsight(blockDataVerbose, database) {
   // get Block Deltas information
   const txs = blockDataVerbose.tx;
+  const transactions = [];
+  const appsTransactions = [];
   // go through each transaction in deltas
   // eslint-disable-next-line no-restricted-syntax
   for (const tx of txs) {
@@ -334,8 +336,7 @@ async function processInsight(blockDataVerbose, database) {
           // eslint-disable-next-line no-await-in-loop
           const result = await serviceHelper.findOneInDatabase(database, appsHashesCollection, querySearch, projectionSearch); // this search can be later removed if nodes rescan apps and reconstruct the index for unique
           if (!result) {
-            // eslint-disable-next-line no-await-in-loop
-            await serviceHelper.insertOneToDatabase(database, appsHashesCollection, appTxRecord);
+            appsTransactions.push(appTxRecord);
             appsService.checkAndRequestApp(message, tx.txid, blockDataVerbose.height, isFluxAppMessageValue);
           } else {
             throw new Error(`Found an existing hash app ${serviceHelper.ensureString(result)}`);
@@ -364,10 +365,11 @@ async function processInsight(blockDataVerbose, database) {
         lockedAmount: senderInfo.satoshis || senderInfo.lockedAmount,
         height: blockDataVerbose.height,
       };
-      // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.insertOneToDatabase(database, fluxTransactionCollection, fluxTxData);
+      transactions.push(fluxTxData);
     }
   }
+  await serviceHelper.insertManyToDatabase(database, appsHashesCollection, appsTransactions);
+  await serviceHelper.insertManyToDatabase(database, fluxTransactionCollection, transactions);
 }
 
 async function processStandard(blockDataVerbose, database) {
