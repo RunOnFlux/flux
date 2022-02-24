@@ -264,7 +264,7 @@ describe('dbHelper tests', () => {
     });
   });
 
-  describe.only('insertOneToDatabase tests', () => {
+  describe('insertOneToDatabase tests', () => {
     let database;
     let collection;
     beforeEach(async () => {
@@ -283,13 +283,13 @@ describe('dbHelper tests', () => {
     });
 
     it('should insert object into database if called properly', async () => {
-      const query = { _id: ObjectId('4f99562a09aef92cd1afbe93') };
       const documentToInsert = {
         _id: ObjectId('4f99562a09aef92cd1afbe93'),
         name: 'App5',
         description: 'Test3',
         owner: '1SZe3AUYQC4aT5Y0LhgEcH2nLLdoKNSi9e',
       };
+      const query = { _id: ObjectId('4f99562a09aef92cd1afbe93') };
 
       const insertOneResponse = await dbHelper.insertOneToDatabase(database, collection, documentToInsert);
       const getOneFromDatabase = await dbHelper.findOneInDatabase(database, collection, query);

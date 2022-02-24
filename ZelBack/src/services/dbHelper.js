@@ -99,7 +99,7 @@ async function findOneInDatabase(database, collection, query, projection) {
 }
 
 /**
- * Updates document from the DB based on the query and update operators
+ * Updates document from the DB based on the query and update operators and returns it.
  *
  * @param {string} database
  * @param {string} collection
@@ -137,6 +137,17 @@ async function insertOneToDatabase(database, collection, value) {
   return result;
 }
 
+/**
+ * Updates document from the DB based on the query and update operators.
+ *
+ * @param {string} database
+ * @param {string} collection
+ * @param {object} query
+ * @param {object} update
+ * @param {object} [options]
+ *
+ * @returns object
+ */
 async function updateOneInDatabase(database, collection, query, update, options) {
   const passedOptions = options || {};
   const result = await database.collection(collection).updateOne(query, update, passedOptions);
