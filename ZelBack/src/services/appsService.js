@@ -10,6 +10,7 @@ const systemcrontab = require('crontab');
 const util = require('util');
 const fluxCommunication = require('./fluxCommunication');
 const serviceHelper = require('./serviceHelper');
+const verificationHelper = require('./verificationHelper');
 const daemonService = require('./daemonService');
 const benchmarkService = require('./benchmarkService');
 const dockerService = require('./dockerService');
@@ -141,7 +142,7 @@ async function appStart(req, res) {
 
     const mainAppName = appname.split('_')[1] || appname;
 
-    const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, mainAppName);
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (!authorized) {
       const errMessage = serviceHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
@@ -195,7 +196,7 @@ async function appStop(req, res) {
 
     const mainAppName = appname.split('_')[1] || appname;
 
-    const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, mainAppName);
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (!authorized) {
       const errMessage = serviceHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
@@ -249,7 +250,7 @@ async function appRestart(req, res) {
 
     const mainAppName = appname.split('_')[1] || appname;
 
-    const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, mainAppName);
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (!authorized) {
       const errMessage = serviceHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
@@ -303,7 +304,7 @@ async function appKill(req, res) {
 
     const mainAppName = appname.split('_')[1] || appname;
 
-    const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, mainAppName);
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (!authorized) {
       const errMessage = serviceHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
@@ -357,7 +358,7 @@ async function appPause(req, res) {
 
     const mainAppName = appname.split('_')[1] || appname;
 
-    const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, mainAppName);
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (!authorized) {
       const errMessage = serviceHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
@@ -411,7 +412,7 @@ async function appUnpause(req, res) {
 
     const mainAppName = appname.split('_')[1] || appname;
 
-    const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, mainAppName);
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (!authorized) {
       const errMessage = serviceHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
@@ -466,7 +467,7 @@ async function appTop(req, res) {
 
     const mainAppName = appname.split('_')[1] || appname;
 
-    const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, mainAppName);
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (!authorized) {
       const errMessage = serviceHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
@@ -501,7 +502,7 @@ async function appLog(req, res) {
 
     const mainAppName = appname.split('_')[1] || appname;
 
-    const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, mainAppName);
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (authorized === true) {
       const logs = await dockerService.dockerContainerLogs(appname, lines);
       const dataMessage = serviceHelper.createDataMessage(logs);
@@ -532,7 +533,7 @@ async function appLogStream(req, res) {
 
     const mainAppName = appname.split('_')[1] || appname;
 
-    const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, mainAppName);
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (authorized === true) {
       res.setHeader('Content-Type', 'application/json');
       dockerService.dockerContainerLogsStream(appname, res, (error) => {
@@ -575,7 +576,7 @@ async function appInspect(req, res) {
 
     const mainAppName = appname.split('_')[1] || appname;
 
-    const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, mainAppName);
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (authorized === true) {
       const response = await dockerService.dockerContainerInspect(appname);
       const appResponse = serviceHelper.createDataMessage(response);
@@ -606,7 +607,7 @@ async function appStats(req, res) {
 
     const mainAppName = appname.split('_')[1] || appname;
 
-    const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, mainAppName);
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (authorized === true) {
       const response = await dockerService.dockerContainerStats(appname);
       const appResponse = serviceHelper.createDataMessage(response);
@@ -637,7 +638,7 @@ async function appChanges(req, res) {
 
     const mainAppName = appname.split('_')[1] || appname;
 
-    const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, mainAppName);
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (authorized === true) {
       const response = await dockerService.dockerContainerChanges(appname);
       const appResponse = serviceHelper.createDataMessage(response);
@@ -676,7 +677,7 @@ async function appExec(req, res) {
 
       const mainAppName = processedBody.appname.split('_')[1] || processedBody.appname;
 
-      const authorized = await serviceHelper.verifyPrivilege('appowner', req, mainAppName);
+      const authorized = await verificationHelper.verifyPrivilege('appowner', req, mainAppName);
       if (authorized === true) {
         let cmd = processedBody.cmd || [];
         let env = processedBody.env || [];
@@ -722,7 +723,7 @@ async function appExec(req, res) {
 
 async function createFluxNetworkAPI(req, res) {
   try {
-    const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (!authorized) {
       const errMessage = serviceHelper.errUnauthorizedMessage();
       return res.json(errMessage);
@@ -1753,7 +1754,7 @@ async function removeAppLocallyApi(req, res) {
       throw new Error('No Flux App specified');
     }
 
-    const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, appname);
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
     if (!authorized) {
       const errMessage = serviceHelper.errUnauthorizedMessage();
       res.json(errMessage);
@@ -2641,7 +2642,7 @@ async function availableApps(req, res) {
         + 'Chainweb is a braided, parallelized Proof Of Work consensus mechanism that improves throughput and scalability in executing transactions on the blockchain while maintaining the security and integrity found in Bitcoin. '
         + 'The healthy information tells you if your node is running and synced. If you just installed the docker it can say unhealthy for long time because on first run a bootstrap is downloaded and extracted to make your node sync faster before the node is started. '
         + 'Do not stop or restart the docker in the first hour after installation. You can also check if your kadena node is synced, by going to running apps and press visit button on kadena and compare your node height with Kadena explorer. Thank you.',
-      repotag: 'runonflux/kadena-chainweb-node:2.12.1',
+      repotag: 'runonflux/kadena-chainweb-node:2.13.0',
       owner: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
       ports: [30004, 30005],
       containerPorts: [30004, 30005],
@@ -2649,11 +2650,11 @@ async function availableApps(req, res) {
       tiered: false,
       cpu: 2.5, // true resource registered for app. If not tiered only this is available
       ram: 4000, // true resource registered for app
-      hdd: 90, // true resource registered for app
+      hdd: 120, // true resource registered for app
       enviromentParameters: ['CHAINWEB_P2P_PORT=30004', 'CHAINWEB_SERVICE_PORT=30005', 'LOGLEVEL=warn'],
       commands: ['/bin/bash', '-c', '(test -d /data/chainweb-db/0 && ./run-chainweb-node.sh) || (/chainweb/initialize-db.sh && ./run-chainweb-node.sh)'],
       containerData: '/data', // cannot be root todo in verification
-      hash: 'localSpecificationsVersion16', // hash of app message
+      hash: 'localSpecificationsVersion17', // hash of app message
       height: 680000, // height of tx on which it was
     },
     {
@@ -3256,7 +3257,10 @@ async function verifyAppSpecifications(appSpecifications, height) {
   }
 
   // verify ports are unique accross app
-  ensureAppUniquePorts();
+  const portsAreUnique = ensureAppUniquePorts(appSpecifications);
+  if (portsAreUnique !== true) {
+    throw new Error('Application ports are not unique');
+  }
 
   // check for Object.keys in applications. App can have only the fields that are in the version specification.
   if (appSpecifications.version === 1) {
@@ -4159,7 +4163,7 @@ async function registerAppGlobalyApi(req, res) {
   });
   req.on('end', async () => {
     try {
-      const authorized = await serviceHelper.verifyPrivilege('user', req);
+      const authorized = await verificationHelper.verifyPrivilege('user', req);
       if (!authorized) {
         const errMessage = serviceHelper.errUnauthorizedMessage();
         res.json(errMessage);
@@ -4271,7 +4275,7 @@ async function updateAppGlobalyApi(req, res) {
   });
   req.on('end', async () => {
     try {
-      const authorized = await serviceHelper.verifyPrivilege('user', req);
+      const authorized = await verificationHelper.verifyPrivilege('user', req);
       if (!authorized) {
         const errMessage = serviceHelper.errUnauthorizedMessage();
         res.json(errMessage);
@@ -4439,7 +4443,7 @@ async function installTemporaryLocalApplication(req, res) {
     if (!appname) {
       throw new Error('No Flux App specified');
     }
-    const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized) {
       const allApps = await availableApps();
       const appSpecifications = allApps.find((app) => app.name === appname);
@@ -4812,7 +4816,7 @@ async function checkDockerAccessibility(req, res) {
   });
   req.on('end', async () => {
     try {
-      const authorized = await serviceHelper.verifyPrivilege('user', req);
+      const authorized = await verificationHelper.verifyPrivilege('user', req);
       if (!authorized) {
         const errMessage = serviceHelper.errUnauthorizedMessage();
         return res.json(errMessage);
@@ -4949,7 +4953,7 @@ async function rescanGlobalAppsInformation(height = 0, removeLastInformation = f
 
 async function reindexGlobalAppsLocationAPI(req, res) {
   try {
-    const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized === true) {
       await reindexGlobalAppsLocation();
       const message = serviceHelper.createSuccessMessage('Reindex successfull');
@@ -4971,7 +4975,7 @@ async function reindexGlobalAppsLocationAPI(req, res) {
 
 async function reindexGlobalAppsInformationAPI(req, res) {
   try {
-    const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized === true) {
       await reindexGlobalAppsInformation();
       const message = serviceHelper.createSuccessMessage('Reindex successfull');
@@ -4993,7 +4997,7 @@ async function reindexGlobalAppsInformationAPI(req, res) {
 
 async function rescanGlobalAppsInformationAPI(req, res) {
   try {
-    const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized === true) {
       let { blockheight } = req.params; // we accept both help/command and help?command=getinfo
       blockheight = blockheight || req.query.blockheight;
@@ -6145,7 +6149,7 @@ async function redeployAPI(req, res) {
     force = force || req.query.force || false;
     force = serviceHelper.ensureBoolean(force);
 
-    const authorized = await serviceHelper.verifyPrivilege('appownerabove', req, appname);
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
     if (!authorized) {
       const errMessage = serviceHelper.errUnauthorizedMessage();
       res.json(errMessage);
@@ -6318,7 +6322,7 @@ async function reconstructAppMessagesHashCollection() {
 
 async function reconstructAppMessagesHashCollectionAPI(req, res) {
   try {
-    const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized) {
       const result = await reconstructAppMessagesHashCollection();
       const message = serviceHelper.createSuccessMessage(result);

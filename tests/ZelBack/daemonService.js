@@ -1,7 +1,9 @@
+/* eslint-disable max-len */
 process.env.NODE_CONFIG_DIR = `${process.cwd()}/ZelBack/config/`;
 const axios = require('axios');
 const chai = require('chai');
-const expect = chai.expect;
+
+const { expect } = chai;
 
 describe('Daemon Service calls', () => {
   it('correctly communicates with Flux and obtains data from a Daemon service', () => {
@@ -14,5 +16,3 @@ describe('Daemon Service calls', () => {
     });
   }).timeout(5000);
 });
-
-

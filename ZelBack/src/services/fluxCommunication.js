@@ -10,6 +10,7 @@ const path = require('path');
 const util = require('util');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
+const verificationHelper = require('./verificationHelper');
 const daemonService = require('./daemonService');
 const benchmarkService = require('./benchmarkService');
 const userconfig = require('../../../config/userconfig');
@@ -667,7 +668,7 @@ async function broadcastMessageToOutgoingFromUser(req, res) {
     if (data === undefined || data === null) {
       throw new Error('No message to broadcast attached.');
     }
-    const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
 
     if (authorized === true) {
       await broadcastMessageToOutgoing(data);
@@ -699,7 +700,7 @@ async function broadcastMessageToOutgoingFromUserPost(req, res) {
       if (processedBody === undefined || processedBody === null || processedBody === '') {
         throw new Error('No message to broadcast attached.');
       }
-      const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+      const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
       if (authorized === true) {
         await broadcastMessageToOutgoing(processedBody);
         const message = serviceHelper.createSuccessMessage('Message successfully broadcasted to Flux network');
@@ -727,7 +728,7 @@ async function broadcastMessageToIncomingFromUser(req, res) {
     if (data === undefined || data === null) {
       throw new Error('No message to broadcast attached.');
     }
-    const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
 
     if (authorized === true) {
       await broadcastMessageToIncoming(data);
@@ -759,7 +760,7 @@ async function broadcastMessageToIncomingFromUserPost(req, res) {
       if (processedBody === undefined || processedBody === null || processedBody === '') {
         throw new Error('No message to broadcast attached.');
       }
-      const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+      const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
       if (authorized === true) {
         await broadcastMessageToIncoming(processedBody);
         const message = serviceHelper.createSuccessMessage('Message successfully broadcasted to Flux network');
@@ -787,7 +788,7 @@ async function broadcastMessageFromUser(req, res) {
     if (data === undefined || data === null) {
       throw new Error('No message to broadcast attached.');
     }
-    const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
 
     if (authorized === true) {
       await broadcastMessageToOutgoing(data);
@@ -820,7 +821,7 @@ async function broadcastMessageFromUserPost(req, res) {
       if (processedBody === undefined || processedBody === null || processedBody === '') {
         throw new Error('No message to broadcast attached.');
       }
-      const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+      const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
       if (authorized === true) {
         await broadcastMessageToOutgoing(processedBody);
         await broadcastMessageToIncoming(processedBody);
@@ -1092,7 +1093,7 @@ async function addPeer(req, res) {
     const errMessage = serviceHelper.createErrorMessage(`Already connected to ${ip}`);
     return res.json(errMessage);
   }
-  const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
 
   if (authorized === true) {
     initiateAndHandleConnection(ip);
@@ -1189,7 +1190,7 @@ async function removePeer(req, res) {
     const errMessage = serviceHelper.createErrorMessage('No IP address specified.');
     return res.json(errMessage);
   }
-  const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
 
   if (authorized === true) {
     const closeResponse = await closeConnection(ip);
@@ -1207,7 +1208,7 @@ async function removeIncomingPeer(req, res, expressWS) {
     const errMessage = serviceHelper.createErrorMessage('No IP address specified.');
     return res.json(errMessage);
   }
-  const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
 
   if (authorized === true) {
     const closeResponse = await closeIncomingConnection(ip, expressWS);
@@ -1482,7 +1483,7 @@ async function allowPortApi(req, res) {
     const errMessage = serviceHelper.createErrorMessage('No Port address specified.');
     return res.json(errMessage);
   }
-  const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
 
   if (authorized === true) {
     const portResponseOK = await allowPort(port);
