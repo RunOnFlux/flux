@@ -160,6 +160,11 @@ async function insertOneToDatabase(database, collection, value) {
   return result;
 }
 
+async function insertManyToDatabase(database, collection, values) {
+  const result = await database.collection(collection).insertMany(values);
+  return result;
+}
+
 async function updateOneInDatabase(database, collection, query, update, options) {
   const passedOptions = options || {};
   const result = await database.collection(collection).updateOne(query, update, passedOptions);
@@ -326,6 +331,7 @@ module.exports = {
   findOneInDatabase,
   findOneAndUpdateInDatabase,
   insertOneToDatabase,
+  insertManyToDatabase,
   updateInDatabase,
   updateOneInDatabase,
   findOneAndDeleteInDatabase,
