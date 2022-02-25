@@ -497,7 +497,7 @@ async function processBlock(blockHeight, isInsightExplorer) {
     const verbosity = 2;
     const blockDataVerbose = await getVerboseBlock(blockHeight, verbosity);
     if (blockDataVerbose.height % 50 === 0) {
-      console.log(blockDataVerbose.height);
+      log.info(`Processing Explorer Block Height: ${blockDataVerbose.height}`);
     }
     if (isInsightExplorer) {
       // only process Flux transactions
