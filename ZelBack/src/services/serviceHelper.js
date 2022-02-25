@@ -160,8 +160,8 @@ async function insertOneToDatabase(database, collection, value) {
   return result;
 }
 
-async function insertManyToDatabase(database, collection, values) {
-  const result = await database.collection(collection).insertMany(values);
+async function insertManyToDatabase(database, collection, values, options = {}) {
+  const result = await database.collection(collection).insertMany(values, options);
   return result;
 }
 

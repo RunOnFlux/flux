@@ -368,11 +368,14 @@ async function processInsight(blockDataVerbose, database) {
       transactions.push(fluxTxData);
     }
   }
+  const options = {
+    ordered: false,
+  };
   if (appsTransactions.length > 0) {
-    await serviceHelper.insertManyToDatabase(database, appsHashesCollection, appsTransactions);
+    await serviceHelper.insertManyToDatabase(database, appsHashesCollection, appsTransactions, options);
   }
   if (transactions.length > 0) {
-    await serviceHelper.insertManyToDatabase(database, fluxTransactionCollection, transactions);
+    await serviceHelper.insertManyToDatabase(database, fluxTransactionCollection, transactions, options);
   }
 }
 
