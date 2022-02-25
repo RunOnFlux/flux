@@ -436,4 +436,147 @@ describe('dbHelper tests', () => {
       expect(updateInDatabaseResponse.acknowledged).to.eql(true);
     });
   });
+
+  describe('findOneAndDeleteInDatabase tests', () => {
+    let database;
+    let collection;
+    beforeEach(async () => {
+      await dbHelper.initiateDB();
+      const db = dbHelper.databaseConnection();
+      database = db.db(config.database.appsglobal.database);
+      collection = config.database.appsglobal.collections.appsInformation;
+
+      try {
+        await database.collection(collection).drop();
+      } catch (err) {
+        console.log('Collection not found.');
+      }
+
+      await database.collection(collection).insertMany(testInsert);
+    });
+
+    it('should delete a document and return it', async () => {
+      const query = { _id: ObjectId('5f99562a09aef91cd19fbb93') };
+      const expectedResult = {
+        _id: ObjectId('5f99562a09aef91cd19fbb93'),
+        name: 'App1',
+        description: 'Test',
+        owner: '1LZe3AUYQC4aT5YWLhgEcH1nLLdoKNBi9t',
+      };
+
+      const findOneAndDeleteInDatabaseResponse = await dbHelper.findOneAndDeleteInDatabase(database, collection, query);
+      const findInDatabaseResult = await dbHelper.findInDatabase(database, collection, query);
+
+      expect(findOneAndDeleteInDatabaseResponse.ok).to.eql(1);
+      expect(findOneAndDeleteInDatabaseResponse.value).to.eql(expectedResult);
+      expect(findInDatabaseResult).to.be.empty;
+    });
+
+    it('should delete a document and return it according to projection', async () => {
+      const query = { _id: ObjectId('5f99562a09aef91cd19fbb93') };
+      const expectedResult = {
+        name: 'App1',
+        owner: '1LZe3AUYQC4aT5YWLhgEcH1nLLdoKNBi9t',
+      };
+      const queryProjection = {
+        projection: {
+          _id: 0,
+          name: 1,
+          owner: 1,
+        },
+      };
+
+      const findOneAndDeleteInDatabaseResponse = await dbHelper.findOneAndDeleteInDatabase(database, collection, query, queryProjection);
+      const findInDatabaseResult = await dbHelper.findInDatabase(database, collection, query);
+
+      expect(findOneAndDeleteInDatabaseResponse.ok).to.eql(1);
+      expect(findOneAndDeleteInDatabaseResponse.value).to.eql(expectedResult);
+      expect(findInDatabaseResult).to.be.empty;
+    });
+  });
+
+  describe('removeDocumentsFromCollection tests', () => {
+    let database;
+    let collection;
+    beforeEach(async () => {
+      await dbHelper.initiateDB();
+      const db = dbHelper.databaseConnection();
+      database = db.db(config.database.appsglobal.database);
+      collection = config.database.appsglobal.collections.appsInformation;
+
+      try {
+        await database.collection(collection).drop();
+      } catch (err) {
+        console.log('Collection not found.');
+      }
+
+      await database.collection(collection).insertMany(testInsert);
+    });
+
+    it('should delete documents matching the query', async () => {
+      const query = { name: 'App1' };
+
+      const removeDocumentsFromCollectionResponse = await dbHelper.removeDocumentsFromCollection(database, collection, query);
+      const findInDatabaseResult = await dbHelper.findInDatabase(database, collection, query);
+
+      expect(removeDocumentsFromCollectionResponse.acknowledged).to.eql(true);
+      expect(removeDocumentsFromCollectionResponse.deletedCount).to.eql(2);
+      expect(findInDatabaseResult).to.be.empty;
+    });
+
+    it('should delete all documents from the collection', async () => {
+      const query = {};
+
+      const removeDocumentsFromCollectionResponse = await dbHelper.removeDocumentsFromCollection(database, collection, query);
+      const findInDatabaseResult = await dbHelper.findInDatabase(database, collection, query);
+
+      expect(removeDocumentsFromCollectionResponse.acknowledged).to.eql(true);
+      expect(removeDocumentsFromCollectionResponse.deletedCount).to.eql(4);
+      expect(findInDatabaseResult).to.be.empty;
+    });
+
+    it('should delete nothing if query is not matched', async () => {
+      const query = { name: 'test1234' };
+
+      const removeDocumentsFromCollectionResponse = await dbHelper.removeDocumentsFromCollection(database, collection, query);
+
+      expect(removeDocumentsFromCollectionResponse.acknowledged).to.eql(true);
+      expect(removeDocumentsFromCollectionResponse.deletedCount).to.eql(0);
+    });
+  });
+
+  describe('collectionStats tests', () => {
+    let database;
+    let collection;
+    beforeEach(async () => {
+      await dbHelper.initiateDB();
+      const db = dbHelper.databaseConnection();
+      database = db.db(config.database.appsglobal.database);
+      collection = config.database.appsglobal.collections.appsInformation;
+
+      try {
+        await database.collection(collection).drop();
+      } catch (err) {
+        console.log('Collection not found.');
+      }
+
+      await database.collection(collection).insertMany(testInsert);
+    });
+
+    it('should return collection statistics', async () => {
+      const collectionStatsResponse = await dbHelper.collectionStats(database, collection);
+
+      expect(collectionStatsResponse.count).to.eql(4);
+      expect(collectionStatsResponse.ns).to.eql('globalzelappstest.zelappsinformation');
+      expect(collectionStatsResponse.avgObjSize).to.eql(105);
+    });
+
+    it('should return empty if collection is empty', async () => {
+      const collectionStatsResponse = await dbHelper.collectionStats(database, 'test1234');
+
+      expect(collectionStatsResponse.count).to.eql(0);
+      expect(collectionStatsResponse.ns).to.eql('globalzelappstest.test1234');
+      expect(collectionStatsResponse.avgObjSize).to.be.undefined;
+    });
+  });
 });

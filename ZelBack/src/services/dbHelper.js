@@ -169,24 +169,58 @@ async function updateInDatabase(database, collection, query, updateFilter) {
   return result;
 }
 
+/**
+ * Deletes and returns a document based on query and projection
+ *
+ * @param {string} database
+ * @param {string} collection
+ * @param {object} query
+ * @param {object} [projection]
+ *
+ * @returns object
+ */
 async function findOneAndDeleteInDatabase(database, collection, query, projection) {
   const result = await database.collection(collection).findOneAndDelete(query, projection);
   return result;
 }
 
+/**
+ * Deletes many documents from the collection.
+ * To remove all documents from a collection pass an empty object as a query.
+ *
+ * @param {string} database
+ * @param {string} collection
+ * @param {object} query
+ *
+ * @returns object
+ */
 async function removeDocumentsFromCollection(database, collection, query) {
-  // to remove all documents from collection, the query is just {}
   const result = await database.collection(collection).deleteMany(query);
   return result;
 }
 
+/**
+ * Drops the whole collection.
+ *
+ * @param {string} database
+ * @param {string} collection
+ *
+ * @returns object
+ */
 async function dropCollection(database, collection) {
   const result = await database.collection(collection).drop();
   return result;
 }
 
+/**
+ * Returns collection statistics
+ *
+ * @param {string} database
+ * @param {string} collection
+ *
+ * @returns object
+ */
 async function collectionStats(database, collection) {
-  // to remove all documents from collection, the query is just {}
   const result = await database.collection(collection).stats();
   return result;
 }
