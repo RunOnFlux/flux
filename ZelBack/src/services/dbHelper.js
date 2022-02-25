@@ -154,8 +154,18 @@ async function updateOneInDatabase(database, collection, query, update, options)
   return result;
 }
 
-async function updateInDatabase(database, collection, query, projection) {
-  const result = await database.collection(collection).updateMany(query, projection);
+/**
+ * Updates many documents in the collection
+ *
+ * @param {string} database
+ * @param {string} collection
+ * @param {object} query
+ * @param {object} updateFilter
+ *
+ * @returns object
+ */
+async function updateInDatabase(database, collection, query, updateFilter) {
+  const result = await database.collection(collection).updateMany(query, updateFilter);
   return result;
 }
 

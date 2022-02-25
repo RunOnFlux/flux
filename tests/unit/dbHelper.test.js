@@ -99,7 +99,7 @@ describe('dbHelper tests', () => {
     });
   });
 
-  describe('distinctDatabase tests', () => {
+  describe('findInDatabase tests', () => {
     let database;
     let collection;
     beforeEach(async () => {
@@ -117,27 +117,57 @@ describe('dbHelper tests', () => {
       await database.collection(collection).insertMany(testInsert);
     });
 
-    it('should return proper distinct values from database without a filter', async () => {
-      const expectedDistinctValues = ['Test', 'Test3'];
+    it('should return proper array of documents from database', async () => {
+      const query = { name: 'App1' };
+      const expectedResult = [
+        {
+          _id: new ObjectId('5f99562a09aef91cd19fbb93'),
+          name: 'App1',
+          description: 'Test',
+          owner: '1LZe3AUYQC4aT5YWLhgEcH1nLLdoKNBi9t',
+        },
+        {
+          _id: new ObjectId('5fa25bf73ba9312a4d83712d'),
+          name: 'App1',
+          description: 'Test',
+          owner: '1LZe3AUYQC4aT5YWLhgEcH1nLLdoKNBi9u',
+        },
+      ];
 
-      const distinctResults = await dbHelper.distinctDatabase(database, collection, 'description');
+      const findInDatabaseResult = await dbHelper.findInDatabase(database, collection, query);
 
-      expect(distinctResults).to.eql(expectedDistinctValues);
+      expect(findInDatabaseResult).to.eql(expectedResult);
     });
 
-    it('should return proper distinct values from database with a filter', async () => {
-      const expectedDistinctValues = ['Test'];
-      const filter = { name: 'App1' };
+    it('should return proper array of documents from database with a projection', async () => {
+      const query = { name: 'App1' };
+      const queryProjection = {
+        projection: {
+          _id: 0,
+          name: 1,
+          owner: 1,
+        },
+      };
+      const expectedResult = [
+        {
+          name: 'App1',
+          owner: '1LZe3AUYQC4aT5YWLhgEcH1nLLdoKNBi9t',
+        },
+        {
+          name: 'App1',
+          owner: '1LZe3AUYQC4aT5YWLhgEcH1nLLdoKNBi9u',
+        },
+      ];
 
-      const distinctResults = await dbHelper.distinctDatabase(database, collection, 'description', filter);
+      const findInDatabaseResult = await dbHelper.findInDatabase(database, collection, query, queryProjection);
 
-      expect(distinctResults).to.eql(expectedDistinctValues);
+      expect(findInDatabaseResult).to.eql(expectedResult);
     });
 
     it('should return no values when the field name is wrong', async () => {
-      const distinctResults = await dbHelper.distinctDatabase(database, collection, 'test');
+      const findInDatabaseResult = await dbHelper.findInDatabase(database, collection, { name: 'test' });
 
-      expect(distinctResults).to.be.empty;
+      expect(findInDatabaseResult).to.be.empty;
     });
   });
 
@@ -253,7 +283,7 @@ describe('dbHelper tests', () => {
       expect(findOneAndUpdateInDatabaseResponse.value).to.eql(expectedResult);
     });
 
-    it('should rturn null if object does not exist', async () => {
+    it('should rturn null if the document does not exist', async () => {
       const query = { _id: ObjectId('5f91562a011ef91cd19fbb93') };
       const updateExpression = { $set: { description: 'New Description', owner: '1SZe3AUYQC4aT5YWLhgEcH1nLLdoKNSi9a' } };
 
@@ -298,6 +328,112 @@ describe('dbHelper tests', () => {
       // eslint-disable-next-line no-underscore-dangle
       expect(insertOneResponse.insertedId).to.be.eql(documentToInsert._id);
       expect(getOneFromDatabase).to.eql(documentToInsert);
+    });
+  });
+
+  describe('updateOneInDatabase tests', () => {
+    let database;
+    let collection;
+    beforeEach(async () => {
+      await dbHelper.initiateDB();
+      const db = dbHelper.databaseConnection();
+      database = db.db(config.database.appsglobal.database);
+      collection = config.database.appsglobal.collections.appsInformation;
+
+      try {
+        await database.collection(collection).drop();
+      } catch (err) {
+        console.log('Collection not found.');
+      }
+
+      await database.collection(collection).insertMany(testInsert);
+    });
+
+    it('should update the document based on query and updateExpression', async () => {
+      const query = { _id: ObjectId('5f99562a09aef91cd19fbb93') };
+      const updateExpression = { $set: { description: 'New Description', owner: '1SZe3AUYQC4aT5YWLhgEcH1nLLdoKNSi9a' } };
+      const expectedResult = {
+        _id: ObjectId('5f99562a09aef91cd19fbb93'),
+        name: 'App1',
+        description: 'New Description',
+        owner: '1SZe3AUYQC4aT5YWLhgEcH1nLLdoKNSi9a',
+      };
+
+      const updateOneInDatabaseResponse = await dbHelper.updateOneInDatabase(database, collection, query, updateExpression);
+      const findOneInDatabaseResult = await dbHelper.findOneInDatabase(database, collection, query);
+
+      expect(updateOneInDatabaseResponse.modifiedCount).to.eql(1);
+      expect(updateOneInDatabaseResponse.matchedCount).to.eql(1);
+      expect(updateOneInDatabaseResponse.acknowledged).to.eql(true);
+      expect(findOneInDatabaseResult).to.eql(expectedResult);
+    });
+
+    it('should rturn null if the document does not exist', async () => {
+      const query = { _id: ObjectId('5f91562a011ef91cd19fbb93') };
+      const updateExpression = { $set: { description: 'New Description', owner: '1SZe3AUYQC4aT5YWLhgEcH1nLLdoKNSi9a' } };
+
+      const updateOneInDatabaseResponse = await dbHelper.updateOneInDatabase(database, collection, query, updateExpression);
+
+      expect(updateOneInDatabaseResponse.modifiedCount).to.eql(0);
+      expect(updateOneInDatabaseResponse.matchedCount).to.eql(0);
+      expect(updateOneInDatabaseResponse.acknowledged).to.eql(true);
+    });
+  });
+
+  describe('updateInDatabase tests', () => {
+    let database;
+    let collection;
+    beforeEach(async () => {
+      await dbHelper.initiateDB();
+      const db = dbHelper.databaseConnection();
+      database = db.db(config.database.appsglobal.database);
+      collection = config.database.appsglobal.collections.appsInformation;
+
+      try {
+        await database.collection(collection).drop();
+      } catch (err) {
+        console.log('Collection not found.');
+      }
+
+      await database.collection(collection).insertMany(testInsert);
+    });
+
+    it('should update multiple documents based on query and updateExpression', async () => {
+      const query = { name: 'App1' };
+      const updateExpression = { $set: { description: 'New Description', owner: '1SZe3AUYQC4aT5YWLhgEcH1nLLdoKNSi9a' } };
+      const expectedResult = [
+        {
+          _id: new ObjectId('5f99562a09aef91cd19fbb93'),
+          name: 'App1',
+          description: 'New Description',
+          owner: '1SZe3AUYQC4aT5YWLhgEcH1nLLdoKNSi9a',
+        },
+        {
+          _id: new ObjectId('5fa25bf73ba9312a4d83712d'),
+          name: 'App1',
+          description: 'New Description',
+          owner: '1SZe3AUYQC4aT5YWLhgEcH1nLLdoKNSi9a',
+        },
+      ];
+
+      const updateInDatabaseResponse = await dbHelper.updateInDatabase(database, collection, query, updateExpression);
+      const findInDatabaseResult = await dbHelper.findInDatabase(database, collection, query);
+
+      expect(updateInDatabaseResponse.modifiedCount).to.eql(2);
+      expect(updateInDatabaseResponse.matchedCount).to.eql(2);
+      expect(updateInDatabaseResponse.acknowledged).to.eql(true);
+      expect(findInDatabaseResult).to.eql(expectedResult);
+    });
+
+    it('should update nothing if query was wrong', async () => {
+      const query = { name: 'Test 123' };
+      const updateExpression = { $set: { description: 'New Description', owner: '1SZe3AUYQC4aT5YWLhgEcH1nLLdoKNSi9a' } };
+
+      const updateInDatabaseResponse = await dbHelper.updateInDatabase(database, collection, query, updateExpression);
+
+      expect(updateInDatabaseResponse.modifiedCount).to.eql(0);
+      expect(updateInDatabaseResponse.matchedCount).to.eql(0);
+      expect(updateInDatabaseResponse.acknowledged).to.eql(true);
     });
   });
 });
