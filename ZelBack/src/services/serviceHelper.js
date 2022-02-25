@@ -156,12 +156,20 @@ async function findOneAndUpdateInDatabase(database, collection, query, update, o
 }
 
 async function insertOneToDatabase(database, collection, value) {
-  const result = await database.collection(collection).insertOne(value);
+  const result = await database.collection(collection).insertOne(value).catch((error) => {
+    if (!(error.message && error.message.includes('duplicate key'))) {
+      throw error;
+    }
+  });
   return result;
 }
 
 async function insertManyToDatabase(database, collection, values, options = {}) {
-  const result = await database.collection(collection).insertMany(values, options);
+  const result = await database.collection(collection).insertMany(values, options).catch((error) => {
+    if (!(error.message && error.message.includes('duplicate key'))) {
+      throw error;
+    }
+  });
   return result;
 }
 
