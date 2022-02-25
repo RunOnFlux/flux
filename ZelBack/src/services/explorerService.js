@@ -1,4 +1,5 @@
 const config = require('config');
+const LRU = require('lru-cache');
 
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
@@ -19,6 +20,13 @@ let operationBlocked = false;
 let initBPfromNoBlockTimeout;
 let initBPfromErrorTimeout;
 
+// cache for nodes
+const LRUoptions = {
+  max: 12000, // store 12k of nodes value forever, no ttl
+};
+
+const nodeCollateralCache = new LRU(LRUoptions);
+
 async function getSenderTransactionFromDaemon(txid) {
   const verbose = 1;
   const req = {
@@ -37,6 +45,10 @@ async function getSenderTransactionFromDaemon(txid) {
 }
 
 async function getSenderForFluxTxInsight(txid, vout) {
+  const nodeCacheExists = nodeCollateralCache.get(`${txid}-${vout}`);
+  if (nodeCacheExists) {
+    return nodeCacheExists;
+  }
   const db = serviceHelper.databaseConnection();
   const database = db.db(config.database.daemon.database);
   const queryFluxTx = {
@@ -72,6 +84,7 @@ async function getSenderForFluxTxInsight(txid, vout) {
           address: transactionOutput.scriptPubKey.addresses[0],
           satoshis: transactionOutput.valueSat,
         };
+        nodeCollateralCache.set(`${txid}-${vout}`, adjustedTxContent);
         return adjustedTxContent;
       }
     }
@@ -85,11 +98,16 @@ async function getSenderForFluxTxInsight(txid, vout) {
     };
     return adjustedTxContent;
   }
+  nodeCollateralCache.set(`${txid}-${vout}`, txContent);
   const sender = txContent;
   return sender;
 }
 
 async function getSenderForFluxTx(txid, vout) {
+  const nodeCacheExists = nodeCollateralCache.get(`${txid}-${vout}`);
+  if (nodeCacheExists) {
+    return nodeCacheExists;
+  }
   const db = serviceHelper.databaseConnection();
   const database = db.db(config.database.daemon.database);
   const query = {
@@ -140,6 +158,7 @@ async function getSenderForFluxTx(txid, vout) {
     return adjustedTxContent;
   }
   const sender = txContent;
+  nodeCollateralCache.set(`${txid}-${vout}`, txContent);
   return sender;
 }
 
