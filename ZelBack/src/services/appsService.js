@@ -5459,8 +5459,12 @@ async function trySpawningGlobalApplication() {
 
     // check if app is installed on the number of instances requested
     const minInstances = appSpecifications.instances || config.fluxapps.minimumInstances; // introduced in v3 of apps specs
+    const correctlyRunningInstances = runningAppList.filter((appInstance) => appInstance.hash === appSpecifications.hash); // app isntance has to be latest version of the app
     if (runningAppList.length >= minInstances) {
-      log.info(`Application ${randomApp} is already spawned on ${runningAppList.length} instances`);
+      log.info(`Application ${randomApp} is spawned on ${runningAppList.length} instances`);
+    }
+    if (correctlyRunningInstances.length >= minInstances) {
+      log.info(`Application ${randomApp} in latest version is running on ${correctlyRunningInstances.length} instances`);
       await serviceHelper.delay(adjustedDelay);
       trySpawningGlobalAppCache.set(randomApp, randomApp);
       trySpawningGlobalApplication();
@@ -5785,16 +5789,27 @@ async function checkAndRemoveApplicationInstance() {
         const appDetails = await getApplicationGlobalSpecifications(installedApp.name);
         if (appDetails) {
           log.info(`Application ${installedApp.name} is already spawned on ${runningAppList.length} instances. Checking removal availability..`);
-          const randomNumber = Math.floor((Math.random() * config.fluxapps.removal.probability));
-          if (randomNumber === 0) {
-            log.warn(`Removing application ${installedApp.name} locally`);
-            // eslint-disable-next-line no-await-in-loop
-            await removeAppLocally(installedApp.name);
-            log.warn(`Application ${installedApp.name} locally removed`);
-            // eslint-disable-next-line no-await-in-loop
-            await serviceHelper.delay(config.fluxapps.removal.delay * 1000); // wait for 6 mins so we dont have more removals at the same time
+          // get our version of app and compare to global
+          const correctlyRunningInstances = runningAppList.filter((appInstance) => appInstance.hash === appDetails.hash); // app isntance has to be latest version of the app
+          if (correctlyRunningInstances.length > (minInstances + config.fluxapps.maximumAdditionalInstances)) {
+            log.info(`Application ${installedApp.name} is already spawned on ${runningAppList.length} with latest version. Checking removal availability..`);
+            let randomNumber = Math.floor((Math.random() * config.fluxapps.removal.probability));
+            if (installedApp.hash !== appDetails.hash) { // application is obsolete on our system. Remove
+              log.warn(`Application ${installedApp.name} is obsolete. Removing...`);
+              randomNumber = 0;
+            }
+            if (randomNumber === 0) {
+              log.warn(`Removing application ${installedApp.name} locally`);
+              // eslint-disable-next-line no-await-in-loop
+              await removeAppLocally(installedApp.name);
+              log.warn(`Application ${installedApp.name} locally removed`);
+              // eslint-disable-next-line no-await-in-loop
+              await serviceHelper.delay(config.fluxapps.removal.delay * 1000); // wait for 6 mins so we dont have more removals at the same time
+            } else {
+              log.info(`Other Fluxes are evaluating application ${installedApp.name} removal.`);
+            }
           } else {
-            log.info(`Other Fluxes are evaluating application ${installedApp.name} removal.`);
+            log.info(`Application ${installedApp.name} is undergoing an update. Removal not proceeded`);
           }
         }
       }
