@@ -4,7 +4,7 @@ const config = require('config');
 const chai = require('chai');
 const app = require('../../ZelBack/src/lib/server');
 const log = require('../../ZelBack/src/lib/log');
-const dbHelper = require('../../ZelBack/src/services/serviceHelper');
+const dbHelper = require('../../ZelBack/src/services/dbHelper');
 
 const packageJson = require('../../package.json');
 
