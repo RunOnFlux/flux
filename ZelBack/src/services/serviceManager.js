@@ -1,7 +1,6 @@
 const config = require('config');
 const log = require('../lib/log');
 
-const serviceHelper = require('./serviceHelper');
 const dbHelper = require('./dbHelper');
 const explorerService = require('./explorerService');
 const fluxCommunication = require('./fluxCommunication');

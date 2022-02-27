@@ -4,7 +4,6 @@ const { ObjectId } = require('mongodb');
 const proxyquire = require('proxyquire');
 
 const { expect } = chai;
-const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 
 const adminConfig = {
