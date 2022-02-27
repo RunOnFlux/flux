@@ -390,7 +390,7 @@ async function processInsight(blockDataVerbose, database) {
     }
   }
   const options = {
-    ordered: false,
+    ordered: false, // If false, continue with remaining inserts when one fails.
   };
   if (appsTransactions.length > 0) {
     await dbHelper.insertManyToDatabase(database, appsHashesCollection, appsTransactions, options);
