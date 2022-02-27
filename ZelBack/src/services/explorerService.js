@@ -1,7 +1,9 @@
 const config = require('config');
+const LRU = require('lru-cache');
 
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
+const verificationHelper = require('./verificationHelper');
 const daemonService = require('./daemonService');
 const appsService = require('./appsService');
 
@@ -17,6 +19,13 @@ let isInInitiationOfBP = false;
 let operationBlocked = false;
 let initBPfromNoBlockTimeout;
 let initBPfromErrorTimeout;
+
+// cache for nodes
+const LRUoptions = {
+  max: 12000, // store 12k of nodes value forever, no ttl
+};
+
+const nodeCollateralCache = new LRU(LRUoptions);
 
 async function getSenderTransactionFromDaemon(txid) {
   const verbose = 1;
@@ -35,20 +44,75 @@ async function getSenderTransactionFromDaemon(txid) {
   throw txContent.data;
 }
 
+async function getSenderForFluxTxInsight(txid, vout) {
+  const nodeCacheExists = nodeCollateralCache.get(`${txid}-${vout}`);
+  if (nodeCacheExists) {
+    return nodeCacheExists;
+  }
+  const db = serviceHelper.databaseConnection();
+  const database = db.db(config.database.daemon.database);
+  const queryFluxTx = {
+    collateralHash: txid,
+    collateralIndex: vout,
+  };
+  // we do not need other data as we are just asking what the sender address is.
+  const projectionFluxTx = {
+    projection: {
+      _id: 0,
+      collateralHash: 1,
+      zelAddress: 1,
+      lockedAmount: 1,
+    },
+  };
+  // find previous flux transaction that
+  const txContent = await serviceHelper.findOneInDatabase(database, fluxTransactionCollection, queryFluxTx, projectionFluxTx);
+  if (!txContent) {
+    // ask blockchain for the transaction
+    const verbose = 1;
+    const req = {
+      params: {
+        txid,
+        verbose,
+      },
+    };
+    const transaction = await daemonService.getRawTransaction(req);
+    if (transaction.status === 'success' && transaction.data.vout && transaction.data.vout[0]) {
+      const transactionOutput = transaction.data.vout.find((txVout) => +txVout.n === +vout);
+      if (transactionOutput) {
+        const adjustedTxContent = {
+          txid,
+          address: transactionOutput.scriptPubKey.addresses[0],
+          satoshis: transactionOutput.valueSat,
+        };
+        nodeCollateralCache.set(`${txid}-${vout}`, adjustedTxContent);
+        return adjustedTxContent;
+      }
+    }
+  }
+  if (!txContent) {
+    log.warn(`Transaction ${txid} ${vout} was not found anywhere. Uncomplete tx!`);
+    const adjustedTxContent = {
+      txid,
+      address: undefined,
+      satoshis: undefined,
+    };
+    return adjustedTxContent;
+  }
+  nodeCollateralCache.set(`${txid}-${vout}`, txContent);
+  const sender = txContent;
+  return sender;
+}
+
 async function getSenderForFluxTx(txid, vout) {
+  const nodeCacheExists = nodeCollateralCache.get(`${txid}-${vout}`);
+  if (nodeCacheExists) {
+    return nodeCacheExists;
+  }
   const db = serviceHelper.databaseConnection();
   const database = db.db(config.database.daemon.database);
   const query = {
-    $and: [
-      { txid: new RegExp(`^${txid}`) },
-      { vout },
-      {
-        $or: [
-          { satoshis: 1000000000000 },
-          { satoshis: 2500000000000 },
-          { satoshis: 10000000000000 },
-        ],
-      }],
+    txid,
+    vout,
   };
   // we do not need other data as we are just asking what the sender address is.
   const projection = {
@@ -69,16 +133,8 @@ async function getSenderForFluxTx(txid, vout) {
   if (!txContent) {
     log.info(`Transaction ${txid} ${vout} not found in database. Falling back to previous Flux transaction`);
     const queryFluxTx = {
-      $and: [
-        { collateralHash: new RegExp(`^${txid}`) },
-        { collateralIndex: vout },
-        {
-          $or: [
-            { lockedAmount: 1000000000000 },
-            { lockedAmount: 2500000000000 },
-            { lockedAmount: 10000000000000 },
-          ],
-        }],
+      collateralHash: txid,
+      collateralIndex: vout,
     };
     // we do not need other data as we are just asking what the sender address is.
     const projectionFluxTx = {
@@ -102,6 +158,7 @@ async function getSenderForFluxTx(txid, vout) {
     return adjustedTxContent;
   }
   const sender = txContent;
+  nodeCollateralCache.set(`${txid}-${vout}`, txContent);
   return sender;
 }
 
@@ -221,8 +278,7 @@ async function processBlockTransactions(txs, height) {
   return transactions;
 }
 
-async function getVerboseBlock(heightOrHash) {
-  const verbosity = 2;
+async function getVerboseBlock(heightOrHash, verbosity = 2) {
   const req = {
     params: {
       hashheight: heightOrHash,
@@ -249,6 +305,97 @@ function decodeMessage(asm) {
     }
   }
   return message;
+}
+
+async function processInsight(blockDataVerbose, database) {
+  // get Block Deltas information
+  const txs = blockDataVerbose.tx;
+  const transactions = [];
+  const appsTransactions = [];
+  // go through each transaction in deltas
+  // eslint-disable-next-line no-restricted-syntax
+  for (const tx of txs) {
+    if (tx.version < 5 && tx.version > 0) {
+      let message = '';
+      let isFluxAppMessageValue = 0;
+      tx.vout.forEach((receiver) => {
+        if (receiver.scriptPubKey.addresses) { // count for messages
+          if (receiver.scriptPubKey.addresses[0] === config.fluxapps.address) {
+            // it is an app message. Get Satoshi amount
+            isFluxAppMessageValue += receiver.valueSat;
+          }
+        }
+        if (receiver.scriptPubKey.asm) {
+          message = decodeMessage(receiver.scriptPubKey.asm);
+        }
+      });
+      const intervals = config.fluxapps.price.filter((i) => i.height <= blockDataVerbose.height);
+      const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
+      // MAY contain App transaction. Store it.
+      if (isFluxAppMessageValue >= (priceSpecifications.minPrice * 1e8) && message.length === 64 && blockDataVerbose.height >= config.fluxapps.epochstart) { // min of 1 flux had to be paid for us bothering checking
+        const appTxRecord = {
+          txid: tx.txid, height: blockDataVerbose.height, hash: message, value: isFluxAppMessageValue, message: false, // message is boolean saying if we already have it stored as permanent message
+        };
+        // Unique hash - If we already have a hash of this app in our database, do not insert it!
+        try {
+          // 5501c7dd6516c3fc2e68dee8d4fdd20d92f57f8cfcdc7b4fcbad46499e43ed6f
+          const querySearch = {
+            hash: message,
+          };
+          const projectionSearch = {
+            projection: {
+              _id: 0,
+              txid: 1,
+              hash: 1,
+              height: 1,
+              value: 1,
+              message: 1,
+            },
+          };
+          // eslint-disable-next-line no-await-in-loop
+          const result = await serviceHelper.findOneInDatabase(database, appsHashesCollection, querySearch, projectionSearch); // this search can be later removed if nodes rescan apps and reconstruct the index for unique
+          if (!result) {
+            appsTransactions.push(appTxRecord);
+            appsService.checkAndRequestApp(message, tx.txid, blockDataVerbose.height, isFluxAppMessageValue);
+          } else {
+            throw new Error(`Found an existing hash app ${serviceHelper.ensureString(result)}`);
+          }
+        } catch (error) {
+          log.error(`Hash ${message} already exists. Not adding at height ${blockDataVerbose.height}`);
+          log.error(error);
+        }
+      }
+    } else if (tx.version === 5) {
+      // todo include to daemon better information about hash and index and preferably address associated
+      const collateralHash = tx.txhash;
+      const collateralIndex = tx.outidx;
+      // eslint-disable-next-line no-await-in-loop
+      const senderInfo = await getSenderForFluxTxInsight(collateralHash, collateralIndex);
+      const fluxTxData = {
+        txid: tx.txid,
+        version: tx.version,
+        type: tx.type,
+        updateType: tx.update_type,
+        ip: tx.ip,
+        benchTier: tx.benchmark_tier,
+        collateralHash,
+        collateralIndex,
+        zelAddress: senderInfo.address || senderInfo.zelAddress,
+        lockedAmount: senderInfo.satoshis || senderInfo.lockedAmount,
+        height: blockDataVerbose.height,
+      };
+      transactions.push(fluxTxData);
+    }
+  }
+  const options = {
+    ordered: false,
+  };
+  if (appsTransactions.length > 0) {
+    await serviceHelper.insertManyToDatabase(database, appsHashesCollection, appsTransactions, options);
+  }
+  if (transactions.length > 0) {
+    await serviceHelper.insertManyToDatabase(database, fluxTransactionCollection, transactions, options);
+  }
 }
 
 async function processStandard(blockDataVerbose, database) {
@@ -366,25 +513,28 @@ async function processBlock(blockHeight, isInsightExplorer) {
     const db = serviceHelper.databaseConnection();
     const database = db.db(config.database.daemon.database);
     // get Block information
-    const blockDataVerbose = await getVerboseBlock(blockHeight);
+    const verbosity = 2;
+    const blockDataVerbose = await getVerboseBlock(blockHeight, verbosity);
     if (blockDataVerbose.height % 50 === 0) {
-      console.log(blockDataVerbose.height);
+      log.info(`Processing Explorer Block Height: ${blockDataVerbose.height}`);
     }
     if (isInsightExplorer) {
-      // we essentially only care about
-      await processStandard(blockDataVerbose, database); // TODO
+      // only process Flux transactions
+      await processInsight(blockDataVerbose, database);
     } else {
       await processStandard(blockDataVerbose, database);
     }
     if (blockHeight % config.fluxapps.expireFluxAppsPeriod === 0) {
-      const result = await serviceHelper.collectionStats(database, utxoIndexCollection);
-      const resultB = await serviceHelper.collectionStats(database, addressTransactionIndexCollection);
+      if (!isInsightExplorer) {
+        const result = await serviceHelper.collectionStats(database, utxoIndexCollection);
+        const resultB = await serviceHelper.collectionStats(database, addressTransactionIndexCollection);
+        const resultFusion = await serviceHelper.collectionStats(database, coinbaseFusionIndexCollection);
+        log.info(`UTXO documents: ${result.size}, ${result.count}, ${result.avgObjSize}`);
+        log.info(`ADDR documents: ${resultB.size}, ${resultB.count}, ${resultB.avgObjSize}`);
+        log.info(`Fusion documents: ${resultFusion.size}, ${resultFusion.count}, ${resultFusion.avgObjSize}`);
+      }
       const resultC = await serviceHelper.collectionStats(database, fluxTransactionCollection);
-      log.info(`UTXO documents: ${result.size}, ${result.count}, ${result.avgObjSize}`);
-      log.info(`ADDR documents: ${resultB.size}, ${resultB.count}, ${resultB.avgObjSize}`);
       log.info(`FLUX documents: ${resultC.size}, ${resultC.count}, ${resultC.avgObjSize}`);
-      const resultFusion = await serviceHelper.collectionStats(database, coinbaseFusionIndexCollection);
-      log.info(`Fusion documents: ${resultFusion.size}, ${resultFusion.count}, ${resultFusion.avgObjSize}`);
       if (blockDataVerbose.height >= config.fluxapps.epochstart) {
         appsService.expireGlobalApplications();
       }
@@ -673,6 +823,12 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
       }
       isInInitiationOfBP = false;
       const isInsightExplorer = daemonService.isInsightExplorer();
+      if (isInsightExplorer) {
+        // if node is insight explorer based, we are only processing flux app messages
+        if (scannedBlockHeight < config.deterministicNodesStart - 1) {
+          scannedBlockHeight = config.deterministicNodesStart - 1;
+        }
+      }
       processBlock(scannedBlockHeight + 1, isInsightExplorer);
     } else {
       isInInitiationOfBP = false;
@@ -753,10 +909,6 @@ async function getAllFusionCoinbase(req, res) {
 
 async function getAllFluxTransactions(req, res) {
   try {
-    const isInsightExplorer = daemonService.isInsightExplorer();
-    if (isInsightExplorer) {
-      throw new Error('Data unavailable. Deprecated');
-    }
     const dbopen = serviceHelper.databaseConnection();
     const database = dbopen.db(config.database.daemon.database);
     const query = {};
@@ -841,24 +993,52 @@ async function getAddressUtxos(req, res) {
     if (!address) {
       throw new Error('No address provided');
     }
-    const dbopen = serviceHelper.databaseConnection();
-    const database = dbopen.db(config.database.daemon.database);
-    const query = { address };
-    const projection = {
-      projection: {
-        _id: 0,
-        txid: 1,
-        vout: 1,
-        height: 1,
-        address: 1,
-        satoshis: 1,
-        scriptPubKey: 1,
-        coinbase: 1,
-      },
-    };
-    const results = await serviceHelper.findInDatabase(database, utxoIndexCollection, query, projection);
-    const resMessage = serviceHelper.createDataMessage(results);
-    res.json(resMessage);
+    const isInsightExplorer = daemonService.isInsightExplorer();
+    if (isInsightExplorer) {
+      const daemonRequest = {
+        params: {
+          address,
+        },
+        query: {},
+      };
+      const insightResult = await daemonService.getSingleAddressUtxos(daemonRequest);
+      const syncStatus = daemonService.isDaemonSynced();
+      const curHeight = syncStatus.data.height;
+      const utxos = [];
+      insightResult.data.forEach((utxo) => {
+        const adjustedUtxo = {
+          address: utxo.address,
+          txid: utxo.txid,
+          vout: utxo.outputIndex,
+          height: utxo.height,
+          satoshis: utxo.satoshis,
+          scriptPubKey: utxo.script,
+          confirmations: curHeight - utxo.height, // HERE DIFFERS, insight more compatible with zelcore as coinbase is spendable after 100
+        };
+        utxos.push(adjustedUtxo);
+      });
+      const resMessage = serviceHelper.createDataMessage(utxos);
+      res.json(resMessage);
+    } else {
+      const dbopen = serviceHelper.databaseConnection();
+      const database = dbopen.db(config.database.daemon.database);
+      const query = { address };
+      const projection = {
+        projection: {
+          _id: 0,
+          txid: 1,
+          vout: 1,
+          height: 1,
+          address: 1,
+          satoshis: 1,
+          scriptPubKey: 1,
+          coinbase: 1, // HERE DIFFERS
+        },
+      };
+      const results = await serviceHelper.findInDatabase(database, utxoIndexCollection, query, projection);
+      const resMessage = serviceHelper.createDataMessage(results);
+      res.json(resMessage);
+    }
   } catch (error) {
     log.error(error);
     const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
@@ -904,10 +1084,6 @@ async function getAddressFusionCoinbase(req, res) {
 
 async function getFilteredFluxTxs(req, res) {
   try {
-    const isInsightExplorer = daemonService.isInsightExplorer();
-    if (isInsightExplorer) {
-      throw new Error('Data unavailable. Deprecated');
-    }
     let { filter } = req.params; // we accept both help/command and help?command=getinfo
     filter = filter || req.query.filter;
     let query = {};
@@ -961,15 +1137,35 @@ async function getAddressTransactions(req, res) {
     if (!address) {
       throw new Error('No address provided');
     }
-    const dbopen = serviceHelper.databaseConnection();
-    const database = dbopen.db(config.database.daemon.database);
-    const query = { address };
-    const distinct = 'transactions';
-    const results = await serviceHelper.distinctDatabase(database, addressTransactionIndexCollection, distinct, query);
-    // TODO FIX documentation. UPDATE for an amount of last txs needed.
-    // now we have array of transactions [{txid, height}, {}...]
-    const resMessage = serviceHelper.createDataMessage(results);
-    res.json(resMessage);
+    const isInsightExplorer = daemonService.isInsightExplorer();
+    if (isInsightExplorer) {
+      const daemonRequest = {
+        params: {
+          address,
+        },
+        query: {},
+      };
+      const insightResult = await daemonService.getSingleAddresssTxids(daemonRequest);
+      const txids = insightResult.data.reverse();
+      const txidsOK = [];
+      txids.forEach((txid) => {
+        txidsOK.push({
+          txid,
+        });
+      });
+      const resMessage = serviceHelper.createDataMessage(txidsOK);
+      res.json(resMessage);
+    } else {
+      const dbopen = serviceHelper.databaseConnection();
+      const database = dbopen.db(config.database.daemon.database);
+      const query = { address };
+      const distinct = 'transactions';
+      const results = await serviceHelper.distinctDatabase(database, addressTransactionIndexCollection, distinct, query);
+      // TODO FIX documentation. UPDATE for an amount of last txs needed.
+      // now we have array of transactions [{txid, height}, {}...]
+      const resMessage = serviceHelper.createDataMessage(results);
+      res.json(resMessage);
+    }
   } catch (error) {
     log.error(error);
     const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
@@ -1023,7 +1219,7 @@ async function checkBlockProcessingStopped(i, callback) {
 }
 
 async function stopBlockProcessing(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
     const i = 0;
     checkBlockProcessingStopped(i, async (response) => {
@@ -1037,7 +1233,7 @@ async function stopBlockProcessing(req, res) {
 }
 
 async function restartBlockProcessing(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
     const i = 0;
     checkBlockProcessingStopped(i, async () => {
@@ -1052,7 +1248,7 @@ async function restartBlockProcessing(req, res) {
 }
 
 async function reindexExplorer(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
     // stop block processing
     const i = 0;
@@ -1096,7 +1292,7 @@ async function reindexExplorer(req, res) {
 
 async function rescanExplorer(req, res) {
   try {
-    const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized === true) {
       // since what blockheight
       let { blockheight } = req.params; // we accept both help/command and help?command=getinfo
@@ -1169,28 +1365,42 @@ async function getAddressBalance(req, res) {
     if (!address) {
       throw new Error('No address provided');
     }
-    const dbopen = serviceHelper.databaseConnection();
-    const database = dbopen.db(config.database.daemon.database);
-    const query = { address };
-    const projection = {
-      projection: {
-        _id: 0,
-        // txid: 1,
-        // vout: 1,
-        // height: 1,
-        // address: 1,
-        satoshis: 1,
-        // scriptPubKey: 1,
-        // coinbase: 1,
-      },
-    };
-    const results = await serviceHelper.findInDatabase(database, utxoIndexCollection, query, projection);
-    let balance = 0;
-    results.forEach((utxo) => {
-      balance += utxo.satoshis;
-    });
-    const resMessage = serviceHelper.createDataMessage(balance);
-    res.json(resMessage);
+    const isInsightExplorer = daemonService.isInsightExplorer();
+    if (isInsightExplorer) {
+      const daemonRequest = {
+        params: {
+          address,
+        },
+        query: {},
+      };
+      const insightResult = await daemonService.getSingleAddressBalance(daemonRequest);
+      const { balance } = insightResult.data;
+      const resMessage = serviceHelper.createDataMessage(balance);
+      res.json(resMessage);
+    } else {
+      const dbopen = serviceHelper.databaseConnection();
+      const database = dbopen.db(config.database.daemon.database);
+      const query = { address };
+      const projection = {
+        projection: {
+          _id: 0,
+          // txid: 1,
+          // vout: 1,
+          // height: 1,
+          // address: 1,
+          satoshis: 1,
+          // scriptPubKey: 1,
+          // coinbase: 1,
+        },
+      };
+      const results = await serviceHelper.findInDatabase(database, utxoIndexCollection, query, projection);
+      let balance = 0;
+      results.forEach((utxo) => {
+        balance += utxo.satoshis;
+      });
+      const resMessage = serviceHelper.createDataMessage(balance);
+      res.json(resMessage);
+    }
   } catch (error) {
     log.error(error);
     const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);

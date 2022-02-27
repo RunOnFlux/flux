@@ -3,6 +3,7 @@ const config = require('config');
 const path = require('path');
 const fs = require('fs');
 const serviceHelper = require('./serviceHelper');
+const verificationHelper = require('./verificationHelper');
 const userconfig = require('../../../config/userconfig');
 
 const isTestnet = userconfig.initial.testnet;
@@ -52,7 +53,7 @@ async function getStatus(req, res) {
 }
 
 async function restartNodeBenchmarks(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
     const rpccall = 'restartnodebenchmarks';
 
@@ -65,7 +66,7 @@ async function restartNodeBenchmarks(req, res) {
 }
 
 async function signFluxTransaction(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   let { hexstring } = req.params;
   hexstring = hexstring || req.query.hexstring;
   if (authorized === true) {
@@ -91,7 +92,7 @@ async function signFluxTransactionPost(req, res) {
   req.on('end', async () => {
     const processedBody = serviceHelper.ensureObject(body);
     const { hexstring } = processedBody;
-    const authorized = await serviceHelper.verifyPrivilege('admin', req);
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
     if (authorized === true) {
       const rpccall = 'signzelnodetransaction';
       const rpcparameters = [];
@@ -120,7 +121,7 @@ async function help(req, res) {
 }
 
 async function stop(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'stop';
 

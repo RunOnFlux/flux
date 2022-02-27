@@ -8,7 +8,7 @@ module.exports = {
     url: '127.0.0.1',
     port: 27017,
     local: {
-      database: 'zelfluxlocal',
+      database: 'zelfluxlocaltest',
       collections: {
         loggedUsers: 'loggedusers',
         activeLoginPhrases: 'activeloginphrases',
@@ -16,7 +16,7 @@ module.exports = {
       },
     },
     daemon: {
-      database: 'zelcashdata',
+      database: 'zelcashdatatest',
       collections: {
         // addreesIndex contains a) balance, b) list of all transacitons, c) list of utxos
         scannedHeight: 'scannedheight',
@@ -28,13 +28,13 @@ module.exports = {
       },
     },
     appslocal: {
-      database: 'localzelapps',
+      database: 'localzelappstest',
       collections: {
         appsInformation: 'zelappsinformation',
       },
     },
     appsglobal: {
-      database: 'globalzelapps',
+      database: 'globalzelappstest',
       collections: {
         appsMessages: 'zelappsmessages', // storage for all flux apps messages done on flux network
         appsInformation: 'zelappsinformation', // stores actual state of flux app configuration info - initial state and its overwrites with update messages
@@ -43,7 +43,7 @@ module.exports = {
       },
     },
     fluxshare: {
-      database: 'zelshare',
+      database: 'zelsharetest',
       collections: {
         shared: 'shared',
       },
@@ -62,7 +62,7 @@ module.exports = {
     porttestnet: 26125,
     rpcporttestnet: 26124,
   },
-  fluxTeamZelId: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
+  fluxTeamZelId: '1NH9BP155Rp3HSf5ef6NpUbE8JcyLRruAM',
   deterministicNodesStart: 558000,
   fluxapps: {
     // in flux main chain per month (blocksLasting)

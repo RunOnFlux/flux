@@ -3,6 +3,7 @@ const fullnode = require('fullnode');
 const LRU = require('lru-cache');
 const config = require('config');
 const serviceHelper = require('./serviceHelper');
+const verificationHelper = require('./verificationHelper');
 const log = require('../lib/log');
 const userconfig = require('../../../config/userconfig');
 
@@ -14,6 +15,7 @@ const rpcport = fnconfig.rpcport() || (isTestnet === true ? config.daemon.rpcpor
 
 let currentDaemonHeight = 0;
 let currentDaemonHeader = isTestnet === true ? 58494 : 1060453;
+let isDaemonInsightExplorer = null;
 
 const client = new daemonrpc.Client({
   port: rpcport,
@@ -109,10 +111,15 @@ function getConfigValue(parameter) {
 }
 
 function isInsightExplorer() {
+  if (isDaemonInsightExplorer != null) {
+    return isDaemonInsightExplorer;
+  }
   const insightValue = getConfigValue('insightexplorer');
   if (insightValue === 1 || insightValue === '1') {
+    isDaemonInsightExplorer = true;
     return true;
   }
+  isDaemonInsightExplorer = false;
   return false;
 }
 
@@ -134,7 +141,7 @@ async function getInfo(req, res) {
 
   response = await executeCall(rpccall);
   if (res) {
-    const authorized = await serviceHelper.verifyPrivilege('admin', req);
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
     if (authorized !== true) {
       delete response.data.balance;
     }
@@ -146,7 +153,7 @@ async function getInfo(req, res) {
 }
 
 async function stop(req, res) { // practically useless
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'stop';
 
@@ -182,7 +189,7 @@ async function listZelNodes(req, res) {
 }
 
 async function listZelNodeConf(req, res) { // practically useless
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   let { filter } = req.params;
   filter = filter || req.query.filter;
   if (authorized === true) {
@@ -201,7 +208,7 @@ async function listZelNodeConf(req, res) { // practically useless
 }
 
 async function createZelNodeKey(req, res) { // practically useless
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'createzelnodekey';
 
@@ -222,7 +229,7 @@ async function znsync(req, res) {
 
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    const authorized = await serviceHelper.verifyPrivilege('admin', req);
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
     if (authorized === true) {
       const rpccall = 'znsync';
       const rpcparameters = [mode];
@@ -241,7 +248,7 @@ async function createZelNodeBroadcast(req, res) {
   let { alias } = req.params;
   alias = alias || req.query.alias || '';
 
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'createzelnodebroadcast';
     const rpcparameters = [command, alias];
@@ -294,7 +301,7 @@ async function getStartList(req, res) {
 }
 
 async function getZelNodeOutputs(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'getzelnodeoutputs';
 
@@ -376,7 +383,7 @@ async function startDeterministicZelNode(req, res) {
   alias = alias || req.query.alias;
   let { lockwallet } = req.params;
   lockwallet = lockwallet || req.query.lockwallet || false;
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'startdeterministiczelnode';
     const rpcparameters = [];
@@ -401,7 +408,7 @@ async function startZelNode(req, res) {
   lockwallet = lockwallet || req.query.lockwallet;
   let { alias } = req.params;
   alias = alias || req.query.alias;
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'startzelnode';
     const rpcparameters = [];
@@ -548,8 +555,7 @@ async function getBlockHashes(req, res) {
     options.logicalTimes = serviceHelper.ensureBoolean(logicalTimes);
   }
   if (options.noOrphans !== undefined || options.logicalTimes !== undefined) {
-    const optionsString = serviceHelper.ensureString(options);
-    rpcparameters.push(optionsString);
+    rpcparameters.push(options);
   }
 
   response = await executeCall(rpccall, rpcparameters);
@@ -570,7 +576,7 @@ async function getBlockHashesPost(req, res) {
     const rpcparameters = [high, low];
 
     if (options) {
-      rpcparameters.push(serviceHelper.ensureString(options));
+      rpcparameters.push(options);
     }
     response = await executeCall(rpccall, rpcparameters);
 
@@ -692,7 +698,7 @@ async function verifyChain(req, res) {
   checklevel = checklevel || req.query.checklevel || 3;
   let { numblocks } = req.params;
   numblocks = numblocks || req.query.numblocks || 288;
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     checklevel = serviceHelper.ensureNumber(checklevel);
     numblocks = serviceHelper.ensureNumber(numblocks);
@@ -733,7 +739,7 @@ async function getSpentInfo(req, res) {
     txid: serviceHelper.ensureString(txid),
     index: serviceHelper.ensureNumber(index),
   };
-  const rpcparameters = [serviceHelper.ensureString(options)];
+  const rpcparameters = [options];
 
   response = await executeCall(rpccall, rpcparameters);
 
@@ -752,10 +758,9 @@ async function getSpentInfoPost(req, res) {
       txid,
       index,
     };
-    const optionsString = serviceHelper.ensureString(options);
 
     const rpccall = 'getspentinfo';
-    const rpcparameters = [optionsString];
+    const rpcparameters = [options];
 
     response = await executeCall(rpccall, rpcparameters);
 
@@ -779,15 +784,35 @@ async function getAddressTxids(req, res) {
       end,
     };
 
-    const optionsString = serviceHelper.ensureString(options);
-
     const rpccall = 'getaddresstxids';
-    const rpcparameters = [optionsString];
+    const rpcparameters = [options];
 
     response = await executeCall(rpccall, rpcparameters);
 
     return res.json(response);
   });
+}
+
+async function getSingleAddresssTxids(req, res) {
+  let { address } = req.params;
+  address = address || req.query.address;
+  let { start } = req.params;
+  start = start || req.query.start;
+  let { end } = req.params;
+  end = end || req.query.end;
+
+  const options = {
+    addresses: [address],
+    start,
+    end,
+  };
+
+  const rpccall = 'getaddresstxids';
+  const rpcparameters = [options];
+
+  response = await executeCall(rpccall, rpcparameters);
+
+  return res ? res.json(response) : response;
 }
 
 async function getAddressBalance(req, res) {
@@ -803,15 +828,29 @@ async function getAddressBalance(req, res) {
       addresses,
     };
 
-    const optionsString = serviceHelper.ensureString(options);
-
     const rpccall = 'getaddressbalance';
-    const rpcparameters = [optionsString];
+    const rpcparameters = [options];
 
     response = await executeCall(rpccall, rpcparameters);
 
     return res.json(response);
   });
+}
+
+async function getSingleAddressBalance(req, res) {
+  let { address } = req.params;
+  address = address || req.query.address;
+
+  const options = {
+    addresses: [address],
+  };
+
+  const rpccall = 'getaddressbalance';
+  const rpcparameters = [options];
+
+  response = await executeCall(rpccall, rpcparameters);
+
+  return res ? res.json(response) : response;
 }
 
 async function getAddressDeltas(req, res) {
@@ -832,15 +871,38 @@ async function getAddressDeltas(req, res) {
       chainInfo,
     };
 
-    const optionsString = serviceHelper.ensureString(options);
-
     const rpccall = 'getaddressdeltas';
-    const rpcparameters = [optionsString];
+    const rpcparameters = [options];
 
     response = await executeCall(rpccall, rpcparameters);
 
     return res.json(response);
   });
+}
+
+async function getSingleAddressDeltas(req, res) {
+  let { address } = req.params;
+  address = address || req.query.address;
+  let { start } = req.params;
+  start = start || req.query.start;
+  let { end } = req.params;
+  end = end || req.query.end;
+  let { chaininfo } = req.params;
+  chaininfo = chaininfo || req.query.chaininfo;
+
+  const options = {
+    addresses: [address],
+    start,
+    end,
+    chainInfo: chaininfo,
+  };
+
+  const rpccall = 'getaddressdeltas';
+  const rpcparameters = [options];
+
+  response = await executeCall(rpccall, rpcparameters);
+
+  return res ? res.json(response) : response;
 }
 
 async function getAddressUtxos(req, res) {
@@ -859,15 +921,32 @@ async function getAddressUtxos(req, res) {
       chainInfo,
     };
 
-    const optionsString = serviceHelper.ensureString(options);
-
     const rpccall = 'getaddressutxos';
-    const rpcparameters = [optionsString];
+    const rpcparameters = [options];
 
     response = await executeCall(rpccall, rpcparameters);
 
     return res.json(response);
   });
+}
+
+async function getSingleAddressUtxos(req, res) {
+  let { address } = req.params;
+  address = address || req.query.address;
+  let { chaininfo } = req.params;
+  chaininfo = chaininfo || req.query.chaininfo;
+
+  const options = {
+    addresses: [address],
+    chainInfo: chaininfo,
+  };
+
+  const rpccall = 'getaddressutxos';
+  const rpcparameters = [options];
+
+  response = await executeCall(rpccall, rpcparameters);
+
+  return res ? res.json(response) : response;
 }
 
 async function getAddressMempool(req, res) {
@@ -885,15 +964,29 @@ async function getAddressMempool(req, res) {
       addresses,
     };
 
-    const optionsString = serviceHelper.ensureString(options);
-
     const rpccall = 'getaddressmempool';
-    const rpcparameters = [optionsString];
+    const rpcparameters = [options];
 
     response = await executeCall(rpccall, rpcparameters);
 
     return res.json(response);
   });
+}
+
+async function getSingleAddressMempool(req, res) {
+  let { address } = req.params;
+  address = address || req.query.address;
+
+  const options = {
+    addresses: [address],
+  };
+
+  const rpccall = 'getaddressmempool';
+  const rpcparameters = [options];
+
+  response = await executeCall(rpccall, rpcparameters);
+
+  return res ? res.json(response) : response;
 }
 
 // == Mining ==
@@ -985,7 +1078,7 @@ async function prioritiseTransaction(req, res) {
   prioritydelta = prioritydelta || req.query.prioritydelta;
   let { feedelta } = req.params;
   feedelta = feedelta || req.query.feedelta;
-  const authorized = await serviceHelper.verifyPrivilege('user', req);
+  const authorized = await verificationHelper.verifyPrivilege('user', req);
   if (authorized === true) {
     const rpccall = 'prioritiseTransaction';
     let rpcparameters = [];
@@ -1008,7 +1101,7 @@ async function submitBlock(req, res) {
   hexdata = hexdata || req.query.hexdata;
   let { jsonparametersobject } = req.params;
   jsonparametersobject = jsonparametersobject || req.query.jsonparametersobject;
-  const authorized = await serviceHelper.verifyPrivilege('user', req);
+  const authorized = await verificationHelper.verifyPrivilege('user', req);
   if (authorized === true) {
     const rpccall = 'submitBlock';
     let rpcparameters = [];
@@ -1037,7 +1130,7 @@ async function submitBlockPost(req, res) {
     const { hexdata } = processedBody;
     let { jsonparametersobject } = processedBody;
 
-    const authorized = await serviceHelper.verifyPrivilege('user', req);
+    const authorized = await verificationHelper.verifyPrivilege('user', req);
     if (authorized === true) {
       const rpccall = 'submitBlock';
       let rpcparameters = [];
@@ -1063,7 +1156,7 @@ async function addNode(req, res) {
   node = node || req.query.node;
   let { command } = req.params;
   command = command || req.query.command;
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'addNode';
     let rpcparameters = [];
@@ -1080,7 +1173,7 @@ async function addNode(req, res) {
 }
 
 async function clearBanned(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'clearBanned';
 
@@ -1095,7 +1188,7 @@ async function clearBanned(req, res) {
 async function disconnectNode(req, res) {
   let { node } = req.params;
   node = node || req.query.node;
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'disconnectNode';
     let rpcparameters = [];
@@ -1116,7 +1209,7 @@ async function getAddedNodeInfo(req, res) {
   dns = dns || req.query.dns;
   let { node } = req.params;
   node = node || req.query.node;
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'getAddedNodeInfo';
     const rpcparameters = [];
@@ -1185,7 +1278,7 @@ async function listBanned(req, res) {
 }
 
 async function ping(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
     const rpccall = 'ping';
 
@@ -1206,7 +1299,7 @@ async function setBan(req, res) {
   bantime = bantime || req.query.bantime;
   let { absolute } = req.params;
   absolute = absolute || req.query.absolute;
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'setBan';
     const rpcparameters = [];
@@ -1467,7 +1560,7 @@ async function signRawTransaction(req, res) {
   sighashtype = sighashtype || req.query.sighashtype || 'ALL';
   let { branchid } = req.params;
   branchid = branchid || req.query.branchid;
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'signRawTransaction';
     const rpcparameters = [];
@@ -1507,7 +1600,7 @@ async function signRawTransactionPost(req, res) {
     let { sighashtype } = processedBody;
     sighashtype = sighashtype || 'ALL';
     const { branchid } = processedBody;
-    const authorized = await serviceHelper.verifyPrivilege('admin', req);
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
     if (authorized === true) {
       const rpccall = 'signRawTransaction';
       const rpcparameters = [];
@@ -1618,7 +1711,7 @@ async function validateAddress(req, res) {
   response = await executeCall(rpccall, rpcparameters);
 
   if (res) {
-    const authorized = await serviceHelper.verifyPrivilege('admin', req);
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
     if (authorized !== true) {
       delete response.data.ismine;
       delete response.data.iswatchonly;
@@ -1691,7 +1784,7 @@ async function addMultiSigAddress(req, res) {
   n = n || req.query.n;
   let { keysobject } = req.params;
   keysobject = keysobject || req.query.keysobject;
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'addMultiSigAddress';
     let rpcparameters = [];
@@ -1717,7 +1810,7 @@ async function addMultiSigAddressPost(req, res) {
     const processedBody = serviceHelper.ensureObject(body);
     let { n } = processedBody;
     let { keysobject } = processedBody;
-    const authorized = await serviceHelper.verifyPrivilege('admin', req);
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
     if (authorized === true) {
       const rpccall = 'addMultiSigAddress';
       let rpcparameters = [];
@@ -1738,7 +1831,7 @@ async function addMultiSigAddressPost(req, res) {
 async function backupWallet(req, res) {
   let { destination } = req.params;
   destination = destination || req.query.destination;
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'backupWallet';
     let rpcparameters = [];
@@ -1756,7 +1849,7 @@ async function backupWallet(req, res) {
 async function dumpPrivKey(req, res) {
   let { taddr } = req.params;
   taddr = taddr || req.query.taddr;
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'dumpPrivKey';
     let rpcparameters = [];
@@ -1776,7 +1869,7 @@ async function getBalance(req, res) {
   minconf = minconf || req.query.minconf || 1;
   let { includewatchonly } = req.params;
   includewatchonly = includewatchonly || req.query.includewatchonly || false;
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'getBalance';
     minconf = serviceHelper.ensureNumber(minconf);
@@ -1791,7 +1884,7 @@ async function getBalance(req, res) {
 }
 
 async function getNewAddress(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'getNewAddress';
     response = await executeCall(rpccall);
@@ -1803,7 +1896,7 @@ async function getNewAddress(req, res) {
 }
 
 async function getRawChangeAddress(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'getRawChangeAddress';
     response = await executeCall(rpccall);
@@ -1819,7 +1912,7 @@ async function getReceivedByAddress(req, res) {
   zelcashaddress = zelcashaddress || req.query.zelcashaddress;
   let { minconf } = req.params;
   minconf = minconf || req.query.minconf || 1;
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'getReceivedByAddress';
     let rpcparameters = [];
@@ -1853,7 +1946,7 @@ async function getTransaction(req, res) {
 }
 
 async function getUnconfirmedBalance(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'getUnconfirmedBalance';
     response = await executeCall(rpccall);
@@ -1865,7 +1958,7 @@ async function getUnconfirmedBalance(req, res) {
 }
 
 async function getWalletInfo(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'getWalletInfo';
     response = await executeCall(rpccall);
@@ -1883,7 +1976,7 @@ async function importAddress(req, res) {
   label = label || req.query.label || '';
   let { rescan } = req.params;
   rescan = rescan || req.query.rescan || true;
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'importAddress';
     let rpcparameters = [];
@@ -1906,7 +1999,7 @@ async function importPrivKey(req, res) {
   label = label || req.query.label || '';
   let { rescan } = req.params;
   rescan = rescan || req.query.rescan || true;
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'importPrivKey';
     let rpcparameters = [];
@@ -1925,7 +2018,7 @@ async function importPrivKey(req, res) {
 async function importWallet(req, res) {
   let { filename } = req.params;
   filename = filename || req.query.filename;
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'importWallet';
     let rpcparameters = [];
@@ -1943,7 +2036,7 @@ async function importWallet(req, res) {
 async function keyPoolRefill(req, res) {
   let { newsize } = req.params;
   newsize = newsize || req.query.newsize || 100;
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'keyPoolRefill';
     newsize = serviceHelper.ensureNumber(newsize);
@@ -1957,7 +2050,7 @@ async function keyPoolRefill(req, res) {
 }
 
 async function listAddressGroupings(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'listAddressGroupings';
     response = await executeCall(rpccall);
@@ -1969,7 +2062,7 @@ async function listAddressGroupings(req, res) {
 }
 
 async function listLockUnspent(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'listLockUnspent';
     response = await executeCall(rpccall);
@@ -1983,7 +2076,7 @@ async function listLockUnspent(req, res) {
 async function rescanBlockchain(req, res) {
   let { startheight } = req.params;
   startheight = startheight || req.query.startheight || 0;
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     startheight = serviceHelper.ensureNumber(startheight);
     const rpccall = 'rescanblockchain';
@@ -2003,7 +2096,7 @@ async function listReceivedByAddress(req, res) {
   includeempty = includeempty || req.query.includeempty || false;
   let { includewatchonly } = req.params;
   includewatchonly = includewatchonly || req.query.includewatchonly || false;
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     minconf = serviceHelper.ensureNumber(minconf);
     includeempty = serviceHelper.ensureBoolean(includeempty);
@@ -2025,7 +2118,7 @@ async function listSinceBlock(req, res) {
   targetconfirmations = targetconfirmations || req.query.targetconfirmations || 1;
   let { includewatchonly } = req.params;
   includewatchonly = includewatchonly || req.query.includewatchonly || false;
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     targetconfirmations = serviceHelper.ensureNumber(targetconfirmations);
     includewatchonly = serviceHelper.ensureBoolean(includewatchonly);
@@ -2047,7 +2140,7 @@ async function listTransactions(req, res) {
   from = from || req.query.from || 0;
   let { includewatchonly } = req.params;
   includewatchonly = includewatchonly || req.query.includewatchonly || false;
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     count = serviceHelper.ensureNumber(count);
     from = serviceHelper.ensureNumber(from);
@@ -2069,7 +2162,7 @@ async function listUnspent(req, res) {
   maxconf = maxconf || req.query.maxconf || 9999999;
   let { addresses } = req.params;
   addresses = addresses || req.query.addresses;
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     minconf = serviceHelper.ensureNumber(minconf);
     maxconf = serviceHelper.ensureNumber(maxconf);
@@ -2093,7 +2186,7 @@ async function lockUnspent(req, res) {
   unlock = unlock || req.query.unlock;
   let { transactions } = req.params;
   transactions = transactions || req.query.transactions;
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'lockUnspent';
     let rpcparameters = [];
@@ -2123,7 +2216,7 @@ async function sendFrom(req, res) {
   comment = comment || req.query.comment || '';
   let { commentto } = req.params;
   commentto = commentto || req.query.commentto || '';
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'sendFrom';
     let rpcparameters = [];
@@ -2157,7 +2250,7 @@ async function sendFromPost(req, res) {
     minconf = minconf || 1;
     comment = comment || '';
     commentto = commentto || '';
-    const authorized = await serviceHelper.verifyPrivilege('admin', req);
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
     if (authorized === true) {
       const rpccall = 'sendFrom';
       let rpcparameters = [];
@@ -2186,7 +2279,7 @@ async function sendMany(req, res) {
   comment = comment || req.query.comment || '';
   let { substractfeefromamount } = req.params;
   substractfeefromamount = substractfeefromamount || req.query.substractfeefromamount;
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'sendMany';
     let rpcparameters = [];
@@ -2222,7 +2315,7 @@ async function sendManyPost(req, res) {
     const fromaccount = '';
     minconf = minconf || 1;
     comment = comment || '';
-    const authorized = await serviceHelper.verifyPrivilege('admin', req);
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
     if (authorized === true) {
       const rpccall = 'sendMany';
       let rpcparameters = [];
@@ -2256,7 +2349,7 @@ async function sendToAddress(req, res) {
   commentto = commentto || req.query.commentto || '';
   let { substractfeefromamount } = req.params;
   substractfeefromamount = substractfeefromamount || req.query.substractfeefromamount || false;
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'sendToAddress';
     let rpcparameters = [];
@@ -2289,7 +2382,7 @@ async function sendToAddressPost(req, res) {
     comment = comment || '';
     commentto = commentto || '';
     substractfeefromamount = substractfeefromamount || false;
-    const authorized = await serviceHelper.verifyPrivilege('admin', req);
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
     if (authorized === true) {
       const rpccall = 'sendToAddress';
       let rpcparameters = [];
@@ -2311,7 +2404,7 @@ async function sendToAddressPost(req, res) {
 async function setTxFee(req, res) {
   let { amount } = req.params;
   amount = amount || req.query.amount;
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'setTxFee';
     let rpcparameters = [];
@@ -2333,7 +2426,7 @@ async function signMessage(req, res) {
   taddr = taddr || req.query.taddr;
   let { message } = req.params;
   message = message || req.query.message;
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'signMessage';
     let rpcparameters = [];
@@ -2359,7 +2452,7 @@ async function signMessagePost(req, res) {
     const { taddr } = processedBody;
     const { message } = processedBody;
 
-    const authorized = await serviceHelper.verifyPrivilege('admin', req);
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
     if (authorized === true) {
       const rpccall = 'signMessage';
       let rpcparameters = [];
@@ -2379,7 +2472,7 @@ async function signMessagePost(req, res) {
 async function zExportKey(req, res) {
   let { zaddr } = req.params;
   zaddr = zaddr || req.query.zaddr;
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'z_exportkey';
     let rpcparameters = [];
@@ -2398,7 +2491,7 @@ async function zExportKey(req, res) {
 async function zExportViewingKey(req, res) {
   let { zaddr } = req.params;
   zaddr = zaddr || req.query.zaddr;
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'z_exportviewingkey';
     let rpcparameters = [];
@@ -2419,7 +2512,7 @@ async function zGetBalance(req, res) {
   address = address || req.query.address;
   let { minconf } = req.params;
   minconf = minconf || req.query.minconf || 1;
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'z_getbalance';
     let rpcparameters = [];
@@ -2437,7 +2530,7 @@ async function zGetBalance(req, res) {
 }
 
 async function zGetMigrationStatus(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'z_getmigrationstatus';
 
@@ -2452,7 +2545,7 @@ async function zGetMigrationStatus(req, res) {
 async function zGetNewAddress(req, res) {
   let { type } = req.params;
   type = type || req.query.type || 'sapling';
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'z_getnewaddress';
     const rpcparameters = [type];
@@ -2468,7 +2561,7 @@ async function zGetNewAddress(req, res) {
 async function zGetOperationResult(req, res) {
   let { operationid } = req.params;
   operationid = operationid || req.query.operationid || [];
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     operationid = serviceHelper.ensureObject(operationid);
     const rpccall = 'z_getoperationresult';
@@ -2485,7 +2578,7 @@ async function zGetOperationResult(req, res) {
 async function zGetOperationStatus(req, res) {
   let { operationid } = req.params;
   operationid = operationid || req.query.operationid || [];
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     operationid = serviceHelper.ensureObject(operationid);
     const rpccall = 'z_getoperationstatus';
@@ -2504,7 +2597,7 @@ async function zGetTotalBalance(req, res) {
   minconf = minconf || req.query.minconf || 1;
   let { includewatchonly } = req.params;
   includewatchonly = includewatchonly || req.query.includewatchonly || false;
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     minconf = serviceHelper.ensureNumber(minconf);
     includewatchonly = serviceHelper.ensureBoolean(includewatchonly);
@@ -2526,7 +2619,7 @@ async function zImportKey(req, res) {
   rescan = rescan || req.query.rescan || 'whenkeyisnew';
   let { startheight } = req.params;
   startheight = startheight || req.query.startheight || 0;
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'z_importkey';
     let rpcparameters = [];
@@ -2550,7 +2643,7 @@ async function zImportViewingKey(req, res) {
   rescan = rescan || req.query.rescan || 'whenkeyisnew';
   let { startheight } = req.params;
   startheight = startheight || req.query.startheight || 0;
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'z_importviewingkey';
     let rpcparameters = [];
@@ -2570,7 +2663,7 @@ async function zImportViewingKey(req, res) {
 async function zImportWallet(req, res) {
   let { filename } = req.params;
   filename = filename || req.query.filename;
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'z_importwallet';
     let rpcparameters = [];
@@ -2589,7 +2682,7 @@ async function zImportWallet(req, res) {
 async function zListAddresses(req, res) {
   let { includewatchonly } = req.params;
   includewatchonly = includewatchonly || req.query.includewatchonly || false;
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     includewatchonly = serviceHelper.ensureBoolean(includewatchonly);
     const rpccall = 'z_listaddresses';
@@ -2604,7 +2697,7 @@ async function zListAddresses(req, res) {
 }
 
 async function zListOperationIds(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'z_listoperationids';
 
@@ -2621,7 +2714,7 @@ async function zListReceivedByAddress(req, res) {
   address = address || req.query.address;
   let { minconf } = req.params;
   minconf = minconf || req.query.minconf || 1;
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'z_listreceivedbyaddress';
     let rpcparameters = [];
@@ -2647,7 +2740,7 @@ async function zListUnspent(req, res) {
   includewatchonly = includewatchonly || req.query.includewatchonly || false;
   let { addresses } = req.params;
   addresses = addresses || req.query.addresses;
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'z_listunspent';
     minconf = serviceHelper.ensureNumber(minconf);
@@ -2680,7 +2773,7 @@ async function zMergeToAddress(req, res) {
   shieldedlimit = shieldedlimit || req.query.shieldedlimit || 20; // 0 for as many as can fit
   let { memo } = req.params;
   memo = memo || req.query.memo || '';
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'z_mergetoaddress';
     let rpcparameters = [];
@@ -2708,7 +2801,7 @@ async function zSendMany(req, res) {
   minconf = minconf || req.query.minconf || 1;
   let { fee } = req.params;
   fee = fee || req.query.fee || 0.0001;
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'z_sendmany';
     let rpcparameters = [];
@@ -2739,7 +2832,7 @@ async function zSendManyPost(req, res) {
     let { fee } = processedBody;
     minconf = minconf || 1;
     fee = fee || 0.0001;
-    const authorized = await serviceHelper.verifyPrivilege('admin', req);
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
     if (authorized === true) {
       const rpccall = 'z_sendmany';
       let rpcparameters = [];
@@ -2761,7 +2854,7 @@ async function zSendManyPost(req, res) {
 async function zSetMigration(req, res) {
   let { enabled } = req.params;
   enabled = enabled || req.query.enabled;
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'z_setmigration';
     let rpcparameters = [];
@@ -2786,7 +2879,7 @@ async function zShieldCoinBase(req, res) {
   fee = fee || req.query.fee || 0.0001;
   let { limit } = req.params;
   limit = limit || req.query.limit || 50; // 0 for as many as can fit
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'z_shieldcoinbase';
     let rpcparameters = [];
@@ -2808,7 +2901,7 @@ async function zcBenchmark(req, res) {
   benchmarktype = benchmarktype || req.query.benchmarktype;
   let { samplecount } = req.params;
   samplecount = samplecount || req.query.samplecount;
-  const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
     const rpccall = 'zcbenchmark';
     let rpcparameters = [];
@@ -2835,7 +2928,7 @@ async function zcRawJoinSplit(req, res) {
   vpubold = vpubold || req.query.vpubold;
   let { vpubnew } = req.params;
   vpubnew = vpubnew || req.query.vpubnew;
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'zcrawjoinsplit';
     let rpcparameters = [];
@@ -2865,7 +2958,7 @@ async function zcRawJoinSplitPost(req, res) {
     const { vpubold } = processedBody;
     const { vpubnew } = processedBody;
 
-    const authorized = await serviceHelper.verifyPrivilege('admin', req);
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
     if (authorized === true) {
       const rpccall = 'zcrawjoinsplit';
       let rpcparameters = [];
@@ -2884,7 +2977,7 @@ async function zcRawJoinSplitPost(req, res) {
 }
 
 async function zcRawKeygen(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'zcrawkeygen';
     response = await executeCall(rpccall);
@@ -2900,7 +2993,7 @@ async function zcRawReceive(req, res) {
   zcsecretkey = zcsecretkey || req.query.zcsecretkey;
   let { encryptednote } = req.params;
   encryptednote = encryptednote || req.query.encryptednote;
-  const authorized = await serviceHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'zcrawreceive';
     let rpcparameters = [];
@@ -2925,7 +3018,7 @@ async function zcRawReceivePost(req, res) {
     const { zcsecretkey } = processedBody;
     const { encryptednote } = processedBody;
 
-    const authorized = await serviceHelper.verifyPrivilege('admin', req);
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
     if (authorized === true) {
       const rpccall = 'zcrawreceive';
       let rpcparameters = [];
@@ -2942,7 +3035,7 @@ async function zcRawReceivePost(req, res) {
 }
 
 async function zcSampleJoinSplit(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
     const rpccall = 'zcsamplejoinsplit';
     response = await executeCall(rpccall);
@@ -2971,7 +3064,7 @@ async function getBenchStatus(req, res) {
 }
 
 async function startBenchmarkD(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
     const rpccall = 'startzelbenchd';
     response = await executeCall(rpccall);
@@ -2983,7 +3076,7 @@ async function startBenchmarkD(req, res) {
 }
 
 async function stopBenchmarkD(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
     const rpccall = 'stopzelbenchd';
     response = await executeCall(rpccall);
@@ -3093,10 +3186,15 @@ module.exports = {
 
   // == AddressIndex ==
   getAddressTxids, // insight explorer
+  getSingleAddresssTxids,
   getAddressBalance, // insight explorer
+  getSingleAddressBalance,
   getAddressDeltas, // insight explorer
+  getSingleAddressDeltas,
   getAddressUtxos, // insight explorer
+  getSingleAddressUtxos,
   getAddressMempool, // insight explorer
+  getSingleAddressMempool,
 
   // == Disclosure ==
   // intentionally left out as of experimental feature

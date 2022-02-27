@@ -10,6 +10,7 @@ const fsPromises = fs.promises;
 const log = require('../lib/log');
 const packageJson = require('../../../package.json');
 const serviceHelper = require('./serviceHelper');
+const verificationHelper = require('./verificationHelper');
 const daemonService = require('./daemonService');
 const benchmarkService = require('./benchmarkService');
 const appsService = require('./appsService');
@@ -26,7 +27,7 @@ async function fluxBackendFolder(req, res) {
 
 // eslint-disable-next-line consistent-return
 async function updateFlux(req, res) {
-  const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
+  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
     const nodedpath = path.join(__dirname, '../../../');
     const exec = `cd ${nodedpath} && npm run updateflux`;
@@ -46,7 +47,7 @@ async function updateFlux(req, res) {
 
 // eslint-disable-next-line consistent-return
 async function softUpdateFlux(req, res) {
-  const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
+  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
     const nodedpath = path.join(__dirname, '../../../');
     const exec = `cd ${nodedpath} && npm run softupdate`;
@@ -66,7 +67,7 @@ async function softUpdateFlux(req, res) {
 
 // eslint-disable-next-line consistent-return
 async function softUpdateFluxInstall(req, res) {
-  const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
+  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
     const nodedpath = path.join(__dirname, '../../../');
     const exec = `cd ${nodedpath} && npm run softupdateinstall`;
@@ -86,7 +87,7 @@ async function softUpdateFluxInstall(req, res) {
 
 // eslint-disable-next-line consistent-return
 async function hardUpdateFlux(req, res) {
-  const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
+  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
     const nodedpath = path.join(__dirname, '../../../');
     const exec = `cd ${nodedpath} && npm run hardupdateflux`;
@@ -106,7 +107,7 @@ async function hardUpdateFlux(req, res) {
 
 // eslint-disable-next-line consistent-return
 async function rebuildHome(req, res) {
-  const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
+  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
     const nodedpath = path.join(__dirname, '../../../');
     const exec = `cd ${nodedpath} && npm run homebuild`;
@@ -126,7 +127,7 @@ async function rebuildHome(req, res) {
 
 // eslint-disable-next-line consistent-return
 async function updateDaemon(req, res) {
-  const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
+  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
     const nodedpath = path.join(__dirname, '../../../helpers');
     const exec = `cd ${nodedpath} && bash updateDaemon.sh`;
@@ -146,7 +147,7 @@ async function updateDaemon(req, res) {
 
 // eslint-disable-next-line consistent-return
 async function updateBenchmark(req, res) {
-  const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
+  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
     const nodedpath = path.join(__dirname, '../../../helpers');
     const exec = `cd ${nodedpath} && bash updateBenchmark.sh`;
@@ -166,7 +167,7 @@ async function updateBenchmark(req, res) {
 
 // eslint-disable-next-line consistent-return
 async function startBenchmark(req, res) {
-  const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
+  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
     let exec = 'zelbenchd -daemon';
     if (fs.existsSync('/usr/local/bin/fluxbenchd')) {
@@ -189,7 +190,7 @@ async function startBenchmark(req, res) {
 
 // eslint-disable-next-line consistent-return
 async function restartBenchmark(req, res) {
-  const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
+  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
     const nodedpath = path.join(__dirname, '../../../helpers');
     const exec = `cd ${nodedpath} && bash restartBenchmark.sh`;
@@ -210,7 +211,7 @@ async function restartBenchmark(req, res) {
 
 // eslint-disable-next-line consistent-return
 async function startDaemon(req, res) {
-  const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
+  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
     let exec = 'zelcashd';
     if (fs.existsSync('/usr/local/bin/fluxd')) {
@@ -233,7 +234,7 @@ async function startDaemon(req, res) {
 
 // eslint-disable-next-line consistent-return
 async function restartDaemon(req, res) {
-  const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
+  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
     const nodedpath = path.join(__dirname, '../../../helpers');
     const exec = `cd ${nodedpath} && bash restartDaemon.sh`;
@@ -254,7 +255,7 @@ async function restartDaemon(req, res) {
 
 // eslint-disable-next-line consistent-return
 async function reindexDaemon(req, res) {
-  const authorized = await serviceHelper.verifyAdminSession(req.headers);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const nodedpath = path.join(__dirname, '../../../helpers');
     const exec = `cd ${nodedpath} && bash reindexDaemon.sh`;
@@ -310,7 +311,7 @@ function getFluxKadena(req, res) {
 }
 
 async function daemonDebug(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (!authorized) {
     const errMessage = serviceHelper.errUnauthorizedMessage();
     return res.json(errMessage);
@@ -324,7 +325,7 @@ async function daemonDebug(req, res) {
 }
 
 async function benchmarkDebug(req, res) {
-  const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (!authorized) {
     const errMessage = serviceHelper.errUnauthorizedMessage();
     return res.json(errMessage);
@@ -341,7 +342,7 @@ async function benchmarkDebug(req, res) {
 }
 
 async function tailDaemonDebug(req, res) {
-  const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
+  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
     const defaultDir = new fullnode.Config().defaultFolder();
     const datadir = daemonService.getConfigValue('datadir') || defaultDir;
@@ -363,7 +364,7 @@ async function tailDaemonDebug(req, res) {
 }
 
 async function tailBenchmarkDebug(req, res) {
-  const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
+  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
     const homeDirPath = path.join(__dirname, '../../../../');
     const newBenchmarkPath = path.join(homeDirPath, '.fluxbenchmark');
@@ -397,7 +398,7 @@ async function fluxLog(res, filelog) {
 
 async function fluxErrorLog(req, res) {
   try {
-    const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (!authorized) {
       const errMessage = serviceHelper.errUnauthorizedMessage();
       res.json(errMessage);
@@ -411,7 +412,7 @@ async function fluxErrorLog(req, res) {
 
 async function fluxWarnLog(req, res) {
   try {
-    const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (!authorized) {
       const errMessage = serviceHelper.errUnauthorizedMessage();
       res.json(errMessage);
@@ -425,7 +426,7 @@ async function fluxWarnLog(req, res) {
 
 async function fluxInfoLog(req, res) {
   try {
-    const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (!authorized) {
       const errMessage = serviceHelper.errUnauthorizedMessage();
       res.json(errMessage);
@@ -439,7 +440,7 @@ async function fluxInfoLog(req, res) {
 
 async function fluxDebugLog(req, res) {
   try {
-    const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (!authorized) {
       const errMessage = serviceHelper.errUnauthorizedMessage();
       res.json(errMessage);
@@ -452,7 +453,7 @@ async function fluxDebugLog(req, res) {
 }
 
 async function tailFluxLog(req, res, logfile) {
-  const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
+  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
     const homeDirPath = path.join(__dirname, '../../../');
     const filepath = `${homeDirPath}${logfile}.log`;
@@ -474,7 +475,7 @@ async function tailFluxLog(req, res, logfile) {
 
 async function tailFluxErrorLog(req, res) {
   try {
-    const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized === true) {
       tailFluxLog(req, res, 'error');
     } else {
@@ -488,7 +489,7 @@ async function tailFluxErrorLog(req, res) {
 
 async function tailFluxWarnLog(req, res) {
   try {
-    const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized === true) {
       tailFluxLog(req, res, 'warn');
     } else {
@@ -502,7 +503,7 @@ async function tailFluxWarnLog(req, res) {
 
 async function tailFluxInfoLog(req, res) {
   try {
-    const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized === true) {
       tailFluxLog(req, res, 'info');
     } else {
@@ -516,7 +517,7 @@ async function tailFluxInfoLog(req, res) {
 
 async function tailFluxDebugLog(req, res) {
   try {
-    const authorized = await serviceHelper.verifyAdminAndFluxTeamSession(req.headers);
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized === true) {
       tailFluxLog(req, res, 'debug');
     } else {
@@ -639,7 +640,7 @@ async function getFluxInfo(req, res) {
 
 async function adjustCruxID(req, res) {
   try {
-    const authorized = await serviceHelper.verifyAdminSession(req.headers);
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
     if (authorized === true) {
       let { cruxid } = req.params;
       cruxid = cruxid || req.query.cruxid;
@@ -657,9 +658,9 @@ async function adjustCruxID(req, res) {
   initial: {
     ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
     zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
-    cruxid: '${cruxid}',
     kadena: '${userconfig.initial.kadena || ''}',
     testnet: ${userconfig.initial.testnet || false},
+    apiport: ${userconfig.initial.apiport || 16127},
   }
 }`;
 
@@ -680,7 +681,7 @@ async function adjustCruxID(req, res) {
 
 async function adjustKadenaAccount(req, res) {
   try {
-    const authorized = await serviceHelper.verifyAdminSession(req.headers);
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
     if (authorized === true) {
       let { account } = req.params;
       account = account || req.query.account;
@@ -702,9 +703,9 @@ async function adjustKadenaAccount(req, res) {
   initial: {
     ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
     zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
-    cruxid: '${userconfig.initial.cruxid || ''}',
     kadena: '${kadenaURI}',
     testnet: ${userconfig.initial.testnet || false},
+    apiport: ${userconfig.initial.apiport || 16127},
   }
 }`;
 

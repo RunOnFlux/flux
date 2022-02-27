@@ -51,7 +51,8 @@ function showQuestions() {
       initial: {
         ipaddress: '${answers.ipaddr}',
         zelid: '${answers.zelid}',
-        testnet: false
+        testnet: false,
+        apiport: 16127,
       }
     }`;
 
