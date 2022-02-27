@@ -283,7 +283,7 @@ describe('dbHelper tests', () => {
       expect(findOneAndUpdateInDatabaseResponse.value).to.eql(expectedResult);
     });
 
-    it('should rturn null if the document does not exist', async () => {
+    it('should return null if the document does not exist', async () => {
       const query = { _id: ObjectId('5f91562a011ef91cd19fbb93') };
       const updateExpression = { $set: { description: 'New Description', owner: '1SZe3AUYQC4aT5YWLhgEcH1nLLdoKNSi9a' } };
 
@@ -329,6 +329,147 @@ describe('dbHelper tests', () => {
       expect(insertOneResponse.insertedId).to.be.eql(documentToInsert._id);
       expect(getOneFromDatabase).to.eql(documentToInsert);
     });
+
+    it('should return error if key exists', async () => {
+      const documentToInsert = {
+        _id: ObjectId('5fa25bf73ba9312a4d83712d'),
+        name: 'App5',
+        description: 'Test3',
+        owner: '1SZe3AUYQC4aT5Y0LhgEcH2nLLdoKNSi9e',
+      };
+
+      expect(async () => { await dbHelper.insertOneToDatabase(database, collection, documentToInsert); }).to.throw;
+    });
+  });
+
+  describe('insertManyToDatabase tests', () => {
+    let database;
+    let collection;
+    beforeEach(async () => {
+      await dbHelper.initiateDB();
+      const db = dbHelper.databaseConnection();
+      database = db.db(config.database.appsglobal.database);
+      collection = config.database.appsglobal.collections.appsInformation;
+
+      try {
+        await database.collection(collection).drop();
+      } catch (err) {
+        console.log('Collection not found.');
+      }
+
+      await database.collection(collection).insertMany(testInsert);
+    });
+
+    it('should insert documents into database if called properly', async () => {
+      const documentsToInsert = [{
+        _id: ObjectId('4f99562a09aef92cd1afbe93'),
+        name: 'App5',
+        description: 'Test3',
+        owner: '1SZe3AUYQC4aT5Y0LhgEcH2nLLdoKNSi9e',
+      }, {
+        _id: ObjectId('4f89562a09aef92cd1afbe96'),
+        name: 'App5',
+        description: 'Test4',
+        owner: '1SZe3AUYQC4aT5Y0LhgEcH2nLLsoKNSi6e',
+      }, {
+        _id: ObjectId('4f79562a09aef92cd1afbe97'),
+        name: 'App5',
+        description: 'Test5',
+        owner: '1SZe3AUYQC4aT5Y0LhgEcH2nLLdzKNSi3e',
+      }];
+      const query = { name: 'App5' };
+
+      const insertManyToDatabaseResponse = await dbHelper.insertManyToDatabase(database, collection, documentsToInsert);
+      const findInDatabaseResult = await dbHelper.findInDatabase(database, collection, query);
+
+      expect(insertManyToDatabaseResponse.acknowledged).to.be.true;
+      expect(insertManyToDatabaseResponse.insertedCount).to.equal(3);
+      // eslint-disable-next-line no-underscore-dangle
+      expect(findInDatabaseResult).to.eql(documentsToInsert);
+    });
+
+    it('should not insert any of docs if one of them has duplicate ID if ordered option is set to true', async () => {
+      const options = { ordered: true }; // If true, when an insert fails, don't execute the remaining writes. If false, continue with remaining inserts when one fails.
+      const documentsToInsert = [{
+        _id: ObjectId('5f99562a09aef91cd19fbb93'), // duplicate ID
+        name: 'App5',
+        description: 'Test3',
+        owner: '1SZe3AUYQC4aT5Y0LhgEcH2nLLdoKNSi9e',
+      }, {
+        _id: ObjectId('4f89562a09aef92cd1afbe96'),
+        name: 'App5',
+        description: 'Test4',
+        owner: '1SZe3AUYQC4aT5Y0LhgEcH2nLLsoKNSi6e',
+      }, {
+        _id: ObjectId('4f79562a09aef92cd1afbe97'),
+        name: 'App5',
+        description: 'Test5',
+        owner: '1SZe3AUYQC4aT5Y0LhgEcH2nLLdzKNSi3e',
+      }];
+
+      const query = { name: 'App5' };
+
+      await dbHelper.insertManyToDatabase(database, collection, documentsToInsert, options);
+      const findInDatabaseResult = await dbHelper.findInDatabase(database, collection, query);
+
+      // eslint-disable-next-line no-underscore-dangle
+      expect(findInDatabaseResult).to.be.empty;
+    });
+
+    it('should insert docs, except for the one that had duplicate ID', async () => {
+      const options = { ordered: false }; // If true, when an insert fails, don't execute the remaining writes. If false, continue with remaining inserts when one fails.
+      const documentsToInsert = [{
+        _id: ObjectId('5f99562a09aef91cd19fbb93'), // duplicate ID
+        name: 'App5',
+        description: 'Test3',
+        owner: '1SZe3AUYQC4aT5Y0LhgEcH2nLLdoKNSi9e',
+      }, {
+        _id: ObjectId('4f89562a09aef92cd1afbe96'),
+        name: 'App5',
+        description: 'Test4',
+        owner: '1SZe3AUYQC4aT5Y0LhgEcH2nLLsoKNSi6e',
+      }, {
+        _id: ObjectId('4f79562a09aef92cd1afbe97'),
+        name: 'App5',
+        description: 'Test5',
+        owner: '1SZe3AUYQC4aT5Y0LhgEcH2nLLdzKNSi3e',
+      }];
+      const expectedResult = [{
+        _id: ObjectId('4f89562a09aef92cd1afbe96'),
+        name: 'App5',
+        description: 'Test4',
+        owner: '1SZe3AUYQC4aT5Y0LhgEcH2nLLsoKNSi6e',
+      }, {
+        _id: ObjectId('4f79562a09aef92cd1afbe97'),
+        name: 'App5',
+        description: 'Test5',
+        owner: '1SZe3AUYQC4aT5Y0LhgEcH2nLLdzKNSi3e',
+      }];
+
+      const query = { name: 'App5' };
+
+      await dbHelper.insertManyToDatabase(database, collection, documentsToInsert, options);
+      const findInDatabaseResult = await dbHelper.findInDatabase(database, collection, query);
+
+      // eslint-disable-next-line no-underscore-dangle
+      expect(findInDatabaseResult).to.eql(expectedResult);
+    });
+
+    it('should return error if there are duplicate keys', async () => {
+      const documentsToInsert = [{
+        _id: ObjectId('4f99562a09aef92cd1afbe93'),
+        name: 'App5',
+        description: 'Test3',
+        owner: '1SZe3AUYQC4aT5Y0LhgEcH2nLLdoKNSi9e',
+      }, {
+        _id: ObjectId('4f99562a09aef92cd1afbe93'),
+        name: 'App5',
+        description: 'Test4',
+        owner: '1SZe3AUYQC4aT5Y0LhgEcH2nLLsoKNSi6e',
+      }];
+
+      expect(async () => { await dbHelper.insertManyToDatabase(database, collection, documentsToInsert); }).to.throw;
+    });
   });
 
   describe('updateOneInDatabase tests', () => {
@@ -368,7 +509,7 @@ describe('dbHelper tests', () => {
       expect(findOneInDatabaseResult).to.eql(expectedResult);
     });
 
-    it('should rturn null if the document does not exist', async () => {
+    it('should return null if the document does not exist', async () => {
       const query = { _id: ObjectId('5f91562a011ef91cd19fbb93') };
       const updateExpression = { $set: { description: 'New Description', owner: '1SZe3AUYQC4aT5YWLhgEcH1nLLdoKNSi9a' } };
 
