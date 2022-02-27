@@ -1,4 +1,5 @@
 const config = require('config');
+const LRU = require('lru-cache');
 
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
@@ -20,6 +21,13 @@ let operationBlocked = false;
 let initBPfromNoBlockTimeout;
 let initBPfromErrorTimeout;
 
+// cache for nodes
+const LRUoptions = {
+  max: 12000, // store 12k of nodes value forever, no ttl
+};
+
+const nodeCollateralCache = new LRU(LRUoptions);
+
 async function getSenderTransactionFromDaemon(txid) {
   const verbose = 1;
   const req = {
@@ -38,6 +46,10 @@ async function getSenderTransactionFromDaemon(txid) {
 }
 
 async function getSenderForFluxTxInsight(txid, vout) {
+  const nodeCacheExists = nodeCollateralCache.get(`${txid}-${vout}`);
+  if (nodeCacheExists) {
+    return nodeCacheExists;
+  }
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.daemon.database);
   const queryFluxTx = {
@@ -73,6 +85,7 @@ async function getSenderForFluxTxInsight(txid, vout) {
           address: transactionOutput.scriptPubKey.addresses[0],
           satoshis: transactionOutput.valueSat,
         };
+        nodeCollateralCache.set(`${txid}-${vout}`, adjustedTxContent);
         return adjustedTxContent;
       }
     }
@@ -86,11 +99,16 @@ async function getSenderForFluxTxInsight(txid, vout) {
     };
     return adjustedTxContent;
   }
+  nodeCollateralCache.set(`${txid}-${vout}`, txContent);
   const sender = txContent;
   return sender;
 }
 
 async function getSenderForFluxTx(txid, vout) {
+  const nodeCacheExists = nodeCollateralCache.get(`${txid}-${vout}`);
+  if (nodeCacheExists) {
+    return nodeCacheExists;
+  }
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.daemon.database);
   const query = {
@@ -141,6 +159,7 @@ async function getSenderForFluxTx(txid, vout) {
     return adjustedTxContent;
   }
   const sender = txContent;
+  nodeCollateralCache.set(`${txid}-${vout}`, txContent);
   return sender;
 }
 
@@ -292,6 +311,8 @@ function decodeMessage(asm) {
 async function processInsight(blockDataVerbose, database) {
   // get Block Deltas information
   const txs = blockDataVerbose.tx;
+  const transactions = [];
+  const appsTransactions = [];
   // go through each transaction in deltas
   // eslint-disable-next-line no-restricted-syntax
   for (const tx of txs) {
@@ -335,8 +356,7 @@ async function processInsight(blockDataVerbose, database) {
           // eslint-disable-next-line no-await-in-loop
           const result = await dbHelper.findOneInDatabase(database, appsHashesCollection, querySearch, projectionSearch); // this search can be later removed if nodes rescan apps and reconstruct the index for unique
           if (!result) {
-            // eslint-disable-next-line no-await-in-loop
-            await dbHelper.insertOneToDatabase(database, appsHashesCollection, appTxRecord);
+            appsTransactions.push(appTxRecord);
             appsService.checkAndRequestApp(message, tx.txid, blockDataVerbose.height, isFluxAppMessageValue);
           } else {
             throw new Error(`Found an existing hash app ${serviceHelper.ensureString(result)}`);
@@ -365,9 +385,18 @@ async function processInsight(blockDataVerbose, database) {
         lockedAmount: senderInfo.satoshis || senderInfo.lockedAmount,
         height: blockDataVerbose.height,
       };
-      // eslint-disable-next-line no-await-in-loop
-      await dbHelper.insertOneToDatabase(database, fluxTransactionCollection, fluxTxData);
+
+      transactions.push(fluxTxData);
     }
+  }
+  const options = {
+    ordered: false,
+  };
+  if (appsTransactions.length > 0) {
+    await dbHelper.insertManyToDatabase(database, appsHashesCollection, appsTransactions, options);
+  }
+  if (transactions.length > 0) {
+    await dbHelper.insertManyToDatabase(database, fluxTransactionCollection, transactions, options);
   }
 }
 
@@ -489,7 +518,7 @@ async function processBlock(blockHeight, isInsightExplorer) {
     const verbosity = 2;
     const blockDataVerbose = await getVerboseBlock(blockHeight, verbosity);
     if (blockDataVerbose.height % 50 === 0) {
-      console.log(blockDataVerbose.height);
+      log.info(`Processing Explorer Block Height: ${blockDataVerbose.height}`);
     }
     if (isInsightExplorer) {
       // only process Flux transactions

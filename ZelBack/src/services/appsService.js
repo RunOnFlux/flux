@@ -4865,7 +4865,7 @@ async function reindexGlobalAppsInformation() {
   try {
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
-    await serviceHelper.dropCollection(database, globalAppsInformation).catch((error) => {
+    await dbHelper.dropCollection(database, globalAppsInformation).catch((error) => {
       if (error.message !== 'ns not found') {
         throw error;
       }
@@ -4900,7 +4900,7 @@ async function reindexGlobalAppsLocation() {
   try {
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
-    await serviceHelper.dropCollection(database, globalAppsLocations).catch((error) => {
+    await dbHelper.dropCollection(database, globalAppsLocations).catch((error) => {
       if (error.message !== 'ns not found') {
         throw error;
       }
@@ -4922,7 +4922,7 @@ async function rescanGlobalAppsInformation(height = 0, removeLastInformation = f
   try {
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
-    await serviceHelper.dropCollection(database, globalAppsInformation).catch((error) => {
+    await dbHelper.dropCollection(database, globalAppsInformation).catch((error) => {
       if (error.message !== 'ns not found') {
         throw error;
       }
