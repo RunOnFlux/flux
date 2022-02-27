@@ -8,6 +8,7 @@ const archiver = require('archiver');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
 const serviceHelper = require('./serviceHelper');
+const dbHelper = require('./dbHelper');
 const verificationHelper = require('./verificationHelper');
 const generalService = require('./generalService');
 const log = require('../lib/log');
@@ -15,12 +16,12 @@ const log = require('../lib/log');
 // FluxShare specific
 async function fluxShareDatabaseFileDelete(file) {
   try {
-    const dbopen = serviceHelper.databaseConnection();
+    const dbopen = dbHelper.databaseConnection();
     const databaseFluxShare = dbopen.db(config.database.fluxshare.database);
     const sharedCollection = config.database.fluxshare.collections.shared;
     const queryFluxShare = { name: file };
     const projectionFluxShare = { projection: { _id: 0, name: 1, token: 1 } };
-    await serviceHelper.findOneAndDeleteInDatabase(databaseFluxShare, sharedCollection, queryFluxShare, projectionFluxShare);
+    await dbHelper.findOneAndDeleteInDatabase(databaseFluxShare, sharedCollection, queryFluxShare, projectionFluxShare);
     return true;
   } catch (error) {
     log.error(error);
@@ -31,11 +32,11 @@ async function fluxShareDatabaseFileDelete(file) {
 // removes documents that starts with the path queried
 async function fluxShareDatabaseFileDeleteMultiple(pathstart) {
   try {
-    const dbopen = serviceHelper.databaseConnection();
+    const dbopen = dbHelper.databaseConnection();
     const databaseFluxShare = dbopen.db(config.database.fluxshare.database);
     const sharedCollection = config.database.fluxshare.collections.shared;
     const queryFluxShare = { name: new RegExp(`^${pathstart}`) }; // has to start with this path
-    await serviceHelper.removeDocumentsFromCollection(databaseFluxShare, sharedCollection, queryFluxShare);
+    await dbHelper.removeDocumentsFromCollection(databaseFluxShare, sharedCollection, queryFluxShare);
     return true;
   } catch (error) {
     log.error(error);
@@ -101,12 +102,12 @@ function getFluxShareSpecificFolderSize(folder) {
 
 async function fluxShareDatabaseShareFile(file) {
   try {
-    const dbopen = serviceHelper.databaseConnection();
+    const dbopen = dbHelper.databaseConnection();
     const databaseFluxShare = dbopen.db(config.database.fluxshare.database);
     const sharedCollection = config.database.fluxshare.collections.shared;
     const queryFluxShare = { name: file };
     const projectionFluxShare = { projection: { _id: 0, name: 1, token: 1 } };
-    const result = await serviceHelper.findOneInDatabase(databaseFluxShare, sharedCollection, queryFluxShare, projectionFluxShare);
+    const result = await dbHelper.findOneInDatabase(databaseFluxShare, sharedCollection, queryFluxShare, projectionFluxShare);
     if (result) {
       return result;
     }
@@ -116,7 +117,7 @@ async function fluxShareDatabaseShareFile(file) {
       name: file,
       token: crypto.createHash('sha256').update(string).digest('hex'),
     };
-    await serviceHelper.insertOneToDatabase(databaseFluxShare, sharedCollection, fileDetail);
+    await dbHelper.insertOneToDatabase(databaseFluxShare, sharedCollection, fileDetail);
     return fileDetail;
   } catch (error) {
     log.error(error);
@@ -126,12 +127,12 @@ async function fluxShareDatabaseShareFile(file) {
 
 async function fluxShareSharedFiles() {
   try {
-    const dbopen = serviceHelper.databaseConnection();
+    const dbopen = dbHelper.databaseConnection();
     const databaseFluxShare = dbopen.db(config.database.fluxshare.database);
     const sharedCollection = config.database.fluxshare.collections.shared;
     const queryFluxShare = {};
     const projectionFluxShare = { projection: { _id: 0, name: 1, token: 1 } };
-    const results = await serviceHelper.findInDatabase(databaseFluxShare, sharedCollection, queryFluxShare, projectionFluxShare);
+    const results = await dbHelper.findInDatabase(databaseFluxShare, sharedCollection, queryFluxShare, projectionFluxShare);
     return results;
   } catch (error) {
     log.error(error);
@@ -317,12 +318,12 @@ async function fluxShareDownloadFile(req, res) {
         return;
       }
       const fileURI = encodeURIComponent(file);
-      const dbopen = serviceHelper.databaseConnection();
+      const dbopen = dbHelper.databaseConnection();
       const databaseFluxShare = dbopen.db(config.database.fluxshare.database);
       const sharedCollection = config.database.fluxshare.collections.shared;
       const queryFluxShare = { name: fileURI, token };
       const projectionFluxShare = { projection: { _id: 0, name: 1, token: 1 } };
-      const result = await serviceHelper.findOneInDatabase(databaseFluxShare, sharedCollection, queryFluxShare, projectionFluxShare);
+      const result = await dbHelper.findOneInDatabase(databaseFluxShare, sharedCollection, queryFluxShare, projectionFluxShare);
       if (!result) {
         const errMessage = serviceHelper.errUnauthorizedMessage();
         res.json(errMessage);

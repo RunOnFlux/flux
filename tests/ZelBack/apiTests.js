@@ -4,7 +4,7 @@ const config = require('config');
 const chai = require('chai');
 const app = require('../../ZelBack/src/lib/server');
 const log = require('../../ZelBack/src/lib/log');
-const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+const dbHelper = require('../../ZelBack/src/services/serviceHelper');
 
 const packageJson = require('../../package.json');
 
@@ -23,7 +23,7 @@ describe('loading express', () => {
     }, 10000);
   });
   before(async () => {
-    await serviceHelper.initiateDB();
+    await dbHelper.initiateDB();
   });
   it('/flux/version', (done) => {
     request(server)

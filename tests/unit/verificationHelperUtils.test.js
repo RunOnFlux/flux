@@ -5,6 +5,7 @@ const proxyquire = require('proxyquire');
 
 const { expect } = chai;
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+const dbHelper = require('../../ZelBack/src/services/dbHelper');
 
 const adminConfig = {
   initial: {
@@ -53,8 +54,8 @@ const insertApp = {
 describe('verificationHelperUtils tests', () => {
   describe('verifyAdminSession tests', () => {
     beforeEach(async () => {
-      await serviceHelper.initiateDB();
-      const db = serviceHelper.databaseConnection();
+      await dbHelper.initiateDB();
+      const db = dbHelper.databaseConnection();
       const database = db.db(config.database.local.database);
       const collection = config.database.local.collections.loggedUsers;
 
@@ -142,8 +143,8 @@ describe('verificationHelperUtils tests', () => {
 
   describe('verifyUserSession tests', () => {
     beforeEach(async () => {
-      await serviceHelper.initiateDB();
-      const db = serviceHelper.databaseConnection();
+      await dbHelper.initiateDB();
+      const db = dbHelper.databaseConnection();
       const database = db.db(config.database.local.database);
       const collection = config.database.local.collections.loggedUsers;
 
@@ -216,8 +217,8 @@ describe('verificationHelperUtils tests', () => {
 
   describe('verifyFluxTeamSession tests', () => {
     beforeEach(async () => {
-      await serviceHelper.initiateDB();
-      const db = serviceHelper.databaseConnection();
+      await dbHelper.initiateDB();
+      const db = dbHelper.databaseConnection();
       const database = db.db(config.database.local.database);
       const collection = config.database.local.collections.loggedUsers;
 
@@ -325,8 +326,8 @@ describe('verificationHelperUtils tests', () => {
 
   describe('verifyAdminAndFluxTeamSession tests', () => {
     beforeEach(async () => {
-      await serviceHelper.initiateDB();
-      const db = serviceHelper.databaseConnection();
+      await dbHelper.initiateDB();
+      const db = dbHelper.databaseConnection();
       const database = db.db(config.database.local.database);
       const collection = config.database.local.collections.loggedUsers;
 
@@ -447,8 +448,8 @@ describe('verificationHelperUtils tests', () => {
 
   describe('verifyAppOwnerSession tests', () => {
     beforeEach(async () => {
-      await serviceHelper.initiateDB();
-      const db = serviceHelper.databaseConnection();
+      await dbHelper.initiateDB();
+      const db = dbHelper.databaseConnection();
       const databaseLocal = db.db(config.database.local.database);
       const collectionLoggedUsers = config.database.local.collections.loggedUsers;
 
@@ -468,7 +469,7 @@ describe('verificationHelperUtils tests', () => {
       } catch (err) {
         console.log('Collection not found.');
       }
-      await serviceHelper.insertOneToDatabase(databaseGlobal, collectionApps, insertApp);
+      await dbHelper.insertOneToDatabase(databaseGlobal, collectionApps, insertApp);
     });
 
     it('should return true when requested by the app owner', async () => {
@@ -548,8 +549,8 @@ describe('verificationHelperUtils tests', () => {
 
   describe('verifyAppOwnerSessionOrHigher tests', () => {
     beforeEach(async () => {
-      await serviceHelper.initiateDB();
-      const db = serviceHelper.databaseConnection();
+      await dbHelper.initiateDB();
+      const db = dbHelper.databaseConnection();
       const databaseLocal = db.db(config.database.local.database);
       const collectionLoggedUsers = config.database.local.collections.loggedUsers;
 
@@ -569,7 +570,7 @@ describe('verificationHelperUtils tests', () => {
       } catch (err) {
         console.log('Collection not found.');
       }
-      await serviceHelper.insertOneToDatabase(databaseGlobal, collectionApps, insertApp);
+      await dbHelper.insertOneToDatabase(databaseGlobal, collectionApps, insertApp);
     });
 
     it('should return true when requested by the app owner', async () => {

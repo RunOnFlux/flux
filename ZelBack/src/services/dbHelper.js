@@ -22,6 +22,7 @@ function databaseConnection() {
  * Initiates connection with the database.
  *
  * @param {string} [url]
+ *
  * @returns {object} mongodb.MongoClient
  */
 async function connectMongoDb(url) {

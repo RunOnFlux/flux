@@ -2,6 +2,7 @@ const config = require('config');
 
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
+const dbHelper = require('./dbHelper');
 const verificationHelper = require('./verificationHelper');
 const daemonService = require('./daemonService');
 const appsService = require('./appsService');
@@ -37,7 +38,7 @@ async function getSenderTransactionFromDaemon(txid) {
 }
 
 async function getSenderForFluxTxInsight(txid, vout) {
-  const db = serviceHelper.databaseConnection();
+  const db = dbHelper.databaseConnection();
   const database = db.db(config.database.daemon.database);
   const queryFluxTx = {
     collateralHash: txid,
@@ -53,7 +54,7 @@ async function getSenderForFluxTxInsight(txid, vout) {
     },
   };
   // find previous flux transaction that
-  const txContent = await serviceHelper.findOneInDatabase(database, fluxTransactionCollection, queryFluxTx, projectionFluxTx);
+  const txContent = await dbHelper.findOneInDatabase(database, fluxTransactionCollection, queryFluxTx, projectionFluxTx);
   if (!txContent) {
     // ask blockchain for the transaction
     const verbose = 1;
@@ -90,7 +91,7 @@ async function getSenderForFluxTxInsight(txid, vout) {
 }
 
 async function getSenderForFluxTx(txid, vout) {
-  const db = serviceHelper.databaseConnection();
+  const db = dbHelper.databaseConnection();
   const database = db.db(config.database.daemon.database);
   const query = {
     txid,
@@ -111,7 +112,7 @@ async function getSenderForFluxTx(txid, vout) {
   };
 
   // find the utxo from global utxo list
-  let txContent = await serviceHelper.findOneInDatabase(database, utxoIndexCollection, query, projection);
+  let txContent = await dbHelper.findOneInDatabase(database, utxoIndexCollection, query, projection);
   if (!txContent) {
     log.info(`Transaction ${txid} ${vout} not found in database. Falling back to previous Flux transaction`);
     const queryFluxTx = {
@@ -128,7 +129,7 @@ async function getSenderForFluxTx(txid, vout) {
       },
     };
     // find previous flux transaction that
-    txContent = await serviceHelper.findOneInDatabase(database, fluxTransactionCollection, queryFluxTx, projectionFluxTx);
+    txContent = await dbHelper.findOneInDatabase(database, fluxTransactionCollection, queryFluxTx, projectionFluxTx);
   }
   if (!txContent) {
     log.warn(`Transaction ${txid} ${vout} was not found anywhere. Uncomplete tx!`);
@@ -144,7 +145,7 @@ async function getSenderForFluxTx(txid, vout) {
 }
 
 async function getSender(txid, vout) {
-  const db = serviceHelper.databaseConnection();
+  const db = dbHelper.databaseConnection();
   const database = db.db(config.database.daemon.database);
   const query = { $and: [{ txid }, { vout }] };
   // we do not need other data as we are just asking what the sender address is.
@@ -162,7 +163,7 @@ async function getSender(txid, vout) {
   };
 
   // find and delete the utxo from global utxo list
-  const txContent = await serviceHelper.findOneAndDeleteInDatabase(database, utxoIndexCollection, query, projection);
+  const txContent = await dbHelper.findOneAndDeleteInDatabase(database, utxoIndexCollection, query, projection);
   if (!txContent.value) {
     // we are spending it anyway so it wont affect users balance
     log.info(`Transaction ${txid} ${vout} not found in database. Falling back to blockchain data`);
@@ -183,7 +184,7 @@ async function getSender(txid, vout) {
 }
 
 async function processTransaction(txContent, height) {
-  const db = serviceHelper.databaseConnection();
+  const db = dbHelper.databaseConnection();
   const database = db.db(config.database.daemon.database);
   let transactionDetail = {};
   transactionDetail = txContent;
@@ -209,10 +210,10 @@ async function processTransaction(txContent, height) {
           coinbase,
         };
         // put the utxo to our mongoDB utxoIndex collection.
-        await serviceHelper.insertOneToDatabase(database, utxoIndexCollection, utxoDetail);
+        await dbHelper.insertOneToDatabase(database, utxoIndexCollection, utxoDetail);
         // track coinbase txs for additional rewards on paralel chains for fusion
         if (coinbase && height > 825000) { // 825000 is snapshot, 825001 is first block eligible for rewards on other chains
-          await serviceHelper.insertOneToDatabase(database, coinbaseFusionIndexCollection, utxoDetail);
+          await dbHelper.insertOneToDatabase(database, coinbaseFusionIndexCollection, utxoDetail);
         }
       }
     }));
@@ -332,10 +333,10 @@ async function processInsight(blockDataVerbose, database) {
             },
           };
           // eslint-disable-next-line no-await-in-loop
-          const result = await serviceHelper.findOneInDatabase(database, appsHashesCollection, querySearch, projectionSearch); // this search can be later removed if nodes rescan apps and reconstruct the index for unique
+          const result = await dbHelper.findOneInDatabase(database, appsHashesCollection, querySearch, projectionSearch); // this search can be later removed if nodes rescan apps and reconstruct the index for unique
           if (!result) {
             // eslint-disable-next-line no-await-in-loop
-            await serviceHelper.insertOneToDatabase(database, appsHashesCollection, appTxRecord);
+            await dbHelper.insertOneToDatabase(database, appsHashesCollection, appTxRecord);
             appsService.checkAndRequestApp(message, tx.txid, blockDataVerbose.height, isFluxAppMessageValue);
           } else {
             throw new Error(`Found an existing hash app ${serviceHelper.ensureString(result)}`);
@@ -365,7 +366,7 @@ async function processInsight(blockDataVerbose, database) {
         height: blockDataVerbose.height,
       };
       // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.insertOneToDatabase(database, fluxTransactionCollection, fluxTxData);
+      await dbHelper.insertOneToDatabase(database, fluxTransactionCollection, fluxTxData);
     }
   }
 }
@@ -409,7 +410,7 @@ async function processStandard(blockDataVerbose, database) {
         const options = {
           upsert: true,
         };
-        await serviceHelper.updateOneInDatabase(database, addressTransactionIndexCollection, query, update, options);
+        await dbHelper.updateOneInDatabase(database, addressTransactionIndexCollection, query, update, options);
       }));
       const intervals = config.fluxapps.price.filter((i) => i.height <= blockDataVerbose.height);
       const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
@@ -434,9 +435,9 @@ async function processStandard(blockDataVerbose, database) {
               message: 1,
             },
           };
-          const result = await serviceHelper.findOneInDatabase(database, appsHashesCollection, querySearch, projectionSearch); // this search can be later removed if nodes rescan apps and reconstruct the index for unique
+          const result = await dbHelper.findOneInDatabase(database, appsHashesCollection, querySearch, projectionSearch); // this search can be later removed if nodes rescan apps and reconstruct the index for unique
           if (!result) {
-            await serviceHelper.insertOneToDatabase(database, appsHashesCollection, appTxRecord);
+            await dbHelper.insertOneToDatabase(database, appsHashesCollection, appTxRecord);
             appsService.checkAndRequestApp(message, tx.txid, blockDataVerbose.height, isFluxAppMessageValue);
           } else {
             throw new Error(`Found an existing hash app ${serviceHelper.ensureString(result)}`);
@@ -467,7 +468,7 @@ async function processStandard(blockDataVerbose, database) {
         lockedAmount: senderInfo.satoshis || senderInfo.lockedAmount,
         height: blockDataVerbose.height,
       };
-      await serviceHelper.insertOneToDatabase(database, fluxTransactionCollection, fluxTxData);
+      await dbHelper.insertOneToDatabase(database, fluxTransactionCollection, fluxTxData);
     }
   }));
 }
@@ -482,7 +483,7 @@ async function processBlock(blockHeight, isInsightExplorer) {
       return;
     }
     someBlockIsProcessing = true;
-    const db = serviceHelper.databaseConnection();
+    const db = dbHelper.databaseConnection();
     const database = db.db(config.database.daemon.database);
     // get Block information
     const verbosity = 2;
@@ -498,14 +499,14 @@ async function processBlock(blockHeight, isInsightExplorer) {
     }
     if (blockHeight % config.fluxapps.expireFluxAppsPeriod === 0) {
       if (!isInsightExplorer) {
-        const result = await serviceHelper.collectionStats(database, utxoIndexCollection);
-        const resultB = await serviceHelper.collectionStats(database, addressTransactionIndexCollection);
-        const resultFusion = await serviceHelper.collectionStats(database, coinbaseFusionIndexCollection);
+        const result = await dbHelper.collectionStats(database, utxoIndexCollection);
+        const resultB = await dbHelper.collectionStats(database, addressTransactionIndexCollection);
+        const resultFusion = await dbHelper.collectionStats(database, coinbaseFusionIndexCollection);
         log.info(`UTXO documents: ${result.size}, ${result.count}, ${result.avgObjSize}`);
         log.info(`ADDR documents: ${resultB.size}, ${resultB.count}, ${resultB.avgObjSize}`);
         log.info(`Fusion documents: ${resultFusion.size}, ${resultFusion.count}, ${resultFusion.avgObjSize}`);
       }
-      const resultC = await serviceHelper.collectionStats(database, fluxTransactionCollection);
+      const resultC = await dbHelper.collectionStats(database, fluxTransactionCollection);
       log.info(`FLUX documents: ${resultC.size}, ${resultC.count}, ${resultC.avgObjSize}`);
       if (blockDataVerbose.height >= config.fluxapps.epochstart) {
         appsService.expireGlobalApplications();
@@ -528,7 +529,7 @@ async function processBlock(blockHeight, isInsightExplorer) {
     const options = {
       upsert: true,
     };
-    await serviceHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
+    await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
     someBlockIsProcessing = false;
     if (blockProccessingCanContinue) {
       if (blockDataVerbose.confirmations > 1) {
@@ -568,7 +569,7 @@ async function restoreDatabaseToBlockheightState(height, rescanGlobalApps = fals
   if (!height) {
     throw new Error('No blockheight for restoring provided');
   }
-  const dbopen = serviceHelper.databaseConnection();
+  const dbopen = dbHelper.databaseConnection();
   const database = dbopen.db(config.database.daemon.database);
 
   const query = { height: { $gt: height } };
@@ -577,23 +578,23 @@ async function restoreDatabaseToBlockheightState(height, rescanGlobalApps = fals
   const projection = { $pull: { transactions: { height: { $gt: height } } } };
 
   // restore utxoDatabase collection
-  await serviceHelper.removeDocumentsFromCollection(database, utxoIndexCollection, query);
+  await dbHelper.removeDocumentsFromCollection(database, utxoIndexCollection, query);
   // restore coinbaseDatabase collection
-  await serviceHelper.removeDocumentsFromCollection(database, coinbaseFusionIndexCollection, query);
+  await dbHelper.removeDocumentsFromCollection(database, coinbaseFusionIndexCollection, query);
   // restore addressTransactionIndex collection
   // remove transactions with height bigger than our scanned height
-  await serviceHelper.updateInDatabase(database, addressTransactionIndexCollection, queryForAddresses, projection);
+  await dbHelper.updateInDatabase(database, addressTransactionIndexCollection, queryForAddresses, projection);
   // remove addresses with 0 transactions
-  await serviceHelper.removeDocumentsFromCollection(database, addressTransactionIndexCollection, queryForAddressesDeletion);
+  await dbHelper.removeDocumentsFromCollection(database, addressTransactionIndexCollection, queryForAddressesDeletion);
   // restore fluxTransactions collection
-  await serviceHelper.removeDocumentsFromCollection(database, fluxTransactionCollection, query);
+  await dbHelper.removeDocumentsFromCollection(database, fluxTransactionCollection, query);
   // restore appsHashes collection
-  await serviceHelper.removeDocumentsFromCollection(database, appsHashesCollection, query);
+  await dbHelper.removeDocumentsFromCollection(database, appsHashesCollection, query);
   if (rescanGlobalApps === true) {
     const databaseGlobal = dbopen.db(config.database.appsglobal.database);
     log.info('Rescanning Apps!');
-    await serviceHelper.removeDocumentsFromCollection(databaseGlobal, config.database.appsglobal.collections.appsMessages, query);
-    await serviceHelper.removeDocumentsFromCollection(databaseGlobal, config.database.appsglobal.collections.appsInformation, query);
+    await dbHelper.removeDocumentsFromCollection(databaseGlobal, config.database.appsglobal.collections.appsMessages, query);
+    await dbHelper.removeDocumentsFromCollection(databaseGlobal, config.database.appsglobal.collections.appsInformation, query);
   }
   log.info('Rescan completed');
   return true;
@@ -614,7 +615,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
       return;
     }
     isInInitiationOfBP = true;
-    const db = serviceHelper.databaseConnection();
+    const db = dbHelper.databaseConnection();
     const database = db.db(config.database.daemon.database);
     const query = { generalScannedHeight: { $gte: 0 } };
     const projection = {
@@ -624,7 +625,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
       },
     };
     let scannedBlockHeight = 0;
-    const currentHeight = await serviceHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
+    const currentHeight = await dbHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
     if (currentHeight && currentHeight.generalScannedHeight) {
       scannedBlockHeight = currentHeight.generalScannedHeight;
     }
@@ -639,27 +640,27 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
     // get height from blockchain?
     if (scannedBlockHeight === 0) {
       log.info('Preparing daemon collections');
-      const result = await serviceHelper.dropCollection(database, utxoIndexCollection).catch((error) => {
+      const result = await dbHelper.dropCollection(database, utxoIndexCollection).catch((error) => {
         if (error.message !== 'ns not found') {
           throw error;
         }
       });
-      const resultB = await serviceHelper.dropCollection(database, addressTransactionIndexCollection).catch((error) => {
+      const resultB = await dbHelper.dropCollection(database, addressTransactionIndexCollection).catch((error) => {
         if (error.message !== 'ns not found') {
           throw error;
         }
       });
-      const resultC = await serviceHelper.dropCollection(database, fluxTransactionCollection).catch((error) => {
+      const resultC = await dbHelper.dropCollection(database, fluxTransactionCollection).catch((error) => {
         if (error.message !== 'ns not found') {
           throw error;
         }
       });
-      const resultD = await serviceHelper.dropCollection(database, appsHashesCollection).catch((error) => {
+      const resultD = await dbHelper.dropCollection(database, appsHashesCollection).catch((error) => {
         if (error.message !== 'ns not found') {
           throw error;
         }
       });
-      const resultFusion = await serviceHelper.dropCollection(database, coinbaseFusionIndexCollection).catch((error) => {
+      const resultFusion = await dbHelper.dropCollection(database, coinbaseFusionIndexCollection).catch((error) => {
         if (error.message !== 'ns not found') {
           throw error;
         }
@@ -693,17 +694,17 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
       const databaseGlobal = db.db(config.database.appsglobal.database);
       log.info('Preparing apps collections');
       if (reindexOrRescanGlobalApps === true) {
-        const resultE = await serviceHelper.dropCollection(databaseGlobal, config.database.appsglobal.collections.appsMessages).catch((error) => {
+        const resultE = await dbHelper.dropCollection(databaseGlobal, config.database.appsglobal.collections.appsMessages).catch((error) => {
           if (error.message !== 'ns not found') {
             throw error;
           }
         });
-        const resultF = await serviceHelper.dropCollection(databaseGlobal, config.database.appsglobal.collections.appsInformation).catch((error) => {
+        const resultF = await dbHelper.dropCollection(databaseGlobal, config.database.appsglobal.collections.appsInformation).catch((error) => {
           if (error.message !== 'ns not found') {
             throw error;
           }
         });
-        const resultG = await serviceHelper.dropCollection(databaseGlobal, config.database.appsglobal.collections.appsLocations).catch((error) => {
+        const resultG = await dbHelper.dropCollection(databaseGlobal, config.database.appsglobal.collections.appsLocations).catch((error) => {
           if (error.message !== 'ns not found') {
             throw error;
           }
@@ -746,7 +747,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
             const options = {
               upsert: true,
             };
-            await serviceHelper.updateOneInDatabase(database, scannedHeightCollection, queryHeight, update, options);
+            await dbHelper.updateOneInDatabase(database, scannedHeightCollection, queryHeight, update, options);
             log.info('Database restored OK');
           } else {
             log.info('Restoring database...');
@@ -785,7 +786,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
             const options = {
               upsert: true,
             };
-            await serviceHelper.updateOneInDatabase(database, scannedHeightCollection, queryHeight, update, options);
+            await dbHelper.updateOneInDatabase(database, scannedHeightCollection, queryHeight, update, options);
             log.info('Database restored OK');
           } catch (e) {
             log.error('Error restoring database!');
@@ -823,7 +824,7 @@ async function getAllUtxos(req, res) {
     if (isInsightExplorer) {
       throw new Error('Data unavailable. Deprecated');
     }
-    const dbopen = serviceHelper.databaseConnection();
+    const dbopen = dbHelper.databaseConnection();
     const database = dbopen.db(config.database.daemon.database);
     const query = {};
     const projection = {
@@ -838,7 +839,7 @@ async function getAllUtxos(req, res) {
         coinbase: 1,
       },
     };
-    const results = await serviceHelper.findInDatabase(database, utxoIndexCollection, query, projection);
+    const results = await dbHelper.findInDatabase(database, utxoIndexCollection, query, projection);
     const resMessage = serviceHelper.createDataMessage(results);
     res.json(resMessage);
   } catch (error) {
@@ -854,7 +855,7 @@ async function getAllFusionCoinbase(req, res) {
     if (isInsightExplorer) {
       throw new Error('Data unavailable. Deprecated');
     }
-    const dbopen = serviceHelper.databaseConnection();
+    const dbopen = dbHelper.databaseConnection();
     const database = dbopen.db(config.database.daemon.database);
     const query = {};
     const projection = {
@@ -869,7 +870,7 @@ async function getAllFusionCoinbase(req, res) {
         coinbase: 1,
       },
     };
-    const results = await serviceHelper.findInDatabase(database, coinbaseFusionIndexCollection, query, projection);
+    const results = await dbHelper.findInDatabase(database, coinbaseFusionIndexCollection, query, projection);
     const resMessage = serviceHelper.createDataMessage(results);
     res.json(resMessage);
   } catch (error) {
@@ -881,7 +882,7 @@ async function getAllFusionCoinbase(req, res) {
 
 async function getAllFluxTransactions(req, res) {
   try {
-    const dbopen = serviceHelper.databaseConnection();
+    const dbopen = dbHelper.databaseConnection();
     const database = dbopen.db(config.database.daemon.database);
     const query = {};
     const projection = {
@@ -900,7 +901,7 @@ async function getAllFluxTransactions(req, res) {
         height: 1,
       },
     };
-    const results = await serviceHelper.findInDatabase(database, fluxTransactionCollection, query, projection);
+    const results = await dbHelper.findInDatabase(database, fluxTransactionCollection, query, projection);
     const resMessage = serviceHelper.createDataMessage(results);
     res.json(resMessage);
   } catch (error) {
@@ -917,7 +918,7 @@ async function getAllAddressesWithTransactions(req, res) {
     if (isInsightExplorer) {
       throw new Error('Data unavailable. Deprecated');
     }
-    const dbopen = serviceHelper.databaseConnection();
+    const dbopen = dbHelper.databaseConnection();
     const database = dbopen.db(config.database.daemon.database);
     const query = {};
     const projection = {
@@ -928,7 +929,7 @@ async function getAllAddressesWithTransactions(req, res) {
         count: 1,
       },
     };
-    const results = await serviceHelper.findInDatabase(database, addressTransactionIndexCollection, query, projection);
+    const results = await dbHelper.findInDatabase(database, addressTransactionIndexCollection, query, projection);
     const resMessage = serviceHelper.createDataMessage(results);
     res.json(resMessage);
   } catch (error) {
@@ -945,10 +946,10 @@ async function getAllAddresses(req, res) {
     if (isInsightExplorer) {
       throw new Error('Data unavailable. Deprecated');
     }
-    const dbopen = serviceHelper.databaseConnection();
+    const dbopen = dbHelper.databaseConnection();
     const database = dbopen.db(config.database.daemon.database);
     const variable = 'address';
-    const results = await serviceHelper.distinctDatabase(database, addressTransactionIndexCollection, variable);
+    const results = await dbHelper.distinctDatabase(database, addressTransactionIndexCollection, variable);
     const resMessage = serviceHelper.createDataMessage(results);
     res.json(resMessage);
   } catch (error) {
@@ -992,7 +993,7 @@ async function getAddressUtxos(req, res) {
       const resMessage = serviceHelper.createDataMessage(utxos);
       res.json(resMessage);
     } else {
-      const dbopen = serviceHelper.databaseConnection();
+      const dbopen = dbHelper.databaseConnection();
       const database = dbopen.db(config.database.daemon.database);
       const query = { address };
       const projection = {
@@ -1007,7 +1008,7 @@ async function getAddressUtxos(req, res) {
           coinbase: 1, // HERE DIFFERS
         },
       };
-      const results = await serviceHelper.findInDatabase(database, utxoIndexCollection, query, projection);
+      const results = await dbHelper.findInDatabase(database, utxoIndexCollection, query, projection);
       const resMessage = serviceHelper.createDataMessage(results);
       res.json(resMessage);
     }
@@ -1029,7 +1030,7 @@ async function getAddressFusionCoinbase(req, res) {
     if (!address) {
       throw new Error('No address provided');
     }
-    const dbopen = serviceHelper.databaseConnection();
+    const dbopen = dbHelper.databaseConnection();
     const database = dbopen.db(config.database.daemon.database);
     const query = { address };
     const projection = {
@@ -1044,7 +1045,7 @@ async function getAddressFusionCoinbase(req, res) {
         coinbase: 1,
       },
     };
-    const results = await serviceHelper.findInDatabase(database, coinbaseFusionIndexCollection, query, projection);
+    const results = await dbHelper.findInDatabase(database, coinbaseFusionIndexCollection, query, projection);
     const resMessage = serviceHelper.createDataMessage(results);
     res.json(resMessage);
   } catch (error) {
@@ -1074,7 +1075,7 @@ async function getFilteredFluxTxs(req, res) {
     } else {
       throw new Error('It is possible to only filter via IP address, Flux address and Collateral hash.');
     }
-    const dbopen = serviceHelper.databaseConnection();
+    const dbopen = dbHelper.databaseConnection();
     const database = dbopen.db(config.database.daemon.database);
     const projection = {
       projection: {
@@ -1092,7 +1093,7 @@ async function getFilteredFluxTxs(req, res) {
         height: 1,
       },
     };
-    const results = await serviceHelper.findInDatabase(database, fluxTransactionCollection, query, projection);
+    const results = await dbHelper.findInDatabase(database, fluxTransactionCollection, query, projection);
     const resMessage = serviceHelper.createDataMessage(results);
     res.json(resMessage);
   } catch (error) {
@@ -1128,11 +1129,11 @@ async function getAddressTransactions(req, res) {
       const resMessage = serviceHelper.createDataMessage(txidsOK);
       res.json(resMessage);
     } else {
-      const dbopen = serviceHelper.databaseConnection();
+      const dbopen = dbHelper.databaseConnection();
       const database = dbopen.db(config.database.daemon.database);
       const query = { address };
       const distinct = 'transactions';
-      const results = await serviceHelper.distinctDatabase(database, addressTransactionIndexCollection, distinct, query);
+      const results = await dbHelper.distinctDatabase(database, addressTransactionIndexCollection, distinct, query);
       // TODO FIX documentation. UPDATE for an amount of last txs needed.
       // now we have array of transactions [{txid, height}, {}...]
       const resMessage = serviceHelper.createDataMessage(results);
@@ -1147,7 +1148,7 @@ async function getAddressTransactions(req, res) {
 
 async function getScannedHeight(req, res) {
   try {
-    const dbopen = serviceHelper.databaseConnection();
+    const dbopen = dbHelper.databaseConnection();
     const database = dbopen.db(config.database.daemon.database);
     const query = { generalScannedHeight: { $gte: 0 } };
     const projection = {
@@ -1156,7 +1157,7 @@ async function getScannedHeight(req, res) {
         generalScannedHeight: 1,
       },
     };
-    const result = await serviceHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
+    const result = await dbHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
     if (!result) {
       throw new Error('Scanning not initiated');
     }
@@ -1235,9 +1236,9 @@ async function reindexExplorer(req, res) {
         res.json(errMessage);
       } else {
         operationBlocked = true;
-        const dbopen = serviceHelper.databaseConnection();
+        const dbopen = dbHelper.databaseConnection();
         const database = dbopen.db(config.database.daemon.database);
-        const resultOfDropping = await serviceHelper.dropCollection(database, scannedHeightCollection).catch((error) => {
+        const resultOfDropping = await dbHelper.dropCollection(database, scannedHeightCollection).catch((error) => {
           if (error.message !== 'ns not found') {
             operationBlocked = false;
             log.error(error);
@@ -1274,7 +1275,7 @@ async function rescanExplorer(req, res) {
         res.json(errMessage);
       }
       blockheight = serviceHelper.ensureNumber(blockheight);
-      const dbopen = serviceHelper.databaseConnection();
+      const dbopen = dbHelper.databaseConnection();
       const database = dbopen.db(config.database.daemon.database);
       const query = { generalScannedHeight: { $gte: 0 } };
       const projection = {
@@ -1283,7 +1284,7 @@ async function rescanExplorer(req, res) {
           generalScannedHeight: 1,
         },
       };
-      const currentHeight = await serviceHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
+      const currentHeight = await dbHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
       if (!currentHeight) {
         throw new Error('No scanned height found');
       }
@@ -1311,7 +1312,7 @@ async function rescanExplorer(req, res) {
             upsert: true,
           };
           // update scanned Height in scannedBlockHeightCollection
-          await serviceHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
+          await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
           operationBlocked = false;
           initiateBlockProcessor(true, false, rescanapps); // restore database and possibly do rescan of apps
           const message = serviceHelper.createSuccessMessage(`Explorer rescan from blockheight ${blockheight} initiated`);
@@ -1350,7 +1351,7 @@ async function getAddressBalance(req, res) {
       const resMessage = serviceHelper.createDataMessage(balance);
       res.json(resMessage);
     } else {
-      const dbopen = serviceHelper.databaseConnection();
+      const dbopen = dbHelper.databaseConnection();
       const database = dbopen.db(config.database.daemon.database);
       const query = { address };
       const projection = {
@@ -1365,7 +1366,7 @@ async function getAddressBalance(req, res) {
           // coinbase: 1,
         },
       };
-      const results = await serviceHelper.findInDatabase(database, utxoIndexCollection, query, projection);
+      const results = await dbHelper.findInDatabase(database, utxoIndexCollection, query, projection);
       let balance = 0;
       results.forEach((utxo) => {
         balance += utxo.satoshis;

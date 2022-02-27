@@ -7,6 +7,7 @@ const proxyquire = require('proxyquire');
 const { expect } = chai;
 
 let serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+const dbHelper = require('../../ZelBack/src/services/dbHelper');
 
 const adminConfig = {
   initial: {
@@ -319,8 +320,8 @@ describe('serviceHelper tests', () => {
 
   describe('getApplicationOwner tests', () => {
     beforeEach(async () => {
-      await serviceHelper.initiateDB();
-      const db = serviceHelper.databaseConnection();
+      await dbHelper.initiateDB();
+      const db = dbHelper.databaseConnection();
       const database = db.db(config.database.appsglobal.database);
       const collection = config.database.appsglobal.collections.appsInformation;
       const insertApp = {
@@ -335,7 +336,7 @@ describe('serviceHelper tests', () => {
       } catch (err) {
         console.log('Collection not found.');
       }
-      await serviceHelper.insertOneToDatabase(database, collection, insertApp);
+      await dbHelper.insertOneToDatabase(database, collection, insertApp);
     });
 
     it('should return application owner if app exists in database', async () => {
@@ -431,8 +432,8 @@ describe('serviceHelper tests', () => {
     let collection;
 
     beforeEach(async () => {
-      await serviceHelper.initiateDB();
-      db = serviceHelper.databaseConnection();
+      await dbHelper.initiateDB();
+      db = dbHelper.databaseConnection();
       database = db.db(config.database.local.database);
       collection = config.database.local.collections.activeLoginPhrases;
 

@@ -10,6 +10,7 @@ const systemcrontab = require('crontab');
 const util = require('util');
 const fluxCommunication = require('./fluxCommunication');
 const serviceHelper = require('./serviceHelper');
+const dbHelper = require('./dbHelper');
 const verificationHelper = require('./verificationHelper');
 const daemonService = require('./daemonService');
 const benchmarkService = require('./benchmarkService');
@@ -744,7 +745,7 @@ async function createFluxNetworkAPI(req, res) {
 
 async function fluxUsage(req, res) {
   try {
-    const dbopen = serviceHelper.databaseConnection();
+    const dbopen = dbHelper.databaseConnection();
     const database = dbopen.db(config.database.daemon.database);
     const query = { generalScannedHeight: { $gte: 0 } };
     const projection = {
@@ -753,7 +754,7 @@ async function fluxUsage(req, res) {
         generalScannedHeight: 1,
       },
     };
-    const result = await serviceHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
+    const result = await dbHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
     if (!result) {
       log.error('Scanning not initiated');
     }
@@ -786,7 +787,7 @@ async function fluxUsage(req, res) {
     const appsDatabase = dbopen.db(config.database.appslocal.database);
     const appsQuery = {};
     const appsProjection = { projection: { _id: 0 } };
-    const appsResult = await serviceHelper.findInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+    const appsResult = await dbHelper.findInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
     let appsCpusLocked = 0;
     const tier = await generalService.nodeTier().catch((error) => log.error(error));
     const cpuTier = `cpu${tier}`;
@@ -833,11 +834,11 @@ async function fluxUsage(req, res) {
 async function appsResources(req, res) {
   log.info('Checking appsResources');
   try {
-    const dbopen = serviceHelper.databaseConnection();
+    const dbopen = dbHelper.databaseConnection();
     const appsDatabase = dbopen.db(config.database.appslocal.database);
     const appsQuery = {};
     const appsProjection = { projection: { _id: 0 } };
-    const appsResult = await serviceHelper.findInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+    const appsResult = await dbHelper.findInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
     let appsCpusLocked = 0;
     let appsRamLocked = 0;
     let appsHddLocked = 0;
@@ -1447,20 +1448,20 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
 
     // first find the appSpecifications in our database.
     // connect to mongodb
-    const dbopen = serviceHelper.databaseConnection();
+    const dbopen = dbHelper.databaseConnection();
 
     const appsDatabase = dbopen.db(config.database.appslocal.database);
     const database = dbopen.db(config.database.appsglobal.database);
 
     const appsQuery = { name: appName };
     const appsProjection = {};
-    let appSpecifications = await serviceHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+    let appSpecifications = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
     if (!appSpecifications) {
       if (!force) {
         throw new Error('Flux App not found');
       }
       // get it from global Specifications
-      appSpecifications = await serviceHelper.findOneInDatabase(database, globalAppsInformation, appsQuery, appsProjection);
+      appSpecifications = await dbHelper.findOneInDatabase(database, globalAppsInformation, appsQuery, appsProjection);
       if (!appSpecifications) {
         // get it from locally available Specifications
         // eslint-disable-next-line no-use-before-define
@@ -1470,7 +1471,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
         if (!appSpecifications) {
           const query = {};
           const projection = { projection: { _id: 0 } };
-          const messages = await serviceHelper.findInDatabase(database, globalAppsMessages, query, projection);
+          const messages = await dbHelper.findInDatabase(database, globalAppsMessages, query, projection);
           const appMessages = messages.filter((message) => {
             const specifications = message.appSpecifications || message.zelAppSpecifications;
             return specifications.name === appName;
@@ -1519,7 +1520,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
       if (res) {
         res.write(serviceHelper.ensureString(databaseStatus));
       }
-      await serviceHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+      await dbHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
       const databaseStatus2 = {
         status: 'Database cleaned',
       };
@@ -1677,13 +1678,13 @@ async function softRemoveAppLocally(app, res) {
 
   // first find the appSpecifications in our database.
   // connect to mongodb
-  const dbopen = serviceHelper.databaseConnection();
+  const dbopen = dbHelper.databaseConnection();
 
   const appsDatabase = dbopen.db(config.database.appslocal.database);
 
   const appsQuery = { name: appName };
   const appsProjection = {};
-  const appSpecifications = await serviceHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+  const appSpecifications = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
   if (!appSpecifications) {
     throw new Error('Flux App not found');
   }
@@ -1716,7 +1717,7 @@ async function softRemoveAppLocally(app, res) {
     if (res) {
       res.write(serviceHelper.ensureString(databaseStatus));
     }
-    await serviceHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+    await dbHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
     const databaseStatus2 = {
       status: 'Database cleaned',
     };
@@ -1977,7 +1978,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
     if (res) {
       res.write(serviceHelper.ensureString(dbOpenTest));
     }
-    const dbopen = serviceHelper.databaseConnection();
+    const dbopen = dbHelper.databaseConnection();
 
     const appsDatabase = dbopen.db(config.database.appslocal.database);
     const appsQuery = { name: appName };
@@ -2014,7 +2015,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
     if (res) {
       res.write(serviceHelper.ensureString(checkDb));
     }
-    const appResult = await serviceHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+    const appResult = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
     if (appResult && !isComponent) {
       installationInProgress = false;
       log.error(`Flux App ${appName} already installed`);
@@ -2034,7 +2035,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
     }
     if (!isComponent) {
       // register the app
-      await serviceHelper.insertOneToDatabase(appsDatabase, localAppsInformation, appSpecifications);
+      await dbHelper.insertOneToDatabase(appsDatabase, localAppsInformation, appSpecifications);
       const hddTier = `hdd${tier}`;
       const ramTier = `ram${tier}`;
       const cpuTier = `cpu${tier}`;
@@ -2219,7 +2220,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
     if (res) {
       res.write(serviceHelper.ensureString(dbOpenTest));
     }
-    const dbopen = serviceHelper.databaseConnection();
+    const dbopen = dbHelper.databaseConnection();
 
     const appsDatabase = dbopen.db(config.database.appslocal.database);
     const appsQuery = { name: appName };
@@ -2256,7 +2257,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
     if (res) {
       res.write(serviceHelper.ensureString(checkDb));
     }
-    const appResult = await serviceHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+    const appResult = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
     if (appResult && !isComponent) {
       installationInProgress = false;
       log.error(`Flux App ${appName} already installed`);
@@ -2276,7 +2277,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
     }
     if (!isComponent) {
       // register the app
-      await serviceHelper.insertOneToDatabase(appsDatabase, localAppsInformation, appSpecifications);
+      await dbHelper.insertOneToDatabase(appsDatabase, localAppsInformation, appSpecifications);
       const hddTier = `hdd${tier}`;
       const ramTier = `ram${tier}`;
       const cpuTier = `cpu${tier}`;
@@ -2537,7 +2538,7 @@ function checkComposeHWParameters(appSpecsComposed) {
 
 async function getAppsTemporaryMessages(req, res) {
   try {
-    const db = serviceHelper.databaseConnection();
+    const db = dbHelper.databaseConnection();
 
     const database = db.db(config.database.appsglobal.database);
     let query = {};
@@ -2547,7 +2548,7 @@ async function getAppsTemporaryMessages(req, res) {
       query = { hash };
     }
     const projection = { projection: { _id: 0 } };
-    const results = await serviceHelper.findInDatabase(database, globalAppsTempMessages, query, projection);
+    const results = await dbHelper.findInDatabase(database, globalAppsTempMessages, query, projection);
     const resultsResponse = serviceHelper.createDataMessage(results);
     res.json(resultsResponse);
   } catch (error) {
@@ -2563,7 +2564,7 @@ async function getAppsTemporaryMessages(req, res) {
 
 async function getAppsPermanentMessages(req, res) {
   try {
-    const db = serviceHelper.databaseConnection();
+    const db = dbHelper.databaseConnection();
 
     const database = db.db(config.database.appsglobal.database);
     let query = {};
@@ -2573,7 +2574,7 @@ async function getAppsPermanentMessages(req, res) {
       query = { hash };
     }
     const projection = { projection: { _id: 0 } };
-    const results = await serviceHelper.findInDatabase(database, globalAppsMessages, query, projection);
+    const results = await dbHelper.findInDatabase(database, globalAppsMessages, query, projection);
     const resultsResponse = serviceHelper.createDataMessage(results);
     res.json(resultsResponse);
   } catch (error) {
@@ -2589,11 +2590,11 @@ async function getAppsPermanentMessages(req, res) {
 
 async function getGlobalAppsSpecifications(req, res) {
   try {
-    const db = serviceHelper.databaseConnection();
+    const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
     const query = {};
     const projection = { projection: { _id: 0 } };
-    const results = await serviceHelper.findInDatabase(database, globalAppsInformation, query, projection);
+    const results = await dbHelper.findInDatabase(database, globalAppsInformation, query, projection);
     const resultsResponse = serviceHelper.createDataMessage(results);
     res.json(resultsResponse);
   } catch (error) {
@@ -3355,11 +3356,11 @@ async function verifyAppSpecifications(appSpecifications, height) {
 
 async function assignedPortsInstalledApps() {
   // construct object ob app name and ports array
-  const db = serviceHelper.databaseConnection();
+  const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appslocal.database);
   const query = {};
   const projection = { projection: { _id: 0 } };
-  const results = await serviceHelper.findInDatabase(database, localAppsInformation, query, projection);
+  const results = await dbHelper.findInDatabase(database, localAppsInformation, query, projection);
   const apps = [];
   results.forEach((app) => {
     // there is no app
@@ -3496,7 +3497,7 @@ async function ensureApplicationImagesExistsForPlatform(appSpecFormatted) {
 
 async function checkApplicationRegistrationNameConflicts(appSpecFormatted) {
   // check if name is not yet registered
-  const dbopen = serviceHelper.databaseConnection();
+  const dbopen = dbHelper.databaseConnection();
 
   const appsDatabase = dbopen.db(config.database.appsglobal.database);
   const appsQuery = { name: new RegExp(`^${appSpecFormatted.name}$`, 'i') }; // case insensitive
@@ -3506,7 +3507,7 @@ async function checkApplicationRegistrationNameConflicts(appSpecFormatted) {
       name: 1,
     },
   };
-  const appResult = await serviceHelper.findOneInDatabase(appsDatabase, globalAppsInformation, appsQuery, appsProjection);
+  const appResult = await dbHelper.findOneInDatabase(appsDatabase, globalAppsInformation, appsQuery, appsProjection);
 
   if (appResult) {
     throw new Error(`Flux App ${appSpecFormatted.name} already registered. Flux App has to be registered under different name.`);
@@ -3525,7 +3526,7 @@ async function checkApplicationRegistrationNameConflicts(appSpecFormatted) {
 
 async function checkApplicationUpdateNameRepositoryConflicts(specifications, verificationTimestamp) {
   // we may not have the application in global apps. This can happen when we receive the message after the app has already expired AND we need to get message right before our message. Thus using messages system that is accurate
-  const db = serviceHelper.databaseConnection();
+  const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
   const projection = {
     projection: {
@@ -3536,7 +3537,7 @@ async function checkApplicationUpdateNameRepositoryConflicts(specifications, ver
   const appsQuery = {
     'appSpecifications.name': specifications.name,
   };
-  const permanentAppMessage = await serviceHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
+  const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
   let latestPermanentRegistrationMessage;
   permanentAppMessage.forEach((foundMessage) => {
     // has to be registration message
@@ -3554,7 +3555,7 @@ async function checkApplicationUpdateNameRepositoryConflicts(specifications, ver
   const appsQueryB = {
     'zelAppSpecifications.name': specifications.name,
   };
-  const permanentAppMessageB = await serviceHelper.findInDatabase(database, globalAppsMessages, appsQueryB, projection);
+  const permanentAppMessageB = await dbHelper.findInDatabase(database, globalAppsMessages, appsQueryB, projection);
   permanentAppMessageB.forEach((foundMessage) => {
     // has to be registration message
     if (foundMessage.type === 'zelappregister' || foundMessage.type === 'fluxappregister' || foundMessage.type === 'zelappupdate' || foundMessage.type === 'fluxappupdate') { // can be any type
@@ -3605,7 +3606,7 @@ async function checkApplicationUpdateNameRepositoryConflicts(specifications, ver
 
 async function getPreviousAppSpecifications(specifications, message) {
   // we may not have the application in global apps. This can happen when we receive the message after the app has already expired AND we need to get message right before our message. Thus using messages system that is accurate
-  const db = serviceHelper.databaseConnection();
+  const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
   const projection = {
     projection: {
@@ -3616,7 +3617,7 @@ async function getPreviousAppSpecifications(specifications, message) {
   const appsQuery = {
     'appSpecifications.name': specifications.name,
   };
-  const permanentAppMessage = await serviceHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
+  const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
   let latestPermanentRegistrationMessage;
   permanentAppMessage.forEach((foundMessage) => {
     // has to be registration message
@@ -3634,7 +3635,7 @@ async function getPreviousAppSpecifications(specifications, message) {
   const appsQueryB = {
     'zelAppSpecifications.name': specifications.name,
   };
-  const permanentAppMessageB = await serviceHelper.findInDatabase(database, globalAppsMessages, appsQueryB, projection);
+  const permanentAppMessageB = await dbHelper.findInDatabase(database, globalAppsMessages, appsQueryB, projection);
   permanentAppMessageB.forEach((foundMessage) => {
     // has to be registration message
     if (foundMessage.type === 'zelappregister' || foundMessage.type === 'fluxappregister' || foundMessage.type === 'zelappupdate' || foundMessage.type === 'fluxappupdate') { // can be any type
@@ -3655,7 +3656,7 @@ async function getPreviousAppSpecifications(specifications, message) {
 }
 
 async function checkAppMessageExistence(hash) {
-  const dbopen = serviceHelper.databaseConnection();
+  const dbopen = dbHelper.databaseConnection();
   const appsDatabase = dbopen.db(config.database.appsglobal.database);
   const appsQuery = { hash };
   const appsProjection = {};
@@ -3672,7 +3673,7 @@ async function checkAppMessageExistence(hash) {
   //   height,
   //   valueSat,
   // };
-  const appResult = await serviceHelper.findOneInDatabase(appsDatabase, globalAppsMessages, appsQuery, appsProjection);
+  const appResult = await dbHelper.findOneInDatabase(appsDatabase, globalAppsMessages, appsQuery, appsProjection);
   if (appResult) {
     return appResult;
   }
@@ -3680,7 +3681,7 @@ async function checkAppMessageExistence(hash) {
 }
 
 async function checkAppTemporaryMessageExistence(hash) {
-  const dbopen = serviceHelper.databaseConnection();
+  const dbopen = dbHelper.databaseConnection();
   const appsDatabase = dbopen.db(config.database.appsglobal.database);
   const appsQuery = { hash };
   const appsProjection = {};
@@ -3695,7 +3696,7 @@ async function checkAppTemporaryMessageExistence(hash) {
   //   createdAt: new Date(message.timestamp),
   //   expireAt: new Date(validTill),
   // };
-  const appResult = await serviceHelper.findOneInDatabase(appsDatabase, globalAppsTempMessages, appsQuery, appsProjection);
+  const appResult = await dbHelper.findOneInDatabase(appsDatabase, globalAppsTempMessages, appsQuery, appsProjection);
   if (appResult) {
     return appResult;
   }
@@ -3782,9 +3783,9 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
   };
   const value = newMessage;
   // message does not exist anywhere and is ok, store it
-  const db = serviceHelper.databaseConnection();
+  const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
-  await serviceHelper.insertOneToDatabase(database, globalAppsTempMessages, value);
+  await dbHelper.insertOneToDatabase(database, globalAppsTempMessages, value);
   // it is stored and rebroadcasted
   return true;
 }
@@ -3819,7 +3820,7 @@ async function storeAppRunningMessage(message) {
   const randomDelay = Math.floor((Math.random() * 1280)) + 240;
   await serviceHelper.delay(randomDelay);
 
-  const db = serviceHelper.databaseConnection();
+  const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
   const newAppRunningMessage = {
     name: message.name,
@@ -3833,7 +3834,7 @@ async function storeAppRunningMessage(message) {
   const queryFind = { name: newAppRunningMessage.name, ip: newAppRunningMessage.ip, broadcastedAt: { $gte: newAppRunningMessage.broadcastedAt } };
   const projection = { _id: 0 };
   // we already have the exact same data
-  const result = await serviceHelper.findOneInDatabase(database, globalAppsLocations, queryFind, projection);
+  const result = await dbHelper.findOneInDatabase(database, globalAppsLocations, queryFind, projection);
   if (result) {
     // it is already stored
     return false;
@@ -3843,7 +3844,7 @@ async function storeAppRunningMessage(message) {
   const options = {
     upsert: true,
   };
-  await serviceHelper.updateOneInDatabase(database, globalAppsLocations, queryUpdate, update, options);
+  await dbHelper.updateOneInDatabase(database, globalAppsLocations, queryUpdate, update, options);
   // it is now stored, rebroadcast
   return true;
 }
@@ -4324,7 +4325,7 @@ async function updateAppGlobalyApi(req, res) {
       await verifyAppSpecifications(appSpecFormatted, daemonHeight);
 
       // verify that app exists, does not change repotag and is signed by app owner.
-      const db = serviceHelper.databaseConnection();
+      const db = dbHelper.databaseConnection();
       const database = db.db(config.database.appsglobal.database);
       // may throw
       const query = { name: appSpecFormatted.name };
@@ -4333,7 +4334,7 @@ async function updateAppGlobalyApi(req, res) {
           _id: 0,
         },
       };
-      const appInfo = await serviceHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+      const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
       if (!appInfo) {
         throw new Error('Flux App update received but application to update does not exists!');
       }
@@ -4398,7 +4399,7 @@ async function updateAppGlobalyApi(req, res) {
 // shall be identical to listAllApps. But this is database response
 async function installedApps(req, res) {
   try {
-    const dbopen = serviceHelper.databaseConnection();
+    const dbopen = dbHelper.databaseConnection();
 
     const appsDatabase = dbopen.db(config.database.appslocal.database);
     let appsQuery = {};
@@ -4421,7 +4422,7 @@ async function installedApps(req, res) {
         _id: 0,
       },
     };
-    const apps = await serviceHelper.findInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+    const apps = await dbHelper.findInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
     const dataResponse = serviceHelper.createDataMessage(apps);
     return res ? res.json(dataResponse) : dataResponse;
   } catch (error) {
@@ -4505,9 +4506,9 @@ async function storeAppPermanentMessage(message) {
     throw new Error('Invalid Flux App message for storing');
   }
 
-  const db = serviceHelper.databaseConnection();
+  const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
-  await serviceHelper.insertOneToDatabase(database, globalAppsMessages, message).catch((error) => {
+  await dbHelper.insertOneToDatabase(database, globalAppsMessages, message).catch((error) => {
     log.error(error);
     throw error;
   });
@@ -4578,7 +4579,7 @@ async function updateAppSpecifications(appSpecs) {
     //   ],
     //   instances: 10, // int
     // };
-    const db = serviceHelper.databaseConnection();
+    const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
 
     const query = { name: appSpecs.name };
@@ -4591,13 +4592,13 @@ async function updateAppSpecifications(appSpecs) {
         _id: 0,
       },
     };
-    const appInfo = await serviceHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+    const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
     if (appInfo) {
       if (appInfo.height < appSpecs.height) {
-        await serviceHelper.updateOneInDatabase(database, globalAppsInformation, query, update, options);
+        await dbHelper.updateOneInDatabase(database, globalAppsInformation, query, update, options);
       }
     } else {
-      await serviceHelper.updateOneInDatabase(database, globalAppsInformation, query, update, options);
+      await dbHelper.updateOneInDatabase(database, globalAppsInformation, query, update, options);
     }
   } catch (error) {
     // retry
@@ -4637,7 +4638,7 @@ async function updateAppSpecsForRescanReindex(appSpecs) {
   //   hash: hash of message that has these paramenters,
   //   height: height containing the message
   // };
-  const db = serviceHelper.databaseConnection();
+  const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
 
   const query = { name: appSpecs.name };
@@ -4650,24 +4651,24 @@ async function updateAppSpecsForRescanReindex(appSpecs) {
       _id: 0,
     },
   };
-  const appInfo = await serviceHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+  const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
   if (appInfo) {
     if (appInfo.height < appSpecs.height) {
-      await serviceHelper.updateOneInDatabase(database, globalAppsInformation, query, update, options);
+      await dbHelper.updateOneInDatabase(database, globalAppsInformation, query, update, options);
     }
   } else {
-    await serviceHelper.updateOneInDatabase(database, globalAppsInformation, query, update, options);
+    await dbHelper.updateOneInDatabase(database, globalAppsInformation, query, update, options);
   }
   return true;
 }
 
 async function appHashHasMessage(hash) {
-  const db = serviceHelper.databaseConnection();
+  const db = dbHelper.databaseConnection();
   const database = db.db(config.database.daemon.database);
   const query = { hash };
   const update = { $set: { message: true } };
   const options = {};
-  await serviceHelper.updateOneInDatabase(database, appsHashesCollection, query, update, options);
+  await dbHelper.updateOneInDatabase(database, appsHashesCollection, query, update, options);
   return true;
 }
 
@@ -4722,7 +4723,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
           } // else do nothing notify its underpaid?
         } else if (tempMessage.type === 'zelappupdate' || tempMessage.type === 'fluxappupdate') {
           // appSpecifications.name as identifier
-          const db = serviceHelper.databaseConnection();
+          const db = dbHelper.databaseConnection();
           const database = db.db(config.database.appsglobal.database);
           const projection = {
             projection: {
@@ -4733,7 +4734,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
           const appsQuery = {
             'appSpecifications.name': specifications.name,
           };
-          const findPermAppMessage = await serviceHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
+          const findPermAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
           let latestPermanentRegistrationMessage;
           findPermAppMessage.forEach((foundMessage) => {
             // has to be registration message
@@ -4751,7 +4752,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
           const appsQueryB = {
             'zelAppSpecifications.name': specifications.name,
           };
-          const findPermAppMessageB = await serviceHelper.findInDatabase(database, globalAppsMessages, appsQueryB, projection);
+          const findPermAppMessageB = await dbHelper.findInDatabase(database, globalAppsMessages, appsQueryB, projection);
           findPermAppMessageB.forEach((foundMessage) => {
             // has to be registration message
             if (foundMessage.type === 'zelappregister' || foundMessage.type === 'fluxappregister' || foundMessage.type === 'zelappupdate' || foundMessage.type === 'fluxappupdate') { // can be any type
@@ -4862,7 +4863,7 @@ function registrationInformation(req, res) {
 // function that drops global apps information and goes over all global apps messages and reconsturcts the global apps information. Further creates database indexes
 async function reindexGlobalAppsInformation() {
   try {
-    const db = serviceHelper.databaseConnection();
+    const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
     await serviceHelper.dropCollection(database, globalAppsInformation).catch((error) => {
       if (error.message !== 'ns not found') {
@@ -4876,7 +4877,7 @@ async function reindexGlobalAppsInformation() {
     await database.collection(globalAppsInformation).createIndex({ hash: 1 }, { name: 'query for getting zelapp based on last hash' }); // we need to know the hash of the last message update which is the true identifier
     const query = {};
     const projection = { projection: { _id: 0 } };
-    const results = await serviceHelper.findInDatabase(database, globalAppsMessages, query, projection);
+    const results = await dbHelper.findInDatabase(database, globalAppsMessages, query, projection);
     // eslint-disable-next-line no-restricted-syntax
     for (const message of results) {
       const updateForSpecifications = message.appSpecifications || message.zelAppSpecifications;
@@ -4897,7 +4898,7 @@ async function reindexGlobalAppsInformation() {
 // function that drops information about running apps and rebuilds indexes
 async function reindexGlobalAppsLocation() {
   try {
-    const db = serviceHelper.databaseConnection();
+    const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
     await serviceHelper.dropCollection(database, globalAppsLocations).catch((error) => {
       if (error.message !== 'ns not found') {
@@ -4919,7 +4920,7 @@ async function reindexGlobalAppsLocation() {
 // function goes over all global apps messages and updates global apps infromation database
 async function rescanGlobalAppsInformation(height = 0, removeLastInformation = false) {
   try {
-    const db = serviceHelper.databaseConnection();
+    const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
     await serviceHelper.dropCollection(database, globalAppsInformation).catch((error) => {
       if (error.message !== 'ns not found') {
@@ -4928,10 +4929,10 @@ async function rescanGlobalAppsInformation(height = 0, removeLastInformation = f
     });
     const query = { height: { $gte: height } };
     const projection = { projection: { _id: 0 } };
-    const results = await serviceHelper.findInDatabase(database, globalAppsMessages, query, projection);
+    const results = await dbHelper.findInDatabase(database, globalAppsMessages, query, projection);
 
     if (removeLastInformation === true) {
-      await serviceHelper.removeDocumentsFromCollection(database, globalAppsInformation, query);
+      await dbHelper.removeDocumentsFromCollection(database, globalAppsInformation, query);
     }
 
     // eslint-disable-next-line no-restricted-syntax
@@ -5006,7 +5007,7 @@ async function rescanGlobalAppsInformationAPI(req, res) {
         res.json(errMessage);
       }
       blockheight = serviceHelper.ensureNumber(blockheight);
-      const dbopen = serviceHelper.databaseConnection();
+      const dbopen = dbHelper.databaseConnection();
       const database = dbopen.db(config.database.daemon.database);
       const query = { generalScannedHeight: { $gte: 0 } };
       const projection = {
@@ -5015,7 +5016,7 @@ async function rescanGlobalAppsInformationAPI(req, res) {
           generalScannedHeight: 1,
         },
       };
-      const currentHeight = await serviceHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
+      const currentHeight = await dbHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
       if (!currentHeight) {
         throw new Error('No scanned height found');
       }
@@ -5051,7 +5052,7 @@ async function continuousFluxAppHashesCheck() {
     const knownWrongTxids = ['e56e08a8dbe9523ad10ca328fca84ee1da775ea5f466abed06ec357daa192940'];
     log.info('Requesting missing Flux App messages');
     // get flux app hashes that do not have a message;
-    const dbopen = serviceHelper.databaseConnection();
+    const dbopen = dbHelper.databaseConnection();
     const database = dbopen.db(config.database.daemon.database);
     const query = { message: false };
     const projection = {
@@ -5064,7 +5065,7 @@ async function continuousFluxAppHashesCheck() {
         message: 1,
       },
     };
-    const results = await serviceHelper.findInDatabase(database, appsHashesCollection, query, projection);
+    const results = await dbHelper.findInDatabase(database, appsHashesCollection, query, projection);
     // eslint-disable-next-line no-restricted-syntax
     for (const result of results) {
       if (!knownWrongTxids.includes(result.txid)) { // wrong data, can be later removed
@@ -5080,7 +5081,7 @@ async function continuousFluxAppHashesCheck() {
 
 async function getAppHashes(req, res) {
   try {
-    const dbopen = serviceHelper.databaseConnection();
+    const dbopen = dbHelper.databaseConnection();
     const database = dbopen.db(config.database.daemon.database);
     const query = {};
     const projection = {
@@ -5093,7 +5094,7 @@ async function getAppHashes(req, res) {
         message: 1,
       },
     };
-    const results = await serviceHelper.findInDatabase(database, appsHashesCollection, query, projection);
+    const results = await dbHelper.findInDatabase(database, appsHashesCollection, query, projection);
     const resultsResponse = serviceHelper.createDataMessage(results);
     res.json(resultsResponse);
   } catch (error) {
@@ -5109,7 +5110,7 @@ async function getAppHashes(req, res) {
 
 async function getAppsLocations(req, res) {
   try {
-    const dbopen = serviceHelper.databaseConnection();
+    const dbopen = dbHelper.databaseConnection();
     const database = dbopen.db(config.database.appsglobal.database);
     const query = {};
     const projection = {
@@ -5122,7 +5123,7 @@ async function getAppsLocations(req, res) {
         expireAt: 1,
       },
     };
-    const results = await serviceHelper.findInDatabase(database, globalAppsLocations, query, projection);
+    const results = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
     const resultsResponse = serviceHelper.createDataMessage(results);
     res.json(resultsResponse);
   } catch (error) {
@@ -5143,7 +5144,7 @@ async function getAppsLocation(req, res) {
     if (!appname) {
       throw new Error('No Flux App name specified');
     }
-    const dbopen = serviceHelper.databaseConnection();
+    const dbopen = dbHelper.databaseConnection();
     const database = dbopen.db(config.database.appsglobal.database);
     const query = { name: new RegExp(`^${appname}$`, 'i') }; // case insensitive
     const projection = {
@@ -5156,7 +5157,7 @@ async function getAppsLocation(req, res) {
         expireAt: 1,
       },
     };
-    const results = await serviceHelper.findInDatabase(database, globalAppsLocations, query, projection);
+    const results = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
     const resultsResponse = serviceHelper.createDataMessage(results);
     res.json(resultsResponse);
   } catch (error) {
@@ -5172,11 +5173,11 @@ async function getAppsLocation(req, res) {
 
 async function getAllGlobalApplicationsNames() {
   try {
-    const db = serviceHelper.databaseConnection();
+    const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
     const query = {};
     const projection = { projection: { _id: 0, name: 1 } };
-    const results = await serviceHelper.findInDatabase(database, globalAppsInformation, query, projection);
+    const results = await dbHelper.findInDatabase(database, globalAppsInformation, query, projection);
     const names = results.map((result) => result.name);
     return names;
   } catch (error) {
@@ -5187,7 +5188,7 @@ async function getAllGlobalApplicationsNames() {
 
 async function getRunningAppList(appName) {
   console.log(appName);
-  const dbopen = serviceHelper.databaseConnection();
+  const dbopen = dbHelper.databaseConnection();
   const database = dbopen.db(config.database.appsglobal.database);
   const query = { name: appName };
   const projection = {
@@ -5200,12 +5201,12 @@ async function getRunningAppList(appName) {
       expireAt: 1,
     },
   };
-  const results = await serviceHelper.findInDatabase(database, globalAppsLocations, query, projection);
+  const results = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
   return results;
 }
 
 async function getApplicationGlobalSpecifications(appName) {
-  const db = serviceHelper.databaseConnection();
+  const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
 
   const query = { name: new RegExp(`^${appName}$`, 'i') };
@@ -5214,7 +5215,7 @@ async function getApplicationGlobalSpecifications(appName) {
       _id: 0,
     },
   };
-  const appInfo = await serviceHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+  const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
   return appInfo;
 }
 
@@ -5253,7 +5254,7 @@ async function getApplicationSpecifications(appName) {
   //   hash: hash of message that has these paramenters,
   //   height: height containing the message
   // };
-  const db = serviceHelper.databaseConnection();
+  const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
 
   const query = { name: new RegExp(`^${appName}$`, 'i') };
@@ -5262,7 +5263,7 @@ async function getApplicationSpecifications(appName) {
       _id: 0,
     },
   };
-  let appInfo = await serviceHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+  let appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
   if (!appInfo) {
     const allApps = await availableApps();
     appInfo = allApps.find((app) => app.name.toLowerCase() === appName.toLowerCase());
@@ -5272,7 +5273,7 @@ async function getApplicationSpecifications(appName) {
 
 // case sensitive
 async function getStrictApplicationSpecifications(appName) {
-  const db = serviceHelper.databaseConnection();
+  const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
 
   const query = { name: appName };
@@ -5281,7 +5282,7 @@ async function getStrictApplicationSpecifications(appName) {
       _id: 0,
     },
   };
-  let appInfo = await serviceHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+  let appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
   if (!appInfo) {
     const allApps = await availableApps();
     appInfo = allApps.find((app) => app.name === appName);
@@ -5467,7 +5468,7 @@ async function trySpawningGlobalApplication() {
     }
 
     // eslint-disable-next-line no-restricted-syntax
-    const dbopen = serviceHelper.databaseConnection();
+    const dbopen = dbHelper.databaseConnection();
     const appsDatabase = dbopen.db(config.database.appslocal.database);
     const appsQuery = {}; // all
     const appsProjection = {
@@ -5479,7 +5480,7 @@ async function trySpawningGlobalApplication() {
         compose: 1,
       },
     };
-    const apps = await serviceHelper.findInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+    const apps = await dbHelper.findInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
     const appExists = apps.find((app) => app.name === appSpecifications.name);
     if (appExists) { // double checked in installation process.
       log.info(`Application ${appSpecifications.name} is already installed`);
@@ -5704,7 +5705,7 @@ async function expireGlobalApplications() {
       return;
     }
     // get current height
-    const dbopen = serviceHelper.databaseConnection();
+    const dbopen = dbHelper.databaseConnection();
     const database = dbopen.db(config.database.daemon.database);
     const query = { generalScannedHeight: { $gte: 0 } };
     const projection = {
@@ -5713,7 +5714,7 @@ async function expireGlobalApplications() {
         generalScannedHeight: 1,
       },
     };
-    const result = await serviceHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
+    const result = await dbHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
     if (!result) {
       throw new Error('Scanning not initiated');
     }
@@ -5724,14 +5725,14 @@ async function expireGlobalApplications() {
     const databaseApps = dbopen.db(config.database.appsglobal.database);
     const queryApps = { height: { $lt: expirationHeight } };
     const projectionApps = { projection: { _id: 0, name: 1, hash: 1 } }; // todo look into correction for checking hash of app
-    const results = await serviceHelper.findInDatabase(databaseApps, globalAppsInformation, queryApps, projectionApps);
+    const results = await dbHelper.findInDatabase(databaseApps, globalAppsInformation, queryApps, projectionApps);
     const appNamesToExpire = results.map((res) => res.name);
     // remove appNamesToExpire apps from global database
     // eslint-disable-next-line no-restricted-syntax
     for (const appName of appNamesToExpire) {
       const queryDeleteApp = { name: appName };
       // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.findOneAndDeleteInDatabase(databaseApps, globalAppsInformation, queryDeleteApp, projectionApps);
+      await dbHelper.findOneAndDeleteInDatabase(databaseApps, globalAppsInformation, queryDeleteApp, projectionApps);
     }
 
     // get list of locally installed apps.
@@ -6003,13 +6004,13 @@ async function reinstallOldApplications() {
                 }
               }
               // connect to mongodb
-              const dbopen = serviceHelper.databaseConnection();
+              const dbopen = dbHelper.databaseConnection();
               const appsDatabase = dbopen.db(config.database.appslocal.database);
               const appsQuery = { name: appSpecifications.name };
               const appsProjection = {};
               log.warn('Cleaning up database...');
               // eslint-disable-next-line no-await-in-loop
-              await serviceHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+              await dbHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
               const databaseStatus2 = {
                 status: 'Database cleaned',
               };
@@ -6050,7 +6051,7 @@ async function reinstallOldApplications() {
               }
               // register the app
               // eslint-disable-next-line no-await-in-loop
-              await serviceHelper.insertOneToDatabase(appsDatabase, localAppsInformation, appSpecifications);
+              await dbHelper.insertOneToDatabase(appsDatabase, localAppsInformation, appSpecifications);
               log.warn(`Composed application ${appSpecifications.name} updated.`);
             } catch (error) {
               removalInProgress = false;
@@ -6087,7 +6088,7 @@ async function getAppPrice(req, res) {
       // verifications skipped. This endpoint is only for price evaluation
 
       // check if app exists or its a new registration price
-      const db = serviceHelper.databaseConnection();
+      const db = dbHelper.databaseConnection();
       const database = db.db(config.database.appsglobal.database);
       // may throw
       const query = { name: appSpecFormatted.name };
@@ -6101,7 +6102,7 @@ async function getAppPrice(req, res) {
         throw new Error('Daemon not yet synced.');
       }
       const daemonHeight = syncStatus.data.height;
-      const appInfo = await serviceHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+      const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
       let actualPriceToPay = appPricePerMonth(appSpecFormatted, daemonHeight);
       if (appInfo) {
         const previousSpecsPrice = appPricePerMonth(appInfo, daemonHeight); // calculate previous based on CURRENT height, with current interval of prices!
@@ -6290,13 +6291,13 @@ async function deploymentInformation(req, res) {
 
 async function reconstructAppMessagesHashCollection() {
   // go through our appsHashesCollection and check if globalAppsMessages trully has the message or not
-  const db = serviceHelper.databaseConnection();
+  const db = dbHelper.databaseConnection();
   const databaseApps = db.db(config.database.appsglobal.database);
   const databaseDaemon = db.db(config.database.daemon.database);
   const query = {};
   const projection = { projection: { _id: 0 } };
-  const permanentMessages = await serviceHelper.findInDatabase(databaseApps, globalAppsMessages, query, projection);
-  const appHashes = await serviceHelper.findInDatabase(databaseDaemon, appsHashesCollection, query, projection);
+  const permanentMessages = await dbHelper.findInDatabase(databaseApps, globalAppsMessages, query, projection);
+  const appHashes = await dbHelper.findInDatabase(databaseDaemon, appsHashesCollection, query, projection);
   // eslint-disable-next-line no-restricted-syntax
   for (const appHash of appHashes) {
     const options = {};
@@ -6309,12 +6310,12 @@ async function reconstructAppMessagesHashCollection() {
       // update that we have the message
       const update = { $set: { message: true } };
       // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.updateOneInDatabase(databaseDaemon, appsHashesCollection, queryUpdate, update, options);
+      await dbHelper.updateOneInDatabase(databaseDaemon, appsHashesCollection, queryUpdate, update, options);
     } else {
       // update that we do not have the message
       const update = { $set: { message: false } };
       // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.updateOneInDatabase(databaseDaemon, appsHashesCollection, queryUpdate, update, options);
+      await dbHelper.updateOneInDatabase(databaseDaemon, appsHashesCollection, queryUpdate, update, options);
     }
   }
   return 'Reconstruct success';
