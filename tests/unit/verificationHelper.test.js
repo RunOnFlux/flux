@@ -4,7 +4,7 @@ const { expect } = chai;
 const sinon = require('sinon');
 
 const verificationHelperUtils = require('../../ZelBack/src/services/verificationHelperUtils');
-const { verifyPrivilege } = require('../../ZelBack/src/services/verificationHelper');
+const { verifyPrivilege, verifyZelID } = require('../../ZelBack/src/services/verificationHelper');
 
 // placeholders - verification functions are mocked, they have already been tested in verificationHelperUtils.test
 const req = {
@@ -90,5 +90,22 @@ describe('verificationHelper tests', () => {
     const verifyPrivilegeResult = await verifyPrivilege(privilege, req);
 
     expect(verifyPrivilegeResult).to.be.false;
+  });
+
+  describe('verifyZelID tests', () => {
+    it('should throw error if ZelID is empty', () => {
+      const isValid = verifyZelID();
+      expect(isValid).to.be.an('error');
+    });
+
+    it('should return throw error if ZelID is invalid', () => {
+      const isValid = verifyZelID('34xp4vRoCGJym3xR7yCVPFHoCNxv4Twseo');
+      expect(isValid).to.be.an('error');
+    });
+
+    it('should return true if ZelID is valid', () => {
+      const isValid = verifyZelID('1P5ZEDWTKTFGxQjZphgWPQUpe554WKDfHQ');
+      expect(isValid).to.be.true;
+    });
   });
 });

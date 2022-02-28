@@ -1,3 +1,4 @@
+const zeltrezjs = require('zeltrezjs');
 const verificationHelperUtils = require('./verificationHelperUtils');
 
 /**
@@ -8,7 +9,6 @@ const verificationHelperUtils = require('./verificationHelperUtils');
  *
  * @returns {Promise<boolean>} authorized
  */
-
 async function verifyPrivilege(privilege, req, appName) {
   let authorized;
   switch (privilege) {
@@ -37,6 +37,30 @@ async function verifyPrivilege(privilege, req, appName) {
   return authorized;
 }
 
+function verifyZelID(address) {
+  let isValid = false;
+  try {
+    if (!address) {
+      throw new Error('Missing parameters for message verification');
+    }
+
+    if (!address.startsWith('1')) {
+      throw new Error('Invalid zelID');
+    }
+
+    if (address.length > 36) {
+      const btcPubKeyHash = '00';
+      zeltrezjs.address.pubKeyToAddr(address, btcPubKeyHash);
+    }
+    isValid = true;
+  } catch (e) {
+    // log.error(e);  - the function is not used at the moment, commented out to clean up test logs
+    isValid = e;
+  }
+  return isValid;
+}
+
 module.exports = {
   verifyPrivilege,
+  verifyZelID,
 };
