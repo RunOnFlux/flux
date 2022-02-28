@@ -24,19 +24,23 @@ homeApp.get('*', (req, res) => {
   res.sendFile(path.join(home, 'index.html'));
 });
 
-const apiPort = userconfig.apiport || config.server.apiport;
+const apiPort = userconfig.initial.apiport || config.server.apiport;
 const homePort = apiPort - 1;
 
 async function initiate() {
-  if (userconfig.apiport && userconfig.apiport !== config.server.apiport) {
+  if (!config.server.allowedPorts.includes(+apiPort)) {
+    log.error(`Flux port ${apiPort} is not supported. Shutting down.`);
+    process.exit();
+  }
+  if (userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) {
     const verifyUpnp = await upnpService.verifyUPNPsupport(apiPort);
     if (verifyUpnp !== true) {
-      log.error(`Flux port ${userconfig.apiport} specified but UPnP failed to verify support. Shutting down`);
+      log.error(`Flux port ${userconfig.initial.apiport} specified but UPnP failed to verify support. Shutting down.`);
       process.exit();
     }
     const setupUpnp = await upnpService.setupUPNP(apiPort);
     if (setupUpnp !== true) {
-      log.error(`Flux port ${userconfig.apiport} specified but UPnP failed to map to api or home port. Shutting down`);
+      log.error(`Flux port ${userconfig.initial.apiport} specified but UPnP failed to map to api or home port. Shutting down.`);
       process.exit();
     }
   }

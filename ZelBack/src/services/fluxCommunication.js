@@ -1271,7 +1271,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
   const axiosConfigAux = {
     timeout: 7000,
   };
-  const apiPort = userconfig.apiport || config.server.apiport;
+  const apiPort = userconfig.initial.apiport || config.server.apiport;
   const resMyAvailability = await serviceHelper.axiosGet(`http://${askingIP}:${askingIpPort}/flux/checkfluxavailability?ip=${myIP}&port=${apiPort}`, axiosConfigAux).catch((error) => {
     log.error(`${askingIP} is not reachable`);
     log.error(error);
@@ -1353,7 +1353,7 @@ async function adjustExternalIP(ip) {
     zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
     kadena: '${userconfig.initial.kadena || ''}',
     testnet: ${userconfig.initial.testnet || false},
-    apiport: ${userconfig.initial.apiport || config.apiport},
+    apiport: ${Number(userconfig.initial.apiport || config.apiport)},
   }
 }`;
 
@@ -1504,7 +1504,7 @@ async function adjustFirewall() {
   try {
     const cmdAsync = util.promisify(cmd.get);
     const execA = 'sudo ufw status | grep Status';
-    const apiPort = userconfig.apiport || config.server.apiport;
+    const apiPort = userconfig.initial.apiport || config.server.apiport;
     const homePort = +apiPort - 1;
     const ports = [apiPort, homePort, 80, 443, 16125];
     const cmdresA = await cmdAsync(execA);
