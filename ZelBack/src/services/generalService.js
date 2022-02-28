@@ -5,6 +5,7 @@ const log = require('../lib/log');
 
 const serviceHelper = require('./serviceHelper');
 const daemonService = require('./daemonService');
+const dbHelper = require('./dbHelper');
 
 const scannedHeightCollection = config.database.daemon.collections.scannedHeight;
 
@@ -157,7 +158,7 @@ async function checkSynced() {
       throw new Error('Daemon not yet synced.');
     }
     const daemonHeight = syncStatus.data.height;
-    const dbopen = serviceHelper.databaseConnection();
+    const dbopen = dbHelper.databaseConnection();
     const database = dbopen.db(config.database.daemon.database);
     const query = { generalScannedHeight: { $gte: 0 } };
     const projection = {
@@ -166,7 +167,7 @@ async function checkSynced() {
         generalScannedHeight: 1,
       },
     };
-    const result = await serviceHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
+    const result = await dbHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
     if (!result) {
       throw new Error('Scanning not initiated');
     }

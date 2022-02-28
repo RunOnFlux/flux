@@ -1,7 +1,7 @@
 const config = require('config');
 const log = require('../lib/log');
 
-const serviceHelper = require('./serviceHelper');
+const dbHelper = require('./dbHelper');
 const explorerService = require('./explorerService');
 const fluxCommunication = require('./fluxCommunication');
 const appsService = require('./appsService');
@@ -11,17 +11,17 @@ const fluxService = require('./fluxService');
 async function startFluxFunctions() {
   try {
     log.info('Initiating MongoDB connection');
-    await serviceHelper.initiateDB(); // either true or throws error
+    await dbHelper.initiateDB(); // either true or throws error
     log.info('DB connected');
     log.info('Preparing local database...');
-    const db = serviceHelper.databaseConnection();
+    const db = dbHelper.databaseConnection();
     const database = db.db(config.database.local.database);
-    await serviceHelper.dropCollection(database, config.database.local.collections.activeLoginPhrases).catch((error) => {
+    await dbHelper.dropCollection(database, config.database.local.collections.activeLoginPhrases).catch((error) => {
       if (error.message !== 'ns not found') {
         log.error(error);
       }
     });
-    await serviceHelper.dropCollection(database, config.database.local.collections.activeSignatures).catch((error) => {
+    await dbHelper.dropCollection(database, config.database.local.collections.activeSignatures).catch((error) => {
       if (error.message !== 'ns not found') {
         log.error(error);
       }
