@@ -12,17 +12,18 @@ const serviceManager = require('./ZelBack/src/services/serviceManager');
 
 const userconfig = require('./config/userconfig');
 
+const apiPort = userconfig.apiport || config.server.apiport;
+const homePort = apiPort - 1;
+
 // const key = fs.readFileSync(path.join(__dirname, './certs/selfsigned.key'), 'utf8');
 // const cert = fs.readFileSync(path.join(__dirname, './certs/selfsigned.crt'), 'utf8');
 // const credentials = { key, cert };
 // const httpsServer = https.createServer(credentials, app);
 
+// const apiporthttps = apiPort + 1;
 // httpsServer.listen(config.server.apiporthttps, () => {
 //   log.info(`Flux  https listening on port ${config.server.apiporthttps}!`);
 // });
-
-const apiPort = userconfig.apiport || config.server.apiport;
-const homePort = apiPort - 1;
 
 app.listen(apiPort, () => {
   log.info(`Flux running on port ${apiPort}!`);
