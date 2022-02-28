@@ -64,6 +64,7 @@
     "ciconfig": "cp sampleUserConfig.js config/userconfig.js && mkdir ~/.zelcash && cp sampleDaemonConfig.conf ~/.zelcash/zelcash.conf"
   },
   "dependencies": {
+    "@runonflux/nat-upnp": "~1.0.2",
     "apicache": "~1.6.3",
     "archiver": "~5.3.0",
     "axios": "~0.26.0",

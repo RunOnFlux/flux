@@ -1353,7 +1353,7 @@ async function adjustExternalIP(ip) {
     zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
     kadena: '${userconfig.initial.kadena || ''}',
     testnet: ${userconfig.initial.testnet || false},
-    apiport: ${userconfig.initial.apiport || 16127},
+    apiport: ${userconfig.initial.apiport || config.apiport},
   }
 }`;
 
@@ -1505,7 +1505,7 @@ async function adjustFirewall() {
     const cmdAsync = util.promisify(cmd.get);
     const execA = 'sudo ufw status | grep Status';
     const apiPort = userconfig.apiport || config.server.apiport;
-    const homePort = apiPort - 1;
+    const homePort = +apiPort - 1;
     const ports = [apiPort, homePort, 80, 443, 16125];
     const cmdresA = await cmdAsync(execA);
     if (serviceHelper.ensureString(cmdresA).includes('Status: active')) {
