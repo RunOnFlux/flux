@@ -35,6 +35,9 @@
     {
       "name": "Kamil Piekarski",
       "email": "k4mil.piekarski@gmail.com"
+    },
+    {
+      "name": "Jacek Adamczyk"
     }
   ],
   "license": "AGPL-3.0-or-later",
@@ -96,7 +99,6 @@
     "store": "~2.0.12",
     "stream": "~0.0.2",
     "ws": "~7.5.7",
-    "zelcashrpc": "file:lib/zelcashrpc",
     "zeltrezjs": "~2.12.0"
   },
   "devDependencies": {
