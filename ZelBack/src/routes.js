@@ -771,6 +771,15 @@ module.exports = (app, expressWs) => {
   app.get('/flux/unmapport/:port?', (req, res) => {
     upnpService.removeMapPortApi(req, res);
   });
+  app.get('/flux/getmap', (req, res) => {
+    upnpService.getMapApi(req, res);
+  });
+  app.get('/flux/getip', (req, res) => {
+    upnpService.getIpApi(req, res);
+  });
+  app.get('/flux/getgateway', (req, res) => {
+    upnpService.getGatewayApi(req, res);
+  });
 
   app.get('/benchmark/start', (req, res) => {
     fluxService.startBenchmark(req, res);
