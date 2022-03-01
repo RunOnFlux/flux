@@ -1228,14 +1228,20 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
     res.write(serviceHelper.ensureString(portStatus));
   }
   if (appSpecifications.ports) {
+    const firewallActive = await fluxCommunication.isFirewallActive();
+    if (firewallActive) {
     // eslint-disable-next-line no-restricted-syntax
-    for (const port of appSpecifications.ports) {
+      for (const port of appSpecifications.ports) {
       // eslint-disable-next-line no-await-in-loop
-      await fluxCommunication.denyPort(serviceHelper.ensureNumber(port));
+        await fluxCommunication.denyPort(serviceHelper.ensureNumber(port));
+      }
     }
     // v1 compatibility
   } else if (appSpecifications.port) {
-    await fluxCommunication.denyPort(serviceHelper.ensureNumber(appSpecifications.port));
+    const firewallActive = await fluxCommunication.isFirewallActive();
+    if (firewallActive) {
+      await fluxCommunication.denyPort(serviceHelper.ensureNumber(appSpecifications.port));
+    }
   }
   const portStatus2 = {
     status: isComponent ? `Ports of component ${appSpecifications.name} denied` : `Ports of ${appName} denied`,
@@ -1629,14 +1635,20 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
     res.write(serviceHelper.ensureString(portStatus));
   }
   if (appSpecifications.ports) {
+    const firewallActive = await fluxCommunication.isFirewallActive();
+    if (firewallActive) {
     // eslint-disable-next-line no-restricted-syntax
-    for (const port of appSpecifications.ports) {
+      for (const port of appSpecifications.ports) {
       // eslint-disable-next-line no-await-in-loop
-      await fluxCommunication.denyPort(serviceHelper.ensureNumber(port));
+        await fluxCommunication.denyPort(serviceHelper.ensureNumber(port));
+      }
     }
     // v1 compatibility
   } else if (appSpecifications.port) {
-    await fluxCommunication.denyPort(serviceHelper.ensureNumber(appSpecifications.port));
+    const firewallActive = await fluxCommunication.isFirewallActive();
+    if (firewallActive) {
+      await fluxCommunication.denyPort(serviceHelper.ensureNumber(appSpecifications.port));
+    }
   }
   const portStatus2 = {
     status: isComponent ? `Ports of component ${appSpecifications.name} denied` : `Ports of ${appName} denied`,
@@ -1889,35 +1901,45 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
     res.write(serviceHelper.ensureString(portStatusInitial));
   }
   if (appSpecifications.ports) {
+    const firewallActive = await fluxCommunication.isFirewallActive();
+    if (firewallActive) {
     // eslint-disable-next-line no-restricted-syntax
-    for (const port of appSpecifications.ports) {
+      for (const port of appSpecifications.ports) {
       // eslint-disable-next-line no-await-in-loop
-      const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(port));
+        const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(port));
+        if (portResponse.status === true) {
+          const portStatus = {
+            status: `'Port ${port} OK'`,
+          };
+          log.info(portStatus);
+          if (res) {
+            res.write(serviceHelper.ensureString(portStatus));
+          }
+        } else {
+          throw new Error(`Error: Port ${port} FAILed to open.`);
+        }
+      }
+    } else {
+      log.info('Firewall not active, application ports are open');
+    }
+  } else if (appSpecifications.port) {
+    // v1 compatibility
+    const firewallActive = await fluxCommunication.isFirewallActive();
+    if (firewallActive) {
+      const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(appSpecifications.port));
       if (portResponse.status === true) {
         const portStatus = {
-          status: `'Port ${port} OK'`,
+          status: 'Port OK',
         };
         log.info(portStatus);
         if (res) {
           res.write(serviceHelper.ensureString(portStatus));
         }
       } else {
-        throw new Error(`Error: Port ${port} FAILed to open.`);
-      }
-    }
-  } else if (appSpecifications.port) {
-    // v1 compatibility
-    const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(appSpecifications.port));
-    if (portResponse.status === true) {
-      const portStatus = {
-        status: 'Port OK',
-      };
-      log.info(portStatus);
-      if (res) {
-        res.write(serviceHelper.ensureString(portStatus));
+        throw new Error(`Error: Port ${appSpecifications.port} FAILed to open.`);
       }
     } else {
-      throw new Error(`Error: Port ${appSpecifications.port} FAILed to open.`);
+      log.info('Firewall not active, application ports are open');
     }
   }
   const startStatus = {
@@ -2129,35 +2151,45 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
     res.write(serviceHelper.ensureString(portStatusInitial));
   }
   if (appSpecifications.ports) {
+    const firewallActive = await fluxCommunication.isFirewallActive();
+    if (firewallActive) {
     // eslint-disable-next-line no-restricted-syntax
-    for (const port of appSpecifications.ports) {
+      for (const port of appSpecifications.ports) {
       // eslint-disable-next-line no-await-in-loop
-      const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(port));
+        const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(port));
+        if (portResponse.status === true) {
+          const portStatus = {
+            status: `'Port ${port} OK'`,
+          };
+          log.info(portStatus);
+          if (res) {
+            res.write(serviceHelper.ensureString(portStatus));
+          }
+        } else {
+          throw new Error(`Error: Port ${port} FAILed to open.`);
+        }
+      }
+    } else {
+      log.info('Firewall not active, application ports are open');
+    }
+  } else if (appSpecifications.port) {
+    const firewallActive = await fluxCommunication.isFirewallActive();
+    if (firewallActive) {
+    // v1 compatibility
+      const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(appSpecifications.port));
       if (portResponse.status === true) {
         const portStatus = {
-          status: `'Port ${port} OK'`,
+          status: 'Port OK',
         };
         log.info(portStatus);
         if (res) {
           res.write(serviceHelper.ensureString(portStatus));
         }
       } else {
-        throw new Error(`Error: Port ${port} FAILed to open.`);
-      }
-    }
-  } else if (appSpecifications.port) {
-    // v1 compatibility
-    const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(appSpecifications.port));
-    if (portResponse.status === true) {
-      const portStatus = {
-        status: 'Port OK',
-      };
-      log.info(portStatus);
-      if (res) {
-        res.write(serviceHelper.ensureString(portStatus));
+        throw new Error(`Error: Port ${appSpecifications.port} FAILed to open.`);
       }
     } else {
-      throw new Error(`Error: Port ${appSpecifications.port} FAILed to open.`);
+      log.info('Firewall not active, application ports are open');
     }
   }
   const startStatus = {

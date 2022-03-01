@@ -1500,15 +1500,29 @@ async function allowPortApi(req, res) {
   return res.json(response);
 }
 
-async function adjustFirewall() {
+async function isFirewallActive() {
   try {
     const cmdAsync = util.promisify(cmd.get);
     const execA = 'sudo ufw status | grep Status';
+    const cmdresA = await cmdAsync(execA);
+    if (serviceHelper.ensureString(cmdresA).includes('Status: active')) {
+      return true;
+    }
+    return false;
+  } catch (error) {
+    log.error(error);
+    throw error;
+  }
+}
+
+async function adjustFirewall() {
+  try {
+    const cmdAsync = util.promisify(cmd.get);
     const apiPort = userconfig.initial.apiport || config.server.apiport;
     const homePort = +apiPort - 1;
     const ports = [apiPort, homePort, 80, 443, 16125];
-    const cmdresA = await cmdAsync(execA);
-    if (serviceHelper.ensureString(cmdresA).includes('Status: active')) {
+    const firewallActive = await isFirewallActive();
+    if (firewallActive) {
       // eslint-disable-next-line no-restricted-syntax
       for (const port of ports) {
         const execB = `sudo ufw allow ${port}`;
@@ -1593,6 +1607,7 @@ module.exports = {
   removeIncomingPeer,
   connectedPeersInfo,
   getDOSState,
+  isFirewallActive,
   allowPort,
   allowPortApi,
   denyPort,
