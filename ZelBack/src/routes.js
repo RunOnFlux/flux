@@ -9,6 +9,7 @@ const appsService = require('./services/appsService');
 const explorerService = require('./services/explorerService');
 const fluxshareService = require('./services/fluxshareService');
 const generalService = require('./services/generalService');
+const upnpService = require('./services/upnpService');
 
 function isLocal(req, res, next) {
   const remote = req.ip || req.connection.remoteAddress || req.socket.remoteAddress || req.headers['x-forwarded-for'];
@@ -763,6 +764,12 @@ module.exports = (app, expressWs) => {
   });
   app.get('/flux/backendfolder', isLocal, (req, res) => {
     fluxService.fluxBackendFolder(req, res);
+  });
+  app.get('/flux/mapport/:port?', (req, res) => {
+    upnpService.mapPortApi(req, res);
+  });
+  app.get('/flux/unmapport/:port?', (req, res) => {
+    upnpService.removeMapPortApi(req, res);
   });
 
   app.get('/benchmark/start', (req, res) => {
