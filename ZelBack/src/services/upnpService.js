@@ -45,7 +45,47 @@ async function setupUPNP(apiport = config.apiport) { // todo evaluate adding ssl
   }
 }
 
+async function mapUpnpPort(port) {
+  try {
+    await client.createMapping({
+      public: port,
+      private: port,
+      ttl: 0,
+      protocol: 'TCP',
+    });
+    await client.createMapping({
+      public: port,
+      private: port,
+      ttl: 0,
+      protocol: 'UDP',
+    });
+    return true;
+  } catch (error) {
+    log.error(error);
+    return false;
+  }
+}
+
+async function removeMapUpnpPort(port) {
+  try {
+    await client.removeMapping({
+      public: port,
+      protocol: 'TCP',
+    });
+    await client.removeMapping({
+      public: port,
+      protocol: 'UDP',
+    });
+    return true;
+  } catch (error) {
+    log.error(error);
+    return false;
+  }
+}
+
 module.exports = {
   verifyUPNPsupport,
   setupUPNP,
+  mapUpnpPort,
+  removeMapUpnpPort,
 };
