@@ -172,4 +172,33 @@ describe('messageHelper tests', () => {
       expect(verification).to.be.an('error');
     });
   });
+
+  describe('signMessage tests', () => {
+    it('should sign a message', async () => {
+      const message = 'abc';
+      const privKey = '5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh';
+
+      const signature = messageHelper.signMessage(message, privKey);
+
+      expect(signature).to.be.a('string');
+    });
+
+    it('should sign an empty message', async () => {
+      const message = '';
+      const privKey = '5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh';
+
+      const signature = messageHelper.signMessage(message, privKey);
+
+      expect(signature).to.be.a('string');
+    });
+
+    it('should throw error if private key is invalid', async () => {
+      const message = 'abc';
+      const privKey = 'test123';
+
+      const signature = messageHelper.signMessage(message, privKey);
+
+      expect(signature).to.be.an('error');
+    });
+  });
 });

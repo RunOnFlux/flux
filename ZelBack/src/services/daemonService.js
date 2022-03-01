@@ -3,6 +3,7 @@ const fullnode = require('fullnode');
 const LRU = require('lru-cache');
 const config = require('config');
 const serviceHelper = require('./serviceHelper');
+const messageHelper = require('./messageHelper');
 const verificationHelper = require('./verificationHelper');
 const log = require('../lib/log');
 const userconfig = require('../../../config/userconfig');
@@ -47,7 +48,7 @@ const LRUoptionsTxs = {
 
 const rawTxCache = new LRU(LRUoptionsTxs); // store 30k txs in cache
 
-let response = serviceHelper.createErrorMessage();
+let response = messageHelper.createErrorMessage();
 
 async function executeCall(rpc, params) {
   let callResponse;
@@ -95,10 +96,10 @@ async function executeCall(rpc, params) {
       blockCache.set(rpc + serviceHelper.ensureString(rpcparameters), data);
       daemonCallRunning = false;
     }
-    const successResponse = serviceHelper.createDataMessage(data);
+    const successResponse = messageHelper.createDataMessage(data);
     callResponse = successResponse;
   } catch (error) {
-    const daemonError = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const daemonError = messageHelper.createErrorMessage(error.message, error.name, error.code);
     callResponse = daemonError;
   }
 
@@ -159,7 +160,7 @@ async function stop(req, res) { // practically useless
 
     response = await executeCall(rpccall);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -201,7 +202,7 @@ async function listZelNodeConf(req, res) { // practically useless
 
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -214,7 +215,7 @@ async function createZelNodeKey(req, res) { // practically useless
 
     response = await executeCall(rpccall);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -236,7 +237,7 @@ async function znsync(req, res) {
 
       response = await executeCall(rpccall, rpcparameters);
     } else {
-      response = serviceHelper.errUnauthorizedMessage();
+      response = messageHelper.errUnauthorizedMessage();
     }
   }
   return res ? res.json(response) : response;
@@ -255,7 +256,7 @@ async function createZelNodeBroadcast(req, res) {
 
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -307,7 +308,7 @@ async function getZelNodeOutputs(req, res) {
 
     response = await executeCall(rpccall);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -395,7 +396,7 @@ async function startDeterministicZelNode(req, res) {
 
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -420,7 +421,7 @@ async function startZelNode(req, res) {
 
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -707,7 +708,7 @@ async function verifyChain(req, res) {
 
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -1090,7 +1091,7 @@ async function prioritiseTransaction(req, res) {
 
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -1114,7 +1115,7 @@ async function submitBlock(req, res) {
 
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -1143,7 +1144,7 @@ async function submitBlockPost(req, res) {
 
       response = await executeCall(rpccall, rpcparameters);
     } else {
-      response = serviceHelper.errUnauthorizedMessage();
+      response = messageHelper.errUnauthorizedMessage();
     }
 
     return res.json(response);
@@ -1166,7 +1167,7 @@ async function addNode(req, res) {
 
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -1179,7 +1180,7 @@ async function clearBanned(req, res) {
 
     response = await executeCall(rpccall);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -1198,7 +1199,7 @@ async function disconnectNode(req, res) {
 
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -1223,7 +1224,7 @@ async function getAddedNodeInfo(req, res) {
 
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -1284,7 +1285,7 @@ async function ping(req, res) {
 
     response = await executeCall(rpccall);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -1318,7 +1319,7 @@ async function setBan(req, res) {
 
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -1333,7 +1334,7 @@ async function createRawTransaction(req, res) {
   let { locktime } = req.params;
   locktime = locktime || req.query.locktime || 0;
   const blockcount = await client.getBlockCount().catch((error) => {
-    const daemonError = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const daemonError = messageHelper.createErrorMessage(error.message, error.name, error.code);
     response = daemonError;
     return res ? res.json(response) : response;
   });
@@ -1367,7 +1368,7 @@ async function createRawTransactionPost(req, res) {
     let { locktime } = processedBody;
     locktime = locktime || 0;
     const blockcount = await client.getBlockCount().catch((error) => {
-      const daemonError = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+      const daemonError = messageHelper.createErrorMessage(error.message, error.name, error.code);
       response = daemonError;
       return res.json(response);
     });
@@ -1581,7 +1582,7 @@ async function signRawTransaction(req, res) {
     }
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -1621,7 +1622,7 @@ async function signRawTransactionPost(req, res) {
       }
       response = await executeCall(rpccall, rpcparameters);
     } else {
-      response = serviceHelper.errUnauthorizedMessage();
+      response = messageHelper.errUnauthorizedMessage();
     }
     return res.json(response);
   });
@@ -1795,7 +1796,7 @@ async function addMultiSigAddress(req, res) {
     }
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -1821,7 +1822,7 @@ async function addMultiSigAddressPost(req, res) {
       }
       response = await executeCall(rpccall, rpcparameters);
     } else {
-      response = serviceHelper.errUnauthorizedMessage();
+      response = messageHelper.errUnauthorizedMessage();
     }
 
     return res.json(response);
@@ -1840,7 +1841,7 @@ async function backupWallet(req, res) {
     }
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -1858,7 +1859,7 @@ async function dumpPrivKey(req, res) {
     }
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -1877,7 +1878,7 @@ async function getBalance(req, res) {
     const rpcparameters = ['', minconf, includewatchonly];
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -1889,7 +1890,7 @@ async function getNewAddress(req, res) {
     const rpccall = 'getNewAddress';
     response = await executeCall(rpccall);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -1901,7 +1902,7 @@ async function getRawChangeAddress(req, res) {
     const rpccall = 'getRawChangeAddress';
     response = await executeCall(rpccall);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -1922,7 +1923,7 @@ async function getReceivedByAddress(req, res) {
     }
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -1951,7 +1952,7 @@ async function getUnconfirmedBalance(req, res) {
     const rpccall = 'getUnconfirmedBalance';
     response = await executeCall(rpccall);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -1963,7 +1964,7 @@ async function getWalletInfo(req, res) {
     const rpccall = 'getWalletInfo';
     response = await executeCall(rpccall);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -1986,7 +1987,7 @@ async function importAddress(req, res) {
     }
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -2009,7 +2010,7 @@ async function importPrivKey(req, res) {
     }
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -2027,7 +2028,7 @@ async function importWallet(req, res) {
     }
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -2043,7 +2044,7 @@ async function keyPoolRefill(req, res) {
     const rpcparameters = [newsize];
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -2055,7 +2056,7 @@ async function listAddressGroupings(req, res) {
     const rpccall = 'listAddressGroupings';
     response = await executeCall(rpccall);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -2067,7 +2068,7 @@ async function listLockUnspent(req, res) {
     const rpccall = 'listLockUnspent';
     response = await executeCall(rpccall);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -2083,7 +2084,7 @@ async function rescanBlockchain(req, res) {
     const rpcparameters = [startheight];
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -2105,7 +2106,7 @@ async function listReceivedByAddress(req, res) {
     const rpcparameters = [minconf, includeempty, includewatchonly];
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -2126,7 +2127,7 @@ async function listSinceBlock(req, res) {
     const rpcparameters = [blockhash, targetconfirmations, includewatchonly];
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -2149,7 +2150,7 @@ async function listTransactions(req, res) {
     const rpcparameters = [account, count, from, includewatchonly];
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -2175,7 +2176,7 @@ async function listUnspent(req, res) {
 
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -2198,7 +2199,7 @@ async function lockUnspent(req, res) {
 
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -2228,7 +2229,7 @@ async function sendFrom(req, res) {
 
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -2262,7 +2263,7 @@ async function sendFromPost(req, res) {
 
       response = await executeCall(rpccall, rpcparameters);
     } else {
-      response = serviceHelper.errUnauthorizedMessage();
+      response = messageHelper.errUnauthorizedMessage();
     }
 
     return res.json(response);
@@ -2295,7 +2296,7 @@ async function sendMany(req, res) {
 
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -2331,7 +2332,7 @@ async function sendManyPost(req, res) {
 
       response = await executeCall(rpccall, rpcparameters);
     } else {
-      response = serviceHelper.errUnauthorizedMessage();
+      response = messageHelper.errUnauthorizedMessage();
     }
 
     return res.json(response);
@@ -2361,7 +2362,7 @@ async function sendToAddress(req, res) {
 
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -2394,7 +2395,7 @@ async function sendToAddressPost(req, res) {
 
       response = await executeCall(rpccall, rpcparameters);
     } else {
-      response = serviceHelper.errUnauthorizedMessage();
+      response = messageHelper.errUnauthorizedMessage();
     }
 
     return res.json(response);
@@ -2415,7 +2416,7 @@ async function setTxFee(req, res) {
 
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -2436,7 +2437,7 @@ async function signMessage(req, res) {
 
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -2462,7 +2463,7 @@ async function signMessagePost(req, res) {
 
       response = await executeCall(rpccall, rpcparameters);
     } else {
-      response = serviceHelper.errUnauthorizedMessage();
+      response = messageHelper.errUnauthorizedMessage();
     }
 
     return res.json(response);
@@ -2482,7 +2483,7 @@ async function zExportKey(req, res) {
 
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -2501,7 +2502,7 @@ async function zExportViewingKey(req, res) {
 
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -2523,7 +2524,7 @@ async function zGetBalance(req, res) {
 
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -2536,7 +2537,7 @@ async function zGetMigrationStatus(req, res) {
 
     response = await executeCall(rpccall);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -2552,7 +2553,7 @@ async function zGetNewAddress(req, res) {
 
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -2569,7 +2570,7 @@ async function zGetOperationResult(req, res) {
 
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -2586,7 +2587,7 @@ async function zGetOperationStatus(req, res) {
 
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -2606,7 +2607,7 @@ async function zGetTotalBalance(req, res) {
 
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -2630,7 +2631,7 @@ async function zImportKey(req, res) {
 
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -2654,7 +2655,7 @@ async function zImportViewingKey(req, res) {
 
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -2673,7 +2674,7 @@ async function zImportWallet(req, res) {
 
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -2690,7 +2691,7 @@ async function zListAddresses(req, res) {
 
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -2703,7 +2704,7 @@ async function zListOperationIds(req, res) {
 
     response = await executeCall(rpccall);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -2725,7 +2726,7 @@ async function zListReceivedByAddress(req, res) {
 
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -2754,7 +2755,7 @@ async function zListUnspent(req, res) {
 
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -2786,7 +2787,7 @@ async function zMergeToAddress(req, res) {
     }
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -2813,7 +2814,7 @@ async function zSendMany(req, res) {
     }
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -2844,7 +2845,7 @@ async function zSendManyPost(req, res) {
       }
       response = await executeCall(rpccall, rpcparameters);
     } else {
-      response = serviceHelper.errUnauthorizedMessage();
+      response = messageHelper.errUnauthorizedMessage();
     }
 
     return res.json(response);
@@ -2864,7 +2865,7 @@ async function zSetMigration(req, res) {
     }
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -2890,7 +2891,7 @@ async function zShieldCoinBase(req, res) {
     }
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -2911,7 +2912,7 @@ async function zcBenchmark(req, res) {
     }
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -2939,7 +2940,7 @@ async function zcRawJoinSplit(req, res) {
     }
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -2969,7 +2970,7 @@ async function zcRawJoinSplitPost(req, res) {
       }
       response = await executeCall(rpccall, rpcparameters);
     } else {
-      response = serviceHelper.errUnauthorizedMessage();
+      response = messageHelper.errUnauthorizedMessage();
     }
 
     return res.json(response);
@@ -2982,7 +2983,7 @@ async function zcRawKeygen(req, res) {
     const rpccall = 'zcrawkeygen';
     response = await executeCall(rpccall);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -3002,7 +3003,7 @@ async function zcRawReceive(req, res) {
     }
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -3027,7 +3028,7 @@ async function zcRawReceivePost(req, res) {
       }
       response = await executeCall(rpccall, rpcparameters);
     } else {
-      response = serviceHelper.errUnauthorizedMessage();
+      response = messageHelper.errUnauthorizedMessage();
     }
 
     return res.json(response);
@@ -3040,7 +3041,7 @@ async function zcSampleJoinSplit(req, res) {
     const rpccall = 'zcsamplejoinsplit';
     response = await executeCall(rpccall);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -3069,7 +3070,7 @@ async function startBenchmarkD(req, res) {
     const rpccall = 'startzelbenchd';
     response = await executeCall(rpccall);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -3081,7 +3082,7 @@ async function stopBenchmarkD(req, res) {
     const rpccall = 'stopzelbenchd';
     response = await executeCall(rpccall);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -3096,7 +3097,7 @@ function isDaemonSynced(req, res) {
   if (currentDaemonHeight > currentDaemonHeader - 5) {
     isSynced.synced = true;
   }
-  const successResponse = serviceHelper.createDataMessage(isSynced);
+  const successResponse = messageHelper.createDataMessage(isSynced);
   return res ? res.json(successResponse) : successResponse;
 }
 

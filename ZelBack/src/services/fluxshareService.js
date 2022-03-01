@@ -8,6 +8,7 @@ const archiver = require('archiver');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
 const serviceHelper = require('./serviceHelper');
+const messageHelper = require('./messageHelper');
 const dbHelper = require('./dbHelper');
 const verificationHelper = require('./verificationHelper');
 const generalService = require('./generalService');
@@ -145,15 +146,15 @@ async function fluxShareGetSharedFiles(req, res) {
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
     if (authorized) {
       const files = await fluxShareSharedFiles();
-      const resultsResponse = serviceHelper.createDataMessage(files);
+      const resultsResponse = messageHelper.createDataMessage(files);
       res.json(resultsResponse);
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -175,15 +176,15 @@ async function fluxShareUnshareFile(req, res) {
       file = file || req.query.file;
       file = encodeURIComponent(file);
       await fluxShareDatabaseFileDelete(file);
-      const resultsResponse = serviceHelper.createSuccessMessage('File sharing disabled');
+      const resultsResponse = messageHelper.createSuccessMessage('File sharing disabled');
       res.json(resultsResponse);
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -205,15 +206,15 @@ async function fluxShareShareFile(req, res) {
       file = file || req.query.file;
       file = encodeURIComponent(file);
       const fileDetails = await fluxShareDatabaseShareFile(file);
-      const resultsResponse = serviceHelper.createDataMessage(fileDetails);
+      const resultsResponse = messageHelper.createDataMessage(fileDetails);
       res.json(resultsResponse);
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -239,7 +240,7 @@ async function fluxShareDownloadFolder(req, res, authorized = false) {
       folder = folder || req.query.folder;
 
       if (!folder) {
-        const errorResponse = serviceHelper.createErrorMessage('No folder specified');
+        const errorResponse = messageHelper.createErrorMessage('No folder specified');
         res.json(errorResponse);
         return;
       }
@@ -266,13 +267,13 @@ async function fluxShareDownloadFolder(req, res, authorized = false) {
       zip.glob('**/*', { cwd: folderpath });
       zip.finalize();
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
       return;
     }
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -294,7 +295,7 @@ async function fluxShareDownloadFile(req, res) {
       file = file || req.query.file;
 
       if (!file) {
-        const errorResponse = serviceHelper.createErrorMessage('No file specified');
+        const errorResponse = messageHelper.createErrorMessage('No file specified');
         res.json(errorResponse);
         return;
       }
@@ -313,7 +314,7 @@ async function fluxShareDownloadFile(req, res) {
       let { token } = req.params;
       token = token || req.query.token;
       if (!file || !token) {
-        const errMessage = serviceHelper.errUnauthorizedMessage();
+        const errMessage = messageHelper.errUnauthorizedMessage();
         res.json(errMessage);
         return;
       }
@@ -325,7 +326,7 @@ async function fluxShareDownloadFile(req, res) {
       const projectionFluxShare = { projection: { _id: 0, name: 1, token: 1 } };
       const result = await dbHelper.findOneInDatabase(databaseFluxShare, sharedCollection, queryFluxShare, projectionFluxShare);
       if (!result) {
-        const errMessage = serviceHelper.errUnauthorizedMessage();
+        const errMessage = messageHelper.errUnauthorizedMessage();
         res.json(errMessage);
         return;
       }
@@ -351,7 +352,7 @@ async function fluxShareDownloadFile(req, res) {
     }
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -398,15 +399,15 @@ async function fluxShareRename(req, res) {
       }
       await fs.promises.rename(oldfullpath, newfullpath);
 
-      const response = serviceHelper.createSuccessMessage('Rename successful');
+      const response = messageHelper.createSuccessMessage('Rename successful');
       res.json(response);
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -438,15 +439,15 @@ async function fluxShareRemoveFile(req, res) {
       const filepath = `${dirpath}ZelApps/ZelShare/${file}`;
       await fs.promises.unlink(filepath);
 
-      const response = serviceHelper.createSuccessMessage('File Removed');
+      const response = messageHelper.createSuccessMessage('File Removed');
       res.json(response);
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -474,15 +475,15 @@ async function fluxShareRemoveFolder(req, res) {
       const filepath = `${dirpath}ZelApps/ZelShare/${folder}`;
       await fs.promises.rmdir(filepath);
 
-      const response = serviceHelper.createSuccessMessage('Folder Removed');
+      const response = messageHelper.createSuccessMessage('Folder Removed');
       res.json(response);
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -549,15 +550,15 @@ async function fluxShareGetFolder(req, res) {
         };
         filesWithDetails.push(detailedFile);
       }
-      const resultsResponse = serviceHelper.createDataMessage(filesWithDetails);
+      const resultsResponse = messageHelper.createDataMessage(filesWithDetails);
       res.json(resultsResponse);
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
   }
 }
@@ -574,15 +575,15 @@ async function fluxShareCreateFolder(req, res) {
 
       await fs.promises.mkdir(filepath);
 
-      const resultsResponse = serviceHelper.createSuccessMessage('Folder Created');
+      const resultsResponse = messageHelper.createSuccessMessage('Folder Created');
       res.json(resultsResponse);
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
   }
 }
@@ -605,15 +606,15 @@ async function fluxShareFileExists(req, res) {
       const data = {
         fileExists,
       };
-      const resultsResponse = serviceHelper.createDataMessage(data);
+      const resultsResponse = messageHelper.createDataMessage(data);
       res.json(resultsResponse);
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -673,15 +674,15 @@ async function fluxShareStorageStats(req, res) {
         used: spaceUsedByFluxShare,
         total: spaceAvailableForFluxShare,
       };
-      const resultsResponse = serviceHelper.createDataMessage(data);
+      const resultsResponse = messageHelper.createDataMessage(data);
       res.json(resultsResponse);
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
   }
 }
@@ -754,7 +755,7 @@ async function fluxShareUpload(req, res) {
       })
       .on('error', (error) => {
         log.error(error);
-        const errorResponse = serviceHelper.createErrorMessage(
+        const errorResponse = messageHelper.createErrorMessage(
           error.message || error,
           error.name,
           error.code,

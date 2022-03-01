@@ -5,6 +5,7 @@ const log = require('../lib/log');
 
 const serviceHelper = require('./serviceHelper');
 const daemonService = require('./daemonService');
+const messageHelper = require('./messageHelper');
 const dbHelper = require('./dbHelper');
 
 const scannedHeightCollection = config.database.daemon.collections.scannedHeight;
@@ -227,11 +228,11 @@ async function checkWhitelistedZelID(zelid) {
 async function whitelistedRepositories(req, res) {
   try {
     const whitelisted = await serviceHelper.axiosGet('https://raw.githubusercontent.com/runonflux/flux/master/helpers/repositories.json');
-    const resultsResponse = serviceHelper.createDataMessage(whitelisted.data);
+    const resultsResponse = messageHelper.createDataMessage(whitelisted.data);
     res.json(resultsResponse);
   } catch (error) {
     log.error(error);
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
   }
 }
@@ -239,11 +240,11 @@ async function whitelistedRepositories(req, res) {
 async function whitelistedZelIDs(req, res) {
   try {
     const whitelisted = await serviceHelper.axiosGet('https://raw.githubusercontent.com/runonflux/flux/master/helpers/zelids.json');
-    const resultsResponse = serviceHelper.createDataMessage(whitelisted.data);
+    const resultsResponse = messageHelper.createDataMessage(whitelisted.data);
     res.json(resultsResponse);
   } catch (error) {
     log.error(error);
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
   }
 }

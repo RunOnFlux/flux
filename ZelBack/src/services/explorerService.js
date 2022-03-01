@@ -5,6 +5,7 @@ const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const dbHelper = require('./dbHelper');
 const verificationHelper = require('./verificationHelper');
+const messageHelper = require('./messageHelper');
 const daemonService = require('./daemonService');
 const appsService = require('./appsService');
 
@@ -869,11 +870,11 @@ async function getAllUtxos(req, res) {
       },
     };
     const results = await dbHelper.findInDatabase(database, utxoIndexCollection, query, projection);
-    const resMessage = serviceHelper.createDataMessage(results);
+    const resMessage = messageHelper.createDataMessage(results);
     res.json(resMessage);
   } catch (error) {
     log.error(error);
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
   }
 }
@@ -900,11 +901,11 @@ async function getAllFusionCoinbase(req, res) {
       },
     };
     const results = await dbHelper.findInDatabase(database, coinbaseFusionIndexCollection, query, projection);
-    const resMessage = serviceHelper.createDataMessage(results);
+    const resMessage = messageHelper.createDataMessage(results);
     res.json(resMessage);
   } catch (error) {
     log.error(error);
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
   }
 }
@@ -931,11 +932,11 @@ async function getAllFluxTransactions(req, res) {
       },
     };
     const results = await dbHelper.findInDatabase(database, fluxTransactionCollection, query, projection);
-    const resMessage = serviceHelper.createDataMessage(results);
+    const resMessage = messageHelper.createDataMessage(results);
     res.json(resMessage);
   } catch (error) {
     log.error(error);
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
   }
 }
@@ -959,11 +960,11 @@ async function getAllAddressesWithTransactions(req, res) {
       },
     };
     const results = await dbHelper.findInDatabase(database, addressTransactionIndexCollection, query, projection);
-    const resMessage = serviceHelper.createDataMessage(results);
+    const resMessage = messageHelper.createDataMessage(results);
     res.json(resMessage);
   } catch (error) {
     log.error(error);
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
   }
 }
@@ -979,11 +980,11 @@ async function getAllAddresses(req, res) {
     const database = dbopen.db(config.database.daemon.database);
     const variable = 'address';
     const results = await dbHelper.distinctDatabase(database, addressTransactionIndexCollection, variable);
-    const resMessage = serviceHelper.createDataMessage(results);
+    const resMessage = messageHelper.createDataMessage(results);
     res.json(resMessage);
   } catch (error) {
     log.error(error);
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
   }
 }
@@ -1019,7 +1020,7 @@ async function getAddressUtxos(req, res) {
         };
         utxos.push(adjustedUtxo);
       });
-      const resMessage = serviceHelper.createDataMessage(utxos);
+      const resMessage = messageHelper.createDataMessage(utxos);
       res.json(resMessage);
     } else {
       const dbopen = dbHelper.databaseConnection();
@@ -1038,12 +1039,12 @@ async function getAddressUtxos(req, res) {
         },
       };
       const results = await dbHelper.findInDatabase(database, utxoIndexCollection, query, projection);
-      const resMessage = serviceHelper.createDataMessage(results);
+      const resMessage = messageHelper.createDataMessage(results);
       res.json(resMessage);
     }
   } catch (error) {
     log.error(error);
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
   }
 }
@@ -1075,11 +1076,11 @@ async function getAddressFusionCoinbase(req, res) {
       },
     };
     const results = await dbHelper.findInDatabase(database, coinbaseFusionIndexCollection, query, projection);
-    const resMessage = serviceHelper.createDataMessage(results);
+    const resMessage = messageHelper.createDataMessage(results);
     res.json(resMessage);
   } catch (error) {
     log.error(error);
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
   }
 }
@@ -1123,11 +1124,11 @@ async function getFilteredFluxTxs(req, res) {
       },
     };
     const results = await dbHelper.findInDatabase(database, fluxTransactionCollection, query, projection);
-    const resMessage = serviceHelper.createDataMessage(results);
+    const resMessage = messageHelper.createDataMessage(results);
     res.json(resMessage);
   } catch (error) {
     log.error(error);
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
   }
 }
@@ -1155,7 +1156,7 @@ async function getAddressTransactions(req, res) {
           txid,
         });
       });
-      const resMessage = serviceHelper.createDataMessage(txidsOK);
+      const resMessage = messageHelper.createDataMessage(txidsOK);
       res.json(resMessage);
     } else {
       const dbopen = dbHelper.databaseConnection();
@@ -1165,12 +1166,12 @@ async function getAddressTransactions(req, res) {
       const results = await dbHelper.distinctDatabase(database, addressTransactionIndexCollection, distinct, query);
       // TODO FIX documentation. UPDATE for an amount of last txs needed.
       // now we have array of transactions [{txid, height}, {}...]
-      const resMessage = serviceHelper.createDataMessage(results);
+      const resMessage = messageHelper.createDataMessage(results);
       res.json(resMessage);
     }
   } catch (error) {
     log.error(error);
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
   }
 }
@@ -1190,11 +1191,11 @@ async function getScannedHeight(req, res) {
     if (!result) {
       throw new Error('Scanning not initiated');
     }
-    const resMessage = serviceHelper.createDataMessage(result);
+    const resMessage = messageHelper.createDataMessage(result);
     res.json(resMessage);
   } catch (error) {
     log.error(error);
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
   }
 }
@@ -1204,7 +1205,7 @@ async function checkBlockProcessingStopped(i, callback) {
   clearTimeout(initBPfromErrorTimeout);
   clearTimeout(initBPfromNoBlockTimeout);
   if (someBlockIsProcessing === false && isInInitiationOfBP === false) {
-    const succMessage = serviceHelper.createSuccessMessage('Block processing is stopped');
+    const succMessage = messageHelper.createSuccessMessage('Block processing is stopped');
     blockProccessingCanContinue = true;
     callback(succMessage);
   } else {
@@ -1213,7 +1214,7 @@ async function checkBlockProcessingStopped(i, callback) {
       if (j < 12) {
         checkBlockProcessingStopped(j, callback);
       } else {
-        const errMessage = serviceHelper.createErrorMessage('Unknown error occured. Try again later.');
+        const errMessage = messageHelper.createErrorMessage('Unknown error occured. Try again later.');
         callback(errMessage);
       }
     }, 1000);
@@ -1229,7 +1230,7 @@ async function stopBlockProcessing(req, res) {
       res.json(response);
     });
   } else {
-    const errMessage = serviceHelper.errUnauthorizedMessage();
+    const errMessage = messageHelper.errUnauthorizedMessage();
     res.json(errMessage);
   }
 }
@@ -1240,11 +1241,11 @@ async function restartBlockProcessing(req, res) {
     const i = 0;
     checkBlockProcessingStopped(i, async () => {
       initiateBlockProcessor(true, false);
-      const message = serviceHelper.createSuccessMessage('Block processing initiated');
+      const message = messageHelper.createSuccessMessage('Block processing initiated');
       res.json(message);
     });
   } else {
-    const errMessage = serviceHelper.errUnauthorizedMessage();
+    const errMessage = messageHelper.errUnauthorizedMessage();
     res.json(errMessage);
   }
 }
@@ -1261,7 +1262,7 @@ async function reindexExplorer(req, res) {
       if (response.status === 'error') {
         res.json(response);
       } else if (operationBlocked) {
-        const errMessage = serviceHelper.createErrorMessage('Operation blocked');
+        const errMessage = messageHelper.createErrorMessage('Operation blocked');
         res.json(errMessage);
       } else {
         operationBlocked = true;
@@ -1271,23 +1272,23 @@ async function reindexExplorer(req, res) {
           if (error.message !== 'ns not found') {
             operationBlocked = false;
             log.error(error);
-            const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+            const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
             res.json(errMessage);
           }
         });
         operationBlocked = false;
         if (resultOfDropping === true || resultOfDropping === undefined) {
           initiateBlockProcessor(true, false, reindexapps); // restore database and possibly do reindex of apps
-          const message = serviceHelper.createSuccessMessage('Explorer database reindex initiated');
+          const message = messageHelper.createSuccessMessage('Explorer database reindex initiated');
           res.json(message);
         } else {
-          const errMessage = serviceHelper.createErrorMessage(resultOfDropping, 'Collection dropping error');
+          const errMessage = messageHelper.createErrorMessage(resultOfDropping, 'Collection dropping error');
           res.json(errMessage);
         }
       }
     });
   } else {
-    const errMessage = serviceHelper.errUnauthorizedMessage();
+    const errMessage = messageHelper.errUnauthorizedMessage();
     res.json(errMessage);
   }
 }
@@ -1300,7 +1301,7 @@ async function rescanExplorer(req, res) {
       let { blockheight } = req.params; // we accept both help/command and help?command=getinfo
       blockheight = blockheight || req.query.blockheight;
       if (!blockheight) {
-        const errMessage = serviceHelper.createErrorMessage('No blockheight provided');
+        const errMessage = messageHelper.createErrorMessage('No blockheight provided');
         res.json(errMessage);
       }
       blockheight = serviceHelper.ensureNumber(blockheight);
@@ -1344,18 +1345,18 @@ async function rescanExplorer(req, res) {
           await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
           operationBlocked = false;
           initiateBlockProcessor(true, false, rescanapps); // restore database and possibly do rescan of apps
-          const message = serviceHelper.createSuccessMessage(`Explorer rescan from blockheight ${blockheight} initiated`);
+          const message = messageHelper.createSuccessMessage(`Explorer rescan from blockheight ${blockheight} initiated`);
           res.json(message);
         }
       });
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     operationBlocked = false;
     log.error(error);
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
   }
 }
@@ -1377,7 +1378,7 @@ async function getAddressBalance(req, res) {
       };
       const insightResult = await daemonService.getSingleAddressBalance(daemonRequest);
       const { balance } = insightResult.data;
-      const resMessage = serviceHelper.createDataMessage(balance);
+      const resMessage = messageHelper.createDataMessage(balance);
       res.json(resMessage);
     } else {
       const dbopen = dbHelper.databaseConnection();
@@ -1400,12 +1401,12 @@ async function getAddressBalance(req, res) {
       results.forEach((utxo) => {
         balance += utxo.satoshis;
       });
-      const resMessage = serviceHelper.createDataMessage(balance);
+      const resMessage = messageHelper.createDataMessage(balance);
       res.json(resMessage);
     }
   } catch (error) {
     log.error(error);
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
   }
 }
