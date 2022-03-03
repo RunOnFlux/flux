@@ -1524,7 +1524,9 @@ async function adjustFirewall() {
     const cmdAsync = util.promisify(cmd.get);
     const apiPort = userconfig.initial.apiport || config.server.apiport;
     const homePort = +apiPort - 1;
-    const ports = [apiPort, homePort, 80, 443, 16125];
+    let ports = [apiPort, homePort, 80, 443, 16125];
+    const fluxCommunicationPorts = config.server.allowedPorts;
+    ports = ports.concat(fluxCommunicationPorts);
     const firewallActive = await isFirewallActive();
     if (firewallActive) {
       // eslint-disable-next-line no-restricted-syntax
