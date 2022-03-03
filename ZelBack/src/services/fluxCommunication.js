@@ -1258,7 +1258,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
   }
   let askingIpPort = config.server.apiport;
   if (askingIP.includes(':')) { // has port specification
-    // it is ipv6
+    // it has port specification
     const splittedIP = askingIP.split(':');
     askingIP = splittedIP[0];
     askingIpPort = splittedIP[1];
@@ -1296,7 +1296,11 @@ async function checkMyFluxAvailability(retryNumber = 0) {
     log.info('Getting publicIp from FluxBench');
     const benchIpResponse = await benchmarkService.getPublicIp();
     if (benchIpResponse.status === 'success') {
-      const benchMyIP = benchIpResponse.data.length > 5 ? benchIpResponse.data : null;
+      let benchMyIP = benchIpResponse.data.length > 5 ? benchIpResponse.data : null;
+      if (benchMyIP && userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) {
+        // add port
+        benchMyIP += userconfig.initial.apiport;
+      }
       if (benchMyIP && benchMyIP !== myIP) {
         log.info('New public Ip detected, updating the FluxNode info in the network');
         myIP = benchMyIP;
