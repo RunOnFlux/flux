@@ -73,7 +73,7 @@ describe('getFluxMessageSignature', () => {
     const privKey = '5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh';
     const messageToSend = await communication.serialiseAndSignFluxBroadcast(data, privKey);
     console.log(messageToSend);
-    const wsuri = 'ws://62.171.163.150:16127/ws/flux/'; // locally running 127.0.0.1
+    const wsuri = 'wss://api.runonflux.io/ws/flux/'; // locally running 127.0.0.1
     const websocket = new WebSocket(wsuri);
 
     websocket.on('open', (msg) => {
