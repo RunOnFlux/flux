@@ -9,13 +9,26 @@ const appsFolder = `${fluxDirPath}ZelApps/`;
 
 const docker = new Docker();
 
+/**
+ * Creates a docker container object with a given ID.
+ *
+ * @param {string} id
+ *
+ * @returns {object} docker container object
+ */
 function getDockerContainer(id) {
   const dockerContainer = docker.getContainer(id);
   return dockerContainer;
 }
 
+/**
+ * Generates an app identifier based on app name.
+ *
+ * @param {string} appName
+ * @returns {string} app identifier
+ */
 function getAppIdentifier(appName) {
-  // this id is used for volumes, docker names so we know it reall belongs to flux
+  // this id is used for volumes, docker names so we know it really belongs to flux
   if (appName.startsWith('zel')) {
     return appName;
   }
@@ -28,6 +41,12 @@ function getAppIdentifier(appName) {
   return `flux${appName}`;
 }
 
+/**
+ * Generates an app docker name based on app name
+ *
+ * @param {string} appName
+ * @returns {string} app docker name id
+ */
 function getAppDockerNameIdentifier(appName) {
   // this id is used for volumes, docker names so we know it reall belongs to flux
   const name = getAppIdentifier(appName);
@@ -37,16 +56,48 @@ function getAppDockerNameIdentifier(appName) {
   return `/${name}`;
 }
 
+/**
+ * Creates a docker network object.
+ *
+ * @param {object} options:
+ *      Name: string;
+        CheckDuplicate?: boolean | undefined;
+        Driver?: string | undefined;
+        Internal?: boolean | undefined;
+        Attachable?: boolean | undefined;
+        Ingress?: boolean | undefined;
+        IPAM?: IPAM | undefined;
+        EnableIPv6?: boolean | undefined;
+        Options?: { [option: string]: string } | undefined;
+        Labels?: { [label: string]: string } | undefined;
+
+        abortSignal?: AbortSignal;
+ * @returns {object} Network
+ */
 async function dockerCreateNetwork(options) {
   const network = await docker.createNetwork(options);
   return network;
 }
 
+/**
+ * Removes docker network.
+ *
+ * @param {object} netw - Network object
+ *
+ * @returns {Buffer}
+ */
 async function dockerRemoveNetwork(netw) {
   const network = await netw.remove();
   return network;
 }
 
+/**
+ * Returns inspect network object
+ *
+ * @param {object} netw - Network object
+ *
+ * @returns {object} ispect network object
+ */
 async function dockerNetworkInspect(netw) {
   const network = await netw.inspect();
   return network;
