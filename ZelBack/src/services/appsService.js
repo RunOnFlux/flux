@@ -12,6 +12,7 @@ const fluxCommunication = require('./fluxCommunication');
 const serviceHelper = require('./serviceHelper');
 const dbHelper = require('./dbHelper');
 const verificationHelper = require('./verificationHelper');
+const messageHelper = require('./messageHelper');
 const daemonService = require('./daemonService');
 const benchmarkService = require('./benchmarkService');
 const dockerService = require('./dockerService');
@@ -74,11 +75,11 @@ async function listRunningApps(req, res) {
       delete app.Mounts;
       modifiedApps.push(app);
     });
-    const appsResponse = serviceHelper.createDataMessage(modifiedApps);
+    const appsResponse = messageHelper.createDataMessage(modifiedApps);
     return res ? res.json(appsResponse) : appsResponse;
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -104,11 +105,11 @@ async function listAllApps(req, res) {
       delete app.Mounts;
       modifiedApps.push(app);
     });
-    const appsResponse = serviceHelper.createDataMessage(modifiedApps);
+    const appsResponse = messageHelper.createDataMessage(modifiedApps);
     return res ? res.json(appsResponse) : appsResponse;
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -120,11 +121,11 @@ async function listAllApps(req, res) {
 async function listAppsImages(req, res) {
   try {
     const apps = await dockerService.dockerListImages();
-    const appsResponse = serviceHelper.createDataMessage(apps);
+    const appsResponse = messageHelper.createDataMessage(apps);
     return res ? res.json(appsResponse) : appsResponse;
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -146,7 +147,7 @@ async function appStart(req, res) {
 
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (!authorized) {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
     }
 
@@ -174,11 +175,11 @@ async function appStart(req, res) {
       }
     }
 
-    const appResponse = serviceHelper.createDataMessage(appRes);
+    const appResponse = messageHelper.createDataMessage(appRes);
     return res ? res.json(appResponse) : appResponse;
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -200,7 +201,7 @@ async function appStop(req, res) {
 
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (!authorized) {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
     }
 
@@ -228,11 +229,11 @@ async function appStop(req, res) {
       }
     }
 
-    const appResponse = serviceHelper.createDataMessage(appRes);
+    const appResponse = messageHelper.createDataMessage(appRes);
     return res ? res.json(appResponse) : appResponse;
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -254,7 +255,7 @@ async function appRestart(req, res) {
 
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (!authorized) {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
     }
 
@@ -282,11 +283,11 @@ async function appRestart(req, res) {
       }
     }
 
-    const appResponse = serviceHelper.createDataMessage(appRes);
+    const appResponse = messageHelper.createDataMessage(appRes);
     return res ? res.json(appResponse) : appResponse;
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -308,7 +309,7 @@ async function appKill(req, res) {
 
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (!authorized) {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
     }
 
@@ -336,11 +337,11 @@ async function appKill(req, res) {
       }
     }
 
-    const appResponse = serviceHelper.createDataMessage(appRes);
+    const appResponse = messageHelper.createDataMessage(appRes);
     return res ? res.json(appResponse) : appResponse;
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -362,7 +363,7 @@ async function appPause(req, res) {
 
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (!authorized) {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
     }
 
@@ -390,11 +391,11 @@ async function appPause(req, res) {
       }
     }
 
-    const appResponse = serviceHelper.createDataMessage(appRes);
+    const appResponse = messageHelper.createDataMessage(appRes);
     return res ? res.json(appResponse) : appResponse;
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -416,7 +417,7 @@ async function appUnpause(req, res) {
 
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (!authorized) {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
     }
 
@@ -444,11 +445,11 @@ async function appUnpause(req, res) {
       }
     }
 
-    const appResponse = serviceHelper.createDataMessage(appRes);
+    const appResponse = messageHelper.createDataMessage(appRes);
     return res ? res.json(appResponse) : appResponse;
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -471,17 +472,17 @@ async function appTop(req, res) {
 
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (!authorized) {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
     }
 
     const appRes = await dockerService.appDockerTop(appname);
 
-    const appResponse = serviceHelper.createDataMessage(appRes);
+    const appResponse = messageHelper.createDataMessage(appRes);
     return res ? res.json(appResponse) : appResponse;
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -507,15 +508,15 @@ async function appLog(req, res) {
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (authorized === true) {
       const logs = await dockerService.dockerContainerLogs(appname, lines);
-      const dataMessage = serviceHelper.createDataMessage(logs);
+      const dataMessage = messageHelper.createDataMessage(logs);
       res.json(dataMessage);
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -541,7 +542,7 @@ async function appLogStream(req, res) {
       dockerService.dockerContainerLogsStream(appname, res, (error) => {
         if (error) {
           log.error(error);
-          const errorResponse = serviceHelper.createErrorMessage(
+          const errorResponse = messageHelper.createErrorMessage(
             error.message || error,
             error.name,
             error.code,
@@ -553,12 +554,12 @@ async function appLogStream(req, res) {
         }
       });
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -581,15 +582,15 @@ async function appInspect(req, res) {
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (authorized === true) {
       const response = await dockerService.dockerContainerInspect(appname);
-      const appResponse = serviceHelper.createDataMessage(response);
+      const appResponse = messageHelper.createDataMessage(response);
       res.json(appResponse);
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errMessage = serviceHelper.createErrorMessage(
+    const errMessage = messageHelper.createErrorMessage(
       error.message,
       error.name,
       error.code,
@@ -612,15 +613,15 @@ async function appStats(req, res) {
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (authorized === true) {
       const response = await dockerService.dockerContainerStats(appname);
-      const appResponse = serviceHelper.createDataMessage(response);
+      const appResponse = messageHelper.createDataMessage(response);
       res.json(appResponse);
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errMessage = serviceHelper.createErrorMessage(
+    const errMessage = messageHelper.createErrorMessage(
       error.message,
       error.name,
       error.code,
@@ -643,15 +644,15 @@ async function appChanges(req, res) {
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (authorized === true) {
       const response = await dockerService.dockerContainerChanges(appname);
-      const appResponse = serviceHelper.createDataMessage(response);
+      const appResponse = messageHelper.createDataMessage(response);
       res.json(appResponse);
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errMessage = serviceHelper.createErrorMessage(
+    const errMessage = messageHelper.createErrorMessage(
       error.message,
       error.name,
       error.code,
@@ -696,7 +697,7 @@ async function appExec(req, res) {
         dockerService.dockerContainerExec(dockerContainer, cmd, env, res, (error) => {
           if (error) {
             log.error(error);
-            const errorResponse = serviceHelper.createErrorMessage(
+            const errorResponse = messageHelper.createErrorMessage(
               error.message || error,
               error.name,
               error.code,
@@ -708,12 +709,12 @@ async function appExec(req, res) {
           }
         });
       } else {
-        const errMessage = serviceHelper.errUnauthorizedMessage();
+        const errMessage = messageHelper.errUnauthorizedMessage();
         res.json(errMessage);
       }
     } catch (error) {
       log.error(error);
-      const errorResponse = serviceHelper.createErrorMessage(
+      const errorResponse = messageHelper.createErrorMessage(
         error.message || error,
         error.name,
         error.code,
@@ -727,15 +728,15 @@ async function createFluxNetworkAPI(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (!authorized) {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       return res.json(errMessage);
     }
     const dockerRes = await dockerService.createFluxDockerNetwork();
-    const response = serviceHelper.createDataMessage(dockerRes);
+    const response = messageHelper.createDataMessage(dockerRes);
     return res.json(response);
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -819,11 +820,11 @@ async function fluxUsage(req, res) {
     }
     // do an average of fiveMinUsage and cpuUsage;
     const avgOfUsage = ((fiveMinUsage + cpuUsage) / 2).toFixed(8);
-    const response = serviceHelper.createDataMessage(avgOfUsage);
+    const response = messageHelper.createDataMessage(avgOfUsage);
     return res ? res.json(response) : response;
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -875,11 +876,11 @@ async function appsResources(req, res) {
       appsRamLocked,
       appsHddLocked,
     };
-    const response = serviceHelper.createDataMessage(appsUsage);
+    const response = messageHelper.createDataMessage(appsUsage);
     return res ? res.json(response) : response;
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -1112,7 +1113,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     if (res) {
       res.write(serviceHelper.ensureString(cronStatusB));
     }
-    const message = serviceHelper.createSuccessMessage('Flux App volume creation completed.');
+    const message = messageHelper.createSuccessMessage('Flux App volume creation completed.');
     return message;
   } catch (error) {
     clearInterval(global.allocationInterval);
@@ -1152,7 +1153,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
     res.write(serviceHelper.ensureString(stopStatus));
   }
   await dockerService.appDockerStop(appId).catch((error) => {
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -1177,7 +1178,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
     res.write(serviceHelper.ensureString(removeStatus));
   }
   await dockerService.appDockerRemove(appId).catch((error) => {
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -1203,7 +1204,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
     res.write(serviceHelper.ensureString(imageStatus));
   }
   await dockerService.appDockerImageRemove(appSpecifications.repotag).catch((error) => {
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -1561,7 +1562,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
   } catch (error) {
     removalInProgress = false;
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -1620,7 +1621,7 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
     res.write(serviceHelper.ensureString(imageStatus));
   }
   await dockerService.appDockerImageRemove(appSpecifications.repotag).catch((error) => {
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -1790,7 +1791,7 @@ async function removeAppLocallyApi(req, res) {
 
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
     if (!authorized) {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     } else {
       // remove app from local machine.
@@ -1801,7 +1802,7 @@ async function removeAppLocallyApi(req, res) {
     }
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -2010,7 +2011,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
   if (!app) {
     return;
   }
-  const appResponse = serviceHelper.createDataMessage(app);
+  const appResponse = messageHelper.createDataMessage(app);
   log.info(appResponse);
   if (res) {
     res.write(serviceHelper.ensureString(appResponse));
@@ -2078,7 +2079,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
     if (!fluxNet) {
       return;
     }
-    const fluxNetResponse = serviceHelper.createDataMessage(fluxNet);
+    const fluxNetResponse = messageHelper.createDataMessage(fluxNet);
     log.info(fluxNetResponse);
     if (res) {
       res.write(serviceHelper.ensureString(fluxNetResponse));
@@ -2158,7 +2159,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
     }
   } catch (error) {
     installationInProgress = false;
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -2167,7 +2168,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
     if (res) {
       res.write(serviceHelper.ensureString(errorResponse));
     }
-    const removeStatus = serviceHelper.createErrorMessage(`Error occured. Initiating Flux App ${appSpecs.name} removal`);
+    const removeStatus = messageHelper.createErrorMessage(`Error occured. Initiating Flux App ${appSpecs.name} removal`);
     log.info(removeStatus);
     if (res) {
       res.write(serviceHelper.ensureString(removeStatus));
@@ -2294,7 +2295,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
   if (!app) {
     return;
   }
-  const appResponse = serviceHelper.createDataMessage(app);
+  const appResponse = messageHelper.createDataMessage(app);
   log.info(appResponse);
   if (res) {
     res.write(serviceHelper.ensureString(appResponse));
@@ -2364,7 +2365,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
     if (!fluxNet) {
       return;
     }
-    const fluxNetResponse = serviceHelper.createDataMessage(fluxNet);
+    const fluxNetResponse = messageHelper.createDataMessage(fluxNet);
     log.info(fluxNetResponse);
     if (res) {
       res.write(serviceHelper.ensureString(fluxNetResponse));
@@ -2443,7 +2444,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
     }
   } catch (error) {
     installationInProgress = false;
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -2452,7 +2453,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
     if (res) {
       res.write(serviceHelper.ensureString(errorResponse));
     }
-    const removeStatus = serviceHelper.createErrorMessage(`Error occured. Initiating Flux App ${appSpecs.name} removal`);
+    const removeStatus = messageHelper.createErrorMessage(`Error occured. Initiating Flux App ${appSpecs.name} removal`);
     log.info(removeStatus);
     if (res) {
       res.write(serviceHelper.ensureString(removeStatus));
@@ -2670,11 +2671,11 @@ async function getAppsTemporaryMessages(req, res) {
     }
     const projection = { projection: { _id: 0 } };
     const results = await dbHelper.findInDatabase(database, globalAppsTempMessages, query, projection);
-    const resultsResponse = serviceHelper.createDataMessage(results);
+    const resultsResponse = messageHelper.createDataMessage(results);
     res.json(resultsResponse);
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -2696,11 +2697,11 @@ async function getAppsPermanentMessages(req, res) {
     }
     const projection = { projection: { _id: 0 } };
     const results = await dbHelper.findInDatabase(database, globalAppsMessages, query, projection);
-    const resultsResponse = serviceHelper.createDataMessage(results);
+    const resultsResponse = messageHelper.createDataMessage(results);
     res.json(resultsResponse);
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -2716,11 +2717,11 @@ async function getGlobalAppsSpecifications(req, res) {
     const query = {};
     const projection = { projection: { _id: 0 } };
     const results = await dbHelper.findInDatabase(database, globalAppsInformation, query, projection);
-    const resultsResponse = serviceHelper.createDataMessage(results);
+    const resultsResponse = messageHelper.createDataMessage(results);
     res.json(resultsResponse);
   } catch (error) {
     log.error(error);
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
   }
 }
@@ -2828,7 +2829,7 @@ async function availableApps(req, res) {
     },
   ];
 
-  const dataResponse = serviceHelper.createDataMessage(apps);
+  const dataResponse = messageHelper.createDataMessage(apps);
   return res ? res.json(dataResponse) : apps;
 }
 
@@ -2854,7 +2855,7 @@ async function verifyAppMessageSignature(type, version, appSpec, timestamp, sign
     throw new Error('Invalid Flux App message specifications');
   }
   const messageToVerify = type + version + JSON.stringify(appSpec) + timestamp;
-  const isValidSignature = serviceHelper.verifyMessage(messageToVerify, appSpec.owner, signature);
+  const isValidSignature = verificationHelper.verifyMessage(messageToVerify, appSpec.owner, signature);
   if (isValidSignature !== true) {
     const errorMessage = isValidSignature === false ? 'Received signature is invalid or Flux App specifications are not properly formatted' : isValidSignature;
     throw new Error(errorMessage);
@@ -2867,7 +2868,7 @@ async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp
     throw new Error('Invalid Flux App message specifications');
   }
   const messageToVerify = type + version + JSON.stringify(appSpec) + timestamp;
-  const isValidSignature = serviceHelper.verifyMessage(messageToVerify, appOwner, signature);
+  const isValidSignature = verificationHelper.verifyMessage(messageToVerify, appOwner, signature);
   if (isValidSignature !== true) {
     const errorMessage = isValidSignature === false ? 'Received signature does not correspond with Flux App owner or Flux App specifications are not properly formatted' : isValidSignature;
     throw new Error(errorMessage);
@@ -4338,7 +4339,7 @@ async function registerAppGlobalyApi(req, res) {
     try {
       const authorized = await verificationHelper.verifyPrivilege('user', req);
       if (!authorized) {
-        const errMessage = serviceHelper.errUnauthorizedMessage();
+        const errMessage = messageHelper.errUnauthorizedMessage();
         res.json(errMessage);
         return;
       }
@@ -4423,14 +4424,14 @@ async function registerAppGlobalyApi(req, res) {
         }
       }
       if (tempMessage && typeof tempMessage === 'object' && !Array.isArray(tempMessage)) {
-        const responseHash = serviceHelper.createDataMessage(tempMessage.hash);
+        const responseHash = messageHelper.createDataMessage(tempMessage.hash);
         res.json(responseHash); // all ok
         return;
       }
       throw new Error('Unable to register application on the network. Try again later.');
     } catch (error) {
       log.warn(error);
-      const errorResponse = serviceHelper.createErrorMessage(
+      const errorResponse = messageHelper.createErrorMessage(
         error.message || error,
         error.name,
         error.code,
@@ -4450,7 +4451,7 @@ async function updateAppGlobalyApi(req, res) {
     try {
       const authorized = await verificationHelper.verifyPrivilege('user', req);
       if (!authorized) {
-        const errMessage = serviceHelper.errUnauthorizedMessage();
+        const errMessage = messageHelper.errUnauthorizedMessage();
         res.json(errMessage);
         return;
       }
@@ -4550,14 +4551,14 @@ async function updateAppGlobalyApi(req, res) {
         }
       }
       if (tempMessage && typeof tempMessage === 'object' && !Array.isArray(tempMessage)) {
-        const responseHash = serviceHelper.createDataMessage(tempMessage.hash);
+        const responseHash = messageHelper.createDataMessage(tempMessage.hash);
         res.json(responseHash); // all ok
         return;
       }
       throw new Error('Unable to update application on the network. Try again later.');
     } catch (error) {
       log.warn(error);
-      const errorResponse = serviceHelper.createErrorMessage(
+      const errorResponse = messageHelper.createErrorMessage(
         error.message || error,
         error.name,
         error.code,
@@ -4595,11 +4596,11 @@ async function installedApps(req, res) {
       },
     };
     const apps = await dbHelper.findInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
-    const dataResponse = serviceHelper.createDataMessage(apps);
+    const dataResponse = messageHelper.createDataMessage(apps);
     return res ? res.json(dataResponse) : dataResponse;
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -4647,12 +4648,12 @@ async function installTemporaryLocalApplication(req, res) {
       res.setHeader('Content-Type', 'application/json');
       registerAppLocally(appSpecifications, undefined, res); // can throw
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -4991,7 +4992,7 @@ async function checkDockerAccessibility(req, res) {
     try {
       const authorized = await verificationHelper.verifyPrivilege('user', req);
       if (!authorized) {
-        const errMessage = serviceHelper.errUnauthorizedMessage();
+        const errMessage = messageHelper.errUnauthorizedMessage();
         return res.json(errMessage);
       }
       // check repotag if available for download
@@ -5002,11 +5003,11 @@ async function checkDockerAccessibility(req, res) {
       }
 
       await verifyRepository(processedBody.repotag);
-      const message = serviceHelper.createSuccessMessage('Repotag is accessible');
+      const message = messageHelper.createSuccessMessage('Repotag is accessible');
       return res.json(message);
     } catch (error) {
       log.warn(error);
-      const errorResponse = serviceHelper.createErrorMessage(
+      const errorResponse = messageHelper.createErrorMessage(
         error.message || error,
         error.name,
         error.code,
@@ -5019,11 +5020,11 @@ async function checkDockerAccessibility(req, res) {
 function registrationInformation(req, res) {
   try {
     const data = config.fluxapps;
-    const response = serviceHelper.createDataMessage(data);
+    const response = messageHelper.createDataMessage(data);
     res.json(response);
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -5129,15 +5130,15 @@ async function reindexGlobalAppsLocationAPI(req, res) {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized === true) {
       await reindexGlobalAppsLocation();
-      const message = serviceHelper.createSuccessMessage('Reindex successfull');
+      const message = messageHelper.createSuccessMessage('Reindex successfull');
       res.json(message);
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -5151,15 +5152,15 @@ async function reindexGlobalAppsInformationAPI(req, res) {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized === true) {
       await reindexGlobalAppsInformation();
-      const message = serviceHelper.createSuccessMessage('Reindex successfull');
+      const message = messageHelper.createSuccessMessage('Reindex successfull');
       res.json(message);
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -5175,7 +5176,7 @@ async function rescanGlobalAppsInformationAPI(req, res) {
       let { blockheight } = req.params; // we accept both help/command and help?command=getinfo
       blockheight = blockheight || req.query.blockheight;
       if (!blockheight) {
-        const errMessage = serviceHelper.createErrorMessage('No blockheight provided');
+        const errMessage = messageHelper.createErrorMessage('No blockheight provided');
         res.json(errMessage);
       }
       blockheight = serviceHelper.ensureNumber(blockheight);
@@ -5202,15 +5203,15 @@ async function rescanGlobalAppsInformationAPI(req, res) {
       removelastinformation = removelastinformation || req.query.removelastinformation || false;
       removelastinformation = serviceHelper.ensureBoolean(removelastinformation);
       await rescanGlobalAppsInformation(blockheight, removelastinformation);
-      const message = serviceHelper.createSuccessMessage('Rescan successfull');
+      const message = messageHelper.createSuccessMessage('Rescan successfull');
       res.json(message);
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -5267,11 +5268,11 @@ async function getAppHashes(req, res) {
       },
     };
     const results = await dbHelper.findInDatabase(database, appsHashesCollection, query, projection);
-    const resultsResponse = serviceHelper.createDataMessage(results);
+    const resultsResponse = messageHelper.createDataMessage(results);
     res.json(resultsResponse);
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -5296,11 +5297,11 @@ async function getAppsLocations(req, res) {
       },
     };
     const results = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
-    const resultsResponse = serviceHelper.createDataMessage(results);
+    const resultsResponse = messageHelper.createDataMessage(results);
     res.json(resultsResponse);
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -5330,11 +5331,11 @@ async function getAppsLocation(req, res) {
       },
     };
     const results = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
-    const resultsResponse = serviceHelper.createDataMessage(results);
+    const resultsResponse = messageHelper.createDataMessage(results);
     res.json(resultsResponse);
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -5490,11 +5491,11 @@ async function getApplicationSpecificationAPI(req, res) {
     if (!specifications) {
       throw new Error('Application not found');
     }
-    const specResponse = serviceHelper.createDataMessage(specifications);
+    const specResponse = messageHelper.createDataMessage(specifications);
     res.json(specResponse);
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -5514,11 +5515,11 @@ async function getApplicationOwnerAPI(req, res) {
     if (!owner) {
       throw new Error('Application not found');
     }
-    const ownerResponse = serviceHelper.createDataMessage(owner);
+    const ownerResponse = messageHelper.createDataMessage(owner);
     res.json(ownerResponse);
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -6003,7 +6004,7 @@ async function softRedeploy(appSpecs, res) {
   try {
     if (removalInProgress) {
       log.warn('Another application is undergoing removal');
-      const appRedeployResponse = serviceHelper.createDataMessage('Another application is undergoing removal');
+      const appRedeployResponse = messageHelper.createDataMessage('Another application is undergoing removal');
       if (res) {
         res.write(serviceHelper.ensureString(appRedeployResponse));
       }
@@ -6011,7 +6012,7 @@ async function softRedeploy(appSpecs, res) {
     }
     if (installationInProgress) {
       log.warn('Another application is undergoing installation');
-      const appRedeployResponse = serviceHelper.createDataMessage('Another application is undergoing installation');
+      const appRedeployResponse = messageHelper.createDataMessage('Another application is undergoing installation');
       if (res) {
         res.write(serviceHelper.ensureString(appRedeployResponse));
       }
@@ -6024,7 +6025,7 @@ async function softRedeploy(appSpecs, res) {
       removalInProgress = false;
       throw error;
     }
-    const appRedeployResponse = serviceHelper.createDataMessage('Application softly removed. Awaiting installation...');
+    const appRedeployResponse = messageHelper.createDataMessage('Application softly removed. Awaiting installation...');
     log.info(appRedeployResponse);
     if (res) {
       res.write(serviceHelper.ensureString(appRedeployResponse));
@@ -6044,7 +6045,7 @@ async function softRedeploy(appSpecs, res) {
 async function hardRedeploy(appSpecs, res) {
   try {
     await removeAppLocally(appSpecs.name, res, false, false);
-    const appRedeployResponse = serviceHelper.createDataMessage('Application removed. Awaiting installation...');
+    const appRedeployResponse = messageHelper.createDataMessage('Application removed. Awaiting installation...');
     log.info(appRedeployResponse);
     if (res) {
       res.write(serviceHelper.ensureString(appRedeployResponse));
@@ -6315,11 +6316,11 @@ async function getAppPrice(req, res) {
       if (actualPriceToPay < priceSpecifications.minPrice) {
         actualPriceToPay = priceSpecifications.minPrice;
       }
-      const respondPrice = serviceHelper.createDataMessage(actualPriceToPay);
+      const respondPrice = messageHelper.createDataMessage(actualPriceToPay);
       return res.json(respondPrice);
     } catch (error) {
       log.warn(error);
-      const errorResponse = serviceHelper.createErrorMessage(
+      const errorResponse = messageHelper.createErrorMessage(
         error.message || error,
         error.name,
         error.code,
@@ -6348,7 +6349,7 @@ async function redeployAPI(req, res) {
 
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
     if (!authorized) {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
       return;
     }
@@ -6367,7 +6368,7 @@ async function redeployAPI(req, res) {
     }
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -6403,11 +6404,11 @@ async function verifyAppRegistrationParameters(req, res) {
 
       // app is valid and can be registered
       // respond with formatted specifications
-      const respondPrice = serviceHelper.createDataMessage(appSpecFormatted);
+      const respondPrice = messageHelper.createDataMessage(appSpecFormatted);
       return res.json(respondPrice);
     } catch (error) {
       log.warn(error);
-      const errorResponse = serviceHelper.createErrorMessage(
+      const errorResponse = messageHelper.createErrorMessage(
         error.message || error,
         error.name,
         error.code,
@@ -6445,11 +6446,11 @@ async function verifyAppUpdateParameters(req, res) {
 
       // app is valid and can be registered
       // respond with formatted specifications
-      const respondPrice = serviceHelper.createDataMessage(appSpecFormatted);
+      const respondPrice = messageHelper.createDataMessage(appSpecFormatted);
       return res.json(respondPrice);
     } catch (error) {
       log.warn(error);
-      const errorResponse = serviceHelper.createErrorMessage(
+      const errorResponse = messageHelper.createErrorMessage(
         error.message || error,
         error.name,
         error.code,
@@ -6472,11 +6473,11 @@ async function deploymentInformation(req, res) {
       minimumInstances: config.fluxapps.minimumInstances,
       maximumInstances: config.fluxapps.maximumInstances,
     };
-    const respondPrice = serviceHelper.createDataMessage(information);
+    const respondPrice = messageHelper.createDataMessage(information);
     res.json(respondPrice);
   } catch (error) {
     log.warn(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -6522,15 +6523,15 @@ async function reconstructAppMessagesHashCollectionAPI(req, res) {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized) {
       const result = await reconstructAppMessagesHashCollection();
-      const message = serviceHelper.createSuccessMessage(result);
+      const message = messageHelper.createSuccessMessage(result);
       res.json(message);
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,

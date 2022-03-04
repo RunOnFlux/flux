@@ -11,6 +11,7 @@ const log = require('../lib/log');
 const packageJson = require('../../../package.json');
 const serviceHelper = require('./serviceHelper');
 const verificationHelper = require('./verificationHelper');
+const messageHelper = require('./messageHelper');
 const daemonService = require('./daemonService');
 const benchmarkService = require('./benchmarkService');
 const appsService = require('./appsService');
@@ -21,7 +22,7 @@ const userconfig = require('../../../config/userconfig');
 // eslint-disable-next-line consistent-return
 async function fluxBackendFolder(req, res) {
   const fluxBackFolder = path.join(__dirname, '../../');
-  const message = serviceHelper.createDataMessage(fluxBackFolder);
+  const message = messageHelper.createDataMessage(fluxBackFolder);
   return res.json(message);
 }
 
@@ -33,14 +34,14 @@ async function updateFlux(req, res) {
     const exec = `cd ${nodedpath} && npm run updateflux`;
     cmd.get(exec, (err) => {
       if (err) {
-        const errMessage = serviceHelper.createErrorMessage(`Error updating Flux: ${err.message}`, err.name, err.code);
+        const errMessage = messageHelper.createErrorMessage(`Error updating Flux: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
       }
-      const message = serviceHelper.createSuccessMessage('Flux successfully updated');
+      const message = messageHelper.createSuccessMessage('Flux successfully updated');
       return res.json(message);
     });
   } else {
-    const errMessage = serviceHelper.errUnauthorizedMessage();
+    const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
 }
@@ -53,14 +54,14 @@ async function softUpdateFlux(req, res) {
     const exec = `cd ${nodedpath} && npm run softupdate`;
     cmd.get(exec, (err) => {
       if (err) {
-        const errMessage = serviceHelper.createErrorMessage(`Error softly updating Flux: ${err.message}`, err.name, err.code);
+        const errMessage = messageHelper.createErrorMessage(`Error softly updating Flux: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
       }
-      const message = serviceHelper.createSuccessMessage('Flux successfully updated using soft method');
+      const message = messageHelper.createSuccessMessage('Flux successfully updated using soft method');
       return res.json(message);
     });
   } else {
-    const errMessage = serviceHelper.errUnauthorizedMessage();
+    const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
 }
@@ -73,14 +74,14 @@ async function softUpdateFluxInstall(req, res) {
     const exec = `cd ${nodedpath} && npm run softupdateinstall`;
     cmd.get(exec, (err) => {
       if (err) {
-        const errMessage = serviceHelper.createErrorMessage(`Error softly updating Flux with installation: ${err.message}`, err.name, err.code);
+        const errMessage = messageHelper.createErrorMessage(`Error softly updating Flux with installation: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
       }
-      const message = serviceHelper.createSuccessMessage('Flux successfully updated softly with installation');
+      const message = messageHelper.createSuccessMessage('Flux successfully updated softly with installation');
       return res.json(message);
     });
   } else {
-    const errMessage = serviceHelper.errUnauthorizedMessage();
+    const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
 }
@@ -93,14 +94,14 @@ async function hardUpdateFlux(req, res) {
     const exec = `cd ${nodedpath} && npm run hardupdateflux`;
     cmd.get(exec, (err) => {
       if (err) {
-        const errMessage = serviceHelper.createErrorMessage(`Error hardupdating Flux: ${err.message}`, err.name, err.code);
+        const errMessage = messageHelper.createErrorMessage(`Error hardupdating Flux: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
       }
-      const message = serviceHelper.createSuccessMessage('Flux successfully updating');
+      const message = messageHelper.createSuccessMessage('Flux successfully updating');
       return res.json(message);
     });
   } else {
-    const errMessage = serviceHelper.errUnauthorizedMessage();
+    const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
 }
@@ -113,14 +114,14 @@ async function rebuildHome(req, res) {
     const exec = `cd ${nodedpath} && npm run homebuild`;
     cmd.get(exec, (err) => {
       if (err) {
-        const errMessage = serviceHelper.createErrorMessage(`Error rebuilding Flux: ${err.message}`, err.name, err.code);
+        const errMessage = messageHelper.createErrorMessage(`Error rebuilding Flux: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
       }
-      const message = serviceHelper.createSuccessMessage('Flux successfully rebuilt');
+      const message = messageHelper.createSuccessMessage('Flux successfully rebuilt');
       return res.json(message);
     });
   } else {
-    const errMessage = serviceHelper.errUnauthorizedMessage();
+    const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
 }
@@ -133,14 +134,14 @@ async function updateDaemon(req, res) {
     const exec = `cd ${nodedpath} && bash updateDaemon.sh`;
     cmd.get(exec, (err) => {
       if (err) {
-        const errMessage = serviceHelper.createErrorMessage(`Error updating Daemon: ${err.message}`, err.name, err.code);
+        const errMessage = messageHelper.createErrorMessage(`Error updating Daemon: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
       }
-      const message = serviceHelper.createSuccessMessage('Daemon successfully updated');
+      const message = messageHelper.createSuccessMessage('Daemon successfully updated');
       return res.json(message);
     });
   } else {
-    const errMessage = serviceHelper.errUnauthorizedMessage();
+    const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
 }
@@ -153,14 +154,14 @@ async function updateBenchmark(req, res) {
     const exec = `cd ${nodedpath} && bash updateBenchmark.sh`;
     cmd.get(exec, (err) => {
       if (err) {
-        const errMessage = serviceHelper.createErrorMessage(`Error updating Benchmark: ${err.message}`, err.name, err.code);
+        const errMessage = messageHelper.createErrorMessage(`Error updating Benchmark: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
       }
-      const message = serviceHelper.createSuccessMessage('Benchmark successfully updated');
+      const message = messageHelper.createSuccessMessage('Benchmark successfully updated');
       return res.json(message);
     });
   } else {
-    const errMessage = serviceHelper.errUnauthorizedMessage();
+    const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
 }
@@ -175,15 +176,15 @@ async function startBenchmark(req, res) {
     }
     cmd.get(exec, (err, data) => {
       if (err) {
-        const errMessage = serviceHelper.createErrorMessage(`Error starting Benchmark: ${err.message}`, err.name, err.code);
+        const errMessage = messageHelper.createErrorMessage(`Error starting Benchmark: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
       }
       console.log(data);
-      const message = serviceHelper.createSuccessMessage('Benchamrk successfully started');
+      const message = messageHelper.createSuccessMessage('Benchamrk successfully started');
       return res.json(message);
     });
   } else {
-    const errMessage = serviceHelper.errUnauthorizedMessage();
+    const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
 }
@@ -196,14 +197,14 @@ async function restartBenchmark(req, res) {
     const exec = `cd ${nodedpath} && bash restartBenchmark.sh`;
     cmd.get(exec, (err) => {
       if (err) {
-        const errMessage = serviceHelper.createErrorMessage(`Error restarting Benchmark: ${err.message}`, err.name, err.code);
+        const errMessage = messageHelper.createErrorMessage(`Error restarting Benchmark: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
       }
-      const message = serviceHelper.createSuccessMessage('Benchmark successfully restarted');
+      const message = messageHelper.createSuccessMessage('Benchmark successfully restarted');
       return res.json(message);
     });
   } else {
-    const errMessage = serviceHelper.errUnauthorizedMessage();
+    const errMessage = messageHelper.errUnauthorizedMessage();
     console.log(errMessage);
     return res.json(errMessage);
   }
@@ -219,15 +220,15 @@ async function startDaemon(req, res) {
     }
     cmd.get(exec, (err, data) => {
       if (err) {
-        const errMessage = serviceHelper.createErrorMessage(`Error starting Daemon: ${err.message}`, err.name, err.code);
+        const errMessage = messageHelper.createErrorMessage(`Error starting Daemon: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
       }
       console.log(data);
-      const message = serviceHelper.createSuccessMessage('Daemon successfully started');
+      const message = messageHelper.createSuccessMessage('Daemon successfully started');
       return res.json(message);
     });
   } else {
-    const errMessage = serviceHelper.errUnauthorizedMessage();
+    const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
 }
@@ -240,14 +241,14 @@ async function restartDaemon(req, res) {
     const exec = `cd ${nodedpath} && bash restartDaemon.sh`;
     cmd.get(exec, (err) => {
       if (err) {
-        const errMessage = serviceHelper.createErrorMessage(`Error restarting Daemon: ${err.message}`, err.name, err.code);
+        const errMessage = messageHelper.createErrorMessage(`Error restarting Daemon: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
       }
-      const message = serviceHelper.createSuccessMessage('Daemon successfully restarted');
+      const message = messageHelper.createSuccessMessage('Daemon successfully restarted');
       return res.json(message);
     });
   } else {
-    const errMessage = serviceHelper.errUnauthorizedMessage();
+    const errMessage = messageHelper.errUnauthorizedMessage();
     console.log(errMessage);
     return res.json(errMessage);
   }
@@ -261,21 +262,21 @@ async function reindexDaemon(req, res) {
     const exec = `cd ${nodedpath} && bash reindexDaemon.sh`;
     cmd.get(exec, (err) => {
       if (err) {
-        const errMessage = serviceHelper.createErrorMessage(`Error reindexing Daemon: ${err.message}`, err.name, err.code);
+        const errMessage = messageHelper.createErrorMessage(`Error reindexing Daemon: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
       }
-      const message = serviceHelper.createSuccessMessage('Daemon successfully reindexing');
+      const message = messageHelper.createSuccessMessage('Daemon successfully reindexing');
       return res.json(message);
     });
   } else {
-    const errMessage = serviceHelper.errUnauthorizedMessage();
+    const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
 }
 
 function getFluxVersion(req, res) {
   const { version } = packageJson;
-  const message = serviceHelper.createDataMessage(version);
+  const message = messageHelper.createDataMessage(version);
   return res ? res.json(message) : message;
 }
 
@@ -288,32 +289,32 @@ async function getFluxIP(req, res) {
       myIP = benchmarkResponseData.ipaddress.length > 5 ? benchmarkResponseData.ipaddress : null;
     }
   }
-  const message = serviceHelper.createDataMessage(myIP);
+  const message = messageHelper.createDataMessage(myIP);
   return res ? res.json(message) : message;
 }
 
 function getFluxZelID(req, res) {
   const zelID = userconfig.initial.zelid;
-  const message = serviceHelper.createDataMessage(zelID);
+  const message = messageHelper.createDataMessage(zelID);
   return res ? res.json(message) : message;
 }
 
 function getFluxCruxID(req, res) {
   const cruxID = userconfig.initial.cruxid || null;
-  const message = serviceHelper.createDataMessage(cruxID);
+  const message = messageHelper.createDataMessage(cruxID);
   return res ? res.json(message) : message;
 }
 
 function getFluxKadena(req, res) {
   const kadena = userconfig.initial.kadena || null;
-  const message = serviceHelper.createDataMessage(kadena);
+  const message = messageHelper.createDataMessage(kadena);
   return res ? res.json(message) : message;
 }
 
 async function daemonDebug(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (!authorized) {
-    const errMessage = serviceHelper.errUnauthorizedMessage();
+    const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
   // check daemon datadir
@@ -327,7 +328,7 @@ async function daemonDebug(req, res) {
 async function benchmarkDebug(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (!authorized) {
-    const errMessage = serviceHelper.errUnauthorizedMessage();
+    const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
   const homeDirPath = path.join(__dirname, '../../../../');
@@ -350,15 +351,15 @@ async function tailDaemonDebug(req, res) {
     const exec = `tail -n 100 ${filepath}`;
     cmd.get(exec, (err, data) => {
       if (err) {
-        const errMessage = serviceHelper.createErrorMessage(`Error obtaining Daemon debug file: ${err.message}`, err.name, err.code);
+        const errMessage = messageHelper.createErrorMessage(`Error obtaining Daemon debug file: ${err.message}`, err.name, err.code);
         res.json(errMessage);
         return;
       }
-      const message = serviceHelper.createSuccessMessage(data);
+      const message = messageHelper.createSuccessMessage(data);
       res.json(message);
     });
   } else {
-    const errMessage = serviceHelper.errUnauthorizedMessage();
+    const errMessage = messageHelper.errUnauthorizedMessage();
     res.json(errMessage);
   }
 }
@@ -376,15 +377,15 @@ async function tailBenchmarkDebug(req, res) {
     const exec = `tail -n 100 ${filepath}`;
     cmd.get(exec, (err, data) => {
       if (err) {
-        const errMessage = serviceHelper.createErrorMessage(`Error obtaining Benchmark debug file: ${err.message}`, err.name, err.code);
+        const errMessage = messageHelper.createErrorMessage(`Error obtaining Benchmark debug file: ${err.message}`, err.name, err.code);
         res.json(errMessage);
         return;
       }
-      const message = serviceHelper.createSuccessMessage(data);
+      const message = messageHelper.createSuccessMessage(data);
       res.json(message);
     });
   } else {
-    const errMessage = serviceHelper.errUnauthorizedMessage();
+    const errMessage = messageHelper.errUnauthorizedMessage();
     res.json(errMessage);
   }
 }
@@ -400,7 +401,7 @@ async function fluxErrorLog(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (!authorized) {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
       return;
     }
@@ -414,7 +415,7 @@ async function fluxWarnLog(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (!authorized) {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
       return;
     }
@@ -428,7 +429,7 @@ async function fluxInfoLog(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (!authorized) {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
       return;
     }
@@ -442,7 +443,7 @@ async function fluxDebugLog(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (!authorized) {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
       return;
     }
@@ -460,15 +461,15 @@ async function tailFluxLog(req, res, logfile) {
     const exec = `tail -n 100 ${filepath}`;
     cmd.get(exec, (err, data) => {
       if (err) {
-        const errMessage = serviceHelper.createErrorMessage(`Error obtaining Flux ${logfile} file: ${err.message}`, err.name, err.code);
+        const errMessage = messageHelper.createErrorMessage(`Error obtaining Flux ${logfile} file: ${err.message}`, err.name, err.code);
         res.json(errMessage);
         return;
       }
-      const message = serviceHelper.createSuccessMessage(data);
+      const message = messageHelper.createSuccessMessage(data);
       res.json(message);
     });
   } else {
-    const errMessage = serviceHelper.errUnauthorizedMessage();
+    const errMessage = messageHelper.errUnauthorizedMessage();
     res.json(errMessage);
   }
 }
@@ -479,7 +480,7 @@ async function tailFluxErrorLog(req, res) {
     if (authorized === true) {
       tailFluxLog(req, res, 'error');
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
@@ -493,7 +494,7 @@ async function tailFluxWarnLog(req, res) {
     if (authorized === true) {
       tailFluxLog(req, res, 'warn');
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
@@ -507,7 +508,7 @@ async function tailFluxInfoLog(req, res) {
     if (authorized === true) {
       tailFluxLog(req, res, 'info');
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
@@ -521,7 +522,7 @@ async function tailFluxDebugLog(req, res) {
     if (authorized === true) {
       tailFluxLog(req, res, 'debug');
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
@@ -532,7 +533,7 @@ async function tailFluxDebugLog(req, res) {
 function getFluxTimezone(req, res) {
   try {
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const message = serviceHelper.createDataMessage(timezone);
+    const message = messageHelper.createDataMessage(timezone);
     return res ? res.json(message) : message;
   } catch (error) {
     log.error(error);
@@ -625,11 +626,11 @@ async function getFluxInfo(req, res) {
     }
     info.apps.resources = appsResources.data;
 
-    const response = serviceHelper.createDataMessage(info);
+    const response = messageHelper.createDataMessage(info);
     return res ? res.json(response) : response;
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -666,15 +667,15 @@ async function adjustCruxID(req, res) {
 
       await fsPromises.writeFile(fluxDirPath, dataToWrite);
 
-      const successMessage = serviceHelper.createSuccessMessage('CruxID adjusted');
+      const successMessage = messageHelper.createSuccessMessage('CruxID adjusted');
       res.json(successMessage);
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
   }
 }
@@ -711,15 +712,15 @@ async function adjustKadenaAccount(req, res) {
 
       await fsPromises.writeFile(fluxDirPath, dataToWrite);
 
-      const successMessage = serviceHelper.createSuccessMessage('Kadena account adjusted');
+      const successMessage = messageHelper.createSuccessMessage('Kadena account adjusted');
       res.json(successMessage);
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
   }
 }
@@ -744,11 +745,11 @@ async function getNodeTier(req, res) {
     } else {
       throw new Error('Unrecognised Flux node tier'); // shall not happen as nodeTier throws
     }
-    const response = serviceHelper.createDataMessage(responseAux);
+    const response = messageHelper.createDataMessage(responseAux);
     res.json(response);
   } catch (error) {
     log.error(error);
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
   }
 }

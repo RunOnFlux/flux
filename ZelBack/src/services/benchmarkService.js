@@ -3,6 +3,7 @@ const config = require('config');
 const path = require('path');
 const fs = require('fs');
 const serviceHelper = require('./serviceHelper');
+const messageHelper = require('./messageHelper');
 const verificationHelper = require('./verificationHelper');
 const userconfig = require('../../../config/userconfig');
 
@@ -13,7 +14,7 @@ const rpcport = isTestnet === true ? config.benchmark.rpcporttestnet : config.be
 const homeDirPath = path.join(__dirname, '../../../../');
 const newBenchmarkPath = path.join(homeDirPath, '.fluxbenchmark');
 
-let response = serviceHelper.createErrorMessage();
+let response = messageHelper.createErrorMessage();
 
 async function executeCall(rpc, params) {
   let callResponse;
@@ -33,10 +34,10 @@ async function executeCall(rpc, params) {
       timeout: 60000,
     });
     const data = await client[rpc](...rpcparameters);
-    const successResponse = serviceHelper.createDataMessage(data);
+    const successResponse = messageHelper.createDataMessage(data);
     callResponse = successResponse;
   } catch (error) {
-    const daemonError = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const daemonError = messageHelper.createErrorMessage(error.message, error.name, error.code);
     callResponse = daemonError;
   }
 
@@ -59,7 +60,7 @@ async function restartNodeBenchmarks(req, res) {
 
     response = await executeCall(rpccall);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -78,7 +79,7 @@ async function signFluxTransaction(req, res) {
 
     response = await executeCall(rpccall, rpcparameters);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
@@ -101,7 +102,7 @@ async function signFluxTransactionPost(req, res) {
       }
       response = await executeCall(rpccall, rpcparameters);
     } else {
-      response = serviceHelper.errUnauthorizedMessage();
+      response = messageHelper.errUnauthorizedMessage();
     }
     return res.json(response);
   });
@@ -127,7 +128,7 @@ async function stop(req, res) {
 
     response = await executeCall(rpccall);
   } else {
-    response = serviceHelper.errUnauthorizedMessage();
+    response = messageHelper.errUnauthorizedMessage();
   }
 
   return res ? res.json(response) : response;
