@@ -195,7 +195,7 @@ async function getFluxNodePrivateKey(privatekey) {
 
 async function getFluxMessageSignature(message, privatekey) {
   const privKey = await getFluxNodePrivateKey(privatekey);
-  const signature = await messageHelper.signMessage(message, privKey);
+  const signature = await verificationHelper.signMessage(message, privKey);
   return signature;
 }
 
