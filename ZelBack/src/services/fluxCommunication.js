@@ -195,7 +195,7 @@ async function getFluxNodePrivateKey(privatekey) {
 
 async function getFluxMessageSignature(message, privatekey) {
   const privKey = await getFluxNodePrivateKey(privatekey);
-  const signature = await messageHelper.signMessage(message, privKey);
+  const signature = await verificationHelper.signMessage(message, privKey);
   return signature;
 }
 
@@ -246,7 +246,7 @@ async function verifyFluxBroadcast(data, obtainedFluxNodesList, currentTimeStamp
     return false;
   }
   const messageToVerify = version + message + timestamp;
-  const verified = await messageHelper.verifyMessage(messageToVerify, pubKey, signature);
+  const verified = await verificationHelper.verifyMessage(messageToVerify, pubKey, signature);
   if (verified === true) {
     return true;
   }
