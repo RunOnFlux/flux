@@ -17,6 +17,7 @@ const daemonService = require('./daemonService');
 const benchmarkService = require('./benchmarkService');
 const dockerService = require('./dockerService');
 const generalService = require('./generalService');
+const upnpService = require('./upnpService');
 const log = require('../lib/log');
 const userconfig = require('../../../config/userconfig');
 
@@ -1229,14 +1230,30 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
     res.write(serviceHelper.ensureString(portStatus));
   }
   if (appSpecifications.ports) {
-    // eslint-disable-next-line no-restricted-syntax
-    for (const port of appSpecifications.ports) {
-      // eslint-disable-next-line no-await-in-loop
-      await fluxCommunication.denyPort(serviceHelper.ensureNumber(port));
+    const firewallActive = await fluxCommunication.isFirewallActive();
+    if (firewallActive) {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const port of appSpecifications.ports) {
+        // eslint-disable-next-line no-await-in-loop
+        await fluxCommunication.denyPort(serviceHelper.ensureNumber(port));
+      }
+    }
+    if (userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const port of appSpecifications.ports) {
+        // eslint-disable-next-line no-await-in-loop
+        await upnpService.removeMapUpnpPort(serviceHelper.ensureNumber(port));
+      }
     }
     // v1 compatibility
   } else if (appSpecifications.port) {
-    await fluxCommunication.denyPort(serviceHelper.ensureNumber(appSpecifications.port));
+    const firewallActive = await fluxCommunication.isFirewallActive();
+    if (firewallActive) {
+      await fluxCommunication.denyPort(serviceHelper.ensureNumber(appSpecifications.port));
+    }
+    if (userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) {
+      await upnpService.removeMapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port));
+    }
   }
   const portStatus2 = {
     status: isComponent ? `Ports of component ${appSpecifications.name} denied` : `Ports of ${appName} denied`,
@@ -1630,14 +1647,30 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
     res.write(serviceHelper.ensureString(portStatus));
   }
   if (appSpecifications.ports) {
+    const firewallActive = await fluxCommunication.isFirewallActive();
+    if (firewallActive) {
     // eslint-disable-next-line no-restricted-syntax
-    for (const port of appSpecifications.ports) {
+      for (const port of appSpecifications.ports) {
       // eslint-disable-next-line no-await-in-loop
-      await fluxCommunication.denyPort(serviceHelper.ensureNumber(port));
+        await fluxCommunication.denyPort(serviceHelper.ensureNumber(port));
+      }
+    }
+    if (userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const port of appSpecifications.ports) {
+        // eslint-disable-next-line no-await-in-loop
+        await upnpService.removeMapUpnpPort(serviceHelper.ensureNumber(port));
+      }
     }
     // v1 compatibility
   } else if (appSpecifications.port) {
-    await fluxCommunication.denyPort(serviceHelper.ensureNumber(appSpecifications.port));
+    const firewallActive = await fluxCommunication.isFirewallActive();
+    if (firewallActive) {
+      await fluxCommunication.denyPort(serviceHelper.ensureNumber(appSpecifications.port));
+    }
+    if (userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) {
+      await upnpService.removeMapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port));
+    }
   }
   const portStatus2 = {
     status: isComponent ? `Ports of component ${appSpecifications.name} denied` : `Ports of ${appName} denied`,
@@ -1890,35 +1923,79 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
     res.write(serviceHelper.ensureString(portStatusInitial));
   }
   if (appSpecifications.ports) {
-    // eslint-disable-next-line no-restricted-syntax
-    for (const port of appSpecifications.ports) {
-      // eslint-disable-next-line no-await-in-loop
-      const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(port));
+    const firewallActive = await fluxCommunication.isFirewallActive();
+    if (firewallActive) {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const port of appSpecifications.ports) {
+        // eslint-disable-next-line no-await-in-loop
+        const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(port));
+        if (portResponse.status === true) {
+          const portStatus = {
+            status: `Port ${port} OK`,
+          };
+          log.info(portStatus);
+          if (res) {
+            res.write(serviceHelper.ensureString(portStatus));
+          }
+        } else {
+          throw new Error(`Error: Port ${port} FAILed to open.`);
+        }
+      }
+    } else {
+      log.info('Firewall not active, application ports are open');
+    }
+    if (userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) {
+      log.info('Custom port specified, mapping ports');
+      // eslint-disable-next-line no-restricted-syntax
+      for (const port of appSpecifications.ports) {
+        // eslint-disable-next-line no-await-in-loop
+        const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port));
+        if (portResponse === true) {
+          const portStatus = {
+            status: `Port ${port} mapped OK`,
+          };
+          log.info(portStatus);
+          if (res) {
+            res.write(serviceHelper.ensureString(portStatus));
+          }
+        } else {
+          throw new Error(`Error: Port ${port} FAILed to map.`);
+        }
+      }
+    }
+  } else if (appSpecifications.port) {
+    // v1 compatibility
+    const firewallActive = await fluxCommunication.isFirewallActive();
+    if (firewallActive) {
+      const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(appSpecifications.port));
       if (portResponse.status === true) {
         const portStatus = {
-          status: `'Port ${port} OK'`,
+          status: `Port ${appSpecifications.port} OK`,
         };
         log.info(portStatus);
         if (res) {
           res.write(serviceHelper.ensureString(portStatus));
         }
       } else {
-        throw new Error(`Error: Port ${port} FAILed to open.`);
-      }
-    }
-  } else if (appSpecifications.port) {
-    // v1 compatibility
-    const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(appSpecifications.port));
-    if (portResponse.status === true) {
-      const portStatus = {
-        status: 'Port OK',
-      };
-      log.info(portStatus);
-      if (res) {
-        res.write(serviceHelper.ensureString(portStatus));
+        throw new Error(`Error: Port ${appSpecifications.port} FAILed to open.`);
       }
     } else {
-      throw new Error(`Error: Port ${appSpecifications.port} FAILed to open.`);
+      log.info('Firewall not active, application ports are open');
+    }
+    if (userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) {
+      log.info('Custom port specified, mapping ports');
+      const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port));
+      if (portResponse === true) {
+        const portStatus = {
+          status: `Port ${appSpecifications.port} mapped OK`,
+        };
+        log.info(portStatus);
+        if (res) {
+          res.write(serviceHelper.ensureString(portStatus));
+        }
+      } else {
+        throw new Error(`Error: Port ${appSpecifications.port} FAILed to map.`);
+      }
     }
   }
   const startStatus = {
@@ -2130,35 +2207,79 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
     res.write(serviceHelper.ensureString(portStatusInitial));
   }
   if (appSpecifications.ports) {
-    // eslint-disable-next-line no-restricted-syntax
-    for (const port of appSpecifications.ports) {
-      // eslint-disable-next-line no-await-in-loop
-      const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(port));
+    const firewallActive = await fluxCommunication.isFirewallActive();
+    if (firewallActive) {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const port of appSpecifications.ports) {
+        // eslint-disable-next-line no-await-in-loop
+        const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(port));
+        if (portResponse.status === true) {
+          const portStatus = {
+            status: `'Port ${port} OK'`,
+          };
+          log.info(portStatus);
+          if (res) {
+            res.write(serviceHelper.ensureString(portStatus));
+          }
+        } else {
+          throw new Error(`Error: Port ${port} FAILed to open.`);
+        }
+      }
+    } else {
+      log.info('Firewall not active, application ports are open');
+    }
+    if (userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) {
+      log.info('Custom port specified, mapping ports');
+      // eslint-disable-next-line no-restricted-syntax
+      for (const port of appSpecifications.ports) {
+        // eslint-disable-next-line no-await-in-loop
+        const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port));
+        if (portResponse === true) {
+          const portStatus = {
+            status: `Port ${port} mapped OK`,
+          };
+          log.info(portStatus);
+          if (res) {
+            res.write(serviceHelper.ensureString(portStatus));
+          }
+        } else {
+          throw new Error(`Error: Port ${port} FAILed to map.`);
+        }
+      }
+    }
+  } else if (appSpecifications.port) {
+    const firewallActive = await fluxCommunication.isFirewallActive();
+    if (firewallActive) {
+    // v1 compatibility
+      const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(appSpecifications.port));
       if (portResponse.status === true) {
         const portStatus = {
-          status: `'Port ${port} OK'`,
+          status: 'Port OK',
         };
         log.info(portStatus);
         if (res) {
           res.write(serviceHelper.ensureString(portStatus));
         }
       } else {
-        throw new Error(`Error: Port ${port} FAILed to open.`);
-      }
-    }
-  } else if (appSpecifications.port) {
-    // v1 compatibility
-    const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(appSpecifications.port));
-    if (portResponse.status === true) {
-      const portStatus = {
-        status: 'Port OK',
-      };
-      log.info(portStatus);
-      if (res) {
-        res.write(serviceHelper.ensureString(portStatus));
+        throw new Error(`Error: Port ${appSpecifications.port} FAILed to open.`);
       }
     } else {
-      throw new Error(`Error: Port ${appSpecifications.port} FAILed to open.`);
+      log.info('Firewall not active, application ports are open');
+    }
+    if (userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) {
+      log.info('Custom port specified, mapping ports');
+      const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port));
+      if (portResponse === true) {
+        const portStatus = {
+          status: `Port ${appSpecifications.port} mapped OK`,
+        };
+        log.info(portStatus);
+        if (res) {
+          res.write(serviceHelper.ensureString(portStatus));
+        }
+      } else {
+        throw new Error(`Error: Port ${appSpecifications.port} FAILed to map.`);
+      }
     }
   }
   const startStatus = {
@@ -3394,8 +3515,59 @@ async function assignedPortsInstalledApps() {
   return apps;
 }
 
-async function ensureApplicationPortsNotUsed(appSpecFormatted) {
-  const currentAppsPorts = await assignedPortsInstalledApps();
+async function assignedPortsGlobalApps(appNames) {
+  // construct object ob app name and ports array
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  const appsQuery = [];
+  appNames.forEach((app) => {
+    appsQuery.push({
+      name: app,
+    });
+  });
+  const query = {
+    $or: appsQuery,
+  };
+  const projection = { projection: { _id: 0 } };
+  const results = await dbHelper.findInDatabase(database, globalAppsInformation, query, projection);
+  const apps = [];
+  results.forEach((app) => {
+    // there is no app
+    if (app.version === 1) {
+      const appSpecs = {
+        name: app.name,
+        ports: [Number(app.port)],
+      };
+      apps.push(appSpecs);
+    } else if (app.version <= 3) {
+      const appSpecs = {
+        name: app.name,
+        ports: [],
+      };
+      app.ports.forEach((port) => {
+        appSpecs.ports.push(Number(port));
+      });
+      apps.push(appSpecs);
+    } else if (app.version >= 4) {
+      const appSpecs = {
+        name: app.name,
+        ports: [],
+      };
+      app.compose.forEach((composeApp) => {
+        appSpecs.ports = appSpecs.ports.concat(composeApp.ports);
+      });
+      apps.push(appSpecs);
+    }
+  });
+  return apps;
+}
+
+async function ensureApplicationPortsNotUsed(appSpecFormatted, globalCheckedApps) {
+  let currentAppsPorts = await assignedPortsInstalledApps();
+  if (globalCheckedApps) {
+    const globalAppsPorts = await assignedPortsGlobalApps(globalCheckedApps);
+    currentAppsPorts = currentAppsPorts.concat(globalAppsPorts);
+  }
   if (appSpecFormatted.version === 1) {
     const portAssigned = currentAppsPorts.find((app) => app.ports.includes(Number(appSpecFormatted.port)));
     if (portAssigned && portAssigned.name !== appSpecFormatted.name) {
@@ -5187,8 +5359,25 @@ async function getAllGlobalApplicationsNames() {
   }
 }
 
+async function getRunningAppIpList(ip) { // returns all apps running on this ip
+  const dbopen = dbHelper.databaseConnection();
+  const database = dbopen.db(config.database.appsglobal.database);
+  const query = { ip: new RegExp(`^${ip}`) };
+  const projection = {
+    projection: {
+      _id: 0,
+      name: 1,
+      hash: 1,
+      ip: 1,
+      broadcastedAt: 1,
+      expireAt: 1,
+    },
+  };
+  const results = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
+  return results;
+}
+
 async function getRunningAppList(appName) {
-  console.log(appName);
   const dbopen = dbHelper.databaseConnection();
   const database = dbopen.db(config.database.appsglobal.database);
   const query = { name: appName };
@@ -5430,9 +5619,10 @@ async function trySpawningGlobalApplication() {
     if (myIP === null) {
       throw new Error('Unable to detect Flux IP address');
     }
+    const adjustedIP = myIP.split(':')[0]; // just IP address
     // check if app not running on this device
-    if (runningAppList.find((document) => document.ip === myIP)) {
-      log.info(`Application ${randomApp} is reported as already running on this Flux`);
+    if (runningAppList.find((document) => document.ip.includes(adjustedIP))) {
+      log.info(`Application ${randomApp} is reported as already running on this Flux IP`);
       await serviceHelper.delay(adjustedDelay);
       trySpawningGlobalAppCache.set(randomApp, randomApp);
       trySpawningGlobalApplication();
@@ -5526,7 +5716,13 @@ async function trySpawningGlobalApplication() {
     });
 
     // ensure ports unused
-    await ensureApplicationPortsNotUsed(appSpecifications).catch((error) => {
+    // appNames on Ip
+    const runningAppsIp = await getRunningAppIpList(adjustedIP);
+    const runningAppsNames = [];
+    runningAppsIp.forEach((app) => {
+      runningAppsNames.push(app.name);
+    });
+    await ensureApplicationPortsNotUsed(appSpecifications, runningAppsNames).catch((error) => {
       log.error(error);
       trySpawningGlobalAppCache.set(randomApp, randomApp);
       throw error;
@@ -6423,6 +6619,7 @@ module.exports = {
   getAppsLocations,
   storeAppRunningMessage,
   reindexGlobalAppsLocation,
+  getRunningAppIpList,
   getRunningAppList,
   trySpawningGlobalApplication,
   getApplicationSpecifications,
