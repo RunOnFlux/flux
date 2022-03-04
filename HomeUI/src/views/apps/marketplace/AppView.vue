@@ -606,7 +606,7 @@ export default {
     const subscribedTill = computed(() => timestamp.value + 30 * 24 * 60 * 60 * 1000 + 60 * 60 * 1000); // 1 month
 
     const callbackValue = () => {
-      const { protocol, hostname } = window.location;
+      const { protocol, hostname, port } = window.location;
       let mybackend = '';
       mybackend += protocol;
       mybackend += '//';
@@ -618,6 +618,10 @@ export default {
       } else {
         if (typeof hostname === 'string') {
           ctx.root.$store.commit('flux/setUserIp', hostname);
+        }
+        if (+port > 16100) {
+          const apiPort = +port + 1;
+          ctx.root.$store.commit('flux/setFluxPort', apiPort);
         }
         mybackend += hostname;
         mybackend += ':';
@@ -648,7 +652,7 @@ export default {
     };
 
     const initiateSignWS = () => {
-      const { protocol, hostname } = window.location;
+      const { protocol, hostname, port } = window.location;
       let mybackend = '';
       mybackend += protocol;
       mybackend += '//';
@@ -660,6 +664,10 @@ export default {
       } else {
         if (typeof hostname === 'string') {
           ctx.root.$store.commit('flux/setUserIp', hostname);
+        }
+        if (+port > 16100) {
+          const apiPort = +port + 1;
+          ctx.root.$store.commit('flux/setFluxPort', apiPort);
         }
         mybackend += hostname;
         mybackend += ':';

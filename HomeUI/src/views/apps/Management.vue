@@ -2590,7 +2590,7 @@ export default {
       'privilege',
     ]),
     callbackValue() {
-      const { protocol, hostname } = window.location;
+      const { protocol, hostname, port } = window.location;
       let mybackend = '';
       mybackend += protocol;
       mybackend += '//';
@@ -2602,6 +2602,10 @@ export default {
       } else {
         if (typeof hostname === 'string') {
           this.$store.commit('flux/setUserIp', hostname);
+        }
+        if (+port > 16100) {
+          const apiPort = +port + 1;
+          this.$store.commit('flux/setFluxPort', apiPort);
         }
         mybackend += hostname;
         mybackend += ':';
@@ -2816,7 +2820,7 @@ export default {
     },
     initiateSignWSUpdate() {
       const self = this;
-      const { protocol, hostname } = window.location;
+      const { protocol, hostname, port } = window.location;
       let mybackend = '';
       mybackend += protocol;
       mybackend += '//';
@@ -2828,6 +2832,10 @@ export default {
       } else {
         if (typeof hostname === 'string') {
           this.$store.commit('flux/setUserIp', hostname);
+        }
+        if (+port > 16100) {
+          const apiPort = +port + 1;
+          this.$store.commit('flux/setFluxPort', apiPort);
         }
         mybackend += hostname;
         mybackend += ':';
