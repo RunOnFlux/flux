@@ -92,7 +92,7 @@ async function dockerRemoveNetwork(netw) {
 }
 
 /**
- * Returns inspect network object
+ * Returns inspect network object.
  *
  * @param {object} netw - Network object
  *
@@ -103,6 +103,16 @@ async function dockerNetworkInspect(netw) {
   return network;
 }
 
+/**
+ * Returns a list of containers.
+ *
+ * @param {bool} [all] - defaults to false; By default only running containers are shown
+ * @param {number} [limit] - Return this number of most recently created containers, including non-running ones.
+ * @param {bool} [size] - Return the size of container as fields SizeRw and SizeRootFs.
+ * @param {string} [filter] Filters to process on the container list, encoded as JSON
+
+ * @returns {array} containers list
+ */
 async function dockerListContainers(all, limit, size, filter) {
   const options = {
     all,
@@ -114,11 +124,22 @@ async function dockerListContainers(all, limit, size, filter) {
   return containers;
 }
 
+/**
+ * Returns a list of images on the server.
+ *
+ * @returns {array} images list
+ */
 async function dockerListImages() {
   const containers = await docker.listImages();
   return containers;
 }
 
+/**
+ * Returns low-level information about a container.
+ *
+ * @param {string} idOrName
+ * @returns {object}
+ */
 async function dockerContainerInspect(idOrName) {
   // container ID or name
   const containers = await dockerListContainers(true);
@@ -128,6 +149,12 @@ async function dockerContainerInspect(idOrName) {
   return response;
 }
 
+/**
+ * Returns a sample of container’s resource usage statistics.
+ *
+ * @param {string} idOrName
+ * @returns docker container statistics
+ */
 async function dockerContainerStats(idOrName) {
   // container ID or name
   const containers = await dockerListContainers(true);
