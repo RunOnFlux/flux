@@ -64,7 +64,8 @@
     "softupdateinstall": "git pull; npm install --production",
     "updateflux": "git pull; git reset --hard; rm -rf .git/index.lock HomeUI/dist; git reset --hard; git pull",
     "hardupdateflux": "git pull; git reset --hard; rm -rf .git/index.lock ZelFront HomeUI/dist node_modules package-lock.json; git reset --hard; git pull; npm run start",
-    "ciconfig": "cp sampleUserConfig.js config/userconfig.js && mkdir ~/.zelcash && cp sampleDaemonConfig.conf ~/.zelcash/zelcash.conf"
+    "ciconfig": "cp sampleUserConfig.js config/userconfig.js && mkdir ~/.zelcash && cp sampleDaemonConfig.conf ~/.zelcash/zelcash.conf",
+    "docs": "jsdoc -d docs --configure jsconf.json -r"
   },
   "dependencies": {
     "@runonflux/nat-upnp": "~1.0.2",
@@ -120,6 +121,7 @@
     "copy-webpack-plugin": "^6.4.1",
     "eslint": "^6.8.0",
     "eslint-plugin-vue": "^7.17.0",
+    "jsdoc": "^3.6.10",
     "leaflet": "^1.7.1",
     "mocha": "^9.1.3",
     "portal-vue": "^2.1.7",
