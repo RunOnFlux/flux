@@ -1,6 +1,7 @@
 const config = require('config');
 const natUpnp = require('@runonflux/nat-upnp');
 const serviceHelper = require('./serviceHelper');
+const messageHelper = require('./messageHelper');
 const verificationHelper = require('./verificationHelper');
 
 const log = require('../lib/log');
@@ -107,15 +108,15 @@ async function mapPortApi(req, res) {
         ttl: 0,
         protocol: 'UDP',
       });
-      const message = serviceHelper.createSuccessMessage('Port mapped');
+      const message = messageHelper.createSuccessMessage('Port mapped');
       res.json(message);
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -142,15 +143,15 @@ async function removeMapPortApi(req, res) {
         public: port,
         protocol: 'UDP',
       });
-      const message = serviceHelper.createSuccessMessage('Port unmapped');
+      const message = messageHelper.createSuccessMessage('Port unmapped');
       res.json(message);
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -164,15 +165,15 @@ async function getMapApi(req, res) {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized) {
       const map = await client.getMappings();
-      const message = serviceHelper.createDataMessage(map);
+      const message = messageHelper.createDataMessage(map);
       res.json(message);
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -186,15 +187,15 @@ async function getIpApi(req, res) {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized) {
       const ip = await client.getPublicIp();
-      const message = serviceHelper.createDataMessage(ip);
+      const message = messageHelper.createDataMessage(ip);
       res.json(message);
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -208,15 +209,15 @@ async function getGatewayApi(req, res) {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized) {
       const gateway = await client.getGateway();
-      const message = serviceHelper.createDataMessage(gateway);
+      const message = messageHelper.createDataMessage(gateway);
       res.json(message);
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
