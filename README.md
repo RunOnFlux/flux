@@ -14,6 +14,10 @@ Flux is available on domains, load balancing the entire Flux network. You can ac
 
 [API documentation](https://docs.runonflux.io)
 
+## Source code Documentation
+
+[Source Code documentation](https://source.runonflux.io)
+
 ## The gateway to the Flux Network
 
 Flux is the frontend UI to the entire Flux Network, it enables Flux operators to manage their Flux Node easily via a simple web interface. Flux enables an operator to perform all tasks such as updating and maintenance from a simple web interface, instead of having to remotely login to their Flux to manage it.
