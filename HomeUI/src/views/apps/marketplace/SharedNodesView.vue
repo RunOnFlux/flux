@@ -9,11 +9,11 @@
             :icon="$store.state.appConfig.isRTL ? 'ChevronRightIcon' : 'ChevronLeftIcon'"
             size="20"
             class="align-bottom"
-            @click="$emit('close-app-view')"
+            @click="$emit('close-sharednode-view')"
           />
         </span>
         <h4 class="app-name mb-0">
-          {{ appData.name }}
+          Titan Shared Nodes
         </h4>
       </div>
     </div>
@@ -21,354 +21,313 @@
     <!-- App Details -->
     <vue-perfect-scrollbar
       :settings="perfectScrollbarSettings"
-      class="app-scroll-area scroll-area"
+      class="marketplace-app-list scroll-area"
     >
-      <b-row class="match-height">
-        <b-col
-          xxl="9"
-          xl="8"
-          lg="8"
-          md="12"
-        >
-          <b-card title="Details">
-            <b-form-textarea
-              id="textarea-rows"
-              rows="2"
-              readonly
-              :value="appData.description"
-              class="description-text"
-            />
+      <b-card bg-variant="transparent">
+        <b-row class="match-height">
+          <b-col xl="4">
             <b-card
-              class="mt-1"
+              border-variant="primary"
               no-body
             >
-              <b-tabs
-                @activate-tab="componentSelected"
-              >
-                <b-tab
-                  v-for="(component, index) in appData.compose"
-                  :key="index"
-                  :title="component.name"
-                >
-                  <list-entry
-                    title="Description"
-                    :data="component.description"
-                  />
-                  <list-entry
-                    title="Repository"
-                    :data="component.repotag"
-                  />
-                  <b-card
-                    v-if="component.userEnvironmentParameters"
-                    title="Parameters"
-                    border-variant="primary"
+              <b-card-title class="text-white text-uppercase shared-node-info-title">
+                Active Nodes
+              </b-card-title>
+              <b-card-body class="shared-node-info-body">
+                <h1 class="active-node-value">
+                  {{ nodes.length }}
+                </h1>
+                <div class="d-flex">
+                  <h4 class="flex-grow-1">
+                    Total: {{ totalCollateral.toLocaleString() }} Flux
+                  </h4>
+                  <b-avatar
+                    size="24"
+                    variant="primary"
+                    button
+                    @click="showNodeInfoDialog()"
                   >
-                    <b-tabs v-if="component.userEnvironmentParameters">
-                      <b-tab
-                        v-for="(parameter, paramIndex) in component.userEnvironmentParameters"
-                        :key="paramIndex"
-                        :title="parameter.name"
-                      >
-                        <div class="form-row form-group">
-                          <label class="col-2 col-form-label">
-                            Value
-                            <v-icon
-                              v-b-tooltip.hover.top="parameter.description"
-                              name="info-circle"
-                              class="mr-1"
-                            />
-                          </label>
-                          <div class="col">
-                            <b-form-input
-                              id="enviromentParameters"
-                              v-model="parameter.value"
-                              :placeholder="parameter.placeholder"
-                            />
-                          </div>
-                        </div>
-                      </b-tab>
-                    </b-tabs>
-                  </b-card>
-                  <b-button
-                    v-if="userZelid"
-                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                    variant="outline-warning"
-                    aria-label="View Additional Details"
-                    class="mb-2"
-                    @click="componentParamsModalShowing = true"
-                  >
-                    View Additional Details
-                  </b-button>
-                </b-tab>
-              </b-tabs>
+                    <v-icon
+                      scale="0.9"
+                      name="info"
+                    />
+                  </b-avatar>
+                </div>
+              </b-card-body>
             </b-card>
+          </b-col>
+          <b-col xl="4">
+            <b-card
+              border-variant="primary"
+              no-body
+            >
+              <b-card-title class="text-white text-uppercase shared-node-info-title">
+                Staking Stats
+              </b-card-title>
+              <b-card-body class="shared-node-info-body">
+                <div class="d-flex flex-column">
+                  <div class="d-flex flex-row">
+                    <h5 class="flex-grow-1">
+                      My Staking Total
+                    </h5>
+                    <h4>
+                      3,400
+                    </h4>
+                  </div>
+                  <div class="d-flex flex-row">
+                    <h5 class="flex-grow-1">
+                      Titan Staking Total
+                    </h5>
+                    <h4>
+                      1,033,400
+                    </h4>
+                  </div>
+                  <div class="d-flex flex-row">
+                    <h5 class="flex-grow-1">
+                      Current Supply
+                    </h5>
+                    <h4>
+                      227,840,217
+                    </h4>
+                  </div>
+                  <div class="d-flex flex-row">
+                    <h5 class="flex-grow-1">
+                      Max Supply
+                    </h5>
+                    <h4>
+                      440,000,000
+                    </h4>
+                  </div>
+                  <div>
+                    <hr>
+                  </div>
+                  <div class="d-flex flex-row">
+                    <b-button
+                      v-if="userZelid"
+                      class="flex-grow-1 .btn-relief-primary"
+                      variant="gradient-primary"
+                      @click="showStakeDialog"
+                    >
+                      Stake Flux
+                    </b-button>
+                  </div>
+                </div>
+              </b-card-body>
+            </b-card>
+          </b-col>
+          <b-col xl="4">
+            <b-card
+              border-variant="primary"
+              no-body
+            >
+              <b-card-title class="text-white text-uppercase shared-node-info-title">
+                Lockup Period APY
+              </b-card-title>
+              <b-card-body
+                v-if="titanConfig"
+                class="shared-node-info-body"
+              >
+                <div
+                  v-for="lockup in titanConfig.lockups"
+                  :key="lockup.time"
+                  class="mb-1"
+                >
+                  <div class="d-flex flex-row">
+                    <h2 class="flex-grow-1">
+                      {{ lockup.name }}
+                    </h2>
+                    <h1>
+                      {{ (calcAPY(lockup)*100).toFixed(2) }}%
+                    </h1>
+                  </div>
+                </div>
+              </b-card-body>
+            </b-card>
+          </b-col>
+        </b-row>
+      </b-card>
+      <b-card
+        v-if="!userZelid"
+        title="My Seats"
+      >
+        <h5>
+          Please login using your ZelID to view your node stakes
+        </h5>
+      </b-card>
+      <b-row
+        v-else
+        class=""
+      >
+        <b-col xl="9">
+          <b-card
+            class="sharednodes-container"
+            no-body
+          >
+            <b-card-title
+              class="stakes-title"
+            >
+              My Active Stakes
+            </b-card-title>
+            <b-card-body>
+              <ul
+                class="marketplace-media-list"
+              >
+                <b-media
+                  v-for="stake in myStakes"
+                  :key="stake.uuid"
+                  tag="li"
+                  no-body
+                >
+                  <b-media-body
+                    class="app-media-body"
+                    style="overflow: inherit;"
+                  >
+                    <div class="d-flex flex-row row">
+                      <b-avatar
+                        v-if="titanConfig && stake.confirmations >= titanConfig.confirms"
+                        size="48"
+                        variant="light-success"
+                        class="node-status mt-auto mb-auto"
+                      >
+                        <v-icon
+                          scale="1.75"
+                          name="check"
+                        />
+                      </b-avatar>
+                      <b-avatar
+                        v-else
+                        size="48"
+                        variant="light-warning"
+                        class="node-status mt-auto mb-auto col"
+                      >
+                        {{ stake.confirmations }}/{{ titanConfig ? titanConfig.confirms : 0 }}
+                      </b-avatar>
+                      <div
+                        class="d-flex flex-column seat-column col"
+                        style="flex-grow: 0.8;"
+                      >
+                        <h3 class="mr-auto ml-auto mt-auto mb-auto">
+                          {{ stake.collateral.toLocaleString() }} Flux
+                        </h3>
+                      </div>
+                      <div class="d-flex flex-column seat-column col">
+                        <h4 class="mr-auto ml-auto">
+                          Start Date: {{ new Date(stake.timestamp*1000).toLocaleDateString() }}
+                        </h4>
+                        <h5 class="mr-auto ml-auto">
+                          End Date: {{ new Date(stake.expiry*1000).toLocaleDateString() }}
+                        </h5>
+                      </div>
+                      <div class="d-flex flex-column seat-column col">
+                        <h4 class="mr-auto ml-auto">
+                          Paid: {{ toFixedLocaleString(stake.paid, 2) }} Flux
+                        </h4>
+                        <h5 class="mr-auto ml-auto">
+                          Pending: {{ toFixedLocaleString(stake.reward, 2) }} Flux
+                        </h5>
+                      </div>
+                      <div class="d-flex flex-column seat-column col">
+                        <h4 class="mr-auto ml-auto">
+                          Monthly Rewards
+                        </h4>
+                        <h5
+                          v-if="titanConfig"
+                          class="mr-auto ml-auto"
+                        >
+                          {{ toFixedLocaleString(calcMonthlyReward(stake), 2) }} Flux
+                        </h5>
+                        <h5
+                          v-else
+                          class="mr-auto ml-auto"
+                        >
+                          ... Flux
+                        </h5>
+                      </div>
+                      <!--<div class="d-flex flex-column ml-auto">
+                        <b-button
+                          class="mt-auto mb-auto"
+                          variant="danger"
+                          size="sm"
+                          pill
+                          @click="showCancelStakingDialog(seat);"
+                        >
+                          Stop Staking
+                        </b-button>
+                      </div>-->
+                    </div>
+                  </b-media-body>
+                </b-media>
+              </ul>
+            </b-card-body>
           </b-card>
         </b-col>
         <b-col
-          xxl="3"
-          xl="4"
-          lg="4"
-          class="d-lg-flex d-none"
+          xl="3"
         >
           <b-card no-body>
-            <b-card-header class="app-requirements-header">
-              <h4 class="mb-0">
-                CPU
-              </h4>
-            </b-card-header>
-            <vue-apex-charts
-              class="mt-1"
-              type="radialBar"
-              height="200"
-              :options="cpuRadialBar"
-              :series="cpu.series"
-            />
-          </b-card>
-          <b-card no-body>
-            <b-card-header class="app-requirements-header">
-              <h4 class="mb-0">
-                RAM
-              </h4>
-            </b-card-header>
-            <vue-apex-charts
-              class="mt-1"
-              type="radialBar"
-              height="200"
-              :options="ramRadialBar"
-              :series="ram.series"
-            />
-          </b-card>
-          <b-card no-body>
-            <b-card-header class="app-requirements-header">
-              <h4 class="mb-0">
-                HDD
-              </h4>
-            </b-card-header>
-            <vue-apex-charts
-              class="mt-1"
-              type="radialBar"
-              height="200"
-              :options="hddRadialBar"
-              :series="hdd.series"
-            />
+            <b-card-title
+              class="stakes-title"
+            >
+              Redeem Rewards
+            </b-card-title>
+            <b-card-body>
+              <div class="d-flex flex-row">
+                <h5 class="flex-grow-1">
+                  Paid:
+                </h5>
+                <h4>
+                  {{ myStakes ? toFixedLocaleString(myStakes.reduce((total, stake) => total + stake.paid, 0), 2) : 0 }} Flux
+                </h4>
+              </div>
+              <div class="d-flex flex-row">
+                <h5 class="flex-grow-1">
+                  Available:
+                </h5>
+                <h4>
+                  {{ myStakes ? toFixedLocaleString(myStakes.reduce((total, stake) => total + stake.reward, 0), 2) : 0 }} Flux
+                </h4>
+              </div>
+              <b-button
+                class="float-right mt-2"
+                variant="danger"
+                size="sm"
+                pill
+                @click="showRedeemDialog();"
+              >
+                Redeem
+              </b-button>
+            </b-card-body>
           </b-card>
         </b-col>
-        <b-row
-          class="d-lg-none d-sm-none d-md-flex d-none"
-        >
-          <b-col
-            md="4"
-          >
-            <b-card no-body>
-              <b-card-header class="app-requirements-header">
-                <h5 class="mb-0">
-                  CPU
-                </h5>
-              </b-card-header>
-              <vue-apex-charts
-                class="mt-1"
-                type="radialBar"
-                height="200"
-                :options="cpuRadialBar"
-                :series="cpu.series"
-              />
-            </b-card>
-          </b-col>
-          <b-col
-            md="4"
-          >
-            <b-card no-body>
-              <b-card-header class="app-requirements-header">
-                <h5 class="mb-0">
-                  RAM
-                </h5>
-              </b-card-header>
-              <vue-apex-charts
-                class="mt-1"
-                type="radialBar"
-                height="200"
-                :options="ramRadialBar"
-                :series="ram.series"
-              />
-            </b-card>
-          </b-col>
-          <b-col
-            md="4"
-          >
-            <b-card no-body>
-              <b-card-header class="app-requirements-header">
-                <h5 class="mb-0">
-                  HDD
-                </h5>
-              </b-card-header>
-              <vue-apex-charts
-                class="mt-1"
-                type="radialBar"
-                height="200"
-                :options="hddRadialBar"
-                :series="hdd.series"
-              />
-            </b-card>
-          </b-col>
-        </b-row>
-        <b-row
-          class="d-md-none"
-        >
-          <b-col
-            cols="4"
-          >
-            <b-card no-body>
-              <b-card-header class="app-requirements-header">
-                <h6 class="mb-0">
-                  CPU
-                </h6>
-              </b-card-header>
-              <vue-apex-charts
-                class="mt-3"
-                type="radialBar"
-                height="130"
-                :options="cpuRadialBarSmall"
-                :series="cpu.series"
-              />
-            </b-card>
-          </b-col>
-          <b-col
-            cols="4"
-          >
-            <b-card no-body>
-              <b-card-header class="app-requirements-header">
-                <h6 class="mb-0">
-                  RAM
-                </h6>
-              </b-card-header>
-              <vue-apex-charts
-                class="mt-3"
-                type="radialBar"
-                height="130"
-                :options="ramRadialBarSmall"
-                :series="ram.series"
-              />
-            </b-card>
-          </b-col>
-          <b-col
-            cols="4"
-          >
-            <b-card no-body>
-              <b-card-header class="app-requirements-header">
-                <h6 class="mb-0">
-                  HDD
-                </h6>
-              </b-card-header>
-              <vue-apex-charts
-                class="mt-3"
-                type="radialBar"
-                height="130"
-                :options="hddRadialBarSmall"
-                :series="hdd.series"
-              />
-            </b-card>
-          </b-col>
-        </b-row>
       </b-row>
-      <div
-        v-if="!appData.enabled"
-        class="text-center"
-      >
-        <h4>
-          This app is temporarily disabled
-        </h4>
-      </div>
-      <div
-        v-else
-        class="text-center"
-      >
-        <b-button
-          v-if="userZelid"
-          v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-          variant="success"
-          aria-label="Launch Marketplace App"
-          class="mb-2"
-          @click="checkFluxSpecificationsAndFormatMessage"
-        >
-          Start Launching Marketplace App
-        </b-button>
-        <h4 v-else>
-          Please login using your ZelID to deploy Marketplace Apps
-        </h4>
-      </div>
     </vue-perfect-scrollbar>
 
     <b-modal
-      v-model="componentParamsModalShowing"
-      title="Extra Component Parameters"
-      size="lg"
-      centered
-      button-size="sm"
-      ok-only
-      ok-title="Close"
-    >
-      <div v-if="currentComponent">
-        <list-entry
-          title="Static Parameters"
-          :data="currentComponent.environmentParameters.join(', ')"
-        />
-        <list-entry
-          title="Custom Domains"
-          :data="currentComponent.domains.join(', ') || 'none'"
-        />
-        <list-entry
-          title="Automatic Domains"
-          :data="constructAutomaticDomains(currentComponent.ports, currentComponent.name, appData.name).join(', ')"
-        />
-        <list-entry
-          title="Ports"
-          :data="currentComponent.ports.join(', ')"
-        />
-        <list-entry
-          title="Container Ports"
-          :data="currentComponent.containerPorts.join(', ')"
-        />
-        <list-entry
-          title="Container Data"
-          :data="currentComponent.containerData"
-        />
-        <list-entry
-          title="Commands"
-          :data="currentComponent.commands.length > 0 ? currentComponent.commands.join(', ') : 'none'"
-        />
-      </div>
-    </b-modal>
-
-    <b-modal
-      v-model="confirmLaunchDialogCloseShowing"
-      title="Finish Launching App?"
+      v-model="confirmStakeDialogCloseShowing"
+      title="Cancel Staking?"
       size="sm"
       centered
       button-size="sm"
       ok-title="Yes"
       cancel-title="No"
-      @ok="confirmLaunchDialogCloseShowing = false; launchModalShowing = false;"
+      @ok="confirmStakeDialogCloseShowing = false; stakeModalShowing = false;"
     >
       <h3 class="text-center">
-        Please ensure that you have paid for your app, or saved the payment details for later.
+        Are you sure you want to cancel staking with Titan?
       </h3>
-      <br>
-      <h4 class="text-center">
-        Close the Launch App dialog?
-      </h4>
     </b-modal>
 
     <b-modal
-      v-model="launchModalShowing"
-      title="Launching Marketplace App"
-      size="xlg"
+      v-model="stakeModalShowing"
+      title="Stake Flux with Titan"
+      size="lg"
       centered
       no-close-on-backdrop
       no-close-on-esc
       button-size="sm"
       ok-only
       ok-title="Cancel"
-      @ok="confirmLaunchDialogCancel"
+      @ok="confirmStakeDialogCancel"
     >
       <form-wizard
         :color="tierColors.cumulus"
@@ -379,29 +338,80 @@
         class="wizard-vertical mb-3"
         @on-complete="confirmLaunchDialogFinish()"
       >
-        <tab-content title="Check Registration">
+        <tab-content
+          title="Stake Amount"
+        >
           <b-card
-            title="Registration Message"
+            title="Choose Stake Amount"
             class="text-center wizard-card"
           >
-            <b-form-textarea
-              id="registrationmessage"
-              v-model="dataToSign"
-              rows="6"
-              readonly
+            <div>
+              <h3 class="float-left">
+                200
+              </h3>
+              <h3 class="float-right">
+                40,000
+              </h3>
+            </div>
+            <b-form-input
+              id="stakeamount"
+              v-model="stakeAmount"
+              type="range"
+              min="200"
+              max="40000"
+              step="5"
+            />
+            <b-form-spinbutton
+              id="stakeamount-spnner"
+              v-model="stakeAmount"
+              min="200"
+              max="40000"
+              size="lg"
+              :formatter-fn="toFixedLocaleString"
+              class="stakeAmountSpinner"
             />
           </b-card>
         </tab-content>
         <tab-content
-          title="Sign App Message"
+          title="Choose Duration"
+          :before-change="() => {
+            timestamp = new Date().getTime();
+            dataToSign = `${userZelid}${stakeAmount}${selectedLockupIndex}${timestamp}`;
+            return selectedLockupIndex >= 0 && selectedLockupIndex < titanConfig.lockups.length;
+          }"
+        >
+          <b-card
+            v-if="titanConfig"
+            title="Select Lockup Period"
+            class="text-center wizard-card"
+          >
+            <div
+              v-for="(lockup, index) in titanConfig.lockups"
+              :key="lockup.time"
+              class="mb-1"
+            >
+              <div class="ml-auto mr-auto">
+                <b-button
+                  :class="index === selectedLockupIndex ? 'selectedLockupButton' : 'unselectedLockupButton'"
+                  :style="`background-color: ${indexedTierColors[index]} !important;`"
+                  @click="selectLockup(index)"
+                >
+                  {{ lockup.name }} - {{ (calcAPY(lockup)*100).toFixed(2) }}%
+                </b-button>
+              </div>
+            </div>
+          </b-card>
+        </tab-content>
+        <tab-content
+          title="Sign Stake"
           :before-change="() => signature !== null"
         >
           <b-card
-            title="Sign App Message with Zelcore"
+            title="Sign Stake with Zelcore"
             class="text-center wizard-card"
           >
             <a
-              :href="'zel:?action=sign&message=' + dataToSign + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=' + callbackValue()"
+              :href="`zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue()}`"
               @click="initiateSignWS"
             >
               <img
@@ -419,55 +429,53 @@
           </b-card>
         </tab-content>
         <tab-content
-          title="Register App"
-          :before-change="() => registrationHash !== null"
+          title="Register Stake"
+          :before-change="() => stakeRegistered === false"
         >
           <b-card
-            title="Register App"
+            title="Register Stake with Titan"
             class="text-center wizard-card"
           >
-            <b-card-text>
-              Price per Month: {{ appPricePerMonth }} FLUX
-            </b-card-text>
-            <b-button
-              v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-              variant="success"
-              aria-label="Register Flux App"
-              class="my-1"
-              :disabled="registrationHash && registrationHash.length > 0"
-              @click="register"
-            >
-              Register Flux App
-            </b-button>
-            <b-card-text
-              v-if="registrationHash"
-              v-b-tooltip
-              :title="registrationHash"
-              class="mt-1"
-            >
-              Registration Hash received
-            </b-card-text>
+            <div class="mt-auto mb-auto">
+              <b-button
+                size="lg"
+                :disabled="registeringStake || stakeRegistered"
+                variant="success"
+                @click="registerStake"
+              >
+                Register
+              </b-button>
+              <h4
+                v-if="stakeRegistered"
+                class="mt-1"
+              >
+                Registration received
+              </h4>
+            </div>
           </b-card>
         </tab-content>
-        <tab-content title="Send Payment">
-          <b-row class="match-height">
+        <tab-content title="Send Funds">
+          <b-row
+            v-if="titanConfig"
+            class="match-height"
+          >
             <b-col
               lg="8"
             >
               <b-card
-                title="Send Payment"
+                title="Send Funds"
                 class="text-center wizard-card"
               >
                 <b-card-text>
-                  To finish the application update, please make a transaction of {{ appPricePerMonth }} FLUX to address<br>
-                  '{{ deploymentAddress }}'<br>
+                  To finish the staking, please make a transaction of {{ toFixedLocaleString(stakeAmount) }} FLUX to address<br>
+                  '{{ titanConfig.nodeAddress }}'<br>
                   with the following message<br>
-                  '{{ registrationHash }}'
+                  '{{ userZelid }}'
                 </b-card-text>
-                <br>
+                <!--<br>
                 The transaction must be mined by {{ new Date(validTill).toLocaleString('en-GB', timeoptions.shortDate) }}
                 <br><br>
-                The application will be subscribed until {{ new Date(subscribedTill).toLocaleString('en-GB', timeoptions.shortDate) }}
+                The application will be subscribed until {{ new Date(subscribedTill).toLocaleString('en-GB', timeoptions.shortDate) }}-->
               </b-card>
             </b-col>
             <b-col
@@ -477,7 +485,7 @@
                 title="Pay with Zelcore"
                 class="text-center wizard-card"
               >
-                <a :href="'zel:?action=pay&coin=zelcash&address=' + deploymentAddress + '&amount=' + appPricePerMonth + '&message=' + registrationHash + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png'">
+                <a :href="`zel:?action=pay&coin=zelcash&address=${titanConfig.nodeAddress}&amount=${stakeAmount}&message=${signature}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`">
                   <img
                     class="zelidLogin"
                     src="@/assets/images/zelID.svg"
@@ -497,17 +505,22 @@
 
 <script>
 import {
+  BAvatar,
   BButton,
   BCard,
-  BCardHeader,
+  BCardBody,
+  // BCardHeader,
   BCardText,
+  BCardTitle,
   BCol,
   BFormInput,
-  BFormTextarea,
+  BFormSpinbutton,
+  BMedia,
+  BMediaBody,
   BModal,
   BRow,
-  BTabs,
-  BTab,
+  // BTabs,
+  // BTab,
   VBModal,
   VBToggle,
   VBTooltip,
@@ -517,23 +530,25 @@ import {
   TabContent,
 } from 'vue-form-wizard';
 import VuePerfectScrollbar from 'vue-perfect-scrollbar';
-import VueApexCharts from 'vue-apexcharts';
 import Ripple from 'vue-ripple-directive';
 import { useToast } from 'vue-toastification/composition';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 
-import { $themeColors } from '@themeConfig';
+// import { $themeColors } from '@themeConfig';
 import 'vue-form-wizard/dist/vue-form-wizard.min.css';
 
 import {
   ref,
-  watch,
+  // watch,
   computed,
 } from '@vue/composition-api';
 
-import ListEntry from '@/views/components/ListEntry.vue';
-import AppsService from '@/services/AppsService';
+import axios from 'axios';
+
+// import ListEntry from '@/views/components/ListEntry.vue';
 import tierColors from '@/libs/colors';
+import DashboardService from '@/services/DashboardService';
+// import IDService from '@/services/IDService';
 
 const qs = require('qs');
 const store = require('store');
@@ -541,28 +556,32 @@ const timeoptions = require('@/libs/dateFormat');
 
 export default {
   components: {
+    BAvatar,
     BButton,
     BCard,
-    BCardHeader,
+    BCardBody,
+    // BCardHeader,
     BCardText,
+    BCardTitle,
     BCol,
     BFormInput,
-    BFormTextarea,
+    BFormSpinbutton,
+    BMedia,
+    BMediaBody,
     BModal,
     BRow,
-    BTabs,
-    BTab,
+    // BTabs,
+    // BTab,
 
     FormWizard,
     TabContent,
 
     // eslint-disable-next-line vue/no-unused-components
     ToastificationContent,
-    ListEntry,
+    // ListEntry,
 
     // 3rd Party
     VuePerfectScrollbar,
-    VueApexCharts,
   },
   directives: {
     Ripple,
@@ -571,31 +590,24 @@ export default {
     'b-tooltip': VBTooltip,
   },
   props: {
-    appData: {
-      type: Object,
-      required: true,
-    },
     zelid: {
       type: String,
       required: false,
-      default: '',
-    },
-    tier: {
-      type: String,
-      required: true,
       default: '',
     },
   },
   setup(props, ctx) {
     // Use toast
     const toast = useToast();
-
-    const resolveTagVariant = (status) => {
-      if (status === 'Open') return 'warning';
-      if (status === 'Passed') return 'success';
-      if (status === 'Unpaid') return 'info';
-      if (status && status.startsWith('Rejected')) return 'danger';
-      return 'primary';
+    const showToast = (variant, title, icon = 'InfoIcon') => {
+      toast({
+        component: ToastificationContent,
+        props: {
+          title,
+          icon,
+          variant,
+        },
+      });
     };
 
     const tier = ref('');
@@ -603,31 +615,23 @@ export default {
     const userZelid = ref('');
     userZelid.value = props.zelid;
 
-    // Variables to control showing dialogs
-    const launchModalShowing = ref(false);
-    const componentParamsModalShowing = ref(false);
-    const confirmLaunchDialogCloseShowing = ref(false);
-
-    // Holds the currently selected component, for viewing
-    // additional parameters in a modal dialog
-    const currentComponent = ref(null);
-
-    // Registration variables
-    const version = ref(1);
-    const registrationtype = ref('fluxappregister');
+    const stakeAmount = ref(200);
+    const selectedLockupIndex = ref(0);
     const dataToSign = ref(null);
     const signature = ref(null);
-    const dataForAppRegistration = ref(null);
     const timestamp = ref(null);
-    const appPricePerMonth = ref(0);
-    const registrationHash = ref(null);
     const websocket = ref(null);
-
+    const stakeRegistered = ref(false);
+    const registeringStake = ref(false);
     const config = computed(() => ctx.root.$store.state.flux.config);
-    const validTill = computed(() => timestamp.value + 60 * 60 * 1000); // 1 hour
-    const subscribedTill = computed(() => timestamp.value + 30 * 24 * 60 * 60 * 1000 + 60 * 60 * 1000); // 1 month
 
-    const callbackValue = () => {
+    const indexedTierColors = ref([
+      tierColors.cumulus,
+      tierColors.nimbus,
+      tierColors.stratus,
+    ]);
+
+    const backend = () => {
       const { protocol, hostname } = window.location;
       let mybackend = '';
       mybackend += protocol;
@@ -646,14 +650,21 @@ export default {
         mybackend += config.value.apiPort;
       }
       const backendURL = store.get('backendURL') || mybackend;
+      return backendURL;
+    };
+
+    const callbackValue = () => {
+      const backendURL = backend();
       const url = `${backendURL}/id/providesign`;
       return encodeURI(url);
     };
 
     const onError = (evt) => {
+      console.log('Error');
       console.log(evt);
     };
     const onMessage = (evt) => {
+      console.log('Message');
       const data = qs.parse(evt.data);
       if (data.status === 'success' && data.data) {
         // user is now signed. Store their values
@@ -663,9 +674,11 @@ export default {
       console.log(evt);
     };
     const onClose = (evt) => {
+      console.log('Close');
       console.log(evt);
     };
     const onOpen = (evt) => {
+      console.log('Open');
       console.log(evt);
     };
 
@@ -702,686 +715,217 @@ export default {
       ws.onerror = (evt) => { onError(evt); };
     };
 
+    // Variables to control showing dialogs
+    const stakeModalShowing = ref(false);
+    const confirmStakeDialogCloseShowing = ref(false);
+
     const perfectScrollbarSettings = {
       maxScrollbarLength: 150,
     };
 
-    const globalApps = ref([]);
-    const getGlobalAppList = async () => {
-      const response = await AppsService.globalAppSpecifications();
-      globalApps.value = response.data.data;
-    };
-    const isPortInUse = (port) => {
-      for (let i = 0; i < globalApps.value.length; i += 1) {
-        const app = globalApps.value[i];
-        if (app.version <= 3) {
-          if (app.ports.length > 0) {
-            const used = app.ports.every((value) => Number(value) === port);
-            if (used) return true;
-          }
-        } else {
-          // v4 apps have 1 or more components
-          for (let c = 0; c < app.compose.length; c += 1) {
-            const component = app.compose[c];
-            if (component.ports.length > 0) {
-              const used = component.ports.every((value) => Number(value) === port);
-              if (used) return true;
-            }
-          }
+    const nodes = ref([]);
+    const totalCollateral = ref(0);
+    // const seatSize = ref(0);
+    // const stakes = ref(0);
+    const myStakes = ref([]);
+    const titanConfig = ref();
+    const nodeCount = ref(0);
+
+    const getSharedNodeList = async () => {
+      const response = await axios.get('http://192.168.68.133:1234/nodes');
+      const allNodes = [];
+      response.data.forEach((_node) => {
+        const node = _node;
+        allNodes.push(node);
+        // node.numSeats = node.collateral / node.seatSize;
+        // seatSize.value = node.seatSize;
+        totalCollateral.value += node.collateral;
+        // node.stakesAvailable = node.numSeats;
+        node.stakesOwned = 0;
+        if (allNodes.length === 2) {
+          node.stakesAvailable = 0;
         }
-      }
-      // Check the current app spec, incase of a duplicate port from another component
-      for (let c = 0; c < props.appData.compose.length; c += 1) {
-        const component = props.appData.compose[c];
-        if (component.ports.length > 0) {
-          const used = component.ports.every((value) => Number(value) === port);
-          if (used) return true;
-        }
-      }
-      return false;
+      });
+      console.log(allNodes);
+      nodes.value = allNodes;
     };
-    getGlobalAppList();
 
-    const resolveCpu = (app) => app.compose.reduce((total, component) => total + component.cpu, 0);
+    /* const getStakes = async () => {
+      const response = await axios.get('http://192.168.68.133:1234/stakes');
+      stakes.value = response.data;
+    }; */
 
-    const resolveRam = (app) => app.compose.reduce((total, component) => total + component.ram, 0);
-
-    const resolveHdd = (app) => app.compose.reduce((total, component) => total + component.hdd, 0);
-
-    const cpu = ref({
-      series: [],
-    });
-    const ram = ref({
-      series: [],
-    });
-    const hdd = ref({
-      series: [],
-    });
-
-    watch(() => props.appData, () => {
-      if (websocket.value !== null) {
-        websocket.value.close();
-        websocket.value = null;
+    const getMyStakes = async () => {
+      if (userZelid.value.length > 0) {
+        const response = await axios.get(`http://192.168.68.133:1234/stakes/${userZelid.value}`);
+        myStakes.value = response.data;
       }
-      cpu.value = {
-        series: [((resolveCpu(props.appData) / 7) * 100)],
-      };
-      ram.value = {
-        series: [((resolveRam(props.appData) / 28000) * 100)],
-      };
-      hdd.value = {
-        series: [((resolveHdd(props.appData) / 570) * 100)],
-      };
+    };
 
-      // Create a random port from the app's port specs that is not present on any other app
-      props.appData.compose.forEach((component) => {
-        // eslint-disable-next-line no-param-reassign
-        component.ports = [];
-        component.portSpecs.forEach((portSpec) => {
-          const portSpecParsed = portSpec.split('-');
-          const minPort = Number(portSpecParsed[0]);
-          const maxPort = Number(portSpecParsed[1]);
-          let checking = true;
-          do {
-            const newPort = minPort + Math.round(Math.random() * (maxPort - minPort));
-            if (!isPortInUse(newPort)) {
-              checking = false;
-              component.ports.push(newPort);
-            }
-          } while (checking);
+    const getNodeCount = async () => {
+      const response = await DashboardService.zelnodeCount();
+      if (response.data.status === 'error') {
+        showToast({
+          component: ToastificationContent,
+          props: {
+            title: response.data.data.message || response.data.data,
+            icon: 'InfoIcon',
+            variant: 'danger',
+          },
         });
-      });
-
-      // Evaluate any user parameters from the database
-      props.appData.compose.forEach((component) => {
-        const paramModel = component.userEnvironmentParameters;
-        // check if any of these parameters are special 'port' parameters
-        paramModel.forEach((parameter) => {
-          if (Object.prototype.hasOwnProperty.call(parameter, 'port')) {
-            // eslint-disable-next-line no-param-reassign
-            parameter.value = component.ports[parameter.port];
-          }
-        });
-      });
-
-      currentComponent.value = props.appData.compose[0];
-    });
-
-    const constructUniqueAppName = (appName) => `${appName}${Date.now()}`;
-
-    const constructAutomaticDomains = (ports, componentName = '', appName) => {
-      if (!userZelid.value) {
-        return ['No ZelID'];
+        return 0;
       }
-      const domainString = 'abcdefghijklmno'; // enough
-      const appNameWithTimestamp = constructUniqueAppName(appName);
-      const lowerCaseName = appNameWithTimestamp.toLowerCase();
-      const lowerCaseCopmonentName = componentName.toLowerCase();
-      if (!lowerCaseCopmonentName) {
-        const domains = [`${lowerCaseName}.app.runonflux.io`];
-        // flux specs dont allow more than 10 ports so domainString is enough
-        for (let i = 0; i < ports.length; i += 1) {
-          const portDomain = `${domainString[i]}.${lowerCaseName}.app.runonflux.io`;
-          domains.push(portDomain);
-        }
-        return domains;
-      }
-      const domains = [`${lowerCaseName}.app.runonflux.io`, `${lowerCaseCopmonentName}.${lowerCaseName}.app.runonflux.io`];
-      // flux specs dont allow more than 10 ports so domainString is enough
-      for (let i = 0; i < ports.length; i += 1) {
-        const portDomain = `${domainString[i]}.${lowerCaseCopmonentName}.${lowerCaseName}.app.runonflux.io`;
-        domains.push(portDomain);
-      }
-      return domains;
+      const fluxNodesData = response.data.data;
+      return fluxNodesData['stratus-enabled'];
     };
 
-    const showToast = (variant, title, icon = 'InfoIcon') => {
-      toast({
-        component: ToastificationContent,
-        props: {
-          title,
-          icon,
-          variant,
-        },
-      });
+    const getConfig = async () => {
+      nodeCount.value = await getNodeCount();
+      console.log(nodeCount.value);
+      const response = await axios.get('http://192.168.68.133:1234/config');
+      console.log(response.data);
+      titanConfig.value = response.data;
+      getSharedNodeList();
+      // getStakes();
+      getMyStakes();
     };
+    getConfig();
 
-    const deploymentAddress = ref(null);
-    const appsDeploymentInformation = async () => {
-      const response = await AppsService.appsRegInformation();
-      const { data } = response.data;
-      if (response.data.status === 'success') {
-        deploymentAddress.value = data.address;
+    const handleNodeClick = (node) => {
+      if (node.stakesAvailable > 0) {
+        console.log(1);
       } else {
-        showToast('danger', response.data.data.message || response.data.data);
-      }
-    };
-    appsDeploymentInformation();
-
-    const checkFluxSpecificationsAndFormatMessage = async () => {
-      try {
-        // construct a valid v4 app spec from the marketplace app spec,
-        // filtering out unnecessary fields like 'price' and 'category'
-        const appSpecification = {
-          version: props.appData.version,
-          name: constructUniqueAppName(props.appData.name),
-          description: props.appData.description,
-          owner: userZelid.value,
-          instances: props.appData.instances,
-          compose: [],
-        };
-        // formation, pre verificaiton
-        props.appData.compose.forEach((component) => {
-          const envParams = JSON.parse(JSON.stringify(component.environmentParameters));
-          component.userEnvironmentParameters.forEach((param) => {
-            envParams.push(`${param.name}=${param.value}`);
-          });
-          const appComponent = {
-            name: component.name,
-            description: component.description,
-            repotag: component.repotag,
-            ports: component.ports,
-            containerPorts: component.containerPorts,
-            environmentParameters: envParams,
-            commands: component.commands,
-            containerData: component.containerData,
-            domains: component.domains,
-            cpu: component.cpu,
-            ram: component.ram,
-            hdd: component.hdd,
-            tiered: component.tiered,
-            cpubasic: component.cpubasic,
-            rambasic: component.rambasic,
-            hddbasic: component.hddbasic,
-            cpusuper: component.cpusuper,
-            ramsuper: component.ramsuper,
-            hddsuper: component.hddsuper,
-            cpubamf: component.cpubamf,
-            rambamf: component.rambamf,
-            hddbamf: component.hddbamf,
-          };
-          appSpecification.compose.push(appComponent);
-        });
-
-        // call api for verification of app registration specifications that returns formatted specs
-        const responseAppSpecs = await AppsService.appRegistrationVerificaiton(appSpecification);
-        console.log(responseAppSpecs);
-        if (responseAppSpecs.data.status === 'error') {
-          throw new Error(responseAppSpecs.data.data.message || responseAppSpecs.data.data);
-        }
-        const appSpecFormatted = responseAppSpecs.data.data;
-        const response = await AppsService.appPrice(appSpecFormatted);
-        if (response.data.status === 'error') {
-          throw new Error(response.data.data.message || response.data.data);
-        }
-        if (response.data.data > props.appData.price) {
-          throw new Error('Marketplace App Price is too low');
-        }
-        if (websocket.value !== null) {
-          websocket.value.close();
-          websocket.value = null;
-        }
-        timestamp.value = new Date().getTime();
-        dataForAppRegistration.value = appSpecFormatted;
-        appPricePerMonth.value = props.appData.price;
-        dataToSign.value = `${registrationtype.value}${version.value}${JSON.stringify(appSpecFormatted)}${new Date().getTime()}`;
-        registrationHash.value = null;
-        signature.value = null;
-        launchModalShowing.value = true;
-      } catch (error) {
-        console.log(error);
-        showToast('danger', error.message || error);
+        console.log(2);
       }
     };
 
-    const smallchart = {
-      height: 100,
-      type: 'radialBar',
-      sparkline: {
-        enabled: true,
-      },
-      dropShadow: {
-        enabled: true,
-        blur: 3,
-        left: 1,
-        top: 1,
-        opacity: 0.1,
-      },
+    const showStakeDialog = () => {
+      stakeModalShowing.value = true;
+      stakeRegistered.value = false;
+      registeringStake.value = false;
+      stakeAmount.value = 200;
+      selectedLockupIndex.value = 0;
+      signature.value = null;
     };
 
-    const largechart = {
-      height: 200,
-      type: 'radialBar',
-      sparkline: {
-        enabled: true,
-      },
-      dropShadow: {
-        enabled: true,
-        blur: 3,
-        left: 1,
-        top: 1,
-        opacity: 0.1,
-      },
+    const confirmStakeDialogFinish = () => {
+      confirmStakeDialogCloseShowing.value = true;
     };
 
-    const cpuRadialBar = {
-      chart: largechart,
-      colors: [$themeColors.primary],
-      labels: ['Cores'],
-      plotOptions: {
-        radialBar: {
-          offsetY: -10,
-          startAngle: -150,
-          endAngle: 150,
-          hollow: {
-            size: '77%',
-          },
-          track: {
-            background: $themeColors.dark,
-            strokeWidth: '50%',
-          },
-          dataLabels: {
-            name: {
-              offsetY: -15,
-              color: $themeColors.light,
-              fontSize: '1.5rem',
-            },
-            value: {
-              formatter: (val) => ((parseFloat(val) * 7) / 100).toFixed(1),
-              offsetY: 10,
-              color: $themeColors.light,
-              fontSize: '2.86rem',
-              fontWeight: '600',
-            },
-          },
-        },
-      },
-      fill: {
-        type: 'gradient',
-        gradient: {
-          shade: 'dark',
-          type: 'horizontal',
-          shadeIntensity: 0.5,
-          gradientToColors: [$themeColors.success],
-          inverseColors: true,
-          opacityFrom: 1,
-          opacityTo: 1,
-          stops: [0, 100],
-        },
-      },
-      stroke: {
-        lineCap: 'round',
-      },
-      grid: {
-        padding: {
-          bottom: 30,
-        },
-      },
+    const confirmStakeDialogCancel = (modalEvt) => {
+      modalEvt.preventDefault();
+      confirmStakeDialogCloseShowing.value = true;
     };
 
-    const cpuRadialBarSmall = {
-      chart: smallchart,
-      colors: [$themeColors.primary],
-      labels: ['Cores'],
-      plotOptions: {
-        radialBar: {
-          offsetY: -10,
-          startAngle: -150,
-          endAngle: 150,
-          hollow: {
-            size: '70%',
-          },
-          track: {
-            background: $themeColors.dark,
-            strokeWidth: '50%',
-          },
-          dataLabels: {
-            name: {
-              offsetY: -15,
-              color: $themeColors.light,
-              fontSize: '1.2rem',
-            },
-            value: {
-              formatter: (val) => ((parseFloat(val) * 7) / 100).toFixed(1),
-              offsetY: 10,
-              color: $themeColors.light,
-              fontSize: '2rem',
-              fontWeight: '400',
-            },
-          },
-        },
-      },
-      fill: {
-        type: 'gradient',
-        gradient: {
-          shade: 'dark',
-          type: 'horizontal',
-          shadeIntensity: 0.5,
-          gradientToColors: [$themeColors.success],
-          inverseColors: true,
-          opacityFrom: 1,
-          opacityTo: 1,
-          stops: [0, 100],
-        },
-      },
-      stroke: {
-        lineCap: 'round',
-      },
-      grid: {
-        padding: {
-          bottom: 10,
-        },
-      },
+    const selectLockup = (lockupIndex) => {
+      selectedLockupIndex.value = lockupIndex;
     };
 
-    const ramRadialBar = {
-      chart: largechart,
-      colors: [$themeColors.primary],
-      labels: ['MB'],
-      plotOptions: {
-        radialBar: {
-          offsetY: -10,
-          startAngle: -150,
-          endAngle: 150,
-          hollow: {
-            size: '77%',
-          },
-          track: {
-            background: $themeColors.dark,
-            strokeWidth: '50%',
-          },
-          dataLabels: {
-            name: {
-              offsetY: -15,
-              color: $themeColors.light,
-              fontSize: '1.5rem',
-            },
-            value: {
-              formatter: (val) => ((parseFloat(val) * 28000) / 100).toFixed(0),
-              offsetY: 10,
-              color: $themeColors.light,
-              fontSize: '2.86rem',
-              fontWeight: '600',
-            },
-          },
-        },
-      },
-      fill: {
-        type: 'gradient',
-        gradient: {
-          shade: 'dark',
-          type: 'horizontal',
-          shadeIntensity: 0.5,
-          gradientToColors: [$themeColors.success],
-          inverseColors: true,
-          opacityFrom: 1,
-          opacityTo: 1,
-          stops: [0, 100],
-        },
-      },
-      stroke: {
-        lineCap: 'round',
-      },
-      grid: {
-        padding: {
-          bottom: 30,
-        },
-      },
+    const showNodeInfoDialog = () => {
+      console.log('show node info dialog');
     };
 
-    const ramRadialBarSmall = {
-      chart: smallchart,
-      colors: [$themeColors.primary],
-      labels: ['MB'],
-      plotOptions: {
-        radialBar: {
-          offsetY: -10,
-          startAngle: -150,
-          endAngle: 150,
-          hollow: {
-            size: '70%',
-          },
-          track: {
-            background: $themeColors.dark,
-            strokeWidth: '50%',
-          },
-          dataLabels: {
-            name: {
-              offsetY: -15,
-              color: $themeColors.light,
-              fontSize: '1.2rem',
-            },
-            value: {
-              formatter: (val) => ((parseFloat(val) * 28000) / 100).toFixed(0),
-              offsetY: 10,
-              color: $themeColors.light,
-              fontSize: '2rem',
-              fontWeight: '400',
-            },
-          },
-        },
-      },
-      fill: {
-        type: 'gradient',
-        gradient: {
-          shade: 'dark',
-          type: 'horizontal',
-          shadeIntensity: 0.5,
-          gradientToColors: [$themeColors.success],
-          inverseColors: true,
-          opacityFrom: 1,
-          opacityTo: 1,
-          stops: [0, 100],
-        },
-      },
-      stroke: {
-        lineCap: 'round',
-      },
-      grid: {
-        padding: {
-          bottom: 10,
-        },
-      },
-    };
-
-    const hddRadialBar = {
-      chart: largechart,
-      colors: [$themeColors.primary],
-      labels: ['GB'],
-      plotOptions: {
-        radialBar: {
-          offsetY: -10,
-          startAngle: -150,
-          endAngle: 150,
-          hollow: {
-            size: '77%',
-          },
-          track: {
-            background: $themeColors.dark,
-            strokeWidth: '50%',
-          },
-          dataLabels: {
-            name: {
-              offsetY: -15,
-              color: $themeColors.light,
-              fontSize: '1.5rem',
-            },
-            value: {
-              formatter: (val) => ((parseFloat(val) * 570) / 100).toFixed(0),
-              offsetY: 10,
-              color: $themeColors.light,
-              fontSize: '2.86rem',
-              fontWeight: '600',
-            },
-          },
-        },
-      },
-      fill: {
-        type: 'gradient',
-        gradient: {
-          shade: 'dark',
-          type: 'horizontal',
-          shadeIntensity: 0.5,
-          gradientToColors: [$themeColors.success],
-          inverseColors: true,
-          opacityFrom: 1,
-          opacityTo: 1,
-          stops: [0, 100],
-        },
-      },
-      stroke: {
-        lineCap: 'round',
-      },
-      grid: {
-        padding: {
-          bottom: 30,
-        },
-      },
-    };
-
-    const hddRadialBarSmall = {
-      chart: smallchart,
-      colors: [$themeColors.primary],
-      labels: ['GB'],
-      plotOptions: {
-        radialBar: {
-          offsetY: -10,
-          startAngle: -150,
-          endAngle: 150,
-          hollow: {
-            size: '70%',
-          },
-          track: {
-            background: $themeColors.dark,
-            strokeWidth: '50%',
-          },
-          dataLabels: {
-            name: {
-              offsetY: -15,
-              color: $themeColors.light,
-              fontSize: '1.2rem',
-            },
-            value: {
-              formatter: (val) => ((parseFloat(val) * 570) / 100).toFixed(0),
-              offsetY: 10,
-              color: $themeColors.light,
-              fontSize: '2rem',
-              fontWeight: '400',
-            },
-          },
-        },
-      },
-      fill: {
-        type: 'gradient',
-        gradient: {
-          shade: 'dark',
-          type: 'horizontal',
-          shadeIntensity: 0.5,
-          gradientToColors: [$themeColors.success],
-          inverseColors: true,
-          opacityFrom: 1,
-          opacityTo: 1,
-          stops: [0, 100],
-        },
-      },
-      stroke: {
-        lineCap: 'round',
-      },
-      grid: {
-        padding: {
-          bottom: 10,
-        },
-      },
-    };
-
-    const register = async () => {
-      const zelidauth = localStorage.getItem('zelidauth');
+    const registerStake = async () => {
+      // registeringStake.value = true;
+      const zelidauthHeader = localStorage.getItem('zelidauth');
       const data = {
-        type: registrationtype.value,
-        version: version.value,
-        appSpecification: dataForAppRegistration.value,
+        amount: stakeAmount.value,
+        lockup: titanConfig.value.lockups[selectedLockupIndex.value],
         timestamp: timestamp.value,
         signature: signature.value,
       };
-      showToast('info', 'Propagating message accross Flux network...');
-      const response = await AppsService.registerApp(zelidauth, data).catch((error) => {
+      showToast('info', 'Registering Stake with Titan...');
+      /* const response = await AppsService.registerApp(zelidauth, data).catch((error) => {
+        showToast('danger', error.message || error);
+      }); */
+      const axiosConfig = {
+        headers: {
+          zelidauth: zelidauthHeader,
+          backend: backend(),
+        },
+      };
+      const response = await axios.post('http://192.168.68.133:1234/register', data, axiosConfig).catch((error) => {
+        console.log(error);
         showToast('danger', error.message || error);
       });
-      console.log(response);
-      if (response.data.status === 'success') {
-        registrationHash.value = response.data.data;
-        showToast('success', response.data.data.message || response.data.data);
+
+      console.log(response.data);
+      if (response && response.data && response.data.status === 'success') {
+        showToast('success', response.data.message || response.data);
       } else {
-        showToast('danger', response.data.data.message || response.data.data);
+        showToast('danger', response.data.message || response.data);
       }
+      /* const response = await IDService.loggedSessions(zelidauthHeader);
+      console.log(response);
+      const response2 = await IDService.loggedUsers(zelidauthHeader);
+      console.log(response2); */
     };
 
-    const componentSelected = (component) => {
-      currentComponent.value = props.appData.compose[component];
+    const calcAPY = (lockup) => {
+      const fluxPerReward = (22.5 * (100 - lockup.fee)) / 100;
+      const collateral = 100000;
+      const blocksPerDay = 720;
+      const numStratusNodes = nodeCount.value;
+      const payoutFrequency = numStratusNodes / blocksPerDay;
+      const fluxPerMonth = (30 / payoutFrequency) * fluxPerReward;
+      const rewardPerSeat = fluxPerMonth / collateral;
+      const rewardPerYear = (rewardPerSeat * 12);
+      const apy = ((1 + rewardPerYear / 12) ** 12) - 1;
+      // eslint-disable-next-line no-param-reassign
+      lockup.apy = apy;
+      return apy;
     };
 
-    const confirmLaunchDialogFinish = () => {
-      confirmLaunchDialogCloseShowing.value = true;
+    const calcMonthlyReward = (stake) => {
+      const lockup = titanConfig.value.lockups.find((aLockup) => aLockup.fee === stake.fee);
+      console.log(lockup);
+      return ((stake.collateral) * lockup.apy) / 12;
     };
 
-    const confirmLaunchDialogCancel = (modalEvt) => {
-      if (registrationHash.value !== null) {
-        modalEvt.preventDefault();
-        confirmLaunchDialogCloseShowing.value = true;
-      }
-    };
+    const toFixedLocaleString = (number, digits) => number.toLocaleString(undefined, { minimumFractionDigits: digits || 0, maximumFractionDigits: digits || 0 });
 
     return {
 
       // UI
       perfectScrollbarSettings,
-      resolveTagVariant,
-
-      resolveCpu,
-      resolveRam,
-      resolveHdd,
-
-      constructAutomaticDomains,
-      checkFluxSpecificationsAndFormatMessage,
 
       timeoptions,
 
-      cpuRadialBar,
-      cpuRadialBarSmall,
-      cpu,
-
-      ramRadialBar,
-      ramRadialBarSmall,
-      ram,
-
-      hddRadialBar,
-      hddRadialBarSmall,
-      hdd,
+      nodes,
+      totalCollateral,
+      myStakes,
+      titanConfig,
 
       userZelid,
-      dataToSign,
       signature,
-      appPricePerMonth,
-      registrationHash,
-      deploymentAddress,
-
-      validTill,
-      subscribedTill,
-
-      register,
+      dataToSign,
       callbackValue,
       initiateSignWS,
+      timestamp,
 
-      launchModalShowing,
-      componentParamsModalShowing,
-      confirmLaunchDialogCloseShowing,
-      confirmLaunchDialogFinish,
-      confirmLaunchDialogCancel,
+      handleNodeClick,
+      calcAPY,
+      calcMonthlyReward,
 
-      currentComponent,
-      componentSelected,
+      toFixedLocaleString,
+
+      showNodeInfoDialog,
+
+      stakeModalShowing,
+      showStakeDialog,
+      stakeAmount,
+      stakeRegistered,
+      selectedLockupIndex,
+      selectLockup,
+      registeringStake,
+      registerStake,
+
+      confirmStakeDialogCloseShowing,
+      confirmStakeDialogFinish,
+      confirmStakeDialogCancel,
 
       tierColors,
+      indexedTierColors,
     };
   },
 };
@@ -1413,6 +957,55 @@ a:hover img {
 }
 .wizard-card {
   height: 250px;
+}
+.node-status {
+  margin-right: 0px;
+  margin-left: 0;
+}
+.stakes-title {
+  margin-left: 10px;
+  margin-top: 10px;
+}
+.seat-column {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.stakeAmountSpinner {
+  font-size: 40px;
+  width: 250px;
+  margin-left: auto;
+  margin-right: auto;
+  margin-top: 2rem;
+}
+
+.selectedLockupButton {
+  border-color: red !important;
+  border: 5px solid;
+  height: 60px;
+  width: 300px;
+  font-size: 20px;
+}
+
+.unselectedLockupButton {
+  border-color: transparent;
+  border: 0px solid;
+  height: 60px;
+  width: 300px;
+  font-size: 20px;
+}
+
+.active-node-value {
+  font-size: 7em;
+  text-align: center;
+  padding-bottom: 1.5rem;
+}
+.shared-node-info-title {
+  padding: 1.5rem;
+}
+.shared-node-info-body {
+  padding-top: 0;
+  padding-bottom: 0.3rem;
 }
 </style>
 <style lang="scss">

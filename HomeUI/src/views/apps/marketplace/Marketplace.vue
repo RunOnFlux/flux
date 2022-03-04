@@ -171,7 +171,7 @@
       :app-data="app"
       :zelid="zelid"
       :tier="tier"
-      @close-app-view="isSharedNodesViewActive = false"
+      @close-sharednode-view="isSharedNodesViewActive = false"
     />
 
     <!-- Sidebar -->
@@ -179,7 +179,7 @@
       <category-sidebar
         :class="{'show': showDetailSidebar}"
         @close-left-sidebar="showDetailSidebar = false"
-        @close-app-view="isAppViewActive = false; isManagedServicesViewActive = false; isSharedNodesViewActive = false"
+        @close-app-view="isAppViewActive = false; isManagedServicesViewActive = false; isSharedNodesViewActive = false;"
         @open-managed-services="isManagedServicesViewActive = true"
         @open-shared-nodes="isSharedNodesViewActive = true"
       />
