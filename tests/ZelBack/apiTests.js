@@ -2,28 +2,30 @@ process.env.NODE_CONFIG_DIR = `${process.cwd()}/ZelBack/config/`;
 const request = require('supertest');
 const config = require('config');
 const chai = require('chai');
-const expect = chai.expect;
-const app = require('../../ZelBack/src/lib/server.js');
+const app = require('../../ZelBack/src/lib/server');
 const log = require('../../ZelBack/src/lib/log');
+const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+
 const packageJson = require('../../package.json');
+
+const { expect } = chai;
 const { version } = packageJson;
 
 const server = app.listen(config.server.apiport, () => {
   log.info(`Flux listening on port ${config.server.apiport}!`);
 });
 
-describe('loading express', function () {
-  after(function (done) {
+describe('loading express', () => {
+  after((done) => {
     server.close(done);
     setTimeout(() => {
       process.exit();
     }, 10000);
   });
   before(async () => {
-    const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
     await serviceHelper.initiateDB();
   });
-  it('/flux/version', function testSlash(done) {
+  it('/flux/version', (done) => {
     request(server)
       .get('/flux/version')
       .expect(200)
@@ -35,12 +37,12 @@ describe('loading express', function () {
         return done();
       });
   });
-  it('non-existing-path', function testPath(done) {
+  it('non-existing-path', (done) => {
     request(server)
       .get('/foo/bar')
       .expect(404, done);
   });
-  it('/id/loginphrase', function testSlash(done) {
+  it('/id/loginphrase', (done) => {
     request(server)
       .get('/id/loginphrase')
       .expect(200)

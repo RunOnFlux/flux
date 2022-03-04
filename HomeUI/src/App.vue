@@ -30,14 +30,12 @@ import IDService from '@/services/IDService';
 const qs = require('qs');
 
 const LayoutVertical = () => import('@/layouts/vertical/LayoutVertical.vue');
-const LayoutHorizontal = () => import('@/layouts/horizontal/LayoutHorizontal.vue');
 const LayoutFull = () => import('@/layouts/full/LayoutFull.vue');
 
 export default {
   components: {
 
     // Layouts
-    LayoutHorizontal,
     LayoutVertical,
     LayoutFull,
 

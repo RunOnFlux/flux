@@ -10,6 +10,7 @@ const path = require('path');
 const util = require('util');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
+const verificationHelper = require('./verificationHelper');
 const daemonService = require('./daemonService');
 const benchmarkService = require('./benchmarkService');
 const userconfig = require('../../../config/userconfig');
@@ -83,9 +84,9 @@ class TokenBucket {
 let addingNodesToCache = false;
 
 // basic check for a version of other flux.
-async function isFluxAvailable(ip) {
+async function isFluxAvailable(ip, port = config.server.apiport) {
   try {
-    const fluxResponse = await serviceHelper.axiosGet(`http://${ip}:${config.server.apiport}/flux/version`, axiosConfig);
+    const fluxResponse = await serviceHelper.axiosGet(`http://${ip}:${port}/flux/version`, axiosConfig);
     if (fluxResponse.data.status === 'success') {
       let fluxVersion = fluxResponse.data.data;
       fluxVersion = fluxVersion.replace(/\./g, '');
@@ -104,12 +105,14 @@ async function isFluxAvailable(ip) {
 async function checkFluxAvailability(req, res) {
   let { ip } = req.params;
   ip = ip || req.query.ip;
+  let { port } = req.params;
+  port = port || req.query.port;
   if (ip === undefined || ip === null) {
     const errMessage = serviceHelper.createErrorMessage('No ip specified.');
     return res.json(errMessage);
   }
 
-  const available = await isFluxAvailable(ip);
+  const available = await isFluxAvailable(ip, port);
 
   if (available === true) {
     const message = serviceHelper.createSuccessMessage('Asking Flux is available');
@@ -121,7 +124,7 @@ async function checkFluxAvailability(req, res) {
   return res.json(response);
 }
 
-async function getMyFluxIP() {
+async function getMyFluxIPandPort() {
   const benchmarkResponse = await daemonService.getBenchmarks();
   let myIP = null;
   if (benchmarkResponse.status === 'success') {
@@ -138,15 +141,11 @@ async function getMyFluxIP() {
 // filter can only be a publicKey!
 async function deterministicFluxList(filter) {
   try {
-    if (addingNodesToCache) {
+    while (addingNodesToCache) {
       // prevent several instances filling the cache at the same time.
+      // eslint-disable-next-line no-await-in-loop
       await serviceHelper.delay(100);
-      return deterministicFluxList(filter);
     }
-    const request = {
-      params: {},
-      query: {},
-    };
     let fluxList;
     if (filter) {
       fluxList = myCache.get(`fluxList${serviceHelper.ensureString(filter)}`);
@@ -154,19 +153,31 @@ async function deterministicFluxList(filter) {
       fluxList = myCache.get('fluxList');
     }
     if (!fluxList) {
-      // not present in cache lets get fluxList again and cache it.
+      let generalFluxList = myCache.get('fluxList');
       addingNodesToCache = true;
-      const daemonFluxNodesList = await daemonService.viewDeterministicZelNodeList(request);
-      if (daemonFluxNodesList.status === 'success') {
-        fluxList = daemonFluxNodesList.data || [];
-        fluxList.forEach((item) => {
-          myCache.set(`fluxList${serviceHelper.ensureString(item.pubkey)}`, [item]);
-        });
-        myCache.set('fluxList', fluxList);
+      if (!generalFluxList) {
+        const request = {
+          params: {},
+          query: {},
+        };
+        const daemonFluxNodesList = await daemonService.viewDeterministicZelNodeList(request);
+        if (daemonFluxNodesList.status === 'success') {
+          generalFluxList = daemonFluxNodesList.data || [];
+          myCache.set('fluxList', generalFluxList);
+          if (filter) {
+            const filterFluxList = generalFluxList.filter((node) => node.pubkey === filter);
+            myCache.set(`fluxList${serviceHelper.ensureString(filter)}`, filterFluxList);
+          }
+        }
+      } else { // surely in filtered branch too
+        const filterFluxList = generalFluxList.filter((node) => node.pubkey === filter);
+        myCache.set(`fluxList${serviceHelper.ensureString(filter)}`, filterFluxList);
       }
       addingNodesToCache = false;
       if (filter) {
         fluxList = myCache.get(`fluxList${serviceHelper.ensureString(filter)}`);
+      } else {
+        fluxList = myCache.get('fluxList');
       }
     }
     return fluxList || [];
@@ -219,18 +230,16 @@ async function verifyFluxBroadcast(data, obtainedFluxNodesList, currentTimeStamp
 
   let node = null;
   if (obtainedFluxNodesList) { // for test purposes.
-    node = await obtainedFluxNodesList.find((key) => key.pubkey === pubKey);
+    node = obtainedFluxNodesList.find((key) => key.pubkey === pubKey);
     if (!node) {
       return false;
     }
   }
   if (!node) {
+    // node that broadcasted the message has to be on list
+    // pubkey of the broadcast has to be on the list
     const zl = await deterministicFluxList(pubKey); // this itself is sufficient.
-    if (zl.length === 1) {
-      if (zl[0].pubkey === pubKey) {
-        [node] = zl;
-      }
-    }
+    node = zl.find((key) => key.pubkey === pubKey); // another check in case sufficient check failed on daemon level
   }
   if (!node) {
     return false;
@@ -537,7 +546,7 @@ function checkRateLimit(ip, perSecond = 10, maxBurst = 15) {
 function handleIncomingConnection(ws, req, expressWS) {
   // now we are in connections state. push the websocket to our incomingconnections
   const maxPeers = 20;
-  const maxNumberOfConnections = numberOfFluxNodes / 40;
+  const maxNumberOfConnections = numberOfFluxNodes / 40 < 120 ? numberOfFluxNodes / 40 : 120;
   const maxCon = Math.max(maxPeers, maxNumberOfConnections);
   if (incomingConnections.length > maxCon) {
     setTimeout(() => {
@@ -562,7 +571,7 @@ function handleIncomingConnection(ws, req, expressWS) {
     const { pubKey } = dataObj;
     if (blockedPubKeysCache.has(pubKey)) {
       try {
-        log.info('Closing connection, peer is on blockedList');
+        log.info('Closing incoming connection, peer is on blockedList');
         ws.close(1000, 'blocked list'); // close as of policy violation?
       } catch (e) {
         console.error(e);
@@ -590,23 +599,21 @@ function handleIncomingConnection(ws, req, expressWS) {
         }
       }
     } else {
-      // we dont like this peer as it sent wrong message. Lets close the connection
+      // we dont like this peer as it sent wrong message (wrong, or message belonging to node no longer on network). Lets close the connection
       // and add him to blocklist
       try {
         // check if message comes from IP belonging to the public Key
         const zl = await deterministicFluxList(pubKey); // this itself is sufficient.
-        if (zl.length === 1) { // else continue with blocking this public key
-          if (zl[0].pubkey === pubKey) { // else continue with blocking this public key
-            const { ip } = zl[0];
-            // if IP does not match IP of user that send us the message, pubkey was spoofed. Throw an error so we do not block a valid peer, else continue with pubkey blocking
-            if (ip !== peer.ip.replace('::ffff:', '')) {
-              throw new Error(`Message received from incoming peer ${peer.ip} but origin should come from ${ip}.`);
-            }
-          }
+        const possibleNodes = zl.filter((key) => key.pubkey === pubKey); // another check in case sufficient check failed on daemon level
+        const nodeFound = possibleNodes.find((n) => n.ip === peer.ip.replace('::ffff:', ''));
+        if (!nodeFound) {
+          log.warn(`Message received from incoming peer ${peer.ip} but is not an originating node of ${pubKey}.`);
+          ws.close(1000, 'invalid message, disconnect'); // close as of policy violation
+        } else {
+          blockedPubKeysCache.set(pubKey, pubKey); // blocks ALL the nodes corresponding to the pubKey
+          log.warn(`closing incoming connection, adding peers ${pubKey} to the blockedList. Originated from ${peer.ip}.`);
+          ws.close(1000, 'invalid message, blocked'); // close as of policy violation?
         }
-        blockedPubKeysCache.set(pubKey, pubKey);
-        log.warn('closing connection, adding peer to the blockedList');
-        ws.close(1000, 'invalid message, blocked'); // close as of policy violation?
       } catch (e) {
         console.error(e);
       }
@@ -663,7 +670,7 @@ async function broadcastMessageToOutgoingFromUser(req, res) {
     if (data === undefined || data === null) {
       throw new Error('No message to broadcast attached.');
     }
-    const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
 
     if (authorized === true) {
       await broadcastMessageToOutgoing(data);
@@ -695,7 +702,7 @@ async function broadcastMessageToOutgoingFromUserPost(req, res) {
       if (processedBody === undefined || processedBody === null || processedBody === '') {
         throw new Error('No message to broadcast attached.');
       }
-      const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+      const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
       if (authorized === true) {
         await broadcastMessageToOutgoing(processedBody);
         const message = serviceHelper.createSuccessMessage('Message successfully broadcasted to Flux network');
@@ -723,7 +730,7 @@ async function broadcastMessageToIncomingFromUser(req, res) {
     if (data === undefined || data === null) {
       throw new Error('No message to broadcast attached.');
     }
-    const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
 
     if (authorized === true) {
       await broadcastMessageToIncoming(data);
@@ -755,7 +762,7 @@ async function broadcastMessageToIncomingFromUserPost(req, res) {
       if (processedBody === undefined || processedBody === null || processedBody === '') {
         throw new Error('No message to broadcast attached.');
       }
-      const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+      const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
       if (authorized === true) {
         await broadcastMessageToIncoming(processedBody);
         const message = serviceHelper.createSuccessMessage('Message successfully broadcasted to Flux network');
@@ -783,7 +790,7 @@ async function broadcastMessageFromUser(req, res) {
     if (data === undefined || data === null) {
       throw new Error('No message to broadcast attached.');
     }
-    const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
 
     if (authorized === true) {
       await broadcastMessageToOutgoing(data);
@@ -816,7 +823,7 @@ async function broadcastMessageFromUserPost(req, res) {
       if (processedBody === undefined || processedBody === null || processedBody === '') {
         throw new Error('No message to broadcast attached.');
       }
-      const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+      const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
       if (authorized === true) {
         await broadcastMessageToOutgoing(processedBody);
         await broadcastMessageToIncoming(processedBody);
@@ -838,7 +845,7 @@ async function broadcastMessageFromUserPost(req, res) {
   });
 }
 
-async function getRandomConnection() {
+async function getRandomConnection() { // returns ip:port or just ip if default
   const nodeList = await deterministicFluxList();
   const zlLength = nodeList.length;
   if (zlLength === 0) {
@@ -853,14 +860,20 @@ async function getRandomConnection() {
   return ip;
 }
 
-async function initiateAndHandleConnection(ip) {
-  const wsuri = `ws://${ip}:${config.server.apiport}/ws/flux/`;
+async function initiateAndHandleConnection(connection) {
+  let ip = connection;
+  let port = config.server.apiport;
+  if (connection.includes(':')) {
+    ip = connection.split(':')[0];
+    port = connection.split(':')[1];
+  }
+  const wsuri = `ws://${ip}:${port}/ws/flux/`;
   const websocket = new WebSocket(wsuri);
 
   websocket.onopen = () => {
     outgoingConnections.push(websocket);
     const peer = {
-      ip: websocket._socket.remoteAddress,
+      ip: connection,
       lastPingTime: null,
       latency: null,
     };
@@ -871,10 +884,7 @@ async function initiateAndHandleConnection(ip) {
   websocket.on('pong', () => {
     try {
       const curTime = new Date().getTime();
-      const { url } = websocket;
-      let conIP = url.split('/')[2];
-      conIP = conIP.split(`:${config.server.apiport}`).join('');
-      const foundPeer = outgoingPeers.find((peer) => peer.ip === conIP);
+      const foundPeer = outgoingPeers.find((peer) => peer.ip === connection);
       if (foundPeer) {
         foundPeer.latency = Math.ceil((curTime - foundPeer.lastPingTime) / 2);
       }
@@ -884,20 +894,17 @@ async function initiateAndHandleConnection(ip) {
   });
 
   websocket.onclose = (evt) => {
-    const { url } = websocket;
-    let conIP = url.split('/')[2];
-    conIP = conIP.split(`:${config.server.apiport}`).join('');
     const ocIndex = outgoingConnections.indexOf(websocket);
     if (ocIndex > -1) {
-      log.info(`Connection to ${conIP} closed with code ${evt.code}`);
+      log.info(`Connection to ${connection} closed with code ${evt.code}`);
       outgoingConnections.splice(ocIndex, 1);
     }
-    const foundPeer = outgoingPeers.find((peer) => peer.ip === conIP);
+    const foundPeer = outgoingPeers.find((peer) => peer.ip === connection);
     if (foundPeer) {
       const peerIndex = outgoingPeers.indexOf(foundPeer);
       if (peerIndex > -1) {
         outgoingPeers.splice(peerIndex, 1);
-        log.info(`Connection ${conIP} removed from outgoingPeers`);
+        log.info(`Connection ${connection} removed from outgoingPeers`);
       }
     }
   };
@@ -915,7 +922,7 @@ async function initiateAndHandleConnection(ip) {
     const { pubKey } = msgObj;
     if (blockedPubKeysCache.has(pubKey)) {
       try {
-        log.info('Closing connection, peer is on blockedList');
+        log.info('Closing outgoing connection, peer is on blockedList');
         websocket.close(1000, 'blocked list'); // close as of policy violation?
       } catch (e) {
         console.error(e);
@@ -924,34 +931,29 @@ async function initiateAndHandleConnection(ip) {
     }
     const messageOK = await verifyOriginalFluxBroadcast(evt.data, undefined, currentTimeStamp);
     if (messageOK === true) {
-      const { url } = websocket;
-      let conIP = url.split('/')[2];
-      conIP = conIP.split(`:${config.server.apiport}`).join('');
       if (msgObj.data.type === 'zelappregister' || msgObj.data.type === 'zelappupdate' || msgObj.data.type === 'fluxappregister' || msgObj.data.type === 'fluxappupdate') {
-        handleAppMessages(msgObj, conIP);
+        handleAppMessages(msgObj, connection);
       } else if (msgObj.data.type === 'zelapprequest' || msgObj.data.type === 'fluxapprequest') {
         respondWithAppMessage(msgObj, websocket);
       } else if (msgObj.data.type === 'zelapprunning' || msgObj.data.type === 'fluxapprunning') {
-        handleAppRunningMessage(msgObj, conIP);
+        handleAppRunningMessage(msgObj, connection);
       }
     } else {
-      // we dont like this peer as it sent wrong message. Lets close the connection
+      // we dont like this peer as it sent wrong message (wrong, or message belonging to node no longer on network). Lets close the connection
       // and add him to blocklist
       try {
         // check if message comes from IP belonging to the public Key
         const zl = await deterministicFluxList(pubKey); // this itself is sufficient.
-        if (zl.length === 1) { // else continue with blocking this public key
-          if (zl[0].pubkey === pubKey) { // else continue with blocking this public key
-            const expectedIP = zl[0].ip;
-            // if IP does not match IP of user that send us the message, pubkey was spoofed. Throw an error so we do not block a valid peer, else continue with pubkey blocking
-            if (expectedIP !== ip) {
-              throw new Error(`Message received from outgoing peer ${ip} but origin should come from ${expectedIP}.`);
-            }
-          }
+        const possibleNodes = zl.filter((key) => key.pubkey === pubKey); // another check in case sufficient check failed on daemon level
+        const nodeFound = possibleNodes.find((n) => n.ip === connection);
+        if (!nodeFound) {
+          log.warn(`Message received from outgoing peer ${connection} but is not an originating node of ${pubKey}.`);
+          websocket.close(1000, 'invalid message, disconnect'); // close as of policy violation
+        } else {
+          blockedPubKeysCache.set(pubKey, pubKey); // blocks ALL the nodes corresponding to the pubKey
+          log.warn(`closing outgoing connection, adding peers ${pubKey} to the blockedList. Originated from ${connection}.`);
+          websocket.close(1000, 'invalid message, blocked'); // close as of policy violation?
         }
-        blockedPubKeysCache.set(pubKey, pubKey);
-        log.warn('closing connection, adding peer to the blockedList');
-        websocket.close(1000, 'invalid message, blocked'); // close as of policy violation?
       } catch (e) {
         console.error(e);
       }
@@ -960,20 +962,17 @@ async function initiateAndHandleConnection(ip) {
 
   websocket.onerror = (evt) => {
     console.log(evt.code);
-    const { url } = websocket;
-    let conIP = url.split('/')[2];
-    conIP = conIP.split(`:${config.server.apiport}`).join('');
     const ocIndex = outgoingConnections.indexOf(websocket);
     if (ocIndex > -1) {
-      log.info(`Connection to ${conIP} errord with code ${evt.code}`);
+      log.info(`Connection to ${connection} errord with code ${evt.code}`);
       outgoingConnections.splice(ocIndex, 1);
     }
-    const foundPeer = outgoingPeers.find((peer) => peer.ip === conIP);
+    const foundPeer = outgoingPeers.find((peer) => peer.ip === connection);
     if (foundPeer) {
       const peerIndex = outgoingPeers.indexOf(foundPeer);
       if (peerIndex > -1) {
         outgoingPeers.splice(peerIndex, 1);
-        log.info(`Connection ${conIP} removed from outgoingPeers`);
+        log.info(`Connection ${connection} removed from outgoingPeers`);
       }
     }
   };
@@ -988,7 +987,7 @@ async function fluxDiscovery() {
 
     let nodeList = [];
 
-    const myIP = await getMyFluxIP();
+    const myIP = await getMyFluxIPandPort();
     if (myIP) {
       nodeList = await deterministicFluxList();
       const fluxNode = nodeList.find((node) => node.ip === myIP);
@@ -998,12 +997,12 @@ async function fluxDiscovery() {
     } else {
       throw new Error('Flux IP not detected. Flux discovery is awaiting.');
     }
-    const minPeers = 12;
+    const minPeers = 10;
     const maxPeers = 20;
     numberOfFluxNodes = nodeList.length;
     const currentIpsConnTried = [];
-    const requiredNumberOfConnections = numberOfFluxNodes / 50; // 2%
-    const maxNumberOfConnections = numberOfFluxNodes / 45;
+    const requiredNumberOfConnections = numberOfFluxNodes / 100 < 40 ? numberOfFluxNodes / 100 : 40; // 1%
+    const maxNumberOfConnections = numberOfFluxNodes / 75 < 50 ? numberOfFluxNodes / 75 : 50; // 1.5%
     const minCon = Math.max(minPeers, requiredNumberOfConnections); // awlays maintain at least 10 or 1% of nodes whatever is higher
     const maxCon = Math.max(maxPeers, maxNumberOfConnections); // have a maximum of 20 or 2% of nodes whatever is higher
     log.info(`Current number of outgoing connections:${outgoingConnections.length}`);
@@ -1090,7 +1089,7 @@ async function addPeer(req, res) {
     const errMessage = serviceHelper.createErrorMessage(`Already connected to ${ip}`);
     return res.json(errMessage);
   }
-  const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
 
   if (authorized === true) {
     initiateAndHandleConnection(ip);
@@ -1187,7 +1186,7 @@ async function removePeer(req, res) {
     const errMessage = serviceHelper.createErrorMessage('No IP address specified.');
     return res.json(errMessage);
   }
-  const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
 
   if (authorized === true) {
     const closeResponse = await closeConnection(ip);
@@ -1205,7 +1204,7 @@ async function removeIncomingPeer(req, res, expressWS) {
     const errMessage = serviceHelper.createErrorMessage('No IP address specified.');
     return res.json(errMessage);
   }
-  const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
 
   if (authorized === true) {
     const closeResponse = await closeIncomingConnection(ip, expressWS);
@@ -1257,19 +1256,23 @@ async function checkMyFluxAvailability(retryNumber = 0) {
   if (typeof askingIP !== 'string' || typeof myFluxIP !== 'string' || myFluxIP === askingIP) {
     return false;
   }
-  if (askingIP.includes(':')) {
+  let askingIpPort = config.server.apiport;
+  if (askingIP.includes(':')) { // has port specification
     // it is ipv6
-    askingIP = `[${askingIP}]`;
+    const splittedIP = askingIP.split(':');
+    askingIP = splittedIP[0];
+    askingIpPort = splittedIP[1];
   }
   let myIP = myFluxIP;
-  if (myIP.includes(':')) {
-    myIP = `[${myIP}]`;
+  if (myIP.includes(':')) { // has port specification
+    myIP = myIP.split(':')[0];
   }
   let availabilityError = null;
   const axiosConfigAux = {
     timeout: 7000,
   };
-  const resMyAvailability = await serviceHelper.axiosGet(`http://${askingIP}:${config.server.apiport}/flux/checkfluxavailability/${myIP}`, axiosConfigAux).catch((error) => {
+  const apiPort = userconfig.apiport || config.server.apiport;
+  const resMyAvailability = await serviceHelper.axiosGet(`http://${askingIP}:${askingIpPort}/flux/checkfluxavailability?ip=${myIP}&port=${apiPort}`, axiosConfigAux).catch((error) => {
     log.error(`${askingIP} is not reachable`);
     log.error(error);
     availabilityError = true;
@@ -1348,9 +1351,9 @@ async function adjustExternalIP(ip) {
   initial: {
     ipaddress: '${ip}',
     zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
-    cruxid: '${userconfig.initial.cruxid || ''}',
     kadena: '${userconfig.initial.kadena || ''}',
     testnet: ${userconfig.initial.testnet || false},
+    apiport: ${userconfig.initial.apiport || 16127},
   }
 }`;
 
@@ -1366,7 +1369,7 @@ async function checkDeterministicNodesCollisions() {
     // get node list with filter on this ip address
     // if it returns more than 1 object, shut down.
     // another precatuion might be comparing node list on multiple nodes. evaulate in the future
-    const myIP = await getMyFluxIP();
+    const myIP = await getMyFluxIPandPort();
     if (myIP) {
       const syncStatus = daemonService.isDaemonSynced();
       if (!syncStatus.data.synced) {
@@ -1406,7 +1409,7 @@ async function checkDeterministicNodesCollisions() {
       }
       const availabilityOk = await checkMyFluxAvailability();
       if (availabilityOk) {
-        adjustExternalIP(myIP);
+        adjustExternalIP(myIP.split(':')[0]);
       }
     } else {
       dosState += 1;
@@ -1480,7 +1483,7 @@ async function allowPortApi(req, res) {
     const errMessage = serviceHelper.createErrorMessage('No Port address specified.');
     return res.json(errMessage);
   }
-  const authorized = await serviceHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
 
   if (authorized === true) {
     const portResponseOK = await allowPort(port);
@@ -1501,7 +1504,9 @@ async function adjustFirewall() {
   try {
     const cmdAsync = util.promisify(cmd.get);
     const execA = 'sudo ufw status | grep Status';
-    const ports = [config.server.apiport, config.server.homeport, 80, 443, 16125];
+    const apiPort = userconfig.apiport || config.server.apiport;
+    const homePort = apiPort - 1;
+    const ports = [apiPort, homePort, 80, 443, 16125];
     const cmdresA = await cmdAsync(execA);
     if (serviceHelper.ensureString(cmdresA).includes('Status: active')) {
       // eslint-disable-next-line no-restricted-syntax

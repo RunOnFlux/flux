@@ -80,6 +80,12 @@ module.exports = (app, expressWs) => {
   app.get('/daemon/getblockcount', cache('30 seconds'), (req, res) => {
     daemonService.getBlockCount(req, res);
   });
+  app.get('/daemon/getblockdeltas/:hash?', cache('30 seconds'), (req, res) => {
+    daemonService.getBlockDeltas(req, res);
+  });
+  app.get('/daemon/getblockhashes/:high?/:low?/:noorphans?/:logicaltimes?', cache('30 seconds'), (req, res) => {
+    daemonService.getBlockHashes(req, res);
+  });
   app.get('/daemon/getblockhash/:index?', cache('30 seconds'), (req, res) => {
     daemonService.getBlockHash(req, res);
   });
@@ -109,6 +115,9 @@ module.exports = (app, expressWs) => {
   });
   app.get('/daemon/verifytxoutproof/:proof?', cache('30 seconds'), (req, res) => {
     daemonService.verifyTxOutProof(req, res);
+  });
+  app.get('/daemon/getspentinfo/:txid?/:index?', cache('30 seconds'), (req, res) => {
+    daemonService.getSpentInfo(req, res);
   });
   app.get('/daemon/getblocksubsidy/:height?', cache('30 seconds'), (req, res) => {
     daemonService.getBlockSubsidy(req, res);
@@ -247,7 +256,7 @@ module.exports = (app, expressWs) => {
   app.get('/flux/incomingconnectionsinfo', cache('30 seconds'), (req, res) => {
     fluxCommunication.getIncomingConnectionsInfo(req, res, expressWs.getWss('/ws/flux'));
   });
-  app.get('/flux/checkfluxavailability/:ip?', cache('30 seconds'), (req, res) => {
+  app.get('/flux/checkfluxavailability/:ip?/:port?', cache('30 seconds'), (req, res) => {
     fluxCommunication.checkFluxAvailability(req, res);
   });
 
@@ -349,7 +358,7 @@ module.exports = (app, expressWs) => {
   // app.get('/explorer/fusion/coinbase/all', cache('30 seconds'), (req, res) => {
   //   explorerService.getAllFusionCoinbase(req, res);
   // });
-  app.get('/explorer/fusion/coinbase/:address?', cache('30 seconds'), (req, res) => {
+  app.get('/explorer/fusion/coinbase/:address?', cache('30 seconds'), (req, res) => { // deprecated
     explorerService.getAddressFusionCoinbase(req, res);
   });
 
@@ -585,6 +594,21 @@ module.exports = (app, expressWs) => {
   });
   app.get('/daemon/zcsamplejoinsplit', (req, res) => {
     daemonService.zcSampleJoinSplit(req, res);
+  });
+  app.get('/daemon/getaddresstxids/:address?/:start?/:end?', (req, res) => {
+    daemonService.getSingleAddresssTxids(req, res);
+  });
+  app.get('/daemon/getaddressbalance/:address?', (req, res) => {
+    daemonService.getSingleAddressBalance(req, res);
+  });
+  app.get('/daemon/getaddressdeltas/:address?/:start?/:end?/:chaininfo?', (req, res) => {
+    daemonService.getSingleAddressDeltas(req, res);
+  });
+  app.get('/daemon/getaddressutxos/:address?/:chaininfo?', (req, res) => {
+    daemonService.getSingleAddressUtxos(req, res);
+  });
+  app.get('/daemon/getaddressmempool/:address?', (req, res) => {
+    daemonService.getSingleAddressMempool(req, res);
   });
 
   app.get('/id/loggedusers', (req, res) => {
@@ -862,6 +886,27 @@ module.exports = (app, expressWs) => {
   });
   app.post('/daemon/verifymessage', (req, res) => {
     daemonService.verifyMessagePost(req, res);
+  });
+  app.post('/daemon/getblockhashes', (req, res) => {
+    daemonService.getBlockHashesPost(req, res);
+  });
+  app.post('/daemon/getspentinfo', (req, res) => {
+    daemonService.getSpentInfoPost(req, res);
+  });
+  app.post('/daemon/getaddresstxids', (req, res) => {
+    daemonService.getAddressTxids(req, res);
+  });
+  app.post('/daemon/getaddressbalance', (req, res) => {
+    daemonService.getAddressBalance(req, res);
+  });
+  app.post('/daemon/getaddressdeltas', (req, res) => {
+    daemonService.getAddressDeltas(req, res);
+  });
+  app.post('/daemon/getaddressutxos', (req, res) => {
+    daemonService.getAddressUtxos(req, res);
+  });
+  app.post('/daemon/getaddressmempool', (req, res) => {
+    daemonService.getAddressMempool(req, res);
   });
 
   // POST PROTECTED API - USER LEVEL

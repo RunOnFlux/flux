@@ -42,7 +42,6 @@ import SearchBar from './components/SearchBar.vue';
 import DarkToggler from './components/DarkToggler.vue';
 import CartDropdown from './components/CartDropdown.vue';
 import NotificationDropdown from './components/NotificationDropdown.vue';
-import UserDropdown from './components/UserDropdown.vue';
 
 export default {
   components: {
@@ -56,7 +55,6 @@ export default {
     DarkToggler,
     CartDropdown,
     NotificationDropdown,
-    UserDropdown,
   },
   props: {
     toggleVerticalMenuActive: {

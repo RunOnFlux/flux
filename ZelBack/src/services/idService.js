@@ -6,6 +6,7 @@ const os = require('os');
 const userconfig = require('../../../config/userconfig');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
+const verificationHelper = require('./verificationHelper');
 const generalService = require('./generalService');
 const dockerService = require('./dockerService');
 const fluxCommunication = require('./fluxCommunication');
@@ -17,31 +18,57 @@ async function confirmNodeTierHardware() {
     const tier = await generalService.nodeTier().catch((error) => {
       log.error(error);
     });
+
+    const collateral = await generalService.nodeCollateral().catch((error) => {
+      log.error(error);
+    });
     const nodeRam = os.totalmem() / 1024 / 1024 / 1024;
     const nodeCpuCores = os.cpus().length;
     log.info(`Node Tier: ${tier}`);
+    log.info(`Node Collateral: ${collateral}`);
     log.info(`Node Total Ram: ${nodeRam}`);
     log.info(`Node Cpu Cores: ${nodeCpuCores}`);
-    if (tier === 'bamf') {
-      if (nodeRam < 31) {
+    if (tier === 'bamf' && collateral === 100000) {
+      if (nodeRam < 30) {
         throw new Error(`Node Total Ram (${nodeRam}) below Stratus requirements`);
       }
       if (nodeCpuCores < 8) {
         throw new Error(`Node Cpu Cores (${nodeCpuCores}) below Stratus requirements`);
       }
-    } else if (tier === 'super') {
+    } else if (tier === 'super' && collateral === 25000) {
       if (nodeRam < 7) {
         throw new Error(`Node Total Ram (${nodeRam}) below Nimbus requirements`);
       }
       if (nodeCpuCores < 4) {
         throw new Error(`Node Cpu Cores (${nodeCpuCores}) below Nimbus requirements`);
       }
-    } else if (tier === 'basic') {
+    } else if (tier === 'basic' && collateral === 10000) {
       if (nodeRam < 3) {
         throw new Error(`Node Total Ram (${nodeRam}) below Cumulus requirements`);
       }
       if (nodeCpuCores < 2) {
         throw new Error(`Node Cpu Cores (${nodeCpuCores}) below Cumulus requirements`);
+      }
+    } else if (tier === 'bamf' && collateral === 40000) {
+      if (nodeRam < 61) {
+        throw new Error(`Node Total Ram (${nodeRam}) below new Stratus requirements`);
+      }
+      if (nodeCpuCores < 16) {
+        throw new Error(`Node Cpu Cores (${nodeCpuCores}) below new Stratus requirements`);
+      }
+    } else if (tier === 'super' && collateral === 12500) {
+      if (nodeRam < 30) {
+        throw new Error(`Node Total Ram (${nodeRam}) below new Nimbus requirements`);
+      }
+      if (nodeCpuCores < 8) {
+        throw new Error(`Node Cpu Cores (${nodeCpuCores}) below new Nimbus requirements`);
+      }
+    } else if (tier === 'basic' && collateral === 1000) {
+      if (nodeRam < 3) {
+        throw new Error(`Node Total Ram (${nodeRam}) below new Cumulus requirements`);
+      }
+      if (nodeCpuCores < 4) {
+        throw new Error(`Node Cpu Cores (${nodeCpuCores}) below new Cumulus requirements`);
       }
     }
     return true;
@@ -321,7 +348,7 @@ async function provideSign(req, res) {
 
 async function activeLoginPhrases(req, res) {
   try {
-    const authorized = await serviceHelper.verifyAdminSession(req.headers);
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
     if (authorized === true) {
       const db = serviceHelper.databaseConnection();
 
@@ -349,7 +376,7 @@ async function activeLoginPhrases(req, res) {
 
 async function loggedUsers(req, res) {
   try {
-    const authorized = await serviceHelper.verifyAdminSession(req.headers);
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
     if (authorized === true) {
       const db = serviceHelper.databaseConnection();
       const database = db.db(config.database.local.database);
@@ -372,7 +399,7 @@ async function loggedUsers(req, res) {
 
 async function loggedSessions(req, res) {
   try {
-    const authorized = await serviceHelper.verifyUserSession(req.headers);
+    const authorized = await verificationHelper.verifyPrivilege('user', req);
     if (authorized === true) {
       const db = serviceHelper.databaseConnection();
 
@@ -398,7 +425,7 @@ async function loggedSessions(req, res) {
 
 async function logoutCurrentSession(req, res) {
   try {
-    const authorized = await serviceHelper.verifyUserSession(req.headers);
+    const authorized = await verificationHelper.verifyPrivilege('user', req);
     if (authorized === true) {
       const auth = serviceHelper.ensureObject(req.headers.zelidauth);
       const db = serviceHelper.databaseConnection();
@@ -428,7 +455,7 @@ async function logoutSpecificSession(req, res) {
   });
   req.on('end', async () => {
     try {
-      const authorized = await serviceHelper.verifyUserSession(req.headers);
+      const authorized = await verificationHelper.verifyPrivilege('user', req);
       if (authorized === true) {
         const processedBody = serviceHelper.ensureObject(body);
         const obtainedLoginPhrase = processedBody.loginPhrase;
@@ -458,7 +485,7 @@ async function logoutSpecificSession(req, res) {
 
 async function logoutAllSessions(req, res) {
   try {
-    const authorized = await serviceHelper.verifyUserSession(req.headers);
+    const authorized = await verificationHelper.verifyPrivilege('user', req);
     if (authorized === true) {
       const auth = serviceHelper.ensureObject(req.headers.zelidauth);
       const db = serviceHelper.databaseConnection();
@@ -482,7 +509,7 @@ async function logoutAllSessions(req, res) {
 
 async function logoutAllUsers(req, res) {
   try {
-    const authorized = await serviceHelper.verifyAdminSession(req.headers);
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
     if (authorized === true) {
       const db = serviceHelper.databaseConnection();
       const database = db.db(config.database.local.database);
@@ -664,25 +691,27 @@ async function checkLoggedUser(req, res) {
       if (!signature) {
         throw new Error('No user ZelID signature specificed');
       }
-      const headers = {
-        zelidauth: {
-          zelid,
-          signature,
+      const request = {
+        headers: {
+          zelidauth: {
+            zelid,
+            signature,
+          },
         },
       };
-      const isAdmin = await serviceHelper.verifyAdminSession(headers);
+      const isAdmin = await verificationHelper.verifyPrivilege('admin', request);
       if (isAdmin) {
         const message = serviceHelper.createSuccessMessage('admin');
         res.json(message);
         return;
       }
-      const isFluxTeam = await serviceHelper.verifyFluxTeamSession(headers);
+      const isFluxTeam = await verificationHelper.verifyPrivilege('fluxteam', request);
       if (isFluxTeam) {
         const message = serviceHelper.createSuccessMessage('fluxteam');
         res.json(message);
         return;
       }
-      const isUser = await serviceHelper.verifyUserSession(headers);
+      const isUser = await verificationHelper.verifyPrivilege('user', request);
       if (isUser) {
         const message = serviceHelper.createSuccessMessage('user');
         res.json(message);

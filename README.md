@@ -188,7 +188,7 @@ sudo yum install git
 git clone https://github.com/runonflux/flux
 ```
 
-Allow Inbound Connections on UFW firewall (ONLY if ufw enabled):
+Allow Inbound Connections on UFW firewall - default ports (ONLY if ufw enabled):
 
 ```bash
 sudo ufw allow 16126/tcp
@@ -198,7 +198,7 @@ sudo ufw allow 16127/tcp
 Install Flux dependancies (Ubuntu/CentOS/Redhat):
 
 ```bash
-cd Flux
+cd flux
 
 npm install
 ```

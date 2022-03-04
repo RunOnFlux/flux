@@ -2102,22 +2102,21 @@ export default {
       });
     },
     constructAutomaticDomains(ports, componentName = '', appName) {
-      const domainString = 'abcdefghijklmno'; // enough
       const lowerCaseName = appName.toLowerCase();
       const lowerCaseCopmonentName = componentName.toLowerCase();
       if (!lowerCaseCopmonentName) {
         const domains = [`${lowerCaseName}.app.runonflux.io`];
         // flux specs dont allow more than 10 ports so domainString is enough
         for (let i = 0; i < ports.length; i += 1) {
-          const portDomain = `${domainString[i]}.${lowerCaseName}.app.runonflux.io`;
+          const portDomain = `${lowerCaseName}_${ports[i]}.app.runonflux.io`;
           domains.push(portDomain);
         }
         return domains;
       }
-      const domains = [`${lowerCaseName}.app.runonflux.io`, `${lowerCaseCopmonentName}.${lowerCaseName}.app.runonflux.io`];
+      const domains = [`${lowerCaseName}.app.runonflux.io`];
       // flux specs dont allow more than 10 ports so domainString is enough
       for (let i = 0; i < ports.length; i += 1) {
-        const portDomain = `${domainString[i]}.${lowerCaseCopmonentName}.${lowerCaseName}.app.runonflux.io`;
+        const portDomain = `${lowerCaseName}_${ports[i]}.app.runonflux.io`;
         domains.push(portDomain);
       }
       return domains;
