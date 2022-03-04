@@ -1,5 +1,7 @@
 const config = require('config');
 const natUpnp = require('@runonflux/nat-upnp');
+const serviceHelper = require('./serviceHelper');
+const verificationHelper = require('./verificationHelper');
 
 const log = require('../lib/log');
 
@@ -45,7 +47,192 @@ async function setupUPNP(apiport = config.apiport) { // todo evaluate adding ssl
   }
 }
 
+async function mapUpnpPort(port) {
+  try {
+    await client.createMapping({
+      public: port,
+      private: port,
+      ttl: 0,
+      protocol: 'TCP',
+    });
+    await client.createMapping({
+      public: port,
+      private: port,
+      ttl: 0,
+      protocol: 'UDP',
+    });
+    return true;
+  } catch (error) {
+    log.error(error);
+    return false;
+  }
+}
+
+async function removeMapUpnpPort(port) {
+  try {
+    await client.removeMapping({
+      public: port,
+      protocol: 'TCP',
+    });
+    await client.removeMapping({
+      public: port,
+      protocol: 'UDP',
+    });
+    return true;
+  } catch (error) {
+    log.error(error);
+    return false;
+  }
+}
+
+async function mapPortApi(req, res) {
+  try {
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    if (authorized) {
+      let { port } = req.params;
+      port = port || req.query.port;
+      if (port === undefined || port === null) {
+        throw new Error('No Port address specified.');
+      }
+      port = serviceHelper.ensureNumber(port);
+      await client.createMapping({
+        public: port,
+        private: port,
+        ttl: 0,
+        protocol: 'TCP',
+      });
+      await client.createMapping({
+        public: port,
+        private: port,
+        ttl: 0,
+        protocol: 'UDP',
+      });
+      const message = serviceHelper.createSuccessMessage('Port mapped');
+      res.json(message);
+    } else {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
+}
+
+async function removeMapPortApi(req, res) {
+  try {
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    if (authorized) {
+      let { port } = req.params;
+      port = port || req.query.port;
+      if (port === undefined || port === null) {
+        throw new Error('No Port address specified.');
+      }
+      port = serviceHelper.ensureNumber(port);
+      await client.removeMapping({
+        public: port,
+        protocol: 'TCP',
+      });
+      await client.removeMapping({
+        public: port,
+        protocol: 'UDP',
+      });
+      const message = serviceHelper.createSuccessMessage('Port unmapped');
+      res.json(message);
+    } else {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
+}
+
+async function getMapApi(req, res) {
+  try {
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    if (authorized) {
+      const map = await client.getMappings();
+      const message = serviceHelper.createDataMessage(map);
+      res.json(message);
+    } else {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
+}
+
+async function getIpApi(req, res) {
+  try {
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    if (authorized) {
+      const ip = await client.getPublicIp();
+      const message = serviceHelper.createDataMessage(ip);
+      res.json(message);
+    } else {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
+}
+
+async function getGatewayApi(req, res) {
+  try {
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    if (authorized) {
+      const gateway = await client.getGateway();
+      const message = serviceHelper.createDataMessage(gateway);
+      res.json(message);
+    } else {
+      const errMessage = serviceHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = serviceHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
+}
+
 module.exports = {
   verifyUPNPsupport,
   setupUPNP,
+  mapUpnpPort,
+  removeMapUpnpPort,
+  mapPortApi,
+  removeMapPortApi,
+  getMapApi,
+  getIpApi,
+  getGatewayApi,
 };

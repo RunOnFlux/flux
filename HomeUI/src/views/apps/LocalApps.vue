@@ -1736,11 +1736,15 @@ export default {
     this.appsGetAvailableApps();
     this.appsGetListRunningApps();
     this.appsGetInstalledApps();
-    const { hostname } = window.location;
+    const { hostname, port } = window.location;
     const regex = /[A-Za-z]/g;
     if (!hostname.match(regex)) {
       if (typeof hostname === 'string') {
         this.$store.commit('flux/setUserIp', hostname);
+      }
+      if (+port > 16100) {
+        const apiPort = +port + 1;
+        this.$store.commit('flux/setFluxPort', apiPort);
       }
     }
   },

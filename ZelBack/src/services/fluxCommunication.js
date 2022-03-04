@@ -1259,7 +1259,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
   }
   let askingIpPort = config.server.apiport;
   if (askingIP.includes(':')) { // has port specification
-    // it is ipv6
+    // it has port specification
     const splittedIP = askingIP.split(':');
     askingIP = splittedIP[0];
     askingIpPort = splittedIP[1];
@@ -1297,7 +1297,11 @@ async function checkMyFluxAvailability(retryNumber = 0) {
     log.info('Getting publicIp from FluxBench');
     const benchIpResponse = await benchmarkService.getPublicIp();
     if (benchIpResponse.status === 'success') {
-      const benchMyIP = benchIpResponse.data.length > 5 ? benchIpResponse.data : null;
+      let benchMyIP = benchIpResponse.data.length > 5 ? benchIpResponse.data : null;
+      if (benchMyIP && userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) {
+        // add port
+        benchMyIP += userconfig.initial.apiport;
+      }
       if (benchMyIP && benchMyIP !== myIP) {
         log.info('New public Ip detected, updating the FluxNode info in the network');
         myIP = benchMyIP;
@@ -1501,15 +1505,31 @@ async function allowPortApi(req, res) {
   return res.json(response);
 }
 
-async function adjustFirewall() {
+async function isFirewallActive() {
   try {
     const cmdAsync = util.promisify(cmd.get);
     const execA = 'sudo ufw status | grep Status';
-    const apiPort = userconfig.initial.apiport || config.server.apiport;
-    const homePort = +apiPort - 1;
-    const ports = [apiPort, homePort, 80, 443, 16125];
     const cmdresA = await cmdAsync(execA);
     if (serviceHelper.ensureString(cmdresA).includes('Status: active')) {
+      return true;
+    }
+    return false;
+  } catch (error) {
+    log.error(error);
+    throw error;
+  }
+}
+
+async function adjustFirewall() {
+  try {
+    const cmdAsync = util.promisify(cmd.get);
+    const apiPort = userconfig.initial.apiport || config.server.apiport;
+    const homePort = +apiPort - 1;
+    let ports = [apiPort, homePort, 80, 443, 16125];
+    const fluxCommunicationPorts = config.server.allowedPorts;
+    ports = ports.concat(fluxCommunicationPorts);
+    const firewallActive = await isFirewallActive();
+    if (firewallActive) {
       // eslint-disable-next-line no-restricted-syntax
       for (const port of ports) {
         const execB = `sudo ufw allow ${port}`;
@@ -1594,6 +1614,7 @@ module.exports = {
   removeIncomingPeer,
   connectedPeersInfo,
   getDOSState,
+  isFirewallActive,
   allowPort,
   allowPortApi,
   denyPort,
