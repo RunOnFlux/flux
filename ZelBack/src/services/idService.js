@@ -15,6 +15,10 @@ const fluxCommunication = require('./fluxCommunication');
 
 const goodchars = /^[1-9a-km-zA-HJ-NP-Z]+$/;
 
+/**
+ * To check if the hardware specification requirements of the node tier are being met by the node (RAM and CPU threads).
+ * @returns {boolean} True or an error is thrown.
+ */
 async function confirmNodeTierHardware() {
   try {
     const tier = await generalService.nodeTier().catch((error) => {
@@ -80,6 +84,12 @@ async function confirmNodeTierHardware() {
   }
 }
 
+/**
+ * To return a JSON response with the user's login phrase.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ */
 async function loginPhrase(req, res) {
   try {
     // check docker availablility
@@ -142,6 +152,11 @@ async function loginPhrase(req, res) {
   }
 }
 
+/**
+ * To return a JSON response with the user's emergency login phrase.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 // loginPhrase without status checks
 async function emergencyPhrase(req, res) {
   try {
@@ -168,6 +183,11 @@ async function emergencyPhrase(req, res) {
   }
 }
 
+/**
+ * To return a JSON response to show the user if they have logged in successfully or not. In order to successfully log in, a series of checks are performed on the ZelID and signature.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function verifyLogin(req, res) {
   // Phase 2 - check that request is valid
   let body = '';
@@ -283,6 +303,11 @@ async function verifyLogin(req, res) {
   });
 }
 
+/**
+ * To return a JSON response with a new signature for the user. A series of checks are performed on the ZelID and signature.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function provideSign(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -348,6 +373,11 @@ async function provideSign(req, res) {
   });
 }
 
+/**
+ * To return a JSON response with a list of active login phrases. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function activeLoginPhrases(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
@@ -376,6 +406,11 @@ async function activeLoginPhrases(req, res) {
   }
 }
 
+/**
+ * To return a JSON response with a list of logged in users. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function loggedUsers(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
@@ -399,6 +434,11 @@ async function loggedUsers(req, res) {
   }
 }
 
+/**
+ * To return a JSON response with a list of logged sessions. Only accessible by the ZelID owner.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function loggedSessions(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('user', req);
@@ -425,6 +465,11 @@ async function loggedSessions(req, res) {
   }
 }
 
+/**
+ * To return a JSON response to show the user if they have logged out of the current session successfully or not. Only accessible by the ZelID owner.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function logoutCurrentSession(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('user', req);
@@ -450,6 +495,11 @@ async function logoutCurrentSession(req, res) {
   }
 }
 
+/**
+ * To return a JSON response to show the user if they have logged out of a specific session successfully or not. Only accessible by the ZelID owner.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function logoutSpecificSession(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -485,6 +535,11 @@ async function logoutSpecificSession(req, res) {
   });
 }
 
+/**
+ * To return a JSON response to show the user if they have logged out from all sessions successfully or not. Only accessible by the ZelID owner.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function logoutAllSessions(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('user', req);
@@ -509,6 +564,11 @@ async function logoutAllSessions(req, res) {
   }
 }
 
+/**
+ * To return a JSON response to show the admin user if they have logged out all users successfully or not. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function logoutAllUsers(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
@@ -531,6 +591,11 @@ async function logoutAllUsers(req, res) {
   }
 }
 
+/**
+ * To check if a login phrase is currently active. The user's ZelID, login phrase, signature and privilege level are returned if the login phrase is active.
+ * @param {object} ws Web socket.
+ * @param {object} req Request.
+ */
 async function wsRespondLoginPhrase(ws, req) {
   const { loginphrase } = req.params;
   // console.log(loginphrase)
@@ -621,6 +686,11 @@ async function wsRespondLoginPhrase(ws, req) {
   searchDatabase();
 }
 
+/**
+ * To check if a signature exists.
+ * @param {object} ws Web socket.
+ * @param {object} req Request.
+ */
 async function wsRespondSignature(ws, req) {
   const { message } = req.params;
   console.log(message);
@@ -677,6 +747,11 @@ async function wsRespondSignature(ws, req) {
   searchDatabase();
 }
 
+/**
+ * To check the privilege level a user (ZelID). The privilege level is either admin, flux team or user.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function checkLoggedUser(req, res) {
   let body = '';
   req.on('data', (data) => {
