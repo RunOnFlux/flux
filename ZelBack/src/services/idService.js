@@ -21,13 +21,9 @@ const goodchars = /^[1-9a-km-zA-HJ-NP-Z]+$/;
  */
 async function confirmNodeTierHardware() {
   try {
-    const tier = await generalService.nodeTier().catch((error) => {
-      log.error(error);
-    });
+    const tier = await generalService.nodeTier();
 
-    const collateral = await generalService.nodeCollateral().catch((error) => {
-      log.error(error);
-    });
+    const collateral = await generalService.nodeCollateral();
     const nodeRam = os.totalmem() / 1024 / 1024 / 1024;
     const nodeCpuThreads = os.cpus().length;
     log.info(`Node Tier: ${tier}`);
@@ -76,6 +72,8 @@ async function confirmNodeTierHardware() {
       if (nodeCpuThreads < 4) {
         throw new Error(`Node Cpu Threads (${nodeCpuThreads}) below new Cumulus requirements`);
       }
+    } else {
+      throw new Error('Unkown tier');
     }
     return true;
   } catch (error) {
