@@ -261,9 +261,9 @@
                             size="sm"
                             class="mr-0"
                             variant="danger"
-                            @click="openApp(row.item.name, locationRow.item.ip, row.item.port || (row.item.ports ? row.item.ports[0] : row.item.compose[0].ports[0]))"
+                            @click="openNodeFluxOS(locationRow.item.ip, 16126)"
                           >
-                            Visit
+                            Visit FluxNode
                           </b-button>
                         </template>
                       </b-table>
@@ -539,9 +539,9 @@
                             size="sm"
                             class="mr-0"
                             variant="danger"
-                            @click="openApp(row.item.name, locationRow.item.ip, row.item.port || (row.item.ports ? row.item.ports[0] : row.item.compose[0].ports[0]))"
+                            @click="openNodeFluxOS(locationRow.item.ip, 16126)"
                           >
-                            Visit
+                            Visit FluxNode
                           </b-button>
                         </template>
                       </b-table>
@@ -719,6 +719,17 @@ export default {
         if (name === 'KadenaChainWebNode') {
           url = `https://${ip}:${port}/chainweb/0.0/mainnet01/cut`;
         }
+        this.openSite(url);
+      } else {
+        this.showToast('danger', 'Unable to open App :(');
+      }
+    },
+    openNodeFluxOS(_ip, _port) {
+      console.log(_ip, _port);
+      if ((_port && _ip)) {
+        const ip = _ip;
+        const port = _port;
+        const url = `http://${ip}:${port}`;
         this.openSite(url);
       } else {
         this.showToast('danger', 'Unable to open App :(');
