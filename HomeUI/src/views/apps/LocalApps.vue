@@ -2013,7 +2013,7 @@ export default {
       return appName;
     },
     isLoggedIn() {
-      return (this.privilege === 'fluxteam' || this.privilege === 'admin');
+      return (this.privilege === 'fluxteam');
     },
     showLocations(row, items) {
       if (row.detailsShowing) {
