@@ -1929,9 +1929,20 @@ export default {
       }
     },
     async removeApp(app) {
+      const appName = this.getAppName(app);
+      const okAppsForAdmin = [
+        'FoldingAtHomeB',
+        'KadenaChainWebNode',
+        'KadenaChainWebData',
+        'FoldingAtHomeArm64',
+      ];
+      if (!okAppsForAdmin.includes(appName) && this.privilege === 'admin') { // node owner but app is a global app
+        this.showToast('danger', `This application ${appName} cannot be removed by node owner`);
+        return;
+      }
       const self = this;
       this.output = '';
-      this.showToast('warning', `Removing ${this.getAppName(app)}`);
+      this.showToast('warning', `Removing ${appName}`);
       const zelidauth = localStorage.getItem('zelidauth');
       const axiosConfig = {
         headers: {
@@ -1960,12 +1971,16 @@ export default {
       }
     },
     async installTemporaryLocalApp(app) { // todo rewrite to installApp later
-      const appName = app;
+      const appName = this.getAppName(app);
       const self = this;
       this.output = [];
       this.downloadOutput = {};
       this.downloading = true;
-      this.showToast('warning', `Installing ${this.getAppName(app)}`);
+      this.showToast('warning', `Installing ${appName}`);
+      if (appName === 'KadenaChainWebNode' || appName === 'KadenaChainWebData') {
+        this.showToast('danger', 'Kadena application is now a Global applicaiton. Local installation is no longer possible');
+        return;
+      }
       const zelidauth = localStorage.getItem('zelidauth');
       // const response = await AppsService.installTemporaryLocalApp(zelidauth, app);
       const axiosConfig = {
@@ -1977,7 +1992,7 @@ export default {
           self.output = JSON.parse(`[${progressEvent.target.response.replace(/}{/g, '},{')}]`);
         },
       };
-      const response = await AppsService.justAPI().get(`/apps/installtemporarylocalapp/${appName}`, axiosConfig);
+      const response = await AppsService.justAPI().get(`/apps/installtemporarylocalapp/${app}`, axiosConfig);
       if (response.data.status === 'error') {
         this.showToast('danger', response.data.data.message || response.data.data);
       } else {
@@ -2041,8 +2056,19 @@ export default {
         this.appLocationOptions.totalRows = this.appLocations.length;
       }
     },
-    openAppManagement(appName) {
-      this.managedApplication = appName;
+    openAppManagement(app) {
+      const appName = this.getAppName(app);
+      const okAppsForAdmin = [
+        'FoldingAtHomeB',
+        'KadenaChainWebNode',
+        'KadenaChainWebData',
+        'FoldingAtHomeArm64',
+      ];
+      if (!okAppsForAdmin.includes(appName) && this.privilege === 'admin') { // node owner but app is a global app
+        this.showToast('danger', `This application ${appName} cannot be managed by node owner`);
+      } else {
+        this.managedApplication = appName;
+      }
     },
     clearManagedApplication() {
       this.managedApplication = '';
