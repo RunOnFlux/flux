@@ -1,6 +1,7 @@
 const chai = require('chai');
 const Dockerode = require('dockerode');
 const sinon = require('sinon');
+const path = require('path');
 
 const dockerService = require('../../ZelBack/src/services/dockerService');
 const messageHelper = require('../../ZelBack/src/services/messageHelper');
@@ -542,8 +543,9 @@ describe('dockerService tests', () => {
     });
   });
 
-  describe.only('createFluxDockerNetwork tests', () => {
+  describe('createFluxDockerNetwork tests', () => {
     let network;
+    const docker = new Dockerode();
     const fluxNetworkOptions = {
       Name: 'fluxDockerNetwork',
       IPAM: {
@@ -553,7 +555,7 @@ describe('dockerService tests', () => {
         }],
       },
     };
-    const docker = new Dockerode();
+
     afterEach(async () => {
       try {
         await dockerService.dockerRemoveNetwork(network);
@@ -561,6 +563,7 @@ describe('dockerService tests', () => {
         console.log('Network does not exist');
       }
     });
+
     it('should create flux docker network if it does not exist', async () => {
       const createNetworkResponse = await dockerService.createFluxDockerNetwork();
       network = docker.getNetwork(fluxNetworkOptions.Name);
@@ -580,6 +583,207 @@ describe('dockerService tests', () => {
       const createNetworkResponse = await dockerService.createFluxDockerNetwork();
 
       expect(createNetworkResponse).to.equal('Flux Network already exists.');
+    });
+  });
+
+  describe('appDockerCreate tests', () => {
+    let dockerStub;
+    const appName = 'fluxwebsite';
+    const fluxDirPath = path.join(__dirname, '../../');
+    const appsFolder = `${fluxDirPath}ZelApps/`;
+    const baseNodeApp = {
+      name: 'website',
+      commands: [
+        '--chain',
+        'kusama',
+      ],
+      containerData: '/chaindata',
+      cpu: 0.8,
+      description: 'This is my test app',
+      domains: [
+        'testing.runonflux.io',
+        'testing.runonflux.io',
+        'testing.runonflux.io',
+      ],
+      enviromentParameters: [],
+      hash: '99b685ffcf5fe244981fcd4dd52cf055b19bfb6ded91f96f9d8179cee09700cf',
+      hdd: 20,
+      height: 1052918,
+      owner: '196GJWyLxzAw3MirTT7Bqs2iGpUQio29GH',
+      ram: 1800,
+      repotag: 'runonflux/website',
+      tiered: false,
+      instances: 3,
+    };
+
+    const baseExpectedConfig = {
+      Image: 'runonflux/website',
+      AttachStdin: true,
+      AttachStdout: true,
+      AttachStderr: true,
+      Cmd: ['--chain', 'kusama'],
+      Env: [],
+      Tty: false,
+    };
+    beforeEach(() => {
+      dockerStub = sinon.stub(Dockerode.prototype, 'createContainer').returns(Promise.resolve('created'));
+    });
+
+    afterEach(() => {
+      dockerStub.restore();
+    });
+
+    it('should create an app given proper parameters for specs version > 1', async () => {
+      const nodeApp = {
+        ...baseNodeApp,
+        containerPorts: [
+          '30333',
+          '9933',
+          '9944',
+        ],
+        ports: [
+          '31113',
+          '31112',
+          '31111',
+        ],
+        version: 3,
+      };
+      const expectedConfig = {
+        ...baseExpectedConfig,
+        name: 'fluxwebsite_fluxwebsite',
+        ExposedPorts: {
+          '31113/tcp': {},
+          '31113/udp': {},
+          '31112/tcp': {},
+          '31112/udp': {},
+          '31111/tcp': {},
+          '31111/udp': {},
+          '30333/tcp': {},
+          '30333/udp': {},
+          '9933/tcp': {},
+          '9933/udp': {},
+          '9944/tcp': {},
+          '9944/udp': {},
+        },
+        HostConfig: {
+          NanoCPUs: 800000000,
+          Memory: 1887436800,
+          Ulimits: [{ Name: 'nofile', Soft: 100000, Hard: 100000 }],
+          RestartPolicy: { Name: 'unless-stopped' },
+          NetworkMode: 'fluxDockerNetwork',
+          LogConfig: { Type: 'json-file', Config: { 'max-file': '1', 'max-size': '20m' } },
+          Binds: [`${appsFolder}fluxwebsite_fluxwebsite:/chaindata`],
+          PortBindings: {
+            '30333/tcp': [{ HostPort: '31113' }],
+            '30333/udp': [{ HostPort: '31113' }],
+            '9933/tcp': [{ HostPort: '31112' }],
+            '9933/udp': [{ HostPort: '31112' }],
+            '9944/tcp': [{ HostPort: '31111' }],
+            '9944/udp': [{ HostPort: '31111' }],
+          },
+        },
+      };
+
+      await dockerService.appDockerCreate(nodeApp, appName, true);
+
+      sinon.assert.calledOnceWithExactly(dockerStub, expectedConfig);
+    });
+
+    it('should create an app given proper parameters for specs version > 1 and parameter component == false', async () => {
+      const nodeApp = {
+        ...baseNodeApp,
+        containerPorts: [
+          '30333',
+          '9933',
+          '9944',
+        ],
+        ports: [
+          '31113',
+          '31112',
+          '31111',
+        ],
+        version: 3,
+      };
+      const expectedConfig = {
+        ...baseExpectedConfig,
+        name: 'fluxwebsite',
+        ExposedPorts: {
+          '31113/tcp': {},
+          '31113/udp': {},
+          '31112/tcp': {},
+          '31112/udp': {},
+          '31111/tcp': {},
+          '31111/udp': {},
+          '30333/tcp': {},
+          '30333/udp': {},
+          '9933/tcp': {},
+          '9933/udp': {},
+          '9944/tcp': {},
+          '9944/udp': {},
+        },
+        HostConfig: {
+          NanoCPUs: 800000000,
+          Memory: 1887436800,
+          Binds: [`${appsFolder}fluxwebsite:/chaindata`],
+          Ulimits: [{ Name: 'nofile', Soft: 100000, Hard: 100000 }],
+          PortBindings: {
+            '30333/tcp': [{ HostPort: '31113' }],
+            '30333/udp': [{ HostPort: '31113' }],
+            '9933/tcp': [{ HostPort: '31112' }],
+            '9933/udp': [{ HostPort: '31112' }],
+            '9944/tcp': [{ HostPort: '31111' }],
+            '9944/udp': [{ HostPort: '31111' }],
+          },
+          RestartPolicy: { Name: 'unless-stopped' },
+          NetworkMode: 'fluxDockerNetwork',
+          LogConfig: { Type: 'json-file', Config: { 'max-file': '1', 'max-size': '20m' } },
+        },
+      };
+
+      await dockerService.appDockerCreate(nodeApp, appName, false);
+
+      sinon.assert.calledOnceWithExactly(dockerStub, expectedConfig);
+    });
+
+    it('should create an app given proper parameters for specs version 1', async () => {
+      const nodeApp = {
+        ...baseNodeApp,
+        containerPort: '9933',
+        port: '31112',
+        version: 1,
+      };
+      const expectedConfig = {
+        ...baseExpectedConfig,
+        name: 'fluxwebsite_fluxwebsite',
+        ExposedPorts: {
+          '31112/tcp': {}, '9933/tcp': {}, '31112/udp': {}, '9933/udp': {},
+        },
+        HostConfig: {
+          NanoCPUs: 800000000,
+          Memory: 1887436800,
+          Binds: [`${appsFolder}fluxwebsite_fluxwebsite:/chaindata`],
+          Ulimits: [{ Name: 'nofile', Soft: 100000, Hard: 100000 }],
+          PortBindings: {
+            '9933/tcp': [{ HostPort: '31112' }],
+            '9933/udp': [{ HostPort: '31112' }],
+          },
+          RestartPolicy: { Name: 'unless-stopped' },
+          NetworkMode: 'fluxDockerNetwork',
+          LogConfig: { Type: 'json-file', Config: { 'max-file': '1', 'max-size': '20m' } },
+        },
+      };
+
+      await dockerService.appDockerCreate(nodeApp, appName, true);
+
+      sinon.assert.calledOnceWithExactly(dockerStub, expectedConfig);
+    });
+
+    it('should throw error if the config is incorrect', async () => {
+      const nodeApp = {
+        testing: 'testing',
+      };
+
+      expect(async () => { await dockerService.appDockerCreate(nodeApp, appName, true); }).to.throw;
     });
   });
 });
