@@ -259,9 +259,17 @@
                         <template #cell(visit)="locationRow">
                           <b-button
                             size="sm"
+                            class="mr-1"
+                            variant="danger"
+                            @click="openApp(row.item.name, locationRow.item.ip.split(':')[0], row.item.port || (row.item.ports ? row.item.ports[0] : row.item.compose[0].ports[0]))"
+                          >
+                            Visit App
+                          </b-button>
+                          <b-button
+                            size="sm"
                             class="mr-0"
                             variant="danger"
-                            @click="openNodeFluxOS(locationRow.item.ip, 16126)"
+                            @click="openNodeFluxOS(locationRow.item.ip.split(':')[0], locationRow.item.ip.split(':')[1] ? +locationRow.item.ip.split(':')[1] - 1 : 16126)"
                           >
                             Visit FluxNode
                           </b-button>
@@ -537,9 +545,17 @@
                         <template #cell(visit)="locationRow">
                           <b-button
                             size="sm"
+                            class="mr-1"
+                            variant="danger"
+                            @click="openApp(row.item.name, locationRow.item.ip.split(':')[0], row.item.port || (row.item.ports ? row.item.ports[0] : row.item.compose[0].ports[0]))"
+                          >
+                            Visit App
+                          </b-button>
+                          <b-button
+                            size="sm"
                             class="mr-0"
                             variant="danger"
-                            @click="openNodeFluxOS(locationRow.item.ip, 16126)"
+                            @click="openNodeFluxOS(locationRow.item.ip.split(':')[0], locationRow.item.ip.split(':')[1] ? +locationRow.item.ip.split(':')[1] - 1 : 16126)"
                           >
                             Visit FluxNode
                           </b-button>
@@ -732,7 +748,7 @@ export default {
         const url = `http://${ip}:${port}`;
         this.openSite(url);
       } else {
-        this.showToast('danger', 'Unable to open App :(');
+        this.showToast('danger', 'Unable to open FluxOS :(');
       }
     },
     async openGlobalApp(appName) { // open through FDM
