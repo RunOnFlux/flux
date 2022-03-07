@@ -167,13 +167,19 @@ async function dockerContainerStats(idOrName) {
   return response;
 }
 
+/**
+ * Get changes on a container’s filesystem
+ *
+ * @param {string} idOrName
+ * @returns {string}
+ */
 async function dockerContainerChanges(idOrName) {
   // container ID or name
   const containers = await dockerListContainers(true);
   const myContainer = containers.find((container) => (container.Names[0] === getAppDockerNameIdentifier(idOrName) || container.Id === idOrName));
   const dockerContainer = docker.getContainer(myContainer.Id);
   const response = await dockerContainer.changes();
-  return response.toString();
+  return serviceHelper.ensureString(response);
 }
 
 function dockerPullStream(repoTag, res, callback) {
@@ -441,7 +447,7 @@ async function appDockerPause(idOrName) {
   return `Flux App ${idOrName} successfully paused.`;
 }
 
-async function appDockerUnpase(idOrName) {
+async function appDockerUnpause(idOrName) {
   // container ID or name
   const containers = await dockerListContainers(true);
   const myContainer = containers.find((container) => (container.Names[0] === getAppDockerNameIdentifier(idOrName) || container.Id === idOrName));
@@ -511,7 +517,7 @@ module.exports = {
   appDockerRemove,
   appDockerImageRemove,
   appDockerPause,
-  appDockerUnpase,
+  appDockerUnpause,
   appDockerTop,
   createFluxDockerNetwork,
 };

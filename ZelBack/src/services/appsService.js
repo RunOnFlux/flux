@@ -425,7 +425,7 @@ async function appUnpause(req, res) {
 
     let appRes;
     if (isComponent) {
-      appRes = await dockerService.appDockerUnpase(appname);
+      appRes = await dockerService.appDockerUnpause(appname);
     } else {
       // ask for starting entire composed application
       // eslint-disable-next-line no-use-before-define
@@ -434,12 +434,12 @@ async function appUnpause(req, res) {
         throw new Error('Application not found');
       }
       if (appSpecs.version <= 3) {
-        appRes = await dockerService.appDockerUnpase(appname);
+        appRes = await dockerService.appDockerUnpause(appname);
       } else {
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of appSpecs.compose) {
           // eslint-disable-next-line no-await-in-loop
-          await dockerService.appDockerUnpase(`${appComponent.name}_${appSpecs.name}`);
+          await dockerService.appDockerUnpause(`${appComponent.name}_${appSpecs.name}`);
         }
         appRes = `Application ${appSpecs.name} unpaused`;
       }

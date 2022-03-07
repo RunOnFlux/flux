@@ -1,9 +1,13 @@
 const chai = require('chai');
+const Dockerode = require('dockerode');
+const sinon = require('sinon');
+
 const dockerService = require('../../ZelBack/src/services/dockerService');
+const messageHelper = require('../../ZelBack/src/services/messageHelper');
 
 const { expect } = chai;
 
-describe.only('dockerService tests', () => {
+describe('dockerService tests', () => {
   describe('getDockerContainer tests', () => {
     it('should return a container with a proper ID', async () => {
       const dockerContainer = await dockerService.getDockerContainer('46274c58c9a969e93c1f91a057f0a371c7b952e31a7aec73839afe1433fdee94');
@@ -238,6 +242,344 @@ describe.only('dockerService tests', () => {
       const containerName = 'test';
 
       expect(async () => { await dockerService.dockerContainerStats(containerName); }).to.throw;
+    });
+  });
+
+  describe('dockerContainerChanges tests', () => {
+    it('should return a valid stats object', async () => {
+      const containerName = 'website';
+
+      const changesResult = await dockerService.dockerContainerChanges(containerName);
+
+      expect(changesResult).to.be.a('string');
+      expect(JSON.parse(changesResult)).to.be.an('array');
+      expect(JSON.parse(changesResult)[0].Path).to.exist;
+    });
+
+    it('should throw error if the container does not exist', async () => {
+      const containerName = 'test';
+
+      expect(async () => { await dockerService.dockerContainerChanges(containerName); }).to.throw;
+    });
+  });
+
+  describe.skip('dockerContainerLogsStream tests', () => {
+    it('should return a valid stats object', async () => {
+      const containerName = 'website';
+      const res = {};
+
+      await dockerService.dockerContainerLogsStream(containerName, res, (error) => {
+        if (error) {
+          const errorResponse = messageHelper.createErrorMessage(
+            error.message || error,
+            error.name,
+            error.code,
+          );
+          res.write(errorResponse);
+          res.end();
+        } else {
+          res.end();
+        }
+      });
+      console.log(res);
+    });
+  });
+
+  describe('dockerContainerLogsStream tests', () => {
+    it('should return a valid stats object', async () => {
+      const appName = 'website';
+
+      const res = await dockerService.dockerContainerLogs(appName, 2);
+      expect(res).to.be.a('string');
+      expect(res).to.exist;
+    });
+
+    it('should throw an error if container does not exist', async () => {
+      const appName = 'testing1234';
+
+      expect(async () => { await dockerService.dockerContainerLogs(appName, 2); }).to.throw;
+    });
+  });
+
+  describe('appDockerStart tests', () => {
+    const appName = 'website';
+    let dockerStub;
+    let getContainerSpy;
+
+    beforeEach(() => {
+      dockerStub = sinon.stub(Dockerode.Container.prototype, 'start').returns(Promise.resolve('started'));
+      getContainerSpy = sinon.spy(Dockerode.prototype, 'getContainer');
+    });
+
+    afterEach(() => {
+      dockerStub.restore();
+      getContainerSpy.restore();
+    });
+
+    it('should call a docker start command', async () => {
+      const startResult = await dockerService.appDockerStart(appName);
+
+      sinon.assert.calledOnce(dockerStub);
+      sinon.assert.calledOnceWithExactly(getContainerSpy, sinon.match.string);
+      expect(startResult).to.equal('Flux App website successfully started.');
+    });
+
+    it('should throw error if app name is not correct or app does not exist', async () => {
+      expect(async () => { await dockerService.appDockerStart('testing123'); }).to.throw;
+    });
+  });
+
+  describe('appDockerStop tests', () => {
+    const appName = 'website';
+    let dockerStub;
+    let getContainerSpy;
+
+    beforeEach(() => {
+      dockerStub = sinon.stub(Dockerode.Container.prototype, 'stop').returns(Promise.resolve('stopped'));
+      getContainerSpy = sinon.spy(Dockerode.prototype, 'getContainer');
+    });
+
+    afterEach(() => {
+      dockerStub.restore();
+      getContainerSpy.restore();
+    });
+
+    it('should call a docker stop command', async () => {
+      const stopResult = await dockerService.appDockerStop(appName);
+
+      sinon.assert.calledOnce(dockerStub);
+      sinon.assert.calledOnceWithExactly(getContainerSpy, sinon.match.string);
+      expect(stopResult).to.equal('Flux App website successfully stopped.');
+    });
+
+    it('should throw error if app name is not correct or app does not exist', async () => {
+      expect(async () => { await dockerService.appDockerStop('testing123'); }).to.throw;
+    });
+  });
+
+  describe('appDockerRestart tests', () => {
+    const appName = 'website';
+    let dockerStub;
+    let getContainerSpy;
+
+    beforeEach(() => {
+      dockerStub = sinon.stub(Dockerode.Container.prototype, 'restart').returns(Promise.resolve('restarted'));
+      getContainerSpy = sinon.spy(Dockerode.prototype, 'getContainer');
+    });
+
+    afterEach(() => {
+      dockerStub.restore();
+      getContainerSpy.restore();
+    });
+
+    it('should call a docker restart command', async () => {
+      const restartResult = await dockerService.appDockerRestart(appName);
+
+      sinon.assert.calledOnce(dockerStub);
+      sinon.assert.calledOnceWithExactly(getContainerSpy, sinon.match.string);
+      expect(restartResult).to.equal('Flux App website successfully restarted.');
+    });
+
+    it('should throw error if app name is not correct or app does not exist', async () => {
+      expect(async () => { await dockerService.appDockerRestart('testing123'); }).to.throw;
+    });
+  });
+
+  describe('appDockerKill tests', () => {
+    const appName = 'website';
+    let dockerStub;
+    let getContainerSpy;
+
+    beforeEach(() => {
+      dockerStub = sinon.stub(Dockerode.Container.prototype, 'kill').returns(Promise.resolve('kiled'));
+      getContainerSpy = sinon.spy(Dockerode.prototype, 'getContainer');
+    });
+
+    afterEach(() => {
+      dockerStub.restore();
+      getContainerSpy.restore();
+    });
+
+    it('should call a docker kill command', async () => {
+      const killResult = await dockerService.appDockerKill(appName);
+
+      sinon.assert.calledOnce(dockerStub);
+      sinon.assert.calledOnceWithExactly(getContainerSpy, sinon.match.string);
+      expect(killResult).to.equal('Flux App website successfully killed.');
+    });
+
+    it('should throw error if app name is not correct or app does not exist', async () => {
+      expect(async () => { await dockerService.appDockerKill('testing123'); }).to.throw;
+    });
+  });
+
+  describe('appDockerRemove tests', () => {
+    const appName = 'website';
+    let dockerStub;
+    let getContainerSpy;
+
+    beforeEach(() => {
+      dockerStub = sinon.stub(Dockerode.Container.prototype, 'remove').returns(Promise.resolve('removed'));
+      getContainerSpy = sinon.spy(Dockerode.prototype, 'getContainer');
+    });
+
+    afterEach(() => {
+      dockerStub.restore();
+      getContainerSpy.restore();
+    });
+
+    it('should call a docker remove command', async () => {
+      const removeResult = await dockerService.appDockerRemove(appName);
+
+      sinon.assert.calledOnce(dockerStub);
+      sinon.assert.calledOnceWithExactly(getContainerSpy, sinon.match.string);
+      expect(removeResult).to.equal('Flux App website successfully removed.');
+    });
+
+    it('should throw error if app name is not correct or app does not exist', async () => {
+      expect(async () => { await dockerService.appDockerRemove('testing123'); }).to.throw;
+    });
+  });
+
+  describe('appDockerPause tests', () => {
+    const appName = 'website';
+    let dockerStub;
+    let getContainerSpy;
+
+    beforeEach(() => {
+      dockerStub = sinon.stub(Dockerode.Container.prototype, 'pause').returns(Promise.resolve('paused'));
+      getContainerSpy = sinon.spy(Dockerode.prototype, 'getContainer');
+    });
+
+    afterEach(() => {
+      dockerStub.restore();
+      getContainerSpy.restore();
+    });
+
+    it('should call a docker pause command', async () => {
+      const pauseResult = await dockerService.appDockerPause(appName);
+
+      sinon.assert.calledOnce(dockerStub);
+      sinon.assert.calledOnceWithExactly(getContainerSpy, sinon.match.string);
+      expect(pauseResult).to.equal('Flux App website successfully paused.');
+    });
+
+    it('should throw error if app name is not correct or app does not exist', async () => {
+      expect(async () => { await dockerService.appDockerPause('testing123'); }).to.throw;
+    });
+  });
+
+  describe('appDockerUnpause tests', () => {
+    const appName = 'website';
+    let dockerStub;
+    let getContainerSpy;
+
+    beforeEach(() => {
+      dockerStub = sinon.stub(Dockerode.Container.prototype, 'unpause').returns(Promise.resolve('unpaused'));
+      getContainerSpy = sinon.spy(Dockerode.prototype, 'getContainer');
+    });
+
+    afterEach(() => {
+      dockerStub.restore();
+      getContainerSpy.restore();
+    });
+
+    it('should call a docker unpause command', async () => {
+      const unpauseResult = await dockerService.appDockerUnpause(appName);
+
+      sinon.assert.calledOnce(dockerStub);
+      sinon.assert.calledOnceWithExactly(getContainerSpy, sinon.match.string);
+      expect(unpauseResult).to.equal('Flux App website successfully unpaused.');
+    });
+
+    it('should throw error if app name is not correct or app does not exist', async () => {
+      expect(async () => { await dockerService.appDockerUnpause('testing123'); }).to.throw;
+    });
+  });
+
+  describe('appDockerImageRemove tests', () => {
+    const appName = 'website';
+    let dockerStub;
+    let getImageSpy;
+
+    beforeEach(() => {
+      dockerStub = sinon.stub(Dockerode.Image.prototype, 'remove').returns(Promise.resolve('removed'));
+      getImageSpy = sinon.spy(Dockerode.prototype, 'getImage');
+    });
+
+    afterEach(() => {
+      dockerStub.restore();
+      getImageSpy.restore();
+    });
+
+    it('should call a docker image remove command', async () => {
+      const removeResult = await dockerService.appDockerImageRemove(appName);
+
+      sinon.assert.calledOnce(dockerStub);
+      sinon.assert.calledOnceWithExactly(getImageSpy, appName);
+      expect(removeResult).to.equal('Flux App website image successfully removed.');
+    });
+
+    it('should throw error if app name is not correct or app does not exist', async () => {
+      expect(async () => { await dockerService.appDockerImageRemove('testing123'); }).to.throw;
+    });
+  });
+
+  describe('appDockerTop tests', () => {
+    const appName = 'website';
+
+    it('should return processes running on docker', async () => {
+      const dockerTopResult = await dockerService.appDockerTop(appName);
+
+      expect(dockerTopResult.Processes).to.be.an('array');
+      expect(dockerTopResult.Processes).to.be.not.empty;
+      expect(dockerTopResult.Titles).to.be.an('array');
+      expect(dockerTopResult.Titles).to.be.not.empty;
+    });
+
+    it('should throw error if app name is not correct or app does not exist', async () => {
+      expect(async () => { await dockerService.appDockerTop('testing123'); }).to.throw;
+    });
+  });
+
+  describe.only('createFluxDockerNetwork tests', () => {
+    let network;
+    const fluxNetworkOptions = {
+      Name: 'fluxDockerNetwork',
+      IPAM: {
+        Config: [{
+          Subnet: '172.15.0.0/16',
+          Gateway: '172.15.0.1',
+        }],
+      },
+    };
+    const docker = new Dockerode();
+    afterEach(async () => {
+      try {
+        await dockerService.dockerRemoveNetwork(network);
+      } catch {
+        console.log('Network does not exist');
+      }
+    });
+    it('should create flux docker network if it does not exist', async () => {
+      const createNetworkResponse = await dockerService.createFluxDockerNetwork();
+      network = docker.getNetwork(fluxNetworkOptions.Name);
+      const inspectResult = await dockerService.dockerNetworkInspect(network);
+
+      expect(createNetworkResponse.id).to.be.a('string');
+      expect(createNetworkResponse.modem).to.be.an('object');
+      expect(inspectResult.Name).to.equal(fluxNetworkOptions.Name);
+      expect(inspectResult.Id).to.be.a('string');
+      expect(inspectResult.IPAM.Config).to.eql(fluxNetworkOptions.IPAM.Config);
+    });
+
+    it('should return a message if the network does exist', async () => {
+      // Call the function twice to make sure it exists
+      await dockerService.createFluxDockerNetwork();
+
+      const createNetworkResponse = await dockerService.createFluxDockerNetwork();
+
+      expect(createNetworkResponse).to.equal('Flux Network already exists.');
     });
   });
 });
