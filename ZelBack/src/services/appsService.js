@@ -10,11 +10,14 @@ const systemcrontab = require('crontab');
 const util = require('util');
 const fluxCommunication = require('./fluxCommunication');
 const serviceHelper = require('./serviceHelper');
+const dbHelper = require('./dbHelper');
 const verificationHelper = require('./verificationHelper');
+const messageHelper = require('./messageHelper');
 const daemonService = require('./daemonService');
 const benchmarkService = require('./benchmarkService');
 const dockerService = require('./dockerService');
 const generalService = require('./generalService');
+const upnpService = require('./upnpService');
 const log = require('../lib/log');
 const userconfig = require('../../../config/userconfig');
 
@@ -72,11 +75,11 @@ async function listRunningApps(req, res) {
       delete app.Mounts;
       modifiedApps.push(app);
     });
-    const appsResponse = serviceHelper.createDataMessage(modifiedApps);
+    const appsResponse = messageHelper.createDataMessage(modifiedApps);
     return res ? res.json(appsResponse) : appsResponse;
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -102,11 +105,11 @@ async function listAllApps(req, res) {
       delete app.Mounts;
       modifiedApps.push(app);
     });
-    const appsResponse = serviceHelper.createDataMessage(modifiedApps);
+    const appsResponse = messageHelper.createDataMessage(modifiedApps);
     return res ? res.json(appsResponse) : appsResponse;
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -118,11 +121,11 @@ async function listAllApps(req, res) {
 async function listAppsImages(req, res) {
   try {
     const apps = await dockerService.dockerListImages();
-    const appsResponse = serviceHelper.createDataMessage(apps);
+    const appsResponse = messageHelper.createDataMessage(apps);
     return res ? res.json(appsResponse) : appsResponse;
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -144,7 +147,7 @@ async function appStart(req, res) {
 
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (!authorized) {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
     }
 
@@ -172,11 +175,11 @@ async function appStart(req, res) {
       }
     }
 
-    const appResponse = serviceHelper.createDataMessage(appRes);
+    const appResponse = messageHelper.createDataMessage(appRes);
     return res ? res.json(appResponse) : appResponse;
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -198,7 +201,7 @@ async function appStop(req, res) {
 
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (!authorized) {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
     }
 
@@ -226,11 +229,11 @@ async function appStop(req, res) {
       }
     }
 
-    const appResponse = serviceHelper.createDataMessage(appRes);
+    const appResponse = messageHelper.createDataMessage(appRes);
     return res ? res.json(appResponse) : appResponse;
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -252,7 +255,7 @@ async function appRestart(req, res) {
 
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (!authorized) {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
     }
 
@@ -280,11 +283,11 @@ async function appRestart(req, res) {
       }
     }
 
-    const appResponse = serviceHelper.createDataMessage(appRes);
+    const appResponse = messageHelper.createDataMessage(appRes);
     return res ? res.json(appResponse) : appResponse;
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -306,7 +309,7 @@ async function appKill(req, res) {
 
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (!authorized) {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
     }
 
@@ -334,11 +337,11 @@ async function appKill(req, res) {
       }
     }
 
-    const appResponse = serviceHelper.createDataMessage(appRes);
+    const appResponse = messageHelper.createDataMessage(appRes);
     return res ? res.json(appResponse) : appResponse;
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -360,7 +363,7 @@ async function appPause(req, res) {
 
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (!authorized) {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
     }
 
@@ -388,11 +391,11 @@ async function appPause(req, res) {
       }
     }
 
-    const appResponse = serviceHelper.createDataMessage(appRes);
+    const appResponse = messageHelper.createDataMessage(appRes);
     return res ? res.json(appResponse) : appResponse;
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -414,7 +417,7 @@ async function appUnpause(req, res) {
 
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (!authorized) {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
     }
 
@@ -442,11 +445,11 @@ async function appUnpause(req, res) {
       }
     }
 
-    const appResponse = serviceHelper.createDataMessage(appRes);
+    const appResponse = messageHelper.createDataMessage(appRes);
     return res ? res.json(appResponse) : appResponse;
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -469,17 +472,17 @@ async function appTop(req, res) {
 
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (!authorized) {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
     }
 
     const appRes = await dockerService.appDockerTop(appname);
 
-    const appResponse = serviceHelper.createDataMessage(appRes);
+    const appResponse = messageHelper.createDataMessage(appRes);
     return res ? res.json(appResponse) : appResponse;
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -505,15 +508,15 @@ async function appLog(req, res) {
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (authorized === true) {
       const logs = await dockerService.dockerContainerLogs(appname, lines);
-      const dataMessage = serviceHelper.createDataMessage(logs);
+      const dataMessage = messageHelper.createDataMessage(logs);
       res.json(dataMessage);
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -539,7 +542,7 @@ async function appLogStream(req, res) {
       dockerService.dockerContainerLogsStream(appname, res, (error) => {
         if (error) {
           log.error(error);
-          const errorResponse = serviceHelper.createErrorMessage(
+          const errorResponse = messageHelper.createErrorMessage(
             error.message || error,
             error.name,
             error.code,
@@ -551,12 +554,12 @@ async function appLogStream(req, res) {
         }
       });
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -579,15 +582,15 @@ async function appInspect(req, res) {
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (authorized === true) {
       const response = await dockerService.dockerContainerInspect(appname);
-      const appResponse = serviceHelper.createDataMessage(response);
+      const appResponse = messageHelper.createDataMessage(response);
       res.json(appResponse);
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errMessage = serviceHelper.createErrorMessage(
+    const errMessage = messageHelper.createErrorMessage(
       error.message,
       error.name,
       error.code,
@@ -610,15 +613,15 @@ async function appStats(req, res) {
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (authorized === true) {
       const response = await dockerService.dockerContainerStats(appname);
-      const appResponse = serviceHelper.createDataMessage(response);
+      const appResponse = messageHelper.createDataMessage(response);
       res.json(appResponse);
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errMessage = serviceHelper.createErrorMessage(
+    const errMessage = messageHelper.createErrorMessage(
       error.message,
       error.name,
       error.code,
@@ -641,15 +644,15 @@ async function appChanges(req, res) {
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (authorized === true) {
       const response = await dockerService.dockerContainerChanges(appname);
-      const appResponse = serviceHelper.createDataMessage(response);
+      const appResponse = messageHelper.createDataMessage(response);
       res.json(appResponse);
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errMessage = serviceHelper.createErrorMessage(
+    const errMessage = messageHelper.createErrorMessage(
       error.message,
       error.name,
       error.code,
@@ -694,7 +697,7 @@ async function appExec(req, res) {
         dockerService.dockerContainerExec(dockerContainer, cmd, env, res, (error) => {
           if (error) {
             log.error(error);
-            const errorResponse = serviceHelper.createErrorMessage(
+            const errorResponse = messageHelper.createErrorMessage(
               error.message || error,
               error.name,
               error.code,
@@ -706,12 +709,12 @@ async function appExec(req, res) {
           }
         });
       } else {
-        const errMessage = serviceHelper.errUnauthorizedMessage();
+        const errMessage = messageHelper.errUnauthorizedMessage();
         res.json(errMessage);
       }
     } catch (error) {
       log.error(error);
-      const errorResponse = serviceHelper.createErrorMessage(
+      const errorResponse = messageHelper.createErrorMessage(
         error.message || error,
         error.name,
         error.code,
@@ -725,15 +728,15 @@ async function createFluxNetworkAPI(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (!authorized) {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       return res.json(errMessage);
     }
     const dockerRes = await dockerService.createFluxDockerNetwork();
-    const response = serviceHelper.createDataMessage(dockerRes);
+    const response = messageHelper.createDataMessage(dockerRes);
     return res.json(response);
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -744,7 +747,7 @@ async function createFluxNetworkAPI(req, res) {
 
 async function fluxUsage(req, res) {
   try {
-    const dbopen = serviceHelper.databaseConnection();
+    const dbopen = dbHelper.databaseConnection();
     const database = dbopen.db(config.database.daemon.database);
     const query = { generalScannedHeight: { $gte: 0 } };
     const projection = {
@@ -753,7 +756,7 @@ async function fluxUsage(req, res) {
         generalScannedHeight: 1,
       },
     };
-    const result = await serviceHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
+    const result = await dbHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
     if (!result) {
       log.error('Scanning not initiated');
     }
@@ -786,7 +789,7 @@ async function fluxUsage(req, res) {
     const appsDatabase = dbopen.db(config.database.appslocal.database);
     const appsQuery = {};
     const appsProjection = { projection: { _id: 0 } };
-    const appsResult = await serviceHelper.findInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+    const appsResult = await dbHelper.findInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
     let appsCpusLocked = 0;
     const tier = await generalService.nodeTier().catch((error) => log.error(error));
     const cpuTier = `cpu${tier}`;
@@ -817,11 +820,11 @@ async function fluxUsage(req, res) {
     }
     // do an average of fiveMinUsage and cpuUsage;
     const avgOfUsage = ((fiveMinUsage + cpuUsage) / 2).toFixed(8);
-    const response = serviceHelper.createDataMessage(avgOfUsage);
+    const response = messageHelper.createDataMessage(avgOfUsage);
     return res ? res.json(response) : response;
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -833,11 +836,11 @@ async function fluxUsage(req, res) {
 async function appsResources(req, res) {
   log.info('Checking appsResources');
   try {
-    const dbopen = serviceHelper.databaseConnection();
+    const dbopen = dbHelper.databaseConnection();
     const appsDatabase = dbopen.db(config.database.appslocal.database);
     const appsQuery = {};
     const appsProjection = { projection: { _id: 0 } };
-    const appsResult = await serviceHelper.findInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+    const appsResult = await dbHelper.findInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
     let appsCpusLocked = 0;
     let appsRamLocked = 0;
     let appsHddLocked = 0;
@@ -873,11 +876,11 @@ async function appsResources(req, res) {
       appsRamLocked,
       appsHddLocked,
     };
-    const response = serviceHelper.createDataMessage(appsUsage);
+    const response = messageHelper.createDataMessage(appsUsage);
     return res ? res.json(response) : response;
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -1110,7 +1113,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     if (res) {
       res.write(serviceHelper.ensureString(cronStatusB));
     }
-    const message = serviceHelper.createSuccessMessage('Flux App volume creation completed.');
+    const message = messageHelper.createSuccessMessage('Flux App volume creation completed.');
     return message;
   } catch (error) {
     clearInterval(global.allocationInterval);
@@ -1150,7 +1153,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
     res.write(serviceHelper.ensureString(stopStatus));
   }
   await dockerService.appDockerStop(appId).catch((error) => {
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -1175,7 +1178,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
     res.write(serviceHelper.ensureString(removeStatus));
   }
   await dockerService.appDockerRemove(appId).catch((error) => {
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -1201,7 +1204,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
     res.write(serviceHelper.ensureString(imageStatus));
   }
   await dockerService.appDockerImageRemove(appSpecifications.repotag).catch((error) => {
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -1227,14 +1230,30 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
     res.write(serviceHelper.ensureString(portStatus));
   }
   if (appSpecifications.ports) {
-    // eslint-disable-next-line no-restricted-syntax
-    for (const port of appSpecifications.ports) {
-      // eslint-disable-next-line no-await-in-loop
-      await fluxCommunication.denyPort(serviceHelper.ensureNumber(port));
+    const firewallActive = await fluxCommunication.isFirewallActive();
+    if (firewallActive) {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const port of appSpecifications.ports) {
+        // eslint-disable-next-line no-await-in-loop
+        await fluxCommunication.denyPort(serviceHelper.ensureNumber(port));
+      }
+    }
+    if (userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const port of appSpecifications.ports) {
+        // eslint-disable-next-line no-await-in-loop
+        await upnpService.removeMapUpnpPort(serviceHelper.ensureNumber(port));
+      }
     }
     // v1 compatibility
   } else if (appSpecifications.port) {
-    await fluxCommunication.denyPort(serviceHelper.ensureNumber(appSpecifications.port));
+    const firewallActive = await fluxCommunication.isFirewallActive();
+    if (firewallActive) {
+      await fluxCommunication.denyPort(serviceHelper.ensureNumber(appSpecifications.port));
+    }
+    if (userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) {
+      await upnpService.removeMapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port));
+    }
   }
   const portStatus2 = {
     status: isComponent ? `Ports of component ${appSpecifications.name} denied` : `Ports of ${appName} denied`,
@@ -1447,20 +1466,20 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
 
     // first find the appSpecifications in our database.
     // connect to mongodb
-    const dbopen = serviceHelper.databaseConnection();
+    const dbopen = dbHelper.databaseConnection();
 
     const appsDatabase = dbopen.db(config.database.appslocal.database);
     const database = dbopen.db(config.database.appsglobal.database);
 
     const appsQuery = { name: appName };
     const appsProjection = {};
-    let appSpecifications = await serviceHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+    let appSpecifications = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
     if (!appSpecifications) {
       if (!force) {
         throw new Error('Flux App not found');
       }
       // get it from global Specifications
-      appSpecifications = await serviceHelper.findOneInDatabase(database, globalAppsInformation, appsQuery, appsProjection);
+      appSpecifications = await dbHelper.findOneInDatabase(database, globalAppsInformation, appsQuery, appsProjection);
       if (!appSpecifications) {
         // get it from locally available Specifications
         // eslint-disable-next-line no-use-before-define
@@ -1470,7 +1489,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
         if (!appSpecifications) {
           const query = {};
           const projection = { projection: { _id: 0 } };
-          const messages = await serviceHelper.findInDatabase(database, globalAppsMessages, query, projection);
+          const messages = await dbHelper.findInDatabase(database, globalAppsMessages, query, projection);
           const appMessages = messages.filter((message) => {
             const specifications = message.appSpecifications || message.zelAppSpecifications;
             return specifications.name === appName;
@@ -1519,7 +1538,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
       if (res) {
         res.write(serviceHelper.ensureString(databaseStatus));
       }
-      await serviceHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+      await dbHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
       const databaseStatus2 = {
         status: 'Database cleaned',
       };
@@ -1543,7 +1562,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
   } catch (error) {
     removalInProgress = false;
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -1602,7 +1621,7 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
     res.write(serviceHelper.ensureString(imageStatus));
   }
   await dockerService.appDockerImageRemove(appSpecifications.repotag).catch((error) => {
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -1628,14 +1647,30 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
     res.write(serviceHelper.ensureString(portStatus));
   }
   if (appSpecifications.ports) {
+    const firewallActive = await fluxCommunication.isFirewallActive();
+    if (firewallActive) {
     // eslint-disable-next-line no-restricted-syntax
-    for (const port of appSpecifications.ports) {
+      for (const port of appSpecifications.ports) {
       // eslint-disable-next-line no-await-in-loop
-      await fluxCommunication.denyPort(serviceHelper.ensureNumber(port));
+        await fluxCommunication.denyPort(serviceHelper.ensureNumber(port));
+      }
+    }
+    if (userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const port of appSpecifications.ports) {
+        // eslint-disable-next-line no-await-in-loop
+        await upnpService.removeMapUpnpPort(serviceHelper.ensureNumber(port));
+      }
     }
     // v1 compatibility
   } else if (appSpecifications.port) {
-    await fluxCommunication.denyPort(serviceHelper.ensureNumber(appSpecifications.port));
+    const firewallActive = await fluxCommunication.isFirewallActive();
+    if (firewallActive) {
+      await fluxCommunication.denyPort(serviceHelper.ensureNumber(appSpecifications.port));
+    }
+    if (userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) {
+      await upnpService.removeMapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port));
+    }
   }
   const portStatus2 = {
     status: isComponent ? `Ports of component ${appSpecifications.name} denied` : `Ports of ${appName} denied`,
@@ -1677,13 +1712,13 @@ async function softRemoveAppLocally(app, res) {
 
   // first find the appSpecifications in our database.
   // connect to mongodb
-  const dbopen = serviceHelper.databaseConnection();
+  const dbopen = dbHelper.databaseConnection();
 
   const appsDatabase = dbopen.db(config.database.appslocal.database);
 
   const appsQuery = { name: appName };
   const appsProjection = {};
-  const appSpecifications = await serviceHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+  const appSpecifications = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
   if (!appSpecifications) {
     throw new Error('Flux App not found');
   }
@@ -1716,7 +1751,7 @@ async function softRemoveAppLocally(app, res) {
     if (res) {
       res.write(serviceHelper.ensureString(databaseStatus));
     }
-    await serviceHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+    await dbHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
     const databaseStatus2 = {
       status: 'Database cleaned',
     };
@@ -1756,7 +1791,7 @@ async function removeAppLocallyApi(req, res) {
 
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
     if (!authorized) {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     } else {
       // remove app from local machine.
@@ -1767,7 +1802,7 @@ async function removeAppLocallyApi(req, res) {
     }
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -1888,35 +1923,79 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
     res.write(serviceHelper.ensureString(portStatusInitial));
   }
   if (appSpecifications.ports) {
-    // eslint-disable-next-line no-restricted-syntax
-    for (const port of appSpecifications.ports) {
-      // eslint-disable-next-line no-await-in-loop
-      const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(port));
+    const firewallActive = await fluxCommunication.isFirewallActive();
+    if (firewallActive) {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const port of appSpecifications.ports) {
+        // eslint-disable-next-line no-await-in-loop
+        const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(port));
+        if (portResponse.status === true) {
+          const portStatus = {
+            status: `Port ${port} OK`,
+          };
+          log.info(portStatus);
+          if (res) {
+            res.write(serviceHelper.ensureString(portStatus));
+          }
+        } else {
+          throw new Error(`Error: Port ${port} FAILed to open.`);
+        }
+      }
+    } else {
+      log.info('Firewall not active, application ports are open');
+    }
+    if (userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) {
+      log.info('Custom port specified, mapping ports');
+      // eslint-disable-next-line no-restricted-syntax
+      for (const port of appSpecifications.ports) {
+        // eslint-disable-next-line no-await-in-loop
+        const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port));
+        if (portResponse === true) {
+          const portStatus = {
+            status: `Port ${port} mapped OK`,
+          };
+          log.info(portStatus);
+          if (res) {
+            res.write(serviceHelper.ensureString(portStatus));
+          }
+        } else {
+          throw new Error(`Error: Port ${port} FAILed to map.`);
+        }
+      }
+    }
+  } else if (appSpecifications.port) {
+    // v1 compatibility
+    const firewallActive = await fluxCommunication.isFirewallActive();
+    if (firewallActive) {
+      const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(appSpecifications.port));
       if (portResponse.status === true) {
         const portStatus = {
-          status: `'Port ${port} OK'`,
+          status: `Port ${appSpecifications.port} OK`,
         };
         log.info(portStatus);
         if (res) {
           res.write(serviceHelper.ensureString(portStatus));
         }
       } else {
-        throw new Error(`Error: Port ${port} FAILed to open.`);
-      }
-    }
-  } else if (appSpecifications.port) {
-    // v1 compatibility
-    const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(appSpecifications.port));
-    if (portResponse.status === true) {
-      const portStatus = {
-        status: 'Port OK',
-      };
-      log.info(portStatus);
-      if (res) {
-        res.write(serviceHelper.ensureString(portStatus));
+        throw new Error(`Error: Port ${appSpecifications.port} FAILed to open.`);
       }
     } else {
-      throw new Error(`Error: Port ${appSpecifications.port} FAILed to open.`);
+      log.info('Firewall not active, application ports are open');
+    }
+    if (userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) {
+      log.info('Custom port specified, mapping ports');
+      const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port));
+      if (portResponse === true) {
+        const portStatus = {
+          status: `Port ${appSpecifications.port} mapped OK`,
+        };
+        log.info(portStatus);
+        if (res) {
+          res.write(serviceHelper.ensureString(portStatus));
+        }
+      } else {
+        throw new Error(`Error: Port ${appSpecifications.port} FAILed to map.`);
+      }
     }
   }
   const startStatus = {
@@ -1932,7 +2011,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
   if (!app) {
     return;
   }
-  const appResponse = serviceHelper.createDataMessage(app);
+  const appResponse = messageHelper.createDataMessage(app);
   log.info(appResponse);
   if (res) {
     res.write(serviceHelper.ensureString(appResponse));
@@ -1977,7 +2056,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
     if (res) {
       res.write(serviceHelper.ensureString(dbOpenTest));
     }
-    const dbopen = serviceHelper.databaseConnection();
+    const dbopen = dbHelper.databaseConnection();
 
     const appsDatabase = dbopen.db(config.database.appslocal.database);
     const appsQuery = { name: appName };
@@ -2000,7 +2079,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
     if (!fluxNet) {
       return;
     }
-    const fluxNetResponse = serviceHelper.createDataMessage(fluxNet);
+    const fluxNetResponse = messageHelper.createDataMessage(fluxNet);
     log.info(fluxNetResponse);
     if (res) {
       res.write(serviceHelper.ensureString(fluxNetResponse));
@@ -2014,7 +2093,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
     if (res) {
       res.write(serviceHelper.ensureString(checkDb));
     }
-    const appResult = await serviceHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+    const appResult = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
     if (appResult && !isComponent) {
       installationInProgress = false;
       log.error(`Flux App ${appName} already installed`);
@@ -2034,7 +2113,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
     }
     if (!isComponent) {
       // register the app
-      await serviceHelper.insertOneToDatabase(appsDatabase, localAppsInformation, appSpecifications);
+      await dbHelper.insertOneToDatabase(appsDatabase, localAppsInformation, appSpecifications);
       const hddTier = `hdd${tier}`;
       const ramTier = `ram${tier}`;
       const cpuTier = `cpu${tier}`;
@@ -2080,7 +2159,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
     }
   } catch (error) {
     installationInProgress = false;
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -2089,7 +2168,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
     if (res) {
       res.write(serviceHelper.ensureString(errorResponse));
     }
-    const removeStatus = serviceHelper.createErrorMessage(`Error occured. Initiating Flux App ${appSpecs.name} removal`);
+    const removeStatus = messageHelper.createErrorMessage(`Error occured. Initiating Flux App ${appSpecs.name} removal`);
     log.info(removeStatus);
     if (res) {
       res.write(serviceHelper.ensureString(removeStatus));
@@ -2128,35 +2207,79 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
     res.write(serviceHelper.ensureString(portStatusInitial));
   }
   if (appSpecifications.ports) {
-    // eslint-disable-next-line no-restricted-syntax
-    for (const port of appSpecifications.ports) {
-      // eslint-disable-next-line no-await-in-loop
-      const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(port));
+    const firewallActive = await fluxCommunication.isFirewallActive();
+    if (firewallActive) {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const port of appSpecifications.ports) {
+        // eslint-disable-next-line no-await-in-loop
+        const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(port));
+        if (portResponse.status === true) {
+          const portStatus = {
+            status: `'Port ${port} OK'`,
+          };
+          log.info(portStatus);
+          if (res) {
+            res.write(serviceHelper.ensureString(portStatus));
+          }
+        } else {
+          throw new Error(`Error: Port ${port} FAILed to open.`);
+        }
+      }
+    } else {
+      log.info('Firewall not active, application ports are open');
+    }
+    if (userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) {
+      log.info('Custom port specified, mapping ports');
+      // eslint-disable-next-line no-restricted-syntax
+      for (const port of appSpecifications.ports) {
+        // eslint-disable-next-line no-await-in-loop
+        const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port));
+        if (portResponse === true) {
+          const portStatus = {
+            status: `Port ${port} mapped OK`,
+          };
+          log.info(portStatus);
+          if (res) {
+            res.write(serviceHelper.ensureString(portStatus));
+          }
+        } else {
+          throw new Error(`Error: Port ${port} FAILed to map.`);
+        }
+      }
+    }
+  } else if (appSpecifications.port) {
+    const firewallActive = await fluxCommunication.isFirewallActive();
+    if (firewallActive) {
+    // v1 compatibility
+      const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(appSpecifications.port));
       if (portResponse.status === true) {
         const portStatus = {
-          status: `'Port ${port} OK'`,
+          status: 'Port OK',
         };
         log.info(portStatus);
         if (res) {
           res.write(serviceHelper.ensureString(portStatus));
         }
       } else {
-        throw new Error(`Error: Port ${port} FAILed to open.`);
-      }
-    }
-  } else if (appSpecifications.port) {
-    // v1 compatibility
-    const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(appSpecifications.port));
-    if (portResponse.status === true) {
-      const portStatus = {
-        status: 'Port OK',
-      };
-      log.info(portStatus);
-      if (res) {
-        res.write(serviceHelper.ensureString(portStatus));
+        throw new Error(`Error: Port ${appSpecifications.port} FAILed to open.`);
       }
     } else {
-      throw new Error(`Error: Port ${appSpecifications.port} FAILed to open.`);
+      log.info('Firewall not active, application ports are open');
+    }
+    if (userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) {
+      log.info('Custom port specified, mapping ports');
+      const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port));
+      if (portResponse === true) {
+        const portStatus = {
+          status: `Port ${appSpecifications.port} mapped OK`,
+        };
+        log.info(portStatus);
+        if (res) {
+          res.write(serviceHelper.ensureString(portStatus));
+        }
+      } else {
+        throw new Error(`Error: Port ${appSpecifications.port} FAILed to map.`);
+      }
     }
   }
   const startStatus = {
@@ -2172,7 +2295,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
   if (!app) {
     return;
   }
-  const appResponse = serviceHelper.createDataMessage(app);
+  const appResponse = messageHelper.createDataMessage(app);
   log.info(appResponse);
   if (res) {
     res.write(serviceHelper.ensureString(appResponse));
@@ -2219,7 +2342,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
     if (res) {
       res.write(serviceHelper.ensureString(dbOpenTest));
     }
-    const dbopen = serviceHelper.databaseConnection();
+    const dbopen = dbHelper.databaseConnection();
 
     const appsDatabase = dbopen.db(config.database.appslocal.database);
     const appsQuery = { name: appName };
@@ -2242,7 +2365,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
     if (!fluxNet) {
       return;
     }
-    const fluxNetResponse = serviceHelper.createDataMessage(fluxNet);
+    const fluxNetResponse = messageHelper.createDataMessage(fluxNet);
     log.info(fluxNetResponse);
     if (res) {
       res.write(serviceHelper.ensureString(fluxNetResponse));
@@ -2256,7 +2379,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
     if (res) {
       res.write(serviceHelper.ensureString(checkDb));
     }
-    const appResult = await serviceHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+    const appResult = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
     if (appResult && !isComponent) {
       installationInProgress = false;
       log.error(`Flux App ${appName} already installed`);
@@ -2276,7 +2399,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
     }
     if (!isComponent) {
       // register the app
-      await serviceHelper.insertOneToDatabase(appsDatabase, localAppsInformation, appSpecifications);
+      await dbHelper.insertOneToDatabase(appsDatabase, localAppsInformation, appSpecifications);
       const hddTier = `hdd${tier}`;
       const ramTier = `ram${tier}`;
       const cpuTier = `cpu${tier}`;
@@ -2321,7 +2444,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
     }
   } catch (error) {
     installationInProgress = false;
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -2330,7 +2453,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
     if (res) {
       res.write(serviceHelper.ensureString(errorResponse));
     }
-    const removeStatus = serviceHelper.createErrorMessage(`Error occured. Initiating Flux App ${appSpecs.name} removal`);
+    const removeStatus = messageHelper.createErrorMessage(`Error occured. Initiating Flux App ${appSpecs.name} removal`);
     log.info(removeStatus);
     if (res) {
       res.write(serviceHelper.ensureString(removeStatus));
@@ -2537,7 +2660,7 @@ function checkComposeHWParameters(appSpecsComposed) {
 
 async function getAppsTemporaryMessages(req, res) {
   try {
-    const db = serviceHelper.databaseConnection();
+    const db = dbHelper.databaseConnection();
 
     const database = db.db(config.database.appsglobal.database);
     let query = {};
@@ -2547,12 +2670,12 @@ async function getAppsTemporaryMessages(req, res) {
       query = { hash };
     }
     const projection = { projection: { _id: 0 } };
-    const results = await serviceHelper.findInDatabase(database, globalAppsTempMessages, query, projection);
-    const resultsResponse = serviceHelper.createDataMessage(results);
+    const results = await dbHelper.findInDatabase(database, globalAppsTempMessages, query, projection);
+    const resultsResponse = messageHelper.createDataMessage(results);
     res.json(resultsResponse);
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -2563,7 +2686,7 @@ async function getAppsTemporaryMessages(req, res) {
 
 async function getAppsPermanentMessages(req, res) {
   try {
-    const db = serviceHelper.databaseConnection();
+    const db = dbHelper.databaseConnection();
 
     const database = db.db(config.database.appsglobal.database);
     let query = {};
@@ -2573,12 +2696,12 @@ async function getAppsPermanentMessages(req, res) {
       query = { hash };
     }
     const projection = { projection: { _id: 0 } };
-    const results = await serviceHelper.findInDatabase(database, globalAppsMessages, query, projection);
-    const resultsResponse = serviceHelper.createDataMessage(results);
+    const results = await dbHelper.findInDatabase(database, globalAppsMessages, query, projection);
+    const resultsResponse = messageHelper.createDataMessage(results);
     res.json(resultsResponse);
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -2589,16 +2712,16 @@ async function getAppsPermanentMessages(req, res) {
 
 async function getGlobalAppsSpecifications(req, res) {
   try {
-    const db = serviceHelper.databaseConnection();
+    const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
     const query = {};
     const projection = { projection: { _id: 0 } };
-    const results = await serviceHelper.findInDatabase(database, globalAppsInformation, query, projection);
-    const resultsResponse = serviceHelper.createDataMessage(results);
+    const results = await dbHelper.findInDatabase(database, globalAppsInformation, query, projection);
+    const resultsResponse = messageHelper.createDataMessage(results);
     res.json(resultsResponse);
   } catch (error) {
     log.error(error);
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
   }
 }
@@ -2706,7 +2829,7 @@ async function availableApps(req, res) {
     },
   ];
 
-  const dataResponse = serviceHelper.createDataMessage(apps);
+  const dataResponse = messageHelper.createDataMessage(apps);
   return res ? res.json(dataResponse) : apps;
 }
 
@@ -2732,7 +2855,7 @@ async function verifyAppMessageSignature(type, version, appSpec, timestamp, sign
     throw new Error('Invalid Flux App message specifications');
   }
   const messageToVerify = type + version + JSON.stringify(appSpec) + timestamp;
-  const isValidSignature = serviceHelper.verifyMessage(messageToVerify, appSpec.owner, signature);
+  const isValidSignature = verificationHelper.verifyMessage(messageToVerify, appSpec.owner, signature);
   if (isValidSignature !== true) {
     const errorMessage = isValidSignature === false ? 'Received signature is invalid or Flux App specifications are not properly formatted' : isValidSignature;
     throw new Error(errorMessage);
@@ -2745,7 +2868,7 @@ async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp
     throw new Error('Invalid Flux App message specifications');
   }
   const messageToVerify = type + version + JSON.stringify(appSpec) + timestamp;
-  const isValidSignature = serviceHelper.verifyMessage(messageToVerify, appOwner, signature);
+  const isValidSignature = verificationHelper.verifyMessage(messageToVerify, appOwner, signature);
   if (isValidSignature !== true) {
     const errorMessage = isValidSignature === false ? 'Received signature does not correspond with Flux App owner or Flux App specifications are not properly formatted' : isValidSignature;
     throw new Error(errorMessage);
@@ -3355,11 +3478,11 @@ async function verifyAppSpecifications(appSpecifications, height) {
 
 async function assignedPortsInstalledApps() {
   // construct object ob app name and ports array
-  const db = serviceHelper.databaseConnection();
+  const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appslocal.database);
   const query = {};
   const projection = { projection: { _id: 0 } };
-  const results = await serviceHelper.findInDatabase(database, localAppsInformation, query, projection);
+  const results = await dbHelper.findInDatabase(database, localAppsInformation, query, projection);
   const apps = [];
   results.forEach((app) => {
     // there is no app
@@ -3392,8 +3515,59 @@ async function assignedPortsInstalledApps() {
   return apps;
 }
 
-async function ensureApplicationPortsNotUsed(appSpecFormatted) {
-  const currentAppsPorts = await assignedPortsInstalledApps();
+async function assignedPortsGlobalApps(appNames) {
+  // construct object ob app name and ports array
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  const appsQuery = [];
+  appNames.forEach((app) => {
+    appsQuery.push({
+      name: app,
+    });
+  });
+  const query = {
+    $or: appsQuery,
+  };
+  const projection = { projection: { _id: 0 } };
+  const results = await dbHelper.findInDatabase(database, globalAppsInformation, query, projection);
+  const apps = [];
+  results.forEach((app) => {
+    // there is no app
+    if (app.version === 1) {
+      const appSpecs = {
+        name: app.name,
+        ports: [Number(app.port)],
+      };
+      apps.push(appSpecs);
+    } else if (app.version <= 3) {
+      const appSpecs = {
+        name: app.name,
+        ports: [],
+      };
+      app.ports.forEach((port) => {
+        appSpecs.ports.push(Number(port));
+      });
+      apps.push(appSpecs);
+    } else if (app.version >= 4) {
+      const appSpecs = {
+        name: app.name,
+        ports: [],
+      };
+      app.compose.forEach((composeApp) => {
+        appSpecs.ports = appSpecs.ports.concat(composeApp.ports);
+      });
+      apps.push(appSpecs);
+    }
+  });
+  return apps;
+}
+
+async function ensureApplicationPortsNotUsed(appSpecFormatted, globalCheckedApps) {
+  let currentAppsPorts = await assignedPortsInstalledApps();
+  if (globalCheckedApps) {
+    const globalAppsPorts = await assignedPortsGlobalApps(globalCheckedApps);
+    currentAppsPorts = currentAppsPorts.concat(globalAppsPorts);
+  }
   if (appSpecFormatted.version === 1) {
     const portAssigned = currentAppsPorts.find((app) => app.ports.includes(Number(appSpecFormatted.port)));
     if (portAssigned && portAssigned.name !== appSpecFormatted.name) {
@@ -3496,7 +3670,7 @@ async function ensureApplicationImagesExistsForPlatform(appSpecFormatted) {
 
 async function checkApplicationRegistrationNameConflicts(appSpecFormatted) {
   // check if name is not yet registered
-  const dbopen = serviceHelper.databaseConnection();
+  const dbopen = dbHelper.databaseConnection();
 
   const appsDatabase = dbopen.db(config.database.appsglobal.database);
   const appsQuery = { name: new RegExp(`^${appSpecFormatted.name}$`, 'i') }; // case insensitive
@@ -3506,7 +3680,7 @@ async function checkApplicationRegistrationNameConflicts(appSpecFormatted) {
       name: 1,
     },
   };
-  const appResult = await serviceHelper.findOneInDatabase(appsDatabase, globalAppsInformation, appsQuery, appsProjection);
+  const appResult = await dbHelper.findOneInDatabase(appsDatabase, globalAppsInformation, appsQuery, appsProjection);
 
   if (appResult) {
     throw new Error(`Flux App ${appSpecFormatted.name} already registered. Flux App has to be registered under different name.`);
@@ -3525,7 +3699,7 @@ async function checkApplicationRegistrationNameConflicts(appSpecFormatted) {
 
 async function checkApplicationUpdateNameRepositoryConflicts(specifications, verificationTimestamp) {
   // we may not have the application in global apps. This can happen when we receive the message after the app has already expired AND we need to get message right before our message. Thus using messages system that is accurate
-  const db = serviceHelper.databaseConnection();
+  const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
   const projection = {
     projection: {
@@ -3536,7 +3710,7 @@ async function checkApplicationUpdateNameRepositoryConflicts(specifications, ver
   const appsQuery = {
     'appSpecifications.name': specifications.name,
   };
-  const permanentAppMessage = await serviceHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
+  const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
   let latestPermanentRegistrationMessage;
   permanentAppMessage.forEach((foundMessage) => {
     // has to be registration message
@@ -3554,7 +3728,7 @@ async function checkApplicationUpdateNameRepositoryConflicts(specifications, ver
   const appsQueryB = {
     'zelAppSpecifications.name': specifications.name,
   };
-  const permanentAppMessageB = await serviceHelper.findInDatabase(database, globalAppsMessages, appsQueryB, projection);
+  const permanentAppMessageB = await dbHelper.findInDatabase(database, globalAppsMessages, appsQueryB, projection);
   permanentAppMessageB.forEach((foundMessage) => {
     // has to be registration message
     if (foundMessage.type === 'zelappregister' || foundMessage.type === 'fluxappregister' || foundMessage.type === 'zelappupdate' || foundMessage.type === 'fluxappupdate') { // can be any type
@@ -3605,7 +3779,7 @@ async function checkApplicationUpdateNameRepositoryConflicts(specifications, ver
 
 async function getPreviousAppSpecifications(specifications, message) {
   // we may not have the application in global apps. This can happen when we receive the message after the app has already expired AND we need to get message right before our message. Thus using messages system that is accurate
-  const db = serviceHelper.databaseConnection();
+  const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
   const projection = {
     projection: {
@@ -3616,7 +3790,7 @@ async function getPreviousAppSpecifications(specifications, message) {
   const appsQuery = {
     'appSpecifications.name': specifications.name,
   };
-  const permanentAppMessage = await serviceHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
+  const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
   let latestPermanentRegistrationMessage;
   permanentAppMessage.forEach((foundMessage) => {
     // has to be registration message
@@ -3634,7 +3808,7 @@ async function getPreviousAppSpecifications(specifications, message) {
   const appsQueryB = {
     'zelAppSpecifications.name': specifications.name,
   };
-  const permanentAppMessageB = await serviceHelper.findInDatabase(database, globalAppsMessages, appsQueryB, projection);
+  const permanentAppMessageB = await dbHelper.findInDatabase(database, globalAppsMessages, appsQueryB, projection);
   permanentAppMessageB.forEach((foundMessage) => {
     // has to be registration message
     if (foundMessage.type === 'zelappregister' || foundMessage.type === 'fluxappregister' || foundMessage.type === 'zelappupdate' || foundMessage.type === 'fluxappupdate') { // can be any type
@@ -3655,7 +3829,7 @@ async function getPreviousAppSpecifications(specifications, message) {
 }
 
 async function checkAppMessageExistence(hash) {
-  const dbopen = serviceHelper.databaseConnection();
+  const dbopen = dbHelper.databaseConnection();
   const appsDatabase = dbopen.db(config.database.appsglobal.database);
   const appsQuery = { hash };
   const appsProjection = {};
@@ -3672,7 +3846,7 @@ async function checkAppMessageExistence(hash) {
   //   height,
   //   valueSat,
   // };
-  const appResult = await serviceHelper.findOneInDatabase(appsDatabase, globalAppsMessages, appsQuery, appsProjection);
+  const appResult = await dbHelper.findOneInDatabase(appsDatabase, globalAppsMessages, appsQuery, appsProjection);
   if (appResult) {
     return appResult;
   }
@@ -3680,7 +3854,7 @@ async function checkAppMessageExistence(hash) {
 }
 
 async function checkAppTemporaryMessageExistence(hash) {
-  const dbopen = serviceHelper.databaseConnection();
+  const dbopen = dbHelper.databaseConnection();
   const appsDatabase = dbopen.db(config.database.appsglobal.database);
   const appsQuery = { hash };
   const appsProjection = {};
@@ -3695,7 +3869,7 @@ async function checkAppTemporaryMessageExistence(hash) {
   //   createdAt: new Date(message.timestamp),
   //   expireAt: new Date(validTill),
   // };
-  const appResult = await serviceHelper.findOneInDatabase(appsDatabase, globalAppsTempMessages, appsQuery, appsProjection);
+  const appResult = await dbHelper.findOneInDatabase(appsDatabase, globalAppsTempMessages, appsQuery, appsProjection);
   if (appResult) {
     return appResult;
   }
@@ -3782,9 +3956,9 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
   };
   const value = newMessage;
   // message does not exist anywhere and is ok, store it
-  const db = serviceHelper.databaseConnection();
+  const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
-  await serviceHelper.insertOneToDatabase(database, globalAppsTempMessages, value);
+  await dbHelper.insertOneToDatabase(database, globalAppsTempMessages, value);
   // it is stored and rebroadcasted
   return true;
 }
@@ -3819,7 +3993,7 @@ async function storeAppRunningMessage(message) {
   const randomDelay = Math.floor((Math.random() * 1280)) + 240;
   await serviceHelper.delay(randomDelay);
 
-  const db = serviceHelper.databaseConnection();
+  const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
   const newAppRunningMessage = {
     name: message.name,
@@ -3833,7 +4007,7 @@ async function storeAppRunningMessage(message) {
   const queryFind = { name: newAppRunningMessage.name, ip: newAppRunningMessage.ip, broadcastedAt: { $gte: newAppRunningMessage.broadcastedAt } };
   const projection = { _id: 0 };
   // we already have the exact same data
-  const result = await serviceHelper.findOneInDatabase(database, globalAppsLocations, queryFind, projection);
+  const result = await dbHelper.findOneInDatabase(database, globalAppsLocations, queryFind, projection);
   if (result) {
     // it is already stored
     return false;
@@ -3843,7 +4017,7 @@ async function storeAppRunningMessage(message) {
   const options = {
     upsert: true,
   };
-  await serviceHelper.updateOneInDatabase(database, globalAppsLocations, queryUpdate, update, options);
+  await dbHelper.updateOneInDatabase(database, globalAppsLocations, queryUpdate, update, options);
   // it is now stored, rebroadcast
   return true;
 }
@@ -4165,7 +4339,7 @@ async function registerAppGlobalyApi(req, res) {
     try {
       const authorized = await verificationHelper.verifyPrivilege('user', req);
       if (!authorized) {
-        const errMessage = serviceHelper.errUnauthorizedMessage();
+        const errMessage = messageHelper.errUnauthorizedMessage();
         res.json(errMessage);
         return;
       }
@@ -4250,14 +4424,14 @@ async function registerAppGlobalyApi(req, res) {
         }
       }
       if (tempMessage && typeof tempMessage === 'object' && !Array.isArray(tempMessage)) {
-        const responseHash = serviceHelper.createDataMessage(tempMessage.hash);
+        const responseHash = messageHelper.createDataMessage(tempMessage.hash);
         res.json(responseHash); // all ok
         return;
       }
       throw new Error('Unable to register application on the network. Try again later.');
     } catch (error) {
       log.warn(error);
-      const errorResponse = serviceHelper.createErrorMessage(
+      const errorResponse = messageHelper.createErrorMessage(
         error.message || error,
         error.name,
         error.code,
@@ -4277,7 +4451,7 @@ async function updateAppGlobalyApi(req, res) {
     try {
       const authorized = await verificationHelper.verifyPrivilege('user', req);
       if (!authorized) {
-        const errMessage = serviceHelper.errUnauthorizedMessage();
+        const errMessage = messageHelper.errUnauthorizedMessage();
         res.json(errMessage);
         return;
       }
@@ -4324,7 +4498,7 @@ async function updateAppGlobalyApi(req, res) {
       await verifyAppSpecifications(appSpecFormatted, daemonHeight);
 
       // verify that app exists, does not change repotag and is signed by app owner.
-      const db = serviceHelper.databaseConnection();
+      const db = dbHelper.databaseConnection();
       const database = db.db(config.database.appsglobal.database);
       // may throw
       const query = { name: appSpecFormatted.name };
@@ -4333,7 +4507,7 @@ async function updateAppGlobalyApi(req, res) {
           _id: 0,
         },
       };
-      const appInfo = await serviceHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+      const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
       if (!appInfo) {
         throw new Error('Flux App update received but application to update does not exists!');
       }
@@ -4377,14 +4551,14 @@ async function updateAppGlobalyApi(req, res) {
         }
       }
       if (tempMessage && typeof tempMessage === 'object' && !Array.isArray(tempMessage)) {
-        const responseHash = serviceHelper.createDataMessage(tempMessage.hash);
+        const responseHash = messageHelper.createDataMessage(tempMessage.hash);
         res.json(responseHash); // all ok
         return;
       }
       throw new Error('Unable to update application on the network. Try again later.');
     } catch (error) {
       log.warn(error);
-      const errorResponse = serviceHelper.createErrorMessage(
+      const errorResponse = messageHelper.createErrorMessage(
         error.message || error,
         error.name,
         error.code,
@@ -4398,7 +4572,7 @@ async function updateAppGlobalyApi(req, res) {
 // shall be identical to listAllApps. But this is database response
 async function installedApps(req, res) {
   try {
-    const dbopen = serviceHelper.databaseConnection();
+    const dbopen = dbHelper.databaseConnection();
 
     const appsDatabase = dbopen.db(config.database.appslocal.database);
     let appsQuery = {};
@@ -4421,12 +4595,12 @@ async function installedApps(req, res) {
         _id: 0,
       },
     };
-    const apps = await serviceHelper.findInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
-    const dataResponse = serviceHelper.createDataMessage(apps);
+    const apps = await dbHelper.findInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+    const dataResponse = messageHelper.createDataMessage(apps);
     return res ? res.json(dataResponse) : dataResponse;
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -4474,12 +4648,12 @@ async function installTemporaryLocalApplication(req, res) {
       res.setHeader('Content-Type', 'application/json');
       registerAppLocally(appSpecifications, undefined, res); // can throw
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -4505,9 +4679,9 @@ async function storeAppPermanentMessage(message) {
     throw new Error('Invalid Flux App message for storing');
   }
 
-  const db = serviceHelper.databaseConnection();
+  const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
-  await serviceHelper.insertOneToDatabase(database, globalAppsMessages, message).catch((error) => {
+  await dbHelper.insertOneToDatabase(database, globalAppsMessages, message).catch((error) => {
     log.error(error);
     throw error;
   });
@@ -4578,7 +4752,7 @@ async function updateAppSpecifications(appSpecs) {
     //   ],
     //   instances: 10, // int
     // };
-    const db = serviceHelper.databaseConnection();
+    const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
 
     const query = { name: appSpecs.name };
@@ -4591,13 +4765,13 @@ async function updateAppSpecifications(appSpecs) {
         _id: 0,
       },
     };
-    const appInfo = await serviceHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+    const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
     if (appInfo) {
       if (appInfo.height < appSpecs.height) {
-        await serviceHelper.updateOneInDatabase(database, globalAppsInformation, query, update, options);
+        await dbHelper.updateOneInDatabase(database, globalAppsInformation, query, update, options);
       }
     } else {
-      await serviceHelper.updateOneInDatabase(database, globalAppsInformation, query, update, options);
+      await dbHelper.updateOneInDatabase(database, globalAppsInformation, query, update, options);
     }
   } catch (error) {
     // retry
@@ -4637,7 +4811,7 @@ async function updateAppSpecsForRescanReindex(appSpecs) {
   //   hash: hash of message that has these paramenters,
   //   height: height containing the message
   // };
-  const db = serviceHelper.databaseConnection();
+  const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
 
   const query = { name: appSpecs.name };
@@ -4650,24 +4824,24 @@ async function updateAppSpecsForRescanReindex(appSpecs) {
       _id: 0,
     },
   };
-  const appInfo = await serviceHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+  const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
   if (appInfo) {
     if (appInfo.height < appSpecs.height) {
-      await serviceHelper.updateOneInDatabase(database, globalAppsInformation, query, update, options);
+      await dbHelper.updateOneInDatabase(database, globalAppsInformation, query, update, options);
     }
   } else {
-    await serviceHelper.updateOneInDatabase(database, globalAppsInformation, query, update, options);
+    await dbHelper.updateOneInDatabase(database, globalAppsInformation, query, update, options);
   }
   return true;
 }
 
 async function appHashHasMessage(hash) {
-  const db = serviceHelper.databaseConnection();
+  const db = dbHelper.databaseConnection();
   const database = db.db(config.database.daemon.database);
   const query = { hash };
   const update = { $set: { message: true } };
   const options = {};
-  await serviceHelper.updateOneInDatabase(database, appsHashesCollection, query, update, options);
+  await dbHelper.updateOneInDatabase(database, appsHashesCollection, query, update, options);
   return true;
 }
 
@@ -4722,7 +4896,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
           } // else do nothing notify its underpaid?
         } else if (tempMessage.type === 'zelappupdate' || tempMessage.type === 'fluxappupdate') {
           // appSpecifications.name as identifier
-          const db = serviceHelper.databaseConnection();
+          const db = dbHelper.databaseConnection();
           const database = db.db(config.database.appsglobal.database);
           const projection = {
             projection: {
@@ -4733,7 +4907,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
           const appsQuery = {
             'appSpecifications.name': specifications.name,
           };
-          const findPermAppMessage = await serviceHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
+          const findPermAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
           let latestPermanentRegistrationMessage;
           findPermAppMessage.forEach((foundMessage) => {
             // has to be registration message
@@ -4751,7 +4925,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
           const appsQueryB = {
             'zelAppSpecifications.name': specifications.name,
           };
-          const findPermAppMessageB = await serviceHelper.findInDatabase(database, globalAppsMessages, appsQueryB, projection);
+          const findPermAppMessageB = await dbHelper.findInDatabase(database, globalAppsMessages, appsQueryB, projection);
           findPermAppMessageB.forEach((foundMessage) => {
             // has to be registration message
             if (foundMessage.type === 'zelappregister' || foundMessage.type === 'fluxappregister' || foundMessage.type === 'zelappupdate' || foundMessage.type === 'fluxappupdate') { // can be any type
@@ -4818,7 +4992,7 @@ async function checkDockerAccessibility(req, res) {
     try {
       const authorized = await verificationHelper.verifyPrivilege('user', req);
       if (!authorized) {
-        const errMessage = serviceHelper.errUnauthorizedMessage();
+        const errMessage = messageHelper.errUnauthorizedMessage();
         return res.json(errMessage);
       }
       // check repotag if available for download
@@ -4829,11 +5003,11 @@ async function checkDockerAccessibility(req, res) {
       }
 
       await verifyRepository(processedBody.repotag);
-      const message = serviceHelper.createSuccessMessage('Repotag is accessible');
+      const message = messageHelper.createSuccessMessage('Repotag is accessible');
       return res.json(message);
     } catch (error) {
       log.warn(error);
-      const errorResponse = serviceHelper.createErrorMessage(
+      const errorResponse = messageHelper.createErrorMessage(
         error.message || error,
         error.name,
         error.code,
@@ -4846,11 +5020,11 @@ async function checkDockerAccessibility(req, res) {
 function registrationInformation(req, res) {
   try {
     const data = config.fluxapps;
-    const response = serviceHelper.createDataMessage(data);
+    const response = messageHelper.createDataMessage(data);
     res.json(response);
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -4862,9 +5036,9 @@ function registrationInformation(req, res) {
 // function that drops global apps information and goes over all global apps messages and reconsturcts the global apps information. Further creates database indexes
 async function reindexGlobalAppsInformation() {
   try {
-    const db = serviceHelper.databaseConnection();
+    const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
-    await serviceHelper.dropCollection(database, globalAppsInformation).catch((error) => {
+    await dbHelper.dropCollection(database, globalAppsInformation).catch((error) => {
       if (error.message !== 'ns not found') {
         throw error;
       }
@@ -4876,7 +5050,7 @@ async function reindexGlobalAppsInformation() {
     await database.collection(globalAppsInformation).createIndex({ hash: 1 }, { name: 'query for getting zelapp based on last hash' }); // we need to know the hash of the last message update which is the true identifier
     const query = {};
     const projection = { projection: { _id: 0 } };
-    const results = await serviceHelper.findInDatabase(database, globalAppsMessages, query, projection);
+    const results = await dbHelper.findInDatabase(database, globalAppsMessages, query, projection);
     // eslint-disable-next-line no-restricted-syntax
     for (const message of results) {
       const updateForSpecifications = message.appSpecifications || message.zelAppSpecifications;
@@ -4897,9 +5071,9 @@ async function reindexGlobalAppsInformation() {
 // function that drops information about running apps and rebuilds indexes
 async function reindexGlobalAppsLocation() {
   try {
-    const db = serviceHelper.databaseConnection();
+    const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
-    await serviceHelper.dropCollection(database, globalAppsLocations).catch((error) => {
+    await dbHelper.dropCollection(database, globalAppsLocations).catch((error) => {
       if (error.message !== 'ns not found') {
         throw error;
       }
@@ -4919,19 +5093,19 @@ async function reindexGlobalAppsLocation() {
 // function goes over all global apps messages and updates global apps infromation database
 async function rescanGlobalAppsInformation(height = 0, removeLastInformation = false) {
   try {
-    const db = serviceHelper.databaseConnection();
+    const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
-    await serviceHelper.dropCollection(database, globalAppsInformation).catch((error) => {
+    await dbHelper.dropCollection(database, globalAppsInformation).catch((error) => {
       if (error.message !== 'ns not found') {
         throw error;
       }
     });
     const query = { height: { $gte: height } };
     const projection = { projection: { _id: 0 } };
-    const results = await serviceHelper.findInDatabase(database, globalAppsMessages, query, projection);
+    const results = await dbHelper.findInDatabase(database, globalAppsMessages, query, projection);
 
     if (removeLastInformation === true) {
-      await serviceHelper.removeDocumentsFromCollection(database, globalAppsInformation, query);
+      await dbHelper.removeDocumentsFromCollection(database, globalAppsInformation, query);
     }
 
     // eslint-disable-next-line no-restricted-syntax
@@ -4956,15 +5130,15 @@ async function reindexGlobalAppsLocationAPI(req, res) {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized === true) {
       await reindexGlobalAppsLocation();
-      const message = serviceHelper.createSuccessMessage('Reindex successfull');
+      const message = messageHelper.createSuccessMessage('Reindex successfull');
       res.json(message);
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -4978,15 +5152,15 @@ async function reindexGlobalAppsInformationAPI(req, res) {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized === true) {
       await reindexGlobalAppsInformation();
-      const message = serviceHelper.createSuccessMessage('Reindex successfull');
+      const message = messageHelper.createSuccessMessage('Reindex successfull');
       res.json(message);
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -5002,11 +5176,11 @@ async function rescanGlobalAppsInformationAPI(req, res) {
       let { blockheight } = req.params; // we accept both help/command and help?command=getinfo
       blockheight = blockheight || req.query.blockheight;
       if (!blockheight) {
-        const errMessage = serviceHelper.createErrorMessage('No blockheight provided');
+        const errMessage = messageHelper.createErrorMessage('No blockheight provided');
         res.json(errMessage);
       }
       blockheight = serviceHelper.ensureNumber(blockheight);
-      const dbopen = serviceHelper.databaseConnection();
+      const dbopen = dbHelper.databaseConnection();
       const database = dbopen.db(config.database.daemon.database);
       const query = { generalScannedHeight: { $gte: 0 } };
       const projection = {
@@ -5015,7 +5189,7 @@ async function rescanGlobalAppsInformationAPI(req, res) {
           generalScannedHeight: 1,
         },
       };
-      const currentHeight = await serviceHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
+      const currentHeight = await dbHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
       if (!currentHeight) {
         throw new Error('No scanned height found');
       }
@@ -5029,15 +5203,15 @@ async function rescanGlobalAppsInformationAPI(req, res) {
       removelastinformation = removelastinformation || req.query.removelastinformation || false;
       removelastinformation = serviceHelper.ensureBoolean(removelastinformation);
       await rescanGlobalAppsInformation(blockheight, removelastinformation);
-      const message = serviceHelper.createSuccessMessage('Rescan successfull');
+      const message = messageHelper.createSuccessMessage('Rescan successfull');
       res.json(message);
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -5051,7 +5225,7 @@ async function continuousFluxAppHashesCheck() {
     const knownWrongTxids = ['e56e08a8dbe9523ad10ca328fca84ee1da775ea5f466abed06ec357daa192940'];
     log.info('Requesting missing Flux App messages');
     // get flux app hashes that do not have a message;
-    const dbopen = serviceHelper.databaseConnection();
+    const dbopen = dbHelper.databaseConnection();
     const database = dbopen.db(config.database.daemon.database);
     const query = { message: false };
     const projection = {
@@ -5064,7 +5238,7 @@ async function continuousFluxAppHashesCheck() {
         message: 1,
       },
     };
-    const results = await serviceHelper.findInDatabase(database, appsHashesCollection, query, projection);
+    const results = await dbHelper.findInDatabase(database, appsHashesCollection, query, projection);
     // eslint-disable-next-line no-restricted-syntax
     for (const result of results) {
       if (!knownWrongTxids.includes(result.txid)) { // wrong data, can be later removed
@@ -5080,7 +5254,7 @@ async function continuousFluxAppHashesCheck() {
 
 async function getAppHashes(req, res) {
   try {
-    const dbopen = serviceHelper.databaseConnection();
+    const dbopen = dbHelper.databaseConnection();
     const database = dbopen.db(config.database.daemon.database);
     const query = {};
     const projection = {
@@ -5093,12 +5267,12 @@ async function getAppHashes(req, res) {
         message: 1,
       },
     };
-    const results = await serviceHelper.findInDatabase(database, appsHashesCollection, query, projection);
-    const resultsResponse = serviceHelper.createDataMessage(results);
+    const results = await dbHelper.findInDatabase(database, appsHashesCollection, query, projection);
+    const resultsResponse = messageHelper.createDataMessage(results);
     res.json(resultsResponse);
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -5109,7 +5283,7 @@ async function getAppHashes(req, res) {
 
 async function getAppsLocations(req, res) {
   try {
-    const dbopen = serviceHelper.databaseConnection();
+    const dbopen = dbHelper.databaseConnection();
     const database = dbopen.db(config.database.appsglobal.database);
     const query = {};
     const projection = {
@@ -5122,12 +5296,12 @@ async function getAppsLocations(req, res) {
         expireAt: 1,
       },
     };
-    const results = await serviceHelper.findInDatabase(database, globalAppsLocations, query, projection);
-    const resultsResponse = serviceHelper.createDataMessage(results);
+    const results = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
+    const resultsResponse = messageHelper.createDataMessage(results);
     res.json(resultsResponse);
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -5143,7 +5317,7 @@ async function getAppsLocation(req, res) {
     if (!appname) {
       throw new Error('No Flux App name specified');
     }
-    const dbopen = serviceHelper.databaseConnection();
+    const dbopen = dbHelper.databaseConnection();
     const database = dbopen.db(config.database.appsglobal.database);
     const query = { name: new RegExp(`^${appname}$`, 'i') }; // case insensitive
     const projection = {
@@ -5156,12 +5330,12 @@ async function getAppsLocation(req, res) {
         expireAt: 1,
       },
     };
-    const results = await serviceHelper.findInDatabase(database, globalAppsLocations, query, projection);
-    const resultsResponse = serviceHelper.createDataMessage(results);
+    const results = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
+    const resultsResponse = messageHelper.createDataMessage(results);
     res.json(resultsResponse);
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -5172,11 +5346,11 @@ async function getAppsLocation(req, res) {
 
 async function getAllGlobalApplicationsNames() {
   try {
-    const db = serviceHelper.databaseConnection();
+    const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
     const query = {};
     const projection = { projection: { _id: 0, name: 1 } };
-    const results = await serviceHelper.findInDatabase(database, globalAppsInformation, query, projection);
+    const results = await dbHelper.findInDatabase(database, globalAppsInformation, query, projection);
     const names = results.map((result) => result.name);
     return names;
   } catch (error) {
@@ -5185,9 +5359,26 @@ async function getAllGlobalApplicationsNames() {
   }
 }
 
+async function getRunningAppIpList(ip) { // returns all apps running on this ip
+  const dbopen = dbHelper.databaseConnection();
+  const database = dbopen.db(config.database.appsglobal.database);
+  const query = { ip: new RegExp(`^${ip}`) };
+  const projection = {
+    projection: {
+      _id: 0,
+      name: 1,
+      hash: 1,
+      ip: 1,
+      broadcastedAt: 1,
+      expireAt: 1,
+    },
+  };
+  const results = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
+  return results;
+}
+
 async function getRunningAppList(appName) {
-  console.log(appName);
-  const dbopen = serviceHelper.databaseConnection();
+  const dbopen = dbHelper.databaseConnection();
   const database = dbopen.db(config.database.appsglobal.database);
   const query = { name: appName };
   const projection = {
@@ -5200,12 +5391,12 @@ async function getRunningAppList(appName) {
       expireAt: 1,
     },
   };
-  const results = await serviceHelper.findInDatabase(database, globalAppsLocations, query, projection);
+  const results = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
   return results;
 }
 
 async function getApplicationGlobalSpecifications(appName) {
-  const db = serviceHelper.databaseConnection();
+  const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
 
   const query = { name: new RegExp(`^${appName}$`, 'i') };
@@ -5214,7 +5405,7 @@ async function getApplicationGlobalSpecifications(appName) {
       _id: 0,
     },
   };
-  const appInfo = await serviceHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+  const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
   return appInfo;
 }
 
@@ -5253,7 +5444,7 @@ async function getApplicationSpecifications(appName) {
   //   hash: hash of message that has these paramenters,
   //   height: height containing the message
   // };
-  const db = serviceHelper.databaseConnection();
+  const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
 
   const query = { name: new RegExp(`^${appName}$`, 'i') };
@@ -5262,7 +5453,7 @@ async function getApplicationSpecifications(appName) {
       _id: 0,
     },
   };
-  let appInfo = await serviceHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+  let appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
   if (!appInfo) {
     const allApps = await availableApps();
     appInfo = allApps.find((app) => app.name.toLowerCase() === appName.toLowerCase());
@@ -5272,7 +5463,7 @@ async function getApplicationSpecifications(appName) {
 
 // case sensitive
 async function getStrictApplicationSpecifications(appName) {
-  const db = serviceHelper.databaseConnection();
+  const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
 
   const query = { name: appName };
@@ -5281,7 +5472,7 @@ async function getStrictApplicationSpecifications(appName) {
       _id: 0,
     },
   };
-  let appInfo = await serviceHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+  let appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
   if (!appInfo) {
     const allApps = await availableApps();
     appInfo = allApps.find((app) => app.name === appName);
@@ -5300,11 +5491,11 @@ async function getApplicationSpecificationAPI(req, res) {
     if (!specifications) {
       throw new Error('Application not found');
     }
-    const specResponse = serviceHelper.createDataMessage(specifications);
+    const specResponse = messageHelper.createDataMessage(specifications);
     res.json(specResponse);
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -5324,11 +5515,11 @@ async function getApplicationOwnerAPI(req, res) {
     if (!owner) {
       throw new Error('Application not found');
     }
-    const ownerResponse = serviceHelper.createDataMessage(owner);
+    const ownerResponse = messageHelper.createDataMessage(owner);
     res.json(ownerResponse);
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -5428,10 +5619,10 @@ async function trySpawningGlobalApplication() {
     if (myIP === null) {
       throw new Error('Unable to detect Flux IP address');
     }
-    myIP = myIP.split(':')[0]; // just IP
+    const adjustedIP = myIP.split(':')[0]; // just IP address
     // check if app not running on this device
-    if (runningAppList.find((document) => document.ip === myIP)) {
-      log.info(`Application ${randomApp} is reported as already running on this IP`);
+    if (runningAppList.find((document) => document.ip.includes(adjustedIP))) {
+      log.info(`Application ${randomApp} is reported as already running on this Flux IP`);
       await serviceHelper.delay(adjustedDelay);
       trySpawningGlobalAppCache.set(randomApp, randomApp);
       trySpawningGlobalApplication();
@@ -5459,12 +5650,8 @@ async function trySpawningGlobalApplication() {
 
     // check if app is installed on the number of instances requested
     const minInstances = appSpecifications.instances || config.fluxapps.minimumInstances; // introduced in v3 of apps specs
-    const correctlyRunningInstances = runningAppList.filter((appInstance) => appInstance.hash === appSpecifications.hash); // app isntance has to be latest version of the app
     if (runningAppList.length >= minInstances) {
-      log.info(`Application ${randomApp} is spawned on ${runningAppList.length} instances`);
-    }
-    if (correctlyRunningInstances.length >= minInstances) {
-      log.info(`Application ${randomApp} in latest version is running on ${correctlyRunningInstances.length} instances`);
+      log.info(`Application ${randomApp} is already spawned on ${runningAppList.length} instances`);
       await serviceHelper.delay(adjustedDelay);
       trySpawningGlobalAppCache.set(randomApp, randomApp);
       trySpawningGlobalApplication();
@@ -5472,7 +5659,7 @@ async function trySpawningGlobalApplication() {
     }
 
     // eslint-disable-next-line no-restricted-syntax
-    const dbopen = serviceHelper.databaseConnection();
+    const dbopen = dbHelper.databaseConnection();
     const appsDatabase = dbopen.db(config.database.appslocal.database);
     const appsQuery = {}; // all
     const appsProjection = {
@@ -5484,7 +5671,7 @@ async function trySpawningGlobalApplication() {
         compose: 1,
       },
     };
-    const apps = await serviceHelper.findInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+    const apps = await dbHelper.findInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
     const appExists = apps.find((app) => app.name === appSpecifications.name);
     if (appExists) { // double checked in installation process.
       log.info(`Application ${appSpecifications.name} is already installed`);
@@ -5529,7 +5716,13 @@ async function trySpawningGlobalApplication() {
     });
 
     // ensure ports unused
-    await ensureApplicationPortsNotUsed(appSpecifications).catch((error) => {
+    // appNames on Ip
+    const runningAppsIp = await getRunningAppIpList(adjustedIP);
+    const runningAppsNames = [];
+    runningAppsIp.forEach((app) => {
+      runningAppsNames.push(app.name);
+    });
+    await ensureApplicationPortsNotUsed(appSpecifications, runningAppsNames).catch((error) => {
       log.error(error);
       trySpawningGlobalAppCache.set(randomApp, randomApp);
       throw error;
@@ -5579,7 +5772,6 @@ async function checkAndNotifyPeersOfRunningApps() {
     if (myIP === null) {
       throw new Error('Unable to detect Flux IP address');
     }
-    myIP = myIP.split(':')[0]; // just IP address
     // get list of locally installed apps. Store them in database as running and send info to our peers.
     // check if they are running?
     const installedAppsRes = await installedApps();
@@ -5710,7 +5902,7 @@ async function expireGlobalApplications() {
       return;
     }
     // get current height
-    const dbopen = serviceHelper.databaseConnection();
+    const dbopen = dbHelper.databaseConnection();
     const database = dbopen.db(config.database.daemon.database);
     const query = { generalScannedHeight: { $gte: 0 } };
     const projection = {
@@ -5719,7 +5911,7 @@ async function expireGlobalApplications() {
         generalScannedHeight: 1,
       },
     };
-    const result = await serviceHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
+    const result = await dbHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
     if (!result) {
       throw new Error('Scanning not initiated');
     }
@@ -5730,14 +5922,14 @@ async function expireGlobalApplications() {
     const databaseApps = dbopen.db(config.database.appsglobal.database);
     const queryApps = { height: { $lt: expirationHeight } };
     const projectionApps = { projection: { _id: 0, name: 1, hash: 1 } }; // todo look into correction for checking hash of app
-    const results = await serviceHelper.findInDatabase(databaseApps, globalAppsInformation, queryApps, projectionApps);
+    const results = await dbHelper.findInDatabase(databaseApps, globalAppsInformation, queryApps, projectionApps);
     const appNamesToExpire = results.map((res) => res.name);
     // remove appNamesToExpire apps from global database
     // eslint-disable-next-line no-restricted-syntax
     for (const appName of appNamesToExpire) {
       const queryDeleteApp = { name: appName };
       // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.findOneAndDeleteInDatabase(databaseApps, globalAppsInformation, queryDeleteApp, projectionApps);
+      await dbHelper.findOneAndDeleteInDatabase(databaseApps, globalAppsInformation, queryDeleteApp, projectionApps);
     }
 
     // get list of locally installed apps.
@@ -5789,27 +5981,16 @@ async function checkAndRemoveApplicationInstance() {
         const appDetails = await getApplicationGlobalSpecifications(installedApp.name);
         if (appDetails) {
           log.info(`Application ${installedApp.name} is already spawned on ${runningAppList.length} instances. Checking removal availability..`);
-          // get our version of app and compare to global
-          const correctlyRunningInstances = runningAppList.filter((appInstance) => appInstance.hash === appDetails.hash); // app isntance has to be latest version of the app
-          if (correctlyRunningInstances.length > (minInstances + config.fluxapps.maximumAdditionalInstances)) {
-            log.info(`Application ${installedApp.name} is already spawned on ${runningAppList.length} with latest version. Checking removal availability..`);
-            let randomNumber = Math.floor((Math.random() * config.fluxapps.removal.probability));
-            if (installedApp.hash !== appDetails.hash) { // application is obsolete on our system. Remove
-              log.warn(`Application ${installedApp.name} is obsolete. Removing...`);
-              randomNumber = 0;
-            }
-            if (randomNumber === 0) {
-              log.warn(`Removing application ${installedApp.name} locally`);
-              // eslint-disable-next-line no-await-in-loop
-              await removeAppLocally(installedApp.name);
-              log.warn(`Application ${installedApp.name} locally removed`);
-              // eslint-disable-next-line no-await-in-loop
-              await serviceHelper.delay(config.fluxapps.removal.delay * 1000); // wait for 6 mins so we dont have more removals at the same time
-            } else {
-              log.info(`Other Fluxes are evaluating application ${installedApp.name} removal.`);
-            }
+          const randomNumber = Math.floor((Math.random() * config.fluxapps.removal.probability));
+          if (randomNumber === 0) {
+            log.warn(`Removing application ${installedApp.name} locally`);
+            // eslint-disable-next-line no-await-in-loop
+            await removeAppLocally(installedApp.name);
+            log.warn(`Application ${installedApp.name} locally removed`);
+            // eslint-disable-next-line no-await-in-loop
+            await serviceHelper.delay(config.fluxapps.removal.delay * 1000); // wait for 6 mins so we dont have more removals at the same time
           } else {
-            log.info(`Application ${installedApp.name} is undergoing an update. Removal not proceeded`);
+            log.info(`Other Fluxes are evaluating application ${installedApp.name} removal.`);
           }
         }
       }
@@ -5823,7 +6004,7 @@ async function softRedeploy(appSpecs, res) {
   try {
     if (removalInProgress) {
       log.warn('Another application is undergoing removal');
-      const appRedeployResponse = serviceHelper.createDataMessage('Another application is undergoing removal');
+      const appRedeployResponse = messageHelper.createDataMessage('Another application is undergoing removal');
       if (res) {
         res.write(serviceHelper.ensureString(appRedeployResponse));
       }
@@ -5831,7 +6012,7 @@ async function softRedeploy(appSpecs, res) {
     }
     if (installationInProgress) {
       log.warn('Another application is undergoing installation');
-      const appRedeployResponse = serviceHelper.createDataMessage('Another application is undergoing installation');
+      const appRedeployResponse = messageHelper.createDataMessage('Another application is undergoing installation');
       if (res) {
         res.write(serviceHelper.ensureString(appRedeployResponse));
       }
@@ -5844,7 +6025,7 @@ async function softRedeploy(appSpecs, res) {
       removalInProgress = false;
       throw error;
     }
-    const appRedeployResponse = serviceHelper.createDataMessage('Application softly removed. Awaiting installation...');
+    const appRedeployResponse = messageHelper.createDataMessage('Application softly removed. Awaiting installation...');
     log.info(appRedeployResponse);
     if (res) {
       res.write(serviceHelper.ensureString(appRedeployResponse));
@@ -5864,7 +6045,7 @@ async function softRedeploy(appSpecs, res) {
 async function hardRedeploy(appSpecs, res) {
   try {
     await removeAppLocally(appSpecs.name, res, false, false);
-    const appRedeployResponse = serviceHelper.createDataMessage('Application removed. Awaiting installation...');
+    const appRedeployResponse = messageHelper.createDataMessage('Application removed. Awaiting installation...');
     log.info(appRedeployResponse);
     if (res) {
       res.write(serviceHelper.ensureString(appRedeployResponse));
@@ -6020,13 +6201,13 @@ async function reinstallOldApplications() {
                 }
               }
               // connect to mongodb
-              const dbopen = serviceHelper.databaseConnection();
+              const dbopen = dbHelper.databaseConnection();
               const appsDatabase = dbopen.db(config.database.appslocal.database);
               const appsQuery = { name: appSpecifications.name };
               const appsProjection = {};
               log.warn('Cleaning up database...');
               // eslint-disable-next-line no-await-in-loop
-              await serviceHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+              await dbHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
               const databaseStatus2 = {
                 status: 'Database cleaned',
               };
@@ -6067,7 +6248,7 @@ async function reinstallOldApplications() {
               }
               // register the app
               // eslint-disable-next-line no-await-in-loop
-              await serviceHelper.insertOneToDatabase(appsDatabase, localAppsInformation, appSpecifications);
+              await dbHelper.insertOneToDatabase(appsDatabase, localAppsInformation, appSpecifications);
               log.warn(`Composed application ${appSpecifications.name} updated.`);
             } catch (error) {
               removalInProgress = false;
@@ -6104,7 +6285,7 @@ async function getAppPrice(req, res) {
       // verifications skipped. This endpoint is only for price evaluation
 
       // check if app exists or its a new registration price
-      const db = serviceHelper.databaseConnection();
+      const db = dbHelper.databaseConnection();
       const database = db.db(config.database.appsglobal.database);
       // may throw
       const query = { name: appSpecFormatted.name };
@@ -6118,7 +6299,7 @@ async function getAppPrice(req, res) {
         throw new Error('Daemon not yet synced.');
       }
       const daemonHeight = syncStatus.data.height;
-      const appInfo = await serviceHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+      const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
       let actualPriceToPay = appPricePerMonth(appSpecFormatted, daemonHeight);
       if (appInfo) {
         const previousSpecsPrice = appPricePerMonth(appInfo, daemonHeight); // calculate previous based on CURRENT height, with current interval of prices!
@@ -6135,11 +6316,11 @@ async function getAppPrice(req, res) {
       if (actualPriceToPay < priceSpecifications.minPrice) {
         actualPriceToPay = priceSpecifications.minPrice;
       }
-      const respondPrice = serviceHelper.createDataMessage(actualPriceToPay);
+      const respondPrice = messageHelper.createDataMessage(actualPriceToPay);
       return res.json(respondPrice);
     } catch (error) {
       log.warn(error);
-      const errorResponse = serviceHelper.createErrorMessage(
+      const errorResponse = messageHelper.createErrorMessage(
         error.message || error,
         error.name,
         error.code,
@@ -6168,7 +6349,7 @@ async function redeployAPI(req, res) {
 
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
     if (!authorized) {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
       return;
     }
@@ -6187,7 +6368,7 @@ async function redeployAPI(req, res) {
     }
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -6223,11 +6404,11 @@ async function verifyAppRegistrationParameters(req, res) {
 
       // app is valid and can be registered
       // respond with formatted specifications
-      const respondPrice = serviceHelper.createDataMessage(appSpecFormatted);
+      const respondPrice = messageHelper.createDataMessage(appSpecFormatted);
       return res.json(respondPrice);
     } catch (error) {
       log.warn(error);
-      const errorResponse = serviceHelper.createErrorMessage(
+      const errorResponse = messageHelper.createErrorMessage(
         error.message || error,
         error.name,
         error.code,
@@ -6265,11 +6446,11 @@ async function verifyAppUpdateParameters(req, res) {
 
       // app is valid and can be registered
       // respond with formatted specifications
-      const respondPrice = serviceHelper.createDataMessage(appSpecFormatted);
+      const respondPrice = messageHelper.createDataMessage(appSpecFormatted);
       return res.json(respondPrice);
     } catch (error) {
       log.warn(error);
-      const errorResponse = serviceHelper.createErrorMessage(
+      const errorResponse = messageHelper.createErrorMessage(
         error.message || error,
         error.name,
         error.code,
@@ -6292,11 +6473,11 @@ async function deploymentInformation(req, res) {
       minimumInstances: config.fluxapps.minimumInstances,
       maximumInstances: config.fluxapps.maximumInstances,
     };
-    const respondPrice = serviceHelper.createDataMessage(information);
+    const respondPrice = messageHelper.createDataMessage(information);
     res.json(respondPrice);
   } catch (error) {
     log.warn(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -6307,13 +6488,13 @@ async function deploymentInformation(req, res) {
 
 async function reconstructAppMessagesHashCollection() {
   // go through our appsHashesCollection and check if globalAppsMessages trully has the message or not
-  const db = serviceHelper.databaseConnection();
+  const db = dbHelper.databaseConnection();
   const databaseApps = db.db(config.database.appsglobal.database);
   const databaseDaemon = db.db(config.database.daemon.database);
   const query = {};
   const projection = { projection: { _id: 0 } };
-  const permanentMessages = await serviceHelper.findInDatabase(databaseApps, globalAppsMessages, query, projection);
-  const appHashes = await serviceHelper.findInDatabase(databaseDaemon, appsHashesCollection, query, projection);
+  const permanentMessages = await dbHelper.findInDatabase(databaseApps, globalAppsMessages, query, projection);
+  const appHashes = await dbHelper.findInDatabase(databaseDaemon, appsHashesCollection, query, projection);
   // eslint-disable-next-line no-restricted-syntax
   for (const appHash of appHashes) {
     const options = {};
@@ -6326,12 +6507,12 @@ async function reconstructAppMessagesHashCollection() {
       // update that we have the message
       const update = { $set: { message: true } };
       // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.updateOneInDatabase(databaseDaemon, appsHashesCollection, queryUpdate, update, options);
+      await dbHelper.updateOneInDatabase(databaseDaemon, appsHashesCollection, queryUpdate, update, options);
     } else {
       // update that we do not have the message
       const update = { $set: { message: false } };
       // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.updateOneInDatabase(databaseDaemon, appsHashesCollection, queryUpdate, update, options);
+      await dbHelper.updateOneInDatabase(databaseDaemon, appsHashesCollection, queryUpdate, update, options);
     }
   }
   return 'Reconstruct success';
@@ -6342,15 +6523,15 @@ async function reconstructAppMessagesHashCollectionAPI(req, res) {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized) {
       const result = await reconstructAppMessagesHashCollection();
-      const message = serviceHelper.createSuccessMessage(result);
+      const message = messageHelper.createSuccessMessage(result);
       res.json(message);
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -6438,6 +6619,7 @@ module.exports = {
   getAppsLocations,
   storeAppRunningMessage,
   reindexGlobalAppsLocation,
+  getRunningAppIpList,
   getRunningAppList,
   trySpawningGlobalApplication,
   getApplicationSpecifications,

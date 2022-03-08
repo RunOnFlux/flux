@@ -6,6 +6,8 @@ const os = require('os');
 const userconfig = require('../../../config/userconfig');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
+const messageHelper = require('./messageHelper');
+const dbHelper = require('./dbHelper');
 const verificationHelper = require('./verificationHelper');
 const generalService = require('./generalService');
 const dockerService = require('./dockerService');
@@ -13,6 +15,10 @@ const fluxCommunication = require('./fluxCommunication');
 
 const goodchars = /^[1-9a-km-zA-HJ-NP-Z]+$/;
 
+/**
+ * To check if the hardware specification requirements of the node tier are being met by the node (RAM and CPU threads).
+ * @returns {boolean} True or an error is thrown.
+ */
 async function confirmNodeTierHardware() {
   try {
     const tier = await generalService.nodeTier().catch((error) => {
@@ -23,52 +29,52 @@ async function confirmNodeTierHardware() {
       log.error(error);
     });
     const nodeRam = os.totalmem() / 1024 / 1024 / 1024;
-    const nodeCpuCores = os.cpus().length;
+    const nodeCpuThreads = os.cpus().length;
     log.info(`Node Tier: ${tier}`);
     log.info(`Node Collateral: ${collateral}`);
     log.info(`Node Total Ram: ${nodeRam}`);
-    log.info(`Node Cpu Cores: ${nodeCpuCores}`);
+    log.info(`Node Cpu Threads: ${nodeCpuThreads}`);
     if (tier === 'bamf' && collateral === 100000) {
       if (nodeRam < 30) {
         throw new Error(`Node Total Ram (${nodeRam}) below Stratus requirements`);
       }
-      if (nodeCpuCores < 8) {
-        throw new Error(`Node Cpu Cores (${nodeCpuCores}) below Stratus requirements`);
+      if (nodeCpuThreads < 8) {
+        throw new Error(`Node Cpu Threads (${nodeCpuThreads}) below Stratus requirements`);
       }
     } else if (tier === 'super' && collateral === 25000) {
       if (nodeRam < 7) {
         throw new Error(`Node Total Ram (${nodeRam}) below Nimbus requirements`);
       }
-      if (nodeCpuCores < 4) {
-        throw new Error(`Node Cpu Cores (${nodeCpuCores}) below Nimbus requirements`);
+      if (nodeCpuThreads < 4) {
+        throw new Error(`Node Cpu Threads (${nodeCpuThreads}) below Nimbus requirements`);
       }
     } else if (tier === 'basic' && collateral === 10000) {
       if (nodeRam < 3) {
         throw new Error(`Node Total Ram (${nodeRam}) below Cumulus requirements`);
       }
-      if (nodeCpuCores < 2) {
-        throw new Error(`Node Cpu Cores (${nodeCpuCores}) below Cumulus requirements`);
+      if (nodeCpuThreads < 2) {
+        throw new Error(`Node Cpu Threads (${nodeCpuThreads}) below Cumulus requirements`);
       }
     } else if (tier === 'bamf' && collateral === 40000) {
       if (nodeRam < 61) {
         throw new Error(`Node Total Ram (${nodeRam}) below new Stratus requirements`);
       }
-      if (nodeCpuCores < 16) {
-        throw new Error(`Node Cpu Cores (${nodeCpuCores}) below new Stratus requirements`);
+      if (nodeCpuThreads < 16) {
+        throw new Error(`Node Cpu Threads (${nodeCpuThreads}) below new Stratus requirements`);
       }
     } else if (tier === 'super' && collateral === 12500) {
       if (nodeRam < 30) {
         throw new Error(`Node Total Ram (${nodeRam}) below new Nimbus requirements`);
       }
-      if (nodeCpuCores < 8) {
-        throw new Error(`Node Cpu Cores (${nodeCpuCores}) below new Nimbus requirements`);
+      if (nodeCpuThreads < 8) {
+        throw new Error(`Node Cpu Threads (${nodeCpuThreads}) below new Nimbus requirements`);
       }
     } else if (tier === 'basic' && collateral === 1000) {
       if (nodeRam < 3) {
         throw new Error(`Node Total Ram (${nodeRam}) below new Cumulus requirements`);
       }
-      if (nodeCpuCores < 4) {
-        throw new Error(`Node Cpu Cores (${nodeCpuCores}) below new Cumulus requirements`);
+      if (nodeCpuThreads < 4) {
+        throw new Error(`Node Cpu Threads (${nodeCpuThreads}) below new Cumulus requirements`);
       }
     }
     return true;
@@ -78,6 +84,12 @@ async function confirmNodeTierHardware() {
   }
 }
 
+/**
+ * To return a JSON response with the user's login phrase.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ */
 async function loginPhrase(req, res) {
   try {
     // check docker availablility
@@ -91,18 +103,18 @@ async function loginPhrase(req, res) {
     const dosState = await fluxCommunication.getDOSState();
     if (dosState.status === 'error') {
       const errorMessage = 'Unable to check DOS state';
-      const errMessage = serviceHelper.createErrorMessage(errorMessage);
+      const errMessage = messageHelper.createErrorMessage(errorMessage);
       res.json(errMessage);
       return;
     }
     if (dosState.status === 'success') {
       if (dosState.data.dosState > 10 || dosState.data.dosMessage !== null || dosState.data.nodeHardwareSpecsGood === false) {
-        let errMessage = serviceHelper.createErrorMessage(dosState.data.dosMessage, 'DOS', dosState.data.dosState);
+        let errMessage = messageHelper.createErrorMessage(dosState.data.dosMessage, 'DOS', dosState.data.dosState);
         if (dosState.data.dosMessage !== 'Flux IP detection failed' && dosState.data.dosMessage !== 'Flux collision detection') {
-          errMessage = serviceHelper.createErrorMessage(dosState.data.dosMessage, 'CONNERROR', dosState.data.dosState);
+          errMessage = messageHelper.createErrorMessage(dosState.data.dosMessage, 'CONNERROR', dosState.data.dosState);
         }
         if (dosState.data.nodeHardwareSpecsGood === false) {
-          errMessage = serviceHelper.createErrorMessage('Minimum hardware required for FluxNode tier not met', 'DOS', 100);
+          errMessage = messageHelper.createErrorMessage('Minimum hardware required for FluxNode tier not met', 'DOS', 100);
         }
         res.json(errMessage);
         return;
@@ -120,7 +132,7 @@ async function loginPhrase(req, res) {
          expireAt: 2019-08-09T13:23:41.335Z
        }
     ] */
-    const db = serviceHelper.databaseConnection();
+    const db = dbHelper.databaseConnection();
     const database = db.db(config.database.local.database);
     const collection = config.database.local.collections.activeLoginPhrases;
     const newLoginPhrase = {
@@ -129,17 +141,22 @@ async function loginPhrase(req, res) {
       expireAt: new Date(validTill),
     };
     const value = newLoginPhrase;
-    await serviceHelper.insertOneToDatabase(database, collection, value);
+    await dbHelper.insertOneToDatabase(database, collection, value);
     // all is ok
-    const phraseResponse = serviceHelper.createDataMessage(phrase);
+    const phraseResponse = messageHelper.createDataMessage(phrase);
     res.json(phraseResponse);
   } catch (error) {
     log.error(error);
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
   }
 }
 
+/**
+ * To return a JSON response with the user's emergency login phrase.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 // loginPhrase without status checks
 async function emergencyPhrase(req, res) {
   try {
@@ -147,7 +164,7 @@ async function emergencyPhrase(req, res) {
     const validTill = timestamp + (15 * 60 * 1000); // 15 minutes
     const phrase = timestamp + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
 
-    const db = serviceHelper.databaseConnection();
+    const db = dbHelper.databaseConnection();
     const database = db.db(config.database.local.database);
     const collection = config.database.local.collections.activeLoginPhrases;
     const newLoginPhrase = {
@@ -156,16 +173,21 @@ async function emergencyPhrase(req, res) {
       expireAt: new Date(validTill),
     };
     const value = newLoginPhrase;
-    await serviceHelper.insertOneToDatabase(database, collection, value);
-    const phraseResponse = serviceHelper.createDataMessage(phrase);
+    await dbHelper.insertOneToDatabase(database, collection, value);
+    const phraseResponse = messageHelper.createDataMessage(phrase);
     res.json(phraseResponse);
   } catch (error) {
     log.error(error);
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
   }
 }
 
+/**
+ * To return a JSON response to show the user if they have logged in successfully or not. In order to successfully log in, a series of checks are performed on the ZelID and signature.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function verifyLogin(req, res) {
   // Phase 2 - check that request is valid
   let body = '';
@@ -214,12 +236,12 @@ async function verifyLogin(req, res) {
       }
       // Basic checks passed. First check if message is in our activeLoginPhrases collection
 
-      const db = serviceHelper.databaseConnection();
+      const db = dbHelper.databaseConnection();
       const database = db.db(config.database.local.database);
       const collection = config.database.local.collections.activeLoginPhrases;
       const query = { loginPhrase: message };
       const projection = {};
-      const result = await serviceHelper.findOneInDatabase(database, collection, query, projection);
+      const result = await dbHelper.findOneInDatabase(database, collection, query, projection);
 
       if (result) {
         // It is present in our database
@@ -253,7 +275,7 @@ async function verifyLogin(req, res) {
             }
             const loggedUsersCollection = config.database.local.collections.loggedUsers;
             const value = newLogin;
-            await serviceHelper.insertOneToDatabase(database, loggedUsersCollection, value);
+            await dbHelper.insertOneToDatabase(database, loggedUsersCollection, value);
             const resData = {
               message: 'Successfully logged in',
               zelid: address,
@@ -261,7 +283,7 @@ async function verifyLogin(req, res) {
               signature,
               privilage,
             };
-            const resMessage = serviceHelper.createDataMessage(resData);
+            const resMessage = messageHelper.createDataMessage(resData);
             res.json(resMessage);
             serviceHelper.deleteLoginPhrase(message); // delete so it cannot be used again
           } else {
@@ -275,12 +297,17 @@ async function verifyLogin(req, res) {
       }
     } catch (error) {
       log.error(error);
-      const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+      const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
       res.json(errMessage);
     }
   });
 }
 
+/**
+ * To return a JSON response with a new signature for the user. A series of checks are performed on the ZelID and signature.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function provideSign(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -324,7 +351,7 @@ async function provideSign(req, res) {
       const validTill = timestamp + (15 * 60 * 1000); // 15 minutes
       const identifier = address + message.substr(message.length - 13);
 
-      const db = serviceHelper.databaseConnection();
+      const db = dbHelper.databaseConnection();
       const database = db.db(config.database.local.database);
       const collection = config.database.local.collections.activeSignatures;
       const newSignature = {
@@ -334,23 +361,28 @@ async function provideSign(req, res) {
         expireAt: new Date(validTill),
       };
       const value = newSignature;
-      await serviceHelper.insertOneToDatabase(database, collection, value);
+      await dbHelper.insertOneToDatabase(database, collection, value);
       // all is ok
-      const phraseResponse = serviceHelper.createDataMessage(newSignature);
+      const phraseResponse = messageHelper.createDataMessage(newSignature);
       res.json(phraseResponse);
     } catch (error) {
       log.error(error);
-      const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+      const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
       res.json(errMessage);
     }
   });
 }
 
+/**
+ * To return a JSON response with a list of active login phrases. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function activeLoginPhrases(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
     if (authorized === true) {
-      const db = serviceHelper.databaseConnection();
+      const db = dbHelper.databaseConnection();
 
       const database = db.db(config.database.local.database);
       const collection = config.database.local.collections.activeLoginPhrases;
@@ -360,48 +392,58 @@ async function activeLoginPhrases(req, res) {
           _id: 0, loginPhrase: 1, createdAt: 1, expireAt: 1,
         },
       };
-      const results = await serviceHelper.findInDatabase(database, collection, query, projection);
-      const resultsResponse = serviceHelper.createDataMessage(results);
+      const results = await dbHelper.findInDatabase(database, collection, query, projection);
+      const resultsResponse = messageHelper.createDataMessage(results);
       res.json(resultsResponse);
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
   }
 }
 
+/**
+ * To return a JSON response with a list of logged in users. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function loggedUsers(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
     if (authorized === true) {
-      const db = serviceHelper.databaseConnection();
+      const db = dbHelper.databaseConnection();
       const database = db.db(config.database.local.database);
       const collection = config.database.local.collections.loggedUsers;
       const query = {};
       const projection = { projection: { _id: 0, zelid: 1, loginPhrase: 1 } };
-      const results = await serviceHelper.findInDatabase(database, collection, query, projection);
-      const resultsResponse = serviceHelper.createDataMessage(results);
+      const results = await dbHelper.findInDatabase(database, collection, query, projection);
+      const resultsResponse = messageHelper.createDataMessage(results);
       res.json(resultsResponse);
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
   }
 }
 
+/**
+ * To return a JSON response with a list of logged sessions. Only accessible by the ZelID owner.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function loggedSessions(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('user', req);
     if (authorized === true) {
-      const db = serviceHelper.databaseConnection();
+      const db = dbHelper.databaseConnection();
 
       const auth = serviceHelper.ensureObject(req.headers.zelidauth);
       const queryZelID = auth.zelid;
@@ -409,45 +451,55 @@ async function loggedSessions(req, res) {
       const collection = config.database.local.collections.loggedUsers;
       const query = { zelid: queryZelID };
       const projection = { projection: { _id: 0, zelid: 1, loginPhrase: 1 } };
-      const results = await serviceHelper.findInDatabase(database, collection, query, projection);
-      const resultsResponse = serviceHelper.createDataMessage(results);
+      const results = await dbHelper.findInDatabase(database, collection, query, projection);
+      const resultsResponse = messageHelper.createDataMessage(results);
       res.json(resultsResponse);
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
   }
 }
 
+/**
+ * To return a JSON response to show the user if they have logged out of the current session successfully or not. Only accessible by the ZelID owner.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function logoutCurrentSession(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('user', req);
     if (authorized === true) {
       const auth = serviceHelper.ensureObject(req.headers.zelidauth);
-      const db = serviceHelper.databaseConnection();
+      const db = dbHelper.databaseConnection();
       const database = db.db(config.database.local.database);
       const collection = config.database.local.collections.loggedUsers;
       const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
       const projection = {};
-      await serviceHelper.findOneAndDeleteInDatabase(database, collection, query, projection);
+      await dbHelper.findOneAndDeleteInDatabase(database, collection, query, projection);
       // console.log(results)
-      const message = serviceHelper.createSuccessMessage('Successfully logged out');
+      const message = messageHelper.createSuccessMessage('Successfully logged out');
       res.json(message);
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
   }
 }
 
+/**
+ * To return a JSON response to show the user if they have logged out of a specific session successfully or not. Only accessible by the ZelID owner.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function logoutSpecificSession(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -459,76 +511,91 @@ async function logoutSpecificSession(req, res) {
       if (authorized === true) {
         const processedBody = serviceHelper.ensureObject(body);
         const obtainedLoginPhrase = processedBody.loginPhrase;
-        const db = serviceHelper.databaseConnection();
+        const db = dbHelper.databaseConnection();
         const database = db.db(config.database.local.database);
         const collection = config.database.local.collections.loggedUsers;
         const query = { loginPhrase: obtainedLoginPhrase };
         const projection = {};
-        const result = await serviceHelper.findOneAndDeleteInDatabase(database, collection, query, projection);
+        const result = await dbHelper.findOneAndDeleteInDatabase(database, collection, query, projection);
         if (result.value === null) {
-          const message = serviceHelper.createWarningMessage('Specified user was already logged out');
+          const message = messageHelper.createWarningMessage('Specified user was already logged out');
           res.json(message);
         }
-        const message = serviceHelper.createSuccessMessage('Session successfully logged out');
+        const message = messageHelper.createSuccessMessage('Session successfully logged out');
         res.json(message);
       } else {
-        const errMessage = serviceHelper.errUnauthorizedMessage();
+        const errMessage = messageHelper.errUnauthorizedMessage();
         res.json(errMessage);
       }
     } catch (error) {
       log.error(error);
-      const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+      const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
       res.json(errMessage);
     }
   });
 }
 
+/**
+ * To return a JSON response to show the user if they have logged out from all sessions successfully or not. Only accessible by the ZelID owner.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function logoutAllSessions(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('user', req);
     if (authorized === true) {
       const auth = serviceHelper.ensureObject(req.headers.zelidauth);
-      const db = serviceHelper.databaseConnection();
+      const db = dbHelper.databaseConnection();
       const database = db.db(config.database.local.database);
       const collection = config.database.local.collections.loggedUsers;
       const query = { zelid: auth.zelid };
-      await serviceHelper.removeDocumentsFromCollection(database, collection, query);
+      await dbHelper.removeDocumentsFromCollection(database, collection, query);
       // console.log(result)
-      const message = serviceHelper.createSuccessMessage('Successfully logged out all sessions');
+      const message = messageHelper.createSuccessMessage('Successfully logged out all sessions');
       res.json(message);
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
   }
 }
 
+/**
+ * To return a JSON response to show the admin user if they have logged out all users successfully or not. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function logoutAllUsers(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
     if (authorized === true) {
-      const db = serviceHelper.databaseConnection();
+      const db = dbHelper.databaseConnection();
       const database = db.db(config.database.local.database);
       const collection = config.database.local.collections.loggedUsers;
       const query = {};
-      await serviceHelper.removeDocumentsFromCollection(database, collection, query);
-      const message = serviceHelper.createSuccessMessage('Successfully logged out all users');
+      await dbHelper.removeDocumentsFromCollection(database, collection, query);
+      const message = messageHelper.createSuccessMessage('Successfully logged out all users');
       res.json(message);
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
   }
 }
 
+/**
+ * To check if a login phrase is currently active. The user's ZelID, login phrase, signature and privilege level are returned if the login phrase is active.
+ * @param {object} ws Web socket.
+ * @param {object} req Request.
+ */
 async function wsRespondLoginPhrase(ws, req) {
   const { loginphrase } = req.params;
   // console.log(loginphrase)
@@ -545,7 +612,7 @@ async function wsRespondLoginPhrase(ws, req) {
     connclosed = true;
   };
 
-  const db = serviceHelper.databaseConnection();
+  const db = dbHelper.databaseConnection();
 
   const database = db.db(config.database.local.database);
   const collection = config.database.local.collections.loggedUsers;
@@ -554,8 +621,8 @@ async function wsRespondLoginPhrase(ws, req) {
   // eslint-disable-next-line no-inner-declarations
   async function searchDatabase() {
     try {
-      const result = await serviceHelper.findOneInDatabase(database, collection, query, projection).catch((error) => {
-        const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+      const result = await dbHelper.findOneInDatabase(database, collection, query, projection).catch((error) => {
+        const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
         ws.send(qs.stringify(errMessage));
         ws.close(1011);
         throw error;
@@ -576,7 +643,7 @@ async function wsRespondLoginPhrase(ws, req) {
           signature: result.signature,
           privilage,
         };
-        const message = serviceHelper.createDataMessage(resData);
+        const message = messageHelper.createDataMessage(resData);
         if (!connclosed) {
           try {
             ws.send(qs.stringify(message));
@@ -588,8 +655,8 @@ async function wsRespondLoginPhrase(ws, req) {
       } else {
         // check if this loginPhrase is still active. If so rerun this searching process
         const activeLoginPhrasesCollection = config.database.local.collections.activeLoginPhrases;
-        const resultB = await serviceHelper.findOneInDatabase(database, activeLoginPhrasesCollection, query, projection).catch((error) => {
-          const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+        const resultB = await dbHelper.findOneInDatabase(database, activeLoginPhrasesCollection, query, projection).catch((error) => {
+          const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
           ws.send(qs.stringify(errMessage));
           ws.close(1011);
           throw error;
@@ -601,7 +668,7 @@ async function wsRespondLoginPhrase(ws, req) {
             }
           }, 500);
         } else {
-          const errMessage = serviceHelper.createErrorMessage('Signed message is no longer valid. Please request a new one.');
+          const errMessage = messageHelper.createErrorMessage('Signed message is no longer valid. Please request a new one.');
           if (!connclosed) {
             try {
               ws.send(qs.stringify(errMessage));
@@ -619,6 +686,11 @@ async function wsRespondLoginPhrase(ws, req) {
   searchDatabase();
 }
 
+/**
+ * To check if a signature exists.
+ * @param {object} ws Web socket.
+ * @param {object} req Request.
+ */
 async function wsRespondSignature(ws, req) {
   const { message } = req.params;
   console.log(message);
@@ -635,7 +707,7 @@ async function wsRespondSignature(ws, req) {
     connclosed = true;
   };
 
-  const db = serviceHelper.databaseConnection();
+  const db = dbHelper.databaseConnection();
 
   const database = db.db(config.database.local.database);
   const collection = config.database.local.collections.activeSignatures;
@@ -643,8 +715,8 @@ async function wsRespondSignature(ws, req) {
   const projection = {};
   async function searchDatabase() {
     try {
-      const result = await serviceHelper.findOneInDatabase(database, collection, query, projection).catch((error) => {
-        const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+      const result = await dbHelper.findOneInDatabase(database, collection, query, projection).catch((error) => {
+        const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
         ws.send(qs.stringify(errMessage));
         ws.close(1011);
         throw error;
@@ -652,7 +724,7 @@ async function wsRespondSignature(ws, req) {
 
       if (result) {
         // signature exists
-        const response = serviceHelper.createDataMessage(result);
+        const response = messageHelper.createDataMessage(result);
         if (!connclosed) {
           try {
             ws.send(qs.stringify(response));
@@ -675,6 +747,11 @@ async function wsRespondSignature(ws, req) {
   searchDatabase();
 }
 
+/**
+ * To check the privilege level a user (ZelID). The privilege level is either admin, flux team or user.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function checkLoggedUser(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -701,27 +778,27 @@ async function checkLoggedUser(req, res) {
       };
       const isAdmin = await verificationHelper.verifyPrivilege('admin', request);
       if (isAdmin) {
-        const message = serviceHelper.createSuccessMessage('admin');
+        const message = messageHelper.createSuccessMessage('admin');
         res.json(message);
         return;
       }
       const isFluxTeam = await verificationHelper.verifyPrivilege('fluxteam', request);
       if (isFluxTeam) {
-        const message = serviceHelper.createSuccessMessage('fluxteam');
+        const message = messageHelper.createSuccessMessage('fluxteam');
         res.json(message);
         return;
       }
       const isUser = await verificationHelper.verifyPrivilege('user', request);
       if (isUser) {
-        const message = serviceHelper.createSuccessMessage('user');
+        const message = messageHelper.createSuccessMessage('user');
         res.json(message);
         return;
       }
-      const message = serviceHelper.createErrorMessage('none');
+      const message = messageHelper.createErrorMessage('none');
       res.json(message);
     } catch (error) {
       log.error(error);
-      const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+      const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
       res.json(errMessage);
     }
   });

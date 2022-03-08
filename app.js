@@ -9,42 +9,65 @@ const express = require('express');
 const app = require('./ZelBack/src/lib/server');
 const log = require('./ZelBack/src/lib/log');
 const serviceManager = require('./ZelBack/src/services/serviceManager');
+const upnpService = require('./ZelBack/src/services/upnpService');
 
 const userconfig = require('./config/userconfig');
+
+const apiPort = userconfig.initial.apiport || config.server.apiport;
+const homePort = +apiPort - 1;
 
 // const key = fs.readFileSync(path.join(__dirname, './certs/selfsigned.key'), 'utf8');
 // const cert = fs.readFileSync(path.join(__dirname, './certs/selfsigned.crt'), 'utf8');
 // const credentials = { key, cert };
 // const httpsServer = https.createServer(credentials, app);
 
+// const apiporthttps = +apiPort + 1;
 // httpsServer.listen(config.server.apiporthttps, () => {
 //   log.info(`Flux  https listening on port ${config.server.apiporthttps}!`);
 // });
 
-const apiPort = userconfig.apiport || config.server.apiport;
-const homePort = apiPort - 1;
+async function initiate() {
+  if (!config.server.allowedPorts.includes(+apiPort)) {
+    log.error(`Flux port ${apiPort} is not supported. Shutting down.`);
+    process.exit();
+  }
+  if (userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) {
+    const verifyUpnp = await upnpService.verifyUPNPsupport(apiPort);
+    if (verifyUpnp !== true) {
+      log.error(`Flux port ${userconfig.initial.apiport} specified but UPnP failed to verify support. Shutting down.`);
+      process.exit();
+    }
+    const setupUpnp = await upnpService.setupUPNP(apiPort);
+    if (setupUpnp !== true) {
+      log.error(`Flux port ${userconfig.initial.apiport} specified but UPnP failed to map to api or home port. Shutting down.`);
+      process.exit();
+    }
+  }
 
-app.listen(apiPort, () => {
-  log.info(`Flux running on port ${apiPort}!`);
-  serviceManager.startFluxFunctions();
-});
+  app.listen(apiPort, () => {
+    log.info(`Flux running on port ${apiPort}!`);
+    serviceManager.startFluxFunctions();
+  });
 
-// Flux Home configuration
-const home = path.join(__dirname, './HomeUI/dist');
+  // Flux Home configuration
+  const home = path.join(__dirname, './HomeUI/dist');
 
-const homeApp = express();
-homeApp.use(compression());
-homeApp.use(express.static(home));
+  const homeApp = express();
+  homeApp.use(compression());
+  homeApp.use(express.static(home));
 
-homeApp.get('/robots.txt', (req, res) => {
-  res.type('text/plain');
-  res.send('User-agent: *\nDisallow: /');
-});
+  homeApp.get('/robots.txt', (req, res) => {
+    res.type('text/plain');
+    res.send('User-agent: *\nDisallow: /');
+  });
 
-homeApp.get('*', (req, res) => {
-  res.sendFile(path.join(home, 'index.html'));
-});
+  homeApp.get('*', (req, res) => {
+    res.sendFile(path.join(home, 'index.html'));
+  });
 
-homeApp.listen(homePort, () => {
-  log.info(`Flux Home running on port ${homePort}!`);
-});
+  homeApp.listen(homePort, () => {
+    log.info(`Flux Home running on port ${homePort}!`);
+  });
+}
+
+initiate();

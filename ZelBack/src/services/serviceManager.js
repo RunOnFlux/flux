@@ -1,27 +1,47 @@
 const config = require('config');
 const log = require('../lib/log');
 
-const serviceHelper = require('./serviceHelper');
+const dbHelper = require('./dbHelper');
 const explorerService = require('./explorerService');
 const fluxCommunication = require('./fluxCommunication');
 const appsService = require('./appsService');
 const daemonService = require('./daemonService');
 const fluxService = require('./fluxService');
+const upnpService = require('./upnpService');
+const userconfig = require('../../../config/userconfig');
+
+const apiPort = userconfig.initial.apiport || config.server.apiport;
 
 async function startFluxFunctions() {
   try {
+    if (!config.server.allowedPorts.includes(+apiPort)) {
+      log.error(`Flux port ${apiPort} is not supported. Shutting down.`);
+      process.exit();
+    }
+    if (userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) {
+      const verifyUpnp = await upnpService.verifyUPNPsupport(apiPort);
+      if (verifyUpnp !== true) {
+        log.error(`Flux port ${userconfig.initial.apiport} specified but UPnP failed to verify support. Shutting down.`);
+        process.exit();
+      }
+      const setupUpnp = await upnpService.setupUPNP(apiPort);
+      if (setupUpnp !== true) {
+        log.error(`Flux port ${userconfig.initial.apiport} specified but UPnP failed to map to api or home port. Shutting down.`);
+        process.exit();
+      }
+    }
     log.info('Initiating MongoDB connection');
-    await serviceHelper.initiateDB(); // either true or throws error
+    await dbHelper.initiateDB(); // either true or throws error
     log.info('DB connected');
     log.info('Preparing local database...');
-    const db = serviceHelper.databaseConnection();
+    const db = dbHelper.databaseConnection();
     const database = db.db(config.database.local.database);
-    await serviceHelper.dropCollection(database, config.database.local.collections.activeLoginPhrases).catch((error) => {
+    await dbHelper.dropCollection(database, config.database.local.collections.activeLoginPhrases).catch((error) => {
       if (error.message !== 'ns not found') {
         log.error(error);
       }
     });
-    await serviceHelper.dropCollection(database, config.database.local.collections.activeSignatures).catch((error) => {
+    await dbHelper.dropCollection(database, config.database.local.collections.activeSignatures).catch((error) => {
       if (error.message !== 'ns not found') {
         log.error(error);
       }

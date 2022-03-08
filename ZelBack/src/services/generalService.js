@@ -5,12 +5,21 @@ const log = require('../lib/log');
 
 const serviceHelper = require('./serviceHelper');
 const daemonService = require('./daemonService');
+const messageHelper = require('./messageHelper');
+const dbHelper = require('./dbHelper');
 
 const scannedHeightCollection = config.database.daemon.collections.scannedHeight;
 
 let storedTier = null;
 let storedCollateral = null;
 
+/**
+ * To return a transaction hash and index.
+ * @param {string[]} collateralOutpoint List of collateral outpoints.
+ * @returns {object} Collateral info object.
+ * @property {string} txhash Transaction hash.
+ * @property {number} txindex Transaction index.
+ */
 function getCollateralInfo(collateralOutpoint) {
   const a = collateralOutpoint;
   const b = a.split(', ');
@@ -19,6 +28,10 @@ function getCollateralInfo(collateralOutpoint) {
   return { txhash, txindex };
 }
 
+/**
+ * To return the tier of a node.
+ * @returns {string} Name of the node tier.
+ */
 async function nodeTier() {
   if (storedTier) {
     return storedTier; // node tier is not changing. We can use globally cached value.
@@ -76,6 +89,10 @@ async function nodeTier() {
   throw new Error('Unrecognised Flux Node tier');
 }
 
+/**
+ * To return the quantity of collateral stored and determine what type of node it can be used for.
+ * @returns {number} The quantity of collateral.
+ */
 async function nodeCollateral() {
   if (storedCollateral) {
     return storedCollateral; // node collateral is not changing. We can use globally cached value.
@@ -133,6 +150,10 @@ async function nodeCollateral() {
   throw new Error('Unrecognised Flux Node Collateral');
 }
 
+/**
+ * Checks if a node's status is confirmed.
+ * @returns {boolean} True if node is confirmed. False if there is an error.
+ */
 async function isNodeStatusConfirmed() {
   try {
     const response = await daemonService.getZelNodeStatus();
@@ -149,6 +170,10 @@ async function isNodeStatusConfirmed() {
   }
 }
 
+/**
+ * Checks if a node's FluxOS database is synced with the node's daemon database.
+ * @returns {boolean} True if FluxOS databse height is within 1 of the daemon database height. False if not within 1 of the height or if there is an error.
+ */
 async function checkSynced() {
   try {
     // check if flux database is synced with daemon database (equal or -1 inheight)
@@ -157,7 +182,7 @@ async function checkSynced() {
       throw new Error('Daemon not yet synced.');
     }
     const daemonHeight = syncStatus.data.height;
-    const dbopen = serviceHelper.databaseConnection();
+    const dbopen = dbHelper.databaseConnection();
     const database = dbopen.db(config.database.daemon.database);
     const query = { generalScannedHeight: { $gte: 0 } };
     const projection = {
@@ -166,7 +191,7 @@ async function checkSynced() {
         generalScannedHeight: 1,
       },
     };
-    const result = await serviceHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
+    const result = await dbHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
     if (!result) {
       throw new Error('Scanning not initiated');
     }
@@ -182,6 +207,11 @@ async function checkSynced() {
   }
 }
 
+/**
+ * To check if an app's Git repository is whitelisted and able to be run on FluxOS.
+ * @param {string} repotag GitHub repository tag.
+ * @returns {boolean} True or an error is thrown.
+ */
 async function checkWhitelistedRepository(repotag) {
   if (typeof repotag !== 'string') {
     throw new Error('Invalid repotag');
@@ -205,6 +235,11 @@ async function checkWhitelistedRepository(repotag) {
   return true;
 }
 
+/**
+ * To check if a user's ZelID is whitelisted and able to be run on FluxOS.
+ * @param {string} zelid ZelID created by Zelcore.
+ * @returns {boolean} True or an error is thrown.
+ */
 async function checkWhitelistedZelID(zelid) {
   if (typeof zelid !== 'string') {
     throw new Error('Invalid Owner ZelID');
@@ -223,30 +258,45 @@ async function checkWhitelistedZelID(zelid) {
   return true;
 }
 
+/**
+ * To create a JSON response showing a list of whitelisted Github repositories.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function whitelistedRepositories(req, res) {
   try {
     const whitelisted = await serviceHelper.axiosGet('https://raw.githubusercontent.com/runonflux/flux/master/helpers/repositories.json');
-    const resultsResponse = serviceHelper.createDataMessage(whitelisted.data);
+    const resultsResponse = messageHelper.createDataMessage(whitelisted.data);
     res.json(resultsResponse);
   } catch (error) {
     log.error(error);
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
   }
 }
 
+/**
+ * To create a JSON response showing a list of whitelisted ZelIDs.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function whitelistedZelIDs(req, res) {
   try {
     const whitelisted = await serviceHelper.axiosGet('https://raw.githubusercontent.com/runonflux/flux/master/helpers/zelids.json');
-    const resultsResponse = serviceHelper.createDataMessage(whitelisted.data);
+    const resultsResponse = messageHelper.createDataMessage(whitelisted.data);
     res.json(resultsResponse);
   } catch (error) {
     log.error(error);
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
   }
 }
 
+/**
+ * To hash a message using sha256 encryption.
+ * @param {string} message Message to be hashed.
+ * @returns {string} Hashed message.
+ */
 async function messageHash(message) {
   if (typeof message !== 'string') {
     return new Error('Invalid message');

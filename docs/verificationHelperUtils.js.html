@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: verificationHelperUtils.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: verificationHelperUtils.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>/**
+ * @module
+ * Contains utility functions to be used only by verificationHelper.
+ * To verify privilege use verifyPrivilege from verificationHelper module.
+ */
+
+const config = require('config');
+const bitcoinMessage = require('bitcoinjs-message');
+const serviceHelper = require('./serviceHelper');
+const dbHelper = require('./dbHelper');
+const userconfig = require('../../../config/userconfig');
+
+/**
+ * Verifies admin session
+ * @param {object} headers
+ *
+ * @returns {Promise&lt;boolean>}
+ */
+async function verifyAdminSession(headers) {
+  if (!headers || !headers.zelidauth) return false;
+  const auth = serviceHelper.ensureObject(headers.zelidauth);
+  if (!auth.zelid || !auth.signature) return false;
+  if (auth.zelid !== userconfig.initial.zelid) return false;
+
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.local.database);
+  const collection = config.database.local.collections.loggedUsers;
+  const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
+  const projection = {};
+  const loggedUser = await dbHelper.findOneInDatabase(database, collection, query, projection);
+  if (!loggedUser) return false;
+
+  // check if signature corresponds to message with that zelid
+  let valid = false;
+  try {
+    valid = bitcoinMessage.verify(loggedUser.loginPhrase, auth.zelid, auth.signature);
+  } catch (error) {
+    return false;
+  }
+  if (valid) {
+    // now we know this is indeed a logged admin
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Verifies user session
+ * @param {object} headers
+ *
+ * @returns {Promise&lt;boolean>}
+ */
+async function verifyUserSession(headers) {
+  if (!headers || !headers.zelidauth) return false;
+  const auth = serviceHelper.ensureObject(headers.zelidauth);
+  if (!auth.zelid || !auth.signature) return false;
+
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.local.database);
+  const collection = config.database.local.collections.loggedUsers;
+  const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
+  const projection = {};
+  const loggedUser = await dbHelper.findOneInDatabase(database, collection, query, projection);
+  if (!loggedUser) return false;
+
+  // check if signature corresponds to message with that zelid
+  let valid = false;
+  try {
+    valid = bitcoinMessage.verify(loggedUser.loginPhrase, auth.zelid, auth.signature);
+  } catch (error) {
+    return false;
+  }
+  // console.log(valid)
+  if (valid) {
+    // now we know this is indeed a logged admin
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Verifies flux team session
+ * @param {object} headers
+ *
+ * @returns {Promise&lt;boolean>}
+ */
+async function verifyFluxTeamSession(headers) {
+  if (!headers || !headers.zelidauth) return false;
+  const auth = serviceHelper.ensureObject(headers.zelidauth);
+  if (!auth.zelid || !auth.signature) return false;
+  if (auth.zelid !== config.fluxTeamZelId) return false;
+
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.local.database);
+  const collection = config.database.local.collections.loggedUsers;
+  const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
+  const projection = {};
+  const result = await dbHelper.findOneInDatabase(database, collection, query, projection);
+  const loggedUser = result;
+  if (!loggedUser) return false;
+  // check if signature corresponds to message with that zelid
+  let valid = false;
+  try {
+    valid = bitcoinMessage.verify(loggedUser.loginPhrase, auth.zelid, auth.signature);
+  } catch (error) {
+    return false;
+  }
+  if (valid) {
+    // now we know this is indeed a logged fluxteam
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Verifies admin or flux team session
+ * @param {object} headers
+ *
+ * @returns {Promise&lt;boolean>}
+ */
+async function verifyAdminAndFluxTeamSession(headers) {
+  if (!headers || !headers.zelidauth) return false;
+  const auth = serviceHelper.ensureObject(headers.zelidauth);
+  if (!auth.zelid || !auth.signature) return false;
+  if (auth.zelid !== config.fluxTeamZelId &amp;&amp; auth.zelid !== userconfig.initial.zelid) return false; // admin is considered as fluxTeam
+
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.local.database);
+  const collection = config.database.local.collections.loggedUsers;
+  const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
+  const projection = {};
+  const loggedUser = await dbHelper.findOneInDatabase(database, collection, query, projection);
+  if (!loggedUser) return false;
+
+  // check if signature corresponds to message with that zelid
+  let valid = false;
+  try {
+    valid = bitcoinMessage.verify(loggedUser.loginPhrase, auth.zelid, auth.signature);
+  } catch (error) {
+    return false;
+  }
+  if (valid) {
+    // now we know this is indeed a logged admin or fluxteam
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Verifies app owner session
+ * @param {object} headers
+ *
+ * @returns {Promise&lt;boolean>}
+ */
+async function verifyAppOwnerSession(headers, appName) {
+  if (!headers || !headers.zelidauth || !appName) return false;
+  const auth = serviceHelper.ensureObject(headers.zelidauth);
+  if (!auth.zelid || !auth.signature) return false;
+  const ownerZelID = await serviceHelper.getApplicationOwner(appName);
+  if (auth.zelid !== ownerZelID) return false;
+
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.local.database);
+  const collection = config.database.local.collections.loggedUsers;
+  const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
+  const projection = {};
+  const loggedUser = await dbHelper.findOneInDatabase(database, collection, query, projection);
+  if (!loggedUser) return false;
+  // check if signature corresponds to message with that zelid
+  let valid = false;
+  try {
+    valid = bitcoinMessage.verify(loggedUser.loginPhrase, auth.zelid, auth.signature);
+  } catch (error) {
+    return false;
+  }
+  if (valid) {
+    // now we know this is indeed a logged application owner
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Verifies app owner (or higher privilege) session
+ * @param {object} headers
+ *
+ * @returns {Promise&lt;boolean>}
+ */
+async function verifyAppOwnerOrHigherSession(headers, appName) {
+  if (!headers || !headers.zelidauth || !appName) return false;
+  const auth = serviceHelper.ensureObject(headers.zelidauth);
+  if (!auth.zelid || !auth.signature) return false;
+  const ownerZelID = await serviceHelper.getApplicationOwner(appName);
+  if (auth.zelid !== ownerZelID &amp;&amp; auth.zelid !== config.fluxTeamZelId &amp;&amp; auth.zelid !== userconfig.initial.zelid) return false;
+
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.local.database);
+  const collection = config.database.local.collections.loggedUsers;
+  const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
+  const projection = {};
+  const loggedUser = await dbHelper.findOneInDatabase(database, collection, query, projection);
+  if (!loggedUser) return false;
+
+  // check if signature corresponds to message with that zelid
+  let valid = false;
+  try {
+    valid = bitcoinMessage.verify(loggedUser.loginPhrase, auth.zelid, auth.signature);
+  } catch (error) {
+    return false;
+  }
+  if (valid) {
+    // now we know this is indeed a logged application owner
+    return true;
+  }
+  return false;
+}
+
+module.exports = {
+  verifyAdminAndFluxTeamSession,
+  verifyAdminSession,
+  verifyAppOwnerOrHigherSession,
+  verifyAppOwnerSession,
+  verifyFluxTeamSession,
+  verifyUserSession,
+};
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Modules</h3><ul><li><a href="Contains%2520utility%2520functions%2520to%2520be%2520used%2520only%2520by%2520verificationHelper.%250ATo%2520verify%2520privilege%2520use%2520verifyPrivilege%2520from%2520verificationHelper%2520module.module_.html">Contains utility functions to be used only by verificationHelper.
+To verify privilege use verifyPrivilege from verificationHelper module.</a></li><li><a href="module-Helper%2520module%2520used%2520for%2520all%2520interactions%2520with%2520database.html">Helper module used for all interactions with database</a></li></ul><h3>Global</h3><ul><li><a href="global.html#activeLoginPhrases">activeLoginPhrases</a></li><li><a href="global.html#checkLoggedUser">checkLoggedUser</a></li><li><a href="global.html#checkSynced">checkSynced</a></li><li><a href="global.html#checkWhitelistedRepository">checkWhitelistedRepository</a></li><li><a href="global.html#checkWhitelistedZelID">checkWhitelistedZelID</a></li><li><a href="global.html#confirmNodeTierHardware">confirmNodeTierHardware</a></li><li><a href="global.html#createDataMessage">createDataMessage</a></li><li><a href="global.html#createErrorMessage">createErrorMessage</a></li><li><a href="global.html#createSuccessMessage">createSuccessMessage</a></li><li><a href="global.html#createWarningMessage">createWarningMessage</a></li><li><a href="global.html#emergencyPhrase">emergencyPhrase</a></li><li><a href="global.html#errUnauthorizedMessage">errUnauthorizedMessage</a></li><li><a href="global.html#getCollateralInfo">getCollateralInfo</a></li><li><a href="global.html#isNodeStatusConfirmed">isNodeStatusConfirmed</a></li><li><a href="global.html#loggedSessions">loggedSessions</a></li><li><a href="global.html#loggedUsers">loggedUsers</a></li><li><a href="global.html#loginPhrase">loginPhrase</a></li><li><a href="global.html#logoutAllSessions">logoutAllSessions</a></li><li><a href="global.html#logoutAllUsers">logoutAllUsers</a></li><li><a href="global.html#logoutCurrentSession">logoutCurrentSession</a></li><li><a href="global.html#logoutSpecificSession">logoutSpecificSession</a></li><li><a href="global.html#messageHash">messageHash</a></li><li><a href="global.html#nodeCollateral">nodeCollateral</a></li><li><a href="global.html#nodeTier">nodeTier</a></li><li><a href="global.html#provideSign">provideSign</a></li><li><a href="global.html#signMessage">signMessage</a></li><li><a href="global.html#verifyLogin">verifyLogin</a></li><li><a href="global.html#verifyMessage">verifyMessage</a></li><li><a href="global.html#verifyPrivilege">verifyPrivilege</a></li><li><a href="global.html#verifyZelID">verifyZelID</a></li><li><a href="global.html#whitelistedRepositories">whitelistedRepositories</a></li><li><a href="global.html#whitelistedZelIDs">whitelistedZelIDs</a></li><li><a href="global.html#wsRespondLoginPhrase">wsRespondLoginPhrase</a></li><li><a href="global.html#wsRespondSignature">wsRespondSignature</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.10</a> on Sun Mar 06 2022 18:59:20 GMT+0700 (Indočínský čas)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

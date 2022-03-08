@@ -369,7 +369,7 @@ export default {
       return filteredFolder.filter((data) => data.name !== '.gitkeep');
     },
     getUploadFolder() {
-      const port = this.userconfig.apiPort || this.config.apiPort;
+      const port = this.config.apiPort;
       if (this.currentFolder) {
         const folder = encodeURIComponent(this.currentFolder);
         return `${this.ipAddress}:${port}/apps/fluxshare/uploadfile/${folder}`;
@@ -641,7 +641,7 @@ export default {
       return true;
     },
     createfluxshareLink(name, token) {
-      const port = this.userconfig.apiPort || this.config.apiPort;
+      const port = this.config.apiPort;
       return `${this.ipAddress}:${port}/apps/fluxshare/getfile/${name}?token=${token}`;
     },
     copyLinkToClipboard(link) {
