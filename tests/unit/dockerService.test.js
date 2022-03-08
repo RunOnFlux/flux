@@ -4,7 +4,6 @@ const sinon = require('sinon');
 const path = require('path');
 
 const dockerService = require('../../ZelBack/src/services/dockerService');
-const messageHelper = require('../../ZelBack/src/services/messageHelper');
 
 const { expect } = chai;
 
@@ -264,25 +263,17 @@ describe('dockerService tests', () => {
     });
   });
 
-  describe.skip('dockerContainerLogsStream tests', () => {
-    it('should return a valid stats object', async () => {
-      const containerName = 'website';
+  describe.skip('dockerContainerExec tests', () => {
+    // TODO: I can't get any command to emit any data
+    it('should execute a command inside of the conainter', async () => {
+      const container = dockerService.getDockerContainerByIdOrName('website');
+      const cmd = '';
+      const env = [];
       const res = {};
 
-      await dockerService.dockerContainerLogsStream(containerName, res, (error) => {
-        if (error) {
-          const errorResponse = messageHelper.createErrorMessage(
-            error.message || error,
-            error.name,
-            error.code,
-          );
-          res.write(errorResponse);
-          res.end();
-        } else {
-          res.end();
-        }
+      dockerService.dockerContainerExec(container, cmd, env, res, (err, data) => {
+        console.log(data);
       });
-      console.log(res);
     });
   });
 
