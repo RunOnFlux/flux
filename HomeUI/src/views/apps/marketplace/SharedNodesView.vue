@@ -184,7 +184,18 @@
                   >
                     <div class="d-flex flex-row row">
                       <b-avatar
-                        v-if="titanConfig && stake.confirmations >= titanConfig.confirms"
+                        v-if="stake.confirmations === -1"
+                        size="48"
+                        variant="light-danger"
+                        class="node-status mt-auto mb-auto"
+                      >
+                        <v-icon
+                          scale="1.75"
+                          name="hourglass-half"
+                        />
+                      </b-avatar>
+                      <b-avatar
+                        v-else-if="titanConfig && stake.confirmations >= titanConfig.confirms"
                         size="48"
                         variant="light-success"
                         class="node-status mt-auto mb-auto"
@@ -198,7 +209,7 @@
                         v-else
                         size="48"
                         variant="light-warning"
-                        class="node-status mt-auto mb-auto col"
+                        class="node-status mt-auto mb-auto"
                       >
                         {{ stake.confirmations }}/{{ titanConfig ? titanConfig.confirms : 0 }}
                       </b-avatar>
@@ -404,7 +415,7 @@
         </tab-content>
         <tab-content
           title="Sign Stake"
-          :before-change="() => signature !== null"
+          :before-change="() => signature !== null && signatureHash !== null"
         >
           <b-card
             title="Sign Stake with Zelcore"
@@ -430,62 +441,74 @@
         </tab-content>
         <tab-content
           title="Register Stake"
-          :before-change="() => stakeRegistered === false"
+          :before-change="() => stakeRegistered === true"
         >
           <b-card
             title="Register Stake with Titan"
             class="text-center wizard-card"
           >
-            <div class="mt-auto mb-auto">
+            <div class="mt-3 mb-auto ">
               <b-button
                 size="lg"
                 :disabled="registeringStake || stakeRegistered"
                 variant="success"
                 @click="registerStake"
               >
-                Register
+                Register Stake
               </b-button>
               <h4
                 v-if="stakeRegistered"
-                class="mt-1"
+                class="mt-3 text-success"
               >
                 Registration received
+              </h4>
+              <h4
+                v-if="stakeRegisterFailed"
+                class="mt-3 text-danger"
+              >
+                Registration failed
               </h4>
             </div>
           </b-card>
         </tab-content>
-        <tab-content title="Send Funds">
-          <b-row
-            v-if="titanConfig"
-            class="match-height"
+        <tab-content
+          title="Send Funds"
+        >
+          <div
+            v-if="titanConfig && signatureHash"
           >
-            <b-col
-              lg="8"
+            <b-card
+              title="Send Funds"
+              class="text-center wizard-card"
             >
-              <b-card
-                title="Send Funds"
-                class="text-center wizard-card"
+              <b-card-text>
+                To finish staking,  make a transaction of <span class="text-success">{{ toFixedLocaleString(stakeAmount) }}</span> FLUX to address<br>
+                <h5
+                  class="text-wrap ml-auto mr-auto text-warning"
+                  style="width: 25rem;"
+                >
+                  {{ titanConfig.fundingAddress }}
+                </h5>
+                with the following message<br>
+              </b-card-text>
+              <h5
+                class="text-wrap ml-auto mr-auto text-warning"
+                style="width: 25rem;"
               >
-                <b-card-text>
-                  To finish the staking, please make a transaction of {{ toFixedLocaleString(stakeAmount) }} FLUX to address<br>
-                  '{{ titanConfig.nodeAddress }}'<br>
-                  with the following message<br>
-                  '{{ userZelid }}'
-                </b-card-text>
-                <!--<br>
-                The transaction must be mined by {{ new Date(validTill).toLocaleString('en-GB', timeoptions.shortDate) }}
-                <br><br>
-                The application will be subscribed until {{ new Date(subscribedTill).toLocaleString('en-GB', timeoptions.shortDate) }}-->
-              </b-card>
-            </b-col>
-            <b-col
-              lg="4"
-            >
-              <b-card
-                title="Pay with Zelcore"
-                class="text-center wizard-card"
-              >
-                <a :href="`zel:?action=pay&coin=zelcash&address=${titanConfig.nodeAddress}&amount=${stakeAmount}&message=${signature}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`">
+                {{ signatureHash }}
+              </h5>
+              <!--<br>
+              The transaction must be mined by {{ new Date(validTill).toLocaleString('en-GB', timeoptions.shortDate) }}
+              <br><br>
+              The application will be subscribed until {{ new Date(subscribedTill).toLocaleString('en-GB', timeoptions.shortDate) }}-->
+              <div class="d-flex flex-row mt-2">
+                <h3 class="col text-center mt-2">
+                  Pay with<br>Zelcore
+                </h3>
+                <a
+                  :href="`zel:?action=pay&coin=zelcash&address=${titanConfig.nodeAddress}&amount=${stakeAmount}&message=${signatureHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`"
+                  class="col"
+                >
                   <img
                     class="zelidLogin"
                     src="@/assets/images/zelID.svg"
@@ -494,9 +517,9 @@
                     width="100%"
                   >
                 </a>
-              </b-card>
-            </b-col>
-          </b-row>
+              </div>
+            </b-card>
+          </div>
         </tab-content>
       </form-wizard>
     </b-modal>
@@ -544,6 +567,7 @@ import {
 } from '@vue/composition-api';
 
 import axios from 'axios';
+import sha from 'sha.js';
 
 // import ListEntry from '@/views/components/ListEntry.vue';
 import tierColors from '@/libs/colors';
@@ -619,9 +643,11 @@ export default {
     const selectedLockupIndex = ref(0);
     const dataToSign = ref(null);
     const signature = ref(null);
+    const signatureHash = ref(null);
     const timestamp = ref(null);
     const websocket = ref(null);
     const stakeRegistered = ref(false);
+    const stakeRegisterFailed = ref(false);
     const registeringStake = ref(false);
     const config = computed(() => ctx.root.$store.state.flux.config);
 
@@ -660,25 +686,22 @@ export default {
     };
 
     const onError = (evt) => {
-      console.log('Error');
       console.log(evt);
     };
     const onMessage = (evt) => {
-      console.log('Message');
       const data = qs.parse(evt.data);
       if (data.status === 'success' && data.data) {
         // user is now signed. Store their values
         signature.value = data.data.signature;
+        signatureHash.value = sha('sha256').update(data.data.signature).digest('hex');
       }
       console.log(data);
       console.log(evt);
     };
     const onClose = (evt) => {
-      console.log('Close');
       console.log(evt);
     };
     const onOpen = (evt) => {
-      console.log('Open');
       console.log(evt);
     };
 
@@ -725,8 +748,6 @@ export default {
 
     const nodes = ref([]);
     const totalCollateral = ref(0);
-    // const seatSize = ref(0);
-    // const stakes = ref(0);
     const myStakes = ref([]);
     const titanConfig = ref();
     const nodeCount = ref(0);
@@ -802,10 +823,12 @@ export default {
     const showStakeDialog = () => {
       stakeModalShowing.value = true;
       stakeRegistered.value = false;
+      stakeRegisterFailed.value = false;
       registeringStake.value = false;
       stakeAmount.value = 200;
       selectedLockupIndex.value = 0;
       signature.value = null;
+      signatureHash.value = null;
     };
 
     const confirmStakeDialogFinish = () => {
@@ -826,39 +849,36 @@ export default {
     };
 
     const registerStake = async () => {
-      // registeringStake.value = true;
+      registeringStake.value = true;
       const zelidauthHeader = localStorage.getItem('zelidauth');
       const data = {
         amount: stakeAmount.value,
         lockup: titanConfig.value.lockups[selectedLockupIndex.value],
         timestamp: timestamp.value,
-        signature: signature.value,
+        signatureHash: signatureHash.value,
       };
       showToast('info', 'Registering Stake with Titan...');
-      /* const response = await AppsService.registerApp(zelidauth, data).catch((error) => {
-        showToast('danger', error.message || error);
-      }); */
+
       const axiosConfig = {
         headers: {
           zelidauth: zelidauthHeader,
-          backend: backend(),
+          backend: backend(), // include the backend URL, so the titan backend can communicate with the same FluxOS instance
         },
       };
       const response = await axios.post('http://192.168.68.133:1234/register', data, axiosConfig).catch((error) => {
         console.log(error);
+        stakeRegisterFailed.value = true;
         showToast('danger', error.message || error);
       });
 
       console.log(response.data);
       if (response && response.data && response.data.status === 'success') {
+        stakeRegistered.value = true;
         showToast('success', response.data.message || response.data);
       } else {
+        stakeRegisterFailed.value = true;
         showToast('danger', response.data.message || response.data);
       }
-      /* const response = await IDService.loggedSessions(zelidauthHeader);
-      console.log(response);
-      const response2 = await IDService.loggedUsers(zelidauthHeader);
-      console.log(response2); */
     };
 
     const calcAPY = (lockup) => {
@@ -898,6 +918,7 @@ export default {
 
       userZelid,
       signature,
+      signatureHash,
       dataToSign,
       callbackValue,
       initiateSignWS,
@@ -915,6 +936,7 @@ export default {
       showStakeDialog,
       stakeAmount,
       stakeRegistered,
+      stakeRegisterFailed,
       selectedLockupIndex,
       selectLockup,
       registeringStake,
