@@ -71,7 +71,7 @@
                       My Staking Total
                     </h5>
                     <h4>
-                      3,400
+                      {{ myStakes ? toFixedLocaleString(myStakes.reduce((total, stake) => total + stake.collateral, 0), 0) : 0 }}
                     </h4>
                   </div>
                   <div class="d-flex flex-row">
@@ -79,7 +79,7 @@
                       Titan Staking Total
                     </h5>
                     <h4>
-                      1,033,400
+                      {{ titanStats ? toFixedLocaleString(titanStats.total) : '...' }}
                     </h4>
                   </div>
                   <div class="d-flex flex-row">
@@ -87,7 +87,7 @@
                       Current Supply
                     </h5>
                     <h4>
-                      227,840,217
+                      {{ titanStats ? toFixedLocaleString(titanStats.currentsupply) : '...' }}
                     </h4>
                   </div>
                   <div class="d-flex flex-row">
@@ -95,7 +95,7 @@
                       Max Supply
                     </h5>
                     <h4>
-                      440,000,000
+                      {{ titanStats ? toFixedLocaleString(titanStats.maxsupply) : '...' }}
                     </h4>
                   </div>
                   <div>
@@ -130,7 +130,7 @@
                 <div
                   v-for="lockup in titanConfig.lockups"
                   :key="lockup.time"
-                  class="mb-1"
+                  class="lockup"
                 >
                   <div class="d-flex flex-row">
                     <h2 class="flex-grow-1">
@@ -140,6 +140,18 @@
                       {{ (calcAPY(lockup)*100).toFixed(2) }}%
                     </h1>
                   </div>
+                </div>
+                <div class="float-right">
+                  <b-avatar
+                    size="24"
+                    variant="primary"
+                    button
+                  >
+                    <v-icon
+                      scale="0.9"
+                      name="info"
+                    />
+                  </b-avatar>
                 </div>
               </b-card-body>
             </b-card>
@@ -295,7 +307,7 @@
                   Available:
                 </h5>
                 <h4>
-                  {{ myStakes ? toFixedLocaleString(myStakes.reduce((total, stake) => total + stake.reward, 0), 2) : 0 }} Flux
+                  {{ toFixedLocaleString(totalReward, 2) }} Flux
                 </h4>
               </div>
               <b-button
@@ -303,7 +315,7 @@
                 variant="danger"
                 size="sm"
                 pill
-                @click="showRedeemDialog();"
+                @click="showRedeemDialog()"
               >
                 Redeem
               </b-button>
@@ -312,6 +324,95 @@
         </b-col>
       </b-row>
     </vue-perfect-scrollbar>
+
+    <b-modal
+      v-model="nodeModalShowing"
+      title="Titan Nodes"
+      size="lg"
+      centered
+      button-size="sm"
+      ok-only
+      @ok="() => nodeModalShowing = false"
+    >
+      <b-card
+        v-for="node in nodes"
+        :key="node.uuid"
+        :title="node.name"
+      >
+        <b-row>
+          <b-col>
+            <h5>
+              Location: {{ node.location }}
+            </h5>
+          </b-col>
+          <b-col>
+            <h5>
+              Collateral: {{ toFixedLocaleString(node.collateral, 0) }}
+            </h5>
+          </b-col>
+        </b-row>
+        <b-row>
+          <b-col>
+            <h5>
+              Created: {{ new Date(node.created).toLocaleDateString() }}
+            </h5>
+          </b-col>
+          <b-col>
+            <b-button
+              pill
+              size="sm"
+              variant="primary"
+              @click="visitNode(node)"
+            >
+              Visit
+            </b-button>
+          </b-col>
+        </b-row>
+      </b-card>
+    </b-modal>
+
+    <b-modal
+      v-model="redeemModalShowing"
+      title="Redeem Rewards"
+      size="sm"
+      centered
+      button-size="sm"
+      ok-only
+      ok-title="Cancel"
+      @ok="redeemModalShowing = false"
+    >
+      <h4>
+        Available: {{ toFixedLocaleString(totalReward, 2) }} Flux
+      </h4>
+      <h4>
+        Redeem Fee: {{ titanConfig ? titanConfig.redeemFee : '...' }} Flux
+      </h4>
+      <h5>
+        Redeem Amount:
+      </h5>
+      <b-form-input
+        v-model="redeemAmount"
+        placeholder="Redeem amount"
+        type="number"
+      />
+      <h5 class="mt-1">
+        Redeem Address:
+      </h5>
+      <b-form-input
+        v-model="redeemAddress"
+        placeholder="Redeem address"
+      />
+      <b-button
+        pill
+        size="sm"
+        variant="danger"
+        class="float-right mt-1"
+        :disabled="totalReward === 0 || titanConfig && (parseFloat(redeemAmount)+titanConfig.redeemFee > totalReward || parseFloat(redeemAmount) < 0)"
+        @click="confirmRedeem()"
+      >
+        Confirm
+      </b-button>
+    </b-modal>
 
     <b-modal
       v-model="confirmStakeDialogCloseShowing"
@@ -497,10 +598,6 @@
               >
                 {{ signatureHash }}
               </h5>
-              <!--<br>
-              The transaction must be mined by {{ new Date(validTill).toLocaleString('en-GB', timeoptions.shortDate) }}
-              <br><br>
-              The application will be subscribed until {{ new Date(subscribedTill).toLocaleString('en-GB', timeoptions.shortDate) }}-->
               <div class="d-flex flex-row mt-2">
                 <h3 class="col text-center mt-2">
                   Pay with<br>Zelcore
@@ -639,6 +736,9 @@ export default {
     const userZelid = ref('');
     userZelid.value = props.zelid;
 
+    const totalReward = ref(0);
+    const redeemAmount = ref(0);
+    const redeemAddress = ref('');
     const stakeAmount = ref(200);
     const selectedLockupIndex = ref(0);
     const dataToSign = ref(null);
@@ -650,6 +750,8 @@ export default {
     const stakeRegisterFailed = ref(false);
     const registeringStake = ref(false);
     const config = computed(() => ctx.root.$store.state.flux.config);
+    const nodeModalShowing = ref(false);
+    const redeemModalShowing = ref(false);
 
     const indexedTierColors = ref([
       tierColors.cumulus,
@@ -750,7 +852,14 @@ export default {
     const totalCollateral = ref(0);
     const myStakes = ref([]);
     const titanConfig = ref();
+    const titanStats = ref();
     const nodeCount = ref(0);
+
+    const getStats = async () => {
+      const response = await axios.get('http://192.168.68.133:1234/stats');
+      titanStats.value = response.data;
+      console.log(titanStats.value);
+    };
 
     const getSharedNodeList = async () => {
       const response = await axios.get('http://192.168.68.133:1234/nodes');
@@ -758,28 +867,17 @@ export default {
       response.data.forEach((_node) => {
         const node = _node;
         allNodes.push(node);
-        // node.numSeats = node.collateral / node.seatSize;
-        // seatSize.value = node.seatSize;
         totalCollateral.value += node.collateral;
-        // node.stakesAvailable = node.numSeats;
-        node.stakesOwned = 0;
-        if (allNodes.length === 2) {
-          node.stakesAvailable = 0;
-        }
       });
       console.log(allNodes);
       nodes.value = allNodes;
     };
 
-    /* const getStakes = async () => {
-      const response = await axios.get('http://192.168.68.133:1234/stakes');
-      stakes.value = response.data;
-    }; */
-
     const getMyStakes = async () => {
       if (userZelid.value.length > 0) {
         const response = await axios.get(`http://192.168.68.133:1234/stakes/${userZelid.value}`);
         myStakes.value = response.data;
+        totalReward.value = (myStakes.value ? myStakes.value.reduce((total, stake) => total + stake.reward, 0) : 0);
       }
     };
 
@@ -807,7 +905,7 @@ export default {
       console.log(response.data);
       titanConfig.value = response.data;
       getSharedNodeList();
-      // getStakes();
+      getStats();
       getMyStakes();
     };
     getConfig();
@@ -845,7 +943,11 @@ export default {
     };
 
     const showNodeInfoDialog = () => {
-      console.log('show node info dialog');
+      nodeModalShowing.value = true;
+    };
+
+    const showRedeemDialog = () => {
+      redeemModalShowing.value = true;
     };
 
     const registerStake = async () => {
@@ -902,6 +1004,10 @@ export default {
       return ((stake.collateral) * lockup.apy) / 12;
     };
 
+    const visitNode = (node) => {
+      window.open(`http://${node.address}`, '_blank');
+    };
+
     const toFixedLocaleString = (number, digits) => number.toLocaleString(undefined, { minimumFractionDigits: digits || 0, maximumFractionDigits: digits || 0 });
 
     return {
@@ -914,7 +1020,9 @@ export default {
       nodes,
       totalCollateral,
       myStakes,
+      totalReward,
       titanConfig,
+      titanStats,
 
       userZelid,
       signature,
@@ -931,6 +1039,8 @@ export default {
       toFixedLocaleString,
 
       showNodeInfoDialog,
+      nodeModalShowing,
+      visitNode,
 
       stakeModalShowing,
       showStakeDialog,
@@ -945,6 +1055,11 @@ export default {
       confirmStakeDialogCloseShowing,
       confirmStakeDialogFinish,
       confirmStakeDialogCancel,
+
+      showRedeemDialog,
+      redeemModalShowing,
+      redeemAmount,
+      redeemAddress,
 
       tierColors,
       indexedTierColors,
@@ -1029,6 +1144,11 @@ a:hover img {
   padding-top: 0;
   padding-bottom: 0.3rem;
 }
+
+.lockup {
+  margin-bottom: 0.5rem;
+}
+
 </style>
 <style lang="scss">
   @import '@core/scss/vue/libs/vue-wizard.scss';
