@@ -160,6 +160,8 @@ async function getPublicIp(req, res) {
 }
 
 module.exports = {
+  // == Export for testing purposes ==
+  executeCall,
   // == Benchmarks ==
   getStatus,
   restartNodeBenchmarks,
