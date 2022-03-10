@@ -24,7 +24,7 @@ $vs-selected-bg: $primary;
 $vs-selected-border-width: 0;
 
 // Dropdown
-$vs-dropdown-box-shadow: 0px 4px 25px 0px rgba(0, 0, 0, 0.1);
+$vs-dropdown-box-shadow: 0 4px 25px 0 rgba(0, 0, 0, 0.1);
 
 @import 'vue-select/src/scss/vue-select.scss';
 
@@ -35,7 +35,7 @@ $vs-dropdown-box-shadow: 0px 4px 25px 0px rgba(0, 0, 0, 0.1);
 
 // Matches height of input element for consistency
 .vs__dropdown-toggle {
-  padding: 0.59px 0 4px 0;
+  padding: 0.59px 0 4px;
   transition: all 0.25s ease-in-out;
 
   .vs--single & {
