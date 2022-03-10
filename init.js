@@ -62,7 +62,7 @@ function showQuestions() {
       userconfig.write(dataToWrite);
       userconfig.end();
     });
-    console.log('Configuration successful. Values saved and they can be changed in ./config/userconfig.js');
+    console.log('Configuration successful. The values have saved and can be changed in ./config/userconfig.js');
     console.log('Starting Flux...');
     return 0;
   });
