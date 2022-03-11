@@ -160,11 +160,11 @@
       @close-app-view="isAppViewActive = false"
     />
 
-    <managed-services-view
+    <!-- <managed-services-view
       :class="{'show': isManagedServicesViewActive}"
       :zelid="zelid"
       @close-app-view="isManagedServicesViewActive = false"
-    />
+    /> -->
 
     <shared-nodes-view
       :class="{'show': isSharedNodesViewActive}"
@@ -179,8 +179,7 @@
       <category-sidebar
         :class="{'show': showDetailSidebar}"
         @close-left-sidebar="showDetailSidebar = false"
-        @close-app-view="isAppViewActive = false; isManagedServicesViewActive = false; isSharedNodesViewActive = false;"
-        @open-managed-services="isManagedServicesViewActive = true"
+        @close-app-view="isAppViewActive = false; isSharedNodesViewActive = false;"
         @open-shared-nodes="isSharedNodesViewActive = true"
       />
     </portal>
@@ -216,7 +215,7 @@ import VuePerfectScrollbar from 'vue-perfect-scrollbar';
 import DaemonService from '@/services/DaemonService';
 
 import AppView from './AppView.vue';
-import ManagedServicesView from './ManagedServicesView.vue';
+// import ManagedServicesView from './ManagedServicesView.vue';
 import SharedNodesView from './SharedNodesView.vue';
 import CategorySidebar from './CategorySidebar.vue';
 import { categories, defaultCategory } from '../../../libs/marketplaceCategories';
@@ -238,7 +237,7 @@ export default {
     BAvatar,
 
     AppView,
-    ManagedServicesView,
+    // ManagedServicesView,
     SharedNodesView,
     CategorySidebar,
 
@@ -425,7 +424,7 @@ export default {
     getZelNodeStatus();
 
     const isAppViewActive = ref(false);
-    const isManagedServicesViewActive = ref(route.value.path === '/apps/managed-nodes');
+    // const isManagedServicesViewActive = ref(route.value.path === '/apps/managed-nodes');
     const isSharedNodesViewActive = ref(route.value.path === '/apps/shared-nodes');
 
     const handleAppClick = (appData) => {
@@ -455,7 +454,7 @@ export default {
       resolveAvatarIcon,
       avatarText,
       isAppViewActive,
-      isManagedServicesViewActive,
+      // isManagedServicesViewActive,
       isSharedNodesViewActive,
       showDetailSidebar,
       resolveHdd,
