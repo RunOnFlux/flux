@@ -464,7 +464,7 @@
             </a>
           </div>
           <h5 class="mt-1">
-            This stake will expire if the transaction is not on the blockchain before <span class="text-danger">{{new Date(selectedStake.expiry*1000).toLocaleString()}}</span>
+            This stake will expire if the transaction is not on the blockchain before <span class="text-danger">{{ new Date(selectedStake.expiry * 1000).toLocaleString() }}</span>
           </h5>
         </b-card-text>
       </b-card>
@@ -605,6 +605,12 @@
                 width="100%"
               >
             </a>
+            <b-form-input
+              id="data"
+              v-model="dataToSign"
+              disabled="true"
+              class="mb-1"
+            />
             <b-form-input
               id="signature"
               v-model="signature"
@@ -959,7 +965,7 @@ export default {
 
     const getMyStakes = async (force = false) => {
       if (userZelid.value.length > 0) {
-        const response = await axios.get(`${apiURL}/stakes/${userZelid.value}${force ? '?timestamp='+Date.now() : ''}`);
+        const response = await axios.get(`${apiURL}/stakes/${userZelid.value}${force ? `?timestamp=${Date.now()}` : ''}`);
         myStakes.value = response.data;
         totalReward.value = (myStakes.value ? myStakes.value.reduce((total, stake) => total + stake.reward, 0) : 0);
       }
