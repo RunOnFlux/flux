@@ -52,7 +52,7 @@
     "test:e2e": "vue-cli-service test:e2e",
     "test:unit": "vue-cli-service test:unit",
     "test:zelback": "mocha tests/ZelBack",
-    "test:zelback:unit": "env NODE_CONFIG_DIR=$PWD/tests/unit/globalconfig mocha tests/unit/*.test.js --exit",
+    "test:zelback:unit": "docker run -d --name fluxwebsite runonflux/website; env NODE_CONFIG_DIR=$PWD/tests/unit/globalconfig mocha tests/unit/*.test.js --exit; docker stop fluxwebsite; docker rm fluxwebsite",
     "homedev": "vue-cli-service serve --port 16126",
     "homeprod": "nodemon homeServer.js",
     "homebuild": "vue-cli-service build",
