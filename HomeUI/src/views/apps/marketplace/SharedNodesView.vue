@@ -137,7 +137,7 @@
                       {{ lockup.name }}
                     </h2>
                     <h1>
-                      {{ (calcAPY(lockup)*100).toFixed(2) }}%
+                      ~{{ (calcAPY(lockup)*100).toFixed(2) }}%
                     </h1>
                   </div>
                 </div>
@@ -198,8 +198,10 @@
                       <b-avatar
                         v-if="stake.confirmations === -1"
                         size="48"
-                        variant="light-danger"
+                        variant="danger"
                         class="node-status mt-auto mb-auto"
+                        button
+                        @click="showPaymentDetailsDialog(stake)"
                       >
                         <v-icon
                           scale="1.75"
@@ -257,7 +259,7 @@
                           v-if="titanConfig"
                           class="mr-auto ml-auto"
                         >
-                          {{ toFixedLocaleString(calcMonthlyReward(stake), 2) }} Flux
+                          ~{{ toFixedLocaleString(calcMonthlyReward(stake), 2) }} Flux
                         </h5>
                         <h5
                           v-else
@@ -415,6 +417,60 @@
     </b-modal>
 
     <b-modal
+      v-model="paymentDetailsDialogShowing"
+      title="Pending Payment"
+      size="md"
+      centered
+      button-size="sm"
+      ok-only
+      ok-title="OK"
+      @ok="paymentDetailsDialogShowing = false;"
+    >
+      <b-card
+        v-if="selectedStake"
+        title="Send Funds"
+        class="text-center payment-details-card"
+      >
+        <b-card-text>
+          To finish staking, send <span class="text-success">{{ toFixedLocaleString(selectedStake.collateral) }}</span> FLUX to address<br>
+          <h5
+            class="text-wrap ml-auto mr-auto text-warning mt-1"
+            style="width: 25rem;"
+          >
+            {{ titanConfig.fundingAddress }}
+          </h5>
+          with the following message<br>
+          <h5
+            class="text-wrap ml-auto mr-auto text-warning mt-1"
+            style="width: 25rem;"
+          >
+            {{ selectedStake.signatureHash }}
+          </h5>
+          <div class="d-flex flex-row mt-2">
+            <h3 class="col text-center mt-2">
+              Pay with<br>Zelcore
+            </h3>
+            <a
+              :href="`zel:?action=pay&coin=zelcash&address=${titanConfig.fundingAddress}&amount=${selectedStake.collateral}&message=${selectedStake.signatureHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`"
+              class="col"
+            >
+              <img
+                class="zelidLogin"
+                src="@/assets/images/zelID.svg"
+                alt="Zel ID"
+                height="100%"
+                width="100%"
+              >
+            </a>
+          </div>
+          <h5 class="mt-1">
+            This stake will expire if the transaction is not on the blockchain before <span class="text-danger">{{new Date(selectedStake.expiry*1000).toLocaleString()}}</span>
+          </h5>
+        </b-card-text>
+      </b-card>
+    </b-modal>
+
+    <b-modal
       v-model="confirmStakeDialogCloseShowing"
       title="Cancel Staking?"
       size="sm"
@@ -427,6 +483,25 @@
       <h3 class="text-center">
         Are you sure you want to cancel staking with Titan?
       </h3>
+    </b-modal>
+
+    <b-modal
+      v-model="confirmStakeDialogFinishShowing"
+      title="Finish Staking?"
+      size="sm"
+      centered
+      button-size="sm"
+      ok-title="Yes"
+      cancel-title="No"
+      @ok="confirmStakeDialogFinishShowing = false; stakeModalShowing = false;"
+    >
+      <h3 class="text-center">
+        Please ensure that you have sent payment for your stake, or saved the payment details for later.
+      </h3>
+      <br>
+      <h4 class="text-center">
+        Close the Titan Staking dialog?
+      </h4>
     </b-modal>
 
     <b-modal
@@ -448,7 +523,7 @@
         layout="vertical"
         back-button-text="Previous"
         class="wizard-vertical mb-3"
-        @on-complete="confirmLaunchDialogFinish()"
+        @on-complete="confirmStakeDialogFinish()"
       >
         <tab-content
           title="Stake Amount"
@@ -486,11 +561,7 @@
         </tab-content>
         <tab-content
           title="Choose Duration"
-          :before-change="() => {
-            timestamp = new Date().getTime();
-            dataToSign = `${userZelid}${stakeAmount}${selectedLockupIndex}${timestamp}`;
-            return selectedLockupIndex >= 0 && selectedLockupIndex < titanConfig.lockups.length;
-          }"
+          :before-change="() => checkDuration()"
         >
           <b-card
             v-if="titanConfig"
@@ -508,7 +579,7 @@
                   :style="`background-color: ${indexedTierColors[index]} !important;`"
                   @click="selectLockup(index)"
                 >
-                  {{ lockup.name }} - {{ (calcAPY(lockup)*100).toFixed(2) }}%
+                  {{ lockup.name }} - ~{{ (calcAPY(lockup)*100).toFixed(2) }}%
                 </b-button>
               </div>
             </div>
@@ -516,7 +587,7 @@
         </tab-content>
         <tab-content
           title="Sign Stake"
-          :before-change="() => signature !== null && signatureHash !== null"
+          :before-change="() => signature !== null"
         >
           <b-card
             title="Sign Stake with Zelcore"
@@ -583,7 +654,7 @@
               class="text-center wizard-card"
             >
               <b-card-text>
-                To finish staking,  make a transaction of <span class="text-success">{{ toFixedLocaleString(stakeAmount) }}</span> FLUX to address<br>
+                To finish staking, make a transaction of <span class="text-success">{{ toFixedLocaleString(stakeAmount) }}</span> FLUX to address<br>
                 <h5
                   class="text-wrap ml-auto mr-auto text-warning"
                   style="width: 25rem;"
@@ -603,7 +674,7 @@
                   Pay with<br>Zelcore
                 </h3>
                 <a
-                  :href="`zel:?action=pay&coin=zelcash&address=${titanConfig.nodeAddress}&amount=${stakeAmount}&message=${signatureHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`"
+                  :href="`zel:?action=pay&coin=zelcash&address=${titanConfig.fundingAddress}&amount=${stakeAmount}&message=${signatureHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`"
                   class="col"
                 >
                   <img
@@ -664,7 +735,6 @@ import {
 } from '@vue/composition-api';
 
 import axios from 'axios';
-import sha from 'sha.js';
 
 // import ListEntry from '@/views/components/ListEntry.vue';
 import tierColors from '@/libs/colors';
@@ -736,6 +806,9 @@ export default {
     const userZelid = ref('');
     userZelid.value = props.zelid;
 
+    // const apiURL = 'http://192.168.68.133:1234';
+    const apiURL = 'http://titantest.runonflux.io:54978';
+
     const totalReward = ref(0);
     const redeemAmount = ref(0);
     const redeemAddress = ref('');
@@ -752,6 +825,7 @@ export default {
     const config = computed(() => ctx.root.$store.state.flux.config);
     const nodeModalShowing = ref(false);
     const redeemModalShowing = ref(false);
+    const selectedStake = ref(null);
 
     const indexedTierColors = ref([
       tierColors.cumulus,
@@ -795,7 +869,7 @@ export default {
       if (data.status === 'success' && data.data) {
         // user is now signed. Store their values
         signature.value = data.data.signature;
-        signatureHash.value = sha('sha256').update(data.data.signature).digest('hex');
+        // signatureHash.value = sha('sha256').update(data.data.signature).digest('hex');
       }
       console.log(data);
       console.log(evt);
@@ -831,6 +905,7 @@ export default {
       const signatureMessage = userZelid.value + timestamp.value;
       console.log(`signatureMessage: ${signatureMessage}`);
       const wsuri = `${backendURL}/ws/sign/${signatureMessage}`;
+      console.log(wsuri);
       const ws = new WebSocket(wsuri);
       websocket.value = ws;
 
@@ -843,6 +918,8 @@ export default {
     // Variables to control showing dialogs
     const stakeModalShowing = ref(false);
     const confirmStakeDialogCloseShowing = ref(false);
+    const confirmStakeDialogFinishShowing = ref(false);
+    const paymentDetailsDialogShowing = ref(false);
 
     const perfectScrollbarSettings = {
       maxScrollbarLength: 150,
@@ -855,27 +932,34 @@ export default {
     const titanStats = ref();
     const nodeCount = ref(0);
 
+    const getRegistrationMessage = async () => {
+      const response = await axios.get(`${apiURL}/registermessage`);
+      dataToSign.value = response.data;
+      timestamp.value = response.data.substr(response.data.length - 13);
+      // console.log(dataToSign.value);
+    };
+
     const getStats = async () => {
-      const response = await axios.get('http://192.168.68.133:1234/stats');
+      const response = await axios.get(`${apiURL}/stats`);
       titanStats.value = response.data;
-      console.log(titanStats.value);
+      // console.log(titanStats.value);
     };
 
     const getSharedNodeList = async () => {
-      const response = await axios.get('http://192.168.68.133:1234/nodes');
+      const response = await axios.get(`${apiURL}/nodes`);
       const allNodes = [];
       response.data.forEach((_node) => {
         const node = _node;
         allNodes.push(node);
         totalCollateral.value += node.collateral;
       });
-      console.log(allNodes);
+      // console.log(allNodes);
       nodes.value = allNodes;
     };
 
-    const getMyStakes = async () => {
+    const getMyStakes = async (force = false) => {
       if (userZelid.value.length > 0) {
-        const response = await axios.get(`http://192.168.68.133:1234/stakes/${userZelid.value}`);
+        const response = await axios.get(`${apiURL}/stakes/${userZelid.value}${force ? '?timestamp='+Date.now() : ''}`);
         myStakes.value = response.data;
         totalReward.value = (myStakes.value ? myStakes.value.reduce((total, stake) => total + stake.reward, 0) : 0);
       }
@@ -900,23 +984,15 @@ export default {
 
     const getConfig = async () => {
       nodeCount.value = await getNodeCount();
-      console.log(nodeCount.value);
-      const response = await axios.get('http://192.168.68.133:1234/config');
-      console.log(response.data);
+      // console.log(nodeCount.value);
+      const response = await axios.get(`${apiURL}/config`);
+      // console.log(response.data);
       titanConfig.value = response.data;
       getSharedNodeList();
       getStats();
       getMyStakes();
     };
     getConfig();
-
-    const handleNodeClick = (node) => {
-      if (node.stakesAvailable > 0) {
-        console.log(1);
-      } else {
-        console.log(2);
-      }
-    };
 
     const showStakeDialog = () => {
       stakeModalShowing.value = true;
@@ -930,7 +1006,8 @@ export default {
     };
 
     const confirmStakeDialogFinish = () => {
-      confirmStakeDialogCloseShowing.value = true;
+      confirmStakeDialogFinishShowing.value = true;
+      getMyStakes(true);
     };
 
     const confirmStakeDialogCancel = (modalEvt) => {
@@ -950,6 +1027,12 @@ export default {
       redeemModalShowing.value = true;
     };
 
+    const showPaymentDetailsDialog = (stake) => {
+      console.log(`show payment details ${stake}`);
+      selectedStake.value = stake;
+      paymentDetailsDialogShowing.value = true;
+    };
+
     const registerStake = async () => {
       registeringStake.value = true;
       const zelidauthHeader = localStorage.getItem('zelidauth');
@@ -957,7 +1040,8 @@ export default {
         amount: stakeAmount.value,
         lockup: titanConfig.value.lockups[selectedLockupIndex.value],
         timestamp: timestamp.value,
-        signatureHash: signatureHash.value,
+        signature: signature.value,
+        data: dataToSign.value,
       };
       showToast('info', 'Registering Stake with Titan...');
 
@@ -967,7 +1051,7 @@ export default {
           backend: backend(), // include the backend URL, so the titan backend can communicate with the same FluxOS instance
         },
       };
-      const response = await axios.post('http://192.168.68.133:1234/register', data, axiosConfig).catch((error) => {
+      const response = await axios.post(`${apiURL}/register`, data, axiosConfig).catch((error) => {
         console.log(error);
         stakeRegisterFailed.value = true;
         showToast('danger', error.message || error);
@@ -976,6 +1060,7 @@ export default {
       console.log(response.data);
       if (response && response.data && response.data.status === 'success') {
         stakeRegistered.value = true;
+        signatureHash.value = response.data.hash;
         showToast('success', response.data.message || response.data);
       } else {
         stakeRegisterFailed.value = true;
@@ -1008,6 +1093,13 @@ export default {
       window.open(`http://${node.address}`, '_blank');
     };
 
+    const checkDuration = async () => {
+      await getRegistrationMessage();
+      return selectedLockupIndex.value >= 0 && selectedLockupIndex.value < titanConfig.value.lockups.length;
+    };
+
+    const formatPaymentTooltip = (stake) => `Send a payment of ${stake.collateral} Flux to<br>${titanConfig.nodeAddress}<br>with a message<br>${stake.signatureHash}`;
+
     const toFixedLocaleString = (number, digits) => number.toLocaleString(undefined, { minimumFractionDigits: digits || 0, maximumFractionDigits: digits || 0 });
 
     return {
@@ -1032,11 +1124,13 @@ export default {
       initiateSignWS,
       timestamp,
 
-      handleNodeClick,
+      getMyStakes,
+
       calcAPY,
       calcMonthlyReward,
 
       toFixedLocaleString,
+      formatPaymentTooltip,
 
       showNodeInfoDialog,
       nodeModalShowing,
@@ -1051,10 +1145,17 @@ export default {
       selectLockup,
       registeringStake,
       registerStake,
+      checkDuration,
+      getRegistrationMessage,
 
+      confirmStakeDialogCancel,
       confirmStakeDialogCloseShowing,
       confirmStakeDialogFinish,
-      confirmStakeDialogCancel,
+      confirmStakeDialogFinishShowing,
+
+      showPaymentDetailsDialog,
+      paymentDetailsDialogShowing,
+      selectedStake,
 
       showRedeemDialog,
       redeemModalShowing,
@@ -1094,6 +1195,9 @@ a:hover img {
 }
 .wizard-card {
   height: 250px;
+}
+.payment-details-card {
+  height: 375px;
 }
 .node-status {
   margin-right: 0px;
