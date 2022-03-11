@@ -1,7 +1,6 @@
 const chai = require('chai');
 const sinon = require('sinon');
 const benchmarkrpc = require('daemonrpc');
-const path = require('path');
 const proxyquire = require('proxyquire');
 
 const adminConfig = {
@@ -16,7 +15,7 @@ const benchmarkService = proxyquire('../../ZelBack/src/services/benchmarkService
 
 const { expect } = chai;
 
-describe.only('benchmarkService tests', () => {
+describe('benchmarkService tests', () => {
   describe('executeCall tests', () => {
     let benchmarkStub;
 
@@ -37,7 +36,7 @@ describe.only('benchmarkService tests', () => {
       sinon.assert.calledOnce(benchmarkStub);
     });
 
-    it('should return a sucessful response if called properly', async () => {
+    it('should return a sucessful response if called properly with parameters', async () => {
       const params = ['test', 10, '192.168.0.0'];
 
       const executeCallResult = await benchmarkService.executeCall('getstatus', params);
@@ -45,6 +44,54 @@ describe.only('benchmarkService tests', () => {
       expect(executeCallResult).to.be.an('object');
       expect(executeCallResult.status).to.equal('success');
       sinon.assert.calledOnceWithExactly(benchmarkStub, ...params);
+    });
+
+    it('should throw error if called function does not exist', async () => {
+      expect(async () => { await benchmarkService.executeCall('testing123'); }).to.throw;
+    });
+
+    it('should throw error if parameter is not an iterable', async () => {
+      const params = {
+        test: 'test1',
+        test2: 'test3',
+      };
+      expect(async () => { await benchmarkService.executeCall('getstatus', params); }).to.throw;
+    });
+  });
+
+  describe('getStatus tests', () => {
+    let benchmarkStub;
+
+    beforeEach(() => {
+      benchmarkStub = sinon.stub(benchmarkrpc.Client.prototype, 'getstatus').returns(Promise.resolve('called'));
+    });
+
+    afterEach(() => {
+      benchmarkStub.restore();
+    });
+
+    it('should return a sucessful response if called without parameters', async () => {
+      const getStatusResult = await benchmarkService.getStatus();
+
+      expect(getStatusResult).to.be.an('object');
+      expect(getStatusResult.status).to.equal('success');
+      expect(getStatusResult.data).to.equal('called');
+      sinon.assert.calledOnce(benchmarkStub);
+    });
+
+    it('should handle properly if response object is passed', async () => {
+      const generateResponse = () => {
+        const res = { test: 'testing' };
+        res.status = sinon.stub().returns(res);
+        res.json = sinon.stub().returns(res);
+        return res;
+      };
+      const mockResponse = generateResponse();
+      const expectedSuccessMessage = { status: 'success', data: 'called' };
+
+      await benchmarkService.getStatus(undefined, mockResponse);
+
+      sinon.assert.calledOnceWithExactly(mockResponse.json, expectedSuccessMessage);
     });
   });
 });
