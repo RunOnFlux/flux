@@ -16,7 +16,7 @@ function delay(ms) {
 
 /**
  * To convert a parameter to a boolean.
- * @param {(string|number|boolean)} parameter True, false, 1 or 0 in either string, number or boolean form. 
+ * @param {(string|number|boolean)} parameter True, false, 1 or 0 in either string, number or boolean form.
  * @returns {boolean} True or false.
  */
 function ensureBoolean(parameter) {
@@ -65,7 +65,7 @@ function ensureObject(parameter) {
 
 /**
  * To convert a parameter to a string.
- * @param {*} parameter Parameter of any type. 
+ * @param {*} parameter Parameter of any type.
  * @returns {string} Parameter converted to string type.
  */
 function ensureString(parameter) {
