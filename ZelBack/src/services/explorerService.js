@@ -298,9 +298,9 @@ async function processTransaction(txContent, height) {
 
 /**
  * To process a block of transactions.
- * @param {array} txs Array of transaction content objects.
+ * @param {object[]} txs Array of transaction content objects.
  * @param {number} height Blockchain height.
- * @returns {array} Array of transaction detail objects.
+ * @returns {object[]} Array of transaction detail objects.
  */
 async function processBlockTransactions(txs, height) {
   const transactions = [];
@@ -317,7 +317,7 @@ async function processBlockTransactions(txs, height) {
 
 /**
  * To get the details of a verbose block.
- * @param {number|string} heightOrHash Block height or block hash.
+ * @param {(number|string)} heightOrHash Block height or block hash.
  * @param {number} verbosity Verbosity level.
  * @returns {object} Block data from block cache.
  */
