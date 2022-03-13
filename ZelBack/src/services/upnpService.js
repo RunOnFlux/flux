@@ -8,6 +8,16 @@ const log = require('../lib/log');
 
 const client = new natUpnp.Client();
 
+let upnpMachine = false;
+
+/**
+ * To quickly check if node has UPnP (Universal Plug and Play) support.
+ * @returns {boolean} True if port mappings can be set. Otherwise false.
+ */
+function isUPNP() {
+  return upnpMachine;
+}
+
 /**
  * To verify that a port has UPnP (Universal Plug and Play) support.
  * @param {number} apiport Port number.
@@ -27,9 +37,11 @@ async function verifyUPNPsupport(apiport = config.apiport) {
       public: +apiport + 1,
     });
     await client.getMappings();
+    upnpMachine = true;
     return true;
   } catch (error) {
     log.error(error);
+    upnpMachine = false;
     return false;
   }
 }
@@ -272,6 +284,7 @@ async function getGatewayApi(req, res) {
 }
 
 module.exports = {
+  isUPNP,
   verifyUPNPsupport,
   setupUPNP,
   mapUpnpPort,

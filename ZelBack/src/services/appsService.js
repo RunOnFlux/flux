@@ -1238,7 +1238,8 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
         await fluxCommunication.denyPort(serviceHelper.ensureNumber(port));
       }
     }
-    if (userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) {
+    const isUPNP = upnpService.isUPNP();
+    if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
       // eslint-disable-next-line no-restricted-syntax
       for (const port of appSpecifications.ports) {
         // eslint-disable-next-line no-await-in-loop
@@ -1251,7 +1252,8 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
     if (firewallActive) {
       await fluxCommunication.denyPort(serviceHelper.ensureNumber(appSpecifications.port));
     }
-    if (userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) {
+    const isUPNP = upnpService.isUPNP();
+    if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
       await upnpService.removeMapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port));
     }
   }
@@ -1655,7 +1657,8 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
         await fluxCommunication.denyPort(serviceHelper.ensureNumber(port));
       }
     }
-    if (userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) {
+    const isUPNP = upnpService.isUPNP();
+    if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
       // eslint-disable-next-line no-restricted-syntax
       for (const port of appSpecifications.ports) {
         // eslint-disable-next-line no-await-in-loop
@@ -1668,7 +1671,8 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
     if (firewallActive) {
       await fluxCommunication.denyPort(serviceHelper.ensureNumber(appSpecifications.port));
     }
-    if (userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) {
+    const isUPNP = upnpService.isUPNP();
+    if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
       await upnpService.removeMapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port));
     }
   }
@@ -1944,7 +1948,8 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
     } else {
       log.info('Firewall not active, application ports are open');
     }
-    if (userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) {
+    const isUPNP = upnpService.isUPNP();
+    if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
       log.info('Custom port specified, mapping ports');
       // eslint-disable-next-line no-restricted-syntax
       for (const port of appSpecifications.ports) {
@@ -1982,7 +1987,8 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
     } else {
       log.info('Firewall not active, application ports are open');
     }
-    if (userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) {
+    const isUPNP = upnpService.isUPNP();
+    if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
       log.info('Custom port specified, mapping ports');
       const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port));
       if (portResponse === true) {
@@ -2228,7 +2234,8 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
     } else {
       log.info('Firewall not active, application ports are open');
     }
-    if (userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) {
+    const isUPNP = upnpService.isUPNP();
+    if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
       log.info('Custom port specified, mapping ports');
       // eslint-disable-next-line no-restricted-syntax
       for (const port of appSpecifications.ports) {
@@ -2266,7 +2273,8 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
     } else {
       log.info('Firewall not active, application ports are open');
     }
-    if (userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) {
+    const isUPNP = upnpService.isUPNP();
+    if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
       log.info('Custom port specified, mapping ports');
       const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port));
       if (portResponse === true) {
