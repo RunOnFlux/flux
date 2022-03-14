@@ -29,6 +29,11 @@ const LRUoptions = {
 
 const nodeCollateralCache = new LRU(LRUoptions);
 
+/**
+ * To return the sender's transaction info from the daemon service.
+ * @param {string} txid Transaction ID.
+ * @returns {object} Transaction obtained from transaction cache.
+ */
 async function getSenderTransactionFromDaemon(txid) {
   const verbose = 1;
   const req = {
@@ -46,6 +51,12 @@ async function getSenderTransactionFromDaemon(txid) {
   throw txContent.data;
 }
 
+/**
+ * To return sender for a transaction.
+ * @param {string} txid Transaction ID.
+ * @param {number} vout Transaction output number (vector of outputs).
+ * @returns {object} Document.
+ */
 async function getSenderForFluxTxInsight(txid, vout) {
   const nodeCacheExists = nodeCollateralCache.get(`${txid}-${vout}`);
   if (nodeCacheExists) {
@@ -105,6 +116,12 @@ async function getSenderForFluxTxInsight(txid, vout) {
   return sender;
 }
 
+/**
+ * To return the sender address of a transaction (from Flux cache or database).
+ * @param {string} txid Transaction ID.
+ * @param {number} vout Transaction output number (vector of outputs).
+ * @returns {object} Document.
+ */
 async function getSenderForFluxTx(txid, vout) {
   const nodeCacheExists = nodeCollateralCache.get(`${txid}-${vout}`);
   if (nodeCacheExists) {
@@ -164,6 +181,12 @@ async function getSenderForFluxTx(txid, vout) {
   return sender;
 }
 
+/**
+ * To return the sender address of a transaction (from Flux database or Blockchain).
+ * @param {string} txid Transaction ID.
+ * @param {number} vout Transaction output number (vector of outputs).
+ * @returns {object} Document.
+ */
 async function getSender(txid, vout) {
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.daemon.database);
@@ -203,6 +226,12 @@ async function getSender(txid, vout) {
   return sender;
 }
 
+/**
+ * To process a transaction. This checks that a transaction is UTXO and if so, stores it to the database to include the sender.
+ * @param {object} txContent Transaction content.
+ * @param {number} height Blockchain height.
+ * @returns {object} Transaction detail.
+ */
 async function processTransaction(txContent, height) {
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.daemon.database);
@@ -267,6 +296,12 @@ async function processTransaction(txContent, height) {
   return transactionDetail;
 }
 
+/**
+ * To process a block of transactions.
+ * @param {object[]} txs Array of transaction content objects.
+ * @param {number} height Blockchain height.
+ * @returns {object[]} Array of transaction detail objects.
+ */
 async function processBlockTransactions(txs, height) {
   const transactions = [];
   // eslint-disable-next-line no-restricted-syntax
@@ -280,6 +315,12 @@ async function processBlockTransactions(txs, height) {
   return transactions;
 }
 
+/**
+ * To get the details of a verbose block.
+ * @param {(number|string)} heightOrHash Block height or block hash.
+ * @param {number} verbosity Verbosity level.
+ * @returns {object} Block data from block cache.
+ */
 async function getVerboseBlock(heightOrHash, verbosity = 2) {
   const req = {
     params: {
@@ -294,6 +335,11 @@ async function getVerboseBlock(heightOrHash, verbosity = 2) {
   throw blockInfo.data;
 }
 
+/**
+ * To decode a message from Unicode values to text characters.
+ * @param {string} asm UTF-16 value.
+ * @returns {string} Message.
+ */
 function decodeMessage(asm) {
   const parts = asm.split('OP_RETURN ', 2);
   let message = '';
@@ -309,6 +355,11 @@ function decodeMessage(asm) {
   return message;
 }
 
+/**
+ * To process verbose block data for entry to Insight database.
+ * @param {object} blockDataVerbose Verbose block data.
+ * @param {string} database Database.
+ */
 async function processInsight(blockDataVerbose, database) {
   // get Block Deltas information
   const txs = blockDataVerbose.tx;
@@ -401,6 +452,11 @@ async function processInsight(blockDataVerbose, database) {
   }
 }
 
+/**
+ * To process verbose block data for entry to database.
+ * @param {object} blockDataVerbose Verbose block data.
+ * @param {string} database Database.
+ */
 async function processStandard(blockDataVerbose, database) {
   // get Block transactions information
   const transactions = await processBlockTransactions(blockDataVerbose.tx, blockDataVerbose.height);
@@ -503,6 +559,12 @@ async function processStandard(blockDataVerbose, database) {
   }));
 }
 
+/**
+ * To process block data for entry to Insight database.
+ * @param {number} blockHeight Block height.
+ * @param {boolean} isInsightExplorer True if node is insight explorer based.
+ * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ */
 async function processBlock(blockHeight, isInsightExplorer) {
   try {
     const syncStatus = daemonService.isDaemonSynced();
@@ -595,6 +657,12 @@ async function processBlock(blockHeight, isInsightExplorer) {
   }
 }
 
+/**
+ * To restore database to specified block height.
+ * @param {number} height Block height.
+ * @param {boolean} rescanGlobalApps Value set to false on function call.
+ * @returns {boolean} Value set to true after database is restored.
+ */
 async function restoreDatabaseToBlockheightState(height, rescanGlobalApps = false) {
   if (!height) {
     throw new Error('No blockheight for restoring provided');
@@ -630,6 +698,13 @@ async function restoreDatabaseToBlockheightState(height, rescanGlobalApps = fals
   return true;
 }
 
+/**
+ * To start the block processor.
+ * @param {boolean} restoreDatabase True if database is to be restored.
+ * @param {boolean} deepRestore True if a deep restore is required.
+ * @param {boolean} reindexOrRescanGlobalApps True if apps collections are to be reindexed.
+ * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ */
 // do a deepRestore of 100 blocks if daemon if enouncters an error (mostly flux daemon was down) or if its initial start of flux
 // use reindexGlobalApps with caution!!!
 async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRescanGlobalApps) {
@@ -848,6 +923,11 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
   }
 }
 
+/**
+ * To get all UTXOs (unspent transaction outputs).
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function getAllUtxos(req, res) {
   try {
     const isInsightExplorer = daemonService.isInsightExplorer();
@@ -879,6 +959,11 @@ async function getAllUtxos(req, res) {
   }
 }
 
+/**
+ * To get all Fusion/Coinbase transactions.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function getAllFusionCoinbase(req, res) {
   try {
     const isInsightExplorer = daemonService.isInsightExplorer();
@@ -910,6 +995,11 @@ async function getAllFusionCoinbase(req, res) {
   }
 }
 
+/**
+ * To get all Flux transactions.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function getAllFluxTransactions(req, res) {
   try {
     const dbopen = dbHelper.databaseConnection();
@@ -941,6 +1031,11 @@ async function getAllFluxTransactions(req, res) {
   }
 }
 
+/**
+ * To get all addresses with transactions.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function getAllAddressesWithTransactions(req, res) {
   try {
     // FIXME outputs all documents in the collection. We shall group same addresses. But this call is disabled and for testing purposes anyway
@@ -969,6 +1064,11 @@ async function getAllAddressesWithTransactions(req, res) {
   }
 }
 
+/**
+ * To get all addresses.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function getAllAddresses(req, res) {
   try {
     // FIXME outputs all documents in the collection. We shall group same addresses. But this call is disabled and for testing purposes anyway
@@ -989,6 +1089,11 @@ async function getAllAddresses(req, res) {
   }
 }
 
+/**
+ * To get all UTXOs for a specific address.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function getAddressUtxos(req, res) {
   try {
     let { address } = req.params; // we accept both help/command and help?command=getinfo
@@ -1049,6 +1154,11 @@ async function getAddressUtxos(req, res) {
   }
 }
 
+/**
+ * To get UTXOs for a specific Fusion/Coinbase address.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function getAddressFusionCoinbase(req, res) {
   try {
     const isInsightExplorer = daemonService.isInsightExplorer();
@@ -1085,6 +1195,11 @@ async function getAddressFusionCoinbase(req, res) {
   }
 }
 
+/**
+ * To get Flux transactions filtered by either IP address, collateral hash or Flux address.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function getFilteredFluxTxs(req, res) {
   try {
     let { filter } = req.params; // we accept both help/command and help?command=getinfo
@@ -1133,6 +1248,11 @@ async function getFilteredFluxTxs(req, res) {
   }
 }
 
+/**
+ * To get transactions for a specific address.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function getAddressTransactions(req, res) {
   try {
     let { address } = req.params; // we accept both help/command and help?command=getinfo
@@ -1176,6 +1296,11 @@ async function getAddressTransactions(req, res) {
   }
 }
 
+/**
+ * To get scanned block height.
+ * @param {object} req Reqest.
+ * @param {object} res Response.
+ */
 async function getScannedHeight(req, res) {
   try {
     const dbopen = dbHelper.databaseConnection();
@@ -1200,6 +1325,11 @@ async function getScannedHeight(req, res) {
   }
 }
 
+/**
+ * To check if block processing has stopped.
+ * @param {number} i Value.
+ * @param {callback} callback Callback function.
+ */
 async function checkBlockProcessingStopped(i, callback) {
   blockProccessingCanContinue = false;
   clearTimeout(initBPfromErrorTimeout);
@@ -1221,6 +1351,11 @@ async function checkBlockProcessingStopped(i, callback) {
   }
 }
 
+/**
+ * To stop block processing. Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function stopBlockProcessing(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
@@ -1235,6 +1370,11 @@ async function stopBlockProcessing(req, res) {
   }
 }
 
+/**
+ * To restart block processing. Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function restartBlockProcessing(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
@@ -1250,6 +1390,11 @@ async function restartBlockProcessing(req, res) {
   }
 }
 
+/**
+ * To reindex Flux explorer database. Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function reindexExplorer(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
@@ -1293,6 +1438,11 @@ async function reindexExplorer(req, res) {
   }
 }
 
+/**
+ * To rescan Flux explorer database from a specific block height. Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function rescanExplorer(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
@@ -1361,6 +1511,11 @@ async function rescanExplorer(req, res) {
   }
 }
 
+/**
+ * To get the Flux balance for a specific address.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function getAddressBalance(req, res) {
   try {
     let { address } = req.params; // we accept both help/command and help?command=getinfo
