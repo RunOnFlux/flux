@@ -27,7 +27,7 @@
         lg="4"
       >
         <b-card title="Cumulus Rewards">
-          <b-card-text>10,000 FLUX Collateral</b-card-text>
+          <b-card-text>1,000 FLUX Collateral</b-card-text>
           <app-timeline class="mt-2">
             <app-timeline-item>
               <div class="d-flex flex-sm-row flex-column flex-wrap justify-content-between mb-1 mb-sm-0">
