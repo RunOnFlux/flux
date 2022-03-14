@@ -97,7 +97,7 @@
                 />
               </b-avatar>
               <h2 class="mt-1">
-                Total SSD: {{ beautifyValue(totalSSD / 1000, 2) }} TB
+                Total SSD: {{ beautifyValue(totalSSD / 1000000, 2) }} PB
               </h2>
               <vue-apex-charts
                 type="bar"
