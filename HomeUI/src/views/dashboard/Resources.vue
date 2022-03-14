@@ -779,24 +779,36 @@ export default {
       }
     },
     generateCPUHistory() {
-      this.cpuHistoryData.series = this.generateHistory(2, 4, 8);
+      this.cpuHistoryData.series = this.generateHistory(2, 4, 4, 8, 8, 16);
     },
     generateRAMHistory() {
-      this.ramHistoryData.series = this.generateHistory(4, 8, 32);
+      this.ramHistoryData.series = this.generateHistory(4, 8, 8, 16, 32, 64);
     },
     generateSSDHistory() {
-      this.ssdHistoryData.series = this.generateHistory(40, 150, 600);
+      this.ssdHistoryData.series = this.generateHistory(40, 220, 150, 440, 600, 880);
     },
-    generateHistory(cumulus, nimbus, stratus) {
+    generateHistory(cumulus, halvedCumulus, nimbus, halvedNimbus, stratus, halvedStratus) {
       const cumulusData = [];
       const nimbusData = [];
       const stratusData = [];
 
       const timePoints = Object.keys(this.fluxHistoryStats);
       timePoints.forEach((time) => {
-        cumulusData.push([Number(time), (this.fluxHistoryStats[time].cumulus) * cumulus]);
-        nimbusData.push([Number(time), (this.fluxHistoryStats[time].nimbus) * nimbus]);
-        stratusData.push([Number(time), (this.fluxHistoryStats[time].stratus) * stratus]);
+        if (time < 1647197215000) { // block 1076532
+          cumulusData.push([Number(time), (this.fluxHistoryStats[time].cumulus) * cumulus]);
+        } else {
+          cumulusData.push([Number(time), (this.fluxHistoryStats[time].cumulus) * halvedCumulus]);
+        }
+        if (time < 2000000000000) { // edit this after block 1081572
+          nimbusData.push([Number(time), (this.fluxHistoryStats[time].nimbus) * nimbus]);
+        } else {
+          nimbusData.push([Number(time), (this.fluxHistoryStats[time].nimbus) * halvedNimbus]);
+        }
+        if (time < 2000000000000) { // edit this after block 1087332
+          stratusData.push([Number(time), (this.fluxHistoryStats[time].stratus) * stratus]);
+        } else {
+          stratusData.push([Number(time), (this.fluxHistoryStats[time].stratus) * halvedStratus]);
+        }
       });
       return [
         {
