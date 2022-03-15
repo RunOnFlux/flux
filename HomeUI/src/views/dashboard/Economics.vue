@@ -80,7 +80,7 @@
                     ~ ${{ beautifyValue((cumulusUSDRewardWeek * weeksInAMonth * 0.1 * 5) + (cumulusUSDRewardWeek * weeksInAMonth)) }} USD
                   </h6>
                   <h6 class="mb-0 mt-1">
-                    VPS Cost ~ 7 USD
+                    VPS Cost ~ {{ cumulusHostingCost }} USD
                   </h6>
                 </div>
                 <small class="text-muted">Per Month</small>
@@ -161,7 +161,7 @@
                     ~ ${{ beautifyValue((nimbusUSDRewardWeek * weeksInAMonth * 0.1 * 5) + (nimbusUSDRewardWeek * weeksInAMonth)) }} USD
                   </h6>
                   <h6 class="mb-0 mt-1">
-                    VPS Cost ~ 13 USD
+                    VPS Cost ~ {{ nimbusHostingCost }} USD
                   </h6>
                 </div>
                 <small class="text-muted">Per Month</small>
@@ -242,7 +242,7 @@
                     ~ ${{ beautifyValue((stratusUSDRewardWeek * weeksInAMonth * 0.1 * 5) + (stratusUSDRewardWeek * weeksInAMonth)) }} USD
                   </h6>
                   <h6 class="mb-0 mt-1">
-                    VPS Cost ~ 25 USD
+                    VPS Cost ~ {{ stratusHostingCost }} USD
                   </h6>
                 </div>
                 <small class="text-muted">Per Month</small>
@@ -311,9 +311,9 @@ export default {
   data() {
     return {
       interceptorID: 0,
-      cumulusHostingCost: 7,
-      nimbusHostingCost: 13,
-      stratusHostingCost: 25,
+      cumulusHostingCost: 10,
+      nimbusHostingCost: 25,
+      stratusHostingCost: 52,
       weeksInAMonth: 4.34812141,
       loadingPrice: true,
       historicalPrices: [],
