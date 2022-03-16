@@ -16,6 +16,14 @@ const newBenchmarkPath = path.join(homeDirPath, '.fluxbenchmark');
 
 let response = messageHelper.createErrorMessage();
 
+/**
+ * Executes a remote procedure.
+ *
+ * @param {string} rpc
+ * @param {object} [params]
+ *
+ * @returns {object} response
+ */
 async function executeCall(rpc, params) {
   let callResponse;
   const rpcparameters = params || [];
@@ -45,6 +53,14 @@ async function executeCall(rpc, params) {
 }
 
 // == Benchmarks ==
+/**
+ * Returns status.
+ *
+ * @param {object} req
+ * @param {object} [res]
+ *
+ * @returns {object} response
+ */
 async function getStatus(req, res) {
   const rpccall = 'getstatus';
 
@@ -53,6 +69,14 @@ async function getStatus(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * Restarts node's benchmarks.
+ *
+ * @param {object} req
+ * @param {object} [res]
+ *
+ * @returns {object} response
+ */
 async function restartNodeBenchmarks(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
@@ -66,6 +90,14 @@ async function restartNodeBenchmarks(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * Signs flux transaction.
+ *
+ * @param {object} req
+ * @param {object} [res]
+ *
+ * @returns {object} response
+ */
 async function signFluxTransaction(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   let { hexstring } = req.params;
@@ -85,6 +117,14 @@ async function signFluxTransaction(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * Signs flux transaction from a POST request.
+ *
+ * @param {object} req
+ * @param {object} [res]
+ *
+ * @returns {object} response
+ */
 async function signFluxTransactionPost(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -109,6 +149,14 @@ async function signFluxTransactionPost(req, res) {
 }
 
 // == Control ==
+/**
+ * Executes help command and returns the result.
+ *
+ * @param {object} req
+ * @param {object} [res]
+ *
+ * @returns {object} response
+ */
 async function help(req, res) {
   let { command } = req.params;
   command = command || req.query.command || '';
@@ -121,6 +169,14 @@ async function help(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * Executes stop command and returns the result.
+ *
+ * @param {object} req
+ * @param {object} [res]
+ *
+ * @returns {object} response
+ */
 async function stop(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
@@ -135,6 +191,14 @@ async function stop(req, res) {
 }
 
 // == Zelnode ==
+/**
+ * Returns benchmarks.
+ *
+ * @param {object} req
+ * @param {object} [res]
+ *
+ * @returns {object} response
+ */
 async function getBenchmarks(req, res) {
   const rpccall = 'getbenchmarks';
 
@@ -143,6 +207,14 @@ async function getBenchmarks(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * Returns getInfo command results.
+ *
+ * @param {object} req
+ * @param {object} [res]
+ *
+ * @returns {object} response
+ */
 async function getInfo(req, res) {
   const rpccall = 'getInfo';
 
@@ -151,6 +223,14 @@ async function getInfo(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * Returns the public IP.
+ *
+ * @param {object} req
+ * @param {object} [res]
+ *
+ * @returns {object} response
+ */
 async function getPublicIp(req, res) {
   const rpccall = 'getpublicip';
 

@@ -524,4 +524,78 @@ describe('benchmarkService tests', () => {
       sinon.assert.calledOnceWithExactly(mockResponse.json, expectedSuccessMessage);
     });
   });
+
+  describe('getInfo tests', () => {
+    let benchmarkStub;
+
+    beforeEach(() => {
+      benchmarkStub = sinon.stub(benchmarkrpc.Client.prototype, 'getInfo').returns(Promise.resolve('called'));
+    });
+
+    afterEach(() => {
+      benchmarkStub.restore();
+    });
+
+    it('should return a sucessful response if called without parameters', async () => {
+      const getInfoResult = await benchmarkService.getInfo();
+
+      expect(getInfoResult).to.be.an('object');
+      expect(getInfoResult.status).to.equal('success');
+      expect(getInfoResult.data).to.equal('called');
+      sinon.assert.calledOnce(benchmarkStub);
+    });
+
+    it('should call getstatus properly if response object is passed', async () => {
+      const generateResponse = () => {
+        const res = { test: 'testing' };
+        res.status = sinon.stub().returns(res);
+        res.json = sinon.stub().returns(res);
+        return res;
+      };
+      const mockResponse = generateResponse();
+      const expectedSuccessMessage = { status: 'success', data: 'called' };
+
+      await benchmarkService.getInfo(undefined, mockResponse);
+
+      sinon.assert.calledOnce(benchmarkStub);
+      sinon.assert.calledOnceWithExactly(mockResponse.json, expectedSuccessMessage);
+    });
+  });
+
+  describe('getPublicIp tests', () => {
+    let benchmarkStub;
+
+    beforeEach(() => {
+      benchmarkStub = sinon.stub(benchmarkrpc.Client.prototype, 'getpublicip').returns(Promise.resolve('called'));
+    });
+
+    afterEach(() => {
+      benchmarkStub.restore();
+    });
+
+    it('should return a sucessful response if called without parameters', async () => {
+      const getPublicIpResult = await benchmarkService.getPublicIp();
+
+      expect(getPublicIpResult).to.be.an('object');
+      expect(getPublicIpResult.status).to.equal('success');
+      expect(getPublicIpResult.data).to.equal('called');
+      sinon.assert.calledOnce(benchmarkStub);
+    });
+
+    it('should call getstatus properly if response object is passed', async () => {
+      const generateResponse = () => {
+        const res = { test: 'testing' };
+        res.status = sinon.stub().returns(res);
+        res.json = sinon.stub().returns(res);
+        return res;
+      };
+      const mockResponse = generateResponse();
+      const expectedSuccessMessage = { status: 'success', data: 'called' };
+
+      await benchmarkService.getPublicIp(undefined, mockResponse);
+
+      sinon.assert.calledOnce(benchmarkStub);
+      sinon.assert.calledOnceWithExactly(mockResponse.json, expectedSuccessMessage);
+    });
+  });
 });
