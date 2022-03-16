@@ -39,7 +39,7 @@ function debug(args) {
     const filepath = `${homeDirPath}debug.log`;
     writeToFile(filepath, args);
   } catch (err) {
-    console.error('This shall not have happened');
+    console.error('This should not have happened');
     console.error(err);
   }
 }
@@ -52,7 +52,7 @@ function error(args) {
     writeToFile(filepath, args);
     debug(args);
   } catch (err) {
-    console.error('This shall not have happened');
+    console.error('This should not have happened');
     console.error(err);
   }
 }
@@ -65,7 +65,7 @@ function warn(args) {
     writeToFile(filepath, args);
     debug(args);
   } catch (err) {
-    console.error('This shall not have happened');
+    console.error('This should not have happened');
     console.error(err);
   }
 }
@@ -78,7 +78,7 @@ function info(args) {
     writeToFile(filepath, args);
     debug(args);
   } catch (err) {
-    console.error('This shall not have happened');
+    console.error('This should not have happened');
     console.error(err);
   }
 }

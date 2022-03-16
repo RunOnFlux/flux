@@ -1,11 +1,8 @@
 import axios from 'axios';
-import config from 'ZelBack/config/default';
 
 const store = require('store');
 
-const port = config.server.apiport;
-
-const { protocol, hostname } = window.location;
+const { protocol, hostname, port } = window.location;
 let mybackend = '';
 mybackend += protocol;
 mybackend += '//';
@@ -17,7 +14,7 @@ if (hostname.match(regex)) {
 } else {
   mybackend += hostname;
   mybackend += ':';
-  mybackend += port;
+  mybackend += (+port + 1);
 }
 
 const sourceCancelToken = axios.CancelToken.source();

@@ -1,4 +1,32 @@
-const config = require('config');
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: idService.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: idService.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>const config = require('config');
 const bitcoinMessage = require('bitcoinjs-message');
 const qs = require('qs');
 const os = require('os');
@@ -34,46 +62,46 @@ async function confirmNodeTierHardware() {
     log.info(`Node Collateral: ${collateral}`);
     log.info(`Node Total Ram: ${nodeRam}`);
     log.info(`Node Cpu Threads: ${nodeCpuThreads}`);
-    if (tier === 'bamf' && collateral === 100000) {
-      if (nodeRam < 30) {
+    if (tier === 'bamf' &amp;&amp; collateral === 100000) {
+      if (nodeRam &lt; 30) {
         throw new Error(`Node Total Ram (${nodeRam}) below Stratus requirements`);
       }
-      if (nodeCpuThreads < 8) {
+      if (nodeCpuThreads &lt; 8) {
         throw new Error(`Node Cpu Threads (${nodeCpuThreads}) below Stratus requirements`);
       }
-    } else if (tier === 'super' && collateral === 25000) {
-      if (nodeRam < 7) {
+    } else if (tier === 'super' &amp;&amp; collateral === 25000) {
+      if (nodeRam &lt; 7) {
         throw new Error(`Node Total Ram (${nodeRam}) below Nimbus requirements`);
       }
-      if (nodeCpuThreads < 4) {
+      if (nodeCpuThreads &lt; 4) {
         throw new Error(`Node Cpu Threads (${nodeCpuThreads}) below Nimbus requirements`);
       }
-    } else if (tier === 'basic' && collateral === 10000) {
-      if (nodeRam < 3) {
+    } else if (tier === 'basic' &amp;&amp; collateral === 10000) {
+      if (nodeRam &lt; 3) {
         throw new Error(`Node Total Ram (${nodeRam}) below Cumulus requirements`);
       }
-      if (nodeCpuThreads < 2) {
+      if (nodeCpuThreads &lt; 2) {
         throw new Error(`Node Cpu Threads (${nodeCpuThreads}) below Cumulus requirements`);
       }
-    } else if (tier === 'bamf' && collateral === 40000) {
-      if (nodeRam < 61) {
+    } else if (tier === 'bamf' &amp;&amp; collateral === 40000) {
+      if (nodeRam &lt; 61) {
         throw new Error(`Node Total Ram (${nodeRam}) below new Stratus requirements`);
       }
-      if (nodeCpuThreads < 16) {
+      if (nodeCpuThreads &lt; 16) {
         throw new Error(`Node Cpu Threads (${nodeCpuThreads}) below new Stratus requirements`);
       }
-    } else if (tier === 'super' && collateral === 12500) {
-      if (nodeRam < 30) {
+    } else if (tier === 'super' &amp;&amp; collateral === 12500) {
+      if (nodeRam &lt; 30) {
         throw new Error(`Node Total Ram (${nodeRam}) below new Nimbus requirements`);
       }
-      if (nodeCpuThreads < 8) {
+      if (nodeCpuThreads &lt; 8) {
         throw new Error(`Node Cpu Threads (${nodeCpuThreads}) below new Nimbus requirements`);
       }
-    } else if (tier === 'basic' && collateral === 1000) {
-      if (nodeRam < 3) {
+    } else if (tier === 'basic' &amp;&amp; collateral === 1000) {
+      if (nodeRam &lt; 3) {
         throw new Error(`Node Total Ram (${nodeRam}) below new Cumulus requirements`);
       }
-      if (nodeCpuThreads < 4) {
+      if (nodeCpuThreads &lt; 4) {
         throw new Error(`Node Cpu Threads (${nodeCpuThreads}) below new Cumulus requirements`);
       }
     }
@@ -110,7 +138,7 @@ async function loginPhrase(req, res) {
     if (dosState.status === 'success') {
       if (dosState.data.dosState > 10 || dosState.data.dosMessage !== null || dosState.data.nodeHardwareSpecsGood === false) {
         let errMessage = messageHelper.createErrorMessage(dosState.data.dosMessage, 'DOS', dosState.data.dosState);
-        if (dosState.data.dosMessage !== 'Flux IP detection failed' && dosState.data.dosMessage !== 'Flux collision detection') {
+        if (dosState.data.dosMessage !== 'Flux IP detection failed' &amp;&amp; dosState.data.dosMessage !== 'Flux collision detection') {
           errMessage = messageHelper.createErrorMessage(dosState.data.dosMessage, 'CONNERROR', dosState.data.dosState);
         }
         if (dosState.data.nodeHardwareSpecsGood === false) {
@@ -215,7 +243,7 @@ async function verifyLogin(req, res) {
         throw new Error('ZelID is not valid');
       }
 
-      if (address.length > 34 || address.length < 25) {
+      if (address.length > 34 || address.length &lt; 25) {
         throw new Error('ZelID is not valid');
       }
 
@@ -223,11 +251,11 @@ async function verifyLogin(req, res) {
         throw new Error('No message is specified');
       }
 
-      if (message.length < 40) {
+      if (message.length &lt; 40) {
         throw new Error('Signed message is not valid');
       }
 
-      if (message.substring(0, 13) < (timestamp - 900000) || message.substring(0, 13) > timestamp) {
+      if (message.substring(0, 13) &lt; (timestamp - 900000) || message.substring(0, 13) > timestamp) {
         throw new Error('Signed message is not valid');
       }
 
@@ -245,7 +273,7 @@ async function verifyLogin(req, res) {
 
       if (result) {
         // It is present in our database
-        if (result.loginPhrase.substring(0, 13) < timestamp) {
+        if (result.loginPhrase.substring(0, 13) &lt; timestamp) {
           // Second verify that this address signed this message
           let valid = false;
           try {
@@ -332,7 +360,7 @@ async function provideSign(req, res) {
         throw new Error('ZelID is not valid');
       }
 
-      if (address.length > 34 || address.length < 25) {
+      if (address.length > 34 || address.length &lt; 25) {
         throw new Error('ZelID is not valid');
       }
 
@@ -340,7 +368,7 @@ async function provideSign(req, res) {
         throw new Error('No message is specified');
       }
 
-      if (message.length < 40) {
+      if (message.length &lt; 40) {
         throw new Error('Signed message is not valid');
       }
 
@@ -820,3 +848,27 @@ module.exports = {
   wsRespondSignature,
   checkLoggedUser,
 };
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Modules</h3><ul><li><a href="Contains%2520utility%2520functions%2520to%2520be%2520used%2520only%2520by%2520verificationHelper.%250ATo%2520verify%2520privilege%2520use%2520verifyPrivilege%2520from%2520verificationHelper%2520module.module_.html">Contains utility functions to be used only by verificationHelper.
+To verify privilege use verifyPrivilege from verificationHelper module.</a></li><li><a href="module-Helper%2520module%2520used%2520for%2520all%2520interactions%2520with%2520database.html">Helper module used for all interactions with database</a></li></ul><h3>Global</h3><ul><li><a href="global.html#activeLoginPhrases">activeLoginPhrases</a></li><li><a href="global.html#appDockerCreate">appDockerCreate</a></li><li><a href="global.html#appDockerImageRemove">appDockerImageRemove</a></li><li><a href="global.html#appDockerKill">appDockerKill</a></li><li><a href="global.html#appDockerPause">appDockerPause</a></li><li><a href="global.html#appDockerRemove">appDockerRemove</a></li><li><a href="global.html#appDockerRestart">appDockerRestart</a></li><li><a href="global.html#appDockerStart">appDockerStart</a></li><li><a href="global.html#appDockerStop">appDockerStop</a></li><li><a href="global.html#appDockerTop">appDockerTop</a></li><li><a href="global.html#appDockerUnpause">appDockerUnpause</a></li><li><a href="global.html#axiosGet">axiosGet</a></li><li><a href="global.html#checkBlockProcessingStopped">checkBlockProcessingStopped</a></li><li><a href="global.html#checkLoggedUser">checkLoggedUser</a></li><li><a href="global.html#checkSynced">checkSynced</a></li><li><a href="global.html#checkWhitelistedRepository">checkWhitelistedRepository</a></li><li><a href="global.html#checkWhitelistedZelID">checkWhitelistedZelID</a></li><li><a href="global.html#confirmNodeTierHardware">confirmNodeTierHardware</a></li><li><a href="global.html#createDataMessage">createDataMessage</a></li><li><a href="global.html#createErrorMessage">createErrorMessage</a></li><li><a href="global.html#createFluxDockerNetwork">createFluxDockerNetwork</a></li><li><a href="global.html#createSuccessMessage">createSuccessMessage</a></li><li><a href="global.html#createWarningMessage">createWarningMessage</a></li><li><a href="global.html#decodeMessage">decodeMessage</a></li><li><a href="global.html#delay">delay</a></li><li><a href="global.html#deleteLoginPhrase">deleteLoginPhrase</a></li><li><a href="global.html#dockerContainerChanges">dockerContainerChanges</a></li><li><a href="global.html#dockerContainerExec">dockerContainerExec</a></li><li><a href="global.html#dockerContainerInspect">dockerContainerInspect</a></li><li><a href="global.html#dockerContainerLogs">dockerContainerLogs</a></li><li><a href="global.html#dockerContainerLogsStream">dockerContainerLogsStream</a></li><li><a href="global.html#dockerContainerStats">dockerContainerStats</a></li><li><a href="global.html#dockerCreateNetwork">dockerCreateNetwork</a></li><li><a href="global.html#dockerListContainers">dockerListContainers</a></li><li><a href="global.html#dockerListImages">dockerListImages</a></li><li><a href="global.html#dockerNetworkInspect">dockerNetworkInspect</a></li><li><a href="global.html#dockerRemoveNetwork">dockerRemoveNetwork</a></li><li><a href="global.html#emergencyPhrase">emergencyPhrase</a></li><li><a href="global.html#ensureBoolean">ensureBoolean</a></li><li><a href="global.html#ensureNumber">ensureNumber</a></li><li><a href="global.html#ensureObject">ensureObject</a></li><li><a href="global.html#ensureString">ensureString</a></li><li><a href="global.html#errUnauthorizedMessage">errUnauthorizedMessage</a></li><li><a href="global.html#executeCall">executeCall</a></li><li><a href="global.html#getAddressBalance">getAddressBalance</a></li><li><a href="global.html#getAddressFusionCoinbase">getAddressFusionCoinbase</a></li><li><a href="global.html#getAddressTransactions">getAddressTransactions</a></li><li><a href="global.html#getAddressUtxos">getAddressUtxos</a></li><li><a href="global.html#getAllAddresses">getAllAddresses</a></li><li><a href="global.html#getAllAddressesWithTransactions">getAllAddressesWithTransactions</a></li><li><a href="global.html#getAllFluxTransactions">getAllFluxTransactions</a></li><li><a href="global.html#getAllFusionCoinbase">getAllFusionCoinbase</a></li><li><a href="global.html#getAllUtxos">getAllUtxos</a></li><li><a href="global.html#getAppDockerNameIdentifier">getAppDockerNameIdentifier</a></li><li><a href="global.html#getAppIdentifier">getAppIdentifier</a></li><li><a href="global.html#getApplicationOwner">getApplicationOwner</a></li><li><a href="global.html#getBenchmarks">getBenchmarks</a></li><li><a href="global.html#getCollateralInfo">getCollateralInfo</a></li><li><a href="global.html#getDockerContainer">getDockerContainer</a></li><li><a href="global.html#getDockerContainerByIdOrName">getDockerContainerByIdOrName</a></li><li><a href="global.html#getFilteredFluxTxs">getFilteredFluxTxs</a></li><li><a href="global.html#getGatewayApi">getGatewayApi</a></li><li><a href="global.html#getInfo">getInfo</a></li><li><a href="global.html#getIpApi">getIpApi</a></li><li><a href="global.html#getMapApi">getMapApi</a></li><li><a href="global.html#getPublicIp">getPublicIp</a></li><li><a href="global.html#getScannedHeight">getScannedHeight</a></li><li><a href="global.html#getSender">getSender</a></li><li><a href="global.html#getSenderForFluxTx">getSenderForFluxTx</a></li><li><a href="global.html#getSenderForFluxTxInsight">getSenderForFluxTxInsight</a></li><li><a href="global.html#getSenderTransactionFromDaemon">getSenderTransactionFromDaemon</a></li><li><a href="global.html#getStatus">getStatus</a></li><li><a href="global.html#getVerboseBlock">getVerboseBlock</a></li><li><a href="global.html#help">help</a></li><li><a href="global.html#initiateBlockProcessor">initiateBlockProcessor</a></li><li><a href="global.html#isNodeStatusConfirmed">isNodeStatusConfirmed</a></li><li><a href="global.html#isUPNP">isUPNP</a></li><li><a href="global.html#loggedSessions">loggedSessions</a></li><li><a href="global.html#loggedUsers">loggedUsers</a></li><li><a href="global.html#loginPhrase">loginPhrase</a></li><li><a href="global.html#logoutAllSessions">logoutAllSessions</a></li><li><a href="global.html#logoutAllUsers">logoutAllUsers</a></li><li><a href="global.html#logoutCurrentSession">logoutCurrentSession</a></li><li><a href="global.html#logoutSpecificSession">logoutSpecificSession</a></li><li><a href="global.html#mapPortApi">mapPortApi</a></li><li><a href="global.html#mapUpnpPort">mapUpnpPort</a></li><li><a href="global.html#messageHash">messageHash</a></li><li><a href="global.html#nodeCollateral">nodeCollateral</a></li><li><a href="global.html#nodeTier">nodeTier</a></li><li><a href="global.html#processBlock">processBlock</a></li><li><a href="global.html#processBlockTransactions">processBlockTransactions</a></li><li><a href="global.html#processInsight">processInsight</a></li><li><a href="global.html#processStandard">processStandard</a></li><li><a href="global.html#processTransaction">processTransaction</a></li><li><a href="global.html#provideSign">provideSign</a></li><li><a href="global.html#reindexExplorer">reindexExplorer</a></li><li><a href="global.html#removeMapPortApi">removeMapPortApi</a></li><li><a href="global.html#removeMapUpnpPort">removeMapUpnpPort</a></li><li><a href="global.html#rescanExplorer">rescanExplorer</a></li><li><a href="global.html#restartBlockProcessing">restartBlockProcessing</a></li><li><a href="global.html#restartNodeBenchmarks">restartNodeBenchmarks</a></li><li><a href="global.html#restoreDatabaseToBlockheightState">restoreDatabaseToBlockheightState</a></li><li><a href="global.html#setupUPNP">setupUPNP</a></li><li><a href="global.html#signFluxTransaction">signFluxTransaction</a></li><li><a href="global.html#signFluxTransactionPost">signFluxTransactionPost</a></li><li><a href="global.html#signMessage">signMessage</a></li><li><a href="global.html#startFluxFunctions">startFluxFunctions</a></li><li><a href="global.html#stop">stop</a></li><li><a href="global.html#stopBlockProcessing">stopBlockProcessing</a></li><li><a href="global.html#verifyLogin">verifyLogin</a></li><li><a href="global.html#verifyMessage">verifyMessage</a></li><li><a href="global.html#verifyPrivilege">verifyPrivilege</a></li><li><a href="global.html#verifyUPNPsupport">verifyUPNPsupport</a></li><li><a href="global.html#verifyZelID">verifyZelID</a></li><li><a href="global.html#whitelistedRepositories">whitelistedRepositories</a></li><li><a href="global.html#whitelistedZelIDs">whitelistedZelIDs</a></li><li><a href="global.html#wsRespondLoginPhrase">wsRespondLoginPhrase</a></li><li><a href="global.html#wsRespondSignature">wsRespondSignature</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.10</a> on Mon Mar 14 2022 10:24:55 GMT+0700 (Indočínský čas)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

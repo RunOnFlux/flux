@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <title>JSDoc: Source: verificationHelperUtils.js</title>
+    <title>JSDoc: Source: benchmarkService.js</title>
 
     <script src="scripts/prettify/prettify.js"> </script>
     <script src="scripts/prettify/lang-css.js"> </script>
@@ -17,7 +17,7 @@
 
 <div id="main">
 
-    <h1 class="page-title">Source: verificationHelperUtils.js</h1>
+    <h1 class="page-title">Source: benchmarkService.js</h1>
 
     
 
@@ -26,230 +26,241 @@
     
     <section>
         <article>
-            <pre class="prettyprint source linenums"><code>/**
- * @module
- * Contains utility functions to be used only by verificationHelper.
- * To verify privilege use verifyPrivilege from verificationHelper module.
- */
-
+            <pre class="prettyprint source linenums"><code>const benchmarkrpc = require('daemonrpc');
 const config = require('config');
-const bitcoinMessage = require('bitcoinjs-message');
+const path = require('path');
+const fs = require('fs');
 const serviceHelper = require('./serviceHelper');
-const dbHelper = require('./dbHelper');
+const messageHelper = require('./messageHelper');
+const verificationHelper = require('./verificationHelper');
 const userconfig = require('../../../config/userconfig');
 
+const isTestnet = userconfig.initial.testnet;
+
+const rpcport = isTestnet === true ? config.benchmark.rpcporttestnet : config.benchmark.rpcport;
+
+const homeDirPath = path.join(__dirname, '../../../../');
+const newBenchmarkPath = path.join(homeDirPath, '.fluxbenchmark');
+
+let response = messageHelper.createErrorMessage();
+
 /**
- * Verifies admin session
- * @param {object} headers
- *
- * @returns {Promise&lt;boolean>}
+ * To execute a remote procedure call (RPC).
+ * @param {string} rpc Remote procedure call.
+ * @param {string[]} params RPC parameters.
+ * @returns {object} Message.
  */
-async function verifyAdminSession(headers) {
-  if (!headers || !headers.zelidauth) return false;
-  const auth = serviceHelper.ensureObject(headers.zelidauth);
-  if (!auth.zelid || !auth.signature) return false;
-  if (auth.zelid !== userconfig.initial.zelid) return false;
-
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.local.database);
-  const collection = config.database.local.collections.loggedUsers;
-  const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
-  const projection = {};
-  const loggedUser = await dbHelper.findOneInDatabase(database, collection, query, projection);
-  if (!loggedUser) return false;
-
-  // check if signature corresponds to message with that zelid
-  let valid = false;
+async function executeCall(rpc, params) {
+  let callResponse;
+  const rpcparameters = params || [];
   try {
-    valid = bitcoinMessage.verify(loggedUser.loginPhrase, auth.zelid, auth.signature);
+    let rpcuser = 'zelbenchuser';
+    let rpcpassword = 'zelbenchpassword';
+    if (fs.existsSync(newBenchmarkPath)) {
+      rpcuser = 'fluxbenchuser';
+      rpcpassword = 'fluxbenchpassword';
+    }
+
+    const client = new benchmarkrpc.Client({
+      port: rpcport,
+      user: rpcuser,
+      pass: rpcpassword,
+      timeout: 60000,
+    });
+    const data = await client[rpc](...rpcparameters);
+    const successResponse = messageHelper.createDataMessage(data);
+    callResponse = successResponse;
   } catch (error) {
-    return false;
+    const daemonError = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    callResponse = daemonError;
   }
-  if (valid) {
-    // now we know this is indeed a logged admin
-    return true;
-  }
-  return false;
+
+  return callResponse;
+}
+
+// == Benchmarks ==
+/**
+ * To get benchmark status.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
+async function getStatus(req, res) {
+  const rpccall = 'getstatus';
+
+  response = await executeCall(rpccall);
+
+  return res ? res.json(response) : response;
 }
 
 /**
- * Verifies user session
- * @param {object} headers
- *
- * @returns {Promise&lt;boolean>}
+ * To restart node benchmarks. Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
  */
-async function verifyUserSession(headers) {
-  if (!headers || !headers.zelidauth) return false;
-  const auth = serviceHelper.ensureObject(headers.zelidauth);
-  if (!auth.zelid || !auth.signature) return false;
+async function restartNodeBenchmarks(req, res) {
+  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  if (authorized === true) {
+    const rpccall = 'restartnodebenchmarks';
 
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.local.database);
-  const collection = config.database.local.collections.loggedUsers;
-  const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
-  const projection = {};
-  const loggedUser = await dbHelper.findOneInDatabase(database, collection, query, projection);
-  if (!loggedUser) return false;
+    response = await executeCall(rpccall);
+  } else {
+    response = messageHelper.errUnauthorizedMessage();
+  }
 
-  // check if signature corresponds to message with that zelid
-  let valid = false;
-  try {
-    valid = bitcoinMessage.verify(loggedUser.loginPhrase, auth.zelid, auth.signature);
-  } catch (error) {
-    return false;
-  }
-  // console.log(valid)
-  if (valid) {
-    // now we know this is indeed a logged admin
-    return true;
-  }
-  return false;
+  return res ? res.json(response) : response;
 }
 
 /**
- * Verifies flux team session
- * @param {object} headers
- *
- * @returns {Promise&lt;boolean>}
+ * To sign Flux transaction. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
  */
-async function verifyFluxTeamSession(headers) {
-  if (!headers || !headers.zelidauth) return false;
-  const auth = serviceHelper.ensureObject(headers.zelidauth);
-  if (!auth.zelid || !auth.signature) return false;
-  if (auth.zelid !== config.fluxTeamZelId) return false;
+async function signFluxTransaction(req, res) {
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
+  let { hexstring } = req.params;
+  hexstring = hexstring || req.query.hexstring;
+  if (authorized === true) {
+    const rpccall = 'signzelnodetransaction';
+    const rpcparameters = [];
+    if (hexstring) {
+      rpcparameters.push(hexstring);
+    }
 
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.local.database);
-  const collection = config.database.local.collections.loggedUsers;
-  const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
-  const projection = {};
-  const result = await dbHelper.findOneInDatabase(database, collection, query, projection);
-  const loggedUser = result;
-  if (!loggedUser) return false;
-  // check if signature corresponds to message with that zelid
-  let valid = false;
-  try {
-    valid = bitcoinMessage.verify(loggedUser.loginPhrase, auth.zelid, auth.signature);
-  } catch (error) {
-    return false;
+    response = await executeCall(rpccall, rpcparameters);
+  } else {
+    response = messageHelper.errUnauthorizedMessage();
   }
-  if (valid) {
-    // now we know this is indeed a logged fluxteam
-    return true;
-  }
-  return false;
+
+  return res ? res.json(response) : response;
 }
 
 /**
- * Verifies admin or flux team session
- * @param {object} headers
- *
- * @returns {Promise&lt;boolean>}
+ * To ensure that a request is an object and sign Flux transaction. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
  */
-async function verifyAdminAndFluxTeamSession(headers) {
-  if (!headers || !headers.zelidauth) return false;
-  const auth = serviceHelper.ensureObject(headers.zelidauth);
-  if (!auth.zelid || !auth.signature) return false;
-  if (auth.zelid !== config.fluxTeamZelId &amp;&amp; auth.zelid !== userconfig.initial.zelid) return false; // admin is considered as fluxTeam
+async function signFluxTransactionPost(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const { hexstring } = processedBody;
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
+    if (authorized === true) {
+      const rpccall = 'signzelnodetransaction';
+      const rpcparameters = [];
+      if (hexstring) {
+        rpcparameters.push(hexstring);
+      }
+      response = await executeCall(rpccall, rpcparameters);
+    } else {
+      response = messageHelper.errUnauthorizedMessage();
+    }
+    return res.json(response);
+  });
+}
 
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.local.database);
-  const collection = config.database.local.collections.loggedUsers;
-  const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
-  const projection = {};
-  const loggedUser = await dbHelper.findOneInDatabase(database, collection, query, projection);
-  if (!loggedUser) return false;
+// == Control ==
+/**
+ * To request help message.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
+async function help(req, res) {
+  let { command } = req.params;
+  command = command || req.query.command || '';
 
-  // check if signature corresponds to message with that zelid
-  let valid = false;
-  try {
-    valid = bitcoinMessage.verify(loggedUser.loginPhrase, auth.zelid, auth.signature);
-  } catch (error) {
-    return false;
-  }
-  if (valid) {
-    // now we know this is indeed a logged admin or fluxteam
-    return true;
-  }
-  return false;
+  const rpccall = 'help';
+  const rpcparameters = [command];
+
+  response = await executeCall(rpccall, rpcparameters);
+
+  return res ? res.json(response) : response;
 }
 
 /**
- * Verifies app owner session
- * @param {object} headers
- *
- * @returns {Promise&lt;boolean>}
+ * To stop node benchmarks. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
  */
-async function verifyAppOwnerSession(headers, appName) {
-  if (!headers || !headers.zelidauth || !appName) return false;
-  const auth = serviceHelper.ensureObject(headers.zelidauth);
-  if (!auth.zelid || !auth.signature) return false;
-  const ownerZelID = await serviceHelper.getApplicationOwner(appName);
-  if (auth.zelid !== ownerZelID) return false;
+async function stop(req, res) {
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
+  if (authorized === true) {
+    const rpccall = 'stop';
 
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.local.database);
-  const collection = config.database.local.collections.loggedUsers;
-  const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
-  const projection = {};
-  const loggedUser = await dbHelper.findOneInDatabase(database, collection, query, projection);
-  if (!loggedUser) return false;
-  // check if signature corresponds to message with that zelid
-  let valid = false;
-  try {
-    valid = bitcoinMessage.verify(loggedUser.loginPhrase, auth.zelid, auth.signature);
-  } catch (error) {
-    return false;
+    response = await executeCall(rpccall);
+  } else {
+    response = messageHelper.errUnauthorizedMessage();
   }
-  if (valid) {
-    // now we know this is indeed a logged application owner
-    return true;
-  }
-  return false;
+
+  return res ? res.json(response) : response;
+}
+
+// == Zelnode ==
+/**
+ * To show status of benchmarks.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
+async function getBenchmarks(req, res) {
+  const rpccall = 'getbenchmarks';
+
+  response = await executeCall(rpccall);
+
+  return res ? res.json(response) : response;
 }
 
 /**
- * Verifies app owner (or higher privilege) session
- * @param {object} headers
- *
- * @returns {Promise&lt;boolean>}
+ * To get info on benchmark version and RCP port.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
  */
-async function verifyAppOwnerOrHigherSession(headers, appName) {
-  if (!headers || !headers.zelidauth || !appName) return false;
-  const auth = serviceHelper.ensureObject(headers.zelidauth);
-  if (!auth.zelid || !auth.signature) return false;
-  const ownerZelID = await serviceHelper.getApplicationOwner(appName);
-  if (auth.zelid !== ownerZelID &amp;&amp; auth.zelid !== config.fluxTeamZelId &amp;&amp; auth.zelid !== userconfig.initial.zelid) return false;
+async function getInfo(req, res) {
+  const rpccall = 'getInfo';
 
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.local.database);
-  const collection = config.database.local.collections.loggedUsers;
-  const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
-  const projection = {};
-  const loggedUser = await dbHelper.findOneInDatabase(database, collection, query, projection);
-  if (!loggedUser) return false;
+  response = await executeCall(rpccall);
 
-  // check if signature corresponds to message with that zelid
-  let valid = false;
-  try {
-    valid = bitcoinMessage.verify(loggedUser.loginPhrase, auth.zelid, auth.signature);
-  } catch (error) {
-    return false;
-  }
-  if (valid) {
-    // now we know this is indeed a logged application owner
-    return true;
-  }
-  return false;
+  return res ? res.json(response) : response;
+}
+
+/**
+ * To show public IP address.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
+async function getPublicIp(req, res) {
+  const rpccall = 'getpublicip';
+
+  response = await executeCall(rpccall);
+
+  return res ? res.json(response) : response;
 }
 
 module.exports = {
-  verifyAdminAndFluxTeamSession,
-  verifyAdminSession,
-  verifyAppOwnerOrHigherSession,
-  verifyAppOwnerSession,
-  verifyFluxTeamSession,
-  verifyUserSession,
+  // == Benchmarks ==
+  getStatus,
+  restartNodeBenchmarks,
+  signFluxTransaction,
+  signFluxTransactionPost,
+
+  // == Control ==
+  help,
+  stop,
+
+  // == Zelnode ==
+  getBenchmarks,
+  getInfo,
+  getPublicIp,
 };
 </code></pre>
         </article>

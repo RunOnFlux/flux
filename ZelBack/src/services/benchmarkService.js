@@ -17,12 +17,11 @@ const newBenchmarkPath = path.join(homeDirPath, '.fluxbenchmark');
 let response = messageHelper.createErrorMessage();
 
 /**
- * Executes a remote procedure.
+ * To execute a remote procedure call (RPC).
  *
- * @param {string} rpc
- * @param {object} [params]
- *
- * @returns {object} response
+ * @param {string} rpc Remote procedure call.
+ * @param {string[]} params RPC parameters.
+ * @returns {object} Message.
  */
 async function executeCall(rpc, params) {
   let callResponse;
@@ -54,12 +53,10 @@ async function executeCall(rpc, params) {
 
 // == Benchmarks ==
 /**
- * Returns status.
- *
- * @param {object} req
- * @param {object} [res]
- *
- * @returns {object} response
+ * To get benchmark status.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
  */
 async function getStatus(req, res) {
   const rpccall = 'getstatus';
@@ -70,12 +67,10 @@ async function getStatus(req, res) {
 }
 
 /**
- * Restarts node's benchmarks.
- *
- * @param {object} req
- * @param {object} [res]
- *
- * @returns {object} response
+ * To restart node benchmarks. Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
  */
 async function restartNodeBenchmarks(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
@@ -91,12 +86,10 @@ async function restartNodeBenchmarks(req, res) {
 }
 
 /**
- * Signs flux transaction.
- *
- * @param {object} req
- * @param {object} [res]
- *
- * @returns {object} response
+ * To sign Flux transaction. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
  */
 async function signFluxTransaction(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
@@ -118,12 +111,9 @@ async function signFluxTransaction(req, res) {
 }
 
 /**
- * Signs flux transaction from a POST request.
- *
- * @param {object} req
- * @param {object} [res]
- *
- * @returns {object} response
+ * To ensure that a request is an object and sign Flux transaction. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
  */
 async function signFluxTransactionPost(req, res) {
   let body = '';
@@ -150,12 +140,10 @@ async function signFluxTransactionPost(req, res) {
 
 // == Control ==
 /**
- * Executes help command and returns the result.
- *
- * @param {object} req
- * @param {object} [res]
- *
- * @returns {object} response
+ * To request help message.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
  */
 async function help(req, res) {
   let { command } = req.params;
@@ -170,12 +158,10 @@ async function help(req, res) {
 }
 
 /**
- * Executes stop command and returns the result.
- *
- * @param {object} req
- * @param {object} [res]
- *
- * @returns {object} response
+ * To stop node benchmarks. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
  */
 async function stop(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
@@ -192,12 +178,10 @@ async function stop(req, res) {
 
 // == Zelnode ==
 /**
- * Returns benchmarks.
- *
- * @param {object} req
- * @param {object} [res]
- *
- * @returns {object} response
+ * To show status of benchmarks.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
  */
 async function getBenchmarks(req, res) {
   const rpccall = 'getbenchmarks';
@@ -208,12 +192,10 @@ async function getBenchmarks(req, res) {
 }
 
 /**
- * Returns getInfo command results.
- *
- * @param {object} req
- * @param {object} [res]
- *
- * @returns {object} response
+ * To get info on benchmark version and RCP port.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
  */
 async function getInfo(req, res) {
   const rpccall = 'getInfo';
@@ -224,12 +206,10 @@ async function getInfo(req, res) {
 }
 
 /**
- * Returns the public IP.
- *
- * @param {object} req
- * @param {object} [res]
- *
- * @returns {object} response
+ * To show public IP address.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
  */
 async function getPublicIp(req, res) {
   const rpccall = 'getpublicip';

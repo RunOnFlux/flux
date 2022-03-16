@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <title>JSDoc: Source: verificationHelperUtils.js</title>
+    <title>JSDoc: Source: upnpService.js</title>
 
     <script src="scripts/prettify/prettify.js"> </script>
     <script src="scripts/prettify/lang-css.js"> </script>
@@ -17,7 +17,7 @@
 
 <div id="main">
 
-    <h1 class="page-title">Source: verificationHelperUtils.js</h1>
+    <h1 class="page-title">Source: upnpService.js</h1>
 
     
 
@@ -26,230 +26,302 @@
     
     <section>
         <article>
-            <pre class="prettyprint source linenums"><code>/**
- * @module
- * Contains utility functions to be used only by verificationHelper.
- * To verify privilege use verifyPrivilege from verificationHelper module.
- */
-
-const config = require('config');
-const bitcoinMessage = require('bitcoinjs-message');
+            <pre class="prettyprint source linenums"><code>const config = require('config');
+const natUpnp = require('@runonflux/nat-upnp');
 const serviceHelper = require('./serviceHelper');
-const dbHelper = require('./dbHelper');
-const userconfig = require('../../../config/userconfig');
+const messageHelper = require('./messageHelper');
+const verificationHelper = require('./verificationHelper');
+
+const log = require('../lib/log');
+
+const client = new natUpnp.Client();
+
+let upnpMachine = false;
 
 /**
- * Verifies admin session
- * @param {object} headers
- *
- * @returns {Promise&lt;boolean>}
+ * To quickly check if node has UPnP (Universal Plug and Play) support.
+ * @returns {boolean} True if port mappings can be set. Otherwise false.
  */
-async function verifyAdminSession(headers) {
-  if (!headers || !headers.zelidauth) return false;
-  const auth = serviceHelper.ensureObject(headers.zelidauth);
-  if (!auth.zelid || !auth.signature) return false;
-  if (auth.zelid !== userconfig.initial.zelid) return false;
-
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.local.database);
-  const collection = config.database.local.collections.loggedUsers;
-  const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
-  const projection = {};
-  const loggedUser = await dbHelper.findOneInDatabase(database, collection, query, projection);
-  if (!loggedUser) return false;
-
-  // check if signature corresponds to message with that zelid
-  let valid = false;
-  try {
-    valid = bitcoinMessage.verify(loggedUser.loginPhrase, auth.zelid, auth.signature);
-  } catch (error) {
-    return false;
-  }
-  if (valid) {
-    // now we know this is indeed a logged admin
-    return true;
-  }
-  return false;
+function isUPNP() {
+  return upnpMachine;
 }
 
 /**
- * Verifies user session
- * @param {object} headers
- *
- * @returns {Promise&lt;boolean>}
+ * To verify that a port has UPnP (Universal Plug and Play) support.
+ * @param {number} apiport Port number.
+ * @returns {boolean} True if port mappings can be set. Otherwise false.
  */
-async function verifyUserSession(headers) {
-  if (!headers || !headers.zelidauth) return false;
-  const auth = serviceHelper.ensureObject(headers.zelidauth);
-  if (!auth.zelid || !auth.signature) return false;
-
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.local.database);
-  const collection = config.database.local.collections.loggedUsers;
-  const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
-  const projection = {};
-  const loggedUser = await dbHelper.findOneInDatabase(database, collection, query, projection);
-  if (!loggedUser) return false;
-
-  // check if signature corresponds to message with that zelid
-  let valid = false;
+async function verifyUPNPsupport(apiport = config.apiport) {
   try {
-    valid = bitcoinMessage.verify(loggedUser.loginPhrase, auth.zelid, auth.signature);
+    // run test on apiport + 1
+    await client.getPublicIp();
+    await client.getGateway();
+    await client.createMapping({
+      public: +apiport + 1,
+      private: +apiport + 1,
+      ttl: 0,
+    });
+    await client.removeMapping({
+      public: +apiport + 1,
+    });
+    await client.getMappings();
+    upnpMachine = true;
+    return true;
   } catch (error) {
+    log.error(error);
+    upnpMachine = false;
     return false;
   }
-  // console.log(valid)
-  if (valid) {
-    // now we know this is indeed a logged admin
-    return true;
-  }
-  return false;
 }
 
 /**
- * Verifies flux team session
- * @param {object} headers
- *
- * @returns {Promise&lt;boolean>}
+ * To set up UPnP (Universal Plug and Play) support.
+ * @param {number} apiport Port number.
+ * @returns {boolean} True if port mappings can be set. Otherwise false.
  */
-async function verifyFluxTeamSession(headers) {
-  if (!headers || !headers.zelidauth) return false;
-  const auth = serviceHelper.ensureObject(headers.zelidauth);
-  if (!auth.zelid || !auth.signature) return false;
-  if (auth.zelid !== config.fluxTeamZelId) return false;
-
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.local.database);
-  const collection = config.database.local.collections.loggedUsers;
-  const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
-  const projection = {};
-  const result = await dbHelper.findOneInDatabase(database, collection, query, projection);
-  const loggedUser = result;
-  if (!loggedUser) return false;
-  // check if signature corresponds to message with that zelid
-  let valid = false;
+async function setupUPNP(apiport = config.apiport) { // todo evaluate adding ssl port of + 1
   try {
-    valid = bitcoinMessage.verify(loggedUser.loginPhrase, auth.zelid, auth.signature);
+    await client.createMapping({
+      public: +apiport,
+      private: +apiport,
+      ttl: 0,
+    });
+    await client.createMapping({
+      public: +apiport - 1,
+      private: +apiport - 1,
+      ttl: 0,
+    });
+    return true;
   } catch (error) {
+    log.error(error);
     return false;
   }
-  if (valid) {
-    // now we know this is indeed a logged fluxteam
-    return true;
-  }
-  return false;
 }
 
 /**
- * Verifies admin or flux team session
- * @param {object} headers
- *
- * @returns {Promise&lt;boolean>}
+ * To create mappings for UPnP (Universal Plug and Play) port.
+ * @param {number} port Port number.
+ * @returns {boolean} True if port mappings can be created for both TCP (Transmission Control Protocol) and UDP (User Datagram Protocol) protocols. Otherwise false.
  */
-async function verifyAdminAndFluxTeamSession(headers) {
-  if (!headers || !headers.zelidauth) return false;
-  const auth = serviceHelper.ensureObject(headers.zelidauth);
-  if (!auth.zelid || !auth.signature) return false;
-  if (auth.zelid !== config.fluxTeamZelId &amp;&amp; auth.zelid !== userconfig.initial.zelid) return false; // admin is considered as fluxTeam
-
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.local.database);
-  const collection = config.database.local.collections.loggedUsers;
-  const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
-  const projection = {};
-  const loggedUser = await dbHelper.findOneInDatabase(database, collection, query, projection);
-  if (!loggedUser) return false;
-
-  // check if signature corresponds to message with that zelid
-  let valid = false;
+async function mapUpnpPort(port) {
   try {
-    valid = bitcoinMessage.verify(loggedUser.loginPhrase, auth.zelid, auth.signature);
+    await client.createMapping({
+      public: port,
+      private: port,
+      ttl: 0,
+      protocol: 'TCP',
+    });
+    await client.createMapping({
+      public: port,
+      private: port,
+      ttl: 0,
+      protocol: 'UDP',
+    });
+    return true;
   } catch (error) {
+    log.error(error);
     return false;
   }
-  if (valid) {
-    // now we know this is indeed a logged admin or fluxteam
-    return true;
-  }
-  return false;
 }
 
 /**
- * Verifies app owner session
- * @param {object} headers
- *
- * @returns {Promise&lt;boolean>}
+ * To remove TCP (Transmission Control Protocol) and UDP (User Datagram Protocol) port mappings from UPnP (Universal Plug and Play) port.
+ * @param {number} port Port number.
+ * @returns {boolean} True if port mappings have been removed for both TCP (Transmission Control Protocol) and UDP (User Datagram Protocol) protocols. Otherwise false.
  */
-async function verifyAppOwnerSession(headers, appName) {
-  if (!headers || !headers.zelidauth || !appName) return false;
-  const auth = serviceHelper.ensureObject(headers.zelidauth);
-  if (!auth.zelid || !auth.signature) return false;
-  const ownerZelID = await serviceHelper.getApplicationOwner(appName);
-  if (auth.zelid !== ownerZelID) return false;
-
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.local.database);
-  const collection = config.database.local.collections.loggedUsers;
-  const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
-  const projection = {};
-  const loggedUser = await dbHelper.findOneInDatabase(database, collection, query, projection);
-  if (!loggedUser) return false;
-  // check if signature corresponds to message with that zelid
-  let valid = false;
+async function removeMapUpnpPort(port) {
   try {
-    valid = bitcoinMessage.verify(loggedUser.loginPhrase, auth.zelid, auth.signature);
+    await client.removeMapping({
+      public: port,
+      protocol: 'TCP',
+    });
+    await client.removeMapping({
+      public: port,
+      protocol: 'UDP',
+    });
+    return true;
   } catch (error) {
+    log.error(error);
     return false;
   }
-  if (valid) {
-    // now we know this is indeed a logged application owner
-    return true;
-  }
-  return false;
 }
 
 /**
- * Verifies app owner (or higher privilege) session
- * @param {object} headers
- *
- * @returns {Promise&lt;boolean>}
+ * To map a specified port and show a message if successfully mapped. Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
  */
-async function verifyAppOwnerOrHigherSession(headers, appName) {
-  if (!headers || !headers.zelidauth || !appName) return false;
-  const auth = serviceHelper.ensureObject(headers.zelidauth);
-  if (!auth.zelid || !auth.signature) return false;
-  const ownerZelID = await serviceHelper.getApplicationOwner(appName);
-  if (auth.zelid !== ownerZelID &amp;&amp; auth.zelid !== config.fluxTeamZelId &amp;&amp; auth.zelid !== userconfig.initial.zelid) return false;
-
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.local.database);
-  const collection = config.database.local.collections.loggedUsers;
-  const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
-  const projection = {};
-  const loggedUser = await dbHelper.findOneInDatabase(database, collection, query, projection);
-  if (!loggedUser) return false;
-
-  // check if signature corresponds to message with that zelid
-  let valid = false;
+async function mapPortApi(req, res) {
   try {
-    valid = bitcoinMessage.verify(loggedUser.loginPhrase, auth.zelid, auth.signature);
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    if (authorized) {
+      let { port } = req.params;
+      port = port || req.query.port;
+      if (port === undefined || port === null) {
+        throw new Error('No Port address specified.');
+      }
+      port = serviceHelper.ensureNumber(port);
+      await client.createMapping({
+        public: port,
+        private: port,
+        ttl: 0,
+        protocol: 'TCP',
+      });
+      await client.createMapping({
+        public: port,
+        private: port,
+        ttl: 0,
+        protocol: 'UDP',
+      });
+      const message = messageHelper.createSuccessMessage('Port mapped');
+      res.json(message);
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
   } catch (error) {
-    return false;
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
   }
-  if (valid) {
-    // now we know this is indeed a logged application owner
-    return true;
+}
+
+/**
+ * To unmap a specified port and show a message if successfully unmapped. Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function removeMapPortApi(req, res) {
+  try {
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    if (authorized) {
+      let { port } = req.params;
+      port = port || req.query.port;
+      if (port === undefined || port === null) {
+        throw new Error('No Port address specified.');
+      }
+      port = serviceHelper.ensureNumber(port);
+      await client.removeMapping({
+        public: port,
+        protocol: 'TCP',
+      });
+      await client.removeMapping({
+        public: port,
+        protocol: 'UDP',
+      });
+      const message = messageHelper.createSuccessMessage('Port unmapped');
+      res.json(message);
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
   }
-  return false;
+}
+
+/**
+ * To show a message with mappings. Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function getMapApi(req, res) {
+  try {
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    if (authorized) {
+      const map = await client.getMappings();
+      const message = messageHelper.createDataMessage(map);
+      res.json(message);
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
+}
+
+/**
+ * To show a message with IP address. Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function getIpApi(req, res) {
+  try {
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    if (authorized) {
+      const ip = await client.getPublicIp();
+      const message = messageHelper.createDataMessage(ip);
+      res.json(message);
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
+}
+
+/**
+ * To show a message with gateway address. Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function getGatewayApi(req, res) {
+  try {
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    if (authorized) {
+      const gateway = await client.getGateway();
+      const message = messageHelper.createDataMessage(gateway);
+      res.json(message);
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
 }
 
 module.exports = {
-  verifyAdminAndFluxTeamSession,
-  verifyAdminSession,
-  verifyAppOwnerOrHigherSession,
-  verifyAppOwnerSession,
-  verifyFluxTeamSession,
-  verifyUserSession,
+  isUPNP,
+  verifyUPNPsupport,
+  setupUPNP,
+  mapUpnpPort,
+  removeMapUpnpPort,
+  mapPortApi,
+  removeMapPortApi,
+  getMapApi,
+  getIpApi,
+  getGatewayApi,
 };
 </code></pre>
         </article>

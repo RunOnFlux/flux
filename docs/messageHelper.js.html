@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <title>JSDoc: Source: verificationHelperUtils.js</title>
+    <title>JSDoc: Source: messageHelper.js</title>
 
     <script src="scripts/prettify/prettify.js"> </script>
     <script src="scripts/prettify/lang-css.js"> </script>
@@ -17,7 +17,7 @@
 
 <div id="main">
 
-    <h1 class="page-title">Source: verificationHelperUtils.js</h1>
+    <h1 class="page-title">Source: messageHelper.js</h1>
 
     
 
@@ -27,229 +27,106 @@
     <section>
         <article>
             <pre class="prettyprint source linenums"><code>/**
- * @module
- * Contains utility functions to be used only by verificationHelper.
- * To verify privilege use verifyPrivilege from verificationHelper module.
- */
-
-const config = require('config');
-const bitcoinMessage = require('bitcoinjs-message');
-const serviceHelper = require('./serviceHelper');
-const dbHelper = require('./dbHelper');
-const userconfig = require('../../../config/userconfig');
-
-/**
- * Verifies admin session
- * @param {object} headers
+ * Creates a message object.
  *
- * @returns {Promise&lt;boolean>}
+ * @param {object} data
+ *
+ * @returns {object} message
  */
-async function verifyAdminSession(headers) {
-  if (!headers || !headers.zelidauth) return false;
-  const auth = serviceHelper.ensureObject(headers.zelidauth);
-  if (!auth.zelid || !auth.signature) return false;
-  if (auth.zelid !== userconfig.initial.zelid) return false;
-
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.local.database);
-  const collection = config.database.local.collections.loggedUsers;
-  const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
-  const projection = {};
-  const loggedUser = await dbHelper.findOneInDatabase(database, collection, query, projection);
-  if (!loggedUser) return false;
-
-  // check if signature corresponds to message with that zelid
-  let valid = false;
-  try {
-    valid = bitcoinMessage.verify(loggedUser.loginPhrase, auth.zelid, auth.signature);
-  } catch (error) {
-    return false;
-  }
-  if (valid) {
-    // now we know this is indeed a logged admin
-    return true;
-  }
-  return false;
+function createDataMessage(data) {
+  const successMessage = {
+    status: 'success',
+    data,
+  };
+  return successMessage;
 }
 
 /**
- * Verifies user session
- * @param {object} headers
+ * Creates a message object indicating success.
  *
- * @returns {Promise&lt;boolean>}
+ * @param {string} message
+ * @param {string} [name]
+ * @param {string} [code]
+ *
+ * @returns {object} success message
  */
-async function verifyUserSession(headers) {
-  if (!headers || !headers.zelidauth) return false;
-  const auth = serviceHelper.ensureObject(headers.zelidauth);
-  if (!auth.zelid || !auth.signature) return false;
-
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.local.database);
-  const collection = config.database.local.collections.loggedUsers;
-  const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
-  const projection = {};
-  const loggedUser = await dbHelper.findOneInDatabase(database, collection, query, projection);
-  if (!loggedUser) return false;
-
-  // check if signature corresponds to message with that zelid
-  let valid = false;
-  try {
-    valid = bitcoinMessage.verify(loggedUser.loginPhrase, auth.zelid, auth.signature);
-  } catch (error) {
-    return false;
-  }
-  // console.log(valid)
-  if (valid) {
-    // now we know this is indeed a logged admin
-    return true;
-  }
-  return false;
+function createSuccessMessage(message, name, code) {
+  const successMessage = {
+    status: 'success',
+    data: {
+      code,
+      name,
+      message,
+    },
+  };
+  return successMessage;
 }
 
 /**
- * Verifies flux team session
- * @param {object} headers
+ * Creates a message indicating a warning.
  *
- * @returns {Promise&lt;boolean>}
+ * @param {string} message
+ * @param {string} [name]
+ * @param {string} [code]
+ *
+ * @returns {object} warning message
  */
-async function verifyFluxTeamSession(headers) {
-  if (!headers || !headers.zelidauth) return false;
-  const auth = serviceHelper.ensureObject(headers.zelidauth);
-  if (!auth.zelid || !auth.signature) return false;
-  if (auth.zelid !== config.fluxTeamZelId) return false;
-
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.local.database);
-  const collection = config.database.local.collections.loggedUsers;
-  const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
-  const projection = {};
-  const result = await dbHelper.findOneInDatabase(database, collection, query, projection);
-  const loggedUser = result;
-  if (!loggedUser) return false;
-  // check if signature corresponds to message with that zelid
-  let valid = false;
-  try {
-    valid = bitcoinMessage.verify(loggedUser.loginPhrase, auth.zelid, auth.signature);
-  } catch (error) {
-    return false;
-  }
-  if (valid) {
-    // now we know this is indeed a logged fluxteam
-    return true;
-  }
-  return false;
+function createWarningMessage(message, name, code) {
+  const warningMessage = {
+    status: 'warning',
+    data: {
+      code,
+      name,
+      message,
+    },
+  };
+  return warningMessage;
 }
 
 /**
- * Verifies admin or flux team session
- * @param {object} headers
+ * Creates a message indicating an error.
  *
- * @returns {Promise&lt;boolean>}
+ * @param {string} message
+ * @param {string} [name]
+ * @param {string} [code]
+ *
+ * @returns {object} error message
  */
-async function verifyAdminAndFluxTeamSession(headers) {
-  if (!headers || !headers.zelidauth) return false;
-  const auth = serviceHelper.ensureObject(headers.zelidauth);
-  if (!auth.zelid || !auth.signature) return false;
-  if (auth.zelid !== config.fluxTeamZelId &amp;&amp; auth.zelid !== userconfig.initial.zelid) return false; // admin is considered as fluxTeam
-
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.local.database);
-  const collection = config.database.local.collections.loggedUsers;
-  const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
-  const projection = {};
-  const loggedUser = await dbHelper.findOneInDatabase(database, collection, query, projection);
-  if (!loggedUser) return false;
-
-  // check if signature corresponds to message with that zelid
-  let valid = false;
-  try {
-    valid = bitcoinMessage.verify(loggedUser.loginPhrase, auth.zelid, auth.signature);
-  } catch (error) {
-    return false;
-  }
-  if (valid) {
-    // now we know this is indeed a logged admin or fluxteam
-    return true;
-  }
-  return false;
+function createErrorMessage(message, name, code) {
+  const errMessage = {
+    status: 'error',
+    data: {
+      code,
+      name,
+      message: message || 'Unknown error',
+    },
+  };
+  return errMessage;
 }
 
 /**
- * Verifies app owner session
- * @param {object} headers
+ * Returns unauthorized error message.
  *
- * @returns {Promise&lt;boolean>}
+ * @returns {object} unauthorized error message
  */
-async function verifyAppOwnerSession(headers, appName) {
-  if (!headers || !headers.zelidauth || !appName) return false;
-  const auth = serviceHelper.ensureObject(headers.zelidauth);
-  if (!auth.zelid || !auth.signature) return false;
-  const ownerZelID = await serviceHelper.getApplicationOwner(appName);
-  if (auth.zelid !== ownerZelID) return false;
-
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.local.database);
-  const collection = config.database.local.collections.loggedUsers;
-  const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
-  const projection = {};
-  const loggedUser = await dbHelper.findOneInDatabase(database, collection, query, projection);
-  if (!loggedUser) return false;
-  // check if signature corresponds to message with that zelid
-  let valid = false;
-  try {
-    valid = bitcoinMessage.verify(loggedUser.loginPhrase, auth.zelid, auth.signature);
-  } catch (error) {
-    return false;
-  }
-  if (valid) {
-    // now we know this is indeed a logged application owner
-    return true;
-  }
-  return false;
-}
-
-/**
- * Verifies app owner (or higher privilege) session
- * @param {object} headers
- *
- * @returns {Promise&lt;boolean>}
- */
-async function verifyAppOwnerOrHigherSession(headers, appName) {
-  if (!headers || !headers.zelidauth || !appName) return false;
-  const auth = serviceHelper.ensureObject(headers.zelidauth);
-  if (!auth.zelid || !auth.signature) return false;
-  const ownerZelID = await serviceHelper.getApplicationOwner(appName);
-  if (auth.zelid !== ownerZelID &amp;&amp; auth.zelid !== config.fluxTeamZelId &amp;&amp; auth.zelid !== userconfig.initial.zelid) return false;
-
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.local.database);
-  const collection = config.database.local.collections.loggedUsers;
-  const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
-  const projection = {};
-  const loggedUser = await dbHelper.findOneInDatabase(database, collection, query, projection);
-  if (!loggedUser) return false;
-
-  // check if signature corresponds to message with that zelid
-  let valid = false;
-  try {
-    valid = bitcoinMessage.verify(loggedUser.loginPhrase, auth.zelid, auth.signature);
-  } catch (error) {
-    return false;
-  }
-  if (valid) {
-    // now we know this is indeed a logged application owner
-    return true;
-  }
-  return false;
+function errUnauthorizedMessage() {
+  const errMessage = {
+    status: 'error',
+    data: {
+      code: 401,
+      name: 'Unauthorized',
+      message: 'Unauthorized. Access denied.',
+    },
+  };
+  return errMessage;
 }
 
 module.exports = {
-  verifyAdminAndFluxTeamSession,
-  verifyAdminSession,
-  verifyAppOwnerOrHigherSession,
-  verifyAppOwnerSession,
-  verifyFluxTeamSession,
-  verifyUserSession,
+  createDataMessage,
+  createErrorMessage,
+  createSuccessMessage,
+  createWarningMessage,
+  errUnauthorizedMessage,
 };
 </code></pre>
         </article>

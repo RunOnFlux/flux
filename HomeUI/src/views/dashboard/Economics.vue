@@ -27,7 +27,7 @@
         lg="4"
       >
         <b-card title="Cumulus Rewards">
-          <b-card-text>10,000 FLUX Collateral</b-card-text>
+          <b-card-text>{{ cumulusCollateral.toLocaleString() }} FLUX Collateral</b-card-text>
           <app-timeline class="mt-2">
             <app-timeline-item>
               <div class="d-flex flex-sm-row flex-column flex-wrap justify-content-between mb-1 mb-sm-0">
@@ -80,7 +80,7 @@
                     ~ ${{ beautifyValue((cumulusUSDRewardWeek * weeksInAMonth * 0.1 * 5) + (cumulusUSDRewardWeek * weeksInAMonth)) }} USD
                   </h6>
                   <h6 class="mb-0 mt-1">
-                    VPS Cost ~ 7 USD
+                    VPS Cost ~ {{ cumulusHostingCost }} USD
                   </h6>
                 </div>
                 <small class="text-muted">Per Month</small>
@@ -108,7 +108,7 @@
         lg="4"
       >
         <b-card title="Nimbus Rewards">
-          <b-card-text>25,000 FLUX Collateral</b-card-text>
+          <b-card-text>{{ nimbusCollateral.toLocaleString() }} FLUX Collateral</b-card-text>
           <app-timeline class="mt-2">
             <app-timeline-item variant="warning">
               <div class="d-flex flex-sm-row flex-column flex-wrap justify-content-between mb-1 mb-sm-0">
@@ -161,7 +161,7 @@
                     ~ ${{ beautifyValue((nimbusUSDRewardWeek * weeksInAMonth * 0.1 * 5) + (nimbusUSDRewardWeek * weeksInAMonth)) }} USD
                   </h6>
                   <h6 class="mb-0 mt-1">
-                    VPS Cost ~ 13 USD
+                    VPS Cost ~ {{ nimbusHostingCost }} USD
                   </h6>
                 </div>
                 <small class="text-muted">Per Month</small>
@@ -189,7 +189,7 @@
         lg="4"
       >
         <b-card title="Stratus Rewards">
-          <b-card-text>100,000 FLUX Collateral</b-card-text>
+          <b-card-text>{{ stratusCollateral.toLocaleString() }} FLUX Collateral</b-card-text>
           <app-timeline class="mt-2">
             <app-timeline-item variant="danger">
               <div class="d-flex flex-sm-row flex-column flex-wrap justify-content-between mb-1 mb-sm-0">
@@ -242,7 +242,7 @@
                     ~ ${{ beautifyValue((stratusUSDRewardWeek * weeksInAMonth * 0.1 * 5) + (stratusUSDRewardWeek * weeksInAMonth)) }} USD
                   </h6>
                   <h6 class="mb-0 mt-1">
-                    VPS Cost ~ 25 USD
+                    VPS Cost ~ {{ stratusHostingCost }} USD
                   </h6>
                 </div>
                 <small class="text-muted">Per Month</small>
@@ -286,6 +286,7 @@ import VueApexCharts from 'vue-apexcharts';
 import { $themeColors } from '@themeConfig';
 
 import DashboardService from '@/services/DashboardService';
+import ExplorerService from '@/services/ExplorerService';
 
 const rax = require('retry-axios');
 const axios = require('axios');
@@ -310,9 +311,9 @@ export default {
   data() {
     return {
       interceptorID: 0,
-      cumulusHostingCost: 7,
-      nimbusHostingCost: 13,
-      stratusHostingCost: 25,
+      cumulusHostingCost: 10,
+      nimbusHostingCost: 25,
+      stratusHostingCost: 52,
       weeksInAMonth: 4.34812141,
       loadingPrice: true,
       historicalPrices: [],
@@ -322,6 +323,9 @@ export default {
       cumulusUSDRewardWeek: 0,
       nimbusUSDRewardWeek: 0,
       stratusUSDRewardWeek: 0,
+      cumulusCollateral: 0,
+      nimbusCollateral: 0,
+      stratusCollateral: 0,
       latestPrice: 0,
       lineChart: {
         series: [],
@@ -413,7 +417,15 @@ export default {
   },
   methods: {
     async getData() {
-      this.getRates();
+      ExplorerService.getScannedHeight().then((result) => {
+        if (result.data.status === 'success') {
+          const blockHeight = result.data.data.generalScannedHeight;
+          this.cumulusCollateral = blockHeight < 1076532 ? 10000 : 1000;
+          this.nimbusCollateral = blockHeight < 1081572 ? 25000 : 12500;
+          this.stratusCollateral = blockHeight < 1087332 ? 100000 : 40000;
+        }
+        this.getRates();
+      });
       this.getPriceData();
     },
     async getRates() {
