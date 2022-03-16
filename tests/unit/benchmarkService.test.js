@@ -1,21 +1,11 @@
 const chai = require('chai');
 const sinon = require('sinon');
 const benchmarkrpc = require('daemonrpc');
-const proxyquire = require('proxyquire');
 const { PassThrough } = require('stream');
 
 const { expect } = chai;
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
-
-const adminConfig = {
-  initial: {
-    ipaddress: '83.51.212.243',
-    zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-    testnet: true,
-  },
-};
-const benchmarkService = proxyquire('../../ZelBack/src/services/benchmarkService',
-  { '../../../config/userconfig': adminConfig });
+const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
 
 describe('benchmarkService tests', () => {
   describe('executeCall tests', () => {
