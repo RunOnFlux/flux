@@ -88,13 +88,12 @@ let addingNodesToCache = false;
 async function isFluxAvailable(ip, port = config.server.apiport) {
   try {
     const fluxResponse = await serviceHelper.axiosGet(`http://${ip}:${port}/flux/version`, axiosConfig);
-    if (fluxResponse.data.status === 'success') {
-      let fluxVersion = fluxResponse.data.data;
-      fluxVersion = fluxVersion.replace(/\./g, '');
-      if (fluxVersion >= minimumFluxOSAllowedVersion) {
-        return true;
-      }
-      return false;
+    if (fluxResponse.data.status !== 'success') return false;
+
+    let fluxVersion = fluxResponse.data.data;
+    fluxVersion = fluxVersion.replace(/\./g, '');
+    if (fluxVersion >= minimumFluxOSAllowedVersion) {
+      return true;
     }
     return false;
   } catch (e) {
