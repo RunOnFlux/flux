@@ -1630,4 +1630,5 @@ module.exports = {
   keepConnectionsAlive,
   adjustFirewall,
   checkDeterministicNodesCollisions,
+  isFluxAvailable,
 };
