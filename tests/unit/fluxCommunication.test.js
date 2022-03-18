@@ -5,6 +5,7 @@ const { expect } = chai;
 
 const fluxCommunication = require('../../ZelBack/src/services/fluxCommunication');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+const daemonService = require('../../ZelBack/src/services/daemonService');
 
 describe('fluxCommunication tests', () => {
   describe('isFluxAvailable tests', () => {
@@ -93,7 +94,7 @@ describe('fluxCommunication tests', () => {
     });
   });
 
-  describe.only('checkFluxAvailability tests', () => {
+  describe('checkFluxAvailability tests', () => {
     let stub;
     const axiosConfig = {
       timeout: 5000,
@@ -235,6 +236,54 @@ describe('fluxCommunication tests', () => {
 
       sinon.assert.calledOnceWithExactly(mockResponse.json, expectedMessage);
       expect(checkFluxAvailabilityResult).to.eql(expectedMessage);
+    });
+  });
+
+  describe.only('getMyFluxIPandPort tests', () => {
+    const daemonStub = sinon.stub(daemonService, 'getBenchmarks');
+
+    afterEach(() => {
+      daemonStub.restore();
+    });
+
+    it('should return IP and Port if benchmark response is correct', async () => {
+      const ip = '127.0.0.1:5050';
+      const getBenchmarkResponseData = {
+        status: 'success',
+        data: JSON.stringify({ ipaddress: ip }),
+      };
+      daemonStub.resolves(getBenchmarkResponseData);
+
+      const getIpResult = await fluxCommunication.getMyFluxIPandPort();
+
+      expect(getIpResult).to.equal(ip);
+      sinon.assert.calledOnce(daemonStub);
+    });
+
+    it('should return null if daemon\'s response is invalid', async () => {
+      const getBenchmarkResponseData = {
+        status: 'error',
+      };
+      daemonStub.resolves(getBenchmarkResponseData);
+
+      const getIpResult = await fluxCommunication.getMyFluxIPandPort();
+
+      expect(getIpResult).to.be.null;
+      sinon.assert.calledOnce(daemonStub);
+    });
+
+    it('should return null if daemon\'s response IP is too short', async () => {
+      const ip = '12734';
+      const getBenchmarkResponseData = {
+        status: 'success',
+        data: JSON.stringify({ ipaddress: ip }),
+      };
+      daemonStub.resolves(getBenchmarkResponseData);
+
+      const getIpResult = await fluxCommunication.getMyFluxIPandPort();
+
+      expect(getIpResult).to.be.null;
+      sinon.assert.calledOnce(daemonStub);
     });
   });
 });

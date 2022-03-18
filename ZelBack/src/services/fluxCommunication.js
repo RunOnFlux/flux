@@ -1630,4 +1630,5 @@ module.exports = {
   adjustFirewall,
   checkDeterministicNodesCollisions,
   isFluxAvailable,
+  getMyFluxIPandPort,
 };
