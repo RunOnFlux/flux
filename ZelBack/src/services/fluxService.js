@@ -19,6 +19,12 @@ const generalService = require('./generalService');
 const fluxCommunication = require('./fluxCommunication');
 const userconfig = require('../../../config/userconfig');
 
+/**
+ * To show the directory on the node machine where FluxOS files are stored.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 // eslint-disable-next-line consistent-return
 async function fluxBackendFolder(req, res) {
   const fluxBackFolder = path.join(__dirname, '../../');
@@ -26,6 +32,12 @@ async function fluxBackendFolder(req, res) {
   return res.json(message);
 }
 
+/**
+ * To update FluxOS version (executes the command `npm run updateflux` on the node machine). Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 // eslint-disable-next-line consistent-return
 async function updateFlux(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
@@ -46,6 +58,12 @@ async function updateFlux(req, res) {
   }
 }
 
+/**
+ * To soft update FluxOS version (executes the command `npm run softupdate` on the node machine). Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 // eslint-disable-next-line consistent-return
 async function softUpdateFlux(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
@@ -66,6 +84,12 @@ async function softUpdateFlux(req, res) {
   }
 }
 
+/**
+ * To install the soft update of FluxOS (executes the command `npm run softupdateinstall` on the node machine). Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 // eslint-disable-next-line consistent-return
 async function softUpdateFluxInstall(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
@@ -86,6 +110,12 @@ async function softUpdateFluxInstall(req, res) {
   }
 }
 
+/**
+ * To hard update FluxOS version (executes the command `npm run hardupdateflux` on the node machine). Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 // eslint-disable-next-line consistent-return
 async function hardUpdateFlux(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
@@ -106,6 +136,12 @@ async function hardUpdateFlux(req, res) {
   }
 }
 
+/**
+ * To rebuild FluxOS (executes the command `npm run homebuild` on the node machine). Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 // eslint-disable-next-line consistent-return
 async function rebuildHome(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
@@ -126,6 +162,12 @@ async function rebuildHome(req, res) {
   }
 }
 
+/**
+ * To update Flux daemon version (executes the command `bash updateDaemon.sh` on the node machine). Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 // eslint-disable-next-line consistent-return
 async function updateDaemon(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
@@ -146,6 +188,12 @@ async function updateDaemon(req, res) {
   }
 }
 
+/**
+ * To update Flux benchmark version (executes the command `bash updateBenchmark.sh` on the node machine). Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 // eslint-disable-next-line consistent-return
 async function updateBenchmark(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
@@ -166,6 +214,12 @@ async function updateBenchmark(req, res) {
   }
 }
 
+/**
+ * To start Flux benchmark (executes the command `fluxbenchd -daemon` on the node machine). Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 // eslint-disable-next-line consistent-return
 async function startBenchmark(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
@@ -189,6 +243,12 @@ async function startBenchmark(req, res) {
   }
 }
 
+/**
+ * To restart Flux benchmark (executes the command `bash restartBenchmark.sh` on the node machine). Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 // eslint-disable-next-line consistent-return
 async function restartBenchmark(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
@@ -210,6 +270,12 @@ async function restartBenchmark(req, res) {
   }
 }
 
+/**
+ * To start Flux daemon (executes the command `fluxd` on the node machine). Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 // eslint-disable-next-line consistent-return
 async function startDaemon(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
@@ -233,6 +299,12 @@ async function startDaemon(req, res) {
   }
 }
 
+/**
+ * To restart Flux daemon (executes the command `bash restartDaemon.sh` on the node machine). Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 // eslint-disable-next-line consistent-return
 async function restartDaemon(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
@@ -254,6 +326,12 @@ async function restartDaemon(req, res) {
   }
 }
 
+/**
+ * To reindex Flux daemon database (executes the command `bash reindexDaemon.sh` on the node machine). Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 // eslint-disable-next-line consistent-return
 async function reindexDaemon(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
@@ -274,12 +352,24 @@ async function reindexDaemon(req, res) {
   }
 }
 
+/**
+ * To show FluxOS version.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 function getFluxVersion(req, res) {
   const { version } = packageJson;
   const message = messageHelper.createDataMessage(version);
   return res ? res.json(message) : message;
 }
 
+/**
+ * To show FluxOS IP address.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getFluxIP(req, res) {
   const benchmarkResponse = await daemonService.getBenchmarks();
   let myIP = null;
@@ -293,24 +383,48 @@ async function getFluxIP(req, res) {
   return res ? res.json(message) : message;
 }
 
+/**
+ * To show the current user's ZelID that is being used to access FluxOS.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 function getFluxZelID(req, res) {
   const zelID = userconfig.initial.zelid;
   const message = messageHelper.createDataMessage(zelID);
   return res ? res.json(message) : message;
 }
 
-function getFluxCruxID(req, res) {
-  const cruxID = userconfig.initial.cruxid || null;
-  const message = messageHelper.createDataMessage(cruxID);
-  return res ? res.json(message) : message;
-}
+// /**
+//  * To show the current CruxID (now depreciated) that is being used with FluxOS.
+//  * @param {object} req Request.
+//  * @param {object} res Response.
+//  * @returns {object} Message.
+//  */
+// function getFluxCruxID(req, res) {
+//   const cruxID = userconfig.initial.cruxid || null;
+//   const message = messageHelper.createDataMessage(cruxID);
+//   return res ? res.json(message) : message;
+// }
 
+/**
+ * To show the current user's Kadena address (public key) that is being used with FluxOS.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 function getFluxKadena(req, res) {
   const kadena = userconfig.initial.kadena || null;
   const message = messageHelper.createDataMessage(kadena);
   return res ? res.json(message) : message;
 }
 
+/**
+ * To download Flux daemon debug logs. Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Debug.log file for Flux daemon.
+ */
 async function daemonDebug(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (!authorized) {
@@ -325,6 +439,12 @@ async function daemonDebug(req, res) {
   return res.download(filepath, 'debug.log');
 }
 
+/**
+ * To download Flux benchmark debug logs. Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Debug.log file for Flux benchmark.
+ */
 async function benchmarkDebug(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (!authorized) {
@@ -342,6 +462,11 @@ async function benchmarkDebug(req, res) {
   return res.download(filepath, 'debug.log');
 }
 
+/**
+ * To get Flux daemon tail debug logs (executes the command `tail -n 100 debug.log` in the relevent daemon directory on the node machine). Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function tailDaemonDebug(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
@@ -364,6 +489,11 @@ async function tailDaemonDebug(req, res) {
   }
 }
 
+/**
+ * To get Flux benchmark tail debug logs (executes the command `tail -n 100 debug.log` in the relevent benchmark directory on the node machine). Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function tailBenchmarkDebug(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
@@ -390,6 +520,12 @@ async function tailBenchmarkDebug(req, res) {
   }
 }
 
+/**
+ * To download a specified FluxOS log file.
+ * @param {object} res Response.
+ * @param {string} filelog Log file name (excluding `.log`).
+ * @returns {object} FluxOS .log file.
+ */
 async function fluxLog(res, filelog) {
   const homeDirPath = path.join(__dirname, '../../../');
   const filepath = `${homeDirPath}${filelog}.log`;
@@ -397,6 +533,12 @@ async function fluxLog(res, filelog) {
   return res.download(filepath, `${filelog}.log`);
 }
 
+/**
+ * To download FluxOS error log. Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ */
 async function fluxErrorLog(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
@@ -411,6 +553,12 @@ async function fluxErrorLog(req, res) {
   }
 }
 
+/**
+ * To download FluxOS warn log. Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ */
 async function fluxWarnLog(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
@@ -425,6 +573,12 @@ async function fluxWarnLog(req, res) {
   }
 }
 
+/**
+ * To download FluxOS info log. Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ */
 async function fluxInfoLog(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
@@ -439,6 +593,12 @@ async function fluxInfoLog(req, res) {
   }
 }
 
+/**
+ * To download FluxOS debug log. Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ */
 async function fluxDebugLog(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
@@ -453,6 +613,12 @@ async function fluxDebugLog(req, res) {
   }
 }
 
+/**
+ * To get a specified FluxOS tail log file (executes the command `tail -n 100` for the specified .log file on the node machine). Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @param {string} logfile Log file name (excluding `.log`).
+ */
 async function tailFluxLog(req, res, logfile) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
@@ -474,6 +640,11 @@ async function tailFluxLog(req, res, logfile) {
   }
 }
 
+/**
+ * To get FluxOS tail error logs. Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function tailFluxErrorLog(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
@@ -488,6 +659,11 @@ async function tailFluxErrorLog(req, res) {
   }
 }
 
+/**
+ * To get FluxOS tail warn logs. Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function tailFluxWarnLog(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
@@ -502,6 +678,11 @@ async function tailFluxWarnLog(req, res) {
   }
 }
 
+/**
+ * To get FluxOS tail info logs. Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function tailFluxInfoLog(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
@@ -516,6 +697,11 @@ async function tailFluxInfoLog(req, res) {
   }
 }
 
+/**
+ * To get FluxOS tail debug logs. Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function tailFluxDebugLog(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
@@ -530,6 +716,12 @@ async function tailFluxDebugLog(req, res) {
   }
 }
 
+/**
+ * To get FluxOS time zone.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 function getFluxTimezone(req, res) {
   try {
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -542,6 +734,12 @@ function getFluxTimezone(req, res) {
   }
 }
 
+/**
+ * To get info (version, status etc.) for daemon, node, benchmark, FluxOS and apps.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getFluxInfo(req, res) {
   try {
     const info = {
@@ -639,47 +837,57 @@ async function getFluxInfo(req, res) {
   }
 }
 
-async function adjustCruxID(req, res) {
-  try {
-    const authorized = await verificationHelper.verifyPrivilege('admin', req);
-    if (authorized === true) {
-      let { cruxid } = req.params;
-      cruxid = cruxid || req.query.cruxid;
-      if (!cruxid) {
-        throw new Error('No Crux ID provided');
-      }
-      if (!cruxid.includes('@')) {
-        throw new Error('Invalid Crux ID provided');
-      }
-      if (!cruxid.includes('.crux')) {
-        throw new Error('Invalid Crux ID provided');
-      }
-      const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
-      const dataToWrite = `module.exports = {
-  initial: {
-    ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
-    zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
-    kadena: '${userconfig.initial.kadena || ''}',
-    testnet: ${userconfig.initial.testnet || false},
-    apiport: ${Number(userconfig.initial.apiport || config.apiport)},
-  }
-}`;
+// /**
+//  * To adjust the current CruxID (now depreciated) that is being used with FluxOS. Only accessible by admins.
+//  * @param {object} req Request.
+//  * @param {object} res Response.
+//  */
+// async function adjustCruxID(req, res) {
+//   try {
+//     const authorized = await verificationHelper.verifyPrivilege('admin', req);
+//     if (authorized === true) {
+//       let { cruxid } = req.params;
+//       cruxid = cruxid || req.query.cruxid;
+//       if (!cruxid) {
+//         throw new Error('No Crux ID provided');
+//       }
+//       if (!cruxid.includes('@')) {
+//         throw new Error('Invalid Crux ID provided');
+//       }
+//       if (!cruxid.includes('.crux')) {
+//         throw new Error('Invalid Crux ID provided');
+//       }
+//       const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
+//       const dataToWrite = `module.exports = {
+//         initial: {
+//           ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
+//           zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
+//           kadena: '${userconfig.initial.kadena || ''}',
+//           testnet: ${userconfig.initial.testnet || false},
+//           apiport: ${Number(userconfig.initial.apiport || config.apiport)},
+//         }
+//       }`;
 
-      await fsPromises.writeFile(fluxDirPath, dataToWrite);
+//       await fsPromises.writeFile(fluxDirPath, dataToWrite);
 
-      const successMessage = messageHelper.createSuccessMessage('CruxID adjusted');
-      res.json(successMessage);
-    } else {
-      const errMessage = messageHelper.errUnauthorizedMessage();
-      res.json(errMessage);
-    }
-  } catch (error) {
-    log.error(error);
-    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    res.json(errMessage);
-  }
-}
+//       const successMessage = messageHelper.createSuccessMessage('CruxID adjusted');
+//       res.json(successMessage);
+//     } else {
+//       const errMessage = messageHelper.errUnauthorizedMessage();
+//       res.json(errMessage);
+//     }
+//   } catch (error) {
+//     log.error(error);
+//     const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
+//     res.json(errMessage);
+//   }
+// }
 
+/**
+ * To update the current Kadena account (address/public key and chain ID) that is being used with FluxOS. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function adjustKadenaAccount(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
@@ -701,14 +909,14 @@ async function adjustKadenaAccount(req, res) {
       const kadenaURI = `kadena:${account}?chainid=${chainid}`;
       const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
       const dataToWrite = `module.exports = {
-  initial: {
-    ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
-    zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
-    kadena: '${kadenaURI}',
-    testnet: ${userconfig.initial.testnet || false},
-    apiport: ${Number(userconfig.initial.apiport || config.apiport)},
-  }
-}`;
+        initial: {
+          ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
+          zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
+          kadena: '${kadenaURI}',
+          testnet: ${userconfig.initial.testnet || false},
+          apiport: ${Number(userconfig.initial.apiport || config.apiport)},
+        }
+      }`;
 
       await fsPromises.writeFile(fluxDirPath, dataToWrite);
 
@@ -725,6 +933,11 @@ async function adjustKadenaAccount(req, res) {
   }
 }
 
+/**
+ * To get the tier of the FluxNode (Cumulus, Nimbus or Stratus). Checks the node tier against the node collateral.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function getNodeTier(req, res) {
   try {
     let responseAux;
@@ -754,6 +967,9 @@ async function getNodeTier(req, res) {
   }
 }
 
+/**
+ * To install Flux Watch Tower (executes the command `bash fluxwatchtower.sh` in the relevent directory on the node machine).
+ */
 async function InstallFluxWatchTower() {
   try {
     const nodedpath = path.join(__dirname, '../../../helpers');
@@ -780,7 +996,7 @@ module.exports = {
   getFluxVersion,
   getFluxIP,
   getFluxZelID,
-  getFluxCruxID,
+  // getFluxCruxID, // Depreciated.
   getFluxKadena,
   daemonDebug,
   benchmarkDebug,
@@ -798,7 +1014,7 @@ module.exports = {
   fluxWarnLog,
   fluxInfoLog,
   fluxDebugLog,
-  adjustCruxID,
+  // adjustCruxID, // Depreciated.
   adjustKadenaAccount,
   fluxBackendFolder,
   getNodeTier,
