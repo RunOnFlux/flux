@@ -239,7 +239,7 @@ describe('fluxCommunication tests', () => {
     });
   });
 
-  describe.only('getMyFluxIPandPort tests', () => {
+  describe('getMyFluxIPandPort tests', () => {
     const daemonStub = sinon.stub(daemonService, 'getBenchmarks');
 
     afterEach(() => {
@@ -283,6 +283,152 @@ describe('fluxCommunication tests', () => {
       const getIpResult = await fluxCommunication.getMyFluxIPandPort();
 
       expect(getIpResult).to.be.null;
+      sinon.assert.calledOnce(daemonStub);
+    });
+  });
+
+  describe.only('deterministicFluxList tests', () => {
+    const deterministicZelnodeListResponseBase = {
+      data: [
+        {
+          collateral: 'COutPoint(38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174, 0)',
+          txhash: '38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174',
+          outidx: '0',
+          ip: '47.199.51.61:16137',
+          network: '',
+          added_height: 1076533,
+          confirmed_height: 1076535,
+          last_confirmed_height: 1079888,
+          last_paid_height: 1077653,
+          tier: 'CUMULUS',
+          payment_address: 't1Z6mWoCrFC2g3iTCFdFkYdTfwtG84E3y2o',
+          pubkey: '04378c8585d45861c8783f9c8cd0c85478164c12ce3fd13af1b44ebc8fe1ad6c786e92b211cb9566c596b6e2454d394a06bc44f748afb3c9ee48caa096d704abac',
+          activesince: '1647197272',
+          lastpaid: '1647333786',
+          amount: '1000.00',
+          rank: 0,
+        },
+        {
+          collateral: 'COutPoint(46c9ae0313fc128d0fb4327f5babc7868fe557035b58e0a7cb475cfd8819f8c7, 0)',
+          txhash: '46c9ae0313fc128d0fb4327f5babc7868fe557035b58e0a7cb475cfd8819f8c7',
+          outidx: '0',
+          ip: '47.199.51.61:16147',
+          network: '',
+          added_height: 1079638,
+          confirmed_height: 1079642,
+          last_confirmed_height: 1079889,
+          last_paid_height: 0,
+          tier: 'CUMULUS',
+          payment_address: 't1UHecy6WiSJXs4Zqt5UvVdRDF7PMbZJK7q',
+          pubkey: '04d50620a31f045c61be42bad44b7a9424ffb6de37bf256b88f00e118e59736165255f2f4585b36c7e1f8f3e20db4fa4e55e61cc01dc7a5cd2b2ed0153627588dc',
+          activesince: '1647572455',
+          lastpaid: '1516980000',
+          amount: '1000.00',
+          rank: 1,
+        },
+        {
+          collateral: 'COutPoint(43c9ae0313fc128d0fb4327f5babc7868fe557135b58e0a7cb475cdd8819f8c8, 0)',
+          txhash: '43c9ae0313fc128d0fb4327f5babc7868fe557135b58e0a7cb475cdd8819f8c8',
+          outidx: '0',
+          ip: '44.192.51.11:16147',
+          network: '',
+          added_height: 123456,
+          confirmed_height: 1234567,
+          last_confirmed_height: 123456,
+          last_paid_height: 0,
+          tier: 'CUMULUS',
+          payment_address: 't1UHecyqtF7PMb6WiSJXs4ZZJK7q5UvVdRD',
+          pubkey: '04d50620a31f045c61be42bad44b7a9424ffb6de37bf256b88f00e118e59736165255f2f4585b36c7e1f8f3e20db4fa4e55e61cc01dc7a5cd2b2ed0153627588dc',
+          activesince: '1647572455',
+          lastpaid: '1516980000',
+          amount: '2000.00',
+          rank: 1,
+        },
+      ],
+    };
+    const daemonStub = sinon.stub(daemonService, 'viewDeterministicZelNodeList');
+
+    afterEach(() => {
+      daemonStub.restore();
+    });
+
+    it('should return the whole list if the filter was not provided', async () => {
+      const deterministicZelnodeListResponse = {
+        ...deterministicZelnodeListResponseBase,
+        status: 'success',
+      };
+      daemonStub.resolves(deterministicZelnodeListResponse);
+
+      const deterministicFluxListResult = await fluxCommunication.deterministicFluxList();
+
+      expect(deterministicFluxListResult).to.eql(deterministicZelnodeListResponse.data);
+      sinon.assert.calledOnce(daemonStub);
+    });
+
+    it('should return the list filtered out with proper public key', async () => {
+      const filteredPubKey = '04d50620a31f045c61be42bad44b7a9424ffb6de37bf256b88f00e118e59736165255f2f4585b36c7e1f8f3e20db4fa4e55e61cc01dc7a5cd2b2ed0153627588dc';
+      const expectedResult = [{
+        collateral: 'COutPoint(46c9ae0313fc128d0fb4327f5babc7868fe557035b58e0a7cb475cfd8819f8c7, 0)',
+        txhash: '46c9ae0313fc128d0fb4327f5babc7868fe557035b58e0a7cb475cfd8819f8c7',
+        outidx: '0',
+        ip: '47.199.51.61:16147',
+        network: '',
+        added_height: 1079638,
+        confirmed_height: 1079642,
+        last_confirmed_height: 1079889,
+        last_paid_height: 0,
+        tier: 'CUMULUS',
+        payment_address: 't1UHecy6WiSJXs4Zqt5UvVdRDF7PMbZJK7q',
+        pubkey: '04d50620a31f045c61be42bad44b7a9424ffb6de37bf256b88f00e118e59736165255f2f4585b36c7e1f8f3e20db4fa4e55e61cc01dc7a5cd2b2ed0153627588dc',
+        activesince: '1647572455',
+        lastpaid: '1516980000',
+        amount: '1000.00',
+        rank: 1,
+      },
+      {
+        collateral: 'COutPoint(43c9ae0313fc128d0fb4327f5babc7868fe557135b58e0a7cb475cdd8819f8c8, 0)',
+        txhash: '43c9ae0313fc128d0fb4327f5babc7868fe557135b58e0a7cb475cdd8819f8c8',
+        outidx: '0',
+        ip: '44.192.51.11:16147',
+        network: '',
+        added_height: 123456,
+        confirmed_height: 1234567,
+        last_confirmed_height: 123456,
+        last_paid_height: 0,
+        tier: 'CUMULUS',
+        payment_address: 't1UHecyqtF7PMb6WiSJXs4ZZJK7q5UvVdRD',
+        pubkey: '04d50620a31f045c61be42bad44b7a9424ffb6de37bf256b88f00e118e59736165255f2f4585b36c7e1f8f3e20db4fa4e55e61cc01dc7a5cd2b2ed0153627588dc',
+        activesince: '1647572455',
+        lastpaid: '1516980000',
+        amount: '2000.00',
+        rank: 1,
+      }];
+
+      const deterministicZelnodeListResponse = {
+        ...deterministicZelnodeListResponseBase,
+        status: 'success',
+      };
+      daemonStub.resolves(deterministicZelnodeListResponse);
+
+      const deterministicFluxListResult = await fluxCommunication.deterministicFluxList(filteredPubKey);
+
+      expect(deterministicFluxListResult).to.eql(expectedResult);
+      sinon.assert.calledOnce(daemonStub);
+    });
+
+    it('should return an empty list if the public key does not match', async () => {
+      const filteredPubKey = '04d50620a31f045c61be42bad44b7a9424asdfde37bf256b88f00e118e59736165255f2f4585b36c7e1f8f3e20db4fa4e55e61cc01dc7a5cd2b2ed0153627588dc';
+      const expectedResult = [];
+
+      const deterministicZelnodeListResponse = {
+        ...deterministicZelnodeListResponseBase,
+        status: 'success',
+      };
+      daemonStub.resolves(deterministicZelnodeListResponse);
+
+      const deterministicFluxListResult = await fluxCommunication.deterministicFluxList(filteredPubKey);
+
+      expect(deterministicFluxListResult).to.eql(expectedResult);
       sinon.assert.calledOnce(daemonStub);
     });
   });

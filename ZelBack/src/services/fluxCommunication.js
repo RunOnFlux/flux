@@ -1629,6 +1629,9 @@ module.exports = {
   keepConnectionsAlive,
   adjustFirewall,
   checkDeterministicNodesCollisions,
+  // exports for testing
   isFluxAvailable,
   getMyFluxIPandPort,
+  deterministicFluxList,
+  getRandomConnection,
 };
