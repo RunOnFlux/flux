@@ -7,6 +7,7 @@ const { expect } = chai;
 let fluxCommunication = require('../../ZelBack/src/services/fluxCommunication');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const daemonService = require('../../ZelBack/src/services/daemonService');
+const fluxList = require('./data/listfluxnodes.json');
 
 describe('fluxCommunication tests', () => {
   describe('isFluxAvailable tests', () => {
@@ -535,6 +536,10 @@ describe('fluxCommunication tests', () => {
   });
 
   describe('getFluxMessageSignature tests', () => {
+    afterEach(() => {
+      sinon.restore();
+    });
+
     it('Should properly return signature if private key is provided', async () => {
       const privateKey = '5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh';
       const message = 'testing1234';
@@ -553,8 +558,6 @@ describe('fluxCommunication tests', () => {
 
       expect(signature).to.be.a('string');
       sinon.assert.calledWithExactly(daemonStub, 'zelnodeprivkey');
-
-      sinon.restore();
     });
 
     it('Should throw error if private key is invalid', async () => {
@@ -566,6 +569,10 @@ describe('fluxCommunication tests', () => {
   });
 
   describe('getFluxNodePublicKey tests', () => {
+    afterEach(() => {
+      sinon.restore();
+    });
+
     it('Should properly return publicKey if private key is provided', async () => {
       const privateKey = '5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh';
       const expectedPublicKey = '0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab';
@@ -584,14 +591,157 @@ describe('fluxCommunication tests', () => {
 
       expect(publicKey).to.be.equal(expectedPublicKey);
       sinon.assert.calledWithExactly(daemonStub, 'zelnodeprivkey');
-
-      sinon.restore();
     });
 
     it('Should throw error if private key is invalid', async () => {
       const privateKey = 'asdf';
 
       expect(async () => { await fluxCommunication.getFluxNodePublicKey(privateKey); }).to.throw;
+    });
+  });
+
+  describe.only('verifyOriginalFluxBroadcast tests', () => {
+    const privKey = '5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh';
+    const pubKey = '0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab';
+    const badPubKey = '074eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab';
+    const data = {
+      app: 'testapp',
+      data: 'test',
+    };
+    const message = JSON.stringify(data);
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should return true if broadcast is verifiable, flux node list provided', async () => {
+      const timeStamp = Date.now();
+      const version = 1;
+      const messageToSign = version + message + timeStamp;
+      const signature = await fluxCommunication.getFluxMessageSignature(messageToSign, privKey);
+      const dataToSend = {
+        version,
+        pubKey,
+        timestamp: timeStamp,
+        data,
+        signature,
+      };
+
+      const isValid = await fluxCommunication.verifyOriginalFluxBroadcast(dataToSend, fluxList);
+
+      expect(isValid).to.equal(true);
+    });
+
+    it('should return true if broadcast is verifiable, flux node list from deterministicFluxList', async () => {
+      const deterministicZelnodeListResponse = {
+        status: 'success',
+        data: [
+          {
+            collateral: 'COutPoint(38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174, 0)',
+            txhash: '38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174',
+            outidx: '0',
+            ip: '47.199.51.61:16137',
+            network: '',
+            added_height: 1076533,
+            confirmed_height: 1076535,
+            last_confirmed_height: 1079888,
+            last_paid_height: 1077653,
+            tier: 'CUMULUS',
+            payment_address: 't1Z6mWoCrFC2g3iTCFdFkYdTfwtG84E3y2o',
+            pubkey: '0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab',
+            activesince: '1647197272',
+            lastpaid: '1647333786',
+            amount: '1000.00',
+            rank: 0,
+          },
+        ],
+      };
+      sinon.stub(daemonService, 'viewDeterministicZelNodeList').resolves(deterministicZelnodeListResponse);
+      const timeStamp = Date.now();
+      const version = 1;
+      const messageToSign = version + message + timeStamp;
+      const signature = await fluxCommunication.getFluxMessageSignature(messageToSign, privKey);
+      const dataToSend = {
+        version,
+        pubKey,
+        timestamp: timeStamp,
+        data,
+        signature,
+      };
+
+      const isValid = await fluxCommunication.verifyOriginalFluxBroadcast(dataToSend, fluxList);
+
+      expect(isValid).to.equal(true);
+    });
+
+    it('should return false if public key is invalid', async () => {
+      const timeStamp = Date.now();
+      const version = 1;
+      const messageToSign = version + message + timeStamp;
+      const signature = await fluxCommunication.getFluxMessageSignature(messageToSign, privKey);
+      const dataToSend = {
+        version,
+        pubKey: badPubKey,
+        timestamp: timeStamp,
+        data,
+        signature,
+      };
+
+      const isValid = await fluxCommunication.verifyOriginalFluxBroadcast(dataToSend, fluxList);
+
+      expect(isValid).to.equal(false);
+    });
+
+    it('should return false if version is not 1', async () => {
+      const timeStamp = Date.now();
+      const version = 2;
+      const messageToSign = version + message + timeStamp;
+      const signature = await fluxCommunication.getFluxMessageSignature(messageToSign, privKey);
+      const dataToSend = {
+        version,
+        pubKey,
+        timestamp: timeStamp,
+        data,
+        signature,
+      };
+
+      const isValid = await fluxCommunication.verifyOriginalFluxBroadcast(dataToSend, fluxList);
+
+      expect(isValid).to.equal(false);
+    });
+
+    it('should return false if the message has timestamp greater than 120s in the future', async () => {
+      const timeStamp = Date.now() + 240000;
+      const version = 1;
+      const messageToSign = version + message + timeStamp;
+      const signature = await fluxCommunication.getFluxMessageSignature(messageToSign, privKey);
+      const dataToSend = {
+        version,
+        pubKey,
+        timestamp: timeStamp,
+        data,
+        signature,
+      };
+
+      const isValid = await fluxCommunication.verifyOriginalFluxBroadcast(dataToSend, fluxList);
+
+      expect(isValid).to.equal(false);
+    });
+
+    it('should return false if the signature is invalid', async () => {
+      const timeStamp = Date.now();
+      const version = 1;
+      const dataToSend = {
+        version,
+        pubKey,
+        timestamp: timeStamp,
+        data,
+        signature: 'test12341234567',
+      };
+
+      const isValid = await fluxCommunication.verifyOriginalFluxBroadcast(dataToSend, fluxList);
+
+      expect(isValid).to.equal(false);
     });
   });
 });
