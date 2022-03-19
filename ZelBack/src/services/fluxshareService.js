@@ -14,7 +14,11 @@ const verificationHelper = require('./verificationHelper');
 const generalService = require('./generalService');
 const log = require('../lib/log');
 
-// FluxShare specific
+/**
+ * Delete a specific FluxShare file.
+ * @param {string} file Name of file to be deleted.
+ * @returns {boolean} Returns true unless an error is caught.
+ */
 async function fluxShareDatabaseFileDelete(file) {
   try {
     const dbopen = dbHelper.databaseConnection();
@@ -30,7 +34,11 @@ async function fluxShareDatabaseFileDelete(file) {
   }
 }
 
-// removes documents that starts with the path queried
+/**
+ * Delete all FluxShare files that start with a specified path.
+ * @param {string} pathstart Path of files to be deleted.
+ * @returns {boolean} Returns true unless an error is caught.
+ */
 async function fluxShareDatabaseFileDeleteMultiple(pathstart) {
   try {
     const dbopen = dbHelper.databaseConnection();
@@ -45,6 +53,12 @@ async function fluxShareDatabaseFileDeleteMultiple(pathstart) {
   }
 }
 
+/**
+ * To add all files within a directory into an array of file paths/names.
+ * @param {string} dirPath Directory path.
+ * @param {string[]} arrayOfFiles Existing array of file paths/names or empty array.
+ * @returns {string[]} Updated array of file paths/names.
+ */
 function getAllFiles(dirPath, arrayOfFiles) {
   const files = fs.readdirSync(dirPath);
 
@@ -68,6 +82,10 @@ function getAllFiles(dirPath, arrayOfFiles) {
   return arrayOfFiles;
 }
 
+/**
+ * To get total size (GB) for all files within a directory.
+ * @returns {number} Total file size (GB).
+ */
 function getFluxShareSize() {
   const dirpath = path.join(__dirname, '../../../');
   const directoryPath = `${dirpath}ZelApps/ZelShare`;
@@ -86,6 +104,11 @@ function getFluxShareSize() {
   return (totalSize / 1e9); // in 'GB'
 }
 
+/**
+ * To get total size (Bytes) for a specific folder.
+ * @param {string} folder Directory path for folder.
+ * @returns {number} Folder size (Bytes).
+ */
 function getFluxShareSpecificFolderSize(folder) {
   const arrayOfFiles = getAllFiles(folder);
 
@@ -101,6 +124,11 @@ function getFluxShareSpecificFolderSize(folder) {
   return (totalSize); // in 'B'
 }
 
+/**
+ * To get a file from database or insert it into database if it doesn't already exist.
+ * @param {string} file File name.
+ * @returns {object} File detail (name and token).
+ */
 async function fluxShareDatabaseShareFile(file) {
   try {
     const dbopen = dbHelper.databaseConnection();
@@ -126,6 +154,10 @@ async function fluxShareDatabaseShareFile(file) {
   }
 }
 
+/**
+ * To search for shared files.
+ * @returns {object[]} Array of shared files.
+ */
 async function fluxShareSharedFiles() {
   try {
     const dbopen = dbHelper.databaseConnection();
@@ -141,6 +173,11 @@ async function fluxShareSharedFiles() {
   }
 }
 
+/**
+ * To get shared files. Only accessible by admins.
+ * @param {object} req Requet.
+ * @param {object} res Response.
+ */
 async function fluxShareGetSharedFiles(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
@@ -168,6 +205,11 @@ async function fluxShareGetSharedFiles(req, res) {
   }
 }
 
+/**
+ * To unshare a file. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function fluxShareUnshareFile(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
@@ -198,6 +240,11 @@ async function fluxShareUnshareFile(req, res) {
   }
 }
 
+/**
+ * To share a file. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response. 
+ */
 async function fluxShareShareFile(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
@@ -228,6 +275,13 @@ async function fluxShareShareFile(req, res) {
   }
 }
 
+/**
+ * To download a zip folder for a specified directory. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @param {boolean} authorized False until verified as an admin.
+ * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ */
 async function fluxShareDownloadFolder(req, res, authorized = false) {
   try {
     let auth = authorized;
@@ -287,6 +341,12 @@ async function fluxShareDownloadFolder(req, res, authorized = false) {
   }
 }
 
+/**
+ * To download a specified file. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ */
 async function fluxShareDownloadFile(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
@@ -366,7 +426,11 @@ async function fluxShareDownloadFile(req, res) {
   }
 }
 
-// oldpath is relative path to default fluxshare directory; newname is just a new name of folder/file
+/**
+ * To rename a file or folder. Oldpath is relative path to default fluxshare directory; newname is just a new name of folder/file. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function fluxShareRename(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
@@ -382,7 +446,7 @@ async function fluxShareRename(req, res) {
         throw new Error('No new name specified');
       }
       if (newname.includes('/')) {
-        throw new Error('No new name is invalid');
+        throw new Error('New name is invalid');
       }
       // stop sharing of ALL files that start with the path
       const fileURI = encodeURIComponent(oldpath);
@@ -421,6 +485,11 @@ async function fluxShareRename(req, res) {
   }
 }
 
+/**
+ * To remove a specified shared file. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function fluxShareRemoveFile(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
@@ -461,6 +530,11 @@ async function fluxShareRemoveFile(req, res) {
   }
 }
 
+/**
+ * To remove a specified shared folder. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function fluxShareRemoveFolder(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
@@ -497,6 +571,11 @@ async function fluxShareRemoveFolder(req, res) {
   }
 }
 
+/**
+ * To get a list of files with their details for all files within a shared folder. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function fluxShareGetFolder(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
@@ -563,6 +642,11 @@ async function fluxShareGetFolder(req, res) {
   }
 }
 
+/**
+ * To create a folder. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function fluxShareCreateFolder(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
@@ -588,6 +672,11 @@ async function fluxShareCreateFolder(req, res) {
   }
 }
 
+/**
+ * To check if a file exists. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function fluxShareFileExists(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
@@ -599,7 +688,7 @@ async function fluxShareFileExists(req, res) {
       const filepath = `${dirpath}ZelApps/ZelShare/${file}`;
       let fileExists = true;
       try {
-        await fs.promises.access(filepath, fs.constants.F_OK); // check folder exists and write ability
+        await fs.promises.access(filepath, fs.constants.F_OK); // check file exists and write ability
       } catch (error) {
         fileExists = false;
       }
@@ -628,6 +717,10 @@ async function fluxShareFileExists(req, res) {
   }
 }
 
+/**
+ * To check the quantity of space (GB) available for FluxShare. This is the space available after space already reserved for the FluxNode.
+ * @returns {number} The quantity of space available (GB).
+ */
 async function getSpaceAvailableForFluxShare() {
   const dfAsync = util.promisify(df);
   // we want whole numbers in GB
@@ -662,6 +755,11 @@ async function getSpaceAvailableForFluxShare() {
   return spaceAvailableForFluxShare;
 }
 
+/**
+ * To show FluxShare storage stats (GB available, GB used and GB total). Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function fluxShareStorageStats(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
@@ -687,6 +785,11 @@ async function fluxShareStorageStats(req, res) {
   }
 }
 
+/**
+ * To upload a specified folder to FluxShare. Checks that there is enough space available. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function fluxShareUpload(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
