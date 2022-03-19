@@ -2,8 +2,6 @@
 
 ![Flux.png](flux_banner.png)
 
-[![DeepScan grade](https://deepscan.io/api/teams/6436/projects/8442/branches/100920/badge/grade.svg)](https://deepscan.io/dashboard#view=project&tid=6436&pid=8442&bid=100920) [![CodeFactor](https://www.codefactor.io/repository/github/runonflux/flux/badge)](https://www.codefactor.io/repository/github/runonflux/flux)[![Language grade: JavaScript](https://img.shields.io/lgtm/grade/javascript/g/runonflux/flux.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/runonflux/flux/context:javascript)
-
 Flux is available on domains, load balancing the entire Flux network. You can access both UI and API on following main domain
 
 [Flux](https://home.runonflux.io)
