@@ -1634,4 +1634,6 @@ module.exports = {
   getMyFluxIPandPort,
   deterministicFluxList,
   getRandomConnection,
+  getFluxNodePrivateKey,
+  getFluxNodePublicKey,
 };

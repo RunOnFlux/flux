@@ -350,7 +350,7 @@ describe('fluxCommunication tests', () => {
     const daemonStub = sinon.stub(daemonService, 'viewDeterministicZelNodeList');
 
     afterEach(() => {
-      daemonStub.restore();
+      sinon.restore();
     });
 
     it('should return the whole list if the filter was not provided', async () => {
@@ -500,6 +500,98 @@ describe('fluxCommunication tests', () => {
 
       expect(deterministicFluxListResult).to.eql(expectedResult);
       sinon.assert.calledOnceWithExactly(getCacheStub, `fluxList${filteredPubKey}`);
+    });
+  });
+
+  describe('getFluxNodePrivateKey tests', () => {
+    let daemonStub;
+
+    beforeEach(() => {
+      daemonStub = sinon.stub(daemonService, 'getConfigValue');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should return the same private key as provided as an argument', async () => {
+      const privateKey = '5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh';
+
+      const getKeyResult = await fluxCommunication.getFluxNodePrivateKey(privateKey);
+
+      expect(getKeyResult).to.equal(privateKey);
+      sinon.assert.neverCalledWith(daemonStub);
+    });
+
+    it('should return a private key if argument was not provided', async () => {
+      const mockedPrivKey = '5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh';
+      daemonStub.resolves(mockedPrivKey);
+
+      const getKeyResult = await fluxCommunication.getFluxNodePrivateKey();
+
+      expect(getKeyResult).to.equal(mockedPrivKey);
+      sinon.assert.calledWithExactly(daemonStub, 'zelnodeprivkey');
+    });
+  });
+
+  describe('getFluxMessageSignature tests', () => {
+    it('Should properly return signature if private key is provided', async () => {
+      const privateKey = '5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh';
+      const message = 'testing1234';
+
+      const signature = await fluxCommunication.getFluxMessageSignature(message, privateKey);
+
+      expect(signature).to.be.a('string');
+    });
+
+    it('Should properly return signature if private key is taken from config', async () => {
+      const mockedPrivKey = '5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh';
+      const message = 'testing1234';
+      const daemonStub = sinon.stub(daemonService, 'getConfigValue').resolves(mockedPrivKey);
+
+      const signature = await fluxCommunication.getFluxMessageSignature(message);
+
+      expect(signature).to.be.a('string');
+      sinon.assert.calledWithExactly(daemonStub, 'zelnodeprivkey');
+
+      sinon.restore();
+    });
+
+    it('Should throw error if private key is invalid', async () => {
+      const privateKey = 'asdf';
+      const message = 'testing1234';
+
+      expect(async () => { await fluxCommunication.getFluxMessageSignature(message, privateKey); }).to.throw;
+    });
+  });
+
+  describe('getFluxNodePublicKey tests', () => {
+    it('Should properly return publicKey if private key is provided', async () => {
+      const privateKey = '5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh';
+      const expectedPublicKey = '0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab';
+
+      const publicKey = await fluxCommunication.getFluxNodePublicKey(privateKey);
+
+      expect(publicKey).to.be.equal(expectedPublicKey);
+    });
+
+    it('Should properly return signature if private key is taken from config', async () => {
+      const mockedPrivKey = '5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh';
+      const expectedPublicKey = '0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab';
+      const daemonStub = sinon.stub(daemonService, 'getConfigValue').resolves(mockedPrivKey);
+
+      const publicKey = await fluxCommunication.getFluxNodePublicKey();
+
+      expect(publicKey).to.be.equal(expectedPublicKey);
+      sinon.assert.calledWithExactly(daemonStub, 'zelnodeprivkey');
+
+      sinon.restore();
+    });
+
+    it('Should throw error if private key is invalid', async () => {
+      const privateKey = 'asdf';
+
+      expect(async () => { await fluxCommunication.getFluxNodePublicKey(privateKey); }).to.throw;
     });
   });
 });
