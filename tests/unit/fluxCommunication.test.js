@@ -1,9 +1,10 @@
 const chai = require('chai');
 const sinon = require('sinon');
+const proxyquire = require('proxyquire');
 
 const { expect } = chai;
 
-const fluxCommunication = require('../../ZelBack/src/services/fluxCommunication');
+let fluxCommunication = require('../../ZelBack/src/services/fluxCommunication');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const daemonService = require('../../ZelBack/src/services/daemonService');
 
@@ -287,7 +288,7 @@ describe('fluxCommunication tests', () => {
     });
   });
 
-  describe.only('deterministicFluxList tests', () => {
+  describe('deterministicFluxList tests', () => {
     const deterministicZelnodeListResponseBase = {
       data: [
         {
@@ -430,6 +431,75 @@ describe('fluxCommunication tests', () => {
 
       expect(deterministicFluxListResult).to.eql(expectedResult);
       sinon.assert.calledOnce(daemonStub);
+    });
+
+    it('should get list from cache with no filter applied', async () => {
+      // Stub cache to simulate the actual lru-cache called
+      const getCacheStub = sinon.stub();
+      const stubCache = sinon.stub().callsFake(() => ({
+        get: getCacheStub,
+      }));
+      getCacheStub.withArgs('fluxList').returns(deterministicZelnodeListResponseBase.data);
+      fluxCommunication = proxyquire('../../ZelBack/src/services/fluxCommunication',
+        { 'lru-cache': stubCache });
+
+      const deterministicFluxListResult = await fluxCommunication.deterministicFluxList();
+
+      expect(deterministicFluxListResult).to.eql(deterministicZelnodeListResponseBase.data);
+      sinon.assert.calledOnceWithExactly(getCacheStub, 'fluxList');
+    });
+
+    it('should get list from cache with filter applied', async () => {
+      const filteredPubKey = '04d50620a31f045c61be42bad44b7a9424ffb6de37bf256b88f00e118e59736165255f2f4585b36c7e1f8f3e20db4fa4e55e61cc01dc7a5cd2b2ed0153627588dc';
+      const expectedResult = [{
+        collateral: 'COutPoint(46c9ae0313fc128d0fb4327f5babc7868fe557035b58e0a7cb475cfd8819f8c7, 0)',
+        txhash: '46c9ae0313fc128d0fb4327f5babc7868fe557035b58e0a7cb475cfd8819f8c7',
+        outidx: '0',
+        ip: '47.199.51.61:16147',
+        network: '',
+        added_height: 1079638,
+        confirmed_height: 1079642,
+        last_confirmed_height: 1079889,
+        last_paid_height: 0,
+        tier: 'CUMULUS',
+        payment_address: 't1UHecy6WiSJXs4Zqt5UvVdRDF7PMbZJK7q',
+        pubkey: '04d50620a31f045c61be42bad44b7a9424ffb6de37bf256b88f00e118e59736165255f2f4585b36c7e1f8f3e20db4fa4e55e61cc01dc7a5cd2b2ed0153627588dc',
+        activesince: '1647572455',
+        lastpaid: '1516980000',
+        amount: '1000.00',
+        rank: 1,
+      },
+      {
+        collateral: 'COutPoint(43c9ae0313fc128d0fb4327f5babc7868fe557135b58e0a7cb475cdd8819f8c8, 0)',
+        txhash: '43c9ae0313fc128d0fb4327f5babc7868fe557135b58e0a7cb475cdd8819f8c8',
+        outidx: '0',
+        ip: '44.192.51.11:16147',
+        network: '',
+        added_height: 123456,
+        confirmed_height: 1234567,
+        last_confirmed_height: 123456,
+        last_paid_height: 0,
+        tier: 'CUMULUS',
+        payment_address: 't1UHecyqtF7PMb6WiSJXs4ZZJK7q5UvVdRD',
+        pubkey: '04d50620a31f045c61be42bad44b7a9424ffb6de37bf256b88f00e118e59736165255f2f4585b36c7e1f8f3e20db4fa4e55e61cc01dc7a5cd2b2ed0153627588dc',
+        activesince: '1647572455',
+        lastpaid: '1516980000',
+        amount: '2000.00',
+        rank: 1,
+      }];
+      // Stub cache to simulate the actual lru-cache called
+      const getCacheStub = sinon.stub();
+      const stubCache = sinon.stub().callsFake(() => ({
+        get: getCacheStub,
+      }));
+      getCacheStub.withArgs(`fluxList${filteredPubKey}`).returns(expectedResult);
+      fluxCommunication = proxyquire('../../ZelBack/src/services/fluxCommunication',
+        { 'lru-cache': stubCache });
+
+      const deterministicFluxListResult = await fluxCommunication.deterministicFluxList(filteredPubKey);
+
+      expect(deterministicFluxListResult).to.eql(expectedResult);
+      sinon.assert.calledOnceWithExactly(getCacheStub, `fluxList${filteredPubKey}`);
     });
   });
 });
