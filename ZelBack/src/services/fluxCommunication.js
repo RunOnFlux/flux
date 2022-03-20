@@ -267,8 +267,7 @@ async function verifyTimestampInFluxBroadcast(data, currentTimeStamp) {
 // extends verifyFluxBroadcast by not allowing request older than 5 mins.
 async function verifyOriginalFluxBroadcast(data, obtainedFluxNodeList, currentTimeStamp) {
   if (await verifyTimestampInFluxBroadcast(data, currentTimeStamp)) {
-    const verified = await verifyFluxBroadcast(data, obtainedFluxNodeList, currentTimeStamp);
-    return verified;
+    return verifyFluxBroadcast(data, obtainedFluxNodeList, currentTimeStamp);
   }
   return false;
 }
