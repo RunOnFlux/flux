@@ -54,20 +54,20 @@ async function verifyUPNPsupport(apiport = config.apiport) {
     return false;
   }
   try {
+    await client.getMappings();
+  } catch (error) {
+    log.error(error);
+    log.error('VerifyUPNPsupport - Failed get Mappings');
+    upnpMachine = false;
+    return false;
+  }
+  try {
     await client.removeMapping({
       public: +apiport + 1,
     });
   } catch (error) {
     log.error(error);
     log.error('VerifyUPNPsupport - Failed Remove Mapping');
-    upnpMachine = false;
-    return false;
-  }
-  try {
-    await client.getMappings();
-  } catch (error) {
-    log.error(error);
-    log.error('VerifyUPNPsupport - Failed get Mappings');
     upnpMachine = false;
     return false;
   }
