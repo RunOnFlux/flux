@@ -600,7 +600,7 @@ describe('fluxCommunication tests', () => {
     });
   });
 
-  describe('verifyOriginalFluxBroadcast tests', () => {
+  describe('verifyFluxBroadcast tests', () => {
     const privKey = '5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh';
     const pubKey = '0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab';
     const badPubKey = '074eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab';
@@ -627,7 +627,7 @@ describe('fluxCommunication tests', () => {
         signature,
       };
 
-      const isValid = await fluxCommunication.verifyOriginalFluxBroadcast(dataToSend, fluxList);
+      const isValid = await fluxCommunication.verifyFluxBroadcast(dataToSend, fluxList);
 
       expect(isValid).to.equal(true);
     });
@@ -669,7 +669,7 @@ describe('fluxCommunication tests', () => {
         signature,
       };
 
-      const isValid = await fluxCommunication.verifyOriginalFluxBroadcast(dataToSend, fluxList);
+      const isValid = await fluxCommunication.verifyFluxBroadcast(dataToSend, fluxList);
 
       expect(isValid).to.equal(true);
     });
@@ -687,7 +687,7 @@ describe('fluxCommunication tests', () => {
         signature,
       };
 
-      const isValid = await fluxCommunication.verifyOriginalFluxBroadcast(dataToSend, fluxList);
+      const isValid = await fluxCommunication.verifyFluxBroadcast(dataToSend, fluxList);
 
       expect(isValid).to.equal(false);
     });
@@ -705,7 +705,7 @@ describe('fluxCommunication tests', () => {
         signature,
       };
 
-      const isValid = await fluxCommunication.verifyOriginalFluxBroadcast(dataToSend, fluxList);
+      const isValid = await fluxCommunication.verifyFluxBroadcast(dataToSend, fluxList);
 
       expect(isValid).to.equal(false);
     });
@@ -723,7 +723,7 @@ describe('fluxCommunication tests', () => {
         signature,
       };
 
-      const isValid = await fluxCommunication.verifyOriginalFluxBroadcast(dataToSend, fluxList);
+      const isValid = await fluxCommunication.verifyFluxBroadcast(dataToSend, fluxList);
 
       expect(isValid).to.equal(false);
     });
@@ -739,7 +739,100 @@ describe('fluxCommunication tests', () => {
         signature: 'test12341234567',
       };
 
+      const isValid = await fluxCommunication.verifyFluxBroadcast(dataToSend, fluxList);
+
+      expect(isValid).to.equal(false);
+    });
+  });
+
+  describe.only('verifyOriginalFluxBroadcast tests', () => {
+    // Function extends the verifyFluxBroadcast function, only adding time verification.
+    // Message can't be older than 5 minutes.
+    const privKey = '5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh';
+    const pubKey = '0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab';
+    const data = {
+      app: 'testapp',
+      data: 'test',
+    };
+    const message = JSON.stringify(data);
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should return true if broadcast is verifiable, flux node list provided', async () => {
+      const timeStamp = Date.now();
+      const version = 1;
+      const messageToSign = version + message + timeStamp;
+      const signature = await fluxCommunication.getFluxMessageSignature(messageToSign, privKey);
+      const dataToSend = {
+        version,
+        pubKey,
+        timestamp: timeStamp,
+        data,
+        signature,
+      };
+
       const isValid = await fluxCommunication.verifyOriginalFluxBroadcast(dataToSend, fluxList);
+
+      expect(isValid).to.equal(true);
+    });
+
+    it('should return false if the message has been sent more than 5 minutes ago', async () => {
+      const timeStamp = Date.now() - 340000;
+      const version = 1;
+      const messageToSign = version + message + timeStamp;
+      const signature = await fluxCommunication.getFluxMessageSignature(messageToSign, privKey);
+      const dataToSend = {
+        version,
+        pubKey,
+        timestamp: timeStamp,
+        data,
+        signature,
+      };
+
+      const isValid = await fluxCommunication.verifyOriginalFluxBroadcast(dataToSend, fluxList);
+
+      expect(isValid).to.equal(false);
+    });
+  });
+
+  describe.only('verifyTimestampInFluxBroadcast tests', () => {
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should return true if message timestamp is now, no current timestamp provided', async () => {
+      const timeStamp = Date.now();
+      const data = {
+        timestamp: timeStamp,
+      };
+
+      const isValid = await fluxCommunication.verifyTimestampInFluxBroadcast(data);
+
+      expect(isValid).to.equal(true);
+    });
+
+    it('should return true if message timestamp is now, timestamp provided', async () => {
+      const timeStamp = Date.now();
+      const providedTimestamp = Date.now() + 100;
+      const data = {
+        timestamp: timeStamp,
+      };
+
+      const isValid = await fluxCommunication.verifyTimestampInFluxBroadcast(data, providedTimestamp);
+
+      expect(isValid).to.equal(true);
+    });
+
+    it('should return false if message timestamp is more than 5 minutes ago, current timestamp provided', async () => {
+      const timeStamp = Date.now() - 340000;
+      const providedTimestamp = Date.now() + 100;
+      const data = {
+        timestamp: timeStamp,
+      };
+
+      const isValid = await fluxCommunication.verifyTimestampInFluxBroadcast(data, providedTimestamp);
 
       expect(isValid).to.equal(false);
     });

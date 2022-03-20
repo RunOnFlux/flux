@@ -6,7 +6,7 @@ const communication = require('../../ZelBack/src/services/fluxCommunication');
 const { expect } = chai;
 
 describe('getFluxMessageSignature', () => {
-  it('establishes websocket connection and sends correct data', async () => {
+  it.skip('establishes websocket connection and sends correct data', async () => {
     const data = 'Hello Flux testsuite!';
     const privKey = '5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh';
     const messageToSend = await communication.serialiseAndSignFluxBroadcast(data, privKey);

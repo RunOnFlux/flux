@@ -1636,4 +1636,5 @@ module.exports = {
   getRandomConnection,
   getFluxNodePrivateKey,
   getFluxNodePublicKey,
+  verifyTimestampInFluxBroadcast,
 };
