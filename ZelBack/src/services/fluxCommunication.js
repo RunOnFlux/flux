@@ -252,20 +252,6 @@ async function verifyFluxBroadcast(data, obtainedFluxNodesList, currentTimeStamp
   return false;
 }
 
-// extends verifyFluxBroadcast by not allowing request older than 5 mins.
-async function verifyOriginalFluxBroadcast(data, obtainedFluxNodeList, currentTimeStamp) {
-  // eslint-disable-next-line no-param-reassign
-  const dataObj = serviceHelper.ensureObject(data);
-  const { timestamp } = dataObj; // ms
-  // eslint-disable-next-line no-param-reassign
-  currentTimeStamp = currentTimeStamp || Date.now(); // ms
-  if (currentTimeStamp > (timestamp + 300000)) { // bigger than 5 mins
-    return false;
-  }
-  const verified = await verifyFluxBroadcast(data, obtainedFluxNodeList, currentTimeStamp);
-  return verified;
-}
-
 async function verifyTimestampInFluxBroadcast(data, currentTimeStamp) {
   // eslint-disable-next-line no-param-reassign
   const dataObj = serviceHelper.ensureObject(data);
@@ -274,6 +260,15 @@ async function verifyTimestampInFluxBroadcast(data, currentTimeStamp) {
   currentTimeStamp = currentTimeStamp || Date.now(); // ms
   if (currentTimeStamp < (timestamp + 300000)) { // bigger than 5 mins
     return true;
+  }
+  return false;
+}
+
+// extends verifyFluxBroadcast by not allowing request older than 5 mins.
+async function verifyOriginalFluxBroadcast(data, obtainedFluxNodeList, currentTimeStamp) {
+  if (await verifyTimestampInFluxBroadcast(data, currentTimeStamp)) {
+    const verified = await verifyFluxBroadcast(data, obtainedFluxNodeList, currentTimeStamp);
+    return verified;
   }
   return false;
 }

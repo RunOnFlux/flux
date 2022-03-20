@@ -745,7 +745,7 @@ describe('fluxCommunication tests', () => {
     });
   });
 
-  describe.only('verifyOriginalFluxBroadcast tests', () => {
+  describe('verifyOriginalFluxBroadcast tests', () => {
     // Function extends the verifyFluxBroadcast function, only adding time verification.
     // Message can't be older than 5 minutes.
     const privKey = '5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh';
@@ -760,7 +760,7 @@ describe('fluxCommunication tests', () => {
       sinon.restore();
     });
 
-    it('should return true if broadcast is verifiable, flux node list provided', async () => {
+    it('should return true if broadcast is verifiable, flux node list provided, no current timestamp provided', async () => {
       const timeStamp = Date.now();
       const version = 1;
       const messageToSign = version + message + timeStamp;
@@ -778,7 +778,7 @@ describe('fluxCommunication tests', () => {
       expect(isValid).to.equal(true);
     });
 
-    it('should return false if the message has been sent more than 5 minutes ago', async () => {
+    it('should return false if the message has been sent more than 5 minutes ago, no current timestamp provided', async () => {
       const timeStamp = Date.now() - 340000;
       const version = 1;
       const messageToSign = version + message + timeStamp;
@@ -795,9 +795,47 @@ describe('fluxCommunication tests', () => {
 
       expect(isValid).to.equal(false);
     });
+
+    it('should return true if broadcast is verifiable, flux node list provided, current timestamp provided', async () => {
+      const timeStamp = Date.now();
+      const version = 1;
+      const messageToSign = version + message + timeStamp;
+      const signature = await fluxCommunication.getFluxMessageSignature(messageToSign, privKey);
+      const dataToSend = {
+        version,
+        pubKey,
+        timestamp: timeStamp,
+        data,
+        signature,
+      };
+      const providedTimestamp = Date.now() + 100;
+
+      const isValid = await fluxCommunication.verifyOriginalFluxBroadcast(dataToSend, fluxList, providedTimestamp);
+
+      expect(isValid).to.equal(true);
+    });
+
+    it('should return false if the message has been sent more than 5 minutes ago, current timestamp provided', async () => {
+      const timeStamp = Date.now() - 340000;
+      const version = 1;
+      const messageToSign = version + message + timeStamp;
+      const signature = await fluxCommunication.getFluxMessageSignature(messageToSign, privKey);
+      const dataToSend = {
+        version,
+        pubKey,
+        timestamp: timeStamp,
+        data,
+        signature,
+      };
+      const providedTimestamp = Date.now() + 100;
+
+      const isValid = await fluxCommunication.verifyOriginalFluxBroadcast(dataToSend, fluxList, providedTimestamp);
+
+      expect(isValid).to.equal(false);
+    });
   });
 
-  describe.only('verifyTimestampInFluxBroadcast tests', () => {
+  describe('verifyTimestampInFluxBroadcast tests', () => {
     afterEach(() => {
       sinon.restore();
     });
@@ -833,6 +871,17 @@ describe('fluxCommunication tests', () => {
       };
 
       const isValid = await fluxCommunication.verifyTimestampInFluxBroadcast(data, providedTimestamp);
+
+      expect(isValid).to.equal(false);
+    });
+
+    it('should return false if message timestamp is more than 5 minutes ago, no current timestamp provided', async () => {
+      const timeStamp = Date.now() - 340000;
+      const data = {
+        timestamp: timeStamp,
+      };
+
+      const isValid = await fluxCommunication.verifyTimestampInFluxBroadcast(data);
 
       expect(isValid).to.equal(false);
     });
