@@ -8,27 +8,79 @@ const log = require('../lib/log');
 
 const client = new natUpnp.Client();
 
+let upnpMachine = false;
+
+/**
+ * To quickly check if node has UPnP (Universal Plug and Play) support.
+ * @returns {boolean} True if port mappings can be set. Otherwise false.
+ */
+function isUPNP() {
+  return upnpMachine;
+}
+
+/**
+ * To verify that a port has UPnP (Universal Plug and Play) support.
+ * @param {number} apiport Port number.
+ * @returns {boolean} True if port mappings can be set. Otherwise false.
+ */
 async function verifyUPNPsupport(apiport = config.apiport) {
   try {
     // run test on apiport + 1
     await client.getPublicIp();
+  } catch (error) {
+    log.error(error);
+    log.error('VerifyUPNPsupport - Failed get public ip');
+    upnpMachine = false;
+    return false;
+  }
+  try {
     await client.getGateway();
+  } catch (error) {
+    log.error(error);
+    log.error('VerifyUPNPsupport - Failed get Gateway');
+    upnpMachine = false;
+    return false;
+  }
+  try {
     await client.createMapping({
       public: +apiport + 1,
       private: +apiport + 1,
       ttl: 0,
     });
+  } catch (error) {
+    log.error(error);
+    log.error('VerifyUPNPsupport - Failed Create Mapping');
+    upnpMachine = false;
+    return false;
+  }
+  try {
+    await client.getMappings();
+  } catch (error) {
+    log.error(error);
+    log.error('VerifyUPNPsupport - Failed get Mappings');
+    upnpMachine = false;
+    return false;
+  }
+  try {
     await client.removeMapping({
       public: +apiport + 1,
     });
-    await client.getMappings();
-    return true;
   } catch (error) {
     log.error(error);
+    log.error('VerifyUPNPsupport - Failed Remove Mapping');
+    upnpMachine = false;
     return false;
   }
+
+  upnpMachine = true;
+  return true;
 }
 
+/**
+ * To set up UPnP (Universal Plug and Play) support.
+ * @param {number} apiport Port number.
+ * @returns {boolean} True if port mappings can be set. Otherwise false.
+ */
 async function setupUPNP(apiport = config.apiport) { // todo evaluate adding ssl port of + 1
   try {
     await client.createMapping({
@@ -48,6 +100,11 @@ async function setupUPNP(apiport = config.apiport) { // todo evaluate adding ssl
   }
 }
 
+/**
+ * To create mappings for UPnP (Universal Plug and Play) port.
+ * @param {number} port Port number.
+ * @returns {boolean} True if port mappings can be created for both TCP (Transmission Control Protocol) and UDP (User Datagram Protocol) protocols. Otherwise false.
+ */
 async function mapUpnpPort(port) {
   try {
     await client.createMapping({
@@ -69,6 +126,11 @@ async function mapUpnpPort(port) {
   }
 }
 
+/**
+ * To remove TCP (Transmission Control Protocol) and UDP (User Datagram Protocol) port mappings from UPnP (Universal Plug and Play) port.
+ * @param {number} port Port number.
+ * @returns {boolean} True if port mappings have been removed for both TCP (Transmission Control Protocol) and UDP (User Datagram Protocol) protocols. Otherwise false.
+ */
 async function removeMapUpnpPort(port) {
   try {
     await client.removeMapping({
@@ -86,6 +148,11 @@ async function removeMapUpnpPort(port) {
   }
 }
 
+/**
+ * To map a specified port and show a message if successfully mapped. Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function mapPortApi(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
@@ -125,6 +192,11 @@ async function mapPortApi(req, res) {
   }
 }
 
+/**
+ * To unmap a specified port and show a message if successfully unmapped. Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function removeMapPortApi(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
@@ -160,6 +232,11 @@ async function removeMapPortApi(req, res) {
   }
 }
 
+/**
+ * To show a message with mappings. Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function getMapApi(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
@@ -182,6 +259,11 @@ async function getMapApi(req, res) {
   }
 }
 
+/**
+ * To show a message with IP address. Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function getIpApi(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
@@ -204,6 +286,11 @@ async function getIpApi(req, res) {
   }
 }
 
+/**
+ * To show a message with gateway address. Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function getGatewayApi(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
@@ -227,6 +314,7 @@ async function getGatewayApi(req, res) {
 }
 
 module.exports = {
+  isUPNP,
   verifyUPNPsupport,
   setupUPNP,
   mapUpnpPort,

@@ -25,8 +25,8 @@ const incomingPeers = []; // array of objects containing ip
 let dosState = 0; // we can start at bigger number later
 let dosMessage = null;
 
-const minimumFluxBenchAllowedVersion = 231;
-const minimumFluxOSAllowedVersion = 215;
+const minimumFluxBenchAllowedVersion = 300;
+const minimumFluxOSAllowedVersion = 3100;
 let storedFluxBenchAllowed = null;
 
 // my external Flux IP from benchmark

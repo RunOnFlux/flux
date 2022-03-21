@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <title>JSDoc: Source: generalService.js</title>
+    <title>JSDoc: Source: serviceHelper.js</title>
 
     <script src="scripts/prettify/prettify.js"> </script>
     <script src="scripts/prettify/lang-css.js"> </script>
@@ -17,7 +17,7 @@
 
 <div id="main">
 
-    <h1 class="page-title">Source: generalService.js</h1>
+    <h1 class="page-title">Source: serviceHelper.js</h1>
 
     
 
@@ -26,323 +26,161 @@
     
     <section>
         <article>
-            <pre class="prettyprint source linenums"><code>const config = require('config');
-const crypto = require('crypto');
+            <pre class="prettyprint source linenums"><code>const axios = require('axios');
+const config = require('config');
+const qs = require('qs');
 
+const dbHelper = require('./dbHelper');
 const log = require('../lib/log');
 
-const serviceHelper = require('./serviceHelper');
-const daemonService = require('./daemonService');
-const messageHelper = require('./messageHelper');
-const dbHelper = require('./dbHelper');
-
-const scannedHeightCollection = config.database.daemon.collections.scannedHeight;
-
-let storedTier = null;
-let storedCollateral = null;
-
 /**
- * To return a transaction hash and index.
- * @param {string[]} collateralOutpoint List of collateral outpoints.
- * @returns {object} Collateral info object.
- * @property {string} txhash Transaction hash.
- * @property {number} txindex Transaction index.
+ * To delay by a number of milliseconds.
+ * @param {number} ms Number of milliseconds.
+ * @returns {Promise} Promise object.
  */
-function getCollateralInfo(collateralOutpoint) {
-  const a = collateralOutpoint;
-  const b = a.split(', ');
-  const txhash = b[0].substr(10, b[0].length);
-  const txindex = serviceHelper.ensureNumber(b[1].split(')')[0]);
-  return { txhash, txindex };
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
- * To return the tier of a node.
- * @returns {string} Name of the node tier.
+ * To convert a parameter to a boolean.
+ * @param {(string|number|boolean)} parameter True, false, 1 or 0 in either string, number or boolean form.
+ * @returns {boolean} True or false.
  */
-async function nodeTier() {
-  if (storedTier) {
-    return storedTier; // node tier is not changing. We can use globally cached value.
+function ensureBoolean(parameter) {
+  let param;
+  if (parameter === 'false' || parameter === 0 || parameter === '0' || parameter === false) {
+    param = false;
   }
-  // get our collateral information to decide if app specifications are basic, super, bamf
-  // getzlenodestatus.collateral
-  const nodeStatus = await daemonService.getZelNodeStatus();
-  if (nodeStatus.status === 'error') {
-    throw nodeStatus.data;
+  if (parameter === 'true' || parameter === 1 || parameter === '1' || parameter === true) {
+    param = true;
   }
-  const collateralInformation = getCollateralInfo(nodeStatus.data.collateral);
-  // get transaction information about collateralInformation.txhash
-  const request = {
-    params: {
-      txid: collateralInformation.txhash,
-      verbose: 1,
-    },
-  };
-  const txInformation = await daemonService.getRawTransaction(request);
-  if (txInformation.status === 'error') {
-    throw txInformation.data;
-  }
-  // get collateralInformation.txindex vout
-  const { value } = txInformation.data.vout[collateralInformation.txindex];
-  if (value === 10000) {
-    storedTier = 'basic';
-    storedCollateral = 10000;
-    return storedTier;
-  }
-  if (value === 25000) {
-    storedTier = 'super';
-    storedCollateral = 25000;
-    return storedTier;
-  }
-  if (value === 100000) {
-    storedTier = 'bamf';
-    storedCollateral = 100000;
-    return storedTier;
-  }
-  if (value === 1000) {
-    storedTier = 'basic';
-    storedCollateral = 1000;
-    return storedTier;
-  }
-  if (value === 12500) {
-    storedTier = 'super';
-    storedCollateral = 12500;
-    return storedTier;
-  }
-  if (value === 40000) {
-    storedTier = 'bamf';
-    storedCollateral = 40000;
-    return storedTier;
-  }
-  throw new Error('Unrecognised Flux Node tier');
+  return param;
 }
 
 /**
- * To return the quantity of collateral stored and determine what type of node it can be used for.
- * @returns {number} The quantity of collateral.
+ * To convert a parameter to a number.
+ * @param {*} parameter Parameter of any type.
+ * @returns {number} Parameter converted to number type.
  */
-async function nodeCollateral() {
-  if (storedCollateral) {
-    return storedCollateral; // node collateral is not changing. We can use globally cached value.
-  }
-  // get our collateral information to decide if app specifications are basic, super, bamf
-  // getzlenodestatus.collateral
-  const nodeStatus = await daemonService.getZelNodeStatus();
-  if (nodeStatus.status === 'error') {
-    throw nodeStatus.data;
-  }
-  const collateralInformation = getCollateralInfo(nodeStatus.data.collateral);
-  // get transaction information about collateralInformation.txhash
-  const request = {
-    params: {
-      txid: collateralInformation.txhash,
-      verbose: 1,
-    },
-  };
-  const txInformation = await daemonService.getRawTransaction(request);
-  if (txInformation.status === 'error') {
-    throw txInformation.data;
-  }
-  // get collateralInformation.txindex vout
-  const { value } = txInformation.data.vout[collateralInformation.txindex];
-  if (value === 10000) {
-    storedTier = 'basic';
-    storedCollateral = 10000;
-    return storedCollateral;
-  }
-  if (value === 25000) {
-    storedTier = 'super';
-    storedCollateral = 25000;
-    return storedCollateral;
-  }
-  if (value === 100000) {
-    storedTier = 'bamf';
-    storedCollateral = 100000;
-    return storedCollateral;
-  }
-  if (value === 1000) {
-    storedTier = 'basic';
-    storedCollateral = 1000;
-    return storedCollateral;
-  }
-  if (value === 12500) {
-    storedTier = 'super';
-    storedCollateral = 12500;
-    return storedCollateral;
-  }
-  if (value === 40000) {
-    storedTier = 'bamf';
-    storedCollateral = 40000;
-    return storedCollateral;
-  }
-  throw new Error('Unrecognised Flux Node Collateral');
+function ensureNumber(parameter) {
+  return typeof parameter === 'number' ? parameter : Number(parameter);
 }
 
 /**
- * Checks if a node's status is confirmed.
- * @returns {boolean} True if node is confirmed. False if there is an error.
+ * To check if a parameter is an object and if not, return an empty object.
+ * @param {*} parameter Parameter of any type.
+ * @returns {object} Returns the original parameter if it is an object or returns an empty object.
  */
-async function isNodeStatusConfirmed() {
+function ensureObject(parameter) {
+  if (typeof parameter === 'object') {
+    return parameter;
+  }
+  if (!parameter) {
+    return {};
+  }
+  let param;
   try {
-    const response = await daemonService.getZelNodeStatus();
-    if (response.status === 'error') {
-      throw response.data;
-    }
-    if (response.data.status === 'CONFIRMED') {
-      return true;
-    }
-    return false;
-  } catch (error) {
-    log.error(error);
-    return false;
-  }
-}
-
-/**
- * Checks if a node's FluxOS database is synced with the node's daemon database.
- * @returns {boolean} True if FluxOS databse height is within 1 of the daemon database height. False if not within 1 of the height or if there is an error.
- */
-async function checkSynced() {
-  try {
-    // check if flux database is synced with daemon database (equal or -1 inheight)
-    const syncStatus = daemonService.isDaemonSynced();
-    if (!syncStatus.data.synced) {
-      throw new Error('Daemon not yet synced.');
-    }
-    const daemonHeight = syncStatus.data.height;
-    const dbopen = dbHelper.databaseConnection();
-    const database = dbopen.db(config.database.daemon.database);
-    const query = { generalScannedHeight: { $gte: 0 } };
-    const projection = {
-      projection: {
-        _id: 0,
-        generalScannedHeight: 1,
-      },
-    };
-    const result = await dbHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
-    if (!result) {
-      throw new Error('Scanning not initiated');
-    }
-    const explorerHeight = serviceHelper.ensureNumber(result.generalScannedHeight);
-
-    if (explorerHeight + 1 === daemonHeight || explorerHeight === daemonHeight) {
-      return true;
-    }
-    return false;
+    param = JSON.parse(parameter);
   } catch (e) {
-    log.error(e);
-    return false;
+    param = qs.parse(parameter);
   }
+  if (typeof param !== 'object') {
+    return {};
+  }
+  return param;
 }
 
 /**
- * To check if an app's Git repository is whitelisted and able to be run on FluxOS.
- * @param {string} repotag GitHub repository tag.
- * @returns {boolean} True or an error is thrown.
+ * To convert a parameter to a string.
+ * @param {*} parameter Parameter of any type.
+ * @returns {string} Parameter converted to string type.
  */
-async function checkWhitelistedRepository(repotag) {
-  if (typeof repotag !== 'string') {
-    throw new Error('Invalid repotag');
-  }
-  const splittedRepo = repotag.split(':');
-  if (splittedRepo[0] &amp;&amp; splittedRepo[1] &amp;&amp; !splittedRepo[2]) {
-    const resWhitelistRepo = await serviceHelper.axiosGet('https://raw.githubusercontent.com/runonflux/flux/master/helpers/repositories.json');
-
-    if (!resWhitelistRepo) {
-      throw new Error('Unable to communicate with Flux Services! Try again later.');
-    }
-
-    const repos = resWhitelistRepo.data;
-    const whitelisted = repos.includes(repotag);
-    if (!whitelisted) {
-      throw new Error('Repository is not whitelisted. Please contact Flux Team.');
-    }
-  } else {
-    throw new Error(`Repository ${repotag} is not in valid format namespace/repository:tag`);
-  }
-  return true;
+function ensureString(parameter) {
+  return typeof parameter === 'string' ? parameter : JSON.stringify(parameter);
 }
 
 /**
- * To check if a user's ZelID is whitelisted and able to be run on FluxOS.
- * @param {string} zelid ZelID created by Zelcore.
- * @returns {boolean} True or an error is thrown.
+ * To return the owner of a FluxOS application.
+ * @param {string} appName Name of app.
+ * @returns {number} Owner.
  */
-async function checkWhitelistedZelID(zelid) {
-  if (typeof zelid !== 'string') {
-    throw new Error('Invalid Owner ZelID');
-  }
-  const resZelIDs = await serviceHelper.axiosGet('https://raw.githubusercontent.com/runonflux/flux/master/helpers/zelids.json');
+// helper owner flux app function
+async function getApplicationOwner(appName) {
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
 
-  if (!resZelIDs) {
-    throw new Error('Unable to communicate with Flux Services! Try again later.');
+  const query = { name: new RegExp(`^${appName}$`, 'i') };
+  const projection = {
+    projection: {
+      _id: 0,
+      owner: 1,
+    },
+  };
+  const globalAppsInformation = config.database.appsglobal.collections.appsInformation;
+  const appSpecs = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+  if (appSpecs) {
+    return appSpecs.owner;
   }
-
-  const zelids = resZelIDs.data;
-  const whitelisted = zelids.includes(zelid);
-  if (!whitelisted) {
-    throw new Error('Owner ZelID is not whitelisted. Please contact Flux Team.');
+  // eslint-disable-next-line global-require
+  const { availableApps } = require('./appsService');
+  const allApps = await availableApps();
+  const appInfo = allApps.find((app) => app.name.toLowerCase() === appName.toLowerCase());
+  if (appInfo) {
+    return appInfo.owner;
   }
-  return true;
+  return null;
 }
 
 /**
- * To create a JSON response showing a list of whitelisted Github repositories.
- * @param {object} req Request.
- * @param {object} res Response.
+ * To delete login phrase.
+ * @param {string} phrase Login phrase.
  */
-async function whitelistedRepositories(req, res) {
+async function deleteLoginPhrase(phrase) {
   try {
-    const whitelisted = await serviceHelper.axiosGet('https://raw.githubusercontent.com/runonflux/flux/master/helpers/repositories.json');
-    const resultsResponse = messageHelper.createDataMessage(whitelisted.data);
-    res.json(resultsResponse);
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.local.database);
+    const collection = config.database.local.collections.activeLoginPhrases;
+    const query = { loginPhrase: phrase };
+    const projection = {};
+    await dbHelper.findOneAndDeleteInDatabase(database, collection, query, projection);
   } catch (error) {
     log.error(error);
-    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    res.json(errMessage);
   }
 }
 
 /**
- * To create a JSON response showing a list of whitelisted ZelIDs.
- * @param {object} req Request.
- * @param {object} res Response.
+ * To handle timeouts on axios connection.
+ * @param {string} url URL.
+ * @param {object} options Options object.
+ * @returns {object} Response.
  */
-async function whitelistedZelIDs(req, res) {
-  try {
-    const whitelisted = await serviceHelper.axiosGet('https://raw.githubusercontent.com/runonflux/flux/master/helpers/zelids.json');
-    const resultsResponse = messageHelper.createDataMessage(whitelisted.data);
-    res.json(resultsResponse);
-  } catch (error) {
-    log.error(error);
-    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    res.json(errMessage);
-  }
-}
-
-/**
- * To hash a message using sha256 encryption.
- * @param {string} message Message to be hashed.
- * @returns {string} Hashed message.
- */
-async function messageHash(message) {
-  if (typeof message !== 'string') {
-    return new Error('Invalid message');
-  }
-  return crypto.createHash('sha256').update(message).digest('hex');
-}
+// helper function for timeout on axios connection
+const axiosGet = (url, options = {
+  timeout: 20000,
+}) => {
+  const abort = axios.CancelToken.source();
+  const id = setTimeout(
+    () => abort.cancel(`Timeout of ${options.timeout}ms.`),
+    options.timeout,
+  );
+  return axios
+    .get(url, { cancelToken: abort.token, ...options })
+    .then((res) => {
+      clearTimeout(id);
+      return res;
+    });
+};
 
 module.exports = {
-  getCollateralInfo,
-  nodeTier,
-  isNodeStatusConfirmed,
-  checkSynced,
-  checkWhitelistedRepository,
-  checkWhitelistedZelID,
-  whitelistedRepositories,
-  whitelistedZelIDs,
-  messageHash,
-  nodeCollateral,
+  ensureBoolean,
+  ensureNumber,
+  ensureObject,
+  ensureString,
+  axiosGet,
+  delay,
+  getApplicationOwner,
+  deleteLoginPhrase,
 };
 </code></pre>
         </article>

@@ -32,3 +32,5 @@ jobs:
         npm run test:zelback:unit
       env:
         CI: true
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v2

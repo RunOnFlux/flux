@@ -7,7 +7,7 @@
 //--------- Simple Number Wizard ----------//
 .vue-form-wizard {
   background-color: $white;
-  box-shadow: 0px 4px 25px 0px rgba($black, 0.1);
+  box-shadow: 0 4px 25px 0 rgba($black, 0.1);
   border-radius: 0.5rem;
   padding-bottom: 0;
   .wizard-header {
@@ -22,7 +22,7 @@
       display: none;
     }
     .wizard-nav {
-      padding: 1.42rem 1.42rem 2.14rem 1.42rem;
+      padding: 1.42rem 1.42rem 2.14rem;
       border-bottom: 1px solid rgba($color: $black, $alpha: 0.08);
       padding-bottom: 0;
       li {
@@ -171,19 +171,19 @@
     }
   }
   .wizard-tab-content {
-    box-shadow: 0px 4px 25px 0px rgba($black, 0.1);
+    box-shadow: 0 4px 25px 0 rgba($black, 0.1);
     background-color: $white;
   }
   .wizard-card-footer {
     background-color: $white;
-    box-shadow: 0px 4px 25px 0px rgba($black, 0.1);
+    box-shadow: 0 4px 25px 0 rgba($black, 0.1);
   }
   .wizard-tab-content {
     border-top-left-radius: 0.5rem;
     border-top-right-radius: 0.5rem;
   }
   .wizard-card-footer {
-    box-shadow: -1px 16px 25px 0px rgba($black, 0.1);
+    box-shadow: -1px 16px 25px 0 rgba($black, 0.1);
     // padding-bottom: 2.5rem;
     border-bottom-left-radius: 0.5rem;
     border-bottom-right-radius: 0.5rem;
@@ -319,7 +319,7 @@ body {
     // border apply only default not transparent background
     .vue-form-wizard:not(.steps-transparent) {
       background-color: $theme-dark-card-bg;
-      box-shadow: 0px 4px 25px 0px rgba($theme-dark-body-color, 0.1);
+      box-shadow: 0 4px 25px 0 rgba($theme-dark-body-color, 0.1);
       &.vertical {
         .wizard-card-footer {
           border-color: $theme-dark-border-color !important;
@@ -332,7 +332,7 @@ body {
         .wizard-tab-content,
         .wizard-card-footer {
           background-color: $theme-dark-card-bg;
-          box-shadow: 1px 12px 25px 0px rgba($theme-dark-body-color, 0.1);
+          box-shadow: 1px 12px 25px 0 rgba($theme-dark-body-color, 0.1);
         }
       }
 

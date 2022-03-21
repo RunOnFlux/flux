@@ -10,6 +10,8 @@ selenium-debug.log
 config/userconfig.js
 ZelApps
 appvolumes
+.nyc_output/
+coverage/
 
 # Editor directories and files
 .idea

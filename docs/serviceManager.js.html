@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <title>JSDoc: Source: generalService.js</title>
+    <title>JSDoc: Source: serviceManager.js</title>
 
     <script src="scripts/prettify/prettify.js"> </script>
     <script src="scripts/prettify/lang-css.js"> </script>
@@ -17,7 +17,7 @@
 
 <div id="main">
 
-    <h1 class="page-title">Source: generalService.js</h1>
+    <h1 class="page-title">Source: serviceManager.js</h1>
 
     
 
@@ -27,322 +27,116 @@
     <section>
         <article>
             <pre class="prettyprint source linenums"><code>const config = require('config');
-const crypto = require('crypto');
-
 const log = require('../lib/log');
 
-const serviceHelper = require('./serviceHelper');
-const daemonService = require('./daemonService');
-const messageHelper = require('./messageHelper');
 const dbHelper = require('./dbHelper');
+const explorerService = require('./explorerService');
+const fluxCommunication = require('./fluxCommunication');
+const appsService = require('./appsService');
+const daemonService = require('./daemonService');
+const fluxService = require('./fluxService');
+const upnpService = require('./upnpService');
+const userconfig = require('../../../config/userconfig');
 
-const scannedHeightCollection = config.database.daemon.collections.scannedHeight;
-
-let storedTier = null;
-let storedCollateral = null;
-
-/**
- * To return a transaction hash and index.
- * @param {string[]} collateralOutpoint List of collateral outpoints.
- * @returns {object} Collateral info object.
- * @property {string} txhash Transaction hash.
- * @property {number} txindex Transaction index.
- */
-function getCollateralInfo(collateralOutpoint) {
-  const a = collateralOutpoint;
-  const b = a.split(', ');
-  const txhash = b[0].substr(10, b[0].length);
-  const txindex = serviceHelper.ensureNumber(b[1].split(')')[0]);
-  return { txhash, txindex };
-}
+const apiPort = userconfig.initial.apiport || config.server.apiport;
 
 /**
- * To return the tier of a node.
- * @returns {string} Name of the node tier.
+ * To start FluxOS. A series of checks are performed on port and UPnP (Universal Plug and Play) support and mapping. Database connections are established. The other relevant functions required to start FluxOS services are called.
  */
-async function nodeTier() {
-  if (storedTier) {
-    return storedTier; // node tier is not changing. We can use globally cached value.
-  }
-  // get our collateral information to decide if app specifications are basic, super, bamf
-  // getzlenodestatus.collateral
-  const nodeStatus = await daemonService.getZelNodeStatus();
-  if (nodeStatus.status === 'error') {
-    throw nodeStatus.data;
-  }
-  const collateralInformation = getCollateralInfo(nodeStatus.data.collateral);
-  // get transaction information about collateralInformation.txhash
-  const request = {
-    params: {
-      txid: collateralInformation.txhash,
-      verbose: 1,
-    },
-  };
-  const txInformation = await daemonService.getRawTransaction(request);
-  if (txInformation.status === 'error') {
-    throw txInformation.data;
-  }
-  // get collateralInformation.txindex vout
-  const { value } = txInformation.data.vout[collateralInformation.txindex];
-  if (value === 10000) {
-    storedTier = 'basic';
-    storedCollateral = 10000;
-    return storedTier;
-  }
-  if (value === 25000) {
-    storedTier = 'super';
-    storedCollateral = 25000;
-    return storedTier;
-  }
-  if (value === 100000) {
-    storedTier = 'bamf';
-    storedCollateral = 100000;
-    return storedTier;
-  }
-  if (value === 1000) {
-    storedTier = 'basic';
-    storedCollateral = 1000;
-    return storedTier;
-  }
-  if (value === 12500) {
-    storedTier = 'super';
-    storedCollateral = 12500;
-    return storedTier;
-  }
-  if (value === 40000) {
-    storedTier = 'bamf';
-    storedCollateral = 40000;
-    return storedTier;
-  }
-  throw new Error('Unrecognised Flux Node tier');
-}
-
-/**
- * To return the quantity of collateral stored and determine what type of node it can be used for.
- * @returns {number} The quantity of collateral.
- */
-async function nodeCollateral() {
-  if (storedCollateral) {
-    return storedCollateral; // node collateral is not changing. We can use globally cached value.
-  }
-  // get our collateral information to decide if app specifications are basic, super, bamf
-  // getzlenodestatus.collateral
-  const nodeStatus = await daemonService.getZelNodeStatus();
-  if (nodeStatus.status === 'error') {
-    throw nodeStatus.data;
-  }
-  const collateralInformation = getCollateralInfo(nodeStatus.data.collateral);
-  // get transaction information about collateralInformation.txhash
-  const request = {
-    params: {
-      txid: collateralInformation.txhash,
-      verbose: 1,
-    },
-  };
-  const txInformation = await daemonService.getRawTransaction(request);
-  if (txInformation.status === 'error') {
-    throw txInformation.data;
-  }
-  // get collateralInformation.txindex vout
-  const { value } = txInformation.data.vout[collateralInformation.txindex];
-  if (value === 10000) {
-    storedTier = 'basic';
-    storedCollateral = 10000;
-    return storedCollateral;
-  }
-  if (value === 25000) {
-    storedTier = 'super';
-    storedCollateral = 25000;
-    return storedCollateral;
-  }
-  if (value === 100000) {
-    storedTier = 'bamf';
-    storedCollateral = 100000;
-    return storedCollateral;
-  }
-  if (value === 1000) {
-    storedTier = 'basic';
-    storedCollateral = 1000;
-    return storedCollateral;
-  }
-  if (value === 12500) {
-    storedTier = 'super';
-    storedCollateral = 12500;
-    return storedCollateral;
-  }
-  if (value === 40000) {
-    storedTier = 'bamf';
-    storedCollateral = 40000;
-    return storedCollateral;
-  }
-  throw new Error('Unrecognised Flux Node Collateral');
-}
-
-/**
- * Checks if a node's status is confirmed.
- * @returns {boolean} True if node is confirmed. False if there is an error.
- */
-async function isNodeStatusConfirmed() {
+async function startFluxFunctions() {
   try {
-    const response = await daemonService.getZelNodeStatus();
-    if (response.status === 'error') {
-      throw response.data;
+    if (!config.server.allowedPorts.includes(+apiPort)) {
+      log.error(`Flux port ${apiPort} is not supported. Shutting down.`);
+      process.exit();
     }
-    if (response.data.status === 'CONFIRMED') {
-      return true;
+    if (userconfig.initial.apiport &amp;&amp; userconfig.initial.apiport !== config.server.apiport) {
+      const verifyUpnp = await upnpService.verifyUPNPsupport(apiPort);
+      if (verifyUpnp !== true) {
+        log.error(`Flux port ${userconfig.initial.apiport} specified but UPnP failed to verify support. Shutting down.`);
+        process.exit();
+      }
+      const setupUpnp = await upnpService.setupUPNP(apiPort);
+      if (setupUpnp !== true) {
+        log.error(`Flux port ${userconfig.initial.apiport} specified but UPnP failed to map to api or home port. Shutting down.`);
+        process.exit();
+      }
+    } else {
+      upnpService.setupUPNP(apiPort);
     }
-    return false;
-  } catch (error) {
-    log.error(error);
-    return false;
-  }
-}
-
-/**
- * Checks if a node's FluxOS database is synced with the node's daemon database.
- * @returns {boolean} True if FluxOS databse height is within 1 of the daemon database height. False if not within 1 of the height or if there is an error.
- */
-async function checkSynced() {
-  try {
-    // check if flux database is synced with daemon database (equal or -1 inheight)
-    const syncStatus = daemonService.isDaemonSynced();
-    if (!syncStatus.data.synced) {
-      throw new Error('Daemon not yet synced.');
+    log.info('Initiating MongoDB connection');
+    await dbHelper.initiateDB(); // either true or throws error
+    log.info('DB connected');
+    log.info('Preparing local database...');
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.local.database);
+    await dbHelper.dropCollection(database, config.database.local.collections.activeLoginPhrases).catch((error) => {
+      if (error.message !== 'ns not found') {
+        log.error(error);
+      }
+    });
+    await dbHelper.dropCollection(database, config.database.local.collections.activeSignatures).catch((error) => {
+      if (error.message !== 'ns not found') {
+        log.error(error);
+      }
+    });
+    await database.collection(config.database.local.collections.activeLoginPhrases).createIndex({ createdAt: 1 }, { expireAfterSeconds: 900 });
+    await database.collection(config.database.local.collections.activeSignatures).createIndex({ createdAt: 1 }, { expireAfterSeconds: 900 });
+    log.info('Local database prepared');
+    log.info('Preparing temporary database...');
+    // no need to drop temporary messages
+    const databaseTemp = db.db(config.database.appsglobal.database);
+    await databaseTemp.collection(config.database.appsglobal.collections.appsTemporaryMessages).createIndex({ receivedAt: 1 }, { expireAfterSeconds: 3600 }); // todo longer time? dropIndexes()
+    log.info('Temporary database prepared');
+    log.info('Preparing Flux Apps locations');
+    // more than 1 hour. Meaning we have not received status message for a long time. So that node is no longer on a network or app is down.
+    await databaseTemp.collection(config.database.appsglobal.collections.appsLocations).createIndex({ broadcastedAt: 1 }, { expireAfterSeconds: 3900 });
+    log.info('Flux Apps locations prepared');
+    fluxCommunication.adjustFirewall();
+    log.info('Firewalls checked');
+    fluxCommunication.keepConnectionsAlive();
+    log.info('Connections polling prepared');
+    daemonService.daemonBlockchainInfoService();
+    log.info('Flux Daemon Info Service Started');
+    fluxService.InstallFluxWatchTower();
+    fluxCommunication.checkDeterministicNodesCollisions();
+    log.info('Flux checks operational');
+    fluxCommunication.fluxDiscovery();
+    log.info('Flux Discovery started');
+    try {
+      appsService.reconstructAppMessagesHashCollection();
+      log.info('Validation of App Messages Hash Collection');
+    } catch (error) {
+      log.error(error);
     }
-    const daemonHeight = syncStatus.data.height;
-    const dbopen = dbHelper.databaseConnection();
-    const database = dbopen.db(config.database.daemon.database);
-    const query = { generalScannedHeight: { $gte: 0 } };
-    const projection = {
-      projection: {
-        _id: 0,
-        generalScannedHeight: 1,
-      },
-    };
-    const result = await dbHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
-    if (!result) {
-      throw new Error('Scanning not initiated');
-    }
-    const explorerHeight = serviceHelper.ensureNumber(result.generalScannedHeight);
-
-    if (explorerHeight + 1 === daemonHeight || explorerHeight === daemonHeight) {
-      return true;
-    }
-    return false;
+    setTimeout(() => { // wait as of restarts due to ui building
+      explorerService.initiateBlockProcessor(true, true);
+      log.info('Flux Block Processing Service started');
+    }, 2 * 60 * 1000);
+    setInterval(() => { // every 4 mins (2 blocks)
+      appsService.checkAndNotifyPeersOfRunningApps();
+    }, 4 * 60 * 1000);
+    setInterval(() => { // every 8 mins (4 blocks)
+      appsService.continuousFluxAppHashesCheck();
+    }, 8 * 60 * 1000);
+    setTimeout(() => {
+      // after 14 minutes of running ok.
+      // is stopped on basics
+      log.info('Starting to spawn applications');
+      appsService.trySpawningGlobalApplication();
+    }, 14 * 60 * 1000);
+    setTimeout(() => {
+      appsService.stopAllNonFluxRunningApps();
+    }, 1 * 60 * 1000);
   } catch (e) {
     log.error(e);
-    return false;
+    setTimeout(() => {
+      startFluxFunctions();
+    }, 15000);
   }
-}
-
-/**
- * To check if an app's Git repository is whitelisted and able to be run on FluxOS.
- * @param {string} repotag GitHub repository tag.
- * @returns {boolean} True or an error is thrown.
- */
-async function checkWhitelistedRepository(repotag) {
-  if (typeof repotag !== 'string') {
-    throw new Error('Invalid repotag');
-  }
-  const splittedRepo = repotag.split(':');
-  if (splittedRepo[0] &amp;&amp; splittedRepo[1] &amp;&amp; !splittedRepo[2]) {
-    const resWhitelistRepo = await serviceHelper.axiosGet('https://raw.githubusercontent.com/runonflux/flux/master/helpers/repositories.json');
-
-    if (!resWhitelistRepo) {
-      throw new Error('Unable to communicate with Flux Services! Try again later.');
-    }
-
-    const repos = resWhitelistRepo.data;
-    const whitelisted = repos.includes(repotag);
-    if (!whitelisted) {
-      throw new Error('Repository is not whitelisted. Please contact Flux Team.');
-    }
-  } else {
-    throw new Error(`Repository ${repotag} is not in valid format namespace/repository:tag`);
-  }
-  return true;
-}
-
-/**
- * To check if a user's ZelID is whitelisted and able to be run on FluxOS.
- * @param {string} zelid ZelID created by Zelcore.
- * @returns {boolean} True or an error is thrown.
- */
-async function checkWhitelistedZelID(zelid) {
-  if (typeof zelid !== 'string') {
-    throw new Error('Invalid Owner ZelID');
-  }
-  const resZelIDs = await serviceHelper.axiosGet('https://raw.githubusercontent.com/runonflux/flux/master/helpers/zelids.json');
-
-  if (!resZelIDs) {
-    throw new Error('Unable to communicate with Flux Services! Try again later.');
-  }
-
-  const zelids = resZelIDs.data;
-  const whitelisted = zelids.includes(zelid);
-  if (!whitelisted) {
-    throw new Error('Owner ZelID is not whitelisted. Please contact Flux Team.');
-  }
-  return true;
-}
-
-/**
- * To create a JSON response showing a list of whitelisted Github repositories.
- * @param {object} req Request.
- * @param {object} res Response.
- */
-async function whitelistedRepositories(req, res) {
-  try {
-    const whitelisted = await serviceHelper.axiosGet('https://raw.githubusercontent.com/runonflux/flux/master/helpers/repositories.json');
-    const resultsResponse = messageHelper.createDataMessage(whitelisted.data);
-    res.json(resultsResponse);
-  } catch (error) {
-    log.error(error);
-    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    res.json(errMessage);
-  }
-}
-
-/**
- * To create a JSON response showing a list of whitelisted ZelIDs.
- * @param {object} req Request.
- * @param {object} res Response.
- */
-async function whitelistedZelIDs(req, res) {
-  try {
-    const whitelisted = await serviceHelper.axiosGet('https://raw.githubusercontent.com/runonflux/flux/master/helpers/zelids.json');
-    const resultsResponse = messageHelper.createDataMessage(whitelisted.data);
-    res.json(resultsResponse);
-  } catch (error) {
-    log.error(error);
-    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    res.json(errMessage);
-  }
-}
-
-/**
- * To hash a message using sha256 encryption.
- * @param {string} message Message to be hashed.
- * @returns {string} Hashed message.
- */
-async function messageHash(message) {
-  if (typeof message !== 'string') {
-    return new Error('Invalid message');
-  }
-  return crypto.createHash('sha256').update(message).digest('hex');
 }
 
 module.exports = {
-  getCollateralInfo,
-  nodeTier,
-  isNodeStatusConfirmed,
-  checkSynced,
-  checkWhitelistedRepository,
-  checkWhitelistedZelID,
-  whitelistedRepositories,
-  whitelistedZelIDs,
-  messageHash,
-  nodeCollateral,
+  startFluxFunctions,
 };
 </code></pre>
         </article>
