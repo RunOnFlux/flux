@@ -1651,9 +1651,9 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
   if (appSpecifications.ports) {
     const firewallActive = await fluxCommunication.isFirewallActive();
     if (firewallActive) {
-    // eslint-disable-next-line no-restricted-syntax
+      // eslint-disable-next-line no-restricted-syntax
       for (const port of appSpecifications.ports) {
-      // eslint-disable-next-line no-await-in-loop
+        // eslint-disable-next-line no-await-in-loop
         await fluxCommunication.denyPort(serviceHelper.ensureNumber(port));
       }
     }
@@ -2257,7 +2257,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
   } else if (appSpecifications.port) {
     const firewallActive = await fluxCommunication.isFirewallActive();
     if (firewallActive) {
-    // v1 compatibility
+      // v1 compatibility
       const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(appSpecifications.port));
       if (portResponse.status === true) {
         const portStatus = {
@@ -2924,6 +2924,33 @@ async function verifyRepository(repotag) {
   return true;
 }
 
+async function checkApplicationImagesComplience(appSpecs) {
+  const resBlockedRepo = await serviceHelper.axiosGet('https://raw.githubusercontent.com/runonflux/flux/master/helpers/blockedrepositories.json');
+
+  if (!resBlockedRepo) {
+    throw new Error('Unable to communicate with Flux Services! Try again later.');
+  }
+
+  const repos = resBlockedRepo.data;
+
+  const images = [];
+  if (appSpecs.version <= 3) {
+    images.push(appSpecs.repotag);
+  } else {
+    appSpecs.compose.forEach((component) => {
+      images.push(component.repotag);
+    });
+  }
+
+  images.forEach((image) => {
+    if (repos.includes(image)) {
+      throw new Error(`Repository ${image} is blocked. Application ${appSpecs.name} connot be spawned.`);
+    }
+  });
+
+  return true;
+}
+
 function verifyCorrectnessOfApp(appSpecification) {
   const { version } = appSpecification;
   const { name } = appSpecification;
@@ -3195,7 +3222,7 @@ function ensureAppUniquePorts(appSpecFormatted) {
   return true;
 }
 
-async function verifyAppSpecifications(appSpecifications, height) {
+async function verifyAppSpecifications(appSpecifications, height, checkDockerAndWhitelist = false) {
   if (!appSpecifications) {
     throw new Error('Invalid Flux App Specifications');
   }
@@ -3279,11 +3306,13 @@ async function verifyAppSpecifications(appSpecifications, height) {
       throw new Error('Flux App container data folder not specified. If no data folder is whished, use /tmp');
     }
 
-    // check repotag if available for download
-    await verifyRepository(appSpecifications.repotag);
+    if (checkDockerAndWhitelist) {
+      // check repository whitelisted
+      await generalService.checkWhitelistedRepository(appSpecifications.repotag);
 
-    // check repository whitelisted
-    await generalService.checkWhitelistedRepository(appSpecifications.repotag);
+      // check repotag if available for download
+      await verifyRepository(appSpecifications.repotag);
+    }
   } else {
     console.log(appSpecifications);
     if (!Array.isArray(appSpecifications.compose)) {
@@ -3362,13 +3391,15 @@ async function verifyAppSpecifications(appSpecifications, height) {
 
       checkComposeHWParameters(appSpecifications);
 
-      // check repotag if available for download
-      // eslint-disable-next-line no-await-in-loop
-      await verifyRepository(appComponent.repotag);
+      if (checkDockerAndWhitelist) {
+        // check repository whitelisted
+        // eslint-disable-next-line no-await-in-loop
+        await generalService.checkWhitelistedRepository(appComponent.repotag);
 
-      // check repository whitelisted
-      // eslint-disable-next-line no-await-in-loop
-      await generalService.checkWhitelistedRepository(appComponent.repotag);
+        // check repotag if available for download
+        // eslint-disable-next-line no-await-in-loop
+        await verifyRepository(appComponent.repotag);
+      }
     }
   }
 
@@ -3478,9 +3509,9 @@ async function verifyAppSpecifications(appSpecifications, height) {
       });
     });
   }
-  if (height < 1004000) {
-    // check ZelID whitelisted
-    await generalService.checkWhitelistedZelID(appSpecifications.owner);
+
+  if (checkDockerAndWhitelist) {
+    await checkApplicationImagesComplience(appSpecifications); // check blacklist
   }
 }
 
@@ -4391,7 +4422,7 @@ async function registerAppGlobalyApi(req, res) {
       const daemonHeight = syncStatus.data.height;
 
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
-      await verifyAppSpecifications(appSpecFormatted, daemonHeight);
+      await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
 
       // check if name is not yet registered
       await checkApplicationRegistrationNameConflicts(appSpecFormatted);
@@ -4503,7 +4534,7 @@ async function updateAppGlobalyApi(req, res) {
       const daemonHeight = syncStatus.data.height;
 
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
-      await verifyAppSpecifications(appSpecFormatted, daemonHeight);
+      await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
 
       // verify that app exists, does not change repotag and is signed by app owner.
       const db = dbHelper.databaseConnection();
@@ -5536,33 +5567,6 @@ async function getApplicationOwnerAPI(req, res) {
   }
 }
 
-async function checkApplicationImagesComplience(appSpecs) {
-  const resBlockedRepo = await serviceHelper.axiosGet('https://raw.githubusercontent.com/runonflux/flux/master/helpers/blockedrepositories.json');
-
-  if (!resBlockedRepo) {
-    throw new Error('Unable to communicate with Flux Services! Try again later.');
-  }
-
-  const repos = resBlockedRepo.data;
-
-  const images = [];
-  if (appSpecs.version <= 3) {
-    images.push(appSpecs.repotag);
-  } else {
-    appSpecs.compose.forEach((component) => {
-      images.push(component.repotag);
-    });
-  }
-
-  images.forEach((image) => {
-    if (repos.includes(image)) {
-      throw new Error(`Repository ${image} is blocked. Application ${appSpecs.name} connot be spawned.`);
-    }
-  });
-
-  return true;
-}
-
 async function trySpawningGlobalApplication() {
   try {
     // how do we continue with this function function?
@@ -5709,8 +5713,10 @@ async function trySpawningGlobalApplication() {
       }
     }
 
-    // check if application image is not blacklisted
-    await checkApplicationImagesComplience(appSpecifications).catch((error) => {
+    // verify app specifications deeply with checks
+    const syncStatus = daemonService.isDaemonSynced();
+    const daemonHeight = syncStatus.data.height;
+    await verifyAppSpecifications(appSpecifications, daemonHeight, true).catch((error) => {
       log.error(error);
       trySpawningGlobalAppCache.set(randomApp, randomApp);
       throw error;
@@ -6405,7 +6411,7 @@ async function verifyAppRegistrationParameters(req, res) {
       const daemonHeight = syncStatus.data.height;
 
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
-      await verifyAppSpecifications(appSpecFormatted, daemonHeight);
+      await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
 
       // check if name is not yet registered
       await checkApplicationRegistrationNameConflicts(appSpecFormatted);
@@ -6446,7 +6452,7 @@ async function verifyAppUpdateParameters(req, res) {
       const daemonHeight = syncStatus.data.height;
 
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
-      await verifyAppSpecifications(appSpecFormatted, daemonHeight);
+      await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
 
       // check if name is not yet registered
       const timestamp = new Date().getTime();
