@@ -317,6 +317,7 @@
                 variant="danger"
                 size="sm"
                 pill
+                :disabled="totalReward <= 0"
                 @click="showRedeemDialog()"
               >
                 Redeem
@@ -376,14 +377,158 @@
     <b-modal
       v-model="redeemModalShowing"
       title="Redeem Rewards"
-      size="sm"
+      size="lg"
       centered
       button-size="sm"
       ok-only
       ok-title="Cancel"
       @ok="redeemModalShowing = false"
     >
-      <h4>
+      <form-wizard
+        :color="tierColors.cumulus"
+        :title="null"
+        :subtitle="null"
+        layout="vertical"
+        back-button-text="Previous"
+        class="wizard-vertical mb-3"
+        @on-complete="confirmRedeemDialogFinish()"
+      >
+        <tab-content
+          title="Redeem Amount"
+        >
+          <b-card
+            title="Redeem Amount"
+            class="text-center wizard-card"
+          >
+            <h4>
+              Available: {{ toFixedLocaleString(totalReward, 2) }} Flux
+            </h4>
+            <!-- <div>
+              <h5 class="float-left">
+                {{ titanConfig ? titanConfig.redeemFee : 0 }}
+              </h5>
+              <h5 class="float-right">
+                {{ toFixedLocaleString(totalReward, 2) }}
+              </h5>
+            </div>
+            <b-form-input
+              id="redeemamount"
+              v-model="redeemAmount"
+              type="range"
+              :min="titanConfig ? titanConfig.redeemFee : 0"
+              :max="parseFloat(toFixedLocaleString(totalReward, 2))"
+              :step="0.01"
+              number
+            />
+            <b-form-spinbutton
+              id="redeemamount-spnner"
+              v-model="redeemAmount"
+              :min="titanConfig ? titanConfig.redeemFee : 0"
+              :max="parseFloat(toFixedLocaleString(totalReward, 2))"
+              :step="0.01"
+              size="sm"
+              inline
+            /> -->
+            <h4 style="margin-top: 10px;">
+              You will receive
+            </h4>
+            <h3>
+              {{ toFixedLocaleString(totalReward - (titanConfig ? titanConfig.redeemFee : 0), 2) }} Flux
+            </h3>
+            <h6>
+              (Redeem Fee: {{ titanConfig ? titanConfig.redeemFee : '...' }} Flux)
+            </h6>
+          </b-card>
+        </tab-content>
+        <tab-content
+          title="Redeem Address"
+          :before-change="() => checkRedeemAddress()"
+        >
+          <b-card
+            title="Choose Redeem Address"
+            class="text-center wizard-card"
+          >
+            <b-form-select
+              v-model="redeemAddress"
+              :options="redeemAddresses"
+            >
+              <template #first>
+                <b-form-select-option
+                  :value="null"
+                  disabled
+                >
+                  -- Please select an address --
+                </b-form-select-option>
+              </template>
+            </b-form-select>
+          </b-card>
+        </tab-content>
+        <tab-content
+          title="Sign Request"
+          :before-change="() => signature !== null"
+        >
+          <b-card
+            title="Sign Redeem Request with Zelcore"
+            class="text-center wizard-card"
+          >
+            <a
+              :href="`zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue()}`"
+              @click="initiateSignWS"
+            >
+              <img
+                class="zelidLogin mb-2"
+                src="@/assets/images/zelID.svg"
+                alt="Zel ID"
+                height="100%"
+                width="100%"
+              >
+            </a>
+            <b-form-input
+              id="data"
+              v-model="dataToSign"
+              :disabled="true"
+              class="mb-1"
+            />
+            <b-form-input
+              id="signature"
+              v-model="signature"
+            />
+          </b-card>
+        </tab-content>
+        <tab-content
+          title="Request Redeem"
+          :before-change="() => requestSent === true"
+        >
+          <b-card
+            title="Submit Redeem Request"
+            class="text-center wizard-card"
+          >
+            <div class="mt-3 mb-auto ">
+              <b-button
+                size="lg"
+                :disabled="sendingRequest || requestSent"
+                variant="warning"
+                @click="requestRedeem"
+              >
+                Submit Request
+              </b-button>
+              <h4
+                v-if="requestSent"
+                class="mt-3 text-success"
+              >
+                Redeem request received and will be processed within 24 hours
+              </h4>
+              <h4
+                v-if="requestFailed"
+                class="mt-3 text-danger"
+              >
+                Redeem request failed
+              </h4>
+            </div>
+          </b-card>
+        </tab-content>
+      </form-wizard>
+      <!--<h4>
         Available: {{ toFixedLocaleString(totalReward, 2) }} Flux
       </h4>
       <h4>
@@ -393,27 +538,41 @@
         Redeem Amount:
       </h5>
       <b-form-input
+        id="redeem-amount"
         v-model="redeemAmount"
         placeholder="Redeem amount"
         type="number"
+        :state="redeemAmountState()"
       />
+      <b-form-invalid-feedback id="redeem-amount-feedback">
+        Enter a valid redeem amount
+      </b-form-invalid-feedback>
       <h5 class="mt-1">
-        Redeem Address:
+        Redeem Addresses:
       </h5>
-      <b-form-input
+      <b-form-select
         v-model="redeemAddress"
-        placeholder="Redeem address"
-      />
+        :options="redeemAddresses"
+      >
+        <template #first>
+          <b-form-select-option
+            :value="null"
+            disabled
+          >
+            -- Please select an address --
+          </b-form-select-option>
+        </template>
+      </b-form-select>
       <b-button
         pill
         size="sm"
         variant="danger"
         class="float-right mt-1"
-        :disabled="totalReward === 0 || titanConfig && (parseFloat(redeemAmount)+titanConfig.redeemFee > totalReward || parseFloat(redeemAmount) < 0)"
+        :disabled="totalReward === 0 || redeemAddress === null || titanConfig && (parseFloat(redeemAmount) > parseFloat(toFixedLocaleString(totalReward,2)) || parseFloat(redeemAmount) < 0)"
         @click="confirmRedeem()"
       >
         Confirm
-      </b-button>
+      </b-button>-->
     </b-modal>
 
     <b-modal
@@ -608,7 +767,7 @@
             <b-form-input
               id="data"
               v-model="dataToSign"
-              disabled="true"
+              :disabled="true"
               class="mb-1"
             />
             <b-form-input
@@ -711,6 +870,9 @@ import {
   BCardTitle,
   BCol,
   BFormInput,
+  // BFormInvalidFeedback,
+  BFormSelect,
+  BFormSelectOption,
   BFormSpinbutton,
   BMedia,
   BMediaBody,
@@ -762,6 +924,9 @@ export default {
     BCardTitle,
     BCol,
     BFormInput,
+    // BFormInvalidFeedback,
+    BFormSelect,
+    BFormSelectOption,
     BFormSpinbutton,
     BMedia,
     BMediaBody,
@@ -812,12 +977,10 @@ export default {
     const userZelid = ref('');
     userZelid.value = props.zelid;
 
-    // const apiURL = 'http://192.168.68.133:1234';
-    const apiURL = 'http://titantest.runonflux.io:54978';
+    const apiURL = 'http://192.168.68.144:1234';
+    // const apiURL = 'http://titantest.runonflux.io:54978';
 
     const totalReward = ref(0);
-    const redeemAmount = ref(0);
-    const redeemAddress = ref('');
     const stakeAmount = ref(200);
     const selectedLockupIndex = ref(0);
     const dataToSign = ref(null);
@@ -829,9 +992,14 @@ export default {
     const stakeRegisterFailed = ref(false);
     const registeringStake = ref(false);
     const config = computed(() => ctx.root.$store.state.flux.config);
-    const nodeModalShowing = ref(false);
-    const redeemModalShowing = ref(false);
     const selectedStake = ref(null);
+
+    const redeemAmount = ref(0);
+    const redeemAddress = ref(null);
+    const redeemAddresses = ref(null);
+    const requestSent = ref(false);
+    const requestFailed = ref(false);
+    const sendingRequest = ref(false);
 
     const indexedTierColors = ref([
       tierColors.cumulus,
@@ -926,6 +1094,8 @@ export default {
     const confirmStakeDialogCloseShowing = ref(false);
     const confirmStakeDialogFinishShowing = ref(false);
     const paymentDetailsDialogShowing = ref(false);
+    const nodeModalShowing = ref(false);
+    const redeemModalShowing = ref(false);
 
     const perfectScrollbarSettings = {
       maxScrollbarLength: 150,
@@ -945,6 +1115,18 @@ export default {
       // console.log(dataToSign.value);
     };
 
+    const getRedeemMessage = async () => {
+      const response = await axios.get(`${apiURL}/redeemmessage`);
+      dataToSign.value = response.data;
+      timestamp.value = response.data.substr(response.data.length - 13);
+    };
+
+    const checkRedeemAddress = async () => {
+      if (!redeemAddress) return false;
+      await getRedeemMessage();
+      return true;
+    };
+
     const getStats = async () => {
       const response = await axios.get(`${apiURL}/stats`);
       titanStats.value = response.data;
@@ -954,6 +1136,7 @@ export default {
     const getSharedNodeList = async () => {
       const response = await axios.get(`${apiURL}/nodes`);
       const allNodes = [];
+      totalCollateral.value = 0;
       response.data.forEach((_node) => {
         const node = _node;
         allNodes.push(node);
@@ -990,7 +1173,7 @@ export default {
 
     const getConfig = async () => {
       nodeCount.value = await getNodeCount();
-      // console.log(nodeCount.value);
+      console.log(nodeCount.value);
       const response = await axios.get(`${apiURL}/config`);
       // console.log(response.data);
       titanConfig.value = response.data;
@@ -999,6 +1182,11 @@ export default {
       getMyStakes();
     };
     getConfig();
+
+    console.log('Setting up refresh interval');
+    setInterval(() => {
+      getConfig();
+    }, 1 * 60 * 1000);
 
     const showStakeDialog = () => {
       stakeModalShowing.value = true;
@@ -1030,6 +1218,23 @@ export default {
     };
 
     const showRedeemDialog = () => {
+      const addresses = [];
+      myStakes.value.forEach((stake) => {
+        if (stake.address) {
+          addresses.push({
+            value: stake.uuid,
+            text: stake.address,
+          });
+        }
+      });
+      redeemAmount.value = titanConfig.value.redeemFee;
+      redeemAddress.value = null;
+      redeemAddresses.value = addresses;
+      dataToSign.value = null;
+      signature.value = null;
+      sendingRequest.value = false;
+      requestSent.value = false;
+      requestFailed.value = false;
       redeemModalShowing.value = true;
     };
 
@@ -1074,6 +1279,40 @@ export default {
       }
     };
 
+    const toFixedLocaleString = (number, digits = 0) => {
+      const roundedDown = Math.floor(number * (10 ** digits)) / (10 ** digits);
+      return roundedDown.toLocaleString();
+    };
+
+    const requestRedeem = async () => {
+      sendingRequest.value = true;
+      const zelidauthHeader = localStorage.getItem('zelidauth');
+      const data = {
+        amount: totalReward.value,
+        stake: redeemAddress.value,
+        timestamp: timestamp.value,
+        signature: signature.value,
+        data: dataToSign.value,
+      };
+      console.log(data);
+
+      showToast('info', 'Sending redeem request to Titan...');
+
+      const axiosConfig = {
+        headers: {
+          zelidauth: zelidauthHeader,
+          backend: backend(), // include the backend URL, so the titan backend can communicate with the same FluxOS instance
+        },
+      };
+      const response = await axios.post(`${apiURL}/redeem`, data, axiosConfig).catch((error) => {
+        console.log(error);
+        requestFailed.value = true;
+        showToast('danger', error.message || error);
+      });
+
+      console.log(response.data);
+    };
+
     const calcAPY = (lockup) => {
       const fluxPerReward = (22.5 * (100 - lockup.fee)) / 100;
       const collateral = 100000;
@@ -1104,9 +1343,15 @@ export default {
       return selectedLockupIndex.value >= 0 && selectedLockupIndex.value < titanConfig.value.lockups.length;
     };
 
-    const formatPaymentTooltip = (stake) => `Send a payment of ${stake.collateral} Flux to<br>${titanConfig.nodeAddress}<br>with a message<br>${stake.signatureHash}`;
+    const redeemAmountState = () => {
+      console.log(redeemAmount.value);
+      const amount = parseFloat(redeemAmount.value);
+      console.log(amount);
+      console.log(totalReward.value);
+      return amount > titanConfig.value.redeemFee && amount <= parseFloat(toFixedLocaleString(totalReward.value, 2));
+    };
 
-    const toFixedLocaleString = (number, digits) => number.toLocaleString(undefined, { minimumFractionDigits: digits || 0, maximumFractionDigits: digits || 0 });
+    const formatPaymentTooltip = (stake) => `Send a payment of ${stake.collateral} Flux to<br>${titanConfig.nodeAddress}<br>with a message<br>${stake.signatureHash}`;
 
     return {
 
@@ -1167,6 +1412,14 @@ export default {
       redeemModalShowing,
       redeemAmount,
       redeemAddress,
+      redeemAddresses,
+      redeemAmountState,
+      getRedeemMessage,
+      checkRedeemAddress,
+      sendingRequest,
+      requestSent,
+      requestFailed,
+      requestRedeem,
 
       tierColors,
       indexedTierColors,
