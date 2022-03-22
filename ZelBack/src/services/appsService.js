@@ -3307,11 +3307,11 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
     }
 
     if (checkDockerAndWhitelist) {
-      // check repotag if available for download
-      await verifyRepository(appSpecifications.repotag);
-
       // check repository whitelisted
       await generalService.checkWhitelistedRepository(appSpecifications.repotag);
+
+      // check repotag if available for download
+      await verifyRepository(appSpecifications.repotag);
     }
   } else {
     console.log(appSpecifications);
@@ -3392,13 +3392,13 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
       checkComposeHWParameters(appSpecifications);
 
       if (checkDockerAndWhitelist) {
-        // check repotag if available for download
-        // eslint-disable-next-line no-await-in-loop
-        await verifyRepository(appComponent.repotag);
-
         // check repository whitelisted
         // eslint-disable-next-line no-await-in-loop
         await generalService.checkWhitelistedRepository(appComponent.repotag);
+
+        // check repotag if available for download
+        // eslint-disable-next-line no-await-in-loop
+        await verifyRepository(appComponent.repotag);
       }
     }
   }
