@@ -2221,7 +2221,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
         const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(port));
         if (portResponse.status === true) {
           const portStatus = {
-            status: `'Port ${port} OK'`,
+            status: `Port ${port} OK`,
           };
           log.info(portStatus);
           if (res) {
