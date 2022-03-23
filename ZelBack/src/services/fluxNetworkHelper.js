@@ -17,9 +17,8 @@ const fluxCommunicationUtils = require('./fluxCommunicationUtils');
 const userconfig = require('../../../config/userconfig');
 const { outgoingConnections } = require('./utils/outgoingConnections');
 const { incomingConnections } = require('./utils/incomingConnections');
-
-const outgoingPeers = []; // array of objects containing ip, latency, lastPingTime
-const incomingPeers = []; // array of objects containing ip
+const { outgoingPeers } = require('./utils/outgoingPeers');
+const { incomingPeers } = require('./utils/incomingPeers');
 
 let dosState = 0; // we can start at bigger number later
 let dosMessage = null;
@@ -48,7 +47,9 @@ const myCache = new LRU(LRUoptions);
 const blockedPubKeysCache = new LRU(LRUoptions);
 
 let addingNodesToCache = false;
+
 const buckets = new Map();
+
 class TokenBucket {
   constructor(capacity, fillPerSecond) {
     this.capacity = capacity;
@@ -932,4 +933,18 @@ module.exports = {
   getRandomConnection,
   getFluxNodePrivateKey,
   getFluxNodePublicKey,
+  fluxDiscovery,
+  checkDeterministicNodesCollisions,
+  connectedPeers,
+  addPeer,
+  getIncomingConnections,
+  getIncomingConnectionsInfo,
+  removePeer,
+  removeIncomingPeer,
+  getDOSState,
+  denyPort,
+  allowPortApi,
+  adjustFirewall,
+  isCommunicationEstablished,
+  closeConnection,
 };

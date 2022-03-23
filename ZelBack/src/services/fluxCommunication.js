@@ -1631,4 +1631,8 @@ module.exports = {
   getFluxNodePrivateKey,
   getFluxNodePublicKey,
   verifyTimestampInFluxBroadcast,
+  handleAppMessages,
+  sendToAllPeers,
+  sendToAllIncomingConnections,
+  outgoingConnections,
 };

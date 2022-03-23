@@ -7,9 +7,10 @@ const { expect } = chai;
 let fluxCommunication = require('../../ZelBack/src/services/fluxCommunication');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const daemonService = require('../../ZelBack/src/services/daemonService');
+
 const fluxList = require('./data/listfluxnodes.json');
 
-describe.only('fluxCommunication tests', () => {
+describe('fluxCommunication tests', () => {
   describe('isFluxAvailable tests', () => {
     let stub;
     const ip = '127.0.0.1';
