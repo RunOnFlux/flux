@@ -13,7 +13,7 @@ const messageHelper = require('./messageHelper');
 const daemonService = require('./daemonService');
 const benchmarkService = require('./benchmarkService');
 const verificationHelper = require('./verificationHelper');
-const fluxCommunicationUtils = require('./fluxCommunicationUtils');
+// const fluxCommunicationUtils = require('./fluxCommunicationUtils');
 const userconfig = require('../../../config/userconfig');
 const { outgoingConnections } = require('./utils/outgoingConnections');
 const { incomingConnections } = require('./utils/incomingConnections');
@@ -946,5 +946,4 @@ module.exports = {
   allowPortApi,
   adjustFirewall,
   isCommunicationEstablished,
-  closeConnection,
 };
