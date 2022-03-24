@@ -232,4 +232,5 @@ module.exports = {
   sendToAllIncomingConnections,
   respondWithAppMessage,
   serialiseAndSignFluxBroadcast,
+  getFluxMessageSignature,
 };

@@ -133,4 +133,5 @@ module.exports = {
   verifyTimestampInFluxBroadcast,
   verifyOriginalFluxBroadcast,
   outgoingConnections,
+  deterministicFluxList,
 };

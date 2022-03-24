@@ -1,574 +1,22 @@
+/* eslint-disable no-underscore-dangle */
 const chai = require('chai');
 const sinon = require('sinon');
-const proxyquire = require('proxyquire');
+const WebSocket = require('ws');
 
 const { expect } = chai;
 
-let fluxCommunication = require('../../ZelBack/src/services/fluxCommunication');
-const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+const fluxCommunication = require('../../ZelBack/src/services/fluxCommunication');
+const fluxCommunicationMessagesSender = require('../../ZelBack/src/services/fluxCommunicationMessagesSender');
 const daemonService = require('../../ZelBack/src/services/daemonService');
+const dbHelper = require('../../ZelBack/src/services/dbHelper');
+const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
+const generalService = require('../../ZelBack/src/services/generalService');
+const { outgoingConnections } = require('../../ZelBack/src/services/utils/outgoingConnections');
+const { incomingConnections } = require('../../ZelBack/src/services/utils/incomingConnections');
 
 const fluxList = require('./data/listfluxnodes.json');
 
 describe('fluxCommunication tests', () => {
-  describe('isFluxAvailable tests', () => {
-    let stub;
-    const ip = '127.0.0.1';
-    const port = '16125';
-    const axiosConfig = {
-      timeout: 5000,
-    };
-
-    afterEach(() => {
-      serviceHelper.axiosGet.restore();
-    });
-
-    it('Should return true if node is running flux, port taken from config', async () => {
-      const mockResponse = {
-        data: {
-          status: 'success',
-          data: '3.10.0',
-        },
-      };
-      stub = sinon.stub(serviceHelper, 'axiosGet').resolves(mockResponse);
-      const expectedAddress = 'http://127.0.0.1:16127/flux/version';
-
-      const isFluxAvailableResult = await fluxCommunication.isFluxAvailable(ip);
-
-      sinon.assert.calledOnceWithExactly(stub, expectedAddress, axiosConfig);
-      expect(isFluxAvailableResult).to.equal(true);
-    });
-
-    it('Should return true if node is running flux, port provided explicitly', async () => {
-      const mockResponse = {
-        data: {
-          status: 'success',
-          data: '3.10.0',
-        },
-      };
-      stub = sinon.stub(serviceHelper, 'axiosGet').resolves(mockResponse);
-      const expectedAddress = 'http://127.0.0.1:16125/flux/version';
-
-      const isFluxAvailableResult = await fluxCommunication.isFluxAvailable(ip, port);
-
-      sinon.assert.calledOnceWithExactly(stub, expectedAddress, axiosConfig);
-      expect(isFluxAvailableResult).to.equal(true);
-    });
-
-    it('Should return false if node if flux version is lower than expected', async () => {
-      const mockResponse = {
-        data: {
-          status: 'success',
-          data: '2.01.0', // minimum allowed version is 3.10.0
-        },
-      };
-      stub = sinon.stub(serviceHelper, 'axiosGet').resolves(mockResponse);
-      const expectedAddress = 'http://127.0.0.1:16125/flux/version';
-
-      const isFluxAvailableResult = await fluxCommunication.isFluxAvailable(ip, port);
-
-      sinon.assert.calledOnceWithExactly(stub, expectedAddress, axiosConfig);
-      expect(isFluxAvailableResult).to.equal(false);
-    });
-
-    it('Should return false if response status is not success', async () => {
-      const mockResponse = {
-        data: {
-          status: 'error',
-        },
-      };
-      stub = sinon.stub(serviceHelper, 'axiosGet').resolves(mockResponse);
-      const expectedAddress = 'http://127.0.0.1:16125/flux/version';
-
-      const isFluxAvailableResult = await fluxCommunication.isFluxAvailable(ip, port);
-
-      sinon.assert.calledOnceWithExactly(stub, expectedAddress, axiosConfig);
-      expect(isFluxAvailableResult).to.equal(false);
-    });
-
-    it('Should return false if axios request throws error', async () => {
-      stub = sinon.stub(serviceHelper, 'axiosGet').throws();
-      const expectedAddress = 'http://127.0.0.1:16125/flux/version';
-
-      const isFluxAvailableResult = await fluxCommunication.isFluxAvailable(ip, port);
-
-      sinon.assert.calledOnceWithExactly(stub, expectedAddress, axiosConfig);
-      expect(isFluxAvailableResult).to.equal(false);
-    });
-  });
-
-  describe('checkFluxAvailability tests', () => {
-    let stub;
-    const axiosConfig = {
-      timeout: 5000,
-    };
-    const fluxAvailabilitySuccessResponse = {
-      data: {
-        status: 'success',
-        data: '3.10.0',
-      },
-    };
-    const fluxAvailabilityErrorResponse = {
-      data: {
-        status: 'error',
-        data: '3.10.0',
-      },
-    };
-    const generateResponse = () => {
-      const res = { test: 'testing' };
-      res.status = sinon.stub().returns(res);
-      res.json = sinon.fake((param) => param);
-      return res;
-    };
-
-    afterEach(() => {
-      serviceHelper.axiosGet.restore();
-    });
-
-    it('Should return success message if proper parameters are passed in params', async () => {
-      const mockResponse = generateResponse();
-      const req = {
-        params: {
-          test1: 'test1',
-          ip: '127.0.0.1',
-          port: '16125',
-        },
-        query: {
-          test2: 'test2',
-        },
-      };
-      stub = sinon.stub(serviceHelper, 'axiosGet').resolves(fluxAvailabilitySuccessResponse);
-      const expectedAddress = 'http://127.0.0.1:16125/flux/version';
-      const expectedMessage = {
-        status: 'success',
-        data: {
-          code: undefined,
-          name: undefined,
-          message: 'Asking Flux is available',
-        },
-      };
-
-      const checkFluxAvailabilityResult = await fluxCommunication.checkFluxAvailability(req, mockResponse);
-
-      sinon.assert.calledOnceWithExactly(stub, expectedAddress, axiosConfig);
-      sinon.assert.calledOnceWithExactly(mockResponse.json, expectedMessage);
-      expect(checkFluxAvailabilityResult).to.eql(expectedMessage);
-    });
-
-    it('Should return success message if proper parameters are passed in query', async () => {
-      const mockResponse = generateResponse();
-      const req = {
-        params: {
-          test1: 'test1',
-        },
-        query: {
-          test2: 'test2',
-          ip: '127.0.0.1',
-          port: '16125',
-        },
-      };
-      stub = sinon.stub(serviceHelper, 'axiosGet').resolves(fluxAvailabilitySuccessResponse);
-      const expectedAddress = 'http://127.0.0.1:16125/flux/version';
-      const expectedMessage = {
-        status: 'success',
-        data: {
-          code: undefined,
-          name: undefined,
-          message: 'Asking Flux is available',
-        },
-      };
-
-      const checkFluxAvailabilityResult = await fluxCommunication.checkFluxAvailability(req, mockResponse);
-
-      sinon.assert.calledOnceWithExactly(stub, expectedAddress, axiosConfig);
-      sinon.assert.calledOnceWithExactly(mockResponse.json, expectedMessage);
-      expect(checkFluxAvailabilityResult).to.eql(expectedMessage);
-    });
-
-    it('Should return error message if flux is not available', async () => {
-      const mockResponse = generateResponse();
-      const req = {
-        params: {
-          test1: 'test1',
-        },
-        query: {
-          test2: 'test2',
-          ip: '127.0.0.1',
-          port: '16125',
-        },
-      };
-      stub = sinon.stub(serviceHelper, 'axiosGet').resolves(fluxAvailabilityErrorResponse);
-      const expectedAddress = 'http://127.0.0.1:16125/flux/version';
-      const expectedMessage = {
-        status: 'error',
-        data: {
-          code: undefined,
-          name: undefined,
-          message: 'Asking Flux is not available',
-        },
-      };
-
-      const checkFluxAvailabilityResult = await fluxCommunication.checkFluxAvailability(req, mockResponse);
-
-      sinon.assert.calledOnceWithExactly(stub, expectedAddress, axiosConfig);
-      sinon.assert.calledOnceWithExactly(mockResponse.json, expectedMessage);
-      expect(checkFluxAvailabilityResult).to.eql(expectedMessage);
-    });
-
-    it('Should return error message if no ip is provided', async () => {
-      const mockResponse = generateResponse();
-      const req = {
-        params: {
-          test1: 'test1',
-        },
-        query: {
-          test2: 'test2',
-        },
-      };
-      stub = sinon.stub(serviceHelper, 'axiosGet').resolves(fluxAvailabilitySuccessResponse);
-      const expectedMessage = {
-        status: 'error',
-        data: {
-          code: undefined,
-          name: undefined,
-          message: 'No ip specified.',
-        },
-      };
-
-      const checkFluxAvailabilityResult = await fluxCommunication.checkFluxAvailability(req, mockResponse);
-
-      sinon.assert.calledOnceWithExactly(mockResponse.json, expectedMessage);
-      expect(checkFluxAvailabilityResult).to.eql(expectedMessage);
-    });
-  });
-
-  describe('getMyFluxIPandPort tests', () => {
-    const daemonStub = sinon.stub(daemonService, 'getBenchmarks');
-
-    afterEach(() => {
-      daemonStub.restore();
-    });
-
-    it('should return IP and Port if benchmark response is correct', async () => {
-      const ip = '127.0.0.1:5050';
-      const getBenchmarkResponseData = {
-        status: 'success',
-        data: JSON.stringify({ ipaddress: ip }),
-      };
-      daemonStub.resolves(getBenchmarkResponseData);
-
-      const getIpResult = await fluxCommunication.getMyFluxIPandPort();
-
-      expect(getIpResult).to.equal(ip);
-      sinon.assert.calledOnce(daemonStub);
-    });
-
-    it('should return null if daemon\'s response is invalid', async () => {
-      const getBenchmarkResponseData = {
-        status: 'error',
-      };
-      daemonStub.resolves(getBenchmarkResponseData);
-
-      const getIpResult = await fluxCommunication.getMyFluxIPandPort();
-
-      expect(getIpResult).to.be.null;
-      sinon.assert.calledOnce(daemonStub);
-    });
-
-    it('should return null if daemon\'s response IP is too short', async () => {
-      const ip = '12734';
-      const getBenchmarkResponseData = {
-        status: 'success',
-        data: JSON.stringify({ ipaddress: ip }),
-      };
-      daemonStub.resolves(getBenchmarkResponseData);
-
-      const getIpResult = await fluxCommunication.getMyFluxIPandPort();
-
-      expect(getIpResult).to.be.null;
-      sinon.assert.calledOnce(daemonStub);
-    });
-  });
-
-  describe('deterministicFluxList tests', () => {
-    const deterministicZelnodeListResponseBase = {
-      data: [
-        {
-          collateral: 'COutPoint(38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174, 0)',
-          txhash: '38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174',
-          outidx: '0',
-          ip: '47.199.51.61:16137',
-          network: '',
-          added_height: 1076533,
-          confirmed_height: 1076535,
-          last_confirmed_height: 1079888,
-          last_paid_height: 1077653,
-          tier: 'CUMULUS',
-          payment_address: 't1Z6mWoCrFC2g3iTCFdFkYdTfwtG84E3y2o',
-          pubkey: '04378c8585d45861c8783f9c8cd0c85478164c12ce3fd13af1b44ebc8fe1ad6c786e92b211cb9566c596b6e2454d394a06bc44f748afb3c9ee48caa096d704abac',
-          activesince: '1647197272',
-          lastpaid: '1647333786',
-          amount: '1000.00',
-          rank: 0,
-        },
-        {
-          collateral: 'COutPoint(46c9ae0313fc128d0fb4327f5babc7868fe557035b58e0a7cb475cfd8819f8c7, 0)',
-          txhash: '46c9ae0313fc128d0fb4327f5babc7868fe557035b58e0a7cb475cfd8819f8c7',
-          outidx: '0',
-          ip: '47.199.51.61:16147',
-          network: '',
-          added_height: 1079638,
-          confirmed_height: 1079642,
-          last_confirmed_height: 1079889,
-          last_paid_height: 0,
-          tier: 'CUMULUS',
-          payment_address: 't1UHecy6WiSJXs4Zqt5UvVdRDF7PMbZJK7q',
-          pubkey: '04d50620a31f045c61be42bad44b7a9424ffb6de37bf256b88f00e118e59736165255f2f4585b36c7e1f8f3e20db4fa4e55e61cc01dc7a5cd2b2ed0153627588dc',
-          activesince: '1647572455',
-          lastpaid: '1516980000',
-          amount: '1000.00',
-          rank: 1,
-        },
-        {
-          collateral: 'COutPoint(43c9ae0313fc128d0fb4327f5babc7868fe557135b58e0a7cb475cdd8819f8c8, 0)',
-          txhash: '43c9ae0313fc128d0fb4327f5babc7868fe557135b58e0a7cb475cdd8819f8c8',
-          outidx: '0',
-          ip: '44.192.51.11:16147',
-          network: '',
-          added_height: 123456,
-          confirmed_height: 1234567,
-          last_confirmed_height: 123456,
-          last_paid_height: 0,
-          tier: 'CUMULUS',
-          payment_address: 't1UHecyqtF7PMb6WiSJXs4ZZJK7q5UvVdRD',
-          pubkey: '04d50620a31f045c61be42bad44b7a9424ffb6de37bf256b88f00e118e59736165255f2f4585b36c7e1f8f3e20db4fa4e55e61cc01dc7a5cd2b2ed0153627588dc',
-          activesince: '1647572455',
-          lastpaid: '1516980000',
-          amount: '2000.00',
-          rank: 1,
-        },
-      ],
-    };
-    const daemonStub = sinon.stub(daemonService, 'viewDeterministicZelNodeList');
-
-    afterEach(() => {
-      sinon.restore();
-    });
-
-    it('should return the whole list if the filter was not provided', async () => {
-      const deterministicZelnodeListResponse = {
-        ...deterministicZelnodeListResponseBase,
-        status: 'success',
-      };
-      daemonStub.resolves(deterministicZelnodeListResponse);
-
-      const deterministicFluxListResult = await fluxCommunication.deterministicFluxList();
-
-      expect(deterministicFluxListResult).to.eql(deterministicZelnodeListResponse.data);
-      sinon.assert.calledOnce(daemonStub);
-    });
-
-    it('should return the list filtered out with proper public key', async () => {
-      const filteredPubKey = '04d50620a31f045c61be42bad44b7a9424ffb6de37bf256b88f00e118e59736165255f2f4585b36c7e1f8f3e20db4fa4e55e61cc01dc7a5cd2b2ed0153627588dc';
-      const expectedResult = [{
-        collateral: 'COutPoint(46c9ae0313fc128d0fb4327f5babc7868fe557035b58e0a7cb475cfd8819f8c7, 0)',
-        txhash: '46c9ae0313fc128d0fb4327f5babc7868fe557035b58e0a7cb475cfd8819f8c7',
-        outidx: '0',
-        ip: '47.199.51.61:16147',
-        network: '',
-        added_height: 1079638,
-        confirmed_height: 1079642,
-        last_confirmed_height: 1079889,
-        last_paid_height: 0,
-        tier: 'CUMULUS',
-        payment_address: 't1UHecy6WiSJXs4Zqt5UvVdRDF7PMbZJK7q',
-        pubkey: '04d50620a31f045c61be42bad44b7a9424ffb6de37bf256b88f00e118e59736165255f2f4585b36c7e1f8f3e20db4fa4e55e61cc01dc7a5cd2b2ed0153627588dc',
-        activesince: '1647572455',
-        lastpaid: '1516980000',
-        amount: '1000.00',
-        rank: 1,
-      },
-      {
-        collateral: 'COutPoint(43c9ae0313fc128d0fb4327f5babc7868fe557135b58e0a7cb475cdd8819f8c8, 0)',
-        txhash: '43c9ae0313fc128d0fb4327f5babc7868fe557135b58e0a7cb475cdd8819f8c8',
-        outidx: '0',
-        ip: '44.192.51.11:16147',
-        network: '',
-        added_height: 123456,
-        confirmed_height: 1234567,
-        last_confirmed_height: 123456,
-        last_paid_height: 0,
-        tier: 'CUMULUS',
-        payment_address: 't1UHecyqtF7PMb6WiSJXs4ZZJK7q5UvVdRD',
-        pubkey: '04d50620a31f045c61be42bad44b7a9424ffb6de37bf256b88f00e118e59736165255f2f4585b36c7e1f8f3e20db4fa4e55e61cc01dc7a5cd2b2ed0153627588dc',
-        activesince: '1647572455',
-        lastpaid: '1516980000',
-        amount: '2000.00',
-        rank: 1,
-      }];
-
-      const deterministicZelnodeListResponse = {
-        ...deterministicZelnodeListResponseBase,
-        status: 'success',
-      };
-      daemonStub.resolves(deterministicZelnodeListResponse);
-
-      const deterministicFluxListResult = await fluxCommunication.deterministicFluxList(filteredPubKey);
-
-      expect(deterministicFluxListResult).to.eql(expectedResult);
-      sinon.assert.calledOnce(daemonStub);
-    });
-
-    it('should return an empty list if the public key does not match', async () => {
-      const filteredPubKey = '04d50620a31f045c61be42bad44b7a9424asdfde37bf256b88f00e118e59736165255f2f4585b36c7e1f8f3e20db4fa4e55e61cc01dc7a5cd2b2ed0153627588dc';
-      const expectedResult = [];
-
-      const deterministicZelnodeListResponse = {
-        ...deterministicZelnodeListResponseBase,
-        status: 'success',
-      };
-      daemonStub.resolves(deterministicZelnodeListResponse);
-
-      const deterministicFluxListResult = await fluxCommunication.deterministicFluxList(filteredPubKey);
-
-      expect(deterministicFluxListResult).to.eql(expectedResult);
-      sinon.assert.calledOnce(daemonStub);
-    });
-
-    it('should get list from cache with no filter applied', async () => {
-      // Stub cache to simulate the actual lru-cache called
-      const getCacheStub = sinon.stub();
-      const stubCache = sinon.stub().callsFake(() => ({
-        get: getCacheStub,
-      }));
-      getCacheStub.withArgs('fluxList').returns(deterministicZelnodeListResponseBase.data);
-      fluxCommunication = proxyquire('../../ZelBack/src/services/fluxCommunication',
-        { 'lru-cache': stubCache });
-
-      const deterministicFluxListResult = await fluxCommunication.deterministicFluxList();
-
-      expect(deterministicFluxListResult).to.eql(deterministicZelnodeListResponseBase.data);
-      sinon.assert.calledOnceWithExactly(getCacheStub, 'fluxList');
-    });
-
-    it('should get list from cache with filter applied', async () => {
-      const filteredPubKey = '04d50620a31f045c61be42bad44b7a9424ffb6de37bf256b88f00e118e59736165255f2f4585b36c7e1f8f3e20db4fa4e55e61cc01dc7a5cd2b2ed0153627588dc';
-      const expectedResult = [{
-        collateral: 'COutPoint(46c9ae0313fc128d0fb4327f5babc7868fe557035b58e0a7cb475cfd8819f8c7, 0)',
-        txhash: '46c9ae0313fc128d0fb4327f5babc7868fe557035b58e0a7cb475cfd8819f8c7',
-        outidx: '0',
-        ip: '47.199.51.61:16147',
-        network: '',
-        added_height: 1079638,
-        confirmed_height: 1079642,
-        last_confirmed_height: 1079889,
-        last_paid_height: 0,
-        tier: 'CUMULUS',
-        payment_address: 't1UHecy6WiSJXs4Zqt5UvVdRDF7PMbZJK7q',
-        pubkey: '04d50620a31f045c61be42bad44b7a9424ffb6de37bf256b88f00e118e59736165255f2f4585b36c7e1f8f3e20db4fa4e55e61cc01dc7a5cd2b2ed0153627588dc',
-        activesince: '1647572455',
-        lastpaid: '1516980000',
-        amount: '1000.00',
-        rank: 1,
-      },
-      {
-        collateral: 'COutPoint(43c9ae0313fc128d0fb4327f5babc7868fe557135b58e0a7cb475cdd8819f8c8, 0)',
-        txhash: '43c9ae0313fc128d0fb4327f5babc7868fe557135b58e0a7cb475cdd8819f8c8',
-        outidx: '0',
-        ip: '44.192.51.11:16147',
-        network: '',
-        added_height: 123456,
-        confirmed_height: 1234567,
-        last_confirmed_height: 123456,
-        last_paid_height: 0,
-        tier: 'CUMULUS',
-        payment_address: 't1UHecyqtF7PMb6WiSJXs4ZZJK7q5UvVdRD',
-        pubkey: '04d50620a31f045c61be42bad44b7a9424ffb6de37bf256b88f00e118e59736165255f2f4585b36c7e1f8f3e20db4fa4e55e61cc01dc7a5cd2b2ed0153627588dc',
-        activesince: '1647572455',
-        lastpaid: '1516980000',
-        amount: '2000.00',
-        rank: 1,
-      }];
-      // Stub cache to simulate the actual lru-cache called
-      const getCacheStub = sinon.stub();
-      const stubCache = sinon.stub().callsFake(() => ({
-        get: getCacheStub,
-      }));
-      getCacheStub.withArgs(`fluxList${filteredPubKey}`).returns(expectedResult);
-      fluxCommunication = proxyquire('../../ZelBack/src/services/fluxCommunication',
-        { 'lru-cache': stubCache });
-
-      const deterministicFluxListResult = await fluxCommunication.deterministicFluxList(filteredPubKey);
-
-      expect(deterministicFluxListResult).to.eql(expectedResult);
-      sinon.assert.calledOnceWithExactly(getCacheStub, `fluxList${filteredPubKey}`);
-    });
-  });
-
-  describe('getFluxNodePrivateKey tests', () => {
-    let daemonStub;
-
-    beforeEach(() => {
-      daemonStub = sinon.stub(daemonService, 'getConfigValue');
-    });
-
-    afterEach(() => {
-      sinon.restore();
-    });
-
-    it('should return the same private key as provided as an argument', async () => {
-      const privateKey = '5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh';
-
-      const getKeyResult = await fluxCommunication.getFluxNodePrivateKey(privateKey);
-
-      expect(getKeyResult).to.equal(privateKey);
-      sinon.assert.neverCalledWith(daemonStub);
-    });
-
-    it('should return a private key if argument was not provided', async () => {
-      const mockedPrivKey = '5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh';
-      daemonStub.resolves(mockedPrivKey);
-
-      const getKeyResult = await fluxCommunication.getFluxNodePrivateKey();
-
-      expect(getKeyResult).to.equal(mockedPrivKey);
-      sinon.assert.calledWithExactly(daemonStub, 'zelnodeprivkey');
-    });
-  });
-
-  describe('getFluxMessageSignature tests', () => {
-    afterEach(() => {
-      sinon.restore();
-    });
-
-    it('Should properly return signature if private key is provided', async () => {
-      const privateKey = '5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh';
-      const message = 'testing1234';
-
-      const signature = await fluxCommunication.getFluxMessageSignature(message, privateKey);
-
-      expect(signature).to.be.a('string');
-    });
-
-    it('Should properly return signature if private key is taken from config', async () => {
-      const mockedPrivKey = '5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh';
-      const message = 'testing1234';
-      const daemonStub = sinon.stub(daemonService, 'getConfigValue').resolves(mockedPrivKey);
-
-      const signature = await fluxCommunication.getFluxMessageSignature(message);
-
-      expect(signature).to.be.a('string');
-      sinon.assert.calledWithExactly(daemonStub, 'zelnodeprivkey');
-    });
-
-    it('Should throw error if private key is invalid', async () => {
-      const privateKey = 'asdf';
-      const message = 'testing1234';
-
-      expect(async () => { await fluxCommunication.getFluxMessageSignature(message, privateKey); }).to.throw;
-    });
-  });
-
   describe('getFluxNodePublicKey tests', () => {
     afterEach(() => {
       sinon.restore();
@@ -619,7 +67,7 @@ describe('fluxCommunication tests', () => {
       const timeStamp = Date.now();
       const version = 1;
       const messageToSign = version + message + timeStamp;
-      const signature = await fluxCommunication.getFluxMessageSignature(messageToSign, privKey);
+      const signature = await fluxCommunicationMessagesSender.getFluxMessageSignature(messageToSign, privKey);
       const dataToSend = {
         version,
         pubKey,
@@ -661,7 +109,7 @@ describe('fluxCommunication tests', () => {
       const timeStamp = Date.now();
       const version = 1;
       const messageToSign = version + message + timeStamp;
-      const signature = await fluxCommunication.getFluxMessageSignature(messageToSign, privKey);
+      const signature = await fluxCommunicationMessagesSender.getFluxMessageSignature(messageToSign, privKey);
       const dataToSend = {
         version,
         pubKey,
@@ -679,7 +127,7 @@ describe('fluxCommunication tests', () => {
       const timeStamp = Date.now();
       const version = 1;
       const messageToSign = version + message + timeStamp;
-      const signature = await fluxCommunication.getFluxMessageSignature(messageToSign, privKey);
+      const signature = await fluxCommunicationMessagesSender.getFluxMessageSignature(messageToSign, privKey);
       const dataToSend = {
         version,
         pubKey: badPubKey,
@@ -697,7 +145,7 @@ describe('fluxCommunication tests', () => {
       const timeStamp = Date.now();
       const version = 2;
       const messageToSign = version + message + timeStamp;
-      const signature = await fluxCommunication.getFluxMessageSignature(messageToSign, privKey);
+      const signature = await fluxCommunicationMessagesSender.getFluxMessageSignature(messageToSign, privKey);
       const dataToSend = {
         version,
         pubKey,
@@ -715,7 +163,7 @@ describe('fluxCommunication tests', () => {
       const timeStamp = Date.now() + 240000;
       const version = 1;
       const messageToSign = version + message + timeStamp;
-      const signature = await fluxCommunication.getFluxMessageSignature(messageToSign, privKey);
+      const signature = await fluxCommunicationMessagesSender.getFluxMessageSignature(messageToSign, privKey);
       const dataToSend = {
         version,
         pubKey,
@@ -765,7 +213,7 @@ describe('fluxCommunication tests', () => {
       const timeStamp = Date.now();
       const version = 1;
       const messageToSign = version + message + timeStamp;
-      const signature = await fluxCommunication.getFluxMessageSignature(messageToSign, privKey);
+      const signature = await fluxCommunicationMessagesSender.getFluxMessageSignature(messageToSign, privKey);
       const dataToSend = {
         version,
         pubKey,
@@ -783,7 +231,7 @@ describe('fluxCommunication tests', () => {
       const timeStamp = Date.now() - 340000;
       const version = 1;
       const messageToSign = version + message + timeStamp;
-      const signature = await fluxCommunication.getFluxMessageSignature(messageToSign, privKey);
+      const signature = await fluxCommunicationMessagesSender.getFluxMessageSignature(messageToSign, privKey);
       const dataToSend = {
         version,
         pubKey,
@@ -801,7 +249,7 @@ describe('fluxCommunication tests', () => {
       const timeStamp = Date.now();
       const version = 1;
       const messageToSign = version + message + timeStamp;
-      const signature = await fluxCommunication.getFluxMessageSignature(messageToSign, privKey);
+      const signature = await fluxCommunicationMessagesSender.getFluxMessageSignature(messageToSign, privKey);
       const dataToSend = {
         version,
         pubKey,
@@ -820,7 +268,7 @@ describe('fluxCommunication tests', () => {
       const timeStamp = Date.now() - 340000;
       const version = 1;
       const messageToSign = version + message + timeStamp;
-      const signature = await fluxCommunication.getFluxMessageSignature(messageToSign, privKey);
+      const signature = await fluxCommunicationMessagesSender.getFluxMessageSignature(messageToSign, privKey);
       const dataToSend = {
         version,
         pubKey,
@@ -886,5 +334,183 @@ describe('fluxCommunication tests', () => {
 
       expect(isValid).to.equal(false);
     });
+  });
+
+  describe.only('handleAppMessages tests', () => {
+    const privateKey = 'KxA2iy4aVuVKXsK8pBnJGM9vNm4z6PLNRTzsPuSFBw6vWL5StbqD';
+    const ownerAddress = '13ienDRfUwFEgfZxm5dk4drTQsmj5hDGwL';
+    let sendToAllPeersSpy;
+    let sendToAllIncomingConnectionsSpy;
+    let stub;
+
+    beforeEach(async () => {
+      await dbHelper.initiateDB();
+      stub = sinon.stub(generalService, 'checkWhitelistedZelID').resolves(true);
+      sendToAllPeersSpy = sinon.spy(fluxCommunicationMessagesSender, 'sendToAllPeers');
+      sendToAllIncomingConnectionsSpy = sinon.spy(fluxCommunicationMessagesSender, 'sendToAllIncomingConnections');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should broadcast the app message if a proper data is given', async () => {
+      const fromIp = '127.0.0.5';
+      const appSpecifications = {
+        name: 'website',
+        commands: [
+          '--chain',
+          'kusama',
+        ],
+        containerData: '/chaindata',
+        cpu: 0.8,
+        description: 'This is my test app',
+        domains: [
+          'testing.runonflux.io',
+          'testing.runonflux.io',
+          'testing.runonflux.io',
+        ],
+        enviromentParameters: [],
+        hdd: 20,
+        owner: ownerAddress,
+        ram: 1800,
+        repotag: 'yurinnick/folding-at-home:latest',
+        tiered: false,
+        containerPorts: [
+          '30333',
+          '9933',
+          '9944',
+        ],
+        ports: [
+          '31113',
+          '31112',
+          '31111',
+        ],
+        version: 2,
+      };
+      const type = 'fluxappregister';
+      const version = 1;
+      const timestamp = 1592988806887;
+      const messageToSign = type + version + JSON.stringify(appSpecifications) + timestamp;
+      const signature = verificationHelper.signMessage(messageToSign, privateKey);
+      const messageToHash = type + version + JSON.stringify(appSpecifications) + timestamp + signature;
+      const hash = await generalService.messageHash(messageToHash);
+      const message = {
+        data:
+     {
+       type,
+       version,
+       appSpecifications,
+       timestamp,
+       signature,
+       hash,
+     },
+      };
+      const wsuri = 'wss://api.runonflux.io/ws/flux/';
+      const outgoingWebsocket = new WebSocket(wsuri);
+      outgoingWebsocket._socket = { remoteAddress: '127.8.8.1' };
+      outgoingConnections.push(outgoingWebsocket);
+      const incomingWebocket = new WebSocket(wsuri);
+      incomingWebocket._socket = { remoteAddress: '::ffff:127.8.8.1' };
+      incomingConnections.push(incomingWebocket);
+      const messageString = JSON.stringify(message);
+      const wsListOut = outgoingConnections.filter((client) => client._socket.remoteAddress !== fromIp);
+      const wsListIn = incomingConnections.filter((client) => client._socket.remoteAddress.replace('::ffff:', '') !== fromIp);
+
+      await fluxCommunication.handleAppMessages(message, fromIp);
+
+      sinon.assert.calledOnceWithExactly(stub, ownerAddress);
+      sinon.assert.calledOnceWithExactly(sendToAllPeersSpy, messageString, wsListOut);
+      sinon.assert.calledOnceWithExactly(sendToAllIncomingConnectionsSpy, messageString, wsListIn);
+    }).timeout(5000);
+
+    it('should not send broadcast if signature is invalid', async () => {
+      const fromIp = '127.0.0.5';
+      const appSpecifications = {
+        name: 'website',
+        commands: [
+          '--chain',
+          'kusama',
+        ],
+        containerData: '/chaindata',
+        cpu: 0.8,
+        description: 'This is my test app',
+        domains: [
+          'testing.runonflux.io',
+          'testing.runonflux.io',
+          'testing.runonflux.io',
+        ],
+        enviromentParameters: [],
+        hdd: 20,
+        owner: ownerAddress,
+        ram: 1800,
+        repotag: 'yurinnick/folding-at-home:latest',
+        tiered: false,
+        containerPorts: [
+          '30333',
+          '9933',
+          '9944',
+        ],
+        ports: [
+          '31113',
+          '31112',
+          '31111',
+        ],
+        version: 2,
+      };
+      const type = 'fluxappregister';
+      const version = 1;
+      const timestamp = 1592988806887;
+      const signature = 'testing1234invalidsignature';
+      const messageToHash = type + version + JSON.stringify(appSpecifications) + timestamp + signature;
+      const hash = await generalService.messageHash(messageToHash);
+      const message = {
+        data:
+     {
+       type,
+       version,
+       appSpecifications,
+       timestamp,
+       signature,
+       hash,
+     },
+      };
+
+      await fluxCommunication.handleAppMessages(message, fromIp);
+
+      sinon.assert.notCalled(sendToAllPeersSpy);
+      sinon.assert.notCalled(sendToAllIncomingConnectionsSpy);
+    }).timeout(5000);
+
+    it('should not send broadcast if app data is invalid', async () => {
+      const fromIp = '127.0.0.5';
+      const appSpecifications = {
+        name: 'website',
+        randomProperty: 'testing1',
+      };
+      const type = 'fluxappregister';
+      const version = 1;
+      const timestamp = 1592988806887;
+      const messageToSign = type + version + JSON.stringify(appSpecifications) + timestamp;
+      const signature = verificationHelper.signMessage(messageToSign, privateKey);
+      const messageToHash = type + version + JSON.stringify(appSpecifications) + timestamp + signature;
+      const hash = await generalService.messageHash(messageToHash);
+      const message = {
+        data:
+     {
+       type,
+       version,
+       appSpecifications,
+       timestamp,
+       signature,
+       hash,
+     },
+      };
+
+      await fluxCommunication.handleAppMessages(message, fromIp);
+
+      sinon.assert.notCalled(sendToAllPeersSpy);
+      sinon.assert.notCalled(sendToAllIncomingConnectionsSpy);
+    }).timeout(5000);
   });
 });
