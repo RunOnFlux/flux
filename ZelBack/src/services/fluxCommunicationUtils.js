@@ -4,9 +4,7 @@ const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const verificationHelper = require('./verificationHelper');
 const daemonService = require('./daemonService');
-const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
 const { outgoingConnections } = require('./utils/outgoingConnections');
-const { incomingConnections } = require('./utils/incomingConnections');
 
 // default cache
 const LRUoptions = {
@@ -131,52 +129,8 @@ async function verifyOriginalFluxBroadcast(data, obtainedFluxNodeList, currentTi
   return false;
 }
 
-async function handleAppRunningMessage(message, fromIP) {
-  try {
-    // check if we have it exactly like that in database and if not, update
-    // if not in database, rebroadcast to all connections
-    // do furtherVerification of message
-    // eslint-disable-next-line global-require
-    const appsService = require('./appsService');
-    const rebroadcastToPeers = await appsService.storeAppRunningMessage(message.data);
-    if (rebroadcastToPeers === true) {
-      const messageString = serviceHelper.ensureString(message);
-      const wsListOut = outgoingConnections.filter((client) => client._socket.remoteAddress !== fromIP);
-      fluxCommunicationMessagesSender.sendToAllPeers(messageString, wsListOut);
-      await serviceHelper.delay(2345);
-      const wsList = incomingConnections.filter((client) => client._socket.remoteAddress.replace('::ffff:', '') !== fromIP);
-      fluxCommunicationMessagesSender.sendToAllIncomingConnections(messageString, wsList);
-    }
-  } catch (error) {
-    log.error(error);
-  }
-}
-
-async function handleAppMessages(message, fromIP) {
-  try {
-    // check if we have it in database and if not add
-    // if not in database, rebroadcast to all connections
-    // do furtherVerification of message
-    // eslint-disable-next-line global-require
-    const appsService = require('./appsService');
-    const rebroadcastToPeers = await appsService.storeAppTemporaryMessage(message.data, true);
-    if (rebroadcastToPeers === true) {
-      const messageString = serviceHelper.ensureString(message);
-      const wsListOut = outgoingConnections.filter((client) => client._socket.remoteAddress !== fromIP);
-      fluxCommunicationMessagesSender.sendToAllPeers(messageString, wsListOut);
-      await serviceHelper.delay(100);
-      const wsList = incomingConnections.filter((client) => client._socket.remoteAddress.replace('::ffff:', '') !== fromIP);
-      fluxCommunicationMessagesSender.sendToAllIncomingConnections(messageString, wsList);
-    }
-  } catch (error) {
-    log.error(error);
-  }
-}
-
 module.exports = {
   verifyTimestampInFluxBroadcast,
   verifyOriginalFluxBroadcast,
-  handleAppMessages,
   outgoingConnections,
-  handleAppRunningMessage,
 };
