@@ -3564,6 +3564,9 @@ async function assignedPortsGlobalApps(appNames) {
       name: app,
     });
   });
+  if (!appsQuery.length) {
+    return [];
+  }
   const query = {
     $or: appsQuery,
   };
@@ -3603,7 +3606,7 @@ async function assignedPortsGlobalApps(appNames) {
 
 async function ensureApplicationPortsNotUsed(appSpecFormatted, globalCheckedApps) {
   let currentAppsPorts = await assignedPortsInstalledApps();
-  if (globalCheckedApps) {
+  if (globalCheckedApps && globalCheckedApps.length) {
     const globalAppsPorts = await assignedPortsGlobalApps(globalCheckedApps);
     currentAppsPorts = currentAppsPorts.concat(globalAppsPorts);
   }
