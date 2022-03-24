@@ -13,7 +13,7 @@ const messageHelper = require('./messageHelper');
 const daemonService = require('./daemonService');
 const benchmarkService = require('./benchmarkService');
 const verificationHelper = require('./verificationHelper');
-// const fluxCommunicationUtils = require('./fluxCommunicationUtils');
+const fluxCommunicationUtils = require('./fluxCommunicationUtils');
 const userconfig = require('../../../config/userconfig');
 const { outgoingConnections } = require('./utils/outgoingConnections');
 const { incomingConnections } = require('./utils/incomingConnections');
@@ -42,12 +42,7 @@ let numberOfFluxNodes = 0;
 const axiosConfig = {
   timeout: 5000,
 };
-
-const myCache = new LRU(LRUoptions);
 const blockedPubKeysCache = new LRU(LRUoptions);
-
-let addingNodesToCache = false;
-
 const buckets = new Map();
 
 class TokenBucket {
@@ -133,56 +128,6 @@ async function getMyFluxIPandPort() {
   return myIP;
 }
 
-// get deterministc Flux list from cache
-// filter can only be a publicKey!
-async function deterministicFluxList(filter) {
-  try {
-    while (addingNodesToCache) {
-      // prevent several instances filling the cache at the same time.
-      // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay(100);
-    }
-    let fluxList;
-    if (filter) {
-      fluxList = myCache.get(`fluxList${serviceHelper.ensureString(filter)}`);
-    } else {
-      fluxList = myCache.get('fluxList');
-    }
-    if (!fluxList) {
-      let generalFluxList = myCache.get('fluxList');
-      addingNodesToCache = true;
-      if (!generalFluxList) {
-        const request = {
-          params: {},
-          query: {},
-        };
-        const daemonFluxNodesList = await daemonService.viewDeterministicZelNodeList(request);
-        if (daemonFluxNodesList.status === 'success') {
-          generalFluxList = daemonFluxNodesList.data || [];
-          myCache.set('fluxList', generalFluxList);
-          if (filter) {
-            const filterFluxList = generalFluxList.filter((node) => node.pubkey === filter);
-            myCache.set(`fluxList${serviceHelper.ensureString(filter)}`, filterFluxList);
-          }
-        }
-      } else { // surely in filtered branch too
-        const filterFluxList = generalFluxList.filter((node) => node.pubkey === filter);
-        myCache.set(`fluxList${serviceHelper.ensureString(filter)}`, filterFluxList);
-      }
-      addingNodesToCache = false;
-      if (filter) {
-        fluxList = myCache.get(`fluxList${serviceHelper.ensureString(filter)}`);
-      } else {
-        fluxList = myCache.get('fluxList');
-      }
-    }
-    return fluxList || [];
-  } catch (error) {
-    log.error(error);
-    return [];
-  }
-}
-
 async function getFluxNodePrivateKey(privatekey) {
   const privKey = privatekey || daemonService.getConfigValue('zelnodeprivkey');
   return privKey;
@@ -200,7 +145,7 @@ async function getFluxNodePublicKey(privatekey) {
 }
 
 async function getRandomConnection() { // returns ip:port or just ip if default
-  const nodeList = await deterministicFluxList();
+  const nodeList = await fluxCommunicationUtils.deterministicFluxList();
   const zlLength = nodeList.length;
   if (zlLength === 0) {
     return null;
@@ -369,7 +314,7 @@ async function initiateAndHandleConnection(connection) {
       // and add him to blocklist
       try {
         // check if message comes from IP belonging to the public Key
-        const zl = await deterministicFluxList(pubKey); // this itself is sufficient.
+        const zl = await fluxCommunicationUtils.deterministicFluxList(pubKey); // this itself is sufficient.
         const possibleNodes = zl.filter((key) => key.pubkey === pubKey); // another check in case sufficient check failed on daemon level
         const nodeFound = possibleNodes.find((n) => n.ip === connection);
         if (!nodeFound) {
@@ -415,7 +360,7 @@ async function fluxDiscovery() {
 
     const myIP = await getMyFluxIPandPort();
     if (myIP) {
-      nodeList = await deterministicFluxList();
+      nodeList = await fluxCommunicationUtils.deterministicFluxList();
       const fluxNode = nodeList.find((node) => node.ip === myIP);
       if (!fluxNode) {
         throw new Error('Node not confirmed. Flux discovery is awaiting.');
@@ -739,7 +684,7 @@ async function checkDeterministicNodesCollisions() {
         }, 120 * 1000);
         return;
       }
-      const nodeList = await deterministicFluxList();
+      const nodeList = await fluxCommunicationUtils.deterministicFluxList();
       const result = nodeList.filter((node) => node.ip === myIP);
       const nodeStatus = await daemonService.getZelNodeStatus();
       if (nodeStatus.status === 'success') { // different scenario is caught elsewhere
@@ -929,7 +874,6 @@ module.exports = {
   isFluxAvailable,
   checkFluxAvailability,
   getMyFluxIPandPort,
-  deterministicFluxList,
   getRandomConnection,
   getFluxNodePrivateKey,
   getFluxNodePublicKey,
