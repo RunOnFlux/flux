@@ -2221,7 +2221,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
         const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(port));
         if (portResponse.status === true) {
           const portStatus = {
-            status: `'Port ${port} OK'`,
+            status: `Port ${port} OK`,
           };
           log.info(portStatus);
           if (res) {
@@ -5711,12 +5711,17 @@ async function trySpawningGlobalApplication() {
           }
         }
       }
+      // check repository whitelisted
+      // eslint-disable-next-line no-await-in-loop
+      await generalService.checkWhitelistedRepository(componentToInstall.repotag);
+
+      // check repotag if available for download
+      // eslint-disable-next-line no-await-in-loop
+      await verifyRepository(componentToInstall.repotag);
     }
 
-    // verify app specifications deeply with checks
-    const syncStatus = daemonService.isDaemonSynced();
-    const daemonHeight = syncStatus.data.height;
-    await verifyAppSpecifications(appSpecifications, daemonHeight, true).catch((error) => {
+    // verify app compliance
+    await checkApplicationImagesComplience(appSpecifications).catch((error) => {
       log.error(error);
       trySpawningGlobalAppCache.set(randomApp, randomApp);
       throw error;
