@@ -1519,8 +1519,9 @@ async function isFirewallActive() {
     }
     return false;
   } catch (error) {
+    // command ufw not found is the most likely reason
     log.error(error);
-    throw error;
+    return false;
   }
 }
 
