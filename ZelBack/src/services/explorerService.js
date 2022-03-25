@@ -346,9 +346,9 @@ function decodeMessage(asm) {
   if (parts[1]) {
     const encodedMessage = parts[1];
     const hexx = encodedMessage.toString(); // force conversion
-    for (let k = 0; k < hexx.length && hexx.substr(k, 2) !== '00'; k += 2) {
+    for (let k = 0; k < hexx.length && hexx.slice(k, k + 2) !== '00'; k += 2) {
       message += String.fromCharCode(
-        parseInt(hexx.substr(k, 2), 16),
+        parseInt(hexx.slice(k, k + 2), 16),
       );
     }
   }

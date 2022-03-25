@@ -63,7 +63,7 @@ async function listRunningApps(req, res) {
   try {
     let apps = await dockerService.dockerListContainers(false);
     if (apps.length > 0) {
-      apps = apps.filter((app) => (app.Names[0].substr(1, 3) === 'zel' || app.Names[0].substr(1, 4) === 'flux'));
+      apps = apps.filter((app) => (app.Names[0].slice(1, 4) === 'zel' || app.Names[0].slice(1, 5) === 'flux'));
     }
     const modifiedApps = [];
     apps.forEach((app) => {
@@ -93,7 +93,7 @@ async function listAllApps(req, res) {
   try {
     let apps = await dockerService.dockerListContainers(true);
     if (apps.length > 0) {
-      apps = apps.filter((app) => (app.Names[0].substr(1, 3) === 'zel' || app.Names[0].substr(1, 4) === 'flux'));
+      apps = apps.filter((app) => (app.Names[0].slice(1, 4) === 'zel' || app.Names[0].slice(1, 5) === 'flux'));
     }
     const modifiedApps = [];
     apps.forEach((app) => {
@@ -5648,7 +5648,7 @@ async function trySpawningGlobalApplication() {
     if (runningApps.status !== 'success') {
       throw new Error('Unable to check running apps on this Flux');
     }
-    if (runningApps.data.find((app) => app.Names[0].substr(5, app.Names[0].length) === randomApp)) {
+    if (runningApps.data.find((app) => app.Names[0].slice(5) === randomApp)) {
       log.info(`${randomApp} application is already running on this Flux`);
       await serviceHelper.delay(adjustedDelay);
       trySpawningGlobalAppCache.set(randomApp, randomApp);
@@ -5819,9 +5819,9 @@ async function checkAndNotifyPeersOfRunningApps() {
     // kadena and folding is old naming scheme having /zel.  all global application start with /flux
     const runningAppsNames = runningApps.map((app) => {
       if (app.Names[0].startsWith('/zel')) {
-        return app.Names[0].substr(4, app.Names[0].length);
+        return app.Names[0].slice(4);
       }
-      return app.Names[0].substr(5, app.Names[0].length);
+      return app.Names[0].slice(5);
     });
     // installed always is bigger array than running
     const runningSet = new Set(runningAppsNames);
@@ -6566,7 +6566,7 @@ async function stopAllNonFluxRunningApps() {
   try {
     log.info('Running non Flux apps check...');
     let apps = await dockerService.dockerListContainers(false);
-    apps = apps.filter((app) => (app.Names[0].substr(1, 3) !== 'zel' && app.Names[0].substr(1, 4) !== 'flux'));
+    apps = apps.filter((app) => (app.Names[0].slice(1, 4) !== 'zel' && app.Names[0].slice(1, 5) !== 'flux'));
     if (apps.length > 0) {
       log.info(`Found ${apps.length} apps to be stopped...`);
       // eslint-disable-next-line no-restricted-syntax

@@ -1779,7 +1779,7 @@ export default {
         const runningAppsSpecifics = [];
         apps.forEach((app) => {
           // get application specification IF it is composed app
-          const appName = app.Names[0].startsWith('/flux') ? app.Names[0].substr(5, app.Names[0].length) : app.Names[0].substr(4, app.Names[0].length);
+          const appName = app.Names[0].startsWith('/flux') ? app.Names[0].slice(5) : app.Names[0].slice(4);
           if (appName.includes('_')) {
             runningAppsNames.push(appName.split('_')[1]);
           } else {
@@ -2020,10 +2020,10 @@ export default {
     getAppName(appName) {
       // this id is used for volumes, docker names so we know it reall belongs to flux
       if (appName && appName.startsWith('zel')) {
-        return appName.substr(3, appName.length);
+        return appName.slice(3);
       }
       if (appName && appName.startsWith('flux')) {
-        return appName.substr(4, appName.length);
+        return appName.slice(4);
       }
       return appName;
     },

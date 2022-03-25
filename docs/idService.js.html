@@ -377,7 +377,7 @@ async function provideSign(req, res) {
       }
       const timestamp = new Date().getTime();
       const validTill = timestamp + (15 * 60 * 1000); // 15 minutes
-      const identifier = address + message.substr(message.length - 13);
+      const identifier = address + message.slice(-13);
 
       const db = dbHelper.databaseConnection();
       const database = db.db(config.database.local.database);
