@@ -50,6 +50,12 @@ const rawTxCache = new LRU(LRUoptionsTxs); // store 30k txs in cache
 
 let response = messageHelper.createErrorMessage();
 
+/**
+ * To execute a remote procedure call (RPC).
+ * @param {string} rpc Remote procedure call.
+ * @param {string[]} params RPC parameters.
+ * @returns {object} Message.
+ */
 async function executeCall(rpc, params) {
   let callResponse;
   const rpcparameters = params || [];
@@ -106,11 +112,20 @@ async function executeCall(rpc, params) {
   return callResponse;
 }
 
+/**
+ * To get a value for a specified key from the configuration file.
+ * @param {string} parameter Config key.
+ * @returns {string} Config value.
+ */
 function getConfigValue(parameter) {
   const value = fnconfig.get(parameter);
   return value;
 }
 
+/**
+ * To check if Insight Explorer is activated in the daemon configuration file.
+ * @returns {boolean} True if the daemon is configured with Insight Explorer on.
+ */
 function isInsightExplorer() {
   if (isDaemonInsightExplorer != null) {
     return isDaemonInsightExplorer;
@@ -125,6 +140,12 @@ function isInsightExplorer() {
 }
 
 // == Control ==
+/**
+ * To request help message. Command required as parameter for RPC call.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function help(req, res) {
   let { command } = req.params; // we accept both help/command and help?command=getinfo
   command = command || req.query.command || '';
@@ -137,6 +158,12 @@ async function help(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get info on daemon version and RPC port. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getInfo(req, res) {
   const rpccall = 'getInfo';
 
@@ -153,6 +180,12 @@ async function getInfo(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To stop node daemon. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function stop(req, res) { // practically useless
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
@@ -167,6 +200,12 @@ async function stop(req, res) { // practically useless
 }
 
 // == Zelnode ==
+/**
+ * To get node status.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getZelNodeStatus(req, res) {
   const rpccall = 'getzelnodestatus';
 
@@ -175,6 +214,12 @@ async function getZelNodeStatus(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To list nodes. Optional filter can be included as a parameter for RPC call.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function listZelNodes(req, res) {
   let { filter } = req.params;
   filter = filter || req.query.filter;
@@ -189,6 +234,12 @@ async function listZelNodes(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To list node configuration. Optional filter can be included as a parameter for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function listZelNodeConf(req, res) { // practically useless
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   let { filter } = req.params;
@@ -208,6 +259,12 @@ async function listZelNodeConf(req, res) { // practically useless
   return res ? res.json(response) : response;
 }
 
+/**
+ * To create node key. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function createZelNodeKey(req, res) { // practically useless
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
@@ -221,6 +278,12 @@ async function createZelNodeKey(req, res) { // practically useless
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get node sync status. Mode (defaults to status) required as parameter for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function znsync(req, res) {
   let { mode } = req.params; // we accept both znsync/status and znsync?mode=status
   mode = mode || req.query.mode || 'status'; // default to status
@@ -243,6 +306,12 @@ async function znsync(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To create node broadcast. Command and alias required as parameters for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function createZelNodeBroadcast(req, res) {
   let { command } = req.params;
   command = command || req.query.command || '';
@@ -262,6 +331,12 @@ async function createZelNodeBroadcast(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To decode node broadcast. Optional hex string can be included as a parameter for RPC call.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function decodeZelNodeBroadcast(req, res) {
   let { hexstring } = req.params;
   hexstring = hexstring || req.query.hexstring;
@@ -277,6 +352,12 @@ async function decodeZelNodeBroadcast(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get node count.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getZelNodeCount(req, res) {
   const rpccall = 'getzelnodecount';
 
@@ -285,6 +366,12 @@ async function getZelNodeCount(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get DOS list.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getDOSList(req, res) {
   const rpccall = 'getdoslist';
 
@@ -293,6 +380,12 @@ async function getDOSList(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get start list.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getStartList(req, res) {
   const rpccall = 'getstartlist';
 
@@ -301,6 +394,12 @@ async function getStartList(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get node outputs. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getZelNodeOutputs(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
@@ -314,6 +413,12 @@ async function getZelNodeOutputs(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get node scores. Optional number of blocks can be included as a parameter for RPC call. Otherwise defaults to 10 blocks.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getZelNodeScores(req, res) {
   let { blocks } = req.params;
   blocks = blocks || req.query.blocks || '10';
@@ -327,6 +432,12 @@ async function getZelNodeScores(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get node winnners. Optional filter can be included as a parameter for RPC call. Optional number of blocks can be included as a parameter for RPC call. Otherwise defaults to 10 blocks.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getZelNodeWinners(req, res) {
   let { blocks } = req.params;
   blocks = blocks || req.query.blocks || '10'; // defaults to 10 as default zelcash value
@@ -345,6 +456,12 @@ async function getZelNodeWinners(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To relay node broadcast. Optional hex string can be included as a parameter for RPC call. 
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function relayZelNodeBroadcast(req, res) {
   let { hexstring } = req.params;
   hexstring = hexstring || req.query.hexstring;
@@ -360,6 +477,12 @@ async function relayZelNodeBroadcast(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To show spork. Optional value can be included as a parameter for RPC call. Optional name can be included as a parameter for RPC call. Otherwise defaults to show.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function spork(req, res) {
   let { name } = req.params;
   name = name || req.query.name || 'show'; // name, show, active
@@ -379,6 +502,12 @@ async function spork(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To start deterministic node. Alias required as a parameter for RPC call if not already specified. Optional lock wallet configuration can be included as a parameter for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function startDeterministicZelNode(req, res) {
   let { alias } = req.params;
   alias = alias || req.query.alias;
@@ -402,6 +531,12 @@ async function startDeterministicZelNode(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To start node. Set and lock wallet configurations required as parameters for RPC call if not already specified. Optional alias can be included as a parameter for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function startZelNode(req, res) {
   let { set } = req.params;
   set = set || req.query.set;
@@ -427,6 +562,12 @@ async function startZelNode(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To view list of deterministic nodes. Optional filter can be included as a parameter for RPC call.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function viewDeterministicZelNodeList(req, res) {
   let { filter } = req.params;
   filter = filter || req.query.filter;
@@ -441,6 +582,12 @@ async function viewDeterministicZelNodeList(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To show current node winner.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function zelNodeCurrentWinner(req, res) {
   const rpccall = 'zelnodecurrentwinner';
 
@@ -449,6 +596,12 @@ async function zelNodeCurrentWinner(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To debug node.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function zelNodeDebug(req, res) {
   const rpccall = 'zelnodedebug';
 
@@ -456,7 +609,14 @@ async function zelNodeDebug(req, res) {
 
   return res ? res.json(response) : response;
 }
+
 // == Blockchain ==
+/**
+ * To get best block hash.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getBestBlockHash(req, res) {
   const rpccall = 'getBestBlockHash';
 
@@ -465,6 +625,12 @@ async function getBestBlockHash(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get block. Hash height and verbosity required as parameters for RPC call. Verbosity defaults to an integer value of 2.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getBlock(req, res) {
   let { hashheight } = req.params;
   hashheight = hashheight || req.query.hashheight;
@@ -481,6 +647,12 @@ async function getBlock(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get blockchain info.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getBlockchainInfo(req, res) {
   const rpccall = 'getBlockchainInfo';
 
@@ -489,6 +661,12 @@ async function getBlockchainInfo(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get block count.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getBlockCount(req, res) {
   const rpccall = 'getBlockCount';
 
@@ -497,6 +675,12 @@ async function getBlockCount(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get block hash. Index required as parameter for RPC call.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getBlockHash(req, res) {
   let { index } = req.params;
   index = index || req.query.index; // no default value, show help
@@ -513,6 +697,12 @@ async function getBlockHash(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get block deltas. Hash required as parameter for RPC call.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getBlockDeltas(req, res) {
   let { hash } = req.params;
   hash = hash || req.query.hash;
@@ -528,6 +718,12 @@ async function getBlockDeltas(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get block hashes. High and low values and options object required as parameters for RPC call.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getBlockHashes(req, res) {
   let { high } = req.params;
   high = high || req.query.high;
@@ -564,6 +760,11 @@ async function getBlockHashes(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get block hashes after data is processed. High and low values required as parameters for RPC call.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function getBlockHashesPost(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -585,6 +786,12 @@ async function getBlockHashesPost(req, res) {
   });
 }
 
+/**
+ * To get block header. Hash and verbose (defaults to true) required as parameters for RPC call.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getBlockHeader(req, res) {
   let { hash } = req.params;
   hash = hash || req.query.hash;
@@ -604,6 +811,12 @@ async function getBlockHeader(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get chain tips.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getChainTips(req, res) {
   const rpccall = 'getChainTips';
 
@@ -612,6 +825,12 @@ async function getChainTips(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get block hash algorithm difficulty.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getDifficulty(req, res) {
   const rpccall = 'getDifficulty';
 
@@ -620,6 +839,12 @@ async function getDifficulty(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get mempool (memory pool) info.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getMempoolInfo(req, res) {
   const rpccall = 'getMempoolInfo';
 
@@ -628,6 +853,12 @@ async function getMempoolInfo(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get raw mempool (memory pool) info. Verbose (defaults to true) required as parameter for RPC call.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getRawMemPool(req, res) {
   let { verbose } = req.params;
   verbose = verbose || req.query.verbose || false;
@@ -642,6 +873,12 @@ async function getRawMemPool(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get transaction output. Transaction ID, number and whether to include mempool (defaults to true) required as parameters for RPC call.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getTxOut(req, res) {
   let { txid } = req.params;
   txid = txid || req.query.txid;
@@ -665,6 +902,12 @@ async function getTxOut(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get transaction output proof. Array of transaction IDs required as parameter for RPC call. Block hash can also be included as parameter for RPC call.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getTxOutProof(req, res) {
   let { txids } = req.params;
   txids = txids || req.query.txids;
@@ -686,6 +929,12 @@ async function getTxOutProof(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get transaction output set info.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getTxOutSetInfo(req, res) {
   const rpccall = 'getTxOutSetInfo';
 
@@ -694,6 +943,12 @@ async function getTxOutSetInfo(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To verify chain. Check level and number of blocks required as parameters for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function verifyChain(req, res) {
   let { checklevel } = req.params;
   checklevel = checklevel || req.query.checklevel || 3;
@@ -714,6 +969,12 @@ async function verifyChain(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To verify transaction output proof. Proof required as parameter for RPC call.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function verifyTxOutProof(req, res) {
   let { proof } = req.params;
   proof = proof || req.query.proof;
@@ -729,6 +990,12 @@ async function verifyTxOutProof(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get spent info. Transaction ID and index required as parameters for RPC call.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getSpentInfo(req, res) {
   let { txid } = req.params;
   txid = txid || req.query.txid;
@@ -747,6 +1014,12 @@ async function getSpentInfo(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get spent info after data is processed. Transaction ID and index required as parameters for RPC call.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getSpentInfoPost(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -770,6 +1043,12 @@ async function getSpentInfoPost(req, res) {
 }
 
 // == Address Index ==
+/**
+ * To get transaction IDs for specified address/es. Addresses, start and end required as parameters for RPC call.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getAddressTxids(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -794,6 +1073,12 @@ async function getAddressTxids(req, res) {
   });
 }
 
+/**
+ * To get transaction IDs for single specified address. Address, start and end required as parameters for RPC call.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getSingleAddresssTxids(req, res) {
   let { address } = req.params;
   address = address || req.query.address;
@@ -816,6 +1101,12 @@ async function getSingleAddresssTxids(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get balance of address/es. Addresses required as parameter for RPC call.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getAddressBalance(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -838,6 +1129,12 @@ async function getAddressBalance(req, res) {
   });
 }
 
+/**
+ * To get balance of a single address. Address required as parameter for RPC call.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getSingleAddressBalance(req, res) {
   let { address } = req.params;
   address = address || req.query.address;
@@ -854,6 +1151,12 @@ async function getSingleAddressBalance(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get address deltas. Addresses, start, end and chain info required as parameters for RPC call.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getAddressDeltas(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -881,6 +1184,12 @@ async function getAddressDeltas(req, res) {
   });
 }
 
+/**
+ * To get deltas for a single address. Address, start, end and chain info required as parameters for RPC call.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getSingleAddressDeltas(req, res) {
   let { address } = req.params;
   address = address || req.query.address;
@@ -906,6 +1215,12 @@ async function getSingleAddressDeltas(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get UTXOs for multiple addresses. Addresses and chain info required as parameters for RPC call.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getAddressUtxos(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -931,6 +1246,12 @@ async function getAddressUtxos(req, res) {
   });
 }
 
+/**
+ * To get UTXOs for a single address. Address and chain info required as parameters for RPC call.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getSingleAddressUtxos(req, res) {
   let { address } = req.params;
   address = address || req.query.address;
@@ -950,6 +1271,12 @@ async function getSingleAddressUtxos(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get mempool (memory pool) for multiple addresses. Addresses required as parameter for RPC call.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getAddressMempool(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -974,6 +1301,12 @@ async function getAddressMempool(req, res) {
   });
 }
 
+/**
+ * To get mempool (memory pool) for a single address. Address required as parameter for RPC call.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getSingleAddressMempool(req, res) {
   let { address } = req.params;
   address = address || req.query.address;
@@ -991,6 +1324,12 @@ async function getSingleAddressMempool(req, res) {
 }
 
 // == Mining ==
+/**
+ * To get block subsidy. Height required as parameter for RPC call.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getBlockSubsidy(req, res) {
   let { height } = req.params;
   height = height || req.query.height;
@@ -1007,6 +1346,12 @@ async function getBlockSubsidy(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get block template. JSON request object required as parameter for RPC call.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Block template.
+ */
 async function getBlockTemplate(req, res) {
   let { jsonrequestobject } = req.params;
   jsonrequestobject = jsonrequestobject || req.query.jsonrequestobject;
@@ -1023,6 +1368,12 @@ async function getBlockTemplate(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get local solutions (hash computations created) per second.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getLocalSolPs(req, res) {
   const rpccall = 'getLocalSolPs';
 
@@ -1031,6 +1382,12 @@ async function getLocalSolPs(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get mining info.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getMiningInfo(req, res) {
   const rpccall = 'getMiningInfo';
 
@@ -1039,6 +1396,12 @@ async function getMiningInfo(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get number of network hashes per second. Blocks (defaults to value of 120) and height (defaults to value of -1) required as parameters for RPC call.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getNetworkHashPs(req, res) {
   let { blocks } = req.params;
   blocks = blocks || req.query.blocks || 120;
@@ -1056,6 +1419,12 @@ async function getNetworkHashPs(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get network solutions (hash computations created) per second. Blocks (defaults to value of 120) and height (defaults to value of -1) required as parameters for RPC call.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getNetworkSolPs(req, res) {
   let { blocks } = req.params;
   blocks = blocks || req.query.blocks || 120;
@@ -1072,6 +1441,12 @@ async function getNetworkSolPs(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To prioritise transaction. Transaction ID, priority delta and fee delta required as parameters for RPC call. Only accessible by users. 
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function prioritiseTransaction(req, res) {
   let { txid } = req.params;
   txid = txid || req.query.txid;
@@ -1097,6 +1472,12 @@ async function prioritiseTransaction(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To submit a block. Hex data required as parameter for RPC call. JSON parameters object can also be provided as a parameter for RPC call. Only accessible by users.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function submitBlock(req, res) {
   let { hexdata } = req.params;
   hexdata = hexdata || req.query.hexdata;
@@ -1121,6 +1502,12 @@ async function submitBlock(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To submit a block after data is processed. Hex data required as parameter for RPC call. JSON parameters object can also be provided as a parameter for RPC call. Only accessible by users.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function submitBlockPost(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -1152,6 +1539,12 @@ async function submitBlockPost(req, res) {
 }
 
 // == Network ==
+/**
+ * To add a node. Node and command required as parameters for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function addNode(req, res) {
   let { node } = req.params;
   node = node || req.query.node;
@@ -1173,6 +1566,12 @@ async function addNode(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To clear banned IP addresses. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function clearBanned(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
@@ -1186,6 +1585,12 @@ async function clearBanned(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To disconnect a node. Node required as parameter for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function disconnectNode(req, res) {
   let { node } = req.params;
   node = node || req.query.node;
@@ -1205,6 +1610,12 @@ async function disconnectNode(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get node info. DNS and node required as parameters for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getAddedNodeInfo(req, res) {
   let { dns } = req.params;
   dns = dns || req.query.dns;
@@ -1230,6 +1641,12 @@ async function getAddedNodeInfo(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get connection count.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getConnectionCount(req, res) {
   const rpccall = 'getConnectionCount';
 
@@ -1238,6 +1655,12 @@ async function getConnectionCount(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get deprecation info.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getDeprecationInfo(req, res) {
   const rpccall = 'getDeprecationInfo';
 
@@ -1246,6 +1669,12 @@ async function getDeprecationInfo(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get net totals.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getNetTotals(req, res) {
   const rpccall = 'getNetTotals';
 
@@ -1254,6 +1683,12 @@ async function getNetTotals(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get network info.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getNetworkInfo(req, res) {
   const rpccall = 'getNetworkInfo';
 
@@ -1262,6 +1697,12 @@ async function getNetworkInfo(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get node peer info.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getPeerInfo(req, res) {
   const rpccall = 'getPeerInfo';
 
@@ -1270,6 +1711,12 @@ async function getPeerInfo(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To list banned IP addresses.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function listBanned(req, res) {
   const rpccall = 'listBanned';
 
@@ -1278,6 +1725,12 @@ async function listBanned(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To send a ping to peers. Only accessible by admins and flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function ping(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
@@ -1291,6 +1744,12 @@ async function ping(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To set a ban on an IP address. IP, command, ban time and if absolute required as parameters for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function setBan(req, res) {
   let { ip } = req.params;
   ip = ip || req.query.ip;
@@ -1326,6 +1785,12 @@ async function setBan(req, res) {
 }
 
 // == Rawtransactions ==
+/**
+ * To create raw transaction. Transactions, addresses, lock time (defaults to value of 0) and expiry height (defaults to block count + 20) required as parameters for RPC call.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function createRawTransaction(req, res) {
   let { transactions } = req.params;
   transactions = transactions || req.query.transactions;
@@ -1356,6 +1821,12 @@ async function createRawTransaction(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To create raw transaction after data is processed. Transactions, addresses, lock time (defaults to value of 0) and expiry height (defaults to block count + 20) required as parameters for RPC call.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function createRawTransactionPost(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -1391,6 +1862,12 @@ async function createRawTransactionPost(req, res) {
   });
 }
 
+/**
+ * To decode raw transaction. Hex string required as parameter for RPC call.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function decodeRawTransaction(req, res) {
   let { hexstring } = req.params;
   hexstring = hexstring || req.query.hexstring;
@@ -1405,6 +1882,12 @@ async function decodeRawTransaction(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To decode raw transaction after data is processed. Hex string required as parameter for RPC call.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function decodeRawTransactionPost(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -1425,6 +1908,12 @@ async function decodeRawTransactionPost(req, res) {
   });
 }
 
+/**
+ * To decode script. Hex required as parameter for RPC call.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function decodeScript(req, res) {
   let { hex } = req.params;
   hex = hex || req.query.hex;
@@ -1439,6 +1928,12 @@ async function decodeScript(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To decode script after data is processed. Hex required as parameter for RPC call.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function decodeScriptPost(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -1459,6 +1954,12 @@ async function decodeScriptPost(req, res) {
   });
 }
 
+/**
+ * To fund raw transaction. Hex string required as parameter for RPC call.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function fundRawTransaction(req, res) {
   let { hexstring } = req.params;
   hexstring = hexstring || req.query.hexstring;
@@ -1473,6 +1974,12 @@ async function fundRawTransaction(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To fund raw transaction after data is processed. Hex string required as parameter for RPC call.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function fundRawTransactionPost(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -1493,6 +2000,12 @@ async function fundRawTransactionPost(req, res) {
   });
 }
 
+/**
+ * To get raw transaction. Transaction ID and verbose (defaults to value of 0) required as parameters for RPC call.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getRawTransaction(req, res) {
   let { txid } = req.params;
   txid = txid || req.query.txid;
@@ -1510,6 +2023,12 @@ async function getRawTransaction(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To send raw transaction. Hex string and whether to allow high fees (defaults to false) required as parameters for RPC call.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function sendRawTransaction(req, res) {
   let { hexstring } = req.params;
   hexstring = hexstring || req.query.hexstring;
@@ -1527,6 +2046,12 @@ async function sendRawTransaction(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To send raw transaction after data is processed. Hex string and whether to allow high fees (defaults to false) required as parameters for RPC call.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function sendRawTransactionPost(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -1550,6 +2075,12 @@ async function sendRawTransactionPost(req, res) {
   });
 }
 
+/**
+ * To sign raw transaction. Hex string, previous transactions, private keys, signature hash type (defaults to ALL) and branch ID required as parameters for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function signRawTransaction(req, res) {
   let { hexstring } = req.params;
   hexstring = hexstring || req.query.hexstring;
@@ -1588,6 +2119,12 @@ async function signRawTransaction(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To sign raw transaction after data is processed. Hex string, previous transactions, private keys, signature hash type (defaults to all) and branch ID required as parameters for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function signRawTransactionPost(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -1629,6 +2166,12 @@ async function signRawTransactionPost(req, res) {
 }
 
 // == Util ==
+/**
+ * To create a multi-signature scheme (to require multiple keys to authorize a transaction). Number of signatures and keys object required as parameters for RPC call.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function createMultiSig(req, res) {
   let { n } = req.params;
   n = n || req.query.n;
@@ -1647,6 +2190,12 @@ async function createMultiSig(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To create a multi-signature scheme (to require multiple keys to authorize a transaction) after data is processed. Number of signatures and keys object required as parameters for RPC call.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function createMultiSigPost(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -1670,6 +2219,12 @@ async function createMultiSigPost(req, res) {
   });
 }
 
+/**
+ * To estimate a transaction fee. Number of blocks required as parameter for RPC call.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function estimateFee(req, res) {
   let { nblocks } = req.params;
   nblocks = nblocks || req.query.nblocks;
@@ -1685,6 +2240,12 @@ async function estimateFee(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To estimate transaction priority. Number of blocks required as parameter for RPC call.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function estimatePriority(req, res) {
   let { nblocks } = req.params;
   nblocks = nblocks || req.query.nblocks;
@@ -1700,6 +2261,12 @@ async function estimatePriority(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To validate an address. Address required as parameter for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function validateAddress(req, res) {
   let { zelcashaddress } = req.params;
   zelcashaddress = zelcashaddress || req.query.zelcashaddress;
@@ -1725,6 +2292,12 @@ async function validateAddress(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To verify a message. Address, signature and message required as parameters for RPC call.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function verifyMessage(req, res) {
   let { zelcashaddress } = req.params;
   zelcashaddress = zelcashaddress || req.query.zelcashaddress;
@@ -1743,6 +2316,12 @@ async function verifyMessage(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To verify a message after data is processed. Address, signature and message required as parameters for RPC call.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function verifyMessagePost(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -1765,6 +2344,12 @@ async function verifyMessagePost(req, res) {
   });
 }
 
+/**
+ * To validate a Z address. Z address required as parameter for RPC call.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function zValidateAddress(req, res) {
   let { zaddr } = req.params;
   zaddr = zaddr || req.query.zaddr;
@@ -3047,7 +3632,21 @@ async function zcSampleJoinSplit(req, res) {
   return res ? res.json(response) : response;
 }
 
-// Benchmarks
+async function createConfirmationTransaction(req, res) {
+  const rpccall = 'createconfirmationtransaction';
+
+  response = await executeCall(rpccall);
+
+  return res ? res.json(response) : response;
+}
+
+// == Benchmarks ==
+/**
+ * To get benchmarks.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getBenchmarks(req, res) {
   const rpccall = 'getbenchmarks';
 
@@ -3056,6 +3655,12 @@ async function getBenchmarks(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get benchmark status.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getBenchStatus(req, res) {
   const rpccall = 'getbenchstatus';
 
@@ -3064,6 +3669,12 @@ async function getBenchStatus(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To start benchmark daemon. Only accessible by admins and flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function startBenchmarkD(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
@@ -3076,6 +3687,12 @@ async function startBenchmarkD(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To stop benchmark daemon. Only accessible by admins and flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function stopBenchmarkD(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
@@ -3088,6 +3705,13 @@ async function stopBenchmarkD(req, res) {
   return res ? res.json(response) : response;
 }
 
+// == NON Daemon ==
+/**
+ * To check if daemon is synced.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 function isDaemonSynced(req, res) {
   const isSynced = {
     header: currentDaemonHeader,
@@ -3101,6 +3725,9 @@ function isDaemonSynced(req, res) {
   return res ? res.json(successResponse) : successResponse;
 }
 
+/**
+ * To show flux daemon blockchain sync status in logs.
+ */
 async function fluxDaemonBlockchainInfo() {
   try {
     const daemonBlockChainInfo = await getBlockchainInfo();
@@ -3118,14 +3745,9 @@ async function fluxDaemonBlockchainInfo() {
   }
 }
 
-async function createConfirmationTransaction(req, res) {
-  const rpccall = 'createconfirmationtransaction';
-
-  response = await executeCall(rpccall);
-
-  return res ? res.json(response) : response;
-}
-
+/**
+ * To call the flux daemon blockchain info function at set intervals.
+ */
 function daemonBlockchainInfoService() {
   fluxDaemonBlockchainInfo();
   setInterval(() => {

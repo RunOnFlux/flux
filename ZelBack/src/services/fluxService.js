@@ -396,7 +396,7 @@ function getFluxZelID(req, res) {
 }
 
 // /**
-//  * To show the current CruxID (now depreciated) that is being used with FluxOS.
+//  * To show the current CruxID (now deprecated) that is being used with FluxOS.
 //  * @param {object} req Request.
 //  * @param {object} res Response.
 //  * @returns {object} Message.
@@ -838,7 +838,7 @@ async function getFluxInfo(req, res) {
 }
 
 // /**
-//  * To adjust the current CruxID (now depreciated) that is being used with FluxOS. Only accessible by admins.
+//  * To adjust the current CruxID (now deprecated) that is being used with FluxOS. Only accessible by admins.
 //  * @param {object} req Request.
 //  * @param {object} res Response.
 //  */
@@ -996,7 +996,7 @@ module.exports = {
   getFluxVersion,
   getFluxIP,
   getFluxZelID,
-  // getFluxCruxID, // Depreciated.
+  // getFluxCruxID, // Deprecated.
   getFluxKadena,
   daemonDebug,
   benchmarkDebug,
@@ -1014,7 +1014,7 @@ module.exports = {
   fluxWarnLog,
   fluxInfoLog,
   fluxDebugLog,
-  // adjustCruxID, // Depreciated.
+  // adjustCruxID, // Deprecated.
   adjustKadenaAccount,
   fluxBackendFolder,
   getNodeTier,
