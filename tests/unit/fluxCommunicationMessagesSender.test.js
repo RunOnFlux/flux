@@ -6,7 +6,7 @@ const { expect } = chai;
 const fluxCommunicationMessagesSender = require('../../ZelBack/src/services/fluxCommunicationMessagesSender');
 const daemonService = require('../../ZelBack/src/services/daemonService');
 
-describe.only('fluxCommunicationMessagesSender tests', () => {
+describe('fluxCommunicationMessagesSender tests', () => {
   describe('serialiseAndSignFluxBroadcast tests', () => {
     it('should return serialised and signed message', async () => {
       const privateKey = '5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh';

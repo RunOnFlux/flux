@@ -9,7 +9,7 @@ const fluxCommunicationMessagesSender = require('../../ZelBack/src/services/flux
 const daemonService = require('../../ZelBack/src/services/daemonService');
 const fluxList = require('./data/listfluxnodes.json');
 
-describe.only('fluxCommunicationUtils tests', () => {
+describe('fluxCommunicationUtils tests', () => {
   describe('deterministicFluxList tests', () => {
     const deterministicZelnodeListResponseBase = {
       data: [

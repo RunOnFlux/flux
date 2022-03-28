@@ -7,7 +7,7 @@ const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const daemonService = require('../../ZelBack/src/services/daemonService');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 
-describe.only('fluxNetworkHelper tests', () => {
+describe('fluxNetworkHelper tests', () => {
   describe('checkFluxAvailability tests', () => {
     let stub;
     const axiosConfig = {
