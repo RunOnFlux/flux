@@ -121,7 +121,7 @@
               no-body
             >
               <b-card-title class="text-white text-uppercase shared-node-info-title">
-                Lockup Period APY
+                Lockup Period APR
               </b-card-title>
               <b-card-body
                 v-if="titanConfig"
@@ -137,7 +137,7 @@
                       {{ lockup.name }}
                     </h2>
                     <h1>
-                      ~{{ (calcAPY(lockup)*100).toFixed(2) }}%
+                      ~{{ (lockup.apr*100).toFixed(2) }}%
                     </h1>
                   </div>
                 </div>
@@ -317,7 +317,7 @@
                 variant="danger"
                 size="sm"
                 pill
-                :disabled="totalReward <= 0"
+                :disabled="totalReward <= titanConfig.redeemFee"
                 @click="showRedeemDialog()"
               >
                 Redeem
@@ -516,7 +516,7 @@
                 v-if="requestSent"
                 class="mt-3 text-success"
               >
-                Redeem request received and will be processed within 24 hours
+                Redeem request has been received and will be processed within 24 hours
               </h4>
               <h4
                 v-if="requestFailed"
@@ -528,51 +528,6 @@
           </b-card>
         </tab-content>
       </form-wizard>
-      <!--<h4>
-        Available: {{ toFixedLocaleString(totalReward, 2) }} Flux
-      </h4>
-      <h4>
-        Redeem Fee: {{ titanConfig ? titanConfig.redeemFee : '...' }} Flux
-      </h4>
-      <h5>
-        Redeem Amount:
-      </h5>
-      <b-form-input
-        id="redeem-amount"
-        v-model="redeemAmount"
-        placeholder="Redeem amount"
-        type="number"
-        :state="redeemAmountState()"
-      />
-      <b-form-invalid-feedback id="redeem-amount-feedback">
-        Enter a valid redeem amount
-      </b-form-invalid-feedback>
-      <h5 class="mt-1">
-        Redeem Addresses:
-      </h5>
-      <b-form-select
-        v-model="redeemAddress"
-        :options="redeemAddresses"
-      >
-        <template #first>
-          <b-form-select-option
-            :value="null"
-            disabled
-          >
-            -- Please select an address --
-          </b-form-select-option>
-        </template>
-      </b-form-select>
-      <b-button
-        pill
-        size="sm"
-        variant="danger"
-        class="float-right mt-1"
-        :disabled="totalReward === 0 || redeemAddress === null || titanConfig && (parseFloat(redeemAmount) > parseFloat(toFixedLocaleString(totalReward,2)) || parseFloat(redeemAmount) < 0)"
-        @click="confirmRedeem()"
-      >
-        Confirm
-      </b-button>-->
     </b-modal>
 
     <b-modal
@@ -693,7 +648,7 @@
           >
             <div>
               <h3 class="float-left">
-                200
+                50
               </h3>
               <h3 class="float-right">
                 40,000
@@ -703,14 +658,14 @@
               id="stakeamount"
               v-model="stakeAmount"
               type="range"
-              min="200"
+              min="50"
               max="40000"
               step="5"
             />
             <b-form-spinbutton
               id="stakeamount-spnner"
               v-model="stakeAmount"
-              min="200"
+              min="50"
               max="40000"
               size="lg"
               :formatter-fn="toFixedLocaleString"
@@ -738,7 +693,7 @@
                   :style="`background-color: ${indexedTierColors[index]} !important;`"
                   @click="selectLockup(index)"
                 >
-                  {{ lockup.name }} - ~{{ (calcAPY(lockup)*100).toFixed(2) }}%
+                  {{ lockup.name }} - ~{{ (lockup.apr*100).toFixed(2) }}%
                 </b-button>
               </div>
             </div>
@@ -870,7 +825,6 @@ import {
   BCardTitle,
   BCol,
   BFormInput,
-  // BFormInvalidFeedback,
   BFormSelect,
   BFormSelectOption,
   BFormSpinbutton,
@@ -893,21 +847,17 @@ import Ripple from 'vue-ripple-directive';
 import { useToast } from 'vue-toastification/composition';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 
-// import { $themeColors } from '@themeConfig';
 import 'vue-form-wizard/dist/vue-form-wizard.min.css';
 
 import {
   ref,
-  // watch,
   computed,
 } from '@vue/composition-api';
 
 import axios from 'axios';
 
-// import ListEntry from '@/views/components/ListEntry.vue';
 import tierColors from '@/libs/colors';
 import DashboardService from '@/services/DashboardService';
-// import IDService from '@/services/IDService';
 
 const qs = require('qs');
 const store = require('store');
@@ -924,7 +874,6 @@ export default {
     BCardTitle,
     BCol,
     BFormInput,
-    // BFormInvalidFeedback,
     BFormSelect,
     BFormSelectOption,
     BFormSpinbutton,
@@ -940,7 +889,6 @@ export default {
 
     // eslint-disable-next-line vue/no-unused-components
     ToastificationContent,
-    // ListEntry,
 
     // 3rd Party
     VuePerfectScrollbar,
@@ -977,8 +925,8 @@ export default {
     const userZelid = ref('');
     userZelid.value = props.zelid;
 
-    const apiURL = 'http://192.168.68.144:1234';
-    // const apiURL = 'http://titantest.runonflux.io:54978';
+    // const apiURL = 'http://192.168.68.144:1234';
+    const apiURL = 'http://titantest.runonflux.io:54978';
 
     const totalReward = ref(0);
     const stakeAmount = ref(200);
@@ -1043,7 +991,6 @@ export default {
       if (data.status === 'success' && data.data) {
         // user is now signed. Store their values
         signature.value = data.data.signature;
-        // signatureHash.value = sha('sha256').update(data.data.signature).digest('hex');
       }
       console.log(data);
       console.log(evt);
@@ -1171,29 +1118,46 @@ export default {
       return fluxNodesData['stratus-enabled'];
     };
 
-    const getConfig = async () => {
+    const calcAPR = (lockup) => {
+      const fluxPerReward = (22.5 * (100 - lockup.fee)) / 100;
+      const collateral = 40000;
+      const blocksPerDay = 720;
+      const numStratusNodes = nodeCount.value;
+      const payoutFrequency = numStratusNodes / blocksPerDay;
+      const fluxPerMonth = (30 / payoutFrequency) * fluxPerReward;
+      const rewardPerSeat = (fluxPerMonth / collateral);
+      const rewardPerYear = (rewardPerSeat * 12);
+      const apr = ((1 + rewardPerYear / 12) ** 12) - 1;
+      return apr;
+    };
+
+    const fetchData = async () => {
       nodeCount.value = await getNodeCount();
       console.log(nodeCount.value);
       const response = await axios.get(`${apiURL}/config`);
       // console.log(response.data);
       titanConfig.value = response.data;
+      titanConfig.value.lockups.forEach((lockup) => {
+        // eslint-disable-next-line no-param-reassign
+        lockup.apr = calcAPR(lockup);
+      });
       getSharedNodeList();
       getStats();
       getMyStakes();
     };
-    getConfig();
+    fetchData();
 
     console.log('Setting up refresh interval');
     setInterval(() => {
-      getConfig();
-    }, 1 * 60 * 1000);
+      fetchData();
+    }, 10 * 60 * 1000);
 
     const showStakeDialog = () => {
       stakeModalShowing.value = true;
       stakeRegistered.value = false;
       stakeRegisterFailed.value = false;
       registeringStake.value = false;
-      stakeAmount.value = 200;
+      stakeAmount.value = 50;
       selectedLockupIndex.value = 0;
       signature.value = null;
       signatureHash.value = null;
@@ -1220,7 +1184,7 @@ export default {
     const showRedeemDialog = () => {
       const addresses = [];
       myStakes.value.forEach((stake) => {
-        if (stake.address) {
+        if (stake.address && !addresses.some((address) => address.text === stake.address)) {
           addresses.push({
             value: stake.uuid,
             text: stake.address,
@@ -1238,8 +1202,12 @@ export default {
       redeemModalShowing.value = true;
     };
 
+    const confirmRedeemDialogFinish = () => {
+      redeemModalShowing.value = false;
+    };
+
     const showPaymentDetailsDialog = (stake) => {
-      console.log(`show payment details ${stake}`);
+      // console.log(`show payment details ${stake}`);
       selectedStake.value = stake;
       paymentDetailsDialogShowing.value = true;
     };
@@ -1285,7 +1253,7 @@ export default {
     };
 
     const requestRedeem = async () => {
-      sendingRequest.value = true;
+      // sendingRequest.value = true;
       const zelidauthHeader = localStorage.getItem('zelidauth');
       const data = {
         amount: totalReward.value,
@@ -1311,27 +1279,19 @@ export default {
       });
 
       console.log(response.data);
-    };
-
-    const calcAPY = (lockup) => {
-      const fluxPerReward = (22.5 * (100 - lockup.fee)) / 100;
-      const collateral = 100000;
-      const blocksPerDay = 720;
-      const numStratusNodes = nodeCount.value;
-      const payoutFrequency = numStratusNodes / blocksPerDay;
-      const fluxPerMonth = (30 / payoutFrequency) * fluxPerReward;
-      const rewardPerSeat = fluxPerMonth / collateral;
-      const rewardPerYear = (rewardPerSeat * 12);
-      const apy = ((1 + rewardPerYear / 12) ** 12) - 1;
-      // eslint-disable-next-line no-param-reassign
-      lockup.apy = apy;
-      return apy;
+      if (response && response.data && response.data.status === 'success') {
+        requestSent.value = true;
+        showToast('success', response.data.message || response.data);
+        fetchData();
+      } else {
+        requestFailed.value = true;
+        showToast('danger', response.data.message || response.data);
+      }
     };
 
     const calcMonthlyReward = (stake) => {
       const lockup = titanConfig.value.lockups.find((aLockup) => aLockup.fee === stake.fee);
-      console.log(lockup);
-      return ((stake.collateral) * lockup.apy) / 12;
+      return ((stake.collateral) * lockup.apr) / 12;
     };
 
     const visitNode = (node) => {
@@ -1377,7 +1337,7 @@ export default {
 
       getMyStakes,
 
-      calcAPY,
+      calcAPR,
       calcMonthlyReward,
 
       toFixedLocaleString,
@@ -1420,6 +1380,7 @@ export default {
       requestSent,
       requestFailed,
       requestRedeem,
+      confirmRedeemDialogFinish,
 
       tierColors,
       indexedTierColors,
