@@ -169,7 +169,7 @@ export default {
         })
         .catch((error) => {
           console.log(error);
-          this.showToast('danger', 'Error connecting to Benchmark');
+          this.showToast('danger', 'Error connecting to benchmark');
         });
     },
     updateBenchmark() {
@@ -208,7 +208,7 @@ export default {
         })
         .catch((error) => {
           console.log(error);
-          this.showToast('danger', 'Error connecting to Benchmark');
+          this.showToast('danger', 'Error connecting to benchmark');
         });
     },
     startBenchmark() {
@@ -224,7 +224,7 @@ export default {
         })
         .catch((error) => {
           console.log(error);
-          this.showToast('danger', 'Error while trying to start Benchmark');
+          this.showToast('danger', 'Error while trying to start benchmark');
         });
     },
     stopBenchmark() {
@@ -240,7 +240,7 @@ export default {
         })
         .catch((error) => {
           console.log(error);
-          this.showToast('danger', 'Error while trying to stop Benchmark');
+          this.showToast('danger', 'Error while trying to stop benchmark');
         });
     },
     restartBenchmark() {
@@ -256,7 +256,7 @@ export default {
         })
         .catch((error) => {
           console.log(error);
-          this.showToast('danger', 'Error while trying to restart Benchmark');
+          this.showToast('danger', 'Error while trying to restart benchmark');
         });
     },
     restartBenchmarks() {

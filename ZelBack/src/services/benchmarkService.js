@@ -16,6 +16,12 @@ const newBenchmarkPath = path.join(homeDirPath, '.fluxbenchmark');
 
 let response = messageHelper.createErrorMessage();
 
+/**
+ * To execute a remote procedure call (RPC).
+ * @param {string} rpc Remote procedure call.
+ * @param {string[]} params RPC parameters.
+ * @returns {object} Message.
+ */
 async function executeCall(rpc, params) {
   let callResponse;
   const rpcparameters = params || [];
@@ -45,6 +51,12 @@ async function executeCall(rpc, params) {
 }
 
 // == Benchmarks ==
+/**
+ * To get benchmark status.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getStatus(req, res) {
   const rpccall = 'getstatus';
 
@@ -53,6 +65,12 @@ async function getStatus(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To restart node benchmarks. Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function restartNodeBenchmarks(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
@@ -66,6 +84,12 @@ async function restartNodeBenchmarks(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To sign Flux transaction. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function signFluxTransaction(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   let { hexstring } = req.params;
@@ -85,6 +109,11 @@ async function signFluxTransaction(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To ensure that a request is an object and sign Flux transaction. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function signFluxTransactionPost(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -109,6 +138,12 @@ async function signFluxTransactionPost(req, res) {
 }
 
 // == Control ==
+/**
+ * To request help message.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function help(req, res) {
   let { command } = req.params;
   command = command || req.query.command || '';
@@ -121,6 +156,12 @@ async function help(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To stop node benchmarks. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function stop(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
@@ -135,6 +176,12 @@ async function stop(req, res) {
 }
 
 // == Zelnode ==
+/**
+ * To show status of benchmarks.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getBenchmarks(req, res) {
   const rpccall = 'getbenchmarks';
 
@@ -143,6 +190,12 @@ async function getBenchmarks(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get info on benchmark version and RCP port.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getInfo(req, res) {
   const rpccall = 'getInfo';
 
@@ -151,6 +204,12 @@ async function getInfo(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To show public IP address.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getPublicIp(req, res) {
   const rpccall = 'getpublicip';
 

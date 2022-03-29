@@ -1,4 +1,32 @@
-const config = require('config');
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: explorerService.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: explorerService.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>const config = require('config');
 const LRU = require('lru-cache');
 
 const log = require('../lib/log');
@@ -89,7 +117,7 @@ async function getSenderForFluxTxInsight(txid, vout) {
       },
     };
     const transaction = await daemonService.getRawTransaction(req);
-    if (transaction.status === 'success' && transaction.data.vout && transaction.data.vout[0]) {
+    if (transaction.status === 'success' &amp;&amp; transaction.data.vout &amp;&amp; transaction.data.vout[0]) {
       const transactionOutput = transaction.data.vout.find((txVout) => +txVout.n === +vout);
       if (transactionOutput) {
         const adjustedTxContent = {
@@ -237,7 +265,7 @@ async function processTransaction(txContent, height) {
   const database = db.db(config.database.daemon.database);
   let transactionDetail = {};
   transactionDetail = txContent;
-  if (txContent.version < 5 && txContent.version > 0) {
+  if (txContent.version &lt; 5 &amp;&amp; txContent.version > 0) {
     // if transaction has no vouts, it cannot be an utxo. Do not store it.
     await Promise.all(transactionDetail.vout.map(async (vout, index) => {
       // we need only utxo related information
@@ -261,7 +289,7 @@ async function processTransaction(txContent, height) {
         // put the utxo to our mongoDB utxoIndex collection.
         await dbHelper.insertOneToDatabase(database, utxoIndexCollection, utxoDetail);
         // track coinbase txs for additional rewards on paralel chains for fusion
-        if (coinbase && height > 825000) { // 825000 is snapshot, 825001 is first block eligible for rewards on other chains
+        if (coinbase &amp;&amp; height > 825000) { // 825000 is snapshot, 825001 is first block eligible for rewards on other chains
           await dbHelper.insertOneToDatabase(database, coinbaseFusionIndexCollection, utxoDetail);
         }
       }
@@ -346,7 +374,7 @@ function decodeMessage(asm) {
   if (parts[1]) {
     const encodedMessage = parts[1];
     const hexx = encodedMessage.toString(); // force conversion
-    for (let k = 0; k < hexx.length && hexx.substr(k, 2) !== '00'; k += 2) {
+    for (let k = 0; k &lt; hexx.length &amp;&amp; hexx.substr(k, 2) !== '00'; k += 2) {
       message += String.fromCharCode(
         parseInt(hexx.substr(k, 2), 16),
       );
@@ -368,7 +396,7 @@ async function processInsight(blockDataVerbose, database) {
   // go through each transaction in deltas
   // eslint-disable-next-line no-restricted-syntax
   for (const tx of txs) {
-    if (tx.version < 5 && tx.version > 0) {
+    if (tx.version &lt; 5 &amp;&amp; tx.version > 0) {
       let message = '';
       let isFluxAppMessageValue = 0;
       tx.vout.forEach((receiver) => {
@@ -382,10 +410,10 @@ async function processInsight(blockDataVerbose, database) {
           message = decodeMessage(receiver.scriptPubKey.asm);
         }
       });
-      const intervals = config.fluxapps.price.filter((i) => i.height <= blockDataVerbose.height);
+      const intervals = config.fluxapps.price.filter((i) => i.height &lt;= blockDataVerbose.height);
       const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
       // MAY contain App transaction. Store it.
-      if (isFluxAppMessageValue >= (priceSpecifications.minPrice * 1e8) && message.length === 64 && blockDataVerbose.height >= config.fluxapps.epochstart) { // min of 1 flux had to be paid for us bothering checking
+      if (isFluxAppMessageValue >= (priceSpecifications.minPrice * 1e8) &amp;&amp; message.length === 64 &amp;&amp; blockDataVerbose.height >= config.fluxapps.epochstart) { // min of 1 flux had to be paid for us bothering checking
         const appTxRecord = {
           txid: tx.txid, height: blockDataVerbose.height, hash: message, value: isFluxAppMessageValue, message: false, // message is boolean saying if we already have it stored as permanent message
         };
@@ -466,7 +494,7 @@ async function processStandard(blockDataVerbose, database) {
   // amount in address can be calculated from utxos. We do not need to store it.
   await Promise.all(transactions.map(async (tx) => {
     // normal transactions
-    if (tx.version < 5 && tx.version > 0) {
+    if (tx.version &lt; 5 &amp;&amp; tx.version > 0) {
       let message = '';
       let isFluxAppMessageValue = 0;
 
@@ -498,10 +526,10 @@ async function processStandard(blockDataVerbose, database) {
         };
         await dbHelper.updateOneInDatabase(database, addressTransactionIndexCollection, query, update, options);
       }));
-      const intervals = config.fluxapps.price.filter((i) => i.height <= blockDataVerbose.height);
+      const intervals = config.fluxapps.price.filter((i) => i.height &lt;= blockDataVerbose.height);
       const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
       // MAY contain App transaction. Store it.
-      if (isFluxAppMessageValue >= (priceSpecifications.minPrice * 1e8) && message.length === 64 && blockDataVerbose.height >= config.fluxapps.epochstart) { // min of 1 flux had to be paid for us bothering checking
+      if (isFluxAppMessageValue >= (priceSpecifications.minPrice * 1e8) &amp;&amp; message.length === 64 &amp;&amp; blockDataVerbose.height >= config.fluxapps.epochstart) { // min of 1 flux had to be paid for us bothering checking
         const appTxRecord = {
           txid: tx.txid, height: blockDataVerbose.height, hash: message, value: isFluxAppMessageValue, message: false, // message is boolean saying if we already have it stored as permanent message
         };
@@ -645,7 +673,7 @@ async function processBlock(blockHeight, isInsightExplorer) {
     log.error('Block processor encountered an error.');
     log.error(error);
     if (blockProccessingCanContinue) {
-      if (error.message && error.message.includes('duplicate key')) {
+      if (error.message &amp;&amp; error.message.includes('duplicate key')) {
         // do a deep rescan
         // eslint-disable-next-line no-use-before-define
         initiateBlockProcessor(true, true);
@@ -731,7 +759,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
     };
     let scannedBlockHeight = 0;
     const currentHeight = await dbHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
-    if (currentHeight && currentHeight.generalScannedHeight) {
+    if (currentHeight &amp;&amp; currentHeight.generalScannedHeight) {
       scannedBlockHeight = currentHeight.generalScannedHeight;
     }
     const daemonGetInfo = await daemonService.getInfo();
@@ -840,7 +868,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
       log.info('Preparation done');
     }
     if (daemonHeight > scannedBlockHeight) {
-      if (scannedBlockHeight !== 0 && restoreDatabase === true) {
+      if (scannedBlockHeight !== 0 &amp;&amp; restoreDatabase === true) {
         try {
           // adjust for initial reorg
           if (deepRestore === true) {
@@ -871,7 +899,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
         const reorganisations = daemonGetChainTips.data;
         // database can be off for up to 2 blocks compared to daemon
         const reorgDepth = scannedBlockHeight - 2;
-        const reorgs = reorganisations.filter((reorg) => reorg.status === 'valid-fork' && reorg.height === reorgDepth);
+        const reorgs = reorganisations.filter((reorg) => reorg.status === 'valid-fork' &amp;&amp; reorg.height === reorgDepth);
         let rescanDepth = 0;
         // if more valid forks on the same height. Restore from the longest one
         reorgs.forEach((reorg) => {
@@ -903,7 +931,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
       const isInsightExplorer = daemonService.isInsightExplorer();
       if (isInsightExplorer) {
         // if node is insight explorer based, we are only processing flux app messages
-        if (scannedBlockHeight < config.deterministicNodesStart - 1) {
+        if (scannedBlockHeight &lt; config.deterministicNodesStart - 1) {
           scannedBlockHeight = config.deterministicNodesStart - 1;
         }
       }
@@ -1214,7 +1242,7 @@ async function getFilteredFluxTxs(req, res) {
     } else if (filter.length === 64) {
       // collateralHash case
       query = { collateralHash: filter };
-    } else if (filter.length >= 30 && filter.length < 38) {
+    } else if (filter.length >= 30 &amp;&amp; filter.length &lt; 38) {
       // flux address case
       query = { zelAddress: filter };
     } else {
@@ -1334,14 +1362,14 @@ async function checkBlockProcessingStopped(i, callback) {
   blockProccessingCanContinue = false;
   clearTimeout(initBPfromErrorTimeout);
   clearTimeout(initBPfromNoBlockTimeout);
-  if (someBlockIsProcessing === false && isInInitiationOfBP === false) {
+  if (someBlockIsProcessing === false &amp;&amp; isInInitiationOfBP === false) {
     const succMessage = messageHelper.createSuccessMessage('Block processing is stopped');
     blockProccessingCanContinue = true;
     callback(succMessage);
   } else {
     setTimeout(() => {
       const j = i + 1;
-      if (j < 12) {
+      if (j &lt; 12) {
         checkBlockProcessingStopped(j, callback);
       } else {
         const errMessage = messageHelper.createErrorMessage('Unknown error occured. Try again later.');
@@ -1468,10 +1496,10 @@ async function rescanExplorer(req, res) {
       if (!currentHeight) {
         throw new Error('No scanned height found');
       }
-      if (currentHeight.generalScannedHeight <= blockheight) {
+      if (currentHeight.generalScannedHeight &lt;= blockheight) {
         throw new Error('Block height shall be lower than currently scanned');
       }
-      if (blockheight < 0) {
+      if (blockheight &lt; 0) {
         throw new Error('BlockHeight lower than 0');
       }
       let { rescanapps } = req.params;
@@ -1585,3 +1613,27 @@ module.exports = {
   getAllFusionCoinbase,
   getAddressFusionCoinbase,
 };
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Modules</h3><ul><li><a href="Contains%2520utility%2520functions%2520to%2520be%2520used%2520only%2520by%2520verificationHelper.%250ATo%2520verify%2520privilege%2520use%2520verifyPrivilege%2520from%2520verificationHelper%2520module.module_.html">Contains utility functions to be used only by verificationHelper.
+To verify privilege use verifyPrivilege from verificationHelper module.</a></li><li><a href="module-Helper%2520module%2520used%2520for%2520all%2520interactions%2520with%2520database.html">Helper module used for all interactions with database</a></li></ul><h3>Global</h3><ul><li><a href="global.html#activeLoginPhrases">activeLoginPhrases</a></li><li><a href="global.html#appDockerCreate">appDockerCreate</a></li><li><a href="global.html#appDockerImageRemove">appDockerImageRemove</a></li><li><a href="global.html#appDockerKill">appDockerKill</a></li><li><a href="global.html#appDockerPause">appDockerPause</a></li><li><a href="global.html#appDockerRemove">appDockerRemove</a></li><li><a href="global.html#appDockerRestart">appDockerRestart</a></li><li><a href="global.html#appDockerStart">appDockerStart</a></li><li><a href="global.html#appDockerStop">appDockerStop</a></li><li><a href="global.html#appDockerTop">appDockerTop</a></li><li><a href="global.html#appDockerUnpause">appDockerUnpause</a></li><li><a href="global.html#axiosGet">axiosGet</a></li><li><a href="global.html#checkBlockProcessingStopped">checkBlockProcessingStopped</a></li><li><a href="global.html#checkLoggedUser">checkLoggedUser</a></li><li><a href="global.html#checkSynced">checkSynced</a></li><li><a href="global.html#checkWhitelistedRepository">checkWhitelistedRepository</a></li><li><a href="global.html#checkWhitelistedZelID">checkWhitelistedZelID</a></li><li><a href="global.html#confirmNodeTierHardware">confirmNodeTierHardware</a></li><li><a href="global.html#createDataMessage">createDataMessage</a></li><li><a href="global.html#createErrorMessage">createErrorMessage</a></li><li><a href="global.html#createFluxDockerNetwork">createFluxDockerNetwork</a></li><li><a href="global.html#createSuccessMessage">createSuccessMessage</a></li><li><a href="global.html#createWarningMessage">createWarningMessage</a></li><li><a href="global.html#decodeMessage">decodeMessage</a></li><li><a href="global.html#delay">delay</a></li><li><a href="global.html#deleteLoginPhrase">deleteLoginPhrase</a></li><li><a href="global.html#dockerContainerChanges">dockerContainerChanges</a></li><li><a href="global.html#dockerContainerExec">dockerContainerExec</a></li><li><a href="global.html#dockerContainerInspect">dockerContainerInspect</a></li><li><a href="global.html#dockerContainerLogs">dockerContainerLogs</a></li><li><a href="global.html#dockerContainerLogsStream">dockerContainerLogsStream</a></li><li><a href="global.html#dockerContainerStats">dockerContainerStats</a></li><li><a href="global.html#dockerCreateNetwork">dockerCreateNetwork</a></li><li><a href="global.html#dockerListContainers">dockerListContainers</a></li><li><a href="global.html#dockerListImages">dockerListImages</a></li><li><a href="global.html#dockerNetworkInspect">dockerNetworkInspect</a></li><li><a href="global.html#dockerRemoveNetwork">dockerRemoveNetwork</a></li><li><a href="global.html#emergencyPhrase">emergencyPhrase</a></li><li><a href="global.html#ensureBoolean">ensureBoolean</a></li><li><a href="global.html#ensureNumber">ensureNumber</a></li><li><a href="global.html#ensureObject">ensureObject</a></li><li><a href="global.html#ensureString">ensureString</a></li><li><a href="global.html#errUnauthorizedMessage">errUnauthorizedMessage</a></li><li><a href="global.html#executeCall">executeCall</a></li><li><a href="global.html#getAddressBalance">getAddressBalance</a></li><li><a href="global.html#getAddressFusionCoinbase">getAddressFusionCoinbase</a></li><li><a href="global.html#getAddressTransactions">getAddressTransactions</a></li><li><a href="global.html#getAddressUtxos">getAddressUtxos</a></li><li><a href="global.html#getAllAddresses">getAllAddresses</a></li><li><a href="global.html#getAllAddressesWithTransactions">getAllAddressesWithTransactions</a></li><li><a href="global.html#getAllFluxTransactions">getAllFluxTransactions</a></li><li><a href="global.html#getAllFusionCoinbase">getAllFusionCoinbase</a></li><li><a href="global.html#getAllUtxos">getAllUtxos</a></li><li><a href="global.html#getAppDockerNameIdentifier">getAppDockerNameIdentifier</a></li><li><a href="global.html#getAppIdentifier">getAppIdentifier</a></li><li><a href="global.html#getApplicationOwner">getApplicationOwner</a></li><li><a href="global.html#getBenchmarks">getBenchmarks</a></li><li><a href="global.html#getCollateralInfo">getCollateralInfo</a></li><li><a href="global.html#getDockerContainer">getDockerContainer</a></li><li><a href="global.html#getDockerContainerByIdOrName">getDockerContainerByIdOrName</a></li><li><a href="global.html#getFilteredFluxTxs">getFilteredFluxTxs</a></li><li><a href="global.html#getGatewayApi">getGatewayApi</a></li><li><a href="global.html#getInfo">getInfo</a></li><li><a href="global.html#getIpApi">getIpApi</a></li><li><a href="global.html#getMapApi">getMapApi</a></li><li><a href="global.html#getPublicIp">getPublicIp</a></li><li><a href="global.html#getScannedHeight">getScannedHeight</a></li><li><a href="global.html#getSender">getSender</a></li><li><a href="global.html#getSenderForFluxTx">getSenderForFluxTx</a></li><li><a href="global.html#getSenderForFluxTxInsight">getSenderForFluxTxInsight</a></li><li><a href="global.html#getSenderTransactionFromDaemon">getSenderTransactionFromDaemon</a></li><li><a href="global.html#getStatus">getStatus</a></li><li><a href="global.html#getVerboseBlock">getVerboseBlock</a></li><li><a href="global.html#help">help</a></li><li><a href="global.html#initiateBlockProcessor">initiateBlockProcessor</a></li><li><a href="global.html#isNodeStatusConfirmed">isNodeStatusConfirmed</a></li><li><a href="global.html#isUPNP">isUPNP</a></li><li><a href="global.html#loggedSessions">loggedSessions</a></li><li><a href="global.html#loggedUsers">loggedUsers</a></li><li><a href="global.html#loginPhrase">loginPhrase</a></li><li><a href="global.html#logoutAllSessions">logoutAllSessions</a></li><li><a href="global.html#logoutAllUsers">logoutAllUsers</a></li><li><a href="global.html#logoutCurrentSession">logoutCurrentSession</a></li><li><a href="global.html#logoutSpecificSession">logoutSpecificSession</a></li><li><a href="global.html#mapPortApi">mapPortApi</a></li><li><a href="global.html#mapUpnpPort">mapUpnpPort</a></li><li><a href="global.html#messageHash">messageHash</a></li><li><a href="global.html#nodeCollateral">nodeCollateral</a></li><li><a href="global.html#nodeTier">nodeTier</a></li><li><a href="global.html#processBlock">processBlock</a></li><li><a href="global.html#processBlockTransactions">processBlockTransactions</a></li><li><a href="global.html#processInsight">processInsight</a></li><li><a href="global.html#processStandard">processStandard</a></li><li><a href="global.html#processTransaction">processTransaction</a></li><li><a href="global.html#provideSign">provideSign</a></li><li><a href="global.html#reindexExplorer">reindexExplorer</a></li><li><a href="global.html#removeMapPortApi">removeMapPortApi</a></li><li><a href="global.html#removeMapUpnpPort">removeMapUpnpPort</a></li><li><a href="global.html#rescanExplorer">rescanExplorer</a></li><li><a href="global.html#restartBlockProcessing">restartBlockProcessing</a></li><li><a href="global.html#restartNodeBenchmarks">restartNodeBenchmarks</a></li><li><a href="global.html#restoreDatabaseToBlockheightState">restoreDatabaseToBlockheightState</a></li><li><a href="global.html#setupUPNP">setupUPNP</a></li><li><a href="global.html#signFluxTransaction">signFluxTransaction</a></li><li><a href="global.html#signFluxTransactionPost">signFluxTransactionPost</a></li><li><a href="global.html#signMessage">signMessage</a></li><li><a href="global.html#startFluxFunctions">startFluxFunctions</a></li><li><a href="global.html#stop">stop</a></li><li><a href="global.html#stopBlockProcessing">stopBlockProcessing</a></li><li><a href="global.html#verifyLogin">verifyLogin</a></li><li><a href="global.html#verifyMessage">verifyMessage</a></li><li><a href="global.html#verifyPrivilege">verifyPrivilege</a></li><li><a href="global.html#verifyUPNPsupport">verifyUPNPsupport</a></li><li><a href="global.html#verifyZelID">verifyZelID</a></li><li><a href="global.html#whitelistedRepositories">whitelistedRepositories</a></li><li><a href="global.html#whitelistedZelIDs">whitelistedZelIDs</a></li><li><a href="global.html#wsRespondLoginPhrase">wsRespondLoginPhrase</a></li><li><a href="global.html#wsRespondSignature">wsRespondSignature</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.10</a> on Mon Mar 14 2022 10:24:55 GMT+0700 (Indočínský čas)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

@@ -425,7 +425,7 @@ async function appUnpause(req, res) {
 
     let appRes;
     if (isComponent) {
-      appRes = await dockerService.appDockerUnpase(appname);
+      appRes = await dockerService.appDockerUnpause(appname);
     } else {
       // ask for starting entire composed application
       // eslint-disable-next-line no-use-before-define
@@ -434,12 +434,12 @@ async function appUnpause(req, res) {
         throw new Error('Application not found');
       }
       if (appSpecs.version <= 3) {
-        appRes = await dockerService.appDockerUnpase(appname);
+        appRes = await dockerService.appDockerUnpause(appname);
       } else {
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of appSpecs.compose) {
           // eslint-disable-next-line no-await-in-loop
-          await dockerService.appDockerUnpase(`${appComponent.name}_${appSpecs.name}`);
+          await dockerService.appDockerUnpause(`${appComponent.name}_${appSpecs.name}`);
         }
         appRes = `Application ${appSpecs.name} unpaused`;
       }
@@ -1238,7 +1238,8 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
         await fluxCommunication.denyPort(serviceHelper.ensureNumber(port));
       }
     }
-    if (userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) {
+    const isUPNP = upnpService.isUPNP();
+    if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
       // eslint-disable-next-line no-restricted-syntax
       for (const port of appSpecifications.ports) {
         // eslint-disable-next-line no-await-in-loop
@@ -1251,7 +1252,8 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
     if (firewallActive) {
       await fluxCommunication.denyPort(serviceHelper.ensureNumber(appSpecifications.port));
     }
-    if (userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) {
+    const isUPNP = upnpService.isUPNP();
+    if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
       await upnpService.removeMapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port));
     }
   }
@@ -1649,13 +1651,14 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
   if (appSpecifications.ports) {
     const firewallActive = await fluxCommunication.isFirewallActive();
     if (firewallActive) {
-    // eslint-disable-next-line no-restricted-syntax
+      // eslint-disable-next-line no-restricted-syntax
       for (const port of appSpecifications.ports) {
-      // eslint-disable-next-line no-await-in-loop
+        // eslint-disable-next-line no-await-in-loop
         await fluxCommunication.denyPort(serviceHelper.ensureNumber(port));
       }
     }
-    if (userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) {
+    const isUPNP = upnpService.isUPNP();
+    if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
       // eslint-disable-next-line no-restricted-syntax
       for (const port of appSpecifications.ports) {
         // eslint-disable-next-line no-await-in-loop
@@ -1668,7 +1671,8 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
     if (firewallActive) {
       await fluxCommunication.denyPort(serviceHelper.ensureNumber(appSpecifications.port));
     }
-    if (userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) {
+    const isUPNP = upnpService.isUPNP();
+    if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
       await upnpService.removeMapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port));
     }
   }
@@ -1944,7 +1948,8 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
     } else {
       log.info('Firewall not active, application ports are open');
     }
-    if (userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) {
+    const isUPNP = upnpService.isUPNP();
+    if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
       log.info('Custom port specified, mapping ports');
       // eslint-disable-next-line no-restricted-syntax
       for (const port of appSpecifications.ports) {
@@ -1982,7 +1987,8 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
     } else {
       log.info('Firewall not active, application ports are open');
     }
-    if (userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) {
+    const isUPNP = upnpService.isUPNP();
+    if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
       log.info('Custom port specified, mapping ports');
       const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port));
       if (portResponse === true) {
@@ -2215,7 +2221,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
         const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(port));
         if (portResponse.status === true) {
           const portStatus = {
-            status: `'Port ${port} OK'`,
+            status: `Port ${port} OK`,
           };
           log.info(portStatus);
           if (res) {
@@ -2228,7 +2234,8 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
     } else {
       log.info('Firewall not active, application ports are open');
     }
-    if (userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) {
+    const isUPNP = upnpService.isUPNP();
+    if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
       log.info('Custom port specified, mapping ports');
       // eslint-disable-next-line no-restricted-syntax
       for (const port of appSpecifications.ports) {
@@ -2250,7 +2257,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
   } else if (appSpecifications.port) {
     const firewallActive = await fluxCommunication.isFirewallActive();
     if (firewallActive) {
-    // v1 compatibility
+      // v1 compatibility
       const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(appSpecifications.port));
       if (portResponse.status === true) {
         const portStatus = {
@@ -2266,7 +2273,8 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
     } else {
       log.info('Firewall not active, application ports are open');
     }
-    if (userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) {
+    const isUPNP = upnpService.isUPNP();
+    if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
       log.info('Custom port specified, mapping ports');
       const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port));
       if (portResponse === true) {
@@ -2916,6 +2924,33 @@ async function verifyRepository(repotag) {
   return true;
 }
 
+async function checkApplicationImagesComplience(appSpecs) {
+  const resBlockedRepo = await serviceHelper.axiosGet('https://raw.githubusercontent.com/runonflux/flux/master/helpers/blockedrepositories.json');
+
+  if (!resBlockedRepo) {
+    throw new Error('Unable to communicate with Flux Services! Try again later.');
+  }
+
+  const repos = resBlockedRepo.data;
+
+  const images = [];
+  if (appSpecs.version <= 3) {
+    images.push(appSpecs.repotag);
+  } else {
+    appSpecs.compose.forEach((component) => {
+      images.push(component.repotag);
+    });
+  }
+
+  images.forEach((image) => {
+    if (repos.includes(image)) {
+      throw new Error(`Repository ${image} is blocked. Application ${appSpecs.name} connot be spawned.`);
+    }
+  });
+
+  return true;
+}
+
 function verifyCorrectnessOfApp(appSpecification) {
   const { version } = appSpecification;
   const { name } = appSpecification;
@@ -3187,7 +3222,7 @@ function ensureAppUniquePorts(appSpecFormatted) {
   return true;
 }
 
-async function verifyAppSpecifications(appSpecifications, height) {
+async function verifyAppSpecifications(appSpecifications, height, checkDockerAndWhitelist = false) {
   if (!appSpecifications) {
     throw new Error('Invalid Flux App Specifications');
   }
@@ -3271,11 +3306,13 @@ async function verifyAppSpecifications(appSpecifications, height) {
       throw new Error('Flux App container data folder not specified. If no data folder is whished, use /tmp');
     }
 
-    // check repotag if available for download
-    await verifyRepository(appSpecifications.repotag);
+    if (checkDockerAndWhitelist) {
+      // check repository whitelisted
+      await generalService.checkWhitelistedRepository(appSpecifications.repotag);
 
-    // check repository whitelisted
-    await generalService.checkWhitelistedRepository(appSpecifications.repotag);
+      // check repotag if available for download
+      await verifyRepository(appSpecifications.repotag);
+    }
   } else {
     console.log(appSpecifications);
     if (!Array.isArray(appSpecifications.compose)) {
@@ -3354,13 +3391,15 @@ async function verifyAppSpecifications(appSpecifications, height) {
 
       checkComposeHWParameters(appSpecifications);
 
-      // check repotag if available for download
-      // eslint-disable-next-line no-await-in-loop
-      await verifyRepository(appComponent.repotag);
+      if (checkDockerAndWhitelist) {
+        // check repository whitelisted
+        // eslint-disable-next-line no-await-in-loop
+        await generalService.checkWhitelistedRepository(appComponent.repotag);
 
-      // check repository whitelisted
-      // eslint-disable-next-line no-await-in-loop
-      await generalService.checkWhitelistedRepository(appComponent.repotag);
+        // check repotag if available for download
+        // eslint-disable-next-line no-await-in-loop
+        await verifyRepository(appComponent.repotag);
+      }
     }
   }
 
@@ -3470,9 +3509,9 @@ async function verifyAppSpecifications(appSpecifications, height) {
       });
     });
   }
-  if (height < 1004000) {
-    // check ZelID whitelisted
-    await generalService.checkWhitelistedZelID(appSpecifications.owner);
+
+  if (checkDockerAndWhitelist) {
+    await checkApplicationImagesComplience(appSpecifications); // check blacklist
   }
 }
 
@@ -3525,6 +3564,9 @@ async function assignedPortsGlobalApps(appNames) {
       name: app,
     });
   });
+  if (!appsQuery.length) {
+    return [];
+  }
   const query = {
     $or: appsQuery,
   };
@@ -3564,7 +3606,7 @@ async function assignedPortsGlobalApps(appNames) {
 
 async function ensureApplicationPortsNotUsed(appSpecFormatted, globalCheckedApps) {
   let currentAppsPorts = await assignedPortsInstalledApps();
-  if (globalCheckedApps) {
+  if (globalCheckedApps && globalCheckedApps.length) {
     const globalAppsPorts = await assignedPortsGlobalApps(globalCheckedApps);
     currentAppsPorts = currentAppsPorts.concat(globalAppsPorts);
   }
@@ -4383,7 +4425,7 @@ async function registerAppGlobalyApi(req, res) {
       const daemonHeight = syncStatus.data.height;
 
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
-      await verifyAppSpecifications(appSpecFormatted, daemonHeight);
+      await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
 
       // check if name is not yet registered
       await checkApplicationRegistrationNameConflicts(appSpecFormatted);
@@ -4495,7 +4537,7 @@ async function updateAppGlobalyApi(req, res) {
       const daemonHeight = syncStatus.data.height;
 
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
-      await verifyAppSpecifications(appSpecFormatted, daemonHeight);
+      await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
 
       // verify that app exists, does not change repotag and is signed by app owner.
       const db = dbHelper.databaseConnection();
@@ -5528,33 +5570,6 @@ async function getApplicationOwnerAPI(req, res) {
   }
 }
 
-async function checkApplicationImagesComplience(appSpecs) {
-  const resBlockedRepo = await serviceHelper.axiosGet('https://raw.githubusercontent.com/runonflux/flux/master/helpers/blockedrepositories.json');
-
-  if (!resBlockedRepo) {
-    throw new Error('Unable to communicate with Flux Services! Try again later.');
-  }
-
-  const repos = resBlockedRepo.data;
-
-  const images = [];
-  if (appSpecs.version <= 3) {
-    images.push(appSpecs.repotag);
-  } else {
-    appSpecs.compose.forEach((component) => {
-      images.push(component.repotag);
-    });
-  }
-
-  images.forEach((image) => {
-    if (repos.includes(image)) {
-      throw new Error(`Repository ${image} is blocked. Application ${appSpecs.name} connot be spawned.`);
-    }
-  });
-
-  return true;
-}
-
 async function trySpawningGlobalApplication() {
   try {
     // how do we continue with this function function?
@@ -5699,9 +5714,16 @@ async function trySpawningGlobalApplication() {
           }
         }
       }
+      // check repository whitelisted
+      // eslint-disable-next-line no-await-in-loop
+      await generalService.checkWhitelistedRepository(componentToInstall.repotag);
+
+      // check repotag if available for download
+      // eslint-disable-next-line no-await-in-loop
+      await verifyRepository(componentToInstall.repotag);
     }
 
-    // check if application image is not blacklisted
+    // verify app compliance
     await checkApplicationImagesComplience(appSpecifications).catch((error) => {
       log.error(error);
       trySpawningGlobalAppCache.set(randomApp, randomApp);
@@ -6397,7 +6419,7 @@ async function verifyAppRegistrationParameters(req, res) {
       const daemonHeight = syncStatus.data.height;
 
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
-      await verifyAppSpecifications(appSpecFormatted, daemonHeight);
+      await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
 
       // check if name is not yet registered
       await checkApplicationRegistrationNameConflicts(appSpecFormatted);
@@ -6438,7 +6460,7 @@ async function verifyAppUpdateParameters(req, res) {
       const daemonHeight = syncStatus.data.height;
 
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
-      await verifyAppSpecifications(appSpecFormatted, daemonHeight);
+      await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
 
       // check if name is not yet registered
       const timestamp = new Date().getTime();

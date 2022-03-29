@@ -103,9 +103,9 @@ export default {
     // Set RTL
     const { isRTL } = $themeConfig.layout;
     document.documentElement.setAttribute('dir', isRTL ? 'rtl' : 'ltr');
-    this.adjustHostnameAndPort();
   },
   created() {
+    this.adjustHostnameAndPort();
     this.getZelIdLoginPhrase();
   },
   methods: {
