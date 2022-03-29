@@ -10,6 +10,7 @@ const verificationHelper = require('../../ZelBack/src/services/verificationHelpe
 const generalService = require('../../ZelBack/src/services/generalService');
 const { outgoingConnections } = require('../../ZelBack/src/services/utils/outgoingConnections');
 const { outgoingPeers } = require('../../ZelBack/src/services/utils/outgoingPeers');
+const { incomingPeers } = require('../../ZelBack/src/services/utils/incomingPeers');
 const { incomingConnections } = require('../../ZelBack/src/services/utils/incomingConnections');
 
 const connectWs = (address) => new Promise(((resolve, reject) => {
@@ -113,7 +114,7 @@ describe('fluxCommunication tests', () => {
 
       sinon.assert.calledOnceWithExactly(sendToAllPeersSpy, messageString, wsListOut);
       sinon.assert.calledOnceWithExactly(sendToAllIncomingConnectionsSpy, messageString, wsListIn);
-    }).timeout(5000);
+    }).timeout(10000);
 
     it('should not send broadcast if signature is invalid', async () => {
       const fromIp = '127.0.0.5';
@@ -262,7 +263,7 @@ describe('fluxCommunication tests', () => {
 
       sinon.assert.calledOnceWithExactly(sendToAllPeersSpy, messageString, wsListOut);
       sinon.assert.calledOnceWithExactly(sendToAllIncomingConnectionsSpy, messageString, wsListIn);
-    }).timeout(5000);
+    }).timeout(10000);
 
     it('should not send broadcast if message is older than 3900 seconds', async () => {
       const fromIp = '127.0.0.5';
@@ -396,7 +397,7 @@ describe('fluxCommunication tests', () => {
     });
   });
 
-  describe.only('removePeer tests', () => {
+  describe('removePeer tests', () => {
     let verificationHelperStub;
 
     beforeEach(() => {
@@ -578,6 +579,202 @@ describe('fluxCommunication tests', () => {
       const res = generateResponse();
 
       const result = await fluxCommunication.removePeer(req, res);
+
+      expect(result).to.eql(expectedResult);
+      sinon.assert.calledOnceWithExactly(verificationHelperStub, 'adminandfluxteam', req);
+    });
+  });
+
+  describe('removeIncomingPeer tests', () => {
+    let verificationHelperStub;
+
+    beforeEach(() => {
+      incomingPeers.length = 0;
+
+      const peer1 = {
+        ip: '127.0.3.1',
+        lastPingTime: null,
+        latency: null,
+      };
+      const peer2 = {
+        ip: '192.168.0.0',
+        lastPingTime: new Date().getTime(),
+        latency: 50,
+      };
+      incomingPeers.push(peer1);
+      incomingPeers.push(peer2);
+    });
+
+    afterEach(() => {
+      incomingConnections.length = 0;
+      incomingPeers.length = 0;
+      sinon.restore();
+    });
+
+    it('should close the connection with ip given in params if it exists', async () => {
+      const wsuri1 = 'wss://api.runonflux.io/ws/flux/';
+      const wsIncoming1 = await connectWs(wsuri1);
+      wsIncoming1._socket = { remoteAddress: '127.0.3.1' };
+      wsIncoming1.close = () => true;
+      incomingConnections.push(wsIncoming1);
+      verificationHelperStub = sinon.stub(verificationHelper, 'verifyPrivilege').returns(true);
+      const expectedResult = {
+        status: 'success',
+        data: {
+          code: undefined,
+          name: undefined,
+          message: 'Incoming connection to 127.0.3.1 closed',
+        },
+      };
+      const req = {
+        params: {
+          ip: '127.0.3.1',
+        },
+      };
+      const generateResponse = () => {
+        const res = { test: 'testing' };
+        res.status = sinon.stub().returns(res);
+        res.json = sinon.fake((param) => param);
+        return res;
+      };
+      const res = generateResponse();
+      const expressWsList = { clients: [wsIncoming1] };
+
+      const result = await fluxCommunication.removeIncomingPeer(req, res, expressWsList);
+
+      expect(result).to.eql(expectedResult);
+      sinon.assert.calledOnceWithExactly(verificationHelperStub, 'adminandfluxteam', req);
+    }).timeout(5000);
+
+    it('should close the connection with ip given in query if it exists', async () => {
+      const wsuri1 = 'wss://api.runonflux.io/ws/flux/';
+      const wsIncoming1 = await connectWs(wsuri1);
+      wsIncoming1._socket = { remoteAddress: '127.0.3.1' };
+      wsIncoming1.close = () => true;
+      incomingConnections.push(wsIncoming1);
+      verificationHelperStub = sinon.stub(verificationHelper, 'verifyPrivilege').returns(true);
+      const expectedResult = {
+        status: 'success',
+        data: {
+          code: undefined,
+          name: undefined,
+          message: 'Incoming connection to 127.0.3.1 closed',
+        },
+      };
+      const req = {
+        params: {
+          test: 'test',
+        },
+        query: {
+          ip: '127.0.3.1',
+        },
+      };
+      const generateResponse = () => {
+        const res = { test: 'testing' };
+        res.status = sinon.stub().returns(res);
+        res.json = sinon.fake((param) => param);
+        return res;
+      };
+      const res = generateResponse();
+      const expressWsList = { clients: [wsIncoming1] };
+
+      const result = await fluxCommunication.removeIncomingPeer(req, res, expressWsList);
+
+      expect(result).to.eql(expectedResult);
+      sinon.assert.calledOnceWithExactly(verificationHelperStub, 'adminandfluxteam', req);
+    }).timeout(5000);
+
+    it('should issue a warning if a connection does not exist', async () => {
+      const wsuri1 = 'wss://api.runonflux.io/ws/flux/';
+      const wsIncoming1 = await connectWs(wsuri1);
+      wsIncoming1._socket = { remoteAddress: '128.1.3.4' };
+      wsIncoming1.close = () => true;
+      incomingConnections.push(wsIncoming1);
+      verificationHelperStub = sinon.stub(verificationHelper, 'verifyPrivilege').returns(true);
+      const expectedResult = {
+        status: 'warning',
+        data: {
+          code: undefined,
+          name: undefined,
+          message: 'Connection from 127.0.3.1 does not exists.',
+        },
+      };
+      const req = {
+        params: {
+          ip: '127.0.3.1',
+        },
+      };
+      const generateResponse = () => {
+        const res = { test: 'testing' };
+        res.status = sinon.stub().returns(res);
+        res.json = sinon.fake((param) => param);
+        return res;
+      };
+      const res = generateResponse();
+      const expressWsList = { clients: [wsIncoming1] };
+
+      const result = await fluxCommunication.removeIncomingPeer(req, res, expressWsList);
+
+      expect(result).to.eql(expectedResult);
+      sinon.assert.calledOnceWithExactly(verificationHelperStub, 'adminandfluxteam', req);
+    });
+
+    it('should issue an error message if ip is not provided', async () => {
+      verificationHelperStub = sinon.stub(verificationHelper, 'verifyPrivilege').returns(true);
+      const expectedResult = {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: undefined,
+          message: 'No IP address specified.',
+        },
+      };
+      const req = {
+        params: {
+          test: 'test1',
+        },
+        query: {
+          test2: 'test3',
+        },
+      };
+      const generateResponse = () => {
+        const res = { test: 'testing' };
+        res.status = sinon.stub().returns(res);
+        res.json = sinon.fake((param) => param);
+        return res;
+      };
+      const res = generateResponse();
+
+      const result = await fluxCommunication.removeIncomingPeer(req, res);
+
+      expect(result).to.eql(expectedResult);
+      sinon.assert.neverCalledWith(verificationHelperStub);
+    });
+
+    it('should issue an error message if user is unauthorized', async () => {
+      verificationHelperStub = sinon.stub(verificationHelper, 'verifyPrivilege').returns(false);
+      const expectedResult = {
+        status: 'error',
+        data: {
+          code: 401,
+          name: 'Unauthorized',
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      const req = {
+        params: {
+          ip: '127.0.3.1',
+        },
+      };
+      const generateResponse = () => {
+        const res = { test: 'testing' };
+        res.status = sinon.stub().returns(res);
+        res.json = sinon.fake((param) => param);
+        return res;
+      };
+      const res = generateResponse();
+
+      const result = await fluxCommunication.removeIncomingPeer(req, res);
 
       expect(result).to.eql(expectedResult);
       sinon.assert.calledOnceWithExactly(verificationHelperStub, 'adminandfluxteam', req);
