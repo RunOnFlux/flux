@@ -311,7 +311,7 @@ export default {
   data() {
     return {
       interceptorID: 0,
-      cumulusHostingCost: 10,
+      cumulusHostingCost: 16,
       nimbusHostingCost: 25,
       stratusHostingCost: 52,
       weeksInAMonth: 4.34812141,
