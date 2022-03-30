@@ -18,6 +18,7 @@ let response = messageHelper.createErrorMessage();
 
 /**
  * To execute a remote procedure call (RPC).
+ *
  * @param {string} rpc Remote procedure call.
  * @param {string[]} params RPC parameters.
  * @returns {object} Message.
@@ -219,6 +220,8 @@ async function getPublicIp(req, res) {
 }
 
 module.exports = {
+  // == Export for testing purposes ==
+  executeCall,
   // == Benchmarks ==
   getStatus,
   restartNodeBenchmarks,
