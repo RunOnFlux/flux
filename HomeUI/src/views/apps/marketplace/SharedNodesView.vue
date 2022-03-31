@@ -648,25 +648,25 @@
           >
             <div>
               <h3 class="float-left">
-                50
+                {{ minStakeAmount }}
               </h3>
               <h3 class="float-right">
-                40,000
+                {{ maxStakeAmount }}
               </h3>
             </div>
             <b-form-input
               id="stakeamount"
               v-model="stakeAmount"
               type="range"
-              min="50"
-              max="40000"
+              :min="minStakeAmount"
+              :max="maxStakeAmount"
               step="5"
             />
             <b-form-spinbutton
               id="stakeamount-spnner"
               v-model="stakeAmount"
-              min="50"
-              max="40000"
+              :min="minStakeAmount"
+              :max="maxStakeAmount"
               size="lg"
               :formatter-fn="toFixedLocaleString"
               class="stakeAmountSpinner"
@@ -925,11 +925,13 @@ export default {
     const userZelid = ref('');
     userZelid.value = props.zelid;
 
-    // const apiURL = 'http://192.168.68.144:1234';
-    const apiURL = 'http://titantest.runonflux.io:54978';
+    const apiURL = 'http://192.168.68.144:1234';
+    // const apiURL = 'http://titantest.runonflux.io:54978';
 
     const totalReward = ref(0);
-    const stakeAmount = ref(200);
+    const stakeAmount = ref(50);
+    const minStakeAmount = ref(50);
+    const maxStakeAmount = ref(1000);
     const selectedLockupIndex = ref(0);
     const dataToSign = ref(null);
     const signature = ref(null);
@@ -1157,7 +1159,7 @@ export default {
       stakeRegistered.value = false;
       stakeRegisterFailed.value = false;
       registeringStake.value = false;
-      stakeAmount.value = 50;
+      stakeAmount.value = minStakeAmount.value;
       selectedLockupIndex.value = 0;
       signature.value = null;
       signatureHash.value = null;
@@ -1350,6 +1352,8 @@ export default {
       stakeModalShowing,
       showStakeDialog,
       stakeAmount,
+      minStakeAmount,
+      maxStakeAmount,
       stakeRegistered,
       stakeRegisterFailed,
       selectedLockupIndex,
