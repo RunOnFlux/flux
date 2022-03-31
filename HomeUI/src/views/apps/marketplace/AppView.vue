@@ -300,7 +300,7 @@
         />
         <list-entry
           title="Automatic Domains"
-          :data="constructAutomaticDomains(currentComponent.ports, currentComponent.name, appData.name).join(', ')"
+          :data="constructAutomaticDomains(appData.name).join(', ')"
         />
         <list-entry
           title="Ports"
@@ -692,42 +692,6 @@ export default {
       maxScrollbarLength: 150,
     };
 
-    const globalApps = ref([]);
-    const getGlobalAppList = async () => {
-      const response = await AppsService.globalAppSpecifications();
-      globalApps.value = response.data.data;
-    };
-    const isPortInUse = (port) => {
-      for (let i = 0; i < globalApps.value.length; i += 1) {
-        const app = globalApps.value[i];
-        if (app.version <= 3) {
-          if (app.ports.length > 0) {
-            const used = app.ports.every((value) => Number(value) === port);
-            if (used) return true;
-          }
-        } else {
-          // v4 apps have 1 or more components
-          for (let c = 0; c < app.compose.length; c += 1) {
-            const component = app.compose[c];
-            if (component.ports.length > 0) {
-              const used = component.ports.every((value) => Number(value) === port);
-              if (used) return true;
-            }
-          }
-        }
-      }
-      // Check the current app spec, incase of a duplicate port from another component
-      for (let c = 0; c < props.appData.compose.length; c += 1) {
-        const component = props.appData.compose[c];
-        if (component.ports.length > 0) {
-          const used = component.ports.every((value) => Number(value) === port);
-          if (used) return true;
-        }
-      }
-      return false;
-    };
-    getGlobalAppList();
-
     const resolveCpu = (app) => app.compose.reduce((total, component) => total + component.cpu, 0);
 
     const resolveRam = (app) => app.compose.reduce((total, component) => total + component.ram, 0);
@@ -759,25 +723,6 @@ export default {
         series: [((resolveHdd(props.appData) / 570) * 100)],
       };
 
-      // Create a random port from the app's port specs that is not present on any other app
-      props.appData.compose.forEach((component) => {
-        // eslint-disable-next-line no-param-reassign
-        component.ports = [];
-        component.portSpecs.forEach((portSpec) => {
-          const portSpecParsed = portSpec.split('-');
-          const minPort = Number(portSpecParsed[0]);
-          const maxPort = Number(portSpecParsed[1]);
-          let checking = true;
-          do {
-            const newPort = minPort + Math.round(Math.random() * (maxPort - minPort));
-            if (!isPortInUse(newPort)) {
-              checking = false;
-              component.ports.push(newPort);
-            }
-          } while (checking);
-        });
-      });
-
       // Evaluate any user parameters from the database
       props.appData.compose.forEach((component) => {
         const paramModel = component.userEnvironmentParameters;
@@ -795,28 +740,13 @@ export default {
 
     const constructUniqueAppName = (appName) => `${appName}${Date.now()}`;
 
-    const constructAutomaticDomains = (ports, componentName = '', appName) => {
+    const constructAutomaticDomains = (appName) => {
       if (!userZelid.value) {
         return ['No ZelID'];
       }
       const appNameWithTimestamp = constructUniqueAppName(appName);
       const lowerCaseName = appNameWithTimestamp.toLowerCase();
-      const lowerCaseCopmonentName = componentName.toLowerCase();
-      if (!lowerCaseCopmonentName) {
-        const domains = [`${lowerCaseName}.app.runonflux.io`];
-        // flux specs dont allow more than 10 ports so domainString is enough
-        for (let i = 0; i < ports.length; i += 1) {
-          const portDomain = `${lowerCaseName}_${ports[i]}.app.runonflux.io`;
-          domains.push(portDomain);
-        }
-        return domains;
-      }
       const domains = [`${lowerCaseName}.app.runonflux.io`];
-      // flux specs dont allow more than 10 ports so domainString is enough
-      for (let i = 0; i < ports.length; i += 1) {
-        const portDomain = `${lowerCaseName}_${ports[i]}.app.runonflux.io`;
-        domains.push(portDomain);
-      }
       return domains;
     };
 
@@ -855,7 +785,7 @@ export default {
           instances: props.appData.instances,
           compose: [],
         };
-        // formation, pre verificaiton
+        // formation, pre verification
         props.appData.compose.forEach((component) => {
           const envParams = JSON.parse(JSON.stringify(component.environmentParameters));
           component.userEnvironmentParameters.forEach((param) => {
