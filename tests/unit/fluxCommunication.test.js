@@ -31,14 +31,14 @@ describe('fluxCommunication tests', () => {
     let sendToAllIncomingConnectionsSpy;
 
     beforeEach(async () => {
+      outgoingConnections.length = 0;
+      incomingConnections.length = 0;
       await dbHelper.initiateDB();
       sendToAllPeersSpy = sinon.stub(fluxCommunicationMessagesSender, 'sendToAllPeers').resolves(true);
       sendToAllIncomingConnectionsSpy = sinon.stub(fluxCommunicationMessagesSender, 'sendToAllIncomingConnections').resolves(true);
     });
 
     afterEach(() => {
-      outgoingConnections.length = 0;
-      incomingConnections.length = 0;
       sinon.restore();
     });
 
@@ -211,14 +211,14 @@ describe('fluxCommunication tests', () => {
     let sendToAllIncomingConnectionsSpy;
 
     beforeEach(async () => {
+      outgoingConnections.length = 0;
+      incomingConnections.length = 0;
       await dbHelper.initiateDB();
       sendToAllPeersSpy = sinon.stub(fluxCommunicationMessagesSender, 'sendToAllPeers').resolves(true);
       sendToAllIncomingConnectionsSpy = sinon.stub(fluxCommunicationMessagesSender, 'sendToAllIncomingConnections').resolves(true);
     });
 
     afterEach(() => {
-      outgoingConnections.length = 0;
-      incomingConnections.length = 0;
       sinon.restore();
     });
 
@@ -313,8 +313,11 @@ describe('fluxCommunication tests', () => {
       return res;
     };
 
-    afterEach(() => {
+    beforeEach(() => {
       outgoingConnections.length = 0;
+    });
+
+    afterEach(() => {
       sinon.restore();
     });
 
@@ -354,8 +357,11 @@ describe('fluxCommunication tests', () => {
       return res;
     };
 
-    afterEach(() => {
+    beforeEach(() => {
       outgoingPeers.length = 0;
+    });
+
+    afterEach(() => {
       sinon.restore();
     });
 
@@ -401,6 +407,7 @@ describe('fluxCommunication tests', () => {
     let verificationHelperStub;
 
     beforeEach(() => {
+      outgoingConnections.length = 0;
       outgoingPeers.length = 0;
 
       const peer1 = {
@@ -418,8 +425,6 @@ describe('fluxCommunication tests', () => {
     });
 
     afterEach(() => {
-      outgoingConnections.length = 0;
-      outgoingPeers.length = 0;
       sinon.restore();
     });
 
@@ -589,6 +594,7 @@ describe('fluxCommunication tests', () => {
     let verificationHelperStub;
 
     beforeEach(() => {
+      incomingConnections.length = 0;
       incomingPeers.length = 0;
 
       const peer1 = {
@@ -606,8 +612,6 @@ describe('fluxCommunication tests', () => {
     });
 
     afterEach(() => {
-      incomingConnections.length = 0;
-      incomingPeers.length = 0;
       sinon.restore();
     });
 
@@ -778,6 +782,96 @@ describe('fluxCommunication tests', () => {
 
       expect(result).to.eql(expectedResult);
       sinon.assert.calledOnceWithExactly(verificationHelperStub, 'adminandfluxteam', req);
+    });
+  });
+
+  describe('isCommunicationEstablished tests', () => {
+    const minNumberOfIncoming = 2;
+    const minNumberOfOutgoing = 5;
+    const dummyPeer = {
+      ip: '192.168.0.0',
+      lastPingTime: new Date().getTime(),
+      latency: 50,
+    };
+    const generateResponse = () => {
+      const res = { test: 'testing' };
+      res.status = sinon.stub().returns(res);
+      res.json = sinon.fake((param) => param);
+      return res;
+    };
+    const populatePeers = (numberOfincomingPeers, numberOfOutgoingPeers) => {
+      outgoingPeers.length = 0;
+      incomingPeers.length = 0;
+      for (let i = 0; i < numberOfincomingPeers; i += 1) {
+        incomingPeers.push(dummyPeer);
+      }
+      for (let i = 0; i < numberOfOutgoingPeers; i += 1) {
+        outgoingPeers.push(dummyPeer);
+      }
+    };
+    const expectedSuccesssResponse = {
+      status: 'success',
+      data: {
+        code: undefined,
+        name: undefined,
+        message: 'Communication to Flux network is properly established',
+      },
+    };
+    const expectedErrorResponse = {
+      status: 'error',
+      data: {
+        code: undefined,
+        name: undefined,
+        message: 'Not enough connections established to Flux network',
+      },
+    };
+
+    afterEach(() => {
+      outgoingPeers.length = 0;
+      incomingPeers.length = 0;
+      sinon.restore();
+    });
+
+    it('should return a positive respone if communication is established properly', () => {
+      const res = generateResponse();
+      populatePeers(minNumberOfIncoming, minNumberOfOutgoing);
+
+      fluxCommunication.isCommunicationEstablished(undefined, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedSuccesssResponse);
+    });
+
+    it('should return a negative respone if there are not enough incoming peers', () => {
+      const res = generateResponse();
+      populatePeers(minNumberOfIncoming - 1, minNumberOfOutgoing);
+
+      fluxCommunication.isCommunicationEstablished(undefined, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedErrorResponse);
+    });
+
+    it('should return a negative respone if there are not enough outgoing peers', () => {
+      const res = generateResponse();
+      populatePeers(minNumberOfIncoming, minNumberOfOutgoing - 1);
+
+      fluxCommunication.isCommunicationEstablished(undefined, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedErrorResponse);
+    });
+
+    it('should return a negative respone if there are not enough incoming or outgoing peers', () => {
+      const res = generateResponse();
+      populatePeers(minNumberOfIncoming - 1, minNumberOfOutgoing - 1);
+
+      fluxCommunication.isCommunicationEstablished(undefined, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedErrorResponse);
+    });
+  });
+
+  describe.skip('initiateAndHandleConnection tests', () => {
+    it('should initiate connection', async () => {
+      fluxCommunication.initiateAndHandleConnection();
     });
   });
 });

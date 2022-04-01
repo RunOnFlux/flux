@@ -1,5 +1,6 @@
 /* eslint-disable no-underscore-dangle */
 const LRU = require('lru-cache');
+const WebSocket = require('ws');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
@@ -96,7 +97,6 @@ async function sendToAllIncomingConnections(data, wsList) {
           const ip = client._socket.remoteAddress;
           const foundPeer = incomingPeers.find((peer) => peer.ip === ip);
           ipremovals.push(foundPeer);
-          // eslint-disable-next-line no-use-before-define
           fluxNetworkHelper.closeIncomingConnection(ip, [], client); // this is wrong
         } catch (err) {
           log.error(err);

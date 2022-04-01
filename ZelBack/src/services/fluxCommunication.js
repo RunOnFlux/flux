@@ -485,4 +485,5 @@ module.exports = {
   outgoingConnections,
   addPeer,
   handleAppRunningMessage,
+  initiateAndHandleConnection,
 };
