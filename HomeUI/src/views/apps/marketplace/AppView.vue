@@ -750,13 +750,13 @@ export default {
         websocket.value = null;
       }
       cpu.value = {
-        series: [((resolveCpu(props.appData) / 7) * 100)],
+        series: [((resolveCpu(props.appData) / 15) * 100)],
       };
       ram.value = {
-        series: [((resolveRam(props.appData) / 28000) * 100)],
+        series: [((resolveRam(props.appData) / 58000) * 100)],
       };
       hdd.value = {
-        series: [((resolveHdd(props.appData) / 570) * 100)],
+        series: [((resolveHdd(props.appData) / 840) * 100)],
       };
 
       // Create a random port from the app's port specs that is not present on any other app

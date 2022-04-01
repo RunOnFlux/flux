@@ -123,28 +123,31 @@ module.exports = {
   lockedSystemResources: {
     cpu: 10, // 1 cpu core
     ram: 2000, // 2000mb
-    hdd: 30, // 30gb // this value is likely to rise
+    hdd: 40, // 40gb // this value is likely to rise
   },
   fluxSpecifics: { // tbd during forks
     cpu: {
-      basic: 20, // 10 available for apps
-      super: 40, // 30 available for apps
-      bamf: 80, // 70 available for apps
+      cumulus: 40, // 30 available for apps
+      nimbus: 80, // 70 available for apps
+      stratus: 160, // 150 available for apps
     },
     ram: {
-      basic: 3000, // 1000 available for apps
-      super: 7000, // 5000 available for apps
-      bamf: 30000, // available 28000 for apps
+      cumulus: 7500, // 550 available for apps
+      nimbus: 15000, // 13000 available for apps
+      stratus: 62000, // available 60000 for apps
     },
     hdd: {
-      basic: 50, // 20 for apps
-      super: 150, // 120 for apps
-      bamf: 600, // 570 for apps
+      cumulus: 220, // 180 for apps
+      nimbus: 440, // 400 for apps
+      stratus: 880, // 840 for apps
     },
     collateral: { // tbd during forks
-      basic: 10000,
-      super: 25000,
-      bamf: 100000,
+      cumulusold: 10000,
+      nimbusold: 25000,
+      stratusold: 100000,
+      cumulus: 1000,
+      nimbus: 12500,
+      stratus: 40000,
     },
   },
 };

@@ -711,32 +711,32 @@ export default {
       const fluxTierBenchList = fluxTierBench.data.data;
       fluxTierBenchList.forEach((node) => {
         if (node.tier === 'CUMULUS' && node.benchmark && node.benchmark.bench) {
-          this.cumulusCpuValue += node.benchmark.bench.cores === 0 ? 2 : node.benchmark.bench.cores;
-          this.cumulusRamValue += node.benchmark.bench.ram < 4 ? 4 : Math.round(node.benchmark.bench.ram);
+          this.cumulusCpuValue += node.benchmark.bench.cores === 0 ? 4 : node.benchmark.bench.cores;
+          this.cumulusRamValue += node.benchmark.bench.ram < 8 ? 8 : Math.round(node.benchmark.bench.ram);
           this.cumulusSSDStorageValue += node.benchmark.bench.ssd;
           this.cumulusHDDStorageValue += node.benchmark.bench.hdd;
         } else if (node.tier === 'CUMULUS') {
-          this.cumulusCpuValue += 2;
-          this.cumulusRamValue += 4;
-          this.cumulusHDDStorageValue += 50;
+          this.cumulusCpuValue += 4;
+          this.cumulusRamValue += 8;
+          this.cumulusHDDStorageValue += 220;
         } else if (node.tier === 'NIMBUS' && node.benchmark && node.benchmark.bench) {
-          this.nimbusCpuValue += node.benchmark.bench.cores === 0 ? 4 : node.benchmark.bench.cores;
-          this.nimbusRamValue += node.benchmark.bench.ram < 8 ? 8 : Math.round(node.benchmark.bench.ram);
+          this.nimbusCpuValue += node.benchmark.bench.cores === 0 ? 8 : node.benchmark.bench.cores;
+          this.nimbusRamValue += node.benchmark.bench.ram < 16 ? 16 : Math.round(node.benchmark.bench.ram);
           this.nimbusSSDStorageValue += node.benchmark.bench.ssd;
           this.nimbusHDDStorageValue += node.benchmark.bench.hdd;
         } else if (node.tier === 'NIMBUS') {
-          this.nimbusCpuValue += 4;
-          this.nimbusRamValue += 8;
-          this.nimbusSSDStorageValue += 150;
+          this.nimbusCpuValue += 8;
+          this.nimbusRamValue += 16;
+          this.nimbusSSDStorageValue += 440;
         } else if (node.tier === 'STRATUS' && node.benchmark && node.benchmark.bench) {
-          this.stratusCpuValue += node.benchmark.bench.cores === 0 ? 8 : node.benchmark.bench.cores;
-          this.stratusRamValue += node.benchmark.bench.ram < 32 ? 32 : Math.round(node.benchmark.bench.ram);
+          this.stratusCpuValue += node.benchmark.bench.cores === 0 ? 16 : node.benchmark.bench.cores;
+          this.stratusRamValue += node.benchmark.bench.ram < 64 ? 64 : Math.round(node.benchmark.bench.ram);
           this.stratusSSDStorageValue += node.benchmark.bench.ssd;
           this.stratusHDDStorageValue += node.benchmark.bench.hdd;
         } else if (node.tier === 'STRATUS') {
-          this.stratusCpuValue += 8;
-          this.stratusRamValue += 32;
-          this.stratusSSDStorageValue += 600;
+          this.stratusCpuValue += 16;
+          this.stratusRamValue += 64;
+          this.stratusSSDStorageValue += 880;
         }
       });
 
@@ -799,7 +799,7 @@ export default {
         } else {
           cumulusData.push([Number(time), (this.fluxHistoryStats[time].cumulus) * halvedCumulus]);
         }
-        if (time < 2000000000000) { // edit this after block 1081572
+        if (time < 1647831196000) { // edit this after block 1081572
           nimbusData.push([Number(time), (this.fluxHistoryStats[time].nimbus) * nimbus]);
         } else {
           nimbusData.push([Number(time), (this.fluxHistoryStats[time].nimbus) * halvedNimbus]);

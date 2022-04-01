@@ -1745,7 +1745,7 @@
                       placeholder="CPU cores to use by default"
                       type="range"
                       min="0.1"
-                      max="7"
+                      max="15"
                       step="0.1"
                     />
                   </b-form-group>
@@ -1765,7 +1765,7 @@
                       placeholder="RAM in MB value to use by default"
                       type="range"
                       min="100"
-                      max="28000"
+                      max="58000"
                       step="100"
                     />
                   </b-form-group>
@@ -1785,7 +1785,7 @@
                       placeholder="SSD in GB value to use by default"
                       type="range"
                       min="1"
-                      max="565"
+                      max="840"
                       step="1"
                     />
                   </b-form-group>
@@ -1806,7 +1806,7 @@
                     v-model="component.cpubasic"
                     type="range"
                     min="0.1"
-                    max="1"
+                    max="3"
                     step="0.1"
                   />
                   <div>
@@ -1816,7 +1816,7 @@
                     v-model="component.rambasic"
                     type="range"
                     min="100"
-                    max="1000"
+                    max="5500"
                     step="100"
                   />
                   <div>
@@ -1826,7 +1826,7 @@
                     v-model="component.hddbasic"
                     type="range"
                     min="1"
-                    max="15"
+                    max="180"
                     step="1"
                   />
                 </b-card>
@@ -1844,7 +1844,7 @@
                     v-model="component.cpusuper"
                     type="range"
                     min="0.1"
-                    max="3"
+                    max="7"
                     step="0.1"
                   />
                   <div>
@@ -1854,7 +1854,7 @@
                     v-model="component.ramsuper"
                     type="range"
                     min="100"
-                    max="5000"
+                    max="13000"
                     step="100"
                   />
                   <div>
@@ -1864,7 +1864,7 @@
                     v-model="component.hddsuper"
                     type="range"
                     min="1"
-                    max="115"
+                    max="400"
                     step="1"
                   />
                 </b-card>
@@ -1881,7 +1881,7 @@
                     v-model="component.cpubamf"
                     type="range"
                     min="0.1"
-                    max="7"
+                    max="15"
                     step="0.1"
                   />
                   <div>
@@ -1891,7 +1891,7 @@
                     v-model="component.rambamf"
                     type="range"
                     min="100"
-                    max="28000"
+                    max="58000"
                     step="100"
                   />
                   <div>
@@ -1901,7 +1901,7 @@
                     v-model="component.hddbamf"
                     type="range"
                     min="1"
-                    max="565"
+                    max="840"
                     step="1"
                   />
                 </b-card>
@@ -2131,7 +2131,7 @@
                     placeholder="CPU cores to use by default"
                     type="range"
                     min="0.1"
-                    max="7"
+                    max="15"
                     step="0.1"
                   />
                 </b-form-group>
@@ -2151,7 +2151,7 @@
                     placeholder="RAM in MB value to use by default"
                     type="range"
                     min="100"
-                    max="28000"
+                    max="58000"
                     step="100"
                   />
                 </b-form-group>
@@ -2171,7 +2171,7 @@
                     placeholder="SSD in GB value to use by default"
                     type="range"
                     min="1"
-                    max="565"
+                    max="840"
                     step="1"
                   />
                 </b-form-group>
@@ -2192,7 +2192,7 @@
                   v-model="appUpdateSpecification.cpubasic"
                   type="range"
                   min="0.1"
-                  max="1"
+                  max="3"
                   step="0.1"
                 />
                 <div>
@@ -2202,7 +2202,7 @@
                   v-model="appUpdateSpecification.rambasic"
                   type="range"
                   min="100"
-                  max="1000"
+                  max="5500"
                   step="100"
                 />
                 <div>
@@ -2212,7 +2212,7 @@
                   v-model="appUpdateSpecification.hddbasic"
                   type="range"
                   min="1"
-                  max="15"
+                  max="180"
                   step="1"
                 />
               </b-card>
@@ -2230,7 +2230,7 @@
                   v-model="appUpdateSpecification.cpusuper"
                   type="range"
                   min="0.1"
-                  max="3"
+                  max="7"
                   step="0.1"
                 />
                 <div>
@@ -2240,7 +2240,7 @@
                   v-model="appUpdateSpecification.ramsuper"
                   type="range"
                   min="100"
-                  max="5000"
+                  max="13000"
                   step="100"
                 />
                 <div>
@@ -2250,7 +2250,7 @@
                   v-model="appUpdateSpecification.hddsuper"
                   type="range"
                   min="1"
-                  max="115"
+                  max="400"
                   step="1"
                 />
               </b-card>
@@ -2267,7 +2267,7 @@
                   v-model="appUpdateSpecification.cpubamf"
                   type="range"
                   min="0.1"
-                  max="7"
+                  max="15"
                   step="0.1"
                 />
                 <div>
@@ -2277,7 +2277,7 @@
                   v-model="appUpdateSpecification.rambamf"
                   type="range"
                   min="100"
-                  max="28000"
+                  max="58000"
                   step="100"
                 />
                 <div>
@@ -2287,7 +2287,7 @@
                   v-model="appUpdateSpecification.hddbamf"
                   type="range"
                   min="1"
-                  max="565"
+                  max="840"
                   step="1"
                 />
               </b-card>

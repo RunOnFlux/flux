@@ -359,10 +359,6 @@ export default {
         // this.generateFluxHistory()
         // this.generateLockedSupplyPercList()
         const timePoints = Object.keys(this.fluxHistoryStats);
-        const max = Math.max(...timePoints);
-        const cumulusS = (this.fluxHistoryStats[max].cumulus) * 10000;
-        const nimbusS = (this.fluxHistoryStats[max].nimbus) * 25000;
-        const stratusS = (this.fluxHistoryStats[max].stratus) * 100000;
 
         const cumulusHistory = [];
         const nimbusHistory = [];
@@ -373,9 +369,6 @@ export default {
           stratusHistory.push([Number(time), this.fluxHistoryStats[time].stratus]);
         });
 
-        this.totalNodes = this.fluxHistoryStats[max].cumulus + this.fluxHistoryStats[max].nimbus + this.fluxHistoryStats[max].stratus;
-        this.lockedSupplyData.series = [cumulusS, nimbusS, stratusS];
-        this.nodeData.series = [this.fluxHistoryStats[max].cumulus, this.fluxHistoryStats[max].nimbus, this.fluxHistoryStats[max].stratus];
         this.nodeHistoryData.series = [
           {
             name: 'Cumulus',
@@ -413,9 +406,12 @@ export default {
           nimbuses = counts['cumulus-enabled'];
           cumuluses = counts['nimbus-enabled'];
         }
-        const supply = stratuses * 100000 + nimbuses * 25000 + cumuluses * 10000;
+        const supply = stratuses * 40000 + nimbuses * 12500 + cumuluses * 1000;
+        this.lockedSupplyData.series = [cumuluses * 1000, nimbuses * 12500, stratuses * 40000];
         this.lockedSupply = supply;
         this.lockedSupplyPerc = Number(((supply / this.circulatingSupply) * 100).toFixed(2));
+        this.totalNodes = cumuluses + nimbuses + stratuses;
+        this.nodeData.series = [cumuluses, nimbuses, stratuses];
       } catch (error) {
         console.log(error);
       }
