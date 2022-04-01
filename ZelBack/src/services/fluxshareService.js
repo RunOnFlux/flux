@@ -653,7 +653,7 @@ async function getSpaceAvailableForFluxShare() {
     totalSpace += serviceHelper.ensureNumber(volume.size);
   });
   // space that is further reserved for flux os and that will be later substracted from available space. Max 30.
-  const tier = await generalService.nodeTier();
+  const tier = await generalService.getNewNodeTier();
   const lockedSpaceOnNode = config.fluxSpecifics.hdd[tier];
 
   const extraSpaceOnNode = totalSpace - lockedSpaceOnNode > 0 ? totalSpace - lockedSpaceOnNode : 0; // shall always be above 0. Put precaution to place anyway
