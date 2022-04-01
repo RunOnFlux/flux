@@ -395,17 +395,17 @@ function getFluxZelID(req, res) {
   return res ? res.json(message) : message;
 }
 
-// /**
-//  * To show the current CruxID (now deprecated) that is being used with FluxOS.
-//  * @param {object} req Request.
-//  * @param {object} res Response.
-//  * @returns {object} Message.
-//  */
-// function getFluxCruxID(req, res) {
-//   const cruxID = userconfig.initial.cruxid || null;
-//   const message = messageHelper.createDataMessage(cruxID);
-//   return res ? res.json(message) : message;
-// }
+/**
+ * To show the current CruxID that is being used with FluxOS.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
+function getFluxCruxID(req, res) {
+  const cruxID = userconfig.initial.cruxid || null;
+  const message = messageHelper.createDataMessage(cruxID);
+  return res ? res.json(message) : message;
+}
 
 /**
  * To show the current user's Kadena address (public key) that is being used with FluxOS.
@@ -837,51 +837,51 @@ async function getFluxInfo(req, res) {
   }
 }
 
-// /**
-//  * To adjust the current CruxID (now deprecated) that is being used with FluxOS. Only accessible by admins.
-//  * @param {object} req Request.
-//  * @param {object} res Response.
-//  */
-// async function adjustCruxID(req, res) {
-//   try {
-//     const authorized = await verificationHelper.verifyPrivilege('admin', req);
-//     if (authorized === true) {
-//       let { cruxid } = req.params;
-//       cruxid = cruxid || req.query.cruxid;
-//       if (!cruxid) {
-//         throw new Error('No Crux ID provided');
-//       }
-//       if (!cruxid.includes('@')) {
-//         throw new Error('Invalid Crux ID provided');
-//       }
-//       if (!cruxid.includes('.crux')) {
-//         throw new Error('Invalid Crux ID provided');
-//       }
-//       const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
-//       const dataToWrite = `module.exports = {
-//         initial: {
-//           ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
-//           zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
-//           kadena: '${userconfig.initial.kadena || ''}',
-//           testnet: ${userconfig.initial.testnet || false},
-//           apiport: ${Number(userconfig.initial.apiport || config.apiport)},
-//         }
-//       }`;
+/**
+ * To adjust the current CruxID that is being used with FluxOS. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function adjustCruxID(req, res) {
+  try {
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
+    if (authorized === true) {
+      let { cruxid } = req.params;
+      cruxid = cruxid || req.query.cruxid;
+      if (!cruxid) {
+        throw new Error('No Crux ID provided');
+      }
+      if (!cruxid.includes('@')) {
+        throw new Error('Invalid Crux ID provided');
+      }
+      if (!cruxid.includes('.crux')) {
+        throw new Error('Invalid Crux ID provided');
+      }
+      const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
+      const dataToWrite = `module.exports = {
+        initial: {
+          ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
+          zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
+          kadena: '${userconfig.initial.kadena || ''}',
+          testnet: ${userconfig.initial.testnet || false},
+          apiport: ${Number(userconfig.initial.apiport || config.apiport)},
+        }
+      }`;
 
-//       await fsPromises.writeFile(fluxDirPath, dataToWrite);
+      await fsPromises.writeFile(fluxDirPath, dataToWrite);
 
-//       const successMessage = messageHelper.createSuccessMessage('CruxID adjusted');
-//       res.json(successMessage);
-//     } else {
-//       const errMessage = messageHelper.errUnauthorizedMessage();
-//       res.json(errMessage);
-//     }
-//   } catch (error) {
-//     log.error(error);
-//     const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
-//     res.json(errMessage);
-//   }
-// }
+      const successMessage = messageHelper.createSuccessMessage('CruxID adjusted');
+      res.json(successMessage);
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+  }
+}
 
 /**
  * To update the current Kadena account (address/public key and chain ID) that is being used with FluxOS. Only accessible by admins.
@@ -909,14 +909,14 @@ async function adjustKadenaAccount(req, res) {
       const kadenaURI = `kadena:${account}?chainid=${chainid}`;
       const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
       const dataToWrite = `module.exports = {
-        initial: {
-          ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
-          zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
-          kadena: '${kadenaURI}',
-          testnet: ${userconfig.initial.testnet || false},
-          apiport: ${Number(userconfig.initial.apiport || config.apiport)},
-        }
-      }`;
+  initial: {
+    ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
+    zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
+    kadena: '${kadenaURI}',
+    testnet: ${userconfig.initial.testnet || false},
+    apiport: ${Number(userconfig.initial.apiport || config.apiport)},
+  }
+}`;
 
       await fsPromises.writeFile(fluxDirPath, dataToWrite);
 
@@ -996,7 +996,7 @@ module.exports = {
   getFluxVersion,
   getFluxIP,
   getFluxZelID,
-  // getFluxCruxID, // Deprecated.
+  getFluxCruxID,
   getFluxKadena,
   daemonDebug,
   benchmarkDebug,
@@ -1014,7 +1014,7 @@ module.exports = {
   fluxWarnLog,
   fluxInfoLog,
   fluxDebugLog,
-  // adjustCruxID, // Deprecated.
+  adjustCruxID,
   adjustKadenaAccount,
   fluxBackendFolder,
   getNodeTier,
