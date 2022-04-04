@@ -243,7 +243,7 @@ async function fluxShareUnshareFile(req, res) {
 /**
  * To share a file. Only accessible by admins.
  * @param {object} req Request.
- * @param {object} res Response. 
+ * @param {object} res Response.
  */
 async function fluxShareShareFile(req, res) {
   try {

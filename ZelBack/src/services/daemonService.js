@@ -457,7 +457,7 @@ async function getZelNodeWinners(req, res) {
 }
 
 /**
- * To relay node broadcast. Optional hex string can be included as a parameter for RPC call. 
+ * To relay node broadcast. Optional hex string can be included as a parameter for RPC call.
  * @param {object} req Request.
  * @param {object} res Response.
  * @returns {object} Message.
@@ -1442,7 +1442,7 @@ async function getNetworkSolPs(req, res) {
 }
 
 /**
- * To prioritise transaction. Transaction ID, priority delta and fee delta required as parameters for RPC call. Only accessible by users. 
+ * To prioritise transaction. Transaction ID, priority delta and fee delta required as parameters for RPC call. Only accessible by users.
  * @param {object} req Request.
  * @param {object} res Response.
  * @returns {object} Message.
