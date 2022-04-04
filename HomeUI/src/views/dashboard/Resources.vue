@@ -721,12 +721,12 @@ export default {
           this.cumulusHDDStorageValue += 220;
         } else if (node.tier === 'NIMBUS' && node.benchmark && node.benchmark.bench) {
           this.nimbusCpuValue += node.benchmark.bench.cores === 0 ? 8 : node.benchmark.bench.cores;
-          this.nimbusRamValue += node.benchmark.bench.ram < 16 ? 16 : Math.round(node.benchmark.bench.ram);
+          this.nimbusRamValue += node.benchmark.bench.ram < 32 ? 32 : Math.round(node.benchmark.bench.ram);
           this.nimbusSSDStorageValue += node.benchmark.bench.ssd;
           this.nimbusHDDStorageValue += node.benchmark.bench.hdd;
         } else if (node.tier === 'NIMBUS') {
           this.nimbusCpuValue += 8;
-          this.nimbusRamValue += 16;
+          this.nimbusRamValue += 32;
           this.nimbusSSDStorageValue += 440;
         } else if (node.tier === 'STRATUS' && node.benchmark && node.benchmark.bench) {
           this.stratusCpuValue += node.benchmark.bench.cores === 0 ? 16 : node.benchmark.bench.cores;
@@ -782,7 +782,7 @@ export default {
       this.cpuHistoryData.series = this.generateHistory(2, 4, 4, 8, 8, 16);
     },
     generateRAMHistory() {
-      this.ramHistoryData.series = this.generateHistory(4, 8, 8, 16, 32, 64);
+      this.ramHistoryData.series = this.generateHistory(4, 8, 8, 32, 32, 64);
     },
     generateSSDHistory() {
       this.ssdHistoryData.series = this.generateHistory(40, 220, 150, 440, 600, 880);

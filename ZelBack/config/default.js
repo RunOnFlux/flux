@@ -133,9 +133,9 @@ module.exports = {
       stratus: 160, // 150 available for apps
     },
     ram: {
-      cumulus: 7500, // 5550 available for apps
-      nimbus: 15000, // 13000 available for apps
-      stratus: 62000, // available 60000 for apps
+      cumulus: 7000, // 5000 available for apps
+      nimbus: 30000, // 28000 available for apps
+      stratus: 61000, // available 59000 for apps
     },
     hdd: {
       cumulus: 220, // 180 for apps

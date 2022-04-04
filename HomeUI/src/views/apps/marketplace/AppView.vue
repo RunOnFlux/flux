@@ -717,7 +717,7 @@ export default {
         series: [((resolveCpu(props.appData) / 15) * 100)],
       };
       ram.value = {
-        series: [((resolveRam(props.appData) / 58000) * 100)],
+        series: [((resolveRam(props.appData) / 59000) * 100)],
       };
       hdd.value = {
         series: [((resolveHdd(props.appData) / 840) * 100)],

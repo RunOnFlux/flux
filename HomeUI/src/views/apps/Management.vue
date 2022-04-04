@@ -1765,7 +1765,7 @@
                       placeholder="RAM in MB value to use by default"
                       type="range"
                       min="100"
-                      max="58000"
+                      max="59000"
                       step="100"
                     />
                   </b-form-group>
@@ -1816,7 +1816,7 @@
                     v-model="component.rambasic"
                     type="range"
                     min="100"
-                    max="5500"
+                    max="5000"
                     step="100"
                   />
                   <div>
@@ -1854,7 +1854,7 @@
                     v-model="component.ramsuper"
                     type="range"
                     min="100"
-                    max="13000"
+                    max="28000"
                     step="100"
                   />
                   <div>
@@ -1891,7 +1891,7 @@
                     v-model="component.rambamf"
                     type="range"
                     min="100"
-                    max="58000"
+                    max="59000"
                     step="100"
                   />
                   <div>
@@ -2151,7 +2151,7 @@
                     placeholder="RAM in MB value to use by default"
                     type="range"
                     min="100"
-                    max="58000"
+                    max="59000"
                     step="100"
                   />
                 </b-form-group>
@@ -2202,7 +2202,7 @@
                   v-model="appUpdateSpecification.rambasic"
                   type="range"
                   min="100"
-                  max="5500"
+                  max="5000"
                   step="100"
                 />
                 <div>
@@ -2240,7 +2240,7 @@
                   v-model="appUpdateSpecification.ramsuper"
                   type="range"
                   min="100"
-                  max="13000"
+                  max="28000"
                   step="100"
                 />
                 <div>
@@ -2277,7 +2277,7 @@
                   v-model="appUpdateSpecification.rambamf"
                   type="range"
                   min="100"
-                  max="58000"
+                  max="59000"
                   step="100"
                 />
                 <div>
