@@ -42,7 +42,7 @@ describe('fluxCommunication tests', () => {
       sinon.restore();
     });
 
-    it('should broadcast the app message if a proper data is given', async () => {
+    it.only('should broadcast the app message if a proper data is given', async () => {
       const fromIp = '127.0.0.5';
       const appSpecifications = {
         name: 'website',

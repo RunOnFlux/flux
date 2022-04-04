@@ -405,4 +405,22 @@ describe('fluxCommunicationMessagesSender tests', () => {
       sinon.assert.calledOnceWithExactly(websocket.send, sinon.match.string);
     });
   });
+
+  describe('respondWithAppMessage tests', () => {
+    const generateWebsocket = () => {
+      const ws = {};
+      ws.send = sinon.stub().returns('okay');
+      return ws;
+    };
+    beforeEach(() => {
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it(' ', async () => {
+      await fluxCommunicationMessagesSender.respondWithAppMessage();
+    });
+  });
 });
