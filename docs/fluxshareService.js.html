@@ -1,0 +1,959 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: fluxshareService.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: fluxshareService.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>const config = require('config');
+const crypto = require('crypto');
+const path = require('path');
+const df = require('node-df');
+const fs = require('fs');
+const formidable = require('formidable');
+const archiver = require('archiver');
+// eslint-disable-next-line import/no-extraneous-dependencies
+const util = require('util');
+const serviceHelper = require('./serviceHelper');
+const messageHelper = require('./messageHelper');
+const dbHelper = require('./dbHelper');
+const verificationHelper = require('./verificationHelper');
+const generalService = require('./generalService');
+const log = require('../lib/log');
+
+/**
+ * Delete a specific FluxShare file.
+ * @param {string} file Name of file to be deleted.
+ * @returns {boolean} Returns true unless an error is caught.
+ */
+async function fluxShareDatabaseFileDelete(file) {
+  try {
+    const dbopen = dbHelper.databaseConnection();
+    const databaseFluxShare = dbopen.db(config.database.fluxshare.database);
+    const sharedCollection = config.database.fluxshare.collections.shared;
+    const queryFluxShare = { name: file };
+    const projectionFluxShare = { projection: { _id: 0, name: 1, token: 1 } };
+    await dbHelper.findOneAndDeleteInDatabase(databaseFluxShare, sharedCollection, queryFluxShare, projectionFluxShare);
+    return true;
+  } catch (error) {
+    log.error(error);
+    throw error;
+  }
+}
+
+/**
+ * Delete all FluxShare files that start with a specified path.
+ * @param {string} pathstart Path of files to be deleted.
+ * @returns {boolean} Returns true unless an error is caught.
+ */
+async function fluxShareDatabaseFileDeleteMultiple(pathstart) {
+  try {
+    const dbopen = dbHelper.databaseConnection();
+    const databaseFluxShare = dbopen.db(config.database.fluxshare.database);
+    const sharedCollection = config.database.fluxshare.collections.shared;
+    const queryFluxShare = { name: new RegExp(`^${pathstart}`) }; // has to start with this path
+    await dbHelper.removeDocumentsFromCollection(databaseFluxShare, sharedCollection, queryFluxShare);
+    return true;
+  } catch (error) {
+    log.error(error);
+    throw error;
+  }
+}
+
+/**
+ * To add all files within a directory into an array of file paths/names.
+ * @param {string} dirPath Directory path.
+ * @param {string[]} arrayOfFiles Existing array of file paths/names or empty array.
+ * @returns {string[]} Updated array of file paths/names.
+ */
+function getAllFiles(dirPath, arrayOfFiles) {
+  const files = fs.readdirSync(dirPath);
+
+  // eslint-disable-next-line no-param-reassign
+  arrayOfFiles = arrayOfFiles || [];
+
+  files.forEach((file) => {
+    let isDirectory = false;
+    try {
+      isDirectory = fs.statSync(`${dirPath}/${file}`).isDirectory();
+    } catch (error) {
+      log.warn(error);
+    }
+    if (isDirectory) {
+      // eslint-disable-next-line no-param-reassign
+      arrayOfFiles = getAllFiles(`${dirPath}/${file}`, arrayOfFiles);
+    } else {
+      arrayOfFiles.push(`${dirPath}/${file}`);
+    }
+  });
+  return arrayOfFiles;
+}
+
+/**
+ * To get total size (GB) for all files within a directory.
+ * @returns {number} Total file size (GB).
+ */
+function getFluxShareSize() {
+  const dirpath = path.join(__dirname, '../../../');
+  const directoryPath = `${dirpath}ZelApps/ZelShare`;
+
+  const arrayOfFiles = getAllFiles(directoryPath);
+
+  let totalSize = 0;
+
+  arrayOfFiles.forEach((filePath) => {
+    try {
+      totalSize += fs.statSync(filePath).size;
+    } catch (error) {
+      log.warn(error);
+    }
+  });
+  return (totalSize / 1e9); // in 'GB'
+}
+
+/**
+ * To get total size (Bytes) for a specific folder.
+ * @param {string} folder Directory path for folder.
+ * @returns {number} Folder size (Bytes).
+ */
+function getFluxShareSpecificFolderSize(folder) {
+  const arrayOfFiles = getAllFiles(folder);
+
+  let totalSize = 0;
+
+  arrayOfFiles.forEach((filePath) => {
+    try {
+      totalSize += fs.statSync(filePath).size;
+    } catch (error) {
+      log.warn(error);
+    }
+  });
+  return (totalSize); // in 'B'
+}
+
+/**
+ * To get a file from database or insert it into database if it doesn't already exist.
+ * @param {string} file File name.
+ * @returns {object} File detail (name and token).
+ */
+async function fluxShareDatabaseShareFile(file) {
+  try {
+    const dbopen = dbHelper.databaseConnection();
+    const databaseFluxShare = dbopen.db(config.database.fluxshare.database);
+    const sharedCollection = config.database.fluxshare.collections.shared;
+    const queryFluxShare = { name: file };
+    const projectionFluxShare = { projection: { _id: 0, name: 1, token: 1 } };
+    const result = await dbHelper.findOneInDatabase(databaseFluxShare, sharedCollection, queryFluxShare, projectionFluxShare);
+    if (result) {
+      return result;
+    }
+    const string = file + new Date().getTime().toString() + Math.floor((Math.random() * 999999999999999)).toString();
+
+    const fileDetail = {
+      name: file,
+      token: crypto.createHash('sha256').update(string).digest('hex'),
+    };
+    await dbHelper.insertOneToDatabase(databaseFluxShare, sharedCollection, fileDetail);
+    return fileDetail;
+  } catch (error) {
+    log.error(error);
+    throw error;
+  }
+}
+
+/**
+ * To search for shared files.
+ * @returns {object[]} Array of shared files.
+ */
+async function fluxShareSharedFiles() {
+  try {
+    const dbopen = dbHelper.databaseConnection();
+    const databaseFluxShare = dbopen.db(config.database.fluxshare.database);
+    const sharedCollection = config.database.fluxshare.collections.shared;
+    const queryFluxShare = {};
+    const projectionFluxShare = { projection: { _id: 0, name: 1, token: 1 } };
+    const results = await dbHelper.findInDatabase(databaseFluxShare, sharedCollection, queryFluxShare, projectionFluxShare);
+    return results;
+  } catch (error) {
+    log.error(error);
+    throw error;
+  }
+}
+
+/**
+ * To get shared files. Only accessible by admins.
+ * @param {object} req Requet.
+ * @param {object} res Response.
+ */
+async function fluxShareGetSharedFiles(req, res) {
+  try {
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
+    if (authorized) {
+      const files = await fluxShareSharedFiles();
+      const resultsResponse = messageHelper.createDataMessage(files);
+      res.json(resultsResponse);
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    try {
+      res.write(serviceHelper.ensureString(errorResponse));
+      res.end();
+    } catch (e) {
+      log.error(e);
+    }
+  }
+}
+
+/**
+ * To unshare a file. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function fluxShareUnshareFile(req, res) {
+  try {
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
+    if (authorized) {
+      let { file } = req.params;
+      file = file || req.query.file;
+      file = encodeURIComponent(file);
+      await fluxShareDatabaseFileDelete(file);
+      const resultsResponse = messageHelper.createSuccessMessage('File sharing disabled');
+      res.json(resultsResponse);
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    try {
+      res.write(serviceHelper.ensureString(errorResponse));
+      res.end();
+    } catch (e) {
+      log.error(e);
+    }
+  }
+}
+
+/**
+ * To share a file. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function fluxShareShareFile(req, res) {
+  try {
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
+    if (authorized) {
+      let { file } = req.params;
+      file = file || req.query.file;
+      file = encodeURIComponent(file);
+      const fileDetails = await fluxShareDatabaseShareFile(file);
+      const resultsResponse = messageHelper.createDataMessage(fileDetails);
+      res.json(resultsResponse);
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    try {
+      res.write(serviceHelper.ensureString(errorResponse));
+      res.end();
+    } catch (e) {
+      log.error(e);
+    }
+  }
+}
+
+/**
+ * To download a zip folder for a specified directory. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @param {boolean} authorized False until verified as an admin.
+ * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ */
+async function fluxShareDownloadFolder(req, res, authorized = false) {
+  try {
+    let auth = authorized;
+    if (!auth) {
+      auth = await verificationHelper.verifyPrivilege('admin', req);
+    }
+
+    if (auth) {
+      let { folder } = req.params;
+      folder = folder || req.query.folder;
+
+      if (!folder) {
+        const errorResponse = messageHelper.createErrorMessage('No folder specified');
+        res.json(errorResponse);
+        return;
+      }
+
+      const dirpath = path.join(__dirname, '../../../');
+      const folderpath = `${dirpath}ZelApps/ZelShare/${folder}`;
+
+      // beautify name
+      const folderNameArray = folderpath.split('/');
+      const folderName = folderNameArray[folderNameArray.length - 1];
+
+      // const size = getFluxShareSpecificFolderSize(folderpath);
+
+      // Tell the browser that this is a zip file.
+      res.writeHead(200, {
+        'Content-Type': 'application/zip',
+        'Content-disposition': `attachment; filename=${folderName}.zip`,
+      });
+
+      const zip = archiver('zip');
+
+      // Send the file to the page output.
+      zip.pipe(res);
+      zip.glob('**/*', { cwd: folderpath });
+      zip.finalize();
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+      return;
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    try {
+      res.write(serviceHelper.ensureString(errorResponse));
+      res.end();
+    } catch (e) {
+      log.error(e);
+    }
+  }
+}
+
+/**
+ * To download a specified file. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ */
+async function fluxShareDownloadFile(req, res) {
+  try {
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
+    if (authorized) {
+      let { file } = req.params;
+      file = file || req.query.file;
+
+      if (!file) {
+        const errorResponse = messageHelper.createErrorMessage('No file specified');
+        res.json(errorResponse);
+        return;
+      }
+
+      const dirpath = path.join(__dirname, '../../../');
+      const filepath = `${dirpath}ZelApps/ZelShare/${file}`;
+
+      // beautify name
+      const fileNameArray = file.split('/');
+      const fileName = fileNameArray[fileNameArray.length - 1];
+
+      res.download(filepath, fileName);
+    } else {
+      let { file } = req.params;
+      file = file || req.query.file;
+      let { token } = req.params;
+      token = token || req.query.token;
+      if (!file || !token) {
+        const errMessage = messageHelper.errUnauthorizedMessage();
+        res.json(errMessage);
+        return;
+      }
+      const fileURI = encodeURIComponent(file);
+      const dbopen = dbHelper.databaseConnection();
+      const databaseFluxShare = dbopen.db(config.database.fluxshare.database);
+      const sharedCollection = config.database.fluxshare.collections.shared;
+      const queryFluxShare = { name: fileURI, token };
+      const projectionFluxShare = { projection: { _id: 0, name: 1, token: 1 } };
+      const result = await dbHelper.findOneInDatabase(databaseFluxShare, sharedCollection, queryFluxShare, projectionFluxShare);
+      if (!result) {
+        const errMessage = messageHelper.errUnauthorizedMessage();
+        res.json(errMessage);
+        return;
+      }
+
+      // check if file is file. If directory use zelshareDwonloadFolder
+      const dirpath = path.join(__dirname, '../../../');
+      const filepath = `${dirpath}ZelApps/ZelShare/${file}`;
+      const fileStats = await fs.promises.lstat(filepath);
+      const isDirectory = fileStats.isDirectory();
+
+      if (isDirectory) {
+        const modifiedReq = req;
+        modifiedReq.params.folder = req.params.file;
+        modifiedReq.query.folder = req.query.file;
+        fluxShareDownloadFolder(modifiedReq, res, true);
+      } else {
+        // beautify name
+        const fileNameArray = filepath.split('/');
+        const fileName = fileNameArray[fileNameArray.length - 1];
+
+        res.download(filepath, fileName);
+      }
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    try {
+      res.write(serviceHelper.ensureString(errorResponse));
+      res.end();
+    } catch (e) {
+      log.error(e);
+    }
+  }
+}
+
+/**
+ * To rename a file or folder. Oldpath is relative path to default fluxshare directory; newname is just a new name of folder/file. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function fluxShareRename(req, res) {
+  try {
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
+    if (authorized) {
+      let { oldpath } = req.params;
+      oldpath = oldpath || req.query.oldpath;
+      if (!oldpath) {
+        throw new Error('No file nor folder to rename specified');
+      }
+      let { newname } = req.params;
+      newname = newname || req.query.newname;
+      if (!newname) {
+        throw new Error('No new name specified');
+      }
+      if (newname.includes('/')) {
+        throw new Error('New name is invalid');
+      }
+      // stop sharing of ALL files that start with the path
+      const fileURI = encodeURIComponent(oldpath);
+      await fluxShareDatabaseFileDeleteMultiple(fileURI);
+
+      const dirpath = path.join(__dirname, '../../../');
+      const oldfullpath = `${dirpath}ZelApps/ZelShare/${oldpath}`;
+      let newfullpath = `${dirpath}ZelApps/ZelShare/${newname}`;
+      const fileURIArray = fileURI.split('%2F');
+      fileURIArray.pop();
+      if (fileURIArray.length > 0) {
+        const renamingFolder = fileURIArray.join('/');
+        newfullpath = `${dirpath}ZelApps/ZelShare/${renamingFolder}/${newname}`;
+      }
+      await fs.promises.rename(oldfullpath, newfullpath);
+
+      const response = messageHelper.createSuccessMessage('Rename successful');
+      res.json(response);
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    try {
+      res.write(serviceHelper.ensureString(errorResponse));
+      res.end();
+    } catch (e) {
+      log.error(e);
+    }
+  }
+}
+
+/**
+ * To remove a specified shared file. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function fluxShareRemoveFile(req, res) {
+  try {
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
+    if (authorized) {
+      let { file } = req.params;
+      file = file || req.query.file;
+      const fileURI = encodeURIComponent(file);
+      if (!file) {
+        throw new Error('No file specified');
+      }
+      // stop sharing
+
+      await fluxShareDatabaseFileDelete(fileURI);
+
+      const dirpath = path.join(__dirname, '../../../');
+      const filepath = `${dirpath}ZelApps/ZelShare/${file}`;
+      await fs.promises.unlink(filepath);
+
+      const response = messageHelper.createSuccessMessage('File Removed');
+      res.json(response);
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    try {
+      res.write(serviceHelper.ensureString(errorResponse));
+      res.end();
+    } catch (e) {
+      log.error(e);
+    }
+  }
+}
+
+/**
+ * To remove a specified shared folder. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function fluxShareRemoveFolder(req, res) {
+  try {
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
+    if (authorized) {
+      let { folder } = req.params;
+      folder = folder || req.query.folder;
+      if (!folder) {
+        throw new Error('No folder specified');
+      }
+
+      const dirpath = path.join(__dirname, '../../../');
+      const filepath = `${dirpath}ZelApps/ZelShare/${folder}`;
+      await fs.promises.rmdir(filepath);
+
+      const response = messageHelper.createSuccessMessage('Folder Removed');
+      res.json(response);
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    try {
+      res.write(serviceHelper.ensureString(errorResponse));
+      res.end();
+    } catch (e) {
+      log.error(e);
+    }
+  }
+}
+
+/**
+ * To get a list of files with their details for all files within a shared folder. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function fluxShareGetFolder(req, res) {
+  try {
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
+    if (authorized) {
+      let { folder } = req.params;
+      folder = folder || req.query.folder || '';
+
+      const dirpath = path.join(__dirname, '../../../');
+      const filepath = `${dirpath}ZelApps/ZelShare/${folder}`;
+      const options = {
+        withFileTypes: false,
+      };
+      const files = await fs.promises.readdir(filepath, options);
+      const filesWithDetails = [];
+      let sharedFiles = await fluxShareSharedFiles().catch((error) => {
+        log.error(error);
+      });
+      sharedFiles = sharedFiles || [];
+      // eslint-disable-next-line no-restricted-syntax
+      for (const file of files) {
+        // eslint-disable-next-line no-await-in-loop
+        const fileStats = await fs.promises.lstat(`${filepath}/${file}`);
+        let fileURI = encodeURIComponent(file);
+        if (folder) {
+          fileURI = encodeURIComponent(`${folder}/${file}`);
+        }
+        const fileShared = sharedFiles.find((sharedfile) => sharedfile.name === fileURI);
+        let shareToken;
+        let shareFile;
+        if (fileShared) {
+          shareToken = fileShared.token;
+          shareFile = fileShared.name;
+        }
+        const isDirectory = fileStats.isDirectory();
+        const isFile = fileStats.isFile();
+        const isSymbolicLink = fileStats.isSymbolicLink();
+        let fileFolderSize = fileStats.size;
+        if (isDirectory) {
+          fileFolderSize = getFluxShareSpecificFolderSize(`${filepath}/${file}`);
+        }
+        const detailedFile = {
+          name: file,
+          size: fileFolderSize, // bytes
+          isDirectory,
+          isFile,
+          isSymbolicLink,
+          createdAt: fileStats.birthtime,
+          modifiedAt: fileStats.mtime,
+          shareToken,
+          shareFile,
+        };
+        filesWithDetails.push(detailedFile);
+      }
+      const resultsResponse = messageHelper.createDataMessage(filesWithDetails);
+      res.json(resultsResponse);
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+  }
+}
+
+/**
+ * To create a folder. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function fluxShareCreateFolder(req, res) {
+  try {
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
+    if (authorized) {
+      let { folder } = req.params;
+      folder = folder || req.query.folder || '';
+
+      const dirpath = path.join(__dirname, '../../../');
+      const filepath = `${dirpath}ZelApps/ZelShare/${folder}`;
+
+      await fs.promises.mkdir(filepath);
+
+      const resultsResponse = messageHelper.createSuccessMessage('Folder Created');
+      res.json(resultsResponse);
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+  }
+}
+
+/**
+ * To check if a file exists. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function fluxShareFileExists(req, res) {
+  try {
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
+    if (authorized) {
+      let { file } = req.params;
+      file = file || req.query.file;
+
+      const dirpath = path.join(__dirname, '../../../');
+      const filepath = `${dirpath}ZelApps/ZelShare/${file}`;
+      let fileExists = true;
+      try {
+        await fs.promises.access(filepath, fs.constants.F_OK); // check file exists and write ability
+      } catch (error) {
+        fileExists = false;
+      }
+      const data = {
+        fileExists,
+      };
+      const resultsResponse = messageHelper.createDataMessage(data);
+      res.json(resultsResponse);
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    try {
+      res.write(serviceHelper.ensureString(errorResponse));
+      res.end();
+    } catch (e) {
+      log.error(e);
+    }
+  }
+}
+
+/**
+ * To check the quantity of space (GB) available for FluxShare. This is the space available after space already reserved for the FluxNode.
+ * @returns {number} The quantity of space available (GB).
+ */
+async function getSpaceAvailableForFluxShare() {
+  const dfAsync = util.promisify(df);
+  // we want whole numbers in GB
+  const options = {
+    prefixMultiplier: 'GB',
+    isDisplayPrefixMultiplier: false,
+    precision: 0,
+  };
+
+  const dfres = await dfAsync(options);
+  const okVolumes = [];
+  dfres.forEach((volume) => {
+    if (volume.filesystem.includes('/dev/') &amp;&amp; !volume.filesystem.includes('loop') &amp;&amp; !volume.mount.includes('boot')) {
+      okVolumes.push(volume);
+    } else if (volume.filesystem.includes('loop') &amp;&amp; volume.mount === '/') {
+      okVolumes.push(volume);
+    }
+  });
+
+  // now we know that most likely there is a space available. IF user does not have his own stuff on the node or space may be sharded accross hdds.
+  let totalSpace = 0;
+  okVolumes.forEach((volume) => {
+    totalSpace += serviceHelper.ensureNumber(volume.size);
+  });
+  // space that is further reserved for flux os and that will be later substracted from available space. Max 30.
+  const tier = await generalService.getNewNodeTier();
+  const lockedSpaceOnNode = config.fluxSpecifics.hdd[tier];
+
+  const extraSpaceOnNode = totalSpace - lockedSpaceOnNode > 0 ? totalSpace - lockedSpaceOnNode : 0; // shall always be above 0. Put precaution to place anyway
+  // const extraSpaceOnNode = availableSpace - lockedSpaceOnNode > 0 ? availableSpace - lockedSpaceOnNode : 0;
+  const spaceAvailableForFluxShare = 2 + extraSpaceOnNode;
+  return spaceAvailableForFluxShare;
+}
+
+/**
+ * To show FluxShare storage stats (GB available, GB used and GB total). Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function fluxShareStorageStats(req, res) {
+  try {
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
+    if (authorized) {
+      const spaceAvailableForFluxShare = await getSpaceAvailableForFluxShare();
+      let spaceUsedByFluxShare = getFluxShareSize();
+      spaceUsedByFluxShare = Number(spaceUsedByFluxShare.toFixed(6));
+      const data = {
+        available: spaceAvailableForFluxShare - spaceUsedByFluxShare,
+        used: spaceUsedByFluxShare,
+        total: spaceAvailableForFluxShare,
+      };
+      const resultsResponse = messageHelper.createDataMessage(data);
+      res.json(resultsResponse);
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+  }
+}
+
+/**
+ * To upload a specified folder to FluxShare. Checks that there is enough space available. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function fluxShareUpload(req, res) {
+  try {
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
+    if (!authorized) {
+      throw new Error('Unauthorized. Access denied.');
+    }
+    let { folder } = req.params;
+    folder = folder || req.query.folder || '';
+    if (folder) {
+      folder += '/';
+    }
+    const dirpath = path.join(__dirname, '../../../');
+    const uploadDir = `${dirpath}ZelApps/ZelShare/${folder}`;
+    const options = {
+      multiples: true,
+      uploadDir,
+      maxFileSize: 5 * 1024 * 1024 * 1024, // 5gb
+      hash: true,
+      keepExtensions: true,
+    };
+    const spaceAvailableForFluxShare = await getSpaceAvailableForFluxShare();
+    let spaceUsedByFluxShare = getFluxShareSize();
+    spaceUsedByFluxShare = Number(spaceUsedByFluxShare.toFixed(6));
+    const available = spaceAvailableForFluxShare - spaceUsedByFluxShare;
+    if (available &lt;= 0) {
+      throw new Error('FluxShare Storage is full');
+    }
+    // eslint-disable-next-line no-bitwise
+    await fs.promises.access(uploadDir, fs.constants.F_OK | fs.constants.W_OK); // check folder exists and write ability
+    const form = formidable(options);
+    form.parse(req)
+      .on('fileBegin', (name, file) => {
+        try {
+          res.write(serviceHelper.ensureString(file.name));
+          const filepath = `${dirpath}ZelApps/ZelShare/${folder}${file.name}`;
+          // eslint-disable-next-line no-param-reassign
+          file.path = filepath;
+        } catch (error) {
+          log.error(error);
+        }
+      })
+      .on('progress', (bytesReceived, bytesExpected) => {
+        try {
+          // console.log('PROGRESS');
+          res.write(serviceHelper.ensureString([bytesReceived, bytesExpected]));
+        } catch (error) {
+          log.error(error);
+        }
+      })
+      .on('field', (name, field) => {
+        console.log('Field', name, field);
+        // console.log(name);
+        // console.log(field);
+        // res.write(serviceHelper.ensureString(field));
+      })
+      .on('file', (name, file) => {
+        try {
+          // console.log('Uploaded file', name, file);
+          res.write(serviceHelper.ensureString(file));
+        } catch (error) {
+          log.error(error);
+        }
+      })
+      .on('aborted', () => {
+        console.error('Request aborted by the user');
+      })
+      .on('error', (error) => {
+        log.error(error);
+        const errorResponse = messageHelper.createErrorMessage(
+          error.message || error,
+          error.name,
+          error.code,
+        );
+        try {
+          res.write(serviceHelper.ensureString(errorResponse));
+          res.end();
+        } catch (e) {
+          log.error(e);
+        }
+      })
+      .on('end', () => {
+        try {
+          res.end();
+        } catch (error) {
+          log.error(error);
+        }
+      });
+  } catch (error) {
+    log.error(error);
+    if (res) {
+      // res.set('Connection', 'close');
+      try {
+        res.connection.destroy();
+      } catch (e) {
+        log.error(e);
+      }
+    }
+  }
+}
+
+module.exports = {
+  fluxShareDownloadFile,
+  fluxShareGetFolder,
+  fluxShareCreateFolder,
+  fluxShareUpload,
+  fluxShareRemoveFile,
+  fluxShareRemoveFolder,
+  fluxShareFileExists,
+  fluxShareStorageStats,
+  fluxShareUnshareFile,
+  fluxShareShareFile,
+  fluxShareGetSharedFiles,
+  fluxShareRename,
+  fluxShareDownloadFolder,
+};
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Modules</h3><ul><li><a href="Contains%2520utility%2520functions%2520to%2520be%2520used%2520only%2520by%2520verificationHelper.%250ATo%2520verify%2520privilege%2520use%2520verifyPrivilege%2520from%2520verificationHelper%2520module.module_.html">Contains utility functions to be used only by verificationHelper.
+To verify privilege use verifyPrivilege from verificationHelper module.</a></li><li><a href="module-Helper%2520module%2520used%2520for%2520all%2520interactions%2520with%2520database.html">Helper module used for all interactions with database</a></li></ul><h3>Global</h3><ul><li><a href="global.html#activeLoginPhrases">activeLoginPhrases</a></li><li><a href="global.html#addNode">addNode</a></li><li><a href="global.html#adjustCruxID">adjustCruxID</a></li><li><a href="global.html#adjustKadenaAccount">adjustKadenaAccount</a></li><li><a href="global.html#appDockerCreate">appDockerCreate</a></li><li><a href="global.html#appDockerImageRemove">appDockerImageRemove</a></li><li><a href="global.html#appDockerKill">appDockerKill</a></li><li><a href="global.html#appDockerPause">appDockerPause</a></li><li><a href="global.html#appDockerRemove">appDockerRemove</a></li><li><a href="global.html#appDockerRestart">appDockerRestart</a></li><li><a href="global.html#appDockerStart">appDockerStart</a></li><li><a href="global.html#appDockerStop">appDockerStop</a></li><li><a href="global.html#appDockerTop">appDockerTop</a></li><li><a href="global.html#appDockerUnpause">appDockerUnpause</a></li><li><a href="global.html#axiosGet">axiosGet</a></li><li><a href="global.html#benchmarkDebug">benchmarkDebug</a></li><li><a href="global.html#checkBlockProcessingStopped">checkBlockProcessingStopped</a></li><li><a href="global.html#checkLoggedUser">checkLoggedUser</a></li><li><a href="global.html#checkSynced">checkSynced</a></li><li><a href="global.html#checkWhitelistedRepository">checkWhitelistedRepository</a></li><li><a href="global.html#checkWhitelistedZelID">checkWhitelistedZelID</a></li><li><a href="global.html#clearBanned">clearBanned</a></li><li><a href="global.html#confirmNodeTierHardware">confirmNodeTierHardware</a></li><li><a href="global.html#createDataMessage">createDataMessage</a></li><li><a href="global.html#createErrorMessage">createErrorMessage</a></li><li><a href="global.html#createFluxDockerNetwork">createFluxDockerNetwork</a></li><li><a href="global.html#createMultiSig">createMultiSig</a></li><li><a href="global.html#createMultiSigPost">createMultiSigPost</a></li><li><a href="global.html#createRawTransaction">createRawTransaction</a></li><li><a href="global.html#createRawTransactionPost">createRawTransactionPost</a></li><li><a href="global.html#createSuccessMessage">createSuccessMessage</a></li><li><a href="global.html#createWarningMessage">createWarningMessage</a></li><li><a href="global.html#createZelNodeBroadcast">createZelNodeBroadcast</a></li><li><a href="global.html#createZelNodeKey">createZelNodeKey</a></li><li><a href="global.html#daemonBlockchainInfoService">daemonBlockchainInfoService</a></li><li><a href="global.html#daemonDebug">daemonDebug</a></li><li><a href="global.html#decodeMessage">decodeMessage</a></li><li><a href="global.html#decodeRawTransaction">decodeRawTransaction</a></li><li><a href="global.html#decodeRawTransactionPost">decodeRawTransactionPost</a></li><li><a href="global.html#decodeScript">decodeScript</a></li><li><a href="global.html#decodeScriptPost">decodeScriptPost</a></li><li><a href="global.html#decodeZelNodeBroadcast">decodeZelNodeBroadcast</a></li><li><a href="global.html#delay">delay</a></li><li><a href="global.html#deleteLoginPhrase">deleteLoginPhrase</a></li><li><a href="global.html#disconnectNode">disconnectNode</a></li><li><a href="global.html#dockerContainerChanges">dockerContainerChanges</a></li><li><a href="global.html#dockerContainerExec">dockerContainerExec</a></li><li><a href="global.html#dockerContainerInspect">dockerContainerInspect</a></li><li><a href="global.html#dockerContainerLogs">dockerContainerLogs</a></li><li><a href="global.html#dockerContainerLogsStream">dockerContainerLogsStream</a></li><li><a href="global.html#dockerContainerStats">dockerContainerStats</a></li><li><a href="global.html#dockerCreateNetwork">dockerCreateNetwork</a></li><li><a href="global.html#dockerListContainers">dockerListContainers</a></li><li><a href="global.html#dockerListImages">dockerListImages</a></li><li><a href="global.html#dockerNetworkInspect">dockerNetworkInspect</a></li><li><a href="global.html#dockerRemoveNetwork">dockerRemoveNetwork</a></li><li><a href="global.html#emergencyPhrase">emergencyPhrase</a></li><li><a href="global.html#ensureBoolean">ensureBoolean</a></li><li><a href="global.html#ensureNumber">ensureNumber</a></li><li><a href="global.html#ensureObject">ensureObject</a></li><li><a href="global.html#ensureString">ensureString</a></li><li><a href="global.html#errUnauthorizedMessage">errUnauthorizedMessage</a></li><li><a href="global.html#estimateFee">estimateFee</a></li><li><a href="global.html#estimatePriority">estimatePriority</a></li><li><a href="global.html#executeCall">executeCall</a></li><li><a href="global.html#fluxBackendFolder">fluxBackendFolder</a></li><li><a href="global.html#fluxDaemonBlockchainInfo">fluxDaemonBlockchainInfo</a></li><li><a href="global.html#fluxDebugLog">fluxDebugLog</a></li><li><a href="global.html#fluxErrorLog">fluxErrorLog</a></li><li><a href="global.html#fluxInfoLog">fluxInfoLog</a></li><li><a href="global.html#fluxLog">fluxLog</a></li><li><a href="global.html#fluxShareCreateFolder">fluxShareCreateFolder</a></li><li><a href="global.html#fluxShareDatabaseFileDelete">fluxShareDatabaseFileDelete</a></li><li><a href="global.html#fluxShareDatabaseFileDeleteMultiple">fluxShareDatabaseFileDeleteMultiple</a></li><li><a href="global.html#fluxShareDatabaseShareFile">fluxShareDatabaseShareFile</a></li><li><a href="global.html#fluxShareDownloadFile">fluxShareDownloadFile</a></li><li><a href="global.html#fluxShareDownloadFolder">fluxShareDownloadFolder</a></li><li><a href="global.html#fluxShareFileExists">fluxShareFileExists</a></li><li><a href="global.html#fluxShareGetFolder">fluxShareGetFolder</a></li><li><a href="global.html#fluxShareGetSharedFiles">fluxShareGetSharedFiles</a></li><li><a href="global.html#fluxShareRemoveFile">fluxShareRemoveFile</a></li><li><a href="global.html#fluxShareRemoveFolder">fluxShareRemoveFolder</a></li><li><a href="global.html#fluxShareRename">fluxShareRename</a></li><li><a href="global.html#fluxShareSharedFiles">fluxShareSharedFiles</a></li><li><a href="global.html#fluxShareShareFile">fluxShareShareFile</a></li><li><a href="global.html#fluxShareStorageStats">fluxShareStorageStats</a></li><li><a href="global.html#fluxShareUnshareFile">fluxShareUnshareFile</a></li><li><a href="global.html#fluxShareUpload">fluxShareUpload</a></li><li><a href="global.html#fluxWarnLog">fluxWarnLog</a></li><li><a href="global.html#fundRawTransaction">fundRawTransaction</a></li><li><a href="global.html#fundRawTransactionPost">fundRawTransactionPost</a></li><li><a href="global.html#getAddedNodeInfo">getAddedNodeInfo</a></li><li><a href="global.html#getAddressBalance">getAddressBalance</a></li><li><a href="global.html#getAddressDeltas">getAddressDeltas</a></li><li><a href="global.html#getAddressFusionCoinbase">getAddressFusionCoinbase</a></li><li><a href="global.html#getAddressMempool">getAddressMempool</a></li><li><a href="global.html#getAddressTransactions">getAddressTransactions</a></li><li><a href="global.html#getAddressTxids">getAddressTxids</a></li><li><a href="global.html#getAddressUtxos">getAddressUtxos</a></li><li><a href="global.html#getAllAddresses">getAllAddresses</a></li><li><a href="global.html#getAllAddressesWithTransactions">getAllAddressesWithTransactions</a></li><li><a href="global.html#getAllFiles">getAllFiles</a></li><li><a href="global.html#getAllFluxTransactions">getAllFluxTransactions</a></li><li><a href="global.html#getAllFusionCoinbase">getAllFusionCoinbase</a></li><li><a href="global.html#getAllUtxos">getAllUtxos</a></li><li><a href="global.html#getAppDockerNameIdentifier">getAppDockerNameIdentifier</a></li><li><a href="global.html#getAppIdentifier">getAppIdentifier</a></li><li><a href="global.html#getApplicationOwner">getApplicationOwner</a></li><li><a href="global.html#getBenchmarks">getBenchmarks</a></li><li><a href="global.html#getBenchStatus">getBenchStatus</a></li><li><a href="global.html#getBestBlockHash">getBestBlockHash</a></li><li><a href="global.html#getBlock">getBlock</a></li><li><a href="global.html#getBlockchainInfo">getBlockchainInfo</a></li><li><a href="global.html#getBlockCount">getBlockCount</a></li><li><a href="global.html#getBlockDeltas">getBlockDeltas</a></li><li><a href="global.html#getBlockHash">getBlockHash</a></li><li><a href="global.html#getBlockHashes">getBlockHashes</a></li><li><a href="global.html#getBlockHashesPost">getBlockHashesPost</a></li><li><a href="global.html#getBlockHeader">getBlockHeader</a></li><li><a href="global.html#getBlockSubsidy">getBlockSubsidy</a></li><li><a href="global.html#getBlockTemplate">getBlockTemplate</a></li><li><a href="global.html#getChainTips">getChainTips</a></li><li><a href="global.html#getCollateralInfo">getCollateralInfo</a></li><li><a href="global.html#getConfigValue">getConfigValue</a></li><li><a href="global.html#getConnectionCount">getConnectionCount</a></li><li><a href="global.html#getDeprecationInfo">getDeprecationInfo</a></li><li><a href="global.html#getDifficulty">getDifficulty</a></li><li><a href="global.html#getDockerContainer">getDockerContainer</a></li><li><a href="global.html#getDockerContainerByIdOrName">getDockerContainerByIdOrName</a></li><li><a href="global.html#getDOSList">getDOSList</a></li><li><a href="global.html#getFilteredFluxTxs">getFilteredFluxTxs</a></li><li><a href="global.html#getFluxCruxID">getFluxCruxID</a></li><li><a href="global.html#getFluxInfo">getFluxInfo</a></li><li><a href="global.html#getFluxIP">getFluxIP</a></li><li><a href="global.html#getFluxKadena">getFluxKadena</a></li><li><a href="global.html#getFluxShareSize">getFluxShareSize</a></li><li><a href="global.html#getFluxShareSpecificFolderSize">getFluxShareSpecificFolderSize</a></li><li><a href="global.html#getFluxTimezone">getFluxTimezone</a></li><li><a href="global.html#getFluxVersion">getFluxVersion</a></li><li><a href="global.html#getFluxZelID">getFluxZelID</a></li><li><a href="global.html#getGatewayApi">getGatewayApi</a></li><li><a href="global.html#getInfo">getInfo</a></li><li><a href="global.html#getIpApi">getIpApi</a></li><li><a href="global.html#getLocalSolPs">getLocalSolPs</a></li><li><a href="global.html#getMapApi">getMapApi</a></li><li><a href="global.html#getMempoolInfo">getMempoolInfo</a></li><li><a href="global.html#getMiningInfo">getMiningInfo</a></li><li><a href="global.html#getNetTotals">getNetTotals</a></li><li><a href="global.html#getNetworkHashPs">getNetworkHashPs</a></li><li><a href="global.html#getNetworkInfo">getNetworkInfo</a></li><li><a href="global.html#getNetworkSolPs">getNetworkSolPs</a></li><li><a href="global.html#getNewNodeTier">getNewNodeTier</a></li><li><a href="global.html#getNodeTier">getNodeTier</a></li><li><a href="global.html#getPeerInfo">getPeerInfo</a></li><li><a href="global.html#getPublicIp">getPublicIp</a></li><li><a href="global.html#getRawMemPool">getRawMemPool</a></li><li><a href="global.html#getRawTransaction">getRawTransaction</a></li><li><a href="global.html#getScannedHeight">getScannedHeight</a></li><li><a href="global.html#getSender">getSender</a></li><li><a href="global.html#getSenderForFluxTx">getSenderForFluxTx</a></li><li><a href="global.html#getSenderForFluxTxInsight">getSenderForFluxTxInsight</a></li><li><a href="global.html#getSenderTransactionFromDaemon">getSenderTransactionFromDaemon</a></li><li><a href="global.html#getSingleAddressBalance">getSingleAddressBalance</a></li><li><a href="global.html#getSingleAddressDeltas">getSingleAddressDeltas</a></li><li><a href="global.html#getSingleAddressMempool">getSingleAddressMempool</a></li><li><a href="global.html#getSingleAddresssTxids">getSingleAddresssTxids</a></li><li><a href="global.html#getSingleAddressUtxos">getSingleAddressUtxos</a></li><li><a href="global.html#getSpaceAvailableForFluxShare">getSpaceAvailableForFluxShare</a></li><li><a href="global.html#getSpentInfo">getSpentInfo</a></li><li><a href="global.html#getSpentInfoPost">getSpentInfoPost</a></li><li><a href="global.html#getStartList">getStartList</a></li><li><a href="global.html#getStatus">getStatus</a></li><li><a href="global.html#getTxOut">getTxOut</a></li><li><a href="global.html#getTxOutProof">getTxOutProof</a></li><li><a href="global.html#getTxOutSetInfo">getTxOutSetInfo</a></li><li><a href="global.html#getVerboseBlock">getVerboseBlock</a></li><li><a href="global.html#getZelNodeCount">getZelNodeCount</a></li><li><a href="global.html#getZelNodeOutputs">getZelNodeOutputs</a></li><li><a href="global.html#getZelNodeScores">getZelNodeScores</a></li><li><a href="global.html#getZelNodeStatus">getZelNodeStatus</a></li><li><a href="global.html#getZelNodeWinners">getZelNodeWinners</a></li><li><a href="global.html#hardUpdateFlux">hardUpdateFlux</a></li><li><a href="global.html#help">help</a></li><li><a href="global.html#initiateBlockProcessor">initiateBlockProcessor</a></li><li><a href="global.html#InstallFluxWatchTower">InstallFluxWatchTower</a></li><li><a href="global.html#isDaemonSynced">isDaemonSynced</a></li><li><a href="global.html#isInsightExplorer">isInsightExplorer</a></li><li><a href="global.html#isNodeStatusConfirmed">isNodeStatusConfirmed</a></li><li><a href="global.html#isUPNP">isUPNP</a></li><li><a href="global.html#listBanned">listBanned</a></li><li><a href="global.html#listZelNodeConf">listZelNodeConf</a></li><li><a href="global.html#listZelNodes">listZelNodes</a></li><li><a href="global.html#loggedSessions">loggedSessions</a></li><li><a href="global.html#loggedUsers">loggedUsers</a></li><li><a href="global.html#loginPhrase">loginPhrase</a></li><li><a href="global.html#logoutAllSessions">logoutAllSessions</a></li><li><a href="global.html#logoutAllUsers">logoutAllUsers</a></li><li><a href="global.html#logoutCurrentSession">logoutCurrentSession</a></li><li><a href="global.html#logoutSpecificSession">logoutSpecificSession</a></li><li><a href="global.html#mapPortApi">mapPortApi</a></li><li><a href="global.html#mapUpnpPort">mapUpnpPort</a></li><li><a href="global.html#messageHash">messageHash</a></li><li><a href="global.html#nodeCollateral">nodeCollateral</a></li><li><a href="global.html#nodeTier">nodeTier</a></li><li><a href="global.html#ping">ping</a></li><li><a href="global.html#prioritiseTransaction">prioritiseTransaction</a></li><li><a href="global.html#processBlock">processBlock</a></li><li><a href="global.html#processBlockTransactions">processBlockTransactions</a></li><li><a href="global.html#processInsight">processInsight</a></li><li><a href="global.html#processStandard">processStandard</a></li><li><a href="global.html#processTransaction">processTransaction</a></li><li><a href="global.html#provideSign">provideSign</a></li><li><a href="global.html#rebuildHome">rebuildHome</a></li><li><a href="global.html#reindexDaemon">reindexDaemon</a></li><li><a href="global.html#reindexExplorer">reindexExplorer</a></li><li><a href="global.html#relayZelNodeBroadcast">relayZelNodeBroadcast</a></li><li><a href="global.html#removeMapPortApi">removeMapPortApi</a></li><li><a href="global.html#removeMapUpnpPort">removeMapUpnpPort</a></li><li><a href="global.html#rescanExplorer">rescanExplorer</a></li><li><a href="global.html#restartBenchmark">restartBenchmark</a></li><li><a href="global.html#restartBlockProcessing">restartBlockProcessing</a></li><li><a href="global.html#restartDaemon">restartDaemon</a></li><li><a href="global.html#restartNodeBenchmarks">restartNodeBenchmarks</a></li><li><a href="global.html#restoreDatabaseToBlockheightState">restoreDatabaseToBlockheightState</a></li><li><a href="global.html#sendRawTransaction">sendRawTransaction</a></li><li><a href="global.html#sendRawTransactionPost">sendRawTransactionPost</a></li><li><a href="global.html#setBan">setBan</a></li><li><a href="global.html#setupUPNP">setupUPNP</a></li><li><a href="global.html#signFluxTransaction">signFluxTransaction</a></li><li><a href="global.html#signFluxTransactionPost">signFluxTransactionPost</a></li><li><a href="global.html#signMessage">signMessage</a></li><li><a href="global.html#signRawTransaction">signRawTransaction</a></li><li><a href="global.html#signRawTransactionPost">signRawTransactionPost</a></li><li><a href="global.html#softUpdateFlux">softUpdateFlux</a></li><li><a href="global.html#softUpdateFluxInstall">softUpdateFluxInstall</a></li><li><a href="global.html#spork">spork</a></li><li><a href="global.html#startBenchmark">startBenchmark</a></li><li><a href="global.html#startBenchmarkD">startBenchmarkD</a></li><li><a href="global.html#startDaemon">startDaemon</a></li><li><a href="global.html#startDeterministicZelNode">startDeterministicZelNode</a></li><li><a href="global.html#startFluxFunctions">startFluxFunctions</a></li><li><a href="global.html#startZelNode">startZelNode</a></li><li><a href="global.html#stop">stop</a></li><li><a href="global.html#stopBenchmarkD">stopBenchmarkD</a></li><li><a href="global.html#stopBlockProcessing">stopBlockProcessing</a></li><li><a href="global.html#submitBlock">submitBlock</a></li><li><a href="global.html#submitBlockPost">submitBlockPost</a></li><li><a href="global.html#tailBenchmarkDebug">tailBenchmarkDebug</a></li><li><a href="global.html#tailDaemonDebug">tailDaemonDebug</a></li><li><a href="global.html#tailFluxDebugLog">tailFluxDebugLog</a></li><li><a href="global.html#tailFluxErrorLog">tailFluxErrorLog</a></li><li><a href="global.html#tailFluxInfoLog">tailFluxInfoLog</a></li><li><a href="global.html#tailFluxLog">tailFluxLog</a></li><li><a href="global.html#tailFluxWarnLog">tailFluxWarnLog</a></li><li><a href="global.html#updateBenchmark">updateBenchmark</a></li><li><a href="global.html#updateDaemon">updateDaemon</a></li><li><a href="global.html#updateFlux">updateFlux</a></li><li><a href="global.html#validateAddress">validateAddress</a></li><li><a href="global.html#verifyChain">verifyChain</a></li><li><a href="global.html#verifyLogin">verifyLogin</a></li><li><a href="global.html#verifyMessage">verifyMessage</a></li><li><a href="global.html#verifyMessagePost">verifyMessagePost</a></li><li><a href="global.html#verifyPrivilege">verifyPrivilege</a></li><li><a href="global.html#verifyTxOutProof">verifyTxOutProof</a></li><li><a href="global.html#verifyUPNPsupport">verifyUPNPsupport</a></li><li><a href="global.html#verifyZelID">verifyZelID</a></li><li><a href="global.html#viewDeterministicZelNodeList">viewDeterministicZelNodeList</a></li><li><a href="global.html#whitelistedRepositories">whitelistedRepositories</a></li><li><a href="global.html#whitelistedZelIDs">whitelistedZelIDs</a></li><li><a href="global.html#wsRespondLoginPhrase">wsRespondLoginPhrase</a></li><li><a href="global.html#wsRespondSignature">wsRespondSignature</a></li><li><a href="global.html#zelNodeCurrentWinner">zelNodeCurrentWinner</a></li><li><a href="global.html#zelNodeDebug">zelNodeDebug</a></li><li><a href="global.html#znsync">znsync</a></li><li><a href="global.html#zValidateAddress">zValidateAddress</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.10</a> on Mon Apr 04 2022 15:01:00 GMT+0700 (Indočínský čas)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>
