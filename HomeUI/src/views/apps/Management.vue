@@ -1536,6 +1536,27 @@
                     placeholder="ZelID of Application Owner"
                   />
                 </b-form-group>
+                <br>
+                <b-form-group
+                  v-if="appUpdateSpecification.version >= 3"
+                  label-cols="2"
+                  label-cols-lg="1"
+                  label="Instances"
+                  label-for="instances"
+                >
+                  <div class="mx-1">
+                    {{ appUpdateSpecification.instances }}
+                  </div>
+                  <b-form-input
+                    id="instances"
+                    v-model="appUpdateSpecification.instances"
+                    placeholder="Minimum number of application instances to be spawned"
+                    type="range"
+                    min="3"
+                    max="100"
+                    step="1"
+                  />
+                </b-form-group>
               </b-card>
             </b-col>
           </b-row>
@@ -1975,6 +1996,27 @@
                     placeholder="ZelID of Application Owner"
                   />
                 </b-form-group>
+                <br>
+                <b-form-group
+                  v-if="appUpdateSpecification.version >= 3"
+                  label-cols="2"
+                  label-cols-lg="1"
+                  label="Instances"
+                  label-for="instances"
+                >
+                  <div class="mx-1">
+                    {{ appUpdateSpecification.instances }}
+                  </div>
+                  <b-form-input
+                    id="instances"
+                    v-model="appUpdateSpecification.instances"
+                    placeholder="Minimum number of application instances to be spawned"
+                    type="range"
+                    min="3"
+                    max="100"
+                    step="1"
+                  />
+                </b-form-group>
               </b-card>
             </b-col>
             <b-col
@@ -2095,26 +2137,6 @@
                     />
                   </h6>
                 </b-card-title>
-                <b-form-group
-                  v-if="appUpdateSpecification.version >= 3"
-                  label-cols="2"
-                  label-cols-lg="1"
-                  label="Instances"
-                  label-for="instances"
-                >
-                  <div class="mx-1">
-                    {{ appUpdateSpecification.instances }}
-                  </div>
-                  <b-form-input
-                    id="instances"
-                    v-model="appUpdateSpecification.instances"
-                    placeholder="Minimum number of application instances to be spawned"
-                    type="range"
-                    min="3"
-                    max="100"
-                    step="1"
-                  />
-                </b-form-group>
                 <b-form-group
                   v-if="!appUpdateSpecification.tiered"
                   label-cols="2"
