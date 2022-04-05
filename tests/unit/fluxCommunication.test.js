@@ -42,7 +42,7 @@ describe('fluxCommunication tests', () => {
       sinon.restore();
     });
 
-    it.only('should broadcast the app message if a proper data is given', async () => {
+    it('should broadcast the app message if a proper data is given', async () => {
       const fromIp = '127.0.0.5';
       const appSpecifications = {
         name: 'website',
@@ -305,7 +305,7 @@ describe('fluxCommunication tests', () => {
     }).timeout(5000);
   });
 
-  describe('connectedPeeers tests', () => {
+  describe('connectedPeers tests', () => {
     const generateResponse = () => {
       const res = { test: 'testing' };
       res.status = sinon.stub().returns(res);
@@ -321,7 +321,7 @@ describe('fluxCommunication tests', () => {
       sinon.restore();
     });
 
-    it('should return connected peers\'s ips', async () => {
+    it('should return connected peers\' ips', async () => {
       const wsuri = 'wss://api.runonflux.io/ws/flux/';
       const wsuri2 = 'wss://api.runonflux.io/ws/flux2/';
       const wsOutgoing1 = await connectWs(wsuri);
@@ -337,7 +337,7 @@ describe('fluxCommunication tests', () => {
       await fluxCommunication.connectedPeers(undefined, res);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResult);
-    });
+    }).timeout(5000);
 
     it('should empty list if no peers are connected', async () => {
       const res = generateResponse();
@@ -349,7 +349,7 @@ describe('fluxCommunication tests', () => {
     });
   });
 
-  describe('connectedPeeersInfo tests', () => {
+  describe('connectedPeersInfo tests', () => {
     const generateResponse = () => {
       const res = { test: 'testing' };
       res.status = sinon.stub().returns(res);
@@ -460,7 +460,7 @@ describe('fluxCommunication tests', () => {
 
       expect(result).to.eql(expectedResult);
       sinon.assert.calledOnceWithExactly(verificationHelperStub, 'adminandfluxteam', req);
-    });
+    }).timeout(5000);
 
     it('should close the connection with ip given in query if it exists', async () => {
       const wsuri = 'wss://api.runonflux.io/ws/flux/';

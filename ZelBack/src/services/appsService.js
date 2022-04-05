@@ -2553,41 +2553,41 @@ function appPricePerMonth(dataForAppRegistration, height) {
 
 function checkHWParameters(appSpecs) {
   // check specs parameters. JS precision
-  if ((appSpecs.cpu * 10) % 1 !== 0 || (appSpecs.cpu * 10) > (config.fluxspecifics.cpu.stratus - config.lockedSystemResources.cpu) || appSpecs.cpu < 0.1) {
+  if ((appSpecs.cpu * 10) % 1 !== 0 || (appSpecs.cpu * 10) > (config.fluxSpecifics.cpu.stratus - config.lockedSystemResources.cpu) || appSpecs.cpu < 0.1) {
     throw new Error(`CPU badly assigned for ${appSpecs.name}`);
   }
-  if (appSpecs.ram % 100 !== 0 || appSpecs.ram > (config.fluxspecifics.ram.stratus - config.lockedSystemResources.ram) || appSpecs.ram < 100) {
+  if (appSpecs.ram % 100 !== 0 || appSpecs.ram > (config.fluxSpecifics.ram.stratus - config.lockedSystemResources.ram) || appSpecs.ram < 100) {
     throw new Error(`RAM badly assigned for ${appSpecs.name}`);
   }
-  if (appSpecs.hdd % 1 !== 0 || appSpecs.hdd > (config.fluxspecifics.hdd.stratus - config.lockedSystemResources.hdd) || appSpecs.hdd < 1) {
+  if (appSpecs.hdd % 1 !== 0 || appSpecs.hdd > (config.fluxSpecifics.hdd.stratus - config.lockedSystemResources.hdd) || appSpecs.hdd < 1) {
     throw new Error(`SSD badly assigned for ${appSpecs.name}`);
   }
   if (appSpecs.tiered) {
-    if ((appSpecs.cpubasic * 10) % 1 !== 0 || (appSpecs.cpubasic * 10) > (config.fluxspecifics.cpu.cumulus - config.lockedSystemResources.cpu) || appSpecs.cpubasic < 0.1) {
+    if ((appSpecs.cpubasic * 10) % 1 !== 0 || (appSpecs.cpubasic * 10) > (config.fluxSpecifics.cpu.cumulus - config.lockedSystemResources.cpu) || appSpecs.cpubasic < 0.1) {
       throw new Error(`CPU for Cumulus badly assigned for ${appSpecs.name}`);
     }
-    if (appSpecs.rambasic % 100 !== 0 || appSpecs.rambasic > (config.fluxspecifics.ram.cumulus - config.lockedSystemResources.ram) || appSpecs.rambasic < 100) {
+    if (appSpecs.rambasic % 100 !== 0 || appSpecs.rambasic > (config.fluxSpecifics.ram.cumulus - config.lockedSystemResources.ram) || appSpecs.rambasic < 100) {
       throw new Error(`RAM for Cumulus badly assigned for ${appSpecs.name}`);
     }
-    if (appSpecs.hddbasic % 1 !== 0 || appSpecs.hddbasic > (config.fluxspecifics.hdd.cumulus - config.lockedSystemResources.hdd) || appSpecs.hddbasic < 1) {
+    if (appSpecs.hddbasic % 1 !== 0 || appSpecs.hddbasic > (config.fluxSpecifics.hdd.cumulus - config.lockedSystemResources.hdd) || appSpecs.hddbasic < 1) {
       throw new Error(`SSD for Cumulus badly assigned for ${appSpecs.name}`);
     }
-    if ((appSpecs.cpusuper * 10) % 1 !== 0 || (appSpecs.cpusuper * 10) > (config.fluxspecifics.cpu.nimbus - config.lockedSystemResources.cpu) || appSpecs.cpusuper < 0.1) {
+    if ((appSpecs.cpusuper * 10) % 1 !== 0 || (appSpecs.cpusuper * 10) > (config.fluxSpecifics.cpu.nimbus - config.lockedSystemResources.cpu) || appSpecs.cpusuper < 0.1) {
       throw new Error(`CPU for Nimbus badly assigned for ${appSpecs.name}`);
     }
-    if (appSpecs.ramsuper % 100 !== 0 || appSpecs.ramsuper > (config.fluxspecifics.ram.nimbus - config.lockedSystemResources.ram) || appSpecs.ramsuper < 100) {
+    if (appSpecs.ramsuper % 100 !== 0 || appSpecs.ramsuper > (config.fluxSpecifics.ram.nimbus - config.lockedSystemResources.ram) || appSpecs.ramsuper < 100) {
       throw new Error(`RAM for Nimbus badly assigned for ${appSpecs.name}`);
     }
-    if (appSpecs.hddsuper % 1 !== 0 || appSpecs.hddsuper > (config.fluxspecifics.hdd.nimbus - config.lockedSystemResources.hdd) || appSpecs.hddsuper < 1) {
+    if (appSpecs.hddsuper % 1 !== 0 || appSpecs.hddsuper > (config.fluxSpecifics.hdd.nimbus - config.lockedSystemResources.hdd) || appSpecs.hddsuper < 1) {
       throw new Error(`SSD for Nimbus badly assigned for ${appSpecs.name}`);
     }
-    if ((appSpecs.cpubamf * 10) % 1 !== 0 || (appSpecs.cpubamf * 10) > (config.fluxspecifics.cpu.stratus - config.lockedSystemResources.cpu) || appSpecs.cpubamf < 0.1) {
+    if ((appSpecs.cpubamf * 10) % 1 !== 0 || (appSpecs.cpubamf * 10) > (config.fluxSpecifics.cpu.stratus - config.lockedSystemResources.cpu) || appSpecs.cpubamf < 0.1) {
       throw new Error(`CPU for Stratus badly assigned for ${appSpecs.name}`);
     }
-    if (appSpecs.rambamf % 100 !== 0 || appSpecs.rambamf > (config.fluxspecifics.ram.stratus - config.lockedSystemResources.ram) || appSpecs.rambamf < 100) {
+    if (appSpecs.rambamf % 100 !== 0 || appSpecs.rambamf > (config.fluxSpecifics.ram.stratus - config.lockedSystemResources.ram) || appSpecs.rambamf < 100) {
       throw new Error(`RAM for Stratus badly assigned for ${appSpecs.name}`);
     }
-    if (appSpecs.hddbamf % 1 !== 0 || appSpecs.hddbamf > (config.fluxspecifics.hdd.stratus - config.lockedSystemResources.hdd) || appSpecs.hddbamf < 1) {
+    if (appSpecs.hddbamf % 1 !== 0 || appSpecs.hddbamf > (config.fluxSpecifics.hdd.stratus - config.lockedSystemResources.hdd) || appSpecs.hddbamf < 1) {
       throw new Error(`SSD for Stratus badly assigned for ${appSpecs.name}`);
     }
   }
@@ -2627,41 +2627,41 @@ function checkComposeHWParameters(appSpecsComposed) {
     }
   });
   // check specs parameters. JS precision
-  if (totalCpu > (config.fluxspecifics.cpu.stratus - config.lockedSystemResources.cpu)) {
+  if (totalCpu > (config.fluxSpecifics.cpu.stratus - config.lockedSystemResources.cpu)) {
     throw new Error(`Too much CPU resources assigned for ${appSpecsComposed.name}`);
   }
-  if (totalRam > (config.fluxspecifics.ram.stratus - config.lockedSystemResources.ram)) {
+  if (totalRam > (config.fluxSpecifics.ram.stratus - config.lockedSystemResources.ram)) {
     throw new Error(`Too much RAM resources assigned for ${appSpecsComposed.name}`);
   }
-  if (totalHdd > (config.fluxspecifics.hdd.stratus - config.lockedSystemResources.hdd)) {
+  if (totalHdd > (config.fluxSpecifics.hdd.stratus - config.lockedSystemResources.hdd)) {
     throw new Error(`Too much SSD resources assigned for ${appSpecsComposed.name}`);
   }
   if (isTiered) {
-    if (totalCpuBasic > (config.fluxspecifics.cpu.cumulus - config.lockedSystemResources.cpu)) {
+    if (totalCpuBasic > (config.fluxSpecifics.cpu.cumulus - config.lockedSystemResources.cpu)) {
       throw new Error(`Too much CPU for Cumulus resources assigned for ${appSpecsComposed.name}`);
     }
-    if (totalRamBasic > (config.fluxspecifics.ram.cumulus - config.lockedSystemResources.ram)) {
+    if (totalRamBasic > (config.fluxSpecifics.ram.cumulus - config.lockedSystemResources.ram)) {
       throw new Error(`Too much RAM for Cumulus resources assigned for ${appSpecsComposed.name}`);
     }
-    if (totalHddBasic > (config.fluxspecifics.hdd.cumulus - config.lockedSystemResources.hdd)) {
+    if (totalHddBasic > (config.fluxSpecifics.hdd.cumulus - config.lockedSystemResources.hdd)) {
       throw new Error(`Too much SSD for Cumulus resources assigned for ${appSpecsComposed.name}`);
     }
-    if (totalCpuSuper > (config.fluxspecifics.cpu.nimbus - config.lockedSystemResources.cpu)) {
+    if (totalCpuSuper > (config.fluxSpecifics.cpu.nimbus - config.lockedSystemResources.cpu)) {
       throw new Error(`Too much CPU for Nimbus resources assigned for ${appSpecsComposed.name}`);
     }
-    if (totalRamSuper > (config.fluxspecifics.ram.nimbus - config.lockedSystemResources.ram)) {
+    if (totalRamSuper > (config.fluxSpecifics.ram.nimbus - config.lockedSystemResources.ram)) {
       throw new Error(`Too much RAM for Nimbus resources assigned for ${appSpecsComposed.name}`);
     }
-    if (totalHddSuper > (config.fluxspecifics.hdd.nimbus - config.lockedSystemResources.hdd)) {
+    if (totalHddSuper > (config.fluxSpecifics.hdd.nimbus - config.lockedSystemResources.hdd)) {
       throw new Error(`Too much SSD for Nimbus resources assigned for ${appSpecsComposed.name}`);
     }
-    if (totalCpuBamf > (config.fluxspecifics.cpu.stratus - config.lockedSystemResources.cpu)) {
+    if (totalCpuBamf > (config.fluxSpecifics.cpu.stratus - config.lockedSystemResources.cpu)) {
       throw new Error(`Too much CPU for Stratus resources assigned for ${appSpecsComposed.name}`);
     }
-    if (totalRamBamf > (config.fluxspecifics.ram.stratus - config.lockedSystemResources.ram)) {
+    if (totalRamBamf > (config.fluxSpecifics.ram.stratus - config.lockedSystemResources.ram)) {
       throw new Error(`Too much RAM for Stratus resources assigned for ${appSpecsComposed.name}`);
     }
-    if (totalHddBamf > (config.fluxspecifics.hdd.stratus - config.lockedSystemResources.hdd)) {
+    if (totalHddBamf > (config.fluxSpecifics.hdd.stratus - config.lockedSystemResources.hdd)) {
       throw new Error(`Too much SSD for Stratus resources assigned for ${appSpecsComposed.name}`);
     }
   }

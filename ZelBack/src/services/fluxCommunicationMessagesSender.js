@@ -173,9 +173,8 @@ async function respondWithAppMessage(message, ws) {
       return;
     }
     console.log(serviceHelper.ensureString(message));
-    const permanentMessage = await appsService.checkAppMessageExistence(message.data.hash);
-    if (permanentMessage) {
-      // message exists in permanent storage. Create a message and broadcast it to the fromIP peer
+    const appMessage = await appsService.checkAppMessageExistence(message.data.hash) || await appsService.checkAppTemporaryMessageExistence(message.data.hash);
+    if (appMessage) {
       // const permanentAppMessage = {
       //   type: messageType,
       //   version: typeVersion,
@@ -187,43 +186,29 @@ async function respondWithAppMessage(message, ws) {
       //   height,
       //   valueSat,
       // };
+      // a temporary appmessage looks like this:
+      // const newMessage = {
+      //   appSpecifications: message.appSpecifications || message.zelAppSpecifications,
+      //   type: message.type,
+      //   version: message.version,
+      //   hash: message.hash,
+      //   timestamp: message.timestamp,
+      //   signature: message.signature,
+      //   createdAt: new Date(message.timestamp),
+      //   expireAt: new Date(validTill),
+      // };
       const temporaryAppMessage = { // specification of temp message
-        type: permanentMessage.type,
-        version: permanentMessage.version,
-        appSpecifications: permanentMessage.appSpecifications || permanentMessage.zelAppSpecifications,
-        hash: permanentMessage.hash,
-        timestamp: permanentMessage.timestamp,
-        signature: permanentMessage.signature,
+        type: appMessage.type,
+        version: appMessage.version,
+        appSpecifications: appMessage.appSpecifications || appMessage.zelAppSpecifications,
+        hash: appMessage.hash,
+        timestamp: appMessage.timestamp,
+        signature: appMessage.signature,
       };
       myMessageCache.set(serviceHelper.ensureString(message), temporaryAppMessage);
       sendMessageToWS(temporaryAppMessage, ws);
-    } else {
-      const existingTemporaryMessage = await appsService.checkAppTemporaryMessageExistence(message.data.hash);
-      if (existingTemporaryMessage) {
-        // a temporary appmessage looks like this:
-        // const newMessage = {
-        //   appSpecifications: message.appSpecifications || message.zelAppSpecifications,
-        //   type: message.type,
-        //   version: message.version,
-        //   hash: message.hash,
-        //   timestamp: message.timestamp,
-        //   signature: message.signature,
-        //   createdAt: new Date(message.timestamp),
-        //   expireAt: new Date(validTill),
-        // };
-        const temporaryAppMessage = { // specification of temp message
-          type: existingTemporaryMessage.type,
-          version: existingTemporaryMessage.version,
-          appSpecifications: existingTemporaryMessage.appSpecifications || existingTemporaryMessage.zelAppSpecifications,
-          hash: existingTemporaryMessage.hash,
-          timestamp: existingTemporaryMessage.timestamp,
-          signature: existingTemporaryMessage.signature,
-        };
-        myMessageCache.set(serviceHelper.ensureString(message), temporaryAppMessage);
-        sendMessageToWS(temporaryAppMessage, ws);
-      }
-      // else do nothing. We do not have this message. And this Flux would be requesting it from other peers soon too.
     }
+    // else do nothing. We do not have this message. And this Flux would be requesting it from other peers soon too.
   } catch (error) {
     log.error(error);
   }

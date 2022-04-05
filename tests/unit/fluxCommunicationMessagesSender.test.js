@@ -2,9 +2,13 @@
 const chai = require('chai');
 const sinon = require('sinon');
 const WebSocket = require('ws');
+const LRU = require('lru-cache');
 const fluxCommunicationMessagesSender = require('../../ZelBack/src/services/fluxCommunicationMessagesSender');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const daemonService = require('../../ZelBack/src/services/daemonService');
+const appsService = require('../../ZelBack/src/services/appsService');
+const generalService = require('../../ZelBack/src/services/generalService');
+const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const { outgoingConnections } = require('../../ZelBack/src/services/utils/outgoingConnections');
 const { incomingConnections } = require('../../ZelBack/src/services/utils/incomingConnections');
 const { outgoingPeers } = require('../../ZelBack/src/services/utils/outgoingPeers');
@@ -412,15 +416,231 @@ describe('fluxCommunicationMessagesSender tests', () => {
       ws.send = sinon.stub().returns('okay');
       return ws;
     };
+    let message;
+
+    beforeEach(async () => {
+      sinon.stub(fluxNetworkHelper, 'getFluxNodePublicKey').returns('0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab');
+      sinon.stub(fluxNetworkHelper, 'getFluxNodePrivateKey').returns('KxA2iy4aVuVKXsK8pBnJGM9vNm4z6PLNRTzsPuSFBw6vWL5StbqD');
+      const privateKey = 'KxA2iy4aVuVKXsK8pBnJGM9vNm4z6PLNRTzsPuSFBw6vWL5StbqD';
+      const ownerAddress = '13ienDRfUwFEgfZxm5dk4drTQsmj5hDGwL';
+      const appSpecifications = {
+        name: 'website',
+        commands: [
+          '--chain',
+          'kusama',
+        ],
+        containerData: '/chaindata',
+        cpu: 0.8,
+        description: 'This is my test app',
+        domains: [
+          'testing.runonflux.io',
+          'testing.runonflux.io',
+          'testing.runonflux.io',
+        ],
+        enviromentParameters: [],
+        hdd: 20,
+        owner: ownerAddress,
+        ram: 1800,
+        repotag: 'yurinnick/folding-at-home:latest',
+        tiered: false,
+        containerPorts: [
+          '30333',
+          '9933',
+          '9944',
+        ],
+        ports: [
+          '31113',
+          '31112',
+          '31111',
+        ],
+        version: 2,
+      };
+      const type = 'fluxappregister';
+      const version = 1;
+      const timestamp = 1592988806887;
+      const messageToSign = type + version + JSON.stringify(appSpecifications) + timestamp;
+      const signature = verificationHelper.signMessage(messageToSign, privateKey);
+      const messageToHash = type + version + JSON.stringify(appSpecifications) + timestamp + signature;
+      const hash = await generalService.messageHash(messageToHash);
+      message = {
+        type,
+        version,
+        appSpecifications,
+        timestamp,
+        signature,
+        hash,
+      };
+    });
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should respond with app message that exists in permanent storage but is not located in cache', async () => {
+      const callMessage = {
+        data: {
+          hash: 'test1',
+        },
+      };
+      const checkAppMessageExistenceStub = sinon.stub(appsService, 'checkAppMessageExistence').returns(message);
+      const myMessageCacheGetStub = sinon.stub(LRU.prototype, 'get').returns(undefined);
+      const myMessageCacheSetStub = sinon.stub(LRU.prototype, 'set').returns(undefined);
+      const websocket = generateWebsocket();
+
+      await fluxCommunicationMessagesSender.respondWithAppMessage(callMessage, websocket);
+
+      sinon.assert.calledOnceWithExactly(myMessageCacheSetStub, JSON.stringify(callMessage), message);
+      sinon.assert.calledOnceWithExactly(checkAppMessageExistenceStub, callMessage.data.hash);
+      sinon.assert.calledOnceWithExactly(myMessageCacheGetStub, JSON.stringify(callMessage));
+    });
+
+    it('should respond with app message that exists in temp storage but is not located in cache or perm storage', async () => {
+      const callMessage = {
+        data: {
+          hash: 'test1',
+        },
+      };
+      const checkAppMessageExistenceStub = sinon.stub(appsService, 'checkAppMessageExistence').returns(undefined);
+      const checkAppTemporaryMessageExistenceStub = sinon.stub(appsService, 'checkAppTemporaryMessageExistence').returns(message);
+      const myMessageCacheGetStub = sinon.stub(LRU.prototype, 'get').returns(undefined);
+      const myMessageCacheSetStub = sinon.stub(LRU.prototype, 'set').returns(undefined);
+      const websocket = generateWebsocket();
+
+      await fluxCommunicationMessagesSender.respondWithAppMessage(callMessage, websocket);
+
+      sinon.assert.calledOnceWithExactly(myMessageCacheSetStub, JSON.stringify(callMessage), message);
+      sinon.assert.calledOnceWithExactly(checkAppMessageExistenceStub, callMessage.data.hash);
+      sinon.assert.calledOnceWithExactly(checkAppTemporaryMessageExistenceStub, callMessage.data.hash);
+      sinon.assert.calledOnceWithExactly(myMessageCacheGetStub, JSON.stringify(callMessage));
+    });
+
+    it('should do nothing if the message does not exist', async () => {
+      const callMessage = {
+        data: {
+          hash: 'test1',
+        },
+      };
+      const checkAppMessageExistenceStub = sinon.stub(appsService, 'checkAppMessageExistence').returns(undefined);
+      const checkAppTemporaryMessageExistenceStub = sinon.stub(appsService, 'checkAppTemporaryMessageExistence').returns(undefined);
+      const myMessageCacheGetStub = sinon.stub(LRU.prototype, 'get').returns(undefined);
+      const myMessageCacheSetStub = sinon.stub(LRU.prototype, 'set').returns(undefined);
+      const websocket = generateWebsocket();
+
+      await fluxCommunicationMessagesSender.respondWithAppMessage(callMessage, websocket);
+
+      sinon.assert.notCalled(myMessageCacheSetStub);
+      sinon.assert.calledOnceWithExactly(checkAppMessageExistenceStub, callMessage.data.hash);
+      sinon.assert.calledOnceWithExactly(checkAppTemporaryMessageExistenceStub, callMessage.data.hash);
+      sinon.assert.calledOnceWithExactly(myMessageCacheGetStub, JSON.stringify(callMessage));
+    });
+
+    it('should respond with app message that is located in cache', async () => {
+      const callMessage = {
+        data: {
+          hash: 'test1',
+        },
+      };
+      const checkAppMessageExistenceSpy = sinon.spy(appsService, 'checkAppMessageExistence');
+      const myMessageCacheGetStub = sinon.stub(LRU.prototype, 'get').returns(message);
+      const myMessageCacheSetStub = sinon.stub(LRU.prototype, 'set').returns(undefined);
+      const websocket = generateWebsocket();
+
+      await fluxCommunicationMessagesSender.respondWithAppMessage(callMessage, websocket);
+
+      sinon.assert.notCalled(myMessageCacheSetStub);
+      sinon.assert.notCalled(checkAppMessageExistenceSpy);
+      sinon.assert.calledOnceWithExactly(myMessageCacheGetStub, JSON.stringify(callMessage));
+    });
+  });
+
+  describe.only('broadcastMessageToOutgoing tests', () => {
+    let fluxNetworkHelperPublicKeyStub;
+    let fluxNetworkHelperPrivateKeyStub;
+    const generateWebsocket = (ip, readyState) => {
+      const ws = {};
+      ws.readyState = readyState;
+      ws.ping = sinon.stub().returns('pong');
+      ws.send = sinon.stub().returns('okay');
+      ws._socket = {
+        remoteAddress: ip,
+      };
+      outgoingConnections.push(ws);
+      return ws;
+    };
     beforeEach(() => {
+      outgoingConnections.length = 0;
+      fluxNetworkHelperPublicKeyStub = sinon.stub(fluxNetworkHelper, 'getFluxNodePublicKey');
+      fluxNetworkHelperPrivateKeyStub = sinon.stub(fluxNetworkHelper, 'getFluxNodePrivateKey');
     });
 
     afterEach(() => {
       sinon.restore();
     });
 
-    it(' ', async () => {
-      await fluxCommunicationMessagesSender.respondWithAppMessage();
+    it('should send a message to the given websocket if keys are accessible through config', async () => {
+      fluxNetworkHelperPublicKeyStub.returns('0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab');
+      fluxNetworkHelperPrivateKeyStub.returns('5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh');
+      const data = {
+        title: 'message',
+        message: 'This is testing!',
+      };
+      const websocket = generateWebsocket('127.0.0.1', WebSocket.OPEN);
+
+      await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(data);
+
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match.string);
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/This is testing!/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/message/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/title/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/signature/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/pubKey/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/timestamp/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/version/gm));
+    });
+  });
+
+  describe.only('broadcastMessageToIncoming tests', () => {
+    let fluxNetworkHelperPublicKeyStub;
+    let fluxNetworkHelperPrivateKeyStub;
+    const generateWebsocket = (ip, readyState) => {
+      const ws = {};
+      ws.readyState = readyState;
+      ws.ping = sinon.stub().returns('pong');
+      ws.send = sinon.stub().returns('okay');
+      ws._socket = {
+        remoteAddress: ip,
+      };
+      incomingConnections.push(ws);
+      return ws;
+    };
+    beforeEach(() => {
+      incomingConnections.length = 0;
+      fluxNetworkHelperPublicKeyStub = sinon.stub(fluxNetworkHelper, 'getFluxNodePublicKey');
+      fluxNetworkHelperPrivateKeyStub = sinon.stub(fluxNetworkHelper, 'getFluxNodePrivateKey');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should send a message to the given websocket if keys are accessible through config', async () => {
+      fluxNetworkHelperPublicKeyStub.returns('0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab');
+      fluxNetworkHelperPrivateKeyStub.returns('5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh');
+      const data = {
+        title: 'message',
+        message: 'This is testing!',
+      };
+      const websocket = generateWebsocket('127.0.0.1', WebSocket.OPEN);
+
+      await fluxCommunicationMessagesSender.broadcastMessageToIncoming(data);
+
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match.string);
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/This is testing!/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/message/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/title/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/signature/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/pubKey/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/timestamp/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/version/gm));
     });
   });
 });
