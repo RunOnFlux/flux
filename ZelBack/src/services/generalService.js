@@ -29,8 +29,8 @@ function getCollateralInfo(collateralOutpoint) {
 }
 
 /**
- * To return the tier of a node.
- * @returns {string} Name of the node tier.
+ * To return the tier of a node in old naming scheme
+ * @returns {string} Name of the node tier in old naming scheme
  */
 async function nodeTier() {
   if (storedTier) {
@@ -87,6 +87,21 @@ async function nodeTier() {
     return storedTier;
   }
   throw new Error('Unrecognised Flux Node tier');
+}
+
+/**
+ * To return the tier of a node.
+ * @returns {string} Name of the node tier.
+ */
+async function getNewNodeTier() {
+  const tier = await nodeTier();
+  if (tier === 'bamf') {
+    return 'stratus';
+  }
+  if (tier === 'super') {
+    return 'nimbus';
+  }
+  return 'cumulus';
 }
 
 /**
@@ -307,6 +322,7 @@ async function messageHash(message) {
 module.exports = {
   getCollateralInfo,
   nodeTier,
+  getNewNodeTier,
   isNodeStatusConfirmed,
   checkSynced,
   checkWhitelistedRepository,
