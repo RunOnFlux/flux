@@ -280,6 +280,67 @@
                             </b-button>
                           </div>-->
                         </div>
+                        <div
+                          v-if="stake.message"
+                          v-html="stake.message"
+                        />
+                      </b-media-body>
+                    </b-media>
+                  </ul>
+                </b-tab>
+                <b-tab
+                  v-if="myExpiredStakes.length > 0"
+                  title="Expired Stakes"
+                >
+                  <ul
+                    class="marketplace-media-list"
+                  >
+                    <b-media
+                      v-for="stake in myExpiredStakes"
+                      :key="stake.uuid"
+                      tag="li"
+                      no-body
+                    >
+                      <b-media-body
+                        class="app-media-body"
+                        style="overflow: inherit;"
+                      >
+                        <div class="d-flex flex-row row">
+                          <b-avatar
+                            size="48"
+                            variant="light-warning"
+                            class="node-status mt-auto mb-auto"
+                          >
+                            <v-icon
+                              scale="1.75"
+                              name="calendar-times"
+                            />
+                          </b-avatar>
+                          <div
+                            class="d-flex flex-column seat-column col"
+                            style="flex-grow: 0.8;"
+                          >
+                            <h3 class="mr-auto ml-auto mt-auto mb-auto">
+                              {{ stake.collateral.toLocaleString() }} Flux
+                            </h3>
+                          </div>
+                          <div class="d-flex flex-column seat-column col">
+                            <h4 class="mr-auto ml-auto">
+                              Start Date: {{ new Date(stake.timestamp*1000).toLocaleDateString() }}
+                            </h4>
+                            <h5 class="mr-auto ml-auto">
+                              End Date: {{ new Date(stake.expiry*1000).toLocaleDateString() }}
+                            </h5>
+                          </div>
+                          <div class="d-flex flex-column seat-column col">
+                            <h4 class="mr-auto ml-auto">
+                              Paid: {{ toFixedLocaleString(stake.paid, 2) }} Flux
+                            </h4>
+                            <h5 class="mr-auto ml-auto">
+                              Pending: {{ toFixedLocaleString(stake.reward, 2) }} Flux
+                            </h5>
+                          </div>
+                        </div>
                       </b-media-body>
                     </b-media>
                   </ul>
@@ -448,32 +509,6 @@
             <h4>
               Available: {{ toFixedLocaleString(totalReward, 2) }} Flux
             </h4>
-            <!-- <div>
-              <h5 class="float-left">
-                {{ titanConfig ? titanConfig.redeemFee : 0 }}
-              </h5>
-              <h5 class="float-right">
-                {{ toFixedLocaleString(totalReward, 2) }}
-              </h5>
-            </div>
-            <b-form-input
-              id="redeemamount"
-              v-model="redeemAmount"
-              type="range"
-              :min="titanConfig ? titanConfig.redeemFee : 0"
-              :max="parseFloat(toFixedLocaleString(totalReward, 2))"
-              :step="0.01"
-              number
-            />
-            <b-form-spinbutton
-              id="redeemamount-spnner"
-              v-model="redeemAmount"
-              :min="titanConfig ? titanConfig.redeemFee : 0"
-              :max="parseFloat(toFixedLocaleString(totalReward, 2))"
-              :step="0.01"
-              size="sm"
-              inline
-            /> -->
             <h4 style="margin-top: 10px;">
               You will receive
             </h4>
@@ -1100,6 +1135,7 @@ export default {
     const nodes = ref([]);
     const totalCollateral = ref(0);
     const myStakes = ref([]);
+    const myExpiredStakes = ref([]);
     const myPayments = ref([]);
     const paymentFields = ref([
       {
@@ -1163,7 +1199,19 @@ export default {
     const getMyStakes = async (force = false) => {
       if (userZelid.value.length > 0) {
         const response = await axios.get(`${apiURL}/stakes/${userZelid.value}${force ? `?timestamp=${Date.now()}` : ''}`);
-        myStakes.value = response.data;
+        const activeStakes = [];
+        const expiredStakes = [];
+        const now = Date.now() / 1000;
+        response.data.forEach((stake) => {
+          console.log(`Stake: ${stake.expiry} Now: ${now}`);
+          if (stake.expiry < now) {
+            expiredStakes.push(stake);
+          } else {
+            activeStakes.push(stake);
+          }
+        });
+        myStakes.value = activeStakes;
+        myExpiredStakes.value = expiredStakes;
         totalReward.value = (myStakes.value ? myStakes.value.reduce((total, stake) => total + stake.reward, 0) : 0);
       }
     };
@@ -1225,7 +1273,7 @@ export default {
     console.log('Setting up refresh interval');
     setInterval(() => {
       fetchData();
-    }, 10 * 60 * 1000);
+    }, 5 * 60 * 1000);
 
     const showStakeDialog = () => {
       stakeModalShowing.value = true;
@@ -1398,6 +1446,7 @@ export default {
       nodes,
       totalCollateral,
       myStakes,
+      myExpiredStakes,
       myPayments,
       paymentFields,
       totalReward,
