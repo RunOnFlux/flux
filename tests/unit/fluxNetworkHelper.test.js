@@ -351,7 +351,9 @@ describe('fluxNetworkHelper tests', () => {
     it('Should throw error if private key is invalid', async () => {
       const privateKey = 'asdf';
 
-      expect(async () => { await fluxNetworkHelper.getFluxNodePublicKey(privateKey); }).to.throw;
+      const result = await fluxNetworkHelper.getFluxNodePublicKey(privateKey);
+
+      expect(result).to.be.an('Error');
     });
   });
 });

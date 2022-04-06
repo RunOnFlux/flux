@@ -363,11 +363,13 @@ describe('fluxCommunicationMessagesSender tests', () => {
       sinon.assert.calledWithExactly(daemonStub, 'zelnodeprivkey');
     });
 
-    it('Should throw error if private key is invalid', async () => {
+    it('Should return an error if private key is invalid', async () => {
       const privateKey = 'asdf';
       const message = 'testing1234';
 
-      expect(async () => { await fluxCommunicationMessagesSender.getFluxMessageSignature(message, privateKey); }).to.throw;
+      const result = await fluxCommunicationMessagesSender.getFluxMessageSignature(message, privateKey);
+
+      expect(result).to.be.an('Error');
     });
   });
 

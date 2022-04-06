@@ -39,7 +39,17 @@ describe('benchmarkService tests', () => {
     });
 
     it('should throw error if called function does not exist', async () => {
-      expect(async () => { await benchmarkService.executeCall('testing123'); }).to.throw;
+      const expectedErrorMessage = {
+        status: 'error',
+        data: {
+          code: undefined,
+          message: 'client[rpc] is not a function',
+          name: 'TypeError',
+        },
+      };
+      const executeCallRes = await benchmarkService.executeCall('testing123');
+
+      expect(executeCallRes).to.eql(expectedErrorMessage);
     });
 
     it('should throw error if parameter is not an iterable', async () => {
@@ -47,7 +57,17 @@ describe('benchmarkService tests', () => {
         test: 'test1',
         test2: 'test3',
       };
-      expect(async () => { await benchmarkService.executeCall('getstatus', params); }).to.throw;
+      const expectedErrorMessage = {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: 'TypeError',
+          message: 'Found non-callable @@iterator',
+        },
+      };
+      const executeCallRes = await benchmarkService.executeCall('getstatus', params);
+
+      expect(executeCallRes).to.eql(expectedErrorMessage);
     });
   });
 
