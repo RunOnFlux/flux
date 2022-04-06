@@ -232,7 +232,6 @@ async function broadcastMessageToOutgoingFromUser(req, res) {
       throw new Error('No message to broadcast attached.');
     }
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-
     if (authorized === true) {
       await broadcastMessageToOutgoing(data);
       const message = messageHelper.createSuccessMessage('Message successfully broadcasted to Flux network');
@@ -259,10 +258,10 @@ async function broadcastMessageToOutgoingFromUserPost(req, res) {
   });
   req.on('end', async () => {
     try {
-      const processedBody = serviceHelper.ensureObject(body);
-      if (processedBody === undefined || processedBody === null || processedBody === '') {
+      if (body === undefined || body === null || body === '') {
         throw new Error('No message to broadcast attached.');
       }
+      const processedBody = serviceHelper.ensureObject(body);
       const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
       if (authorized === true) {
         await broadcastMessageToOutgoing(processedBody);
@@ -319,10 +318,10 @@ async function broadcastMessageToIncomingFromUserPost(req, res) {
   });
   req.on('end', async () => {
     try {
-      const processedBody = serviceHelper.ensureObject(body);
-      if (processedBody === undefined || processedBody === null || processedBody === '') {
+      if (body === undefined || body === null || body === '') {
         throw new Error('No message to broadcast attached.');
       }
+      const processedBody = serviceHelper.ensureObject(body);
       const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
       if (authorized === true) {
         await broadcastMessageToIncoming(processedBody);
@@ -380,10 +379,10 @@ async function broadcastMessageFromUserPost(req, res) {
   });
   req.on('end', async () => {
     try {
-      const processedBody = serviceHelper.ensureObject(body);
-      if (processedBody === undefined || processedBody === null || processedBody === '') {
+      if (body === undefined || body === null || body === '') {
         throw new Error('No message to broadcast attached.');
       }
+      const processedBody = serviceHelper.ensureObject(body);
       const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
       if (authorized === true) {
         await broadcastMessageToOutgoing(processedBody);
@@ -418,7 +417,7 @@ async function broadcastTemporaryAppMessage(message) {
   */
   log.info(message);
   // no verification of message before broadcasting. Broadcasting happens always after data have been verified and are stored in our db. It is up to receiving node to verify it and store and rebroadcast.
-  if (typeof message !== 'object' && typeof message.type !== 'string' && typeof message.version !== 'number' && typeof message.appSpecifications !== 'object' && typeof message.signature !== 'string' && typeof message.timestamp !== 'number' && typeof message.hash !== 'string') {
+  if (typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number' || typeof message.appSpecifications !== 'object' || typeof message.signature !== 'string' || typeof message.timestamp !== 'number' || typeof message.hash !== 'string') {
     throw new Error('Invalid Flux App message for storing');
   }
   // to all outoing

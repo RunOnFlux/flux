@@ -1,12 +1,15 @@
 /* eslint-disable no-underscore-dangle */
 const chai = require('chai');
+const chaiAsPromised = require('chai-as-promised');
 const sinon = require('sinon');
 const WebSocket = require('ws');
 const LRU = require('lru-cache');
+const { PassThrough } = require('stream');
 const fluxCommunicationMessagesSender = require('../../ZelBack/src/services/fluxCommunicationMessagesSender');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const daemonService = require('../../ZelBack/src/services/daemonService');
 const appsService = require('../../ZelBack/src/services/appsService');
+const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const generalService = require('../../ZelBack/src/services/generalService');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const { outgoingConnections } = require('../../ZelBack/src/services/utils/outgoingConnections');
@@ -14,6 +17,7 @@ const { incomingConnections } = require('../../ZelBack/src/services/utils/incomi
 const { outgoingPeers } = require('../../ZelBack/src/services/utils/outgoingPeers');
 const { incomingPeers } = require('../../ZelBack/src/services/utils/incomingPeers');
 
+chai.use(chaiAsPromised);
 const { expect } = chai;
 
 describe('fluxCommunicationMessagesSender tests', () => {
@@ -552,7 +556,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
     });
   });
 
-  describe.only('broadcastMessageToOutgoing tests', () => {
+  describe('broadcastMessageToOutgoing tests', () => {
     let fluxNetworkHelperPublicKeyStub;
     let fluxNetworkHelperPrivateKeyStub;
     const generateWebsocket = (ip, readyState) => {
@@ -598,7 +602,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
     });
   });
 
-  describe.only('broadcastMessageToIncoming tests', () => {
+  describe('broadcastMessageToIncoming tests', () => {
     let fluxNetworkHelperPublicKeyStub;
     let fluxNetworkHelperPrivateKeyStub;
     const generateWebsocket = (ip, readyState) => {
@@ -641,6 +645,1390 @@ describe('fluxCommunicationMessagesSender tests', () => {
       sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/pubKey/gm));
       sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/timestamp/gm));
       sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/version/gm));
+    });
+  });
+
+  describe('broadcastMessageToOutgoingFromUser tests', () => {
+    let fluxNetworkHelperPublicKeyStub;
+    let fluxNetworkHelperPrivateKeyStub;
+    const generateWebsocket = (ip, readyState) => {
+      const ws = {};
+      ws.readyState = readyState;
+      ws.ping = sinon.stub().returns('pong');
+      ws.send = sinon.stub().returns('okay');
+      ws._socket = {
+        remoteAddress: ip,
+      };
+      outgoingConnections.push(ws);
+      return ws;
+    };
+    const generateResponse = () => {
+      const res = { test: 'testing' };
+      res.status = sinon.stub().returns(res);
+      res.json = sinon.fake((param) => param);
+      return res;
+    };
+
+    beforeEach(() => {
+      outgoingConnections.length = 0;
+      fluxNetworkHelperPublicKeyStub = sinon.stub(fluxNetworkHelper, 'getFluxNodePublicKey');
+      fluxNetworkHelperPrivateKeyStub = sinon.stub(fluxNetworkHelper, 'getFluxNodePrivateKey');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should broadcast message if data is given in the req params and user is authorized', async () => {
+      sinon.stub(verificationHelper, 'verifyPrivilege').returns(true);
+      fluxNetworkHelperPublicKeyStub.returns('0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab');
+      fluxNetworkHelperPrivateKeyStub.returns('5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh');
+      const req = {
+        params: {
+          data: {
+            title: 'message',
+            message: 'This is testing!',
+          },
+        },
+      };
+      const res = generateResponse();
+      const websocket = generateWebsocket('127.0.0.1', WebSocket.OPEN);
+      const expectedSuccessMessage = {
+        status: 'success',
+        data: {
+          code: undefined,
+          name: undefined,
+          message: 'Message successfully broadcasted to Flux network',
+        },
+      };
+
+      await fluxCommunicationMessagesSender.broadcastMessageToOutgoingFromUser(req, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedSuccessMessage);
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match.string);
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/This is testing!/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/message/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/title/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/signature/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/pubKey/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/timestamp/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/version/gm));
+    });
+
+    it('should broadcast message if data is given in the req query and user is authorized', async () => {
+      sinon.stub(verificationHelper, 'verifyPrivilege').returns(true);
+      fluxNetworkHelperPublicKeyStub.returns('0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab');
+      fluxNetworkHelperPrivateKeyStub.returns('5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh');
+      const req = {
+        params: {
+          test: {
+            test: 'message',
+          },
+        },
+        query: {
+          data: {
+            title: 'message',
+            message: 'This is testing!',
+          },
+        },
+      };
+      const res = generateResponse();
+      const websocket = generateWebsocket('127.0.0.1', WebSocket.OPEN);
+      const expectedSuccessMessage = {
+        status: 'success',
+        data: {
+          code: undefined,
+          name: undefined,
+          message: 'Message successfully broadcasted to Flux network',
+        },
+      };
+
+      await fluxCommunicationMessagesSender.broadcastMessageToOutgoingFromUser(req, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedSuccessMessage);
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match.string);
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/This is testing!/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/message/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/title/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/signature/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/pubKey/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/timestamp/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/version/gm));
+    });
+
+    it('should not broadcast message if user is not authorized', async () => {
+      sinon.stub(verificationHelper, 'verifyPrivilege').returns(false);
+      fluxNetworkHelperPublicKeyStub.returns('0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab');
+      fluxNetworkHelperPrivateKeyStub.returns('5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh');
+      const req = {
+        params: {
+          test: {
+            test: 'message',
+          },
+        },
+        query: {
+          data: {
+            title: 'message',
+            message: 'This is testing!',
+          },
+        },
+      };
+      const res = generateResponse();
+      const websocket = generateWebsocket('127.0.0.1', WebSocket.OPEN);
+      const expectedErrorMessage = {
+        status: 'error',
+        data: {
+          code: 401,
+          name: 'Unauthorized',
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+
+      await fluxCommunicationMessagesSender.broadcastMessageToOutgoingFromUser(req, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedErrorMessage);
+      sinon.assert.notCalled(websocket.send);
+    });
+
+    it('should not broadcast message if no data is passed', async () => {
+      sinon.stub(verificationHelper, 'verifyPrivilege').returns(true);
+      fluxNetworkHelperPublicKeyStub.returns('0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab');
+      fluxNetworkHelperPrivateKeyStub.returns('5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh');
+      const req = {
+        params: {
+          test: {
+            test: 'message',
+          },
+        },
+        query: {
+          test: {
+            title: 'message',
+            message: 'This is testing!',
+          },
+        },
+      };
+      const res = generateResponse();
+      const websocket = generateWebsocket('127.0.0.1', WebSocket.OPEN);
+      const expectedErrorMessage = {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: 'Error',
+          message: 'No message to broadcast attached.',
+        },
+      };
+
+      await fluxCommunicationMessagesSender.broadcastMessageToOutgoingFromUser(req, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedErrorMessage);
+      sinon.assert.notCalled(websocket.send);
+    });
+  });
+
+  describe('broadcastMessageToIncomingFromUser tests', () => {
+    let fluxNetworkHelperPublicKeyStub;
+    let fluxNetworkHelperPrivateKeyStub;
+    const generateWebsocket = (ip, readyState) => {
+      const ws = {};
+      ws.readyState = readyState;
+      ws.ping = sinon.stub().returns('pong');
+      ws.send = sinon.stub().returns('okay');
+      ws._socket = {
+        remoteAddress: ip,
+      };
+      incomingConnections.push(ws);
+      return ws;
+    };
+    const generateResponse = () => {
+      const res = { test: 'testing' };
+      res.status = sinon.stub().returns(res);
+      res.json = sinon.fake((param) => param);
+      return res;
+    };
+
+    beforeEach(() => {
+      incomingConnections.length = 0;
+      fluxNetworkHelperPublicKeyStub = sinon.stub(fluxNetworkHelper, 'getFluxNodePublicKey');
+      fluxNetworkHelperPrivateKeyStub = sinon.stub(fluxNetworkHelper, 'getFluxNodePrivateKey');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should broadcast message if data is given in the req params and user is authorized', async () => {
+      sinon.stub(verificationHelper, 'verifyPrivilege').returns(true);
+      fluxNetworkHelperPublicKeyStub.returns('0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab');
+      fluxNetworkHelperPrivateKeyStub.returns('5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh');
+      const req = {
+        params: {
+          data: {
+            title: 'message',
+            message: 'This is testing!',
+          },
+        },
+      };
+      const res = generateResponse();
+      const websocket = generateWebsocket('127.0.0.1', WebSocket.OPEN);
+      const expectedSuccessMessage = {
+        status: 'success',
+        data: {
+          code: undefined,
+          name: undefined,
+          message: 'Message successfully broadcasted to Flux network',
+        },
+      };
+
+      await fluxCommunicationMessagesSender.broadcastMessageToIncomingFromUser(req, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedSuccessMessage);
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match.string);
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/This is testing!/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/message/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/title/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/signature/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/pubKey/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/timestamp/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/version/gm));
+    });
+
+    it('should broadcast message if data is given in the req query and user is authorized', async () => {
+      sinon.stub(verificationHelper, 'verifyPrivilege').returns(true);
+      fluxNetworkHelperPublicKeyStub.returns('0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab');
+      fluxNetworkHelperPrivateKeyStub.returns('5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh');
+      const req = {
+        params: {
+          test: {
+            test: 'message',
+          },
+        },
+        query: {
+          data: {
+            title: 'message',
+            message: 'This is testing!',
+          },
+        },
+      };
+      const res = generateResponse();
+      const websocket = generateWebsocket('127.0.0.1', WebSocket.OPEN);
+      const expectedSuccessMessage = {
+        status: 'success',
+        data: {
+          code: undefined,
+          name: undefined,
+          message: 'Message successfully broadcasted to Flux network',
+        },
+      };
+
+      await fluxCommunicationMessagesSender.broadcastMessageToIncomingFromUser(req, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedSuccessMessage);
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match.string);
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/This is testing!/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/message/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/title/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/signature/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/pubKey/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/timestamp/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/version/gm));
+    });
+
+    it('should not broadcast message if user is not authorized', async () => {
+      sinon.stub(verificationHelper, 'verifyPrivilege').returns(false);
+      fluxNetworkHelperPublicKeyStub.returns('0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab');
+      fluxNetworkHelperPrivateKeyStub.returns('5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh');
+      const req = {
+        params: {
+          test: {
+            test: 'message',
+          },
+        },
+        query: {
+          data: {
+            title: 'message',
+            message: 'This is testing!',
+          },
+        },
+      };
+      const res = generateResponse();
+      const websocket = generateWebsocket('127.0.0.1', WebSocket.OPEN);
+      const expectedErrorMessage = {
+        status: 'error',
+        data: {
+          code: 401,
+          name: 'Unauthorized',
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+
+      await fluxCommunicationMessagesSender.broadcastMessageToIncomingFromUser(req, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedErrorMessage);
+      sinon.assert.notCalled(websocket.send);
+    });
+
+    it('should not broadcast message if no data is passed', async () => {
+      sinon.stub(verificationHelper, 'verifyPrivilege').returns(true);
+      fluxNetworkHelperPublicKeyStub.returns('0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab');
+      fluxNetworkHelperPrivateKeyStub.returns('5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh');
+      const req = {
+        params: {
+          test: {
+            test: 'message',
+          },
+        },
+        query: {
+          test: {
+            title: 'message',
+            message: 'This is testing!',
+          },
+        },
+      };
+      const res = generateResponse();
+      const websocket = generateWebsocket('127.0.0.1', WebSocket.OPEN);
+      const expectedErrorMessage = {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: 'Error',
+          message: 'No message to broadcast attached.',
+        },
+      };
+
+      await fluxCommunicationMessagesSender.broadcastMessageToIncomingFromUser(req, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedErrorMessage);
+      sinon.assert.notCalled(websocket.send);
+    });
+  });
+
+  describe('broadcastMessageFromUser tests', () => {
+    let fluxNetworkHelperPublicKeyStub;
+    let fluxNetworkHelperPrivateKeyStub;
+    const generateIncomingWebsocket = (ip, readyState) => {
+      const ws = {};
+      ws.readyState = readyState;
+      ws.ping = sinon.stub().returns('pong');
+      ws.send = sinon.stub().returns('okay');
+      ws._socket = {
+        remoteAddress: ip,
+      };
+      incomingConnections.push(ws);
+      return ws;
+    };
+    const generateOutgoingWebsocket = (ip, readyState) => {
+      const ws = {};
+      ws.readyState = readyState;
+      ws.ping = sinon.stub().returns('pong');
+      ws.send = sinon.stub().returns('okay');
+      ws._socket = {
+        remoteAddress: ip,
+      };
+      outgoingConnections.push(ws);
+      return ws;
+    };
+    const generateResponse = () => {
+      const res = { test: 'testing' };
+      res.status = sinon.stub().returns(res);
+      res.json = sinon.fake((param) => param);
+      return res;
+    };
+
+    beforeEach(() => {
+      incomingConnections.length = 0;
+      outgoingConnections.length = 0;
+      fluxNetworkHelperPublicKeyStub = sinon.stub(fluxNetworkHelper, 'getFluxNodePublicKey');
+      fluxNetworkHelperPrivateKeyStub = sinon.stub(fluxNetworkHelper, 'getFluxNodePrivateKey');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should broadcast message if data is given in the req params and user is authorized', async () => {
+      sinon.stub(verificationHelper, 'verifyPrivilege').returns(true);
+      fluxNetworkHelperPublicKeyStub.returns('0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab');
+      fluxNetworkHelperPrivateKeyStub.returns('5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh');
+      const req = {
+        params: {
+          data: {
+            title: 'message',
+            message: 'This is testing!',
+          },
+        },
+      };
+      const res = generateResponse();
+      const websocketIn = generateIncomingWebsocket('127.0.0.1', WebSocket.OPEN);
+      const websocketOut = generateOutgoingWebsocket('127.0.0.2', WebSocket.OPEN);
+      const expectedSuccessMessage = {
+        status: 'success',
+        data: {
+          code: undefined,
+          name: undefined,
+          message: 'Message successfully broadcasted to Flux network',
+        },
+      };
+
+      await fluxCommunicationMessagesSender.broadcastMessageFromUser(req, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedSuccessMessage);
+      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match.string);
+      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/This is testing!/gm));
+      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/message/gm));
+      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/title/gm));
+      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/signature/gm));
+      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/pubKey/gm));
+      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/timestamp/gm));
+      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/version/gm));
+      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match.string);
+      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/This is testing!/gm));
+      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/message/gm));
+      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/title/gm));
+      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/signature/gm));
+      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/pubKey/gm));
+      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/timestamp/gm));
+      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/version/gm));
+    });
+
+    it('should broadcast message if data is given in the req query and user is authorized', async () => {
+      sinon.stub(verificationHelper, 'verifyPrivilege').returns(true);
+      fluxNetworkHelperPublicKeyStub.returns('0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab');
+      fluxNetworkHelperPrivateKeyStub.returns('5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh');
+      const req = {
+        params: {
+          test: {
+            test: 'message',
+          },
+        },
+        query: {
+          data: {
+            title: 'message',
+            message: 'This is testing!',
+          },
+        },
+      };
+      const res = generateResponse();
+      const websocketIn = generateIncomingWebsocket('127.0.0.1', WebSocket.OPEN);
+      const websocketOut = generateOutgoingWebsocket('127.0.0.2', WebSocket.OPEN);
+      const expectedSuccessMessage = {
+        status: 'success',
+        data: {
+          code: undefined,
+          name: undefined,
+          message: 'Message successfully broadcasted to Flux network',
+        },
+      };
+
+      await fluxCommunicationMessagesSender.broadcastMessageFromUser(req, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedSuccessMessage);
+      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match.string);
+      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/This is testing!/gm));
+      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/message/gm));
+      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/title/gm));
+      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/signature/gm));
+      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/pubKey/gm));
+      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/timestamp/gm));
+      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/version/gm));
+      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match.string);
+      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/This is testing!/gm));
+      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/message/gm));
+      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/title/gm));
+      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/signature/gm));
+      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/pubKey/gm));
+      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/timestamp/gm));
+      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/version/gm));
+    });
+
+    it('should not broadcast message if user is not authorized', async () => {
+      sinon.stub(verificationHelper, 'verifyPrivilege').returns(false);
+      fluxNetworkHelperPublicKeyStub.returns('0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab');
+      fluxNetworkHelperPrivateKeyStub.returns('5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh');
+      const req = {
+        params: {
+          test: {
+            test: 'message',
+          },
+        },
+        query: {
+          data: {
+            title: 'message',
+            message: 'This is testing!',
+          },
+        },
+      };
+      const res = generateResponse();
+      const websocketIn = generateIncomingWebsocket('127.0.0.1', WebSocket.OPEN);
+      const websocketOut = generateOutgoingWebsocket('127.0.0.2', WebSocket.OPEN);
+      const expectedErrorMessage = {
+        status: 'error',
+        data: {
+          code: 401,
+          name: 'Unauthorized',
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+
+      await fluxCommunicationMessagesSender.broadcastMessageFromUser(req, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedErrorMessage);
+      sinon.assert.notCalled(websocketIn.send);
+      sinon.assert.notCalled(websocketOut.send);
+    });
+
+    it('should not broadcast message if no data is passed', async () => {
+      sinon.stub(verificationHelper, 'verifyPrivilege').returns(true);
+      fluxNetworkHelperPublicKeyStub.returns('0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab');
+      fluxNetworkHelperPrivateKeyStub.returns('5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh');
+      const req = {
+        params: {
+          test: {
+            test: 'message',
+          },
+        },
+        query: {
+          test: {
+            title: 'message',
+            message: 'This is testing!',
+          },
+        },
+      };
+      const res = generateResponse();
+      const websocketIn = generateIncomingWebsocket('127.0.0.1', WebSocket.OPEN);
+      const websocketOut = generateOutgoingWebsocket('127.0.0.2', WebSocket.OPEN);
+      const expectedErrorMessage = {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: 'Error',
+          message: 'No message to broadcast attached.',
+        },
+      };
+
+      await fluxCommunicationMessagesSender.broadcastMessageFromUser(req, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedErrorMessage);
+      sinon.assert.notCalled(websocketIn.send);
+      sinon.assert.notCalled(websocketOut.send);
+    });
+  });
+
+  describe('broadcastMessageToOutgoingFromUserPost tests', () => {
+    let fluxNetworkHelperPublicKeyStub;
+    let fluxNetworkHelperPrivateKeyStub;
+    const generateWebsocket = (ip, readyState) => {
+      const ws = {};
+      ws.readyState = readyState;
+      ws.ping = sinon.stub().returns('pong');
+      ws.send = sinon.stub().returns('okay');
+      ws._socket = {
+        remoteAddress: ip,
+      };
+      outgoingConnections.push(ws);
+      return ws;
+    };
+    const generateResponse = () => {
+      const res = { test: 'testing' };
+      res.status = sinon.stub().returns(res);
+      res.json = sinon.fake((param) => param);
+      return res;
+    };
+
+    beforeEach(() => {
+      outgoingConnections.length = 0;
+      sinon.stub(fluxNetworkHelper, 'closeConnection').returns(true);
+      fluxNetworkHelperPublicKeyStub = sinon.stub(fluxNetworkHelper, 'getFluxNodePublicKey');
+      fluxNetworkHelperPrivateKeyStub = sinon.stub(fluxNetworkHelper, 'getFluxNodePrivateKey');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should broadcast message if data is given in the req params and user is authorized', async () => {
+      sinon.stub(verificationHelper, 'verifyPrivilege').returns(true);
+      fluxNetworkHelperPublicKeyStub.returns('0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab');
+      fluxNetworkHelperPrivateKeyStub.returns('5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh');
+      const req = {
+        params: {
+          data: {
+            title: 'message',
+            message: 'This is testing!',
+          },
+        },
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(req));
+      mockStream.end();
+      const res = generateResponse();
+      const websocket = generateWebsocket('127.0.0.1', WebSocket.OPEN);
+
+      const expectedSuccessMessage = {
+        status: 'success',
+        data: {
+          code: undefined,
+          name: undefined,
+          message: 'Message successfully broadcasted to Flux network',
+        },
+      };
+
+      await fluxCommunicationMessagesSender.broadcastMessageToOutgoingFromUserPost(mockStream, res);
+
+      // because of await in loop, that's the only way we can wait for spies to be called
+      await serviceHelper.delay(150);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedSuccessMessage);
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match.string);
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/This is testing!/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/message/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/title/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/signature/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/pubKey/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/timestamp/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/version/gm));
+    });
+
+    it('should broadcast message if data is given in the req query and user is authorized', async () => {
+      sinon.stub(verificationHelper, 'verifyPrivilege').returns(true);
+      fluxNetworkHelperPublicKeyStub.returns('0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab');
+      fluxNetworkHelperPrivateKeyStub.returns('5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh');
+      const req = {
+        params: {
+          test: {
+            test: 'message',
+          },
+        },
+        query: {
+          data: {
+            title: 'message',
+            message: 'This is testing!',
+          },
+        },
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(req));
+      mockStream.end();
+      const res = generateResponse();
+      const websocket = generateWebsocket('127.0.0.1', WebSocket.OPEN);
+      const expectedSuccessMessage = {
+        status: 'success',
+        data: {
+          code: undefined,
+          name: undefined,
+          message: 'Message successfully broadcasted to Flux network',
+        },
+      };
+
+      await fluxCommunicationMessagesSender.broadcastMessageToOutgoingFromUserPost(mockStream, res);
+
+      // because of await in loop, that's the only way we can wait for spies to be called
+      await serviceHelper.delay(150);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedSuccessMessage);
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match.string);
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/This is testing!/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/message/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/title/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/signature/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/pubKey/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/timestamp/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/version/gm));
+    });
+
+    it('should not broadcast message if user is not authorized', async () => {
+      sinon.stub(verificationHelper, 'verifyPrivilege').returns(false);
+      fluxNetworkHelperPublicKeyStub.returns('0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab');
+      fluxNetworkHelperPrivateKeyStub.returns('5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh');
+      const req = {
+        params: {
+          test: {
+            test: 'message',
+          },
+        },
+        query: {
+          data: {
+            title: 'message',
+            message: 'This is testing!',
+          },
+        },
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(req));
+      mockStream.end();
+      const res = generateResponse();
+      const websocket = generateWebsocket('127.0.0.1', WebSocket.OPEN);
+      const expectedErrorMessage = {
+        status: 'error',
+        data: {
+          code: 401,
+          name: 'Unauthorized',
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+
+      await fluxCommunicationMessagesSender.broadcastMessageToOutgoingFromUserPost(mockStream, res);
+
+      // because of await in loop, that's the only way we can wait for spies to be called
+      await serviceHelper.delay(150);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedErrorMessage);
+      sinon.assert.notCalled(websocket.send);
+    });
+
+    it('should not broadcast message if the data is empty', async () => {
+      sinon.stub(verificationHelper, 'verifyPrivilege').returns(true);
+      fluxNetworkHelperPublicKeyStub.returns('0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab');
+      fluxNetworkHelperPrivateKeyStub.returns('5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh');
+
+      const mockStream = new PassThrough();
+      mockStream.end();
+      const res = generateResponse();
+      const websocket = generateWebsocket('127.0.0.1', WebSocket.OPEN);
+      const expectedErrorMessage = {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: 'Error',
+          message: 'No message to broadcast attached.',
+        },
+      };
+
+      await fluxCommunicationMessagesSender.broadcastMessageToOutgoingFromUserPost(mockStream, res);
+
+      // because of await in loop, that's the only way we can wait for spies to be called
+      await serviceHelper.delay(150);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedErrorMessage);
+      sinon.assert.notCalled(websocket.send);
+    });
+  });
+
+  describe('broadcastMessageToIncomingFromUserPost tests', () => {
+    let fluxNetworkHelperPublicKeyStub;
+    let fluxNetworkHelperPrivateKeyStub;
+    const generateWebsocket = (ip, readyState) => {
+      const ws = {};
+      ws.readyState = readyState;
+      ws.ping = sinon.stub().returns('pong');
+      ws.send = sinon.stub().returns('okay');
+      ws._socket = {
+        remoteAddress: ip,
+      };
+      incomingConnections.push(ws);
+      return ws;
+    };
+    const generateResponse = () => {
+      const res = { test: 'testing' };
+      res.status = sinon.stub().returns(res);
+      res.json = sinon.fake((param) => param);
+      return res;
+    };
+
+    beforeEach(() => {
+      incomingConnections.length = 0;
+      sinon.stub(fluxNetworkHelper, 'closeConnection').returns(true);
+      fluxNetworkHelperPublicKeyStub = sinon.stub(fluxNetworkHelper, 'getFluxNodePublicKey');
+      fluxNetworkHelperPrivateKeyStub = sinon.stub(fluxNetworkHelper, 'getFluxNodePrivateKey');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should broadcast message if data is given in the req params and user is authorized', async () => {
+      sinon.stub(verificationHelper, 'verifyPrivilege').returns(true);
+      fluxNetworkHelperPublicKeyStub.returns('0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab');
+      fluxNetworkHelperPrivateKeyStub.returns('5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh');
+      const req = {
+        params: {
+          data: {
+            title: 'message',
+            message: 'This is testing!',
+          },
+        },
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(req));
+      mockStream.end();
+      const res = generateResponse();
+      const websocket = generateWebsocket('127.0.0.1', WebSocket.OPEN);
+
+      const expectedSuccessMessage = {
+        status: 'success',
+        data: {
+          code: undefined,
+          name: undefined,
+          message: 'Message successfully broadcasted to Flux network',
+        },
+      };
+
+      await fluxCommunicationMessagesSender.broadcastMessageToIncomingFromUserPost(mockStream, res);
+
+      // because of await in loop, that's the only way we can wait for spies to be called
+      await serviceHelper.delay(150);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedSuccessMessage);
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match.string);
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/This is testing!/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/message/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/title/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/signature/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/pubKey/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/timestamp/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/version/gm));
+    });
+
+    it('should broadcast message if data is given in the req query and user is authorized', async () => {
+      sinon.stub(verificationHelper, 'verifyPrivilege').returns(true);
+      fluxNetworkHelperPublicKeyStub.returns('0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab');
+      fluxNetworkHelperPrivateKeyStub.returns('5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh');
+      const req = {
+        params: {
+          test: {
+            test: 'message',
+          },
+        },
+        query: {
+          data: {
+            title: 'message',
+            message: 'This is testing!',
+          },
+        },
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(req));
+      mockStream.end();
+      const res = generateResponse();
+      const websocket = generateWebsocket('127.0.0.1', WebSocket.OPEN);
+      const expectedSuccessMessage = {
+        status: 'success',
+        data: {
+          code: undefined,
+          name: undefined,
+          message: 'Message successfully broadcasted to Flux network',
+        },
+      };
+
+      await fluxCommunicationMessagesSender.broadcastMessageToIncomingFromUserPost(mockStream, res);
+
+      // because of await in loop, that's the only way we can wait for spies to be called
+      await serviceHelper.delay(150);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedSuccessMessage);
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match.string);
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/This is testing!/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/message/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/title/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/signature/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/pubKey/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/timestamp/gm));
+      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/version/gm));
+    });
+
+    it('should not broadcast message if user is not authorized', async () => {
+      sinon.stub(verificationHelper, 'verifyPrivilege').returns(false);
+      fluxNetworkHelperPublicKeyStub.returns('0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab');
+      fluxNetworkHelperPrivateKeyStub.returns('5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh');
+      const req = {
+        params: {
+          test: {
+            test: 'message',
+          },
+        },
+        query: {
+          data: {
+            title: 'message',
+            message: 'This is testing!',
+          },
+        },
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(req));
+      mockStream.end();
+      const res = generateResponse();
+      const websocket = generateWebsocket('127.0.0.1', WebSocket.OPEN);
+      const expectedErrorMessage = {
+        status: 'error',
+        data: {
+          code: 401,
+          name: 'Unauthorized',
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+
+      await fluxCommunicationMessagesSender.broadcastMessageToIncomingFromUserPost(mockStream, res);
+
+      // because of await in loop, that's the only way we can wait for spies to be called
+      await serviceHelper.delay(150);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedErrorMessage);
+      sinon.assert.notCalled(websocket.send);
+    });
+
+    it('should not broadcast message if the data is empty', async () => {
+      sinon.stub(verificationHelper, 'verifyPrivilege').returns(true);
+      fluxNetworkHelperPublicKeyStub.returns('0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab');
+      fluxNetworkHelperPrivateKeyStub.returns('5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh');
+
+      const mockStream = new PassThrough();
+      mockStream.end();
+      const res = generateResponse();
+      const websocket = generateWebsocket('127.0.0.1', WebSocket.OPEN);
+      const expectedErrorMessage = {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: 'Error',
+          message: 'No message to broadcast attached.',
+        },
+      };
+
+      await fluxCommunicationMessagesSender.broadcastMessageToIncomingFromUserPost(mockStream, res);
+
+      // because of await in loop, that's the only way we can wait for spies to be called
+      await serviceHelper.delay(150);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedErrorMessage);
+      sinon.assert.notCalled(websocket.send);
+    });
+  });
+
+  describe('broadcastMessageFromUserPost tests', () => {
+    let fluxNetworkHelperPublicKeyStub;
+    let fluxNetworkHelperPrivateKeyStub;
+    const generateIncomingWebsocket = (ip, readyState) => {
+      const ws = {};
+      ws.readyState = readyState;
+      ws.ping = sinon.stub().returns('pong');
+      ws.send = sinon.stub().returns('okay');
+      ws._socket = {
+        remoteAddress: ip,
+      };
+      incomingConnections.push(ws);
+      return ws;
+    };
+    const generateOutgoingWebsocket = (ip, readyState) => {
+      const ws = {};
+      ws.readyState = readyState;
+      ws.ping = sinon.stub().returns('pong');
+      ws.send = sinon.stub().returns('okay');
+      ws._socket = {
+        remoteAddress: ip,
+      };
+      outgoingConnections.push(ws);
+      return ws;
+    };
+    const generateResponse = () => {
+      const res = { test: 'testing' };
+      res.status = sinon.stub().returns(res);
+      res.json = sinon.fake((param) => param);
+      return res;
+    };
+
+    beforeEach(() => {
+      incomingConnections.length = 0;
+      sinon.stub(fluxNetworkHelper, 'closeConnection').returns(true);
+      fluxNetworkHelperPublicKeyStub = sinon.stub(fluxNetworkHelper, 'getFluxNodePublicKey');
+      fluxNetworkHelperPrivateKeyStub = sinon.stub(fluxNetworkHelper, 'getFluxNodePrivateKey');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should broadcast message if data is given in the req params and user is authorized', async () => {
+      sinon.stub(verificationHelper, 'verifyPrivilege').returns(true);
+      fluxNetworkHelperPublicKeyStub.returns('0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab');
+      fluxNetworkHelperPrivateKeyStub.returns('5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh');
+      const req = {
+        params: {
+          data: {
+            title: 'message',
+            message: 'This is testing!',
+          },
+        },
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(req));
+      mockStream.end();
+      const res = generateResponse();
+      const websocketIn = generateIncomingWebsocket('127.0.0.1', WebSocket.OPEN);
+      const websocketOut = generateOutgoingWebsocket('127.0.0.2', WebSocket.OPEN);
+      const expectedSuccessMessage = {
+        status: 'success',
+        data: {
+          code: undefined,
+          name: undefined,
+          message: 'Message successfully broadcasted to Flux network',
+        },
+      };
+
+      await fluxCommunicationMessagesSender.broadcastMessageFromUserPost(mockStream, res);
+
+      // because of await in loop, that's the only way we can wait for spies to be called
+      await serviceHelper.delay(150);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedSuccessMessage);
+      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match.string);
+      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/This is testing!/gm));
+      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/message/gm));
+      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/title/gm));
+      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/signature/gm));
+      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/pubKey/gm));
+      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/timestamp/gm));
+      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/version/gm));
+      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match.string);
+      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/This is testing!/gm));
+      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/message/gm));
+      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/title/gm));
+      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/signature/gm));
+      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/pubKey/gm));
+      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/timestamp/gm));
+      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/version/gm));
+    });
+
+    it('should broadcast message if data is given in the req query and user is authorized', async () => {
+      sinon.stub(verificationHelper, 'verifyPrivilege').returns(true);
+      fluxNetworkHelperPublicKeyStub.returns('0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab');
+      fluxNetworkHelperPrivateKeyStub.returns('5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh');
+      const req = {
+        params: {
+          test: {
+            test: 'message',
+          },
+        },
+        query: {
+          data: {
+            title: 'message',
+            message: 'This is testing!',
+          },
+        },
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(req));
+      mockStream.end();
+      const res = generateResponse();
+      const websocketIn = generateIncomingWebsocket('127.0.0.1', WebSocket.OPEN);
+      const websocketOut = generateOutgoingWebsocket('127.0.0.2', WebSocket.OPEN);
+      const expectedSuccessMessage = {
+        status: 'success',
+        data: {
+          code: undefined,
+          name: undefined,
+          message: 'Message successfully broadcasted to Flux network',
+        },
+      };
+
+      await fluxCommunicationMessagesSender.broadcastMessageFromUserPost(mockStream, res);
+
+      // because of await in loop, that's the only way we can wait for spies to be called
+      await serviceHelper.delay(150);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedSuccessMessage);
+      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match.string);
+      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/This is testing!/gm));
+      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/message/gm));
+      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/title/gm));
+      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/signature/gm));
+      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/pubKey/gm));
+      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/timestamp/gm));
+      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/version/gm));
+      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match.string);
+      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/This is testing!/gm));
+      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/message/gm));
+      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/title/gm));
+      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/signature/gm));
+      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/pubKey/gm));
+      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/timestamp/gm));
+      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/version/gm));
+    });
+
+    it('should not broadcast message if user is not authorized', async () => {
+      sinon.stub(verificationHelper, 'verifyPrivilege').returns(false);
+      fluxNetworkHelperPublicKeyStub.returns('0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab');
+      fluxNetworkHelperPrivateKeyStub.returns('5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh');
+      const req = {
+        params: {
+          test: {
+            test: 'message',
+          },
+        },
+        query: {
+          data: {
+            title: 'message',
+            message: 'This is testing!',
+          },
+        },
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(req));
+      mockStream.end();
+      const res = generateResponse();
+      const websocketIn = generateIncomingWebsocket('127.0.0.1', WebSocket.OPEN);
+      const websocketOut = generateOutgoingWebsocket('127.0.0.2', WebSocket.OPEN);
+      const expectedErrorMessage = {
+        status: 'error',
+        data: {
+          code: 401,
+          name: 'Unauthorized',
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+
+      await fluxCommunicationMessagesSender.broadcastMessageFromUserPost(mockStream, res);
+
+      // because of await in loop, that's the only way we can wait for spies to be called
+      await serviceHelper.delay(150);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedErrorMessage);
+      sinon.assert.notCalled(websocketIn.send);
+      sinon.assert.notCalled(websocketOut.send);
+    });
+
+    it('should not broadcast message if the data is empty', async () => {
+      sinon.stub(verificationHelper, 'verifyPrivilege').returns(true);
+      fluxNetworkHelperPublicKeyStub.returns('0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab');
+      fluxNetworkHelperPrivateKeyStub.returns('5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh');
+
+      const mockStream = new PassThrough();
+      mockStream.end();
+      const res = generateResponse();
+      const websocketIn = generateIncomingWebsocket('127.0.0.1', WebSocket.OPEN);
+      const websocketOut = generateOutgoingWebsocket('127.0.0.2', WebSocket.OPEN);
+      const expectedErrorMessage = {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: 'Error',
+          message: 'No message to broadcast attached.',
+        },
+      };
+
+      await fluxCommunicationMessagesSender.broadcastMessageFromUserPost(mockStream, res);
+
+      // because of await in loop, that's the only way we can wait for spies to be called
+      await serviceHelper.delay(150);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedErrorMessage);
+      sinon.assert.notCalled(websocketIn.send);
+      sinon.assert.notCalled(websocketOut.send);
+    });
+  });
+
+  describe.only('broadcastTemporaryAppMessage tests', () => {
+    let fluxNetworkHelperPublicKeyStub;
+    let fluxNetworkHelperPrivateKeyStub;
+    const generateOutgoingWebsocket = (ip, readyState) => {
+      const ws = {};
+      ws.readyState = readyState;
+      ws.ping = sinon.stub().returns('pong');
+      ws.send = sinon.stub().returns('okay');
+      ws._socket = {
+        remoteAddress: ip,
+      };
+      outgoingConnections.push(ws);
+      return ws;
+    };
+    const generateIncomingWebsocket = (ip, readyState) => {
+      const ws = {};
+      ws.readyState = readyState;
+      ws.ping = sinon.stub().returns('pong');
+      ws.send = sinon.stub().returns('okay');
+      ws._socket = {
+        remoteAddress: ip,
+      };
+      incomingConnections.push(ws);
+      return ws;
+    };
+
+    beforeEach(() => {
+      outgoingConnections.length = 0;
+      incomingConnections.length = 0;
+      fluxNetworkHelperPublicKeyStub = sinon.stub(fluxNetworkHelper, 'getFluxNodePublicKey').returns('0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab');
+      fluxNetworkHelperPrivateKeyStub = sinon.stub(fluxNetworkHelper, 'getFluxNodePrivateKey').returns('5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should send a message to incoming and outgoing connections when app message is properly formatted', async () => {
+      const temporaryAppMessage = { // specification of temp message, these are not verified in this function
+        type: 'zelnodeapp',
+        version: 3,
+        appSpecifications: {
+          specs: 'some specs',
+          specs2: 'some specs 2',
+        },
+        hash: '12346789asdfghj',
+        timestamp: 168732333,
+        signature: 'signature12345',
+      };
+      const websocketIn = generateIncomingWebsocket('127.0.0.1', WebSocket.OPEN);
+      const websocketOut = generateOutgoingWebsocket('127.0.0.3', WebSocket.OPEN);
+
+      await fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage);
+
+      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match.string);
+      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/type/gm));
+      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/zelnodeapp/gm));
+      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/appSpecifications/gm));
+      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/specs/gm));
+      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/specs 2/gm));
+      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/some specs/gm));
+      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/some specs 2/gm));
+      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/hash/gm));
+      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/12346789asdfghj/gm));
+      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/timestamp/gm));
+      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/signature/gm));
+      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/signature12345/gm));
+      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match.string);
+      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/type/gm));
+      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/zelnodeapp/gm));
+      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/appSpecifications/gm));
+      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/specs/gm));
+      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/specs 2/gm));
+      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/some specs/gm));
+      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/some specs 2/gm));
+      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/hash/gm));
+      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/12346789asdfghj/gm));
+      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/timestamp/gm));
+      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/signature/gm));
+      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/signature12345/gm));
+    });
+
+    it('should throw an error if the message is not an object', async () => {
+      const temporaryAppMessage = 'test';
+      const websocketIn = generateIncomingWebsocket('127.0.0.1', WebSocket.OPEN);
+      const websocketOut = generateOutgoingWebsocket('127.0.0.3', WebSocket.OPEN);
+
+      await expect(fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage)).to.eventually.be.rejectedWith('Invalid Flux App message for storing');
+
+      sinon.assert.notCalled(websocketIn.send);
+      sinon.assert.notCalled(websocketOut.send);
+    });
+
+    it('should throw an error if the message.type is not a string', async () => {
+      const temporaryAppMessage = {
+        type: 1,
+        version: 3,
+        appSpecifications: {
+          specs: 'some specs',
+          specs2: 'some specs 2',
+        },
+        hash: '12346789asdfghj',
+        timestamp: 168732333,
+        signature: 'signature12345',
+      };
+      const websocketIn = generateIncomingWebsocket('127.0.0.1', WebSocket.OPEN);
+      const websocketOut = generateOutgoingWebsocket('127.0.0.3', WebSocket.OPEN);
+
+      await expect(fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage)).to.eventually.be.rejectedWith('Invalid Flux App message for storing');
+
+      sinon.assert.notCalled(websocketIn.send);
+      sinon.assert.notCalled(websocketOut.send);
+    });
+
+    it('should throw an error if the message.version is not a number', async () => {
+      const temporaryAppMessage = { // specification of temp message, these are not verified in this function
+        type: 'zelnodeapp',
+        version: '3',
+        appSpecifications: {
+          specs: 'some specs',
+          specs2: 'some specs 2',
+        },
+        hash: '12346789asdfghj',
+        timestamp: 168732333,
+        signature: 'signature12345',
+      };
+      const websocketIn = generateIncomingWebsocket('127.0.0.1', WebSocket.OPEN);
+      const websocketOut = generateOutgoingWebsocket('127.0.0.3', WebSocket.OPEN);
+
+      await expect(fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage)).to.eventually.be.rejectedWith('Invalid Flux App message for storing');
+
+      sinon.assert.notCalled(websocketIn.send);
+      sinon.assert.notCalled(websocketOut.send);
+    });
+
+    it('should throw an error if the message.appSpecifications is not an object', async () => {
+      const temporaryAppMessage = { // specification of temp message, these are not verified in this function
+        type: 'zelnodeapp',
+        version: 3,
+        appSpecifications: 'test',
+        hash: '12346789asdfghj',
+        timestamp: 168732333,
+        signature: 'signature12345',
+      };
+      const websocketIn = generateIncomingWebsocket('127.0.0.1', WebSocket.OPEN);
+      const websocketOut = generateOutgoingWebsocket('127.0.0.3', WebSocket.OPEN);
+
+      await expect(fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage)).to.eventually.be.rejectedWith('Invalid Flux App message for storing');
+
+      sinon.assert.notCalled(websocketIn.send);
+      sinon.assert.notCalled(websocketOut.send);
+    });
+
+    it('should throw an error if the message.hash is not a string', async () => {
+      const temporaryAppMessage = { // specification of temp message, these are not verified in this function
+        type: 'zelnodeapp',
+        version: 3,
+        appSpecifications: {
+          specs: 'some specs',
+          specs2: 'some specs 2',
+        },
+        hash: 2,
+        timestamp: 168732333,
+        signature: 'signature12345',
+      };
+      const websocketIn = generateIncomingWebsocket('127.0.0.1', WebSocket.OPEN);
+      const websocketOut = generateOutgoingWebsocket('127.0.0.3', WebSocket.OPEN);
+
+      await expect(fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage)).to.eventually.be.rejectedWith('Invalid Flux App message for storing');
+
+      sinon.assert.notCalled(websocketIn.send);
+      sinon.assert.notCalled(websocketOut.send);
+    });
+
+    it('should throw an error if the message.timestamp is not a number', async () => {
+      const temporaryAppMessage = { // specification of temp message, these are not verified in this function
+        type: 'zelnodeapp',
+        version: 3,
+        appSpecifications: {
+          specs: 'some specs',
+          specs2: 'some specs 2',
+        },
+        hash: 'testestest',
+        timestamp: '168732333',
+        signature: 'signature12345',
+      };
+      const websocketIn = generateIncomingWebsocket('127.0.0.1', WebSocket.OPEN);
+      const websocketOut = generateOutgoingWebsocket('127.0.0.3', WebSocket.OPEN);
+
+      await expect(fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage)).to.eventually.be.rejectedWith('Invalid Flux App message for storing');
+
+      sinon.assert.notCalled(websocketIn.send);
+      sinon.assert.notCalled(websocketOut.send);
+    });
+
+    it('should throw an error if the message.singature is not a string', async () => {
+      const temporaryAppMessage = { // specification of temp message, these are not verified in this function
+        type: 'zelnodeapp',
+        version: 3,
+        appSpecifications: {
+          specs: 'some specs',
+          specs2: 'some specs 2',
+        },
+        hash: 2,
+        timestamp: 168732333,
+        signature: 2,
+      };
+      const websocketIn = generateIncomingWebsocket('127.0.0.1', WebSocket.OPEN);
+      const websocketOut = generateOutgoingWebsocket('127.0.0.3', WebSocket.OPEN);
+
+      await expect(fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage)).to.eventually.be.rejectedWith('Invalid Flux App message for storing');
+
+      sinon.assert.notCalled(websocketIn.send);
+      sinon.assert.notCalled(websocketOut.send);
     });
   });
 });
