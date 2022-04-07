@@ -5,6 +5,7 @@ const { expect } = chai;
 
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const daemonService = require('../../ZelBack/src/services/daemonService');
+const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 
 describe('fluxNetworkHelper tests', () => {
@@ -354,6 +355,131 @@ describe('fluxNetworkHelper tests', () => {
       const result = await fluxNetworkHelper.getFluxNodePublicKey(privateKey);
 
       expect(result).to.be.an('Error');
+    });
+  });
+
+  describe.only('getRandomConnection tests', () => {
+    let deterministicFluxListStub;
+    const ipList = ['47.199.51.61:16137', '47.199.51.61:16147', '44.192.51.11:16128'];
+    let deterministicZelnodeListResponse;
+
+    beforeEach(() => {
+      deterministicZelnodeListResponse = [
+        {
+          collateral: 'COutPoint(38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174, 0)',
+          txhash: '38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174',
+          outidx: '0',
+          ip: '47.199.51.61:16137',
+          network: '',
+          added_height: 1076533,
+          confirmed_height: 1076535,
+          last_confirmed_height: 1079888,
+          last_paid_height: 1077653,
+          tier: 'CUMULUS',
+          payment_address: 't1Z6mWoCrFC2g3iTCFdFkYdTfwtG84E3y2o',
+          pubkey: '04378c8585d45861c8783f9c8cd0c85478164c12ce3fd13af1b44ebc8fe1ad6c786e92b211cb9566c596b6e2454d394a06bc44f748afb3c9ee48caa096d704abac',
+          activesince: '1647197272',
+          lastpaid: '1647333786',
+          amount: '1000.00',
+          rank: 0,
+        },
+        {
+          collateral: 'COutPoint(46c9ae0313fc128d0fb4327f5babc7868fe557035b58e0a7cb475cfd8819f8c7, 0)',
+          txhash: '46c9ae0313fc128d0fb4327f5babc7868fe557035b58e0a7cb475cfd8819f8c7',
+          outidx: '0',
+          ip: '47.199.51.61:16147',
+          network: '',
+          added_height: 1079638,
+          confirmed_height: 1079642,
+          last_confirmed_height: 1079889,
+          last_paid_height: 0,
+          tier: 'CUMULUS',
+          payment_address: 't1UHecy6WiSJXs4Zqt5UvVdRDF7PMbZJK7q',
+          pubkey: '04d50620a31f045c61be42bad44b7a9424ffb6de37bf256b88f00e118e59736165255f2f4585b36c7e1f8f3e20db4fa4e55e61cc01dc7a5cd2b2ed0153627588dc',
+          activesince: '1647572455',
+          lastpaid: '1516980000',
+          amount: '1000.00',
+          rank: 1,
+        },
+        {
+          collateral: 'COutPoint(43c9ae0313fc128d0fb4327f5babc7868fe557135b58e0a7cb475cdd8819f8c8, 0)',
+          txhash: '43c9ae0313fc128d0fb4327f5babc7868fe557135b58e0a7cb475cdd8819f8c8',
+          outidx: '0',
+          ip: '44.192.51.11:16128',
+          network: '',
+          added_height: 123456,
+          confirmed_height: 1234567,
+          last_confirmed_height: 123456,
+          last_paid_height: 0,
+          tier: 'CUMULUS',
+          payment_address: 't1UHecyqtF7PMb6WiSJXs4ZZJK7q5UvVdRD',
+          pubkey: '04d50620a31f045c61be42bad44b7a9424ffb6de37bf256b88f00e118e59736165255f2f4585b36c7e1f8f3e20db4fa4e55e61cc01dc7a5cd2b2ed0153627588dc',
+          activesince: '1647572455',
+          lastpaid: '1516980000',
+          amount: '2000.00',
+          rank: 1,
+        },
+      ];
+      deterministicFluxListStub = sinon.stub(fluxCommunicationUtils, 'deterministicFluxList');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should return a random ip out of list of nodes', async () => {
+      deterministicZelnodeListResponse = deterministicFluxListStub.returns(deterministicZelnodeListResponse);
+
+      const getRandomConnectionResponse = await fluxNetworkHelper.getRandomConnection();
+
+      expect(getRandomConnectionResponse).to.be.oneOf(ipList);
+    });
+
+    it('should return null if ip is the same as userconfig.initial.ipaddress', async () => {
+      const nodesListWrongIp = deterministicZelnodeListResponse.map((node) => node);
+      nodesListWrongIp.forEach((node) => {
+        // eslint-disable-next-line no-param-reassign
+        node.ip = '83.52.214.240';
+      });
+      deterministicFluxListStub.returns(deterministicZelnodeListResponse);
+
+      const getRandomConnectionResponse = await fluxNetworkHelper.getRandomConnection();
+
+      expect(getRandomConnectionResponse).to.be.null;
+    });
+
+    it('should return null if ip is null', async () => {
+      const nodesListWrongIp = deterministicZelnodeListResponse.map((node) => node);
+      nodesListWrongIp.forEach((node) => {
+        // eslint-disable-next-line no-param-reassign
+        node.ip = null;
+      });
+      deterministicFluxListStub.returns(deterministicZelnodeListResponse);
+
+      const getRandomConnectionResponse = await fluxNetworkHelper.getRandomConnection();
+
+      expect(getRandomConnectionResponse).to.be.undefined;
+    });
+
+    it('should return null if ip user ip and port', async () => {
+      const nodesListWrongIp = deterministicZelnodeListResponse.map((node) => node);
+      nodesListWrongIp.forEach((node) => {
+        // eslint-disable-next-line no-param-reassign
+        node.ip = '83.52.214.240:16127';
+      });
+      deterministicFluxListStub.returns(deterministicZelnodeListResponse);
+
+      const getRandomConnectionResponse = await fluxNetworkHelper.getRandomConnection();
+
+      expect(getRandomConnectionResponse).to.be.null;
+    });
+
+    it('should return null if the node list is empty', async () => {
+      deterministicFluxListStub.returns([]);
+
+      const getRandomConnectionResponse = await fluxNetworkHelper.getRandomConnection();
+
+      expect(getRandomConnectionResponse).to.be.null;
     });
   });
 });
