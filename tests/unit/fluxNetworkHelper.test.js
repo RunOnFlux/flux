@@ -358,7 +358,7 @@ describe('fluxNetworkHelper tests', () => {
     });
   });
 
-  describe.only('getRandomConnection tests', () => {
+  describe('getRandomConnection tests', () => {
     let deterministicFluxListStub;
     const ipList = ['47.199.51.61:16137', '47.199.51.61:16147', '44.192.51.11:16128'];
     let deterministicZelnodeListResponse;
