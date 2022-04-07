@@ -23,7 +23,7 @@ let storedCollateral = null;
 function getCollateralInfo(collateralOutpoint) {
   const a = collateralOutpoint;
   const b = a.split(', ');
-  const txhash = b[0].substr(10, b[0].length);
+  const txhash = b[0].slice(10);
   const txindex = serviceHelper.ensureNumber(b[1].split(')')[0]);
   return { txhash, txindex };
 }
