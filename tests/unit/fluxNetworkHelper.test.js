@@ -750,7 +750,7 @@ describe('fluxNetworkHelper tests', () => {
     });
 
     it('should return false if rate limit is exceeded', async () => {
-      const ip = '129.0.0.12';
+      const ip = '129.0.0.10';
       for (let i = 0; i < 16; i += 1) {
         fluxNetworkHelper.checkRateLimit(ip);
       }
@@ -760,8 +760,31 @@ describe('fluxNetworkHelper tests', () => {
       expect(checkRateLimitRes).to.equal(false);
     });
 
+    it('should return false if a custom rate limit is exceeded', async () => {
+      const ip = '129.0.0.11';
+      for (let i = 0; i < 6; i += 1) {
+        fluxNetworkHelper.checkRateLimit(ip, 10, 5);
+      }
+
+      const checkRateLimitRes = fluxNetworkHelper.checkRateLimit(ip);
+
+      expect(checkRateLimitRes).to.equal(false);
+    });
+
+    it('should return false if a custom replenish rate is not enough', async () => {
+      const ip = '129.0.0.13';
+
+      for (let i = 0; i < 5; i += 1) {
+        fluxNetworkHelper.checkRateLimit(ip, 10, 5);
+      }
+
+      const checkRateLimitRes = fluxNetworkHelper.checkRateLimit(ip);
+
+      expect(checkRateLimitRes).to.equal(false);
+    });
+
     it('should return true when the rate limit bucket has been replenished', async () => {
-      const ip = '129.0.0.12';
+      const ip = '129.0.0.14';
       for (let i = 0; i < 16; i += 1) {
         fluxNetworkHelper.checkRateLimit(ip);
       }
