@@ -488,7 +488,7 @@ describe('fluxNetworkHelper tests', () => {
     });
   });
 
-  describe.only('closeConnection tests', () => {
+  describe('closeConnection tests', () => {
     const generateWebsocket = (ip, readyState) => {
       const ws = {};
       ws.readyState = readyState;
@@ -511,6 +511,7 @@ describe('fluxNetworkHelper tests', () => {
 
     beforeEach(() => {
       outgoingConnections.length = 0;
+      outgoingPeers.length = 0;
     });
 
     afterEach(() => {
@@ -578,6 +579,166 @@ describe('fluxNetworkHelper tests', () => {
       expect(closeConnectionResult).to.eql(errorMessage);
       expect(outgoingConnections).to.have.length(1);
       expect(outgoingPeers).to.have.length(1);
+    });
+
+    it('should return warning message if ip is not provided', async () => {
+      const ip2 = '127.5.5.2';
+      const errorMessage = {
+        status: 'warning',
+        data: {
+          code: undefined,
+          name: undefined,
+          message: 'To close a connection please provide a proper IP number.',
+        },
+      };
+      const websocket = generateWebsocket(ip2, WebSocket.OPEN);
+      addPeerToListOfPeers(ip2);
+
+      const closeConnectionResult = await fluxNetworkHelper.closeConnection();
+
+      sinon.assert.notCalled(websocket.close);
+      expect(closeConnectionResult).to.eql(errorMessage);
+      expect(outgoingConnections).to.have.length(1);
+      expect(outgoingPeers).to.have.length(1);
+    });
+  });
+
+  describe('closeIncomingConnection tests', () => {
+    const generateWebsocket = (ip, readyState) => {
+      const ws = {};
+      ws.readyState = readyState;
+      ws.ping = sinon.stub().returns('pong');
+      ws.close = sinon.stub().returns('okay');
+      ws._socket = {
+        remoteAddress: ip,
+      };
+      incomingConnections.push(ws);
+      return ws;
+    };
+    const addPeerToListOfPeers = (ip) => {
+      const peer = {
+        ip,
+        latency: 50,
+      };
+      incomingPeers.push(peer);
+      return peer;
+    };
+
+    beforeEach(() => {
+      incomingConnections.length = 0;
+      incomingPeers.length = 0;
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should close outgoing connection properly given expressWsList', async () => {
+      const ip = '127.9.9.1';
+      const successMessage = {
+        status: 'success',
+        data: {
+          code: undefined,
+          name: undefined,
+          message: `Incoming connection to ${ip} closed`,
+        },
+      };
+      const websocket = generateWebsocket(ip, WebSocket.OPEN);
+      addPeerToListOfPeers(ip);
+      const expressWsList = { clients: [websocket] };
+
+      const closeConnectionResult = await fluxNetworkHelper.closeIncomingConnection(ip, expressWsList);
+
+      sinon.assert.calledOnceWithExactly(websocket.close, 1000, 'purpusfully closed');
+      expect(closeConnectionResult).to.eql(successMessage);
+      expect(incomingConnections).to.have.length(0);
+      expect(incomingPeers).to.have.length(0);
+    });
+
+    it('should close outgoing connection properly given client to close', async () => {
+      const ip = '127.9.9.1';
+      const successMessage = {
+        status: 'success',
+        data: {
+          code: undefined,
+          name: undefined,
+          message: `Incoming connection to ${ip} closed`,
+        },
+      };
+      const websocket = generateWebsocket(ip, WebSocket.OPEN);
+      addPeerToListOfPeers(ip);
+
+      const closeConnectionResult = await fluxNetworkHelper.closeIncomingConnection(ip, [], websocket);
+
+      sinon.assert.calledOnceWithExactly(websocket.close, 1000, 'purpusfully closed');
+      expect(closeConnectionResult).to.eql(successMessage);
+      expect(incomingConnections).to.have.length(0);
+      expect(incomingPeers).to.have.length(0);
+    });
+
+    it('should close outgoing connection properly if it exists and peer is not added to the list', async () => {
+      const ip = '127.9.9.1';
+      const successMessage = {
+        status: 'success',
+        data: {
+          code: undefined,
+          name: undefined,
+          message: `Incoming connection to ${ip} closed`,
+        },
+      };
+      const websocket = generateWebsocket(ip, WebSocket.OPEN);
+      const expressWsList = { clients: [websocket] };
+
+      const closeConnectionResult = await fluxNetworkHelper.closeIncomingConnection(ip, expressWsList);
+
+      sinon.assert.calledOnceWithExactly(websocket.close, 1000, 'purpusfully closed');
+      expect(closeConnectionResult).to.eql(successMessage);
+      expect(incomingConnections).to.have.length(0);
+      expect(incomingPeers).to.have.length(0);
+    });
+
+    it('should return warning message if the websocket does not exist', async () => {
+      const ip = '127.9.9.1';
+      const ip2 = '127.5.5.2';
+      const errorMessage = {
+        status: 'warning',
+        data: {
+          code: undefined,
+          name: undefined,
+          message: `Connection from ${ip} does not exists.`,
+        },
+      };
+      const websocket = generateWebsocket(ip2, WebSocket.OPEN);
+      const expressWsList = { clients: [websocket] };
+      addPeerToListOfPeers(ip2);
+
+      const closeConnectionResult = await fluxNetworkHelper.closeIncomingConnection(ip, expressWsList);
+
+      sinon.assert.notCalled(websocket.close);
+      expect(closeConnectionResult).to.eql(errorMessage);
+      expect(incomingConnections).to.have.length(1);
+      expect(incomingPeers).to.have.length(1);
+    });
+
+    it('should return warning message if the websocket does not exist', async () => {
+      const ip2 = '127.5.5.2';
+      const errorMessage = {
+        status: 'warning',
+        data: {
+          code: undefined,
+          name: undefined,
+          message: 'To close a connection please provide a proper IP number.',
+        },
+      };
+      const websocket = generateWebsocket(ip2, WebSocket.OPEN);
+      addPeerToListOfPeers(ip2);
+
+      const closeConnectionResult = await fluxNetworkHelper.closeIncomingConnection();
+
+      sinon.assert.notCalled(websocket.close);
+      expect(closeConnectionResult).to.eql(errorMessage);
+      expect(incomingConnections).to.have.length(1);
+      expect(incomingPeers).to.have.length(1);
     });
   });
 });

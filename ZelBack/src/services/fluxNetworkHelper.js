@@ -153,6 +153,7 @@ async function getRandomConnection() { // returns ip:port or just ip if default
 }
 
 async function closeConnection(ip) {
+  if (!ip) return messageHelper.createWarningMessage('To close a connection please provide a proper IP number.');
   const wsObj = await outgoingConnections.find((client) => client._socket.remoteAddress === ip);
   if (!wsObj) {
     return messageHelper.createWarningMessage(`Connection to ${ip} does not exists.`);
@@ -175,35 +176,32 @@ async function closeConnection(ip) {
 }
 
 async function closeIncomingConnection(ip, expressWS, clientToClose) {
+  if (!ip) return messageHelper.createWarningMessage('To close a connection please provide a proper IP number.');
   const clientsSet = expressWS.clients || [];
-  let message;
   let wsObj = null || clientToClose;
   clientsSet.forEach((client) => {
     if (client._socket.remoteAddress === ip) {
       wsObj = client;
     }
   });
-  if (wsObj) {
-    const ocIndex = incomingConnections.indexOf(wsObj);
-    const foundPeer = await incomingPeers.find((peer) => peer.ip === ip);
-    if (ocIndex > -1) {
-      wsObj.close(1000, 'purpusfully closed');
-      log.info(`Connection from ${ip} closed`);
-      incomingConnections.splice(ocIndex, 1);
-      if (foundPeer) {
-        const peerIndex = incomingPeers.indexOf(foundPeer);
-        if (peerIndex > -1) {
-          incomingPeers.splice(peerIndex, 1);
-        }
-      }
-      message = messageHelper.createSuccessMessage(`Incoming connection to ${ip} closed`);
-    } else {
-      message = messageHelper.createErrorMessage(`Unable to close incoming connection ${ip}. Try again later.`);
-    }
-  } else {
-    message = messageHelper.createWarningMessage(`Connection from ${ip} does not exists.`);
+  if (!wsObj) {
+    return messageHelper.createWarningMessage(`Connection from ${ip} does not exists.`);
   }
-  return message;
+  const ocIndex = incomingConnections.indexOf(wsObj);
+  const foundPeer = await incomingPeers.find((peer) => peer.ip === ip);
+  if (ocIndex === -1) {
+    return messageHelper.createErrorMessage(`Unable to close incoming connection ${ip}. Try again later.`);
+  }
+  wsObj.close(1000, 'purpusfully closed');
+  log.info(`Connection from ${ip} closed`);
+  incomingConnections.splice(ocIndex, 1);
+  if (foundPeer) {
+    const peerIndex = incomingPeers.indexOf(foundPeer);
+    if (peerIndex > -1) {
+      incomingPeers.splice(peerIndex, 1);
+    }
+  }
+  return messageHelper.createSuccessMessage(`Incoming connection to ${ip} closed`);
 }
 
 function checkRateLimit(ip, perSecond = 10, maxBurst = 15) {
