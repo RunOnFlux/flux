@@ -744,7 +744,7 @@ describe('fluxNetworkHelper tests', () => {
 
   describe.only('checkRateLimit tests', () => {
     it('should return true if rate limit is not exceeded', async () => {
-      const checkRateLimitRes = fluxNetworkHelper.checkRateLimit('129.0.0.11');
+      const checkRateLimitRes = fluxNetworkHelper.checkRateLimit('129.0.0.9');
 
       expect(checkRateLimitRes).to.equal(true);
     });
@@ -762,11 +762,11 @@ describe('fluxNetworkHelper tests', () => {
 
     it('should return false if a custom rate limit is exceeded', async () => {
       const ip = '129.0.0.11';
-      for (let i = 0; i < 6; i += 1) {
+      for (let i = 0; i < 5; i += 1) {
         fluxNetworkHelper.checkRateLimit(ip, 10, 5);
       }
 
-      const checkRateLimitRes = fluxNetworkHelper.checkRateLimit(ip);
+      const checkRateLimitRes = fluxNetworkHelper.checkRateLimit(ip, 10, 5);
 
       expect(checkRateLimitRes).to.equal(false);
     });
