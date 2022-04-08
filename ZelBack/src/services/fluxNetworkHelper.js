@@ -204,9 +204,9 @@ async function closeIncomingConnection(ip, expressWS, clientToClose) {
   return messageHelper.createSuccessMessage(`Incoming connection to ${ip} closed`);
 }
 
-function checkRateLimit(ip, perSecond = 10, maxBurst = 15) {
+function checkRateLimit(ip, fillPerSecond = 10, maxBurst = 15) {
   if (!buckets.has(ip)) {
-    buckets.set(ip, new TokenBucket(maxBurst, perSecond));
+    buckets.set(ip, new TokenBucket(maxBurst, fillPerSecond));
   }
 
   const bucketForIP = buckets.get(ip);

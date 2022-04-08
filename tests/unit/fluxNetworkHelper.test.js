@@ -741,4 +741,35 @@ describe('fluxNetworkHelper tests', () => {
       expect(incomingPeers).to.have.length(1);
     });
   });
+
+  describe.only('checkRateLimit tests', () => {
+    it('should return true if rate limit is not exceeded', async () => {
+      const checkRateLimitRes = fluxNetworkHelper.checkRateLimit('129.0.0.11');
+
+      expect(checkRateLimitRes).to.equal(true);
+    });
+
+    it('should return false if rate limit is exceeded', async () => {
+      const ip = '129.0.0.12';
+      for (let i = 0; i < 16; i += 1) {
+        fluxNetworkHelper.checkRateLimit(ip);
+      }
+
+      const checkRateLimitRes = fluxNetworkHelper.checkRateLimit(ip);
+
+      expect(checkRateLimitRes).to.equal(false);
+    });
+
+    it('should return true when the rate limit bucket has been replenished', async () => {
+      const ip = '129.0.0.12';
+      for (let i = 0; i < 16; i += 1) {
+        fluxNetworkHelper.checkRateLimit(ip);
+      }
+
+      await serviceHelper.delay(1000);
+      const checkRateLimitRes = fluxNetworkHelper.checkRateLimit(ip);
+
+      expect(checkRateLimitRes).to.equal(true);
+    });
+  });
 });
