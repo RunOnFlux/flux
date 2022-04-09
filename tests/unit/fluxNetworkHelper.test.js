@@ -742,7 +742,7 @@ describe('fluxNetworkHelper tests', () => {
     });
   });
 
-  describe.only('checkRateLimit tests', () => {
+  describe('checkRateLimit tests', () => {
     it('should return true if rate limit is not exceeded', async () => {
       const checkRateLimitRes = fluxNetworkHelper.checkRateLimit('129.0.0.9');
 
@@ -775,10 +775,14 @@ describe('fluxNetworkHelper tests', () => {
       const ip = '129.0.0.13';
 
       for (let i = 0; i < 5; i += 1) {
-        fluxNetworkHelper.checkRateLimit(ip, 10, 5);
+        fluxNetworkHelper.checkRateLimit(ip, 5, 5);
+      }
+      await serviceHelper.delay(1000);
+      for (let i = 0; i < 5; i += 1) {
+        fluxNetworkHelper.checkRateLimit(ip, 5, 5);
       }
 
-      const checkRateLimitRes = fluxNetworkHelper.checkRateLimit(ip);
+      const checkRateLimitRes = fluxNetworkHelper.checkRateLimit(ip, 5, 5);
 
       expect(checkRateLimitRes).to.equal(false);
     });
@@ -793,6 +797,39 @@ describe('fluxNetworkHelper tests', () => {
       const checkRateLimitRes = fluxNetworkHelper.checkRateLimit(ip);
 
       expect(checkRateLimitRes).to.equal(true);
+    });
+  });
+
+  describe('getIncomingConnections tests', () => {
+    const generateResponse = () => {
+      const res = { test: 'testing' };
+      res.status = sinon.stub().returns(res);
+      res.json = sinon.fake((param) => param);
+      return res;
+    };
+    const generateWebsocket = (ip) => {
+      const ws = {};
+      ws._socket = {
+        remoteAddress: ip,
+      };
+      return ws;
+    };
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should return incoming connections', async () => {
+      const ips = ['127.0.0.1', '127.0.0.2'];
+      const websocket1 = generateWebsocket(ips[0]);
+      const websocket2 = generateWebsocket(ips[1]);
+      const expressWsList = { clients: [websocket1, websocket2] };
+      const res = generateResponse();
+      const expeectedCallArgumeent = { status: 'success', data: ['127.0.0.1', '127.0.0.2'] };
+
+      fluxNetworkHelper.getIncomingConnections(undefined, res, expressWsList);
+
+      sinon.assert.calledOnceWithExactly(res.json, expeectedCallArgumeent);
     });
   });
 });

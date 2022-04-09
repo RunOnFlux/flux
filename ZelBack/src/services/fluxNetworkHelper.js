@@ -44,7 +44,6 @@ class TokenBucket {
 
     this.lastFilled = Math.floor(Date.now() / 1000);
     this.tokens = capacity;
-    console.log(capacity);
   }
 
   take() {
@@ -211,7 +210,6 @@ function checkRateLimit(ip, fillPerSecond = 10, maxBurst = 15) {
   }
 
   const bucketForIP = buckets.get(ip);
-  console.log(bucketForIP);
 
   if (bucketForIP.take()) {
     return true;
