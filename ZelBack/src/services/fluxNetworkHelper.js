@@ -242,7 +242,17 @@ function getIncomingConnectionsInfo(req, res) {
  * @param {number} value
  */
 function setStoredFluxBenchAllowed(value) {
-  storedFluxBenchAllowed = value;
+  storedFluxBenchAllowed = value ? +value : null;
+}
+
+/**
+ * Getter for storedFluxBenchAllowed.
+ * Main goal for this is testing availability.
+ *
+ * @param {number} value
+ */
+function getStoredFluxBenchAllowed() {
+  return storedFluxBenchAllowed;
 }
 
 async function checkFluxbenchVersionAllowed() {
@@ -612,4 +622,5 @@ module.exports = {
   allowPort,
   isFirewallActive,
   setStoredFluxBenchAllowed,
+  getStoredFluxBenchAllowed,
 };

@@ -6,6 +6,7 @@ const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const daemonService = require('../../ZelBack/src/services/daemonService');
 const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
+const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
 const { outgoingConnections } = require('../../ZelBack/src/services/utils/outgoingConnections');
 const { incomingConnections } = require('../../ZelBack/src/services/utils/incomingConnections');
 const { outgoingPeers } = require('../../ZelBack/src/services/utils/outgoingPeers');
@@ -897,11 +898,18 @@ describe('fluxNetworkHelper tests', () => {
 
   describe.only('checkFluxbenchVersionAllowed tests', () => {
     // minimumFluxBenchAllowedVersion = 300;
-    afterEach(() => {
+    let benchmarkInfoResponseStub;
+
+    beforeEach(() => {
+      benchmarkInfoResponseStub = sinon.stub(benchmarkService, 'getInfo');
       fluxNetworkHelper.setStoredFluxBenchAllowed(null);
     });
 
-    it('should return flux true if bench version is allowed and stored in cache', async () => {
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should return true if bench version is higher than minimal and stored in cache', async () => {
       fluxNetworkHelper.setStoredFluxBenchAllowed(400);
 
       const isFluxbenchVersionAllowed = await fluxNetworkHelper.checkFluxbenchVersionAllowed();
@@ -909,12 +917,89 @@ describe('fluxNetworkHelper tests', () => {
       expect(isFluxbenchVersionAllowed).to.equal(true);
     });
 
-    it('should return flux true if bench version is allowed and stored in cache', async () => {
+    it('should return true if bench version is equal to minimal and stored in cache', async () => {
+      fluxNetworkHelper.setStoredFluxBenchAllowed(300);
+
+      const isFluxbenchVersionAllowed = await fluxNetworkHelper.checkFluxbenchVersionAllowed();
+
+      expect(isFluxbenchVersionAllowed).to.equal(true);
+    });
+
+    it('should return false if bench version is lower than minimal and is stored in cache', async () => {
       fluxNetworkHelper.setStoredFluxBenchAllowed(200);
 
       const isFluxbenchVersionAllowed = await fluxNetworkHelper.checkFluxbenchVersionAllowed();
 
       expect(isFluxbenchVersionAllowed).to.equal(false);
+    });
+
+    it('should return true if the version is higher than minimal and is not set in cache', async () => {
+      const benchmarkInfoResponse = {
+        status: 'success',
+        data: {
+          version: '5.41.3',
+        },
+      };
+      benchmarkInfoResponseStub.returns(benchmarkInfoResponse);
+
+      const isFluxbenchVersionAllowed = await fluxNetworkHelper.checkFluxbenchVersionAllowed();
+
+      expect(isFluxbenchVersionAllowed).to.equal(true);
+      expect(fluxNetworkHelper.getStoredFluxBenchAllowed()).to.equal(5413);
+    });
+
+    it('should return true if the version is equal to minimal and is not set in cache', async () => {
+      const benchmarkInfoResponse = {
+        status: 'success',
+        data: {
+          version: '300',
+        },
+      };
+      benchmarkInfoResponseStub.returns(benchmarkInfoResponse);
+
+      const isFluxbenchVersionAllowed = await fluxNetworkHelper.checkFluxbenchVersionAllowed();
+
+      expect(isFluxbenchVersionAllowed).to.equal(true);
+      expect(fluxNetworkHelper.getStoredFluxBenchAllowed()).to.equal(300);
+    });
+
+    it('should return false if the version is lower than minimal and is not set in cache', async () => {
+      const benchmarkInfoResponse = {
+        status: 'success',
+        data: {
+          version: '200',
+        },
+      };
+      benchmarkInfoResponseStub.returns(benchmarkInfoResponse);
+
+      const isFluxbenchVersionAllowed = await fluxNetworkHelper.checkFluxbenchVersionAllowed();
+
+      expect(isFluxbenchVersionAllowed).to.equal(false);
+      expect(fluxNetworkHelper.getStoredFluxBenchAllowed()).to.equal(200);
+    });
+
+    it('should return false if the version is unattainable from benchmarkInfo', async () => {
+      const benchmarkInfoResponse = {
+        status: 'error',
+        data: {
+          test: 'test',
+        },
+      };
+      benchmarkInfoResponseStub.returns(benchmarkInfoResponse);
+
+      const isFluxbenchVersionAllowed = await fluxNetworkHelper.checkFluxbenchVersionAllowed();
+
+      expect(isFluxbenchVersionAllowed).to.equal(false);
+      expect(fluxNetworkHelper.getStoredFluxBenchAllowed()).to.equal(null);
+    });
+
+    it('should return false if benchmarkInfo throws error', async () => {
+      benchmarkInfoResponseStub.throws();
+
+      const isFluxbenchVersionAllowed = await fluxNetworkHelper.checkFluxbenchVersionAllowed();
+
+      expect(isFluxbenchVersionAllowed).to.equal(false);
+      expect(fluxNetworkHelper.getStoredFluxBenchAllowed()).to.equal(null);
     });
   });
 });
