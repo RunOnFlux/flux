@@ -235,6 +235,16 @@ function getIncomingConnectionsInfo(req, res) {
   res.json(response);
 }
 
+/**
+ * Setter for storedFluxBenchAllowed.
+ * Main goal for this is testing availability.
+ *
+ * @param {number} value
+ */
+function setStoredFluxBenchAllowed(value) {
+  storedFluxBenchAllowed = value;
+}
+
 async function checkFluxbenchVersionAllowed() {
   if (storedFluxBenchAllowed) {
     return storedFluxBenchAllowed >= minimumFluxBenchAllowedVersion;
@@ -245,7 +255,7 @@ async function checkFluxbenchVersionAllowed() {
       log.info(benchmarkInfoResponse);
       let benchmarkVersion = benchmarkInfoResponse.data.version;
       benchmarkVersion = benchmarkVersion.replace(/\./g, '');
-      storedFluxBenchAllowed = benchmarkVersion;
+      setStoredFluxBenchAllowed(benchmarkVersion);
       if (benchmarkVersion >= minimumFluxBenchAllowedVersion) {
         return true;
       }
@@ -601,4 +611,5 @@ module.exports = {
   adjustExternalIP,
   allowPort,
   isFirewallActive,
+  setStoredFluxBenchAllowed,
 };

@@ -265,7 +265,7 @@ describe('fluxCommunication tests', () => {
       sinon.assert.calledOnceWithExactly(sendToAllIncomingConnectionsSpy, messageString, wsListIn);
     }).timeout(10000);
 
-    it.only('should not send broadcast if message is older than 3900 seconds', async () => {
+    it('should not send broadcast if message is older than 3900 seconds', async () => {
       const fromIp = '127.0.0.5';
       const type = 'fluxappregister';
       const name = 'myApp';

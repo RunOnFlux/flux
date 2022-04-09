@@ -819,17 +819,102 @@ describe('fluxNetworkHelper tests', () => {
       sinon.restore();
     });
 
-    it('should return incoming connections', async () => {
+    it('should return success message with incoming connections\' ips', async () => {
       const ips = ['127.0.0.1', '127.0.0.2'];
       const websocket1 = generateWebsocket(ips[0]);
       const websocket2 = generateWebsocket(ips[1]);
       const expressWsList = { clients: [websocket1, websocket2] };
       const res = generateResponse();
-      const expeectedCallArgumeent = { status: 'success', data: ['127.0.0.1', '127.0.0.2'] };
+      const expectedCallArgumeent = { status: 'success', data: ['127.0.0.1', '127.0.0.2'] };
 
       fluxNetworkHelper.getIncomingConnections(undefined, res, expressWsList);
 
+      sinon.assert.calledOnceWithExactly(res.json, expectedCallArgumeent);
+    });
+
+    it('should return success message with empty array if there are no incoming connections', async () => {
+      const expressWsList = { clients: [] };
+      const res = generateResponse();
+      const expectedCallArgumeent = { status: 'success', data: [] };
+
+      fluxNetworkHelper.getIncomingConnections(undefined, res, expressWsList);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedCallArgumeent);
+    });
+  });
+
+  describe('getIncomingConnectionsInfo tests', () => {
+    const generateResponse = () => {
+      const res = { test: 'testing' };
+      res.status = sinon.stub().returns(res);
+      res.json = sinon.fake((param) => param);
+      return res;
+    };
+    const addPeerToListOfPeers = (ip) => {
+      const peer = {
+        ip,
+        latency: 50,
+      };
+      incomingPeers.push(peer);
+      return peer;
+    };
+
+    beforeEach(() => {
+      incomingPeers.length = 0;
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should return success message with incoming connections\' info', async () => {
+      const ips = ['127.0.0.1', '127.0.0.2'];
+      addPeerToListOfPeers(ips[0]);
+      addPeerToListOfPeers(ips[1]);
+      const res = generateResponse();
+      const expectedCallArgumeent = {
+        status: 'success',
+        data: [
+          { ip: '127.0.0.1', latency: 50 },
+          { ip: '127.0.0.2', latency: 50 },
+        ],
+      };
+
+      fluxNetworkHelper.getIncomingConnectionsInfo(undefined, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedCallArgumeent);
+    });
+
+    it('should return success message with empty array if there are no incoming connections', async () => {
+      const res = generateResponse();
+      const expeectedCallArgumeent = { status: 'success', data: [] };
+
+      fluxNetworkHelper.getIncomingConnectionsInfo(undefined, res);
+
       sinon.assert.calledOnceWithExactly(res.json, expeectedCallArgumeent);
+    });
+  });
+
+  describe.only('checkFluxbenchVersionAllowed tests', () => {
+    // minimumFluxBenchAllowedVersion = 300;
+    afterEach(() => {
+      fluxNetworkHelper.setStoredFluxBenchAllowed(null);
+    });
+
+    it('should return flux true if bench version is allowed and stored in cache', async () => {
+      fluxNetworkHelper.setStoredFluxBenchAllowed(400);
+
+      const isFluxbenchVersionAllowed = await fluxNetworkHelper.checkFluxbenchVersionAllowed();
+
+      expect(isFluxbenchVersionAllowed).to.equal(true);
+    });
+
+    it('should return flux true if bench version is allowed and stored in cache', async () => {
+      fluxNetworkHelper.setStoredFluxBenchAllowed(200);
+
+      const isFluxbenchVersionAllowed = await fluxNetworkHelper.checkFluxbenchVersionAllowed();
+
+      expect(isFluxbenchVersionAllowed).to.equal(false);
     });
   });
 });
