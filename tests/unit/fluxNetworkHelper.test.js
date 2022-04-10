@@ -1002,4 +1002,67 @@ describe('fluxNetworkHelper tests', () => {
       expect(fluxNetworkHelper.getStoredFluxBenchAllowed()).to.equal(null);
     });
   });
+
+  describe.only('checkMyFluxAvailability tests', () => {
+    beforeEach(() => {
+      fluxNetworkHelper.setStoredFluxBenchAllowed(400);
+      const deterministicZelnodeListResponse = [
+        {
+          collateral: 'COutPoint(38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174, 0)',
+          txhash: '38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174',
+          outidx: '0',
+          ip: '129.1.1.1',
+          network: '',
+          added_height: 1076533,
+          confirmed_height: 1076535,
+          last_confirmed_height: 1079888,
+          last_paid_height: 1077653,
+          tier: 'CUMULUS',
+          payment_address: 't1Z6mWoCrFC2g3iTCFdFkYdTfwtG84E3y2o',
+          pubkey: '04378c8585d45861c8783f9c8cd0c85478164c12ce3fd13af1b44ebc8fe1ad6c786e92b211cb9566c596b6e2454d394a06bc44f748afb3c9ee48caa096d704abac',
+          activesince: '1647197272',
+          lastpaid: '1647333786',
+          amount: '1000.00',
+          rank: 0,
+        },
+      ];
+      sinon.stub(fluxCommunicationUtils, 'deterministicFluxList').returns(deterministicZelnodeListResponse);
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should return false if the flux bench version is lower than allowed', async () => {
+      fluxNetworkHelper.setStoredFluxBenchAllowed(200);
+
+      const result = await fluxNetworkHelper.checkMyFluxAvailability();
+
+      expect(result).to.be.false;
+    });
+
+    it('should return false if get random connection returns user\'s own ip', async () => {
+      fluxNetworkHelper.setMyFluxIp('129.1.1.1');
+
+      const result = await fluxNetworkHelper.checkMyFluxAvailability();
+
+      expect(result).to.be.false;
+    });
+
+    it('should return false if fluxIp is null', async () => {
+      fluxNetworkHelper.setMyFluxIp(null);
+
+      const result = await fluxNetworkHelper.checkMyFluxAvailability();
+
+      expect(result).to.be.false;
+    });
+
+    it('should return false if fluxIp is null', async () => {
+      fluxNetworkHelper.setMyFluxIp('129.3.3.3');
+
+      const result = await fluxNetworkHelper.checkMyFluxAvailability();
+
+      expect(result).to.be.false;
+    });
+  });
 });

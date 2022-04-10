@@ -107,6 +107,16 @@ async function checkFluxAvailability(req, res) {
   return res.json(response);
 }
 
+/**
+ * Setter for myFluxIp.
+ * Main goal for this is testing availability.
+ *
+ * @param {string} value new IP to be set
+ */
+function setMyFluxIp(value) {
+  myFluxIP = value;
+}
+
 async function getMyFluxIPandPort() {
   const benchmarkResponse = await daemonService.getBenchmarks();
   let myIP = null;
@@ -116,7 +126,7 @@ async function getMyFluxIPandPort() {
       myIP = benchmarkResponseData.ipaddress.length > 5 ? benchmarkResponseData.ipaddress : null;
     }
   }
-  myFluxIP = myIP;
+  setMyFluxIp(myIP);
   return myIP;
 }
 
@@ -621,6 +631,8 @@ module.exports = {
   adjustExternalIP,
   allowPort,
   isFirewallActive,
+  // Exports for testing purposes
   setStoredFluxBenchAllowed,
   getStoredFluxBenchAllowed,
+  setMyFluxIp,
 };
