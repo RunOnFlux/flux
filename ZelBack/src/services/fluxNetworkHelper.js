@@ -249,7 +249,7 @@ function setStoredFluxBenchAllowed(value) {
  * Getter for storedFluxBenchAllowed.
  * Main goal for this is testing availability.
  *
- * @param {number} value
+ * @returns {number} storedFluxBenchAllowed
  */
 function getStoredFluxBenchAllowed() {
   return storedFluxBenchAllowed;

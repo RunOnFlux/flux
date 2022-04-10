@@ -896,7 +896,7 @@ describe('fluxNetworkHelper tests', () => {
     });
   });
 
-  describe.only('checkFluxbenchVersionAllowed tests', () => {
+  describe('checkFluxbenchVersionAllowed tests', () => {
     // minimumFluxBenchAllowedVersion = 300;
     let benchmarkInfoResponseStub;
 
