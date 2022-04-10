@@ -1006,6 +1006,7 @@ describe('fluxNetworkHelper tests', () => {
   describe.only('checkMyFluxAvailability tests', () => {
     beforeEach(() => {
       fluxNetworkHelper.setStoredFluxBenchAllowed(400);
+      fluxNetworkHelper.setMyFluxIp('129.3.3.3');
       const deterministicZelnodeListResponse = [
         {
           collateral: 'COutPoint(38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174, 0)',
@@ -1057,8 +1058,80 @@ describe('fluxNetworkHelper tests', () => {
       expect(result).to.be.false;
     });
 
-    it('should return false if fluxIp is null', async () => {
-      fluxNetworkHelper.setMyFluxIp('129.3.3.3');
+    it('should return false if axsiosGet throws error', async () => {
+      sinon.stub(serviceHelper, 'axiosGet').rejects();
+
+      const result = await fluxNetworkHelper.checkMyFluxAvailability();
+
+      expect(result).to.be.false;
+    });
+
+    it('should return false if axsiosGet resolves null', async () => {
+      sinon.stub(serviceHelper, 'axiosGet').resolves(null);
+
+      const result = await fluxNetworkHelper.checkMyFluxAvailability();
+
+      expect(result).to.be.false;
+    });
+
+    it('should return true if axios status response is success', async () => {
+      const axiosGetResponse = {
+        data: {
+          status: 'success',
+          data: {
+            message: 'all is good!',
+          },
+        },
+      };
+      sinon.stub(serviceHelper, 'axiosGet').resolves(axiosGetResponse);
+
+      const result = await fluxNetworkHelper.checkMyFluxAvailability();
+
+      expect(result).to.be.true;
+    });
+
+    it('should return false if axios data message contains \'not\'', async () => {
+      const axiosGetResponse = {
+        data: {
+          status: 'success',
+          data: {
+            message: 'not great',
+          },
+        },
+      };
+      sinon.stub(serviceHelper, 'axiosGet').resolves(axiosGetResponse);
+
+      const result = await fluxNetworkHelper.checkMyFluxAvailability();
+
+      expect(result).to.be.false;
+    });
+
+    it('should return false if axios status response is error', async () => {
+      const axiosGetResponse = {
+        data: {
+          status: 'error',
+          data: {
+            message: 'all is good!',
+          },
+        },
+      };
+      sinon.stub(serviceHelper, 'axiosGet').resolves(axiosGetResponse);
+
+      const result = await fluxNetworkHelper.checkMyFluxAvailability();
+
+      expect(result).to.be.false;
+    });
+
+    it('should return false if axios status response is warning', async () => {
+      const axiosGetResponse = {
+        data: {
+          status: 'warning',
+          data: {
+            message: 'all is good!',
+          },
+        },
+      };
+      sinon.stub(serviceHelper, 'axiosGet').resolves(axiosGetResponse);
 
       const result = await fluxNetworkHelper.checkMyFluxAvailability();
 
