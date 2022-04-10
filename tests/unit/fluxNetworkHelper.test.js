@@ -1003,7 +1003,7 @@ describe('fluxNetworkHelper tests', () => {
     });
   });
 
-  describe.only('checkMyFluxAvailability tests', () => {
+  describe('checkMyFluxAvailability tests', () => {
     beforeEach(() => {
       fluxNetworkHelper.setStoredFluxBenchAllowed(400);
       fluxNetworkHelper.setMyFluxIp('129.3.3.3');
@@ -1028,6 +1028,8 @@ describe('fluxNetworkHelper tests', () => {
         },
       ];
       sinon.stub(fluxCommunicationUtils, 'deterministicFluxList').returns(deterministicZelnodeListResponse);
+      sinon.stub(daemonService, 'createConfirmationTransaction').returns(true);
+      sinon.stub(serviceHelper, 'delay').returns(true);
     });
 
     afterEach(() => {
@@ -1090,12 +1092,12 @@ describe('fluxNetworkHelper tests', () => {
       expect(result).to.be.true;
     });
 
-    it('should return false if axios data message contains \'not\'', async () => {
+    it('should return true if axios status response is success', async () => {
       const axiosGetResponse = {
         data: {
           status: 'success',
           data: {
-            message: 'not great',
+            message: 'all is good!',
           },
         },
       };
@@ -1103,10 +1105,55 @@ describe('fluxNetworkHelper tests', () => {
 
       const result = await fluxNetworkHelper.checkMyFluxAvailability();
 
-      expect(result).to.be.false;
+      expect(result).to.be.true;
     });
 
-    it('should return false if axios status response is error', async () => {
+    it('should return false if getPublicIp status is not a success', async () => {
+      const getPublicIptResponse = {
+        status: 'error',
+      };
+      sinon.stub(benchmarkService, 'getPublicIp').returns(getPublicIptResponse);
+      const axiosGetResponse = {
+        data: {
+          status: 'success',
+          data: {
+            message: 'all is good!',
+          },
+        },
+      };
+      sinon.stub(serviceHelper, 'axiosGet').resolves(axiosGetResponse);
+
+      const result = await fluxNetworkHelper.checkMyFluxAvailability();
+
+      expect(result).to.be.true;
+    });
+
+    it('should return false if getPublicIp status is not a success', async () => {
+      const getPublicIptResponse = {
+        status: 'error',
+      };
+      sinon.stub(benchmarkService, 'getPublicIp').returns(getPublicIptResponse);
+      const axiosGetResponse = {
+        data: {
+          status: 'success',
+          data: {
+            message: 'all is good!',
+          },
+        },
+      };
+      sinon.stub(serviceHelper, 'axiosGet').resolves(axiosGetResponse);
+
+      const result = await fluxNetworkHelper.checkMyFluxAvailability();
+
+      expect(result).to.be.true;
+    });
+
+    it('should return true if getPublicIp status is a success and has a proper ip', async () => {
+      const getPublicIptResponse = {
+        status: 'success',
+        data: '129.0.0.1',
+      };
+      sinon.stub(benchmarkService, 'getPublicIp').returns(getPublicIptResponse);
       const axiosGetResponse = {
         data: {
           status: 'error',
@@ -1119,13 +1166,18 @@ describe('fluxNetworkHelper tests', () => {
 
       const result = await fluxNetworkHelper.checkMyFluxAvailability();
 
-      expect(result).to.be.false;
+      expect(result).to.be.true;
     });
 
-    it('should return false if axios status response is warning', async () => {
+    it('should return true if getPublicIp status is a success and does not have a proper ip', async () => {
+      const getPublicIptResponse = {
+        status: 'success',
+        data: '120',
+      };
+      sinon.stub(benchmarkService, 'getPublicIp').returns(getPublicIptResponse);
       const axiosGetResponse = {
         data: {
-          status: 'warning',
+          status: 'error',
           data: {
             message: 'all is good!',
           },
