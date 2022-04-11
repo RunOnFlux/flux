@@ -24,8 +24,13 @@
       :data="callResponse.data.ipaddress"
     />
     <list-entry
-      v-if="callResponse.data.cores"
+      v-if="callResponse.data.real_cores"
       title="CPU Cores"
+      :number="callResponse.data.real_cores"
+    />
+    <list-entry
+      v-if="callResponse.data.cores"
+      title="CPU Threads"
       :number="callResponse.data.cores"
     />
     <list-entry

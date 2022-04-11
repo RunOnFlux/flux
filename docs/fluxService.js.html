@@ -1,4 +1,32 @@
-const cmd = require('node-cmd');
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: fluxService.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: fluxService.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>const cmd = require('node-cmd');
 const path = require('path');
 const config = require('config');
 const fullnode = require('fullnode');
@@ -43,7 +71,7 @@ async function updateFlux(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
     const nodedpath = path.join(__dirname, '../../../');
-    const exec = `cd ${nodedpath} && npm run updateflux`;
+    const exec = `cd ${nodedpath} &amp;&amp; npm run updateflux`;
     cmd.get(exec, (err) => {
       if (err) {
         const errMessage = messageHelper.createErrorMessage(`Error updating Flux: ${err.message}`, err.name, err.code);
@@ -69,7 +97,7 @@ async function softUpdateFlux(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
     const nodedpath = path.join(__dirname, '../../../');
-    const exec = `cd ${nodedpath} && npm run softupdate`;
+    const exec = `cd ${nodedpath} &amp;&amp; npm run softupdate`;
     cmd.get(exec, (err) => {
       if (err) {
         const errMessage = messageHelper.createErrorMessage(`Error softly updating Flux: ${err.message}`, err.name, err.code);
@@ -95,7 +123,7 @@ async function softUpdateFluxInstall(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
     const nodedpath = path.join(__dirname, '../../../');
-    const exec = `cd ${nodedpath} && npm run softupdateinstall`;
+    const exec = `cd ${nodedpath} &amp;&amp; npm run softupdateinstall`;
     cmd.get(exec, (err) => {
       if (err) {
         const errMessage = messageHelper.createErrorMessage(`Error softly updating Flux with installation: ${err.message}`, err.name, err.code);
@@ -121,7 +149,7 @@ async function hardUpdateFlux(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
     const nodedpath = path.join(__dirname, '../../../');
-    const exec = `cd ${nodedpath} && npm run hardupdateflux`;
+    const exec = `cd ${nodedpath} &amp;&amp; npm run hardupdateflux`;
     cmd.get(exec, (err) => {
       if (err) {
         const errMessage = messageHelper.createErrorMessage(`Error hardupdating Flux: ${err.message}`, err.name, err.code);
@@ -147,7 +175,7 @@ async function rebuildHome(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
     const nodedpath = path.join(__dirname, '../../../');
-    const exec = `cd ${nodedpath} && npm run homebuild`;
+    const exec = `cd ${nodedpath} &amp;&amp; npm run homebuild`;
     cmd.get(exec, (err) => {
       if (err) {
         const errMessage = messageHelper.createErrorMessage(`Error rebuilding Flux: ${err.message}`, err.name, err.code);
@@ -173,7 +201,7 @@ async function updateDaemon(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
     const nodedpath = path.join(__dirname, '../../../helpers');
-    const exec = `cd ${nodedpath} && bash updateDaemon.sh`;
+    const exec = `cd ${nodedpath} &amp;&amp; bash updateDaemon.sh`;
     cmd.get(exec, (err) => {
       if (err) {
         const errMessage = messageHelper.createErrorMessage(`Error updating Daemon: ${err.message}`, err.name, err.code);
@@ -199,7 +227,7 @@ async function updateBenchmark(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
     const nodedpath = path.join(__dirname, '../../../helpers');
-    const exec = `cd ${nodedpath} && bash updateBenchmark.sh`;
+    const exec = `cd ${nodedpath} &amp;&amp; bash updateBenchmark.sh`;
     cmd.get(exec, (err) => {
       if (err) {
         const errMessage = messageHelper.createErrorMessage(`Error updating Benchmark: ${err.message}`, err.name, err.code);
@@ -254,7 +282,7 @@ async function restartBenchmark(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
     const nodedpath = path.join(__dirname, '../../../helpers');
-    const exec = `cd ${nodedpath} && bash restartBenchmark.sh`;
+    const exec = `cd ${nodedpath} &amp;&amp; bash restartBenchmark.sh`;
     cmd.get(exec, (err) => {
       if (err) {
         const errMessage = messageHelper.createErrorMessage(`Error restarting Benchmark: ${err.message}`, err.name, err.code);
@@ -310,7 +338,7 @@ async function restartDaemon(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
     const nodedpath = path.join(__dirname, '../../../helpers');
-    const exec = `cd ${nodedpath} && bash restartDaemon.sh`;
+    const exec = `cd ${nodedpath} &amp;&amp; bash restartDaemon.sh`;
     cmd.get(exec, (err) => {
       if (err) {
         const errMessage = messageHelper.createErrorMessage(`Error restarting Daemon: ${err.message}`, err.name, err.code);
@@ -337,7 +365,7 @@ async function reindexDaemon(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const nodedpath = path.join(__dirname, '../../../helpers');
-    const exec = `cd ${nodedpath} && bash reindexDaemon.sh`;
+    const exec = `cd ${nodedpath} &amp;&amp; bash reindexDaemon.sh`;
     cmd.get(exec, (err) => {
       if (err) {
         const errMessage = messageHelper.createErrorMessage(`Error reindexing Daemon: ${err.message}`, err.name, err.code);
@@ -903,7 +931,7 @@ async function adjustKadenaAccount(req, res) {
         throw new Error('No Kadena Chain ID provided');
       }
       const chainIDNumber = serviceHelper.ensureNumber(chainid);
-      if (chainIDNumber > 20 || chainIDNumber < 0 || Number.isNaN(chainIDNumber)) {
+      if (chainIDNumber > 20 || chainIDNumber &lt; 0 || Number.isNaN(chainIDNumber)) {
         throw new Error(`Invalid Chain ID ${chainid} provided.`);
       }
       const kadenaURI = `kadena:${account}?chainid=${chainid}`;
@@ -943,17 +971,17 @@ async function getNodeTier(req, res) {
     let responseAux;
     const tier = await generalService.nodeTier();
     const nodeCollateral = await generalService.nodeCollateral();
-    if (tier === 'basic' && nodeCollateral === 10000) {
+    if (tier === 'basic' &amp;&amp; nodeCollateral === 10000) {
       responseAux = 'cumulus';
-    } else if (tier === 'super' && nodeCollateral === 25000) {
+    } else if (tier === 'super' &amp;&amp; nodeCollateral === 25000) {
       responseAux = 'nimbus';
-    } else if (tier === 'bamf' && nodeCollateral === 100000) {
+    } else if (tier === 'bamf' &amp;&amp; nodeCollateral === 100000) {
       responseAux = 'stratus';
-    } else if (tier === 'basic' && nodeCollateral === 1000) {
+    } else if (tier === 'basic' &amp;&amp; nodeCollateral === 1000) {
       responseAux = 'cumulus_new';
-    } else if (tier === 'super' && nodeCollateral === 12500) {
+    } else if (tier === 'super' &amp;&amp; nodeCollateral === 12500) {
       responseAux = 'nimbus_new';
-    } else if (tier === 'bamf' && nodeCollateral === 40000) {
+    } else if (tier === 'bamf' &amp;&amp; nodeCollateral === 40000) {
       responseAux = 'stratus_new';
     } else {
       throw new Error('Unrecognised Flux node tier'); // shall not happen as nodeTier throws
@@ -973,7 +1001,7 @@ async function getNodeTier(req, res) {
 async function InstallFluxWatchTower() {
   try {
     const nodedpath = path.join(__dirname, '../../../helpers');
-    const exec = `cd ${nodedpath} && bash fluxwatchtower.sh`;
+    const exec = `cd ${nodedpath} &amp;&amp; bash fluxwatchtower.sh`;
     const cmdAsync = util.promisify(cmd.get);
     const cmdres = await cmdAsync(exec);
     log.info(cmdres);
@@ -1020,3 +1048,27 @@ module.exports = {
   getNodeTier,
   InstallFluxWatchTower,
 };
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Modules</h3><ul><li><a href="Contains%2520utility%2520functions%2520to%2520be%2520used%2520only%2520by%2520verificationHelper.%250ATo%2520verify%2520privilege%2520use%2520verifyPrivilege%2520from%2520verificationHelper%2520module.module_.html">Contains utility functions to be used only by verificationHelper.
+To verify privilege use verifyPrivilege from verificationHelper module.</a></li><li><a href="module-Helper%2520module%2520used%2520for%2520all%2520interactions%2520with%2520database.html">Helper module used for all interactions with database</a></li></ul><h3>Global</h3><ul><li><a href="global.html#activeLoginPhrases">activeLoginPhrases</a></li><li><a href="global.html#addNode">addNode</a></li><li><a href="global.html#adjustCruxID">adjustCruxID</a></li><li><a href="global.html#adjustKadenaAccount">adjustKadenaAccount</a></li><li><a href="global.html#appDockerCreate">appDockerCreate</a></li><li><a href="global.html#appDockerImageRemove">appDockerImageRemove</a></li><li><a href="global.html#appDockerKill">appDockerKill</a></li><li><a href="global.html#appDockerPause">appDockerPause</a></li><li><a href="global.html#appDockerRemove">appDockerRemove</a></li><li><a href="global.html#appDockerRestart">appDockerRestart</a></li><li><a href="global.html#appDockerStart">appDockerStart</a></li><li><a href="global.html#appDockerStop">appDockerStop</a></li><li><a href="global.html#appDockerTop">appDockerTop</a></li><li><a href="global.html#appDockerUnpause">appDockerUnpause</a></li><li><a href="global.html#axiosGet">axiosGet</a></li><li><a href="global.html#benchmarkDebug">benchmarkDebug</a></li><li><a href="global.html#checkBlockProcessingStopped">checkBlockProcessingStopped</a></li><li><a href="global.html#checkLoggedUser">checkLoggedUser</a></li><li><a href="global.html#checkSynced">checkSynced</a></li><li><a href="global.html#checkWhitelistedRepository">checkWhitelistedRepository</a></li><li><a href="global.html#checkWhitelistedZelID">checkWhitelistedZelID</a></li><li><a href="global.html#clearBanned">clearBanned</a></li><li><a href="global.html#confirmNodeTierHardware">confirmNodeTierHardware</a></li><li><a href="global.html#createDataMessage">createDataMessage</a></li><li><a href="global.html#createErrorMessage">createErrorMessage</a></li><li><a href="global.html#createFluxDockerNetwork">createFluxDockerNetwork</a></li><li><a href="global.html#createMultiSig">createMultiSig</a></li><li><a href="global.html#createMultiSigPost">createMultiSigPost</a></li><li><a href="global.html#createRawTransaction">createRawTransaction</a></li><li><a href="global.html#createRawTransactionPost">createRawTransactionPost</a></li><li><a href="global.html#createSuccessMessage">createSuccessMessage</a></li><li><a href="global.html#createWarningMessage">createWarningMessage</a></li><li><a href="global.html#createZelNodeBroadcast">createZelNodeBroadcast</a></li><li><a href="global.html#createZelNodeKey">createZelNodeKey</a></li><li><a href="global.html#daemonBlockchainInfoService">daemonBlockchainInfoService</a></li><li><a href="global.html#daemonDebug">daemonDebug</a></li><li><a href="global.html#decodeMessage">decodeMessage</a></li><li><a href="global.html#decodeRawTransaction">decodeRawTransaction</a></li><li><a href="global.html#decodeRawTransactionPost">decodeRawTransactionPost</a></li><li><a href="global.html#decodeScript">decodeScript</a></li><li><a href="global.html#decodeScriptPost">decodeScriptPost</a></li><li><a href="global.html#decodeZelNodeBroadcast">decodeZelNodeBroadcast</a></li><li><a href="global.html#delay">delay</a></li><li><a href="global.html#deleteLoginPhrase">deleteLoginPhrase</a></li><li><a href="global.html#disconnectNode">disconnectNode</a></li><li><a href="global.html#dockerContainerChanges">dockerContainerChanges</a></li><li><a href="global.html#dockerContainerExec">dockerContainerExec</a></li><li><a href="global.html#dockerContainerInspect">dockerContainerInspect</a></li><li><a href="global.html#dockerContainerLogs">dockerContainerLogs</a></li><li><a href="global.html#dockerContainerLogsStream">dockerContainerLogsStream</a></li><li><a href="global.html#dockerContainerStats">dockerContainerStats</a></li><li><a href="global.html#dockerCreateNetwork">dockerCreateNetwork</a></li><li><a href="global.html#dockerListContainers">dockerListContainers</a></li><li><a href="global.html#dockerListImages">dockerListImages</a></li><li><a href="global.html#dockerNetworkInspect">dockerNetworkInspect</a></li><li><a href="global.html#dockerRemoveNetwork">dockerRemoveNetwork</a></li><li><a href="global.html#emergencyPhrase">emergencyPhrase</a></li><li><a href="global.html#ensureBoolean">ensureBoolean</a></li><li><a href="global.html#ensureNumber">ensureNumber</a></li><li><a href="global.html#ensureObject">ensureObject</a></li><li><a href="global.html#ensureString">ensureString</a></li><li><a href="global.html#errUnauthorizedMessage">errUnauthorizedMessage</a></li><li><a href="global.html#estimateFee">estimateFee</a></li><li><a href="global.html#estimatePriority">estimatePriority</a></li><li><a href="global.html#executeCall">executeCall</a></li><li><a href="global.html#fluxBackendFolder">fluxBackendFolder</a></li><li><a href="global.html#fluxDaemonBlockchainInfo">fluxDaemonBlockchainInfo</a></li><li><a href="global.html#fluxDebugLog">fluxDebugLog</a></li><li><a href="global.html#fluxErrorLog">fluxErrorLog</a></li><li><a href="global.html#fluxInfoLog">fluxInfoLog</a></li><li><a href="global.html#fluxLog">fluxLog</a></li><li><a href="global.html#fluxShareCreateFolder">fluxShareCreateFolder</a></li><li><a href="global.html#fluxShareDatabaseFileDelete">fluxShareDatabaseFileDelete</a></li><li><a href="global.html#fluxShareDatabaseFileDeleteMultiple">fluxShareDatabaseFileDeleteMultiple</a></li><li><a href="global.html#fluxShareDatabaseShareFile">fluxShareDatabaseShareFile</a></li><li><a href="global.html#fluxShareDownloadFile">fluxShareDownloadFile</a></li><li><a href="global.html#fluxShareDownloadFolder">fluxShareDownloadFolder</a></li><li><a href="global.html#fluxShareFileExists">fluxShareFileExists</a></li><li><a href="global.html#fluxShareGetFolder">fluxShareGetFolder</a></li><li><a href="global.html#fluxShareGetSharedFiles">fluxShareGetSharedFiles</a></li><li><a href="global.html#fluxShareRemoveFile">fluxShareRemoveFile</a></li><li><a href="global.html#fluxShareRemoveFolder">fluxShareRemoveFolder</a></li><li><a href="global.html#fluxShareRename">fluxShareRename</a></li><li><a href="global.html#fluxShareSharedFiles">fluxShareSharedFiles</a></li><li><a href="global.html#fluxShareShareFile">fluxShareShareFile</a></li><li><a href="global.html#fluxShareStorageStats">fluxShareStorageStats</a></li><li><a href="global.html#fluxShareUnshareFile">fluxShareUnshareFile</a></li><li><a href="global.html#fluxShareUpload">fluxShareUpload</a></li><li><a href="global.html#fluxWarnLog">fluxWarnLog</a></li><li><a href="global.html#fundRawTransaction">fundRawTransaction</a></li><li><a href="global.html#fundRawTransactionPost">fundRawTransactionPost</a></li><li><a href="global.html#getAddedNodeInfo">getAddedNodeInfo</a></li><li><a href="global.html#getAddressBalance">getAddressBalance</a></li><li><a href="global.html#getAddressDeltas">getAddressDeltas</a></li><li><a href="global.html#getAddressFusionCoinbase">getAddressFusionCoinbase</a></li><li><a href="global.html#getAddressMempool">getAddressMempool</a></li><li><a href="global.html#getAddressTransactions">getAddressTransactions</a></li><li><a href="global.html#getAddressTxids">getAddressTxids</a></li><li><a href="global.html#getAddressUtxos">getAddressUtxos</a></li><li><a href="global.html#getAllAddresses">getAllAddresses</a></li><li><a href="global.html#getAllAddressesWithTransactions">getAllAddressesWithTransactions</a></li><li><a href="global.html#getAllFiles">getAllFiles</a></li><li><a href="global.html#getAllFluxTransactions">getAllFluxTransactions</a></li><li><a href="global.html#getAllFusionCoinbase">getAllFusionCoinbase</a></li><li><a href="global.html#getAllUtxos">getAllUtxos</a></li><li><a href="global.html#getAppDockerNameIdentifier">getAppDockerNameIdentifier</a></li><li><a href="global.html#getAppIdentifier">getAppIdentifier</a></li><li><a href="global.html#getApplicationOwner">getApplicationOwner</a></li><li><a href="global.html#getBenchmarks">getBenchmarks</a></li><li><a href="global.html#getBenchStatus">getBenchStatus</a></li><li><a href="global.html#getBestBlockHash">getBestBlockHash</a></li><li><a href="global.html#getBlock">getBlock</a></li><li><a href="global.html#getBlockchainInfo">getBlockchainInfo</a></li><li><a href="global.html#getBlockCount">getBlockCount</a></li><li><a href="global.html#getBlockDeltas">getBlockDeltas</a></li><li><a href="global.html#getBlockHash">getBlockHash</a></li><li><a href="global.html#getBlockHashes">getBlockHashes</a></li><li><a href="global.html#getBlockHashesPost">getBlockHashesPost</a></li><li><a href="global.html#getBlockHeader">getBlockHeader</a></li><li><a href="global.html#getBlockSubsidy">getBlockSubsidy</a></li><li><a href="global.html#getBlockTemplate">getBlockTemplate</a></li><li><a href="global.html#getChainTips">getChainTips</a></li><li><a href="global.html#getCollateralInfo">getCollateralInfo</a></li><li><a href="global.html#getConfigValue">getConfigValue</a></li><li><a href="global.html#getConnectionCount">getConnectionCount</a></li><li><a href="global.html#getDeprecationInfo">getDeprecationInfo</a></li><li><a href="global.html#getDifficulty">getDifficulty</a></li><li><a href="global.html#getDockerContainer">getDockerContainer</a></li><li><a href="global.html#getDockerContainerByIdOrName">getDockerContainerByIdOrName</a></li><li><a href="global.html#getDOSList">getDOSList</a></li><li><a href="global.html#getFilteredFluxTxs">getFilteredFluxTxs</a></li><li><a href="global.html#getFluxCruxID">getFluxCruxID</a></li><li><a href="global.html#getFluxInfo">getFluxInfo</a></li><li><a href="global.html#getFluxIP">getFluxIP</a></li><li><a href="global.html#getFluxKadena">getFluxKadena</a></li><li><a href="global.html#getFluxShareSize">getFluxShareSize</a></li><li><a href="global.html#getFluxShareSpecificFolderSize">getFluxShareSpecificFolderSize</a></li><li><a href="global.html#getFluxTimezone">getFluxTimezone</a></li><li><a href="global.html#getFluxVersion">getFluxVersion</a></li><li><a href="global.html#getFluxZelID">getFluxZelID</a></li><li><a href="global.html#getGatewayApi">getGatewayApi</a></li><li><a href="global.html#getInfo">getInfo</a></li><li><a href="global.html#getIpApi">getIpApi</a></li><li><a href="global.html#getLocalSolPs">getLocalSolPs</a></li><li><a href="global.html#getMapApi">getMapApi</a></li><li><a href="global.html#getMempoolInfo">getMempoolInfo</a></li><li><a href="global.html#getMiningInfo">getMiningInfo</a></li><li><a href="global.html#getNetTotals">getNetTotals</a></li><li><a href="global.html#getNetworkHashPs">getNetworkHashPs</a></li><li><a href="global.html#getNetworkInfo">getNetworkInfo</a></li><li><a href="global.html#getNetworkSolPs">getNetworkSolPs</a></li><li><a href="global.html#getNewNodeTier">getNewNodeTier</a></li><li><a href="global.html#getNodeTier">getNodeTier</a></li><li><a href="global.html#getPeerInfo">getPeerInfo</a></li><li><a href="global.html#getPublicIp">getPublicIp</a></li><li><a href="global.html#getRawMemPool">getRawMemPool</a></li><li><a href="global.html#getRawTransaction">getRawTransaction</a></li><li><a href="global.html#getScannedHeight">getScannedHeight</a></li><li><a href="global.html#getSender">getSender</a></li><li><a href="global.html#getSenderForFluxTx">getSenderForFluxTx</a></li><li><a href="global.html#getSenderForFluxTxInsight">getSenderForFluxTxInsight</a></li><li><a href="global.html#getSenderTransactionFromDaemon">getSenderTransactionFromDaemon</a></li><li><a href="global.html#getSingleAddressBalance">getSingleAddressBalance</a></li><li><a href="global.html#getSingleAddressDeltas">getSingleAddressDeltas</a></li><li><a href="global.html#getSingleAddressMempool">getSingleAddressMempool</a></li><li><a href="global.html#getSingleAddresssTxids">getSingleAddresssTxids</a></li><li><a href="global.html#getSingleAddressUtxos">getSingleAddressUtxos</a></li><li><a href="global.html#getSpaceAvailableForFluxShare">getSpaceAvailableForFluxShare</a></li><li><a href="global.html#getSpentInfo">getSpentInfo</a></li><li><a href="global.html#getSpentInfoPost">getSpentInfoPost</a></li><li><a href="global.html#getStartList">getStartList</a></li><li><a href="global.html#getStatus">getStatus</a></li><li><a href="global.html#getTxOut">getTxOut</a></li><li><a href="global.html#getTxOutProof">getTxOutProof</a></li><li><a href="global.html#getTxOutSetInfo">getTxOutSetInfo</a></li><li><a href="global.html#getVerboseBlock">getVerboseBlock</a></li><li><a href="global.html#getZelNodeCount">getZelNodeCount</a></li><li><a href="global.html#getZelNodeOutputs">getZelNodeOutputs</a></li><li><a href="global.html#getZelNodeScores">getZelNodeScores</a></li><li><a href="global.html#getZelNodeStatus">getZelNodeStatus</a></li><li><a href="global.html#getZelNodeWinners">getZelNodeWinners</a></li><li><a href="global.html#hardUpdateFlux">hardUpdateFlux</a></li><li><a href="global.html#help">help</a></li><li><a href="global.html#initiateBlockProcessor">initiateBlockProcessor</a></li><li><a href="global.html#InstallFluxWatchTower">InstallFluxWatchTower</a></li><li><a href="global.html#isDaemonSynced">isDaemonSynced</a></li><li><a href="global.html#isInsightExplorer">isInsightExplorer</a></li><li><a href="global.html#isNodeStatusConfirmed">isNodeStatusConfirmed</a></li><li><a href="global.html#isUPNP">isUPNP</a></li><li><a href="global.html#listBanned">listBanned</a></li><li><a href="global.html#listZelNodeConf">listZelNodeConf</a></li><li><a href="global.html#listZelNodes">listZelNodes</a></li><li><a href="global.html#loggedSessions">loggedSessions</a></li><li><a href="global.html#loggedUsers">loggedUsers</a></li><li><a href="global.html#loginPhrase">loginPhrase</a></li><li><a href="global.html#logoutAllSessions">logoutAllSessions</a></li><li><a href="global.html#logoutAllUsers">logoutAllUsers</a></li><li><a href="global.html#logoutCurrentSession">logoutCurrentSession</a></li><li><a href="global.html#logoutSpecificSession">logoutSpecificSession</a></li><li><a href="global.html#mapPortApi">mapPortApi</a></li><li><a href="global.html#mapUpnpPort">mapUpnpPort</a></li><li><a href="global.html#messageHash">messageHash</a></li><li><a href="global.html#nodeCollateral">nodeCollateral</a></li><li><a href="global.html#nodeTier">nodeTier</a></li><li><a href="global.html#ping">ping</a></li><li><a href="global.html#prioritiseTransaction">prioritiseTransaction</a></li><li><a href="global.html#processBlock">processBlock</a></li><li><a href="global.html#processBlockTransactions">processBlockTransactions</a></li><li><a href="global.html#processInsight">processInsight</a></li><li><a href="global.html#processStandard">processStandard</a></li><li><a href="global.html#processTransaction">processTransaction</a></li><li><a href="global.html#provideSign">provideSign</a></li><li><a href="global.html#rebuildHome">rebuildHome</a></li><li><a href="global.html#reindexDaemon">reindexDaemon</a></li><li><a href="global.html#reindexExplorer">reindexExplorer</a></li><li><a href="global.html#relayZelNodeBroadcast">relayZelNodeBroadcast</a></li><li><a href="global.html#removeMapPortApi">removeMapPortApi</a></li><li><a href="global.html#removeMapUpnpPort">removeMapUpnpPort</a></li><li><a href="global.html#rescanExplorer">rescanExplorer</a></li><li><a href="global.html#restartBenchmark">restartBenchmark</a></li><li><a href="global.html#restartBlockProcessing">restartBlockProcessing</a></li><li><a href="global.html#restartDaemon">restartDaemon</a></li><li><a href="global.html#restartNodeBenchmarks">restartNodeBenchmarks</a></li><li><a href="global.html#restoreDatabaseToBlockheightState">restoreDatabaseToBlockheightState</a></li><li><a href="global.html#sendRawTransaction">sendRawTransaction</a></li><li><a href="global.html#sendRawTransactionPost">sendRawTransactionPost</a></li><li><a href="global.html#setBan">setBan</a></li><li><a href="global.html#setupUPNP">setupUPNP</a></li><li><a href="global.html#signFluxTransaction">signFluxTransaction</a></li><li><a href="global.html#signFluxTransactionPost">signFluxTransactionPost</a></li><li><a href="global.html#signMessage">signMessage</a></li><li><a href="global.html#signRawTransaction">signRawTransaction</a></li><li><a href="global.html#signRawTransactionPost">signRawTransactionPost</a></li><li><a href="global.html#softUpdateFlux">softUpdateFlux</a></li><li><a href="global.html#softUpdateFluxInstall">softUpdateFluxInstall</a></li><li><a href="global.html#spork">spork</a></li><li><a href="global.html#startBenchmark">startBenchmark</a></li><li><a href="global.html#startBenchmarkD">startBenchmarkD</a></li><li><a href="global.html#startDaemon">startDaemon</a></li><li><a href="global.html#startDeterministicZelNode">startDeterministicZelNode</a></li><li><a href="global.html#startFluxFunctions">startFluxFunctions</a></li><li><a href="global.html#startZelNode">startZelNode</a></li><li><a href="global.html#stop">stop</a></li><li><a href="global.html#stopBenchmarkD">stopBenchmarkD</a></li><li><a href="global.html#stopBlockProcessing">stopBlockProcessing</a></li><li><a href="global.html#submitBlock">submitBlock</a></li><li><a href="global.html#submitBlockPost">submitBlockPost</a></li><li><a href="global.html#tailBenchmarkDebug">tailBenchmarkDebug</a></li><li><a href="global.html#tailDaemonDebug">tailDaemonDebug</a></li><li><a href="global.html#tailFluxDebugLog">tailFluxDebugLog</a></li><li><a href="global.html#tailFluxErrorLog">tailFluxErrorLog</a></li><li><a href="global.html#tailFluxInfoLog">tailFluxInfoLog</a></li><li><a href="global.html#tailFluxLog">tailFluxLog</a></li><li><a href="global.html#tailFluxWarnLog">tailFluxWarnLog</a></li><li><a href="global.html#updateBenchmark">updateBenchmark</a></li><li><a href="global.html#updateDaemon">updateDaemon</a></li><li><a href="global.html#updateFlux">updateFlux</a></li><li><a href="global.html#validateAddress">validateAddress</a></li><li><a href="global.html#verifyChain">verifyChain</a></li><li><a href="global.html#verifyLogin">verifyLogin</a></li><li><a href="global.html#verifyMessage">verifyMessage</a></li><li><a href="global.html#verifyMessagePost">verifyMessagePost</a></li><li><a href="global.html#verifyPrivilege">verifyPrivilege</a></li><li><a href="global.html#verifyTxOutProof">verifyTxOutProof</a></li><li><a href="global.html#verifyUPNPsupport">verifyUPNPsupport</a></li><li><a href="global.html#verifyZelID">verifyZelID</a></li><li><a href="global.html#viewDeterministicZelNodeList">viewDeterministicZelNodeList</a></li><li><a href="global.html#whitelistedRepositories">whitelistedRepositories</a></li><li><a href="global.html#whitelistedZelIDs">whitelistedZelIDs</a></li><li><a href="global.html#wsRespondLoginPhrase">wsRespondLoginPhrase</a></li><li><a href="global.html#wsRespondSignature">wsRespondSignature</a></li><li><a href="global.html#zelNodeCurrentWinner">zelNodeCurrentWinner</a></li><li><a href="global.html#zelNodeDebug">zelNodeDebug</a></li><li><a href="global.html#znsync">znsync</a></li><li><a href="global.html#zValidateAddress">zValidateAddress</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.10</a> on Mon Apr 04 2022 15:01:00 GMT+0700 (Indočínský čas)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>
