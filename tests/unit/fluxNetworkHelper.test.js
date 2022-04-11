@@ -16,10 +16,10 @@ const { incomingPeers } = require('../../ZelBack/src/services/utils/incomingPeer
 
 const userconfig = {
   initial: {
-    ipaddress: '83.51.212.243',
+    ipaddress: '83.52.214.240',
     zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
     kadena: '123456789',
-    apiport: '16721',
+    apiport: '16127',
     testnet: true,
   },
 };
@@ -481,7 +481,7 @@ describe('fluxNetworkHelper tests', () => {
       expect(getRandomConnectionResponse).to.be.undefined;
     });
 
-    it('should return null if ip user ip and port', async () => {
+    it('should return null if ip is the same as userconfig.initial.ipaddress', async () => {
       const nodesListWrongIp = deterministicZelnodeListResponse.map((node) => node);
       nodesListWrongIp.forEach((node) => {
         // eslint-disable-next-line no-param-reassign
@@ -1227,7 +1227,7 @@ describe('fluxNetworkHelper tests', () => {
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',/gm));
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/kadena: '123456789',/gm));
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/testnet: true,/gm));
-      sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/apiport: 16721,/gm));
+      sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/apiport: 16127,/gm));
     });
 
     it('should not write to file if the config already has same exact ip', () => {
