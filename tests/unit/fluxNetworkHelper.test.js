@@ -2,15 +2,29 @@
 const chai = require('chai');
 const sinon = require('sinon');
 const WebSocket = require('ws');
+const proxyquire = require('proxyquire');
+const path = require('path');
+const fs = require('fs').promises;
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const daemonService = require('../../ZelBack/src/services/daemonService');
 const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
-const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
 const { outgoingConnections } = require('../../ZelBack/src/services/utils/outgoingConnections');
 const { incomingConnections } = require('../../ZelBack/src/services/utils/incomingConnections');
 const { outgoingPeers } = require('../../ZelBack/src/services/utils/outgoingPeers');
 const { incomingPeers } = require('../../ZelBack/src/services/utils/incomingPeers');
+
+const userconfig = {
+  initial: {
+    ipaddress: '83.51.212.243',
+    zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+    kadena: '123456789',
+    apiport: '16721',
+    testnet: true,
+  },
+};
+const fluxNetworkHelper = proxyquire('../../ZelBack/src/services/fluxNetworkHelper',
+  { '../../../config/userconfig': userconfig });
 
 const { expect } = chai;
 
@@ -1188,6 +1202,64 @@ describe('fluxNetworkHelper tests', () => {
       const result = await fluxNetworkHelper.checkMyFluxAvailability();
 
       expect(result).to.be.false;
+    });
+  });
+
+  describe('adjustExternalIP tests', () => {
+    let writeFileStub;
+
+    beforeEach(() => {
+      writeFileStub = sinon.stub(fs, 'writeFile').returns({});
+    });
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should properly write a new ip to the config', () => {
+      const newIp = '127.0.0.66';
+      const callPath = path.join(__dirname, '../../config/userconfig.js');
+
+      fluxNetworkHelper.adjustExternalIP(newIp);
+
+      sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/module.exports = {/gm));
+      sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/initial: {/gm));
+      sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/ipaddress: '127.0.0.66',/gm));
+      sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',/gm));
+      sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/kadena: '123456789',/gm));
+      sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/testnet: true,/gm));
+      sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/apiport: 16721,/gm));
+    });
+
+    it('should not write to file if the config already has same exact ip', () => {
+      const newIp = userconfig.initial.ipaddress;
+
+      fluxNetworkHelper.adjustExternalIP(newIp);
+
+      sinon.assert.notCalled(writeFileStub);
+    });
+
+    it('should not write to file if ip does not have a proper format', () => {
+      const newIp = '127111111';
+
+      fluxNetworkHelper.adjustExternalIP(newIp);
+
+      sinon.assert.notCalled(writeFileStub);
+    });
+
+    it('should not write to file if ip is not a string', () => {
+      const newIp = 121;
+
+      fluxNetworkHelper.adjustExternalIP(newIp);
+
+      sinon.assert.notCalled(writeFileStub);
+    });
+
+    it('should not write to file if ip is empty', () => {
+      const newIp = '';
+
+      fluxNetworkHelper.adjustExternalIP(newIp);
+
+      sinon.assert.notCalled(writeFileStub);
     });
   });
 });

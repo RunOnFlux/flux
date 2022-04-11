@@ -345,7 +345,6 @@ async function checkMyFluxAvailability(retryNumber = 0) {
     // Asked Flux cannot reach me lets check if ip changed
     log.info('Getting publicIp from FluxBench');
     const benchIpResponse = await benchmarkService.getPublicIp();
-    console.log(benchIpResponse);
     if (benchIpResponse.status === 'success') {
       let benchMyIP = benchIpResponse.data.length > 5 ? benchIpResponse.data : null;
       if (benchMyIP && userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) {
@@ -403,14 +402,14 @@ async function adjustExternalIP(ip) {
     }
     log.info(`Adjusting External IP from ${userconfig.initial.ipaddress} to ${ip}`);
     const dataToWrite = `module.exports = {
-  initial: {
-    ipaddress: '${ip}',
-    zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
-    kadena: '${userconfig.initial.kadena || ''}',
-    testnet: ${userconfig.initial.testnet || false},
-    apiport: ${Number(userconfig.initial.apiport || config.apiport)},
-  }
-}`;
+      initial: {
+        ipaddress: '${ip}',
+        zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
+        kadena: '${userconfig.initial.kadena || ''}',
+        testnet: ${userconfig.initial.testnet || false},
+        apiport: ${Number(userconfig.initial.apiport || config.apiport)},
+      }
+    }`;
 
     await fs.writeFile(fluxDirPath, dataToWrite);
   } catch (error) {
