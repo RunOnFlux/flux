@@ -1262,4 +1262,12 @@ describe('fluxNetworkHelper tests', () => {
       sinon.assert.notCalled(writeFileStub);
     });
   });
+
+  describe.only('checkDeterministicNodesCollisions tests', () => {
+    it('', async () => {
+      const result = await fluxNetworkHelper.checkDeterministicNodesCollisions();
+
+      console.log(result);
+    });
+  });
 });

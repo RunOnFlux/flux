@@ -402,14 +402,14 @@ async function adjustExternalIP(ip) {
     }
     log.info(`Adjusting External IP from ${userconfig.initial.ipaddress} to ${ip}`);
     const dataToWrite = `module.exports = {
-      initial: {
-        ipaddress: '${ip}',
-        zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
-        kadena: '${userconfig.initial.kadena || ''}',
-        testnet: ${userconfig.initial.testnet || false},
-        apiport: ${Number(userconfig.initial.apiport || config.apiport)},
-      }
-    }`;
+  initial: {
+    ipaddress: '${ip}',
+    zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
+    kadena: '${userconfig.initial.kadena || ''}',
+    testnet: ${userconfig.initial.testnet || false},
+    apiport: ${Number(userconfig.initial.apiport || config.apiport)},
+  }
+}`;
 
     await fs.writeFile(fluxDirPath, dataToWrite);
   } catch (error) {
@@ -424,6 +424,7 @@ async function checkDeterministicNodesCollisions() {
     // if it returns more than 1 object, shut down.
     // another precatuion might be comparing node list on multiple nodes. evaulate in the future
     const myIP = await getMyFluxIPandPort();
+    console.log(myIP);
     if (myIP) {
       const syncStatus = daemonService.isDaemonSynced();
       if (!syncStatus.data.synced) {
