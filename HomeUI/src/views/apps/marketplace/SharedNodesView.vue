@@ -268,17 +268,6 @@
                               ... Flux
                             </h5>
                           </div>
-                          <!--<div class="d-flex flex-column ml-auto">
-                            <b-button
-                              class="mt-auto mb-auto"
-                              variant="danger"
-                              size="sm"
-                              pill
-                              @click="showCancelStakingDialog(seat);"
-                            >
-                              Stop Staking
-                            </b-button>
-                          </div>-->
                         </div>
                         <div
                           v-if="stake.message"
@@ -334,7 +323,7 @@
                           </div>
                           <div class="d-flex flex-column seat-column col">
                             <h4 class="mr-auto ml-auto">
-                              Paid: {{ toFixedLocaleString(stake.paid, 2) }} Flux
+                              Paid: {{ stake.state === 5 ? toFixedLocaleString(stake.paid - stake.collateral, 2) : toFixedLocaleString(stake.paid, 2) }} Flux
                             </h4>
                             <h5 class="mr-auto ml-auto">
                               Pending: {{ toFixedLocaleString(stake.reward, 2) }} Flux
@@ -363,7 +352,7 @@
                         {{ new Date(data.item.timestamp).toLocaleString('en-GB', timeoptions) }}
                       </template>
                       <template #cell(total)="data">
-                        {{ toFixedLocaleString(data.item.total, 2) }} Flux
+                        {{ toFixedLocaleString(data.item.total - data.item.fee, 2) }} Flux
                       </template>
                       <template #cell(address)="data">
                         <a
@@ -407,7 +396,7 @@
                   Paid:
                 </h5>
                 <h4>
-                  {{ myStakes ? toFixedLocaleString(myStakes.reduce((total, stake) => total + stake.paid, 0), 2) : 0 }} Flux
+                  {{ calculatePaidRewards() }} Flux
                 </h4>
               </div>
               <div class="d-flex flex-row">
@@ -1202,6 +1191,7 @@ export default {
         const activeStakes = [];
         const expiredStakes = [];
         const now = Date.now() / 1000;
+        totalReward.value = 0;
         response.data.forEach((stake) => {
           console.log(`Stake: ${stake.expiry} Now: ${now}`);
           if (stake.expiry < now) {
@@ -1209,10 +1199,10 @@ export default {
           } else {
             activeStakes.push(stake);
           }
+          totalReward.value += stake.reward;
         });
         myStakes.value = activeStakes;
         myExpiredStakes.value = expiredStakes;
-        totalReward.value = (myStakes.value ? myStakes.value.reduce((total, stake) => total + stake.reward, 0) : 0);
       }
     };
 
@@ -1257,8 +1247,8 @@ export default {
       nodeCount.value = await getNodeCount();
       console.log(nodeCount.value);
       const response = await axios.get(`${apiURL}/config`);
-      // console.log(response.data);
       titanConfig.value = response.data;
+      titanConfig.value.lockups.sort((a, b) => a.blocks - b.blocks);
       titanConfig.value.lockups.forEach((lockup) => {
         // eslint-disable-next-line no-param-reassign
         lockup.apr = calcAPR(lockup);
@@ -1273,7 +1263,7 @@ export default {
     console.log('Setting up refresh interval');
     setInterval(() => {
       fetchData();
-    }, 5 * 60 * 1000);
+    }, 2 * 60 * 1000);
 
     const showStakeDialog = () => {
       stakeModalShowing.value = true;
@@ -1307,6 +1297,14 @@ export default {
     const showRedeemDialog = () => {
       const addresses = [];
       myStakes.value.forEach((stake) => {
+        if (stake.address && !addresses.some((address) => address.text === stake.address)) {
+          addresses.push({
+            value: stake.uuid,
+            text: stake.address,
+          });
+        }
+      });
+      myExpiredStakes.value.forEach((stake) => {
         if (stake.address && !addresses.some((address) => address.text === stake.address)) {
           addresses.push({
             value: stake.uuid,
@@ -1417,6 +1415,12 @@ export default {
       return ((stake.collateral) * lockup.apr) / 12;
     };
 
+    const calculatePaidRewards = () => {
+      let paid = myStakes.value ? myStakes.value.reduce((total, stake) => total + stake.paid, 0) : 0;
+      paid += myExpiredStakes.value ? myExpiredStakes.value.reduce((total, stake) => total + stake.paid - stake.collateral, 0) : 0;
+      return toFixedLocaleString(paid, 2);
+    };
+
     const visitNode = (node) => {
       window.open(`http://${node.address}`, '_blank');
     };
@@ -1465,6 +1469,7 @@ export default {
 
       calcAPR,
       calcMonthlyReward,
+      calculatePaidRewards,
 
       toFixedLocaleString,
       formatPaymentTooltip,
