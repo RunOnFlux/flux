@@ -7,10 +7,12 @@ const path = require('path');
 const chaiAsPromised = require('chai-as-promised');
 const fs = require('fs').promises;
 const util = require('util');
+const log = require('../../ZelBack/src/lib/log');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const daemonService = require('../../ZelBack/src/services/daemonService');
 const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
 const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
+const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const { outgoingConnections } = require('../../ZelBack/src/services/utils/outgoingConnections');
 const { incomingConnections } = require('../../ZelBack/src/services/utils/incomingConnections');
 const { outgoingPeers } = require('../../ZelBack/src/services/utils/outgoingPeers');
@@ -1491,15 +1493,13 @@ describe('fluxNetworkHelper tests', () => {
 
   describe('allowPort tests', () => {
     const port = '12345';
-    beforeEach(async () => {
-      await fluxNetworkHelper.denyPort(port);
-    });
-
     afterEach(() => {
       sinon.restore();
     });
 
     it('should properly enable a new port in string format', async () => {
+      await fluxNetworkHelper.denyPort(port);
+
       const result = await fluxNetworkHelper.allowPort(port);
 
       expect(result.status).to.eql(true);
@@ -1507,10 +1507,21 @@ describe('fluxNetworkHelper tests', () => {
     });
 
     it('should properly enable a new port in number format', async () => {
-      const result = await fluxNetworkHelper.allowPort(12345);
+      await fluxNetworkHelper.denyPort(port);
+
+      const result = await fluxNetworkHelper.allowPort(+port);
 
       expect(result.status).to.eql(true);
       expect(result.message).to.eql('Rules updated\nRules updated (v6)\nRules updated\nRules updated (v6)\n');
+    });
+
+    it('should skip updating if policy already exists', async () => {
+      await fluxNetworkHelper.allowPort(port);
+
+      const result = await fluxNetworkHelper.allowPort(port);
+
+      expect(result.status).to.eql(true);
+      expect(result.message).to.eql('Skipping adding existing rule\nSkipping adding existing rule (v6)\nSkipping adding existing rule\nSkipping adding existing rule (v6)\n');
     });
 
     it('should throw error if the parameter is not a proper number', async () => {
@@ -1523,6 +1534,283 @@ describe('fluxNetworkHelper tests', () => {
       const result = await fluxNetworkHelper.allowPort(12345);
 
       expect(result.status).to.eql(false);
+    });
+  });
+
+  describe('denyPort tests', () => {
+    const port = '32111';
+
+    beforeEach(async () => {
+      await fluxNetworkHelper.allowPort(port);
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should deny port given in a string format', async () => {
+      const result = await fluxNetworkHelper.denyPort(port);
+
+      expect(result.status).to.eql(true);
+      expect(result.message).to.eql('Rules updated\nRules updated (v6)\nRules updated\nRules updated (v6)\n');
+    });
+
+    it('should deny port given in a number format', async () => {
+      const result = await fluxNetworkHelper.denyPort(+port);
+
+      expect(result.status).to.eql(true);
+      expect(result.message).to.eql('Rules updated\nRules updated (v6)\nRules updated\nRules updated (v6)\n');
+    });
+
+    it('should skip updating if policy already exists', async () => {
+      await fluxNetworkHelper.denyPort(port);
+
+      const result = await fluxNetworkHelper.denyPort(port);
+
+      expect(result.status).to.eql(true);
+      expect(result.message).to.eql('Skipping adding existing rule\nSkipping adding existing rule (v6)\nSkipping adding existing rule\nSkipping adding existing rule (v6)\n');
+    });
+
+    it('should throw error if the parameter is not a proper number', async () => {
+      await expect(fluxNetworkHelper.denyPort('test')).to.eventually.be.rejectedWith('ERROR: Could not find a profile matching \'test\'');
+    });
+
+    it('should return status: false if the command response does not include words "udpdated", "existing" or "added"', async () => {
+      sinon.stub(util, 'promisify').returns(() => 'testing');
+
+      const result = await fluxNetworkHelper.denyPort(12345);
+
+      expect(result.status).to.eql(false);
+    });
+  });
+
+  describe('allowPortApi tests', () => {
+    let verifyPrivilegeStub;
+    const port = '5555';
+    const generateResponse = () => {
+      const res = { test: 'testing' };
+      res.status = sinon.stub().returns(res);
+      res.json = sinon.fake((param) => param);
+      return res;
+    };
+
+    beforeEach(async () => {
+      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+      await fluxNetworkHelper.denyPort(port);
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should return a success message if the port number is properly passed in the params', async () => {
+      verifyPrivilegeStub.returns(true);
+      const res = generateResponse();
+      const req = {
+        params: {
+          port,
+        },
+      };
+      const expectedResult = {
+        status: 'success',
+        data: {
+          code: '5555',
+          name: '5555',
+          message: 'Rules updated\nRules updated (v6)\nRules updated\nRules updated (v6)\n',
+        },
+      };
+
+      const result = await fluxNetworkHelper.allowPortApi(req, res);
+
+      expect(result).to.eql(expectedResult);
+      sinon.assert.calledOnceWithExactly(verifyPrivilegeStub, 'adminandfluxteam', req);
+    });
+
+    it('should return a success message if the port number is properly passed in query', async () => {
+      verifyPrivilegeStub.returns(true);
+      const res = generateResponse();
+      const req = {
+        params: {
+          testing: 'testing',
+        },
+        query: {
+          port,
+        },
+      };
+      const expectedResult = {
+        status: 'success',
+        data: {
+          code: '5555',
+          name: '5555',
+          message: 'Rules updated\nRules updated (v6)\nRules updated\nRules updated (v6)\n',
+        },
+      };
+
+      const result = await fluxNetworkHelper.allowPortApi(req, res);
+
+      expect(result).to.eql(expectedResult);
+      sinon.assert.calledOnceWithExactly(verifyPrivilegeStub, 'adminandfluxteam', req);
+    });
+
+    it('should return an unauthorized message if privilege is not right', async () => {
+      verifyPrivilegeStub.returns(false);
+      const res = generateResponse();
+      const req = {
+        params: {
+          port,
+        },
+      };
+      const expectedResult = {
+        status: 'error',
+        data: {
+          code: 401,
+          name: 'Unauthorized',
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+
+      const result = await fluxNetworkHelper.allowPortApi(req, res);
+
+      expect(result).to.eql(expectedResult);
+      sinon.assert.calledOnceWithExactly(verifyPrivilegeStub, 'adminandfluxteam', req);
+    });
+
+    it('should return an error message if allowPort status is false', async () => {
+      const errorMessage = 'This is error message';
+      sinon.stub(util, 'promisify').returns(() => errorMessage);
+      verifyPrivilegeStub.returns(true);
+      const res = generateResponse();
+      const req = {
+        params: {
+          port,
+        },
+      };
+      const expectedResult = {
+        status: 'error',
+        data: {
+          code: '5555',
+          name: '5555',
+          message: errorMessage,
+        },
+      };
+
+      const result = await fluxNetworkHelper.allowPortApi(req, res);
+
+      expect(result).to.eql(expectedResult);
+      sinon.assert.calledOnceWithExactly(verifyPrivilegeStub, 'adminandfluxteam', req);
+    });
+  });
+
+  describe('isFirewallActive tests', () => {
+    let utilStub;
+    let funcStub;
+    beforeEach(() => {
+      utilStub = sinon.stub(util, 'promisify');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should return true if firewall is active', async () => {
+      funcStub = sinon.fake(() => 'Status: active');
+      utilStub.returns(funcStub);
+
+      const isFirewallActive = await fluxNetworkHelper.isFirewallActive();
+
+      expect(isFirewallActive).to.be.true;
+      sinon.assert.calledOnceWithExactly(funcStub, 'sudo ufw status | grep Status');
+    });
+
+    it('should return false if firewall is not active', async () => {
+      funcStub = sinon.fake(() => 'Status: not active');
+      utilStub.returns(funcStub);
+
+      const isFirewallActive = await fluxNetworkHelper.isFirewallActive();
+
+      expect(isFirewallActive).to.be.false;
+      sinon.assert.calledOnceWithExactly(funcStub, 'sudo ufw status | grep Status');
+    });
+
+    it('should return false command execution throws error', async () => {
+      funcStub = sinon.fake.throws();
+      utilStub.returns(funcStub);
+
+      const isFirewallActive = await fluxNetworkHelper.isFirewallActive();
+
+      expect(isFirewallActive).to.be.false;
+      sinon.assert.calledOnceWithExactly(funcStub, 'sudo ufw status | grep Status');
+    });
+  });
+
+  describe('adjustFirewall tests', () => {
+    let utilStub;
+    let funcStub;
+    let logSpy;
+    const ports = [16127, 16126, 80, 443, 16125, 11, 13];
+    beforeEach(() => {
+      utilStub = sinon.stub(util, 'promisify');
+      logSpy = sinon.spy(log, 'info');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should adjust firewall ports for the whole list of ports - all are active', async () => {
+      funcStub = sinon.fake(async (command) => (command.includes('grep Status') ? 'Status: active' : 'updated'));
+      utilStub.returns(funcStub);
+
+      await fluxNetworkHelper.adjustFirewall();
+
+      sinon.assert.calledWith(funcStub, 'sudo ufw status | grep Status');
+      // eslint-disable-next-line no-restricted-syntax
+      for (const port of ports) {
+        sinon.assert.calledWith(funcStub, `sudo ufw allow ${port}`);
+        sinon.assert.calledWith(logSpy, `Firewall adjusted for port ${port}`);
+      }
+      // eslint-disable-next-line no-restricted-syntax
+      for (const port of ports) {
+        sinon.assert.calledWith(funcStub, `sudo ufw allow out ${port}`);
+        sinon.assert.calledWith(logSpy, `Firewall adjusted for port ${port}`);
+      }
+    });
+
+    it('should log info if ports were not able to be adjusted', async () => {
+      funcStub = sinon.fake(async (command) => (command.includes('grep Status') ? 'Status: active' : 'failure'));
+      utilStub.returns(funcStub);
+
+      await fluxNetworkHelper.adjustFirewall();
+
+      sinon.assert.calledWith(funcStub, 'sudo ufw status | grep Status');
+      // eslint-disable-next-line no-restricted-syntax
+      for (const port of ports) {
+        sinon.assert.calledWith(funcStub, `sudo ufw allow ${port}`);
+        sinon.assert.calledWith(logSpy, `Failed to adjust Firewall for port ${port}`);
+      }
+      // eslint-disable-next-line no-restricted-syntax
+      for (const port of ports) {
+        sinon.assert.calledWith(funcStub, `sudo ufw allow out ${port}`);
+        sinon.assert.calledWith(logSpy, `Failed to adjust Firewall for port ${port}`);
+      }
+    });
+
+    it('should log info if ports were not able to be adjusted', async () => {
+      funcStub = sinon.fake(async (command) => (command.includes('grep Status') ? 'Status: not active' : 'failure'));
+      utilStub.returns(funcStub);
+
+      await fluxNetworkHelper.adjustFirewall();
+
+      sinon.assert.calledWith(funcStub, 'sudo ufw status | grep Status');
+      // eslint-disable-next-line no-restricted-syntax
+      for (const port of ports) {
+        sinon.assert.neverCalledWith(funcStub, `sudo ufw allow ${port}`);
+      }
+      // eslint-disable-next-line no-restricted-syntax
+      for (const port of ports) {
+        sinon.assert.neverCalledWith(funcStub, `sudo ufw allow out ${port}`);
+      }
+      sinon.assert.calledWith(logSpy, 'Firewall is not active. Adjusting not applied');
     });
   });
 });
