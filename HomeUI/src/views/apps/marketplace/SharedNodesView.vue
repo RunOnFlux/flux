@@ -372,8 +372,8 @@
                       </template>
                       <template #cell(total)="data">
                         <p
-                          style="margin-bottom: 0"
                           v-b-tooltip.hover.right="`Amount = ${toFixedLocaleString(data.item.total, 2)} Flux - ${data.item.fee} Flux redeem fee`"
+                          style="margin-bottom: 0"
                         >
                           {{ toFixedLocaleString(data.item.total - data.item.fee, 2) }} Flux
                         </p>
