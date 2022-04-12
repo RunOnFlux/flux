@@ -4,7 +4,9 @@ const sinon = require('sinon');
 const WebSocket = require('ws');
 const proxyquire = require('proxyquire');
 const path = require('path');
+const chaiAsPromised = require('chai-as-promised');
 const fs = require('fs').promises;
+const util = require('util');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const daemonService = require('../../ZelBack/src/services/daemonService');
 const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
@@ -26,6 +28,7 @@ const userconfig = {
 const fluxNetworkHelper = proxyquire('../../ZelBack/src/services/fluxNetworkHelper',
   { '../../../config/userconfig': userconfig });
 
+chai.use(chaiAsPromised);
 const { expect } = chai;
 
 describe('fluxNetworkHelper tests', () => {
@@ -1263,11 +1266,263 @@ describe('fluxNetworkHelper tests', () => {
     });
   });
 
-  describe.only('checkDeterministicNodesCollisions tests', () => {
-    it('', async () => {
-      const result = await fluxNetworkHelper.checkDeterministicNodesCollisions();
+  describe('checkDeterministicNodesCollisions tests', () => {
+    let getBenchmarksStub;
+    let isDaemonSyncedStub;
+    let deterministicFluxListStub;
+    let getZelNodeStatusStub;
+    let deterministicZelnodeListResponse;
 
-      console.log(result);
+    beforeEach(() => {
+      fluxNetworkHelper.setStoredFluxBenchAllowed(400);
+      fluxNetworkHelper.setMyFluxIp('129.3.3.3');
+      sinon.stub(daemonService, 'createConfirmationTransaction').returns(true);
+      sinon.stub(serviceHelper, 'delay').returns(true);
+      deterministicZelnodeListResponse = [
+        {
+          collateral: 'COutPoint(38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174, 0)',
+          txhash: '38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174',
+          outidx: '0',
+          ip: '127.0.0.1:5050',
+          network: '',
+          added_height: 1076533,
+          confirmed_height: 1076535,
+          last_confirmed_height: 1079888,
+          last_paid_height: 1077653,
+          tier: 'CUMULUS',
+          payment_address: 't1Z6mWoCrFC2g3iTCFdFkYdTfwtG84E3y2o',
+          pubkey: '04378c8585d45861c8783f9c8cd0c85478164c12ce3fd13af1b44ebc8fe1ad6c786e92b211cb9566c596b6e2454d394a06bc44f748afb3c9ee48caa096d704abac',
+          activesince: '1647197272',
+          lastpaid: '1647333786',
+          amount: '1000.00',
+          rank: 0,
+        }];
+      getBenchmarksStub = sinon.stub(daemonService, 'getBenchmarks');
+      isDaemonSyncedStub = sinon.stub(daemonService, 'isDaemonSynced');
+      deterministicFluxListStub = sinon.stub(fluxCommunicationUtils, 'deterministicFluxList');
+      getZelNodeStatusStub = sinon.stub(daemonService, 'getZelNodeStatus');
+      fluxNetworkHelper.setDosMessage(null);
+      fluxNetworkHelper.setDosStateValue(0);
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should not change dosMessage ', async () => {
+      const ip = '127.0.0.1:5050';
+      const getBenchmarkResponseData = {
+        status: 'success',
+        data: JSON.stringify({ ipaddress: ip }),
+      };
+      getBenchmarksStub.resolves(getBenchmarkResponseData);
+      isDaemonSyncedStub.returns({ data: { synced: true } });
+      deterministicFluxListStub.returns(deterministicZelnodeListResponse);
+      getZelNodeStatusStub.returns(
+        {
+          status: 'success',
+          data: {
+            collateral: 'COutPoint(38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174, 0)',
+          },
+        },
+      );
+
+      await fluxNetworkHelper.checkDeterministicNodesCollisions();
+
+      expect(fluxNetworkHelper.getDosMessage()).to.be.null;
+      expect(fluxNetworkHelper.getDosStateValue()).to.equal(0);
+    });
+
+    it('should find the same node instances and warn about earlier collision detection', async () => {
+      const multipleNodesList = [
+        deterministicZelnodeListResponse[0],
+        {
+          collateral: 'COutPoint(38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174, 0)',
+          txhash: '38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174',
+          outidx: '0',
+          ip: '127.0.0.1:5050',
+          network: '',
+          added_height: 1076533,
+          confirmed_height: 1076535,
+          last_confirmed_height: 1079888,
+          last_paid_height: 1077653,
+          tier: 'CUMULUS',
+          payment_address: 't1Z6mWoCrFC2g3iTCFdFkYdTfwtG84E3y2o',
+          pubkey: '04378c8585d45861c8783f9c8cd0c85478164c12ce3fd13af1b44ebc8fe1ad6c786e92b211cb9566c596b6e2454d394a06bc44f748afb3c9ee48caa096d704abac',
+          activesince: '1647197272',
+          lastpaid: '1647333786',
+          amount: '1000.00',
+          rank: 0,
+        },
+      ];
+      const ip = '127.0.0.1:5050';
+      const getBenchmarkResponseData = {
+        status: 'success',
+        data: JSON.stringify({ ipaddress: ip }),
+      };
+      getBenchmarksStub.resolves(getBenchmarkResponseData);
+      isDaemonSyncedStub.returns({ data: { synced: true } });
+      deterministicFluxListStub.returns(multipleNodesList);
+      getZelNodeStatusStub.returns(
+        {
+          status: 'success',
+          data: {
+            collateral: 'COutPoint(38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174, 0)',
+          },
+        },
+      );
+
+      await fluxNetworkHelper.checkDeterministicNodesCollisions();
+
+      expect(fluxNetworkHelper.getDosMessage()).to.equal('Flux earlier collision detection');
+      expect(fluxNetworkHelper.getDosStateValue()).to.equal(100);
+    });
+
+    it('should trigger collision detection if the collateral is not matching', async () => {
+      const ip = '127.0.0.1:5050';
+      const getBenchmarkResponseData = {
+        status: 'success',
+        data: JSON.stringify({ ipaddress: ip }),
+      };
+      getBenchmarksStub.resolves(getBenchmarkResponseData);
+      isDaemonSyncedStub.returns({ data: { synced: true } });
+      deterministicFluxListStub.returns(deterministicZelnodeListResponse);
+      getZelNodeStatusStub.returns(
+        {
+          status: 'success',
+          data: {
+            collateral: 'COutPoint(38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e123556, 0)',
+          },
+        },
+      );
+
+      await fluxNetworkHelper.checkDeterministicNodesCollisions();
+
+      expect(fluxNetworkHelper.getDosMessage()).to.equal('Flux collision detection');
+      expect(fluxNetworkHelper.getDosStateValue()).to.equal(100);
+    });
+  });
+
+  describe('getDOSState tests', () => {
+    const generateResponse = () => {
+      const res = { test: 'testing' };
+      res.status = sinon.stub().returns(res);
+      res.json = sinon.fake((param) => param);
+      return res;
+    };
+
+    beforeEach(() => {
+      fluxNetworkHelper.setDosMessage(null);
+      fluxNetworkHelper.setDosStateValue(null);
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should return nulls by default', async () => {
+      const expectedResult = {
+        status: 'success',
+        data: {
+          dosState: null,
+          dosMessage: null,
+        },
+      };
+
+      const result = await fluxNetworkHelper.getDOSState();
+
+      expect(result).to.eql(expectedResult);
+    });
+
+    it('should return nulls by default to the passed response', async () => {
+      const res = generateResponse();
+      const expectedResult = {
+        status: 'success',
+        data: {
+          dosState: null,
+          dosMessage: null,
+        },
+      };
+
+      const result = await fluxNetworkHelper.getDOSState(undefined, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedResult);
+      expect(result).to.eql(expectedResult);
+    });
+
+    it('should return a proper message if no response was passed', async () => {
+      const newDosState = 150;
+      const newDosMessage = 'Hi! this is the new massage';
+      fluxNetworkHelper.setDosMessage(newDosMessage);
+      fluxNetworkHelper.setDosStateValue(newDosState);
+      const expectedResult = {
+        status: 'success',
+        data: {
+          dosState: newDosState,
+          dosMessage: newDosMessage,
+        },
+      };
+
+      const result = await fluxNetworkHelper.getDOSState();
+
+      expect(result).to.eql(expectedResult);
+    });
+
+    it('should pass a proper message to the response', async () => {
+      const res = generateResponse();
+      const newDosState = 150;
+      const newDosMessage = 'Hi! this is the new massage';
+      fluxNetworkHelper.setDosMessage(newDosMessage);
+      fluxNetworkHelper.setDosStateValue(newDosState);
+      const expectedResult = {
+        status: 'success',
+        data: {
+          dosState: newDosState,
+          dosMessage: newDosMessage,
+        },
+      };
+
+      const result = await fluxNetworkHelper.getDOSState(undefined, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedResult);
+      expect(result).to.eql(expectedResult);
+    });
+  });
+
+  describe('allowPort tests', () => {
+    const port = '12345';
+    beforeEach(async () => {
+      await fluxNetworkHelper.denyPort(port);
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should properly enable a new port in string format', async () => {
+      const result = await fluxNetworkHelper.allowPort(port);
+
+      expect(result.status).to.eql(true);
+      expect(result.message).to.eql('Rules updated\nRules updated (v6)\nRules updated\nRules updated (v6)\n');
+    });
+
+    it('should properly enable a new port in number format', async () => {
+      const result = await fluxNetworkHelper.allowPort(12345);
+
+      expect(result.status).to.eql(true);
+      expect(result.message).to.eql('Rules updated\nRules updated (v6)\nRules updated\nRules updated (v6)\n');
+    });
+
+    it('should throw error if the parameter is not a proper number', async () => {
+      await expect(fluxNetworkHelper.allowPort('test')).to.eventually.be.rejectedWith('ERROR: Could not find a profile matching \'test\'');
+    });
+
+    it('should return status: false if the command response does not include words "udpdated", "existing" or "added"', async () => {
+      sinon.stub(util, 'promisify').returns(() => 'testing');
+
+      const result = await fluxNetworkHelper.allowPort(12345);
+
+      expect(result.status).to.eql(false);
     });
   });
 });

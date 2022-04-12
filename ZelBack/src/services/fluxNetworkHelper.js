@@ -117,6 +117,46 @@ function setMyFluxIp(value) {
   myFluxIP = value;
 }
 
+/**
+ * Setter for dosMessage.
+ * Main goal for this is testing availability.
+ *
+ * @param {string} message New message
+ */
+function setDosMessage(message) {
+  dosMessage = message;
+}
+
+/**
+ * Getter for dosMessage.
+ * Main goal for this is testing availability.
+ *
+ * @returns {string} dosMessage
+ */
+function getDosMessage() {
+  return dosMessage;
+}
+
+/**
+ * Setter for dosState.
+ * Main goal for this is testing availability.
+ *
+ * @param {number} sets dosState
+ */
+function setDosStateValue(value) {
+  dosState = value;
+}
+
+/**
+ * Getter for dosState.
+ * Main goal for this is testing availability.
+ *
+ * @returns {number} dosState
+ */
+function getDosStateValue() {
+  return dosState;
+}
+
 async function getMyFluxIPandPort() {
   const benchmarkResponse = await daemonService.getBenchmarks();
   let myIP = null;
@@ -280,19 +320,19 @@ async function checkFluxbenchVersionAllowed() {
         return true;
       }
       dosState += 11;
-      dosMessage = `Fluxbench Version Error. Current lower version allowed is v${minimumFluxBenchAllowedVersion} found v${benchmarkVersion}`;
+      setDosMessage(`Fluxbench Version Error. Current lower version allowed is v${minimumFluxBenchAllowedVersion} found v${benchmarkVersion}`);
       log.error(dosMessage);
       return false;
     }
     dosState += 2;
-    dosMessage = 'Fluxbench Version Error. Error obtaining Flux Version.';
+    setDosMessage('Fluxbench Version Error. Error obtaining Flux Version.');
     log.error(dosMessage);
     return false;
   } catch (err) {
     log.error(err);
     log.error(`Error on checkFluxBenchVersion: ${err.message}`);
     dosState += 2;
-    dosMessage = 'Fluxbench Version Error. Error obtaining Flux Version.';
+    setDosMessage('Fluxbench Version Error. Error obtaining Flux Version.');
     return false;
   }
 }
@@ -330,7 +370,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
   if (!resMyAvailability || availabilityError) {
     dosState += 2;
     if (dosState > 10) {
-      dosMessage = dosMessage || 'Flux communication is limited';
+      setDosMessage(dosMessage || 'Flux communication is limited');
       log.error(dosMessage);
       return false;
     }
@@ -360,19 +400,19 @@ async function checkMyFluxAvailability(retryNumber = 0) {
       } if (benchMyIP && benchMyIP === myIP) {
         log.info('FluxBench reported the same Ip that was already in use');
       } else {
-        dosMessage = 'Error getting publicIp from FluxBench';
+        setDosMessage('Error getting publicIp from FluxBench');
         dosState += 15;
         log.error('FluxBench wasnt able to detect flux node public ip');
       }
     } else {
-      dosMessage = 'Error getting publicIp from FluxBench';
+      setDosMessage('Error getting publicIp from FluxBench');
       dosState += 15;
       log.error(dosMessage);
       return false;
     }
     dosState += 2;
     if (dosState > 10) {
-      dosMessage = dosMessage || 'Flux is not available for outside communication';
+      setDosMessage(dosMessage || 'Flux is not available for outside communication');
       log.error(dosMessage);
       return false;
     }
@@ -383,7 +423,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
     return false;
   }
   dosState = 0;
-  dosMessage = null;
+  setDosMessage(null);
   return true;
 }
 
@@ -424,7 +464,6 @@ async function checkDeterministicNodesCollisions() {
     // if it returns more than 1 object, shut down.
     // another precatuion might be comparing node list on multiple nodes. evaulate in the future
     const myIP = await getMyFluxIPandPort();
-    console.log(myIP);
     if (myIP) {
       const syncStatus = daemonService.isDaemonSynced();
       if (!syncStatus.data.synced) {
@@ -448,7 +487,7 @@ async function checkDeterministicNodesCollisions() {
             if (filterEarlierSame.length >= 1) {
               log.error('Flux earlier collision detection');
               dosState = 100;
-              dosMessage = 'Flux earlier collision detection';
+              setDosMessage('Flux earlier collision detection');
               return;
             }
           }
@@ -457,7 +496,7 @@ async function checkDeterministicNodesCollisions() {
           if (!myNode) {
             log.error('Flux collision detection');
             dosState = 100;
-            dosMessage = 'Flux collision detection';
+            setDosMessage('Flux collision detection');
             return;
           }
         }
@@ -469,7 +508,7 @@ async function checkDeterministicNodesCollisions() {
     } else {
       dosState += 1;
       if (dosState > 10) {
-        dosMessage = dosMessage || 'Flux IP detection failed';
+        setDosMessage(dosMessage || 'Flux IP detection failed');
         log.error(dosMessage);
       }
     }
@@ -636,4 +675,8 @@ module.exports = {
   setStoredFluxBenchAllowed,
   getStoredFluxBenchAllowed,
   setMyFluxIp,
+  getDosMessage,
+  setDosMessage,
+  setDosStateValue,
+  getDosStateValue,
 };
