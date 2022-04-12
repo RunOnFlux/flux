@@ -1027,8 +1027,7 @@ export default {
     const userZelid = ref('');
     userZelid.value = props.zelid;
 
-    const apiURL = 'http://192.168.68.144:1234';
-    // const apiURL = 'http://titantest.runonflux.io:54978';
+    const apiURL = 'http://titantest.runonflux.io:54978';
 
     const totalReward = ref(0);
     const stakeAmount = ref(50);
