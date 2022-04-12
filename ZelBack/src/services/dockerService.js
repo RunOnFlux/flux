@@ -497,7 +497,6 @@ async function appDockerRemove(idOrName) {
 async function appDockerImageRemove(idOrName) {
   // container ID or name
   const dockerImage = docker.getImage(idOrName);
-  console.log(dockerImage);
   await dockerImage.remove();
   return `Flux App ${idOrName} image successfully removed.`;
 }
