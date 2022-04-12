@@ -236,10 +236,16 @@
                             </h3>
                           </div>
                           <div class="d-flex flex-column seat-column col">
-                            <h4 class="mr-auto ml-auto">
+                            <h4
+                              v-b-tooltip.hover.top="new Date(stake.timestamp*1000).toLocaleString(timeoptions)"
+                              class="mr-auto ml-auto"
+                            >
                               Start Date: {{ new Date(stake.timestamp*1000).toLocaleDateString() }}
                             </h4>
-                            <h5 class="mr-auto ml-auto">
+                            <h5
+                              v-b-tooltip.hover.top="new Date(stake.expiry*1000).toLocaleString(timeoptions)"
+                              class="mr-auto ml-auto"
+                            >
                               End Date: {{ new Date(stake.expiry*1000).toLocaleDateString() }}
                             </h5>
                           </div>
@@ -269,10 +275,10 @@
                             </h5>
                           </div>
                         </div>
-                        <div
-                          v-if="stake.message"
-                          v-html="stake.message"
-                        />
+                        <div v-if="stake.message">
+                          <!-- eslint-disable-next-line vue/no-v-html -->
+                          <div v-html="stake.message" />
+                        </div>
                       </b-media-body>
                     </b-media>
                   </ul>
@@ -314,10 +320,16 @@
                             </h3>
                           </div>
                           <div class="d-flex flex-column seat-column col">
-                            <h4 class="mr-auto ml-auto">
+                            <h4
+                              v-b-tooltip.hover.top="new Date(stake.timestamp*1000).toLocaleString(timeoptions)"
+                              class="mr-auto ml-auto"
+                            >
                               Start Date: {{ new Date(stake.timestamp*1000).toLocaleDateString() }}
                             </h4>
-                            <h5 class="mr-auto ml-auto">
+                            <h5
+                              v-b-tooltip.hover.top="new Date(stake.expiry*1000).toLocaleString(timeoptions)"
+                              class="mr-auto ml-auto"
+                            >
                               End Date: {{ new Date(stake.expiry*1000).toLocaleDateString() }}
                             </h5>
                           </div>
@@ -329,6 +341,13 @@
                               Pending: {{ toFixedLocaleString(stake.reward, 2) }} Flux
                             </h5>
                           </div>
+                          <!--<div class="d-flex flex-column seat-column col">
+                            <b-button
+                              v-if="stake.state !== 5"
+                            >
+                              Reinvest
+                            </b-button>
+                          </div>-->
                         </div>
                       </b-media-body>
                     </b-media>
@@ -349,10 +368,15 @@
                       empty-text="No Payments"
                     >
                       <template #cell(timestamp)="data">
-                        {{ new Date(data.item.timestamp).toLocaleString('en-GB', timeoptions) }}
+                        {{ new Date(data.item.timestamp).toLocaleString(timeoptions) }}
                       </template>
                       <template #cell(total)="data">
-                        {{ toFixedLocaleString(data.item.total - data.item.fee, 2) }} Flux
+                        <p
+                          style="margin-bottom: 0"
+                          v-b-tooltip.hover.right="`Amount = ${toFixedLocaleString(data.item.total, 2)} Flux - ${data.item.fee} Flux redeem fee`"
+                        >
+                          {{ toFixedLocaleString(data.item.total - data.item.fee, 2) }} Flux
+                        </p>
                       </template>
                       <template #cell(address)="data">
                         <a
@@ -407,16 +431,23 @@
                   {{ toFixedLocaleString(totalReward, 2) }} Flux
                 </h4>
               </div>
-              <b-button
-                class="float-right mt-2"
-                variant="danger"
-                size="sm"
-                pill
-                :disabled="totalReward <= titanConfig.redeemFee"
-                @click="showRedeemDialog()"
+              <div
+                v-b-tooltip.hover.bottom="totalReward <= titanConfig.redeemFee ? 'Available balance is less than the redeem fee' : ''"
+                class="float-right"
+                style="display: inline-block;"
               >
-                Redeem
-              </b-button>
+                <b-button
+                  id="redeemButton"
+                  class="float-right mt-2"
+                  variant="danger"
+                  size="sm"
+                  pill
+                  :disabled="totalReward <= titanConfig.redeemFee"
+                  @click="showRedeemDialog()"
+                >
+                  Redeem
+                </b-button>
+              </div>
             </b-card-body>
           </b-card>
         </b-col>
@@ -477,7 +508,7 @@
       button-size="sm"
       ok-only
       ok-title="Cancel"
-      @ok="redeemModalShowing = false"
+      @ok="redeemModalShowing = false; getMyPayments(true);"
     >
       <form-wizard
         :color="tierColors.cumulus"
@@ -1417,7 +1448,7 @@ export default {
 
     const calculatePaidRewards = () => {
       let paid = myStakes.value ? myStakes.value.reduce((total, stake) => total + stake.paid, 0) : 0;
-      paid += myExpiredStakes.value ? myExpiredStakes.value.reduce((total, stake) => total + stake.paid - stake.collateral, 0) : 0;
+      paid += myExpiredStakes.value ? myExpiredStakes.value.reduce((total, stake) => total + stake.paid - (stake.state === 5 ? stake.collateral : 0), 0) : 0;
       return toFixedLocaleString(paid, 2);
     };
 
