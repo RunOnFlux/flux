@@ -167,6 +167,7 @@
     /> -->
 
     <shared-nodes-view
+      v-if="validSharedNodeZelID"
       :class="{'show': isSharedNodesViewActive}"
       :app-data="app"
       :zelid="zelid"
@@ -178,6 +179,8 @@
     <portal to="content-renderer-sidebar-left">
       <category-sidebar
         :class="{'show': showDetailSidebar}"
+        :zelid="zelid"
+        :sharedNodeZelIDs="sharedNodeZelIDs"
         @close-left-sidebar="showDetailSidebar = false"
         @close-app-view="isAppViewActive = false; isSharedNodesViewActive = false;"
         @open-shared-nodes="isSharedNodesViewActive = true"
@@ -252,6 +255,8 @@ export default {
     const appListRef = ref(null);
     const zelid = ref(null);
     const tier = ref('');
+
+    const sharedNodeZelIDs = ref(['1CYcLWeUHqgbHefa78M9TYzQou2peRnmiF']);
 
     // Use toast
     const toast = useToast();
@@ -423,9 +428,11 @@ export default {
     };
     getZelNodeStatus();
 
+    const validSharedNodeZelID = () => sharedNodeZelIDs.value.includes(zelid.value);
+
     const isAppViewActive = ref(false);
     // const isManagedServicesViewActive = ref(route.value.path === '/apps/managed-nodes');
-    const isSharedNodesViewActive = ref(route.value.path === '/apps/shared-nodes');
+    const isSharedNodesViewActive = ref(validSharedNodeZelID() && route.value.path === '/apps/shared-nodes');
 
     const handleAppClick = (appData) => {
       app.value = appData;
@@ -439,6 +446,8 @@ export default {
     return {
       zelid,
       tier,
+      sharedNodeZelIDs,
+      validSharedNodeZelID,
       appListRef,
       timeoptions,
       app,

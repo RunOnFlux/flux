@@ -56,6 +56,11 @@ import VuePerfectScrollbar from 'vue-perfect-scrollbar';
 import { BListGroup, BListGroupItem } from 'bootstrap-vue';
 import { isDynamicRouteActive } from '@core/utils/utils';
 import Ripple from 'vue-ripple-directive';
+
+import {
+  ref,
+} from '@vue/composition-api';
+
 import { categories } from '../../../libs/marketplaceCategories';
 
 export default {
@@ -68,11 +73,23 @@ export default {
     VuePerfectScrollbar,
   },
   props: {
+    zelid: {
+      type: String,
+      required: false,
+      default: '',
+    },
+    sharedNodeZelIDs: {
+      type: Array,
+      required: true,
+    },
   },
-  setup() {
+  setup(props) {
     const perfectScrollbarSettings = {
       maxScrollbarLength: 60,
     };
+
+    const userZelid = ref('');
+    userZelid.value = props.zelid;
 
     const taskFilters = [
       { title: 'All Categories', icon: 'inbox', route: { name: 'apps-marketplace' } },
@@ -90,7 +107,10 @@ export default {
         },
       });
     });
-    const nodeActions = [
+
+    const canViewSharedNodes = () => props.sharedNodeZelIDs.includes(userZelid.value);
+
+    const nodeActions = canViewSharedNodes() ? [
       /* {
         title: 'Managed Services',
         icon: 'server',
@@ -103,7 +123,7 @@ export default {
         event: 'open-shared-nodes',
         route: { name: 'apps-marketplace-sharednodes' },
       },
-    ];
+    ] : [];
 
     return {
       perfectScrollbarSettings,
