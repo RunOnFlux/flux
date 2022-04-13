@@ -1261,12 +1261,12 @@ export default {
     };
 
     const calcAPR = (lockup) => {
-      const fluxPerReward = (22.5 * (100 - lockup.fee)) / 100;
+      const fluxPerBlockReward = (22.5 * (100 - lockup.fee)) / 100;
       const collateral = 40000;
       const blocksPerDay = 720;
       const numStratusNodes = nodeCount.value;
-      const payoutFrequency = numStratusNodes / blocksPerDay;
-      const fluxPerMonth = (30 / payoutFrequency) * fluxPerReward;
+      const payoutFrequency = blocksPerDay / numStratusNodes;
+      const fluxPerMonth = (30 * payoutFrequency) * fluxPerBlockReward;
       const rewardPerSeat = (fluxPerMonth / collateral);
       const rewardPerYear = (rewardPerSeat * 12);
       const apr = ((1 + rewardPerYear / 12) ** 12) - 1;
