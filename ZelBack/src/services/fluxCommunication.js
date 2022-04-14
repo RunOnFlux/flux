@@ -1,6 +1,7 @@
 /* eslint-disable no-underscore-dangle */
 const config = require('config');
 const LRU = require('lru-cache');
+const WebSocket = require('ws');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const verificationHelper = require('./verificationHelper');

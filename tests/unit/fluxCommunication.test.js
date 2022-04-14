@@ -1,19 +1,24 @@
 /* eslint-disable no-underscore-dangle */
 const sinon = require('sinon');
 const WebSocket = require('ws');
-
 const { expect } = require('chai');
+const LRU = require('lru-cache');
+const log = require('../../ZelBack/src/lib/log');
 const fluxCommunication = require('../../ZelBack/src/services/fluxCommunication');
 const fluxCommunicationMessagesSender = require('../../ZelBack/src/services/fluxCommunicationMessagesSender');
+const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
+const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
+const appsService = require('../../ZelBack/src/services/appsService');
 const generalService = require('../../ZelBack/src/services/generalService');
+const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const { outgoingConnections } = require('../../ZelBack/src/services/utils/outgoingConnections');
 const { outgoingPeers } = require('../../ZelBack/src/services/utils/outgoingPeers');
 const { incomingPeers } = require('../../ZelBack/src/services/utils/incomingPeers');
 const { incomingConnections } = require('../../ZelBack/src/services/utils/incomingConnections');
 
-const connectWs = (address) => new Promise(((resolve, reject) => {
+const connectWs = (address) => new Promise((resolve, reject) => {
   const server = new WebSocket(address);
   server.onopen = () => {
     resolve(server);
@@ -21,7 +26,7 @@ const connectWs = (address) => new Promise(((resolve, reject) => {
   server.onerror = (err) => {
     reject(err);
   };
-}));
+});
 
 describe('fluxCommunication tests', () => {
   describe('handleAppMessages tests', () => {
@@ -875,9 +880,247 @@ describe('fluxCommunication tests', () => {
     });
   });
 
-  describe.skip('initiateAndHandleConnection tests', () => {
-    it('should initiate connection', async () => {
-      fluxCommunication.initiateAndHandleConnection();
+  describe('initiateAndHandleConnection tests', () => {
+    let wsserver;
+    let logSpy;
+    let checkRateLimitStub;
+    let ensureObjectSpy;
+
+    beforeEach(() => {
+      logSpy = sinon.spy(log, 'info');
+      checkRateLimitStub = sinon.stub(fluxNetworkHelper, 'checkRateLimit');
+      ensureObjectSpy = sinon.spy(serviceHelper, 'ensureObject');
+      outgoingConnections.length = 0;
+      outgoingPeers.length = 0;
     });
+
+    afterEach(() => {
+      sinon.restore();
+      wsserver.close();
+    });
+
+    it('Should add server to outgoing connections after connection have been established', async () => {
+      const waitForWsConnected = (wss) => new Promise((resolve, reject) => {
+        wss.on('connection', () => {
+          resolve();
+        });
+        // eslint-disable-next-line no-param-reassign
+        wss.onerror = (err) => {
+          reject(err);
+        };
+      });
+      const ip = '127.0.0.2';
+      wsserver = new WebSocket.Server({ host: '127.0.0.2', port: '16127' });
+
+      await fluxCommunication.initiateAndHandleConnection(ip);
+
+      await waitForWsConnected(wsserver);
+      // slight delay to let onopen to be triggered
+      await serviceHelper.delay(100);
+
+      expect(outgoingConnections).to.have.length(1);
+      expect(outgoingPeers).to.have.length(1);
+      expect(outgoingPeers[0].ip).to.equal(ip);
+    });
+
+    it('should remove peer if server has closed', async () => {
+      const waitForWsConnected = (wss) => new Promise((resolve, reject) => {
+        wss.on('connection', () => {
+          wss.close();
+          resolve();
+        });
+        // eslint-disable-next-line no-param-reassign
+        wss.onerror = (err) => {
+          reject(err);
+        };
+      });
+      const ip = '127.0.0.2';
+      wsserver = new WebSocket.Server({ host: '127.0.0.2', port: '16127' });
+
+      await fluxCommunication.initiateAndHandleConnection(ip);
+
+      await waitForWsConnected(wsserver);
+      // slight delay to let onopen to be triggered
+      await serviceHelper.delay(100);
+
+      expect(outgoingConnections).to.have.length(0);
+      expect(outgoingPeers).to.have.length(0);
+      sinon.assert.calledWith(logSpy, 'Connection to 127.0.0.2 closed with code 1006');
+      sinon.assert.calledWith(logSpy, 'Connection 127.0.0.2 removed from outgoingPeers');
+    });
+
+    it('should not react to the message if rate limit is exceeded', async () => {
+      const waitForWsConnected = (wss) => new Promise((resolve, reject) => {
+        wss.on('connection', (ws) => {
+          ws.send('message');
+          resolve();
+        });
+        // eslint-disable-next-line no-param-reassign
+        wss.onerror = (err) => {
+          reject(err);
+        };
+      });
+      const ip = '127.0.0.2';
+      wsserver = new WebSocket.Server({ host: '127.0.0.2', port: '16127' });
+      checkRateLimitStub.returns(false);
+
+      await fluxCommunication.initiateAndHandleConnection(ip);
+
+      await waitForWsConnected(wsserver);
+      // slight delay to let onopen to be triggered
+      await serviceHelper.delay(100);
+
+      sinon.assert.notCalled(ensureObjectSpy);
+    });
+
+    it('should close the connection if peer is added to blockedList', async () => {
+      const message = JSON.stringify({
+        pubKey: '1234asd',
+      });
+      const waitForWsConnected = (wss) => new Promise((resolve, reject) => {
+        wss.on('connection', (ws) => {
+          ws.send(message);
+          resolve();
+        });
+        // eslint-disable-next-line no-param-reassign
+        wss.onerror = (err) => {
+          reject(err);
+        };
+      });
+      const ip = '127.0.0.2';
+      wsserver = new WebSocket.Server({ host: '127.0.0.2', port: '16127' });
+      checkRateLimitStub.returns(true);
+      sinon.stub(LRU.prototype, 'has').returns(true);
+      const websocketCloseSpy = sinon.spy(WebSocket.prototype, 'close');
+
+      await fluxCommunication.initiateAndHandleConnection(ip);
+
+      await waitForWsConnected(wsserver);
+      // slight delay to let onopen to be triggered
+      await serviceHelper.delay(100);
+
+      sinon.assert.calledOnceWithExactly(ensureObjectSpy, message);
+      sinon.assert.calledWithExactly(websocketCloseSpy, 1000, 'blocked list');
+      sinon.assert.calledWith(logSpy, 'Closing outgoing connection, peer is on blockedList');
+      sinon.assert.calledWith(logSpy, 'Connection to 127.0.0.2 closed with code 1000');
+      sinon.assert.calledWith(logSpy, 'Connection 127.0.0.2 removed from outgoingPeers');
+    });
+
+    const appRequestCommands = ['zelapprequest', 'fluxapprequest'];
+    // eslint-disable-next-line no-restricted-syntax
+    for (const command of appRequestCommands) {
+      // eslint-disable-next-line no-loop-func
+      it(`should handle the ${command} message properly`, async () => {
+        const message = JSON.stringify({
+          pubKey: '1234asd',
+          data: {
+            type: `${command}`,
+          },
+        });
+        const waitForWsConnected = (wss) => new Promise((resolve, reject) => {
+          wss.on('connection', (ws) => {
+            ws.send(message);
+            resolve();
+          });
+          // eslint-disable-next-line no-param-reassign
+          wss.onerror = (err) => {
+            reject(err);
+          };
+        });
+        const ip = '127.0.0.2';
+        wsserver = new WebSocket.Server({ host: '127.0.0.2', port: '16127' });
+        checkRateLimitStub.returns(true);
+        sinon.stub(LRU.prototype, 'has').returns(false);
+        const verifyOriginalFluxBroadcastStub = sinon.stub(fluxCommunicationUtils, 'verifyOriginalFluxBroadcast').returns(true);
+        const respondWithAppMessageStub = sinon.stub(fluxCommunicationMessagesSender, 'respondWithAppMessage').returns(true);
+
+        await fluxCommunication.initiateAndHandleConnection(ip);
+
+        await waitForWsConnected(wsserver);
+        // slight delay to let onopen to be triggered
+        await serviceHelper.delay(100);
+
+        sinon.assert.calledOnceWithExactly(verifyOriginalFluxBroadcastStub, message, undefined, sinon.match.number);
+        sinon.assert.calledWith(respondWithAppMessageStub, JSON.parse(message));
+      });
+    }
+
+    const registerUpdateAppList = ['zelappregister', 'zelappupdate', 'fluxappregister', 'fluxappupdate'];
+    // eslint-disable-next-line no-restricted-syntax
+    for (const command of registerUpdateAppList) {
+      // eslint-disable-next-line no-loop-func
+      it(`should handle the ${command} message properly`, async () => {
+        const message = JSON.stringify({
+          pubKey: '1234asd',
+          data: {
+            type: `${command}`,
+          },
+        });
+        const waitForWsConnected = (wss) => new Promise((resolve, reject) => {
+          wss.on('connection', (ws) => {
+            ws.send(message);
+            resolve();
+          });
+          // eslint-disable-next-line no-param-reassign
+          wss.onerror = (err) => {
+            reject(err);
+          };
+        });
+        const ip = '127.0.0.2';
+        wsserver = new WebSocket.Server({ host: '127.0.0.2', port: '16127' });
+        checkRateLimitStub.returns(true);
+        sinon.stub(LRU.prototype, 'has').returns(false);
+        const verifyOriginalFluxBroadcastStub = sinon.stub(fluxCommunicationUtils, 'verifyOriginalFluxBroadcast').returns(true);
+        const storeAppTemporaryMessageStub = sinon.stub(appsService, 'storeAppTemporaryMessage').returns(false);
+
+        await fluxCommunication.initiateAndHandleConnection(ip);
+
+        await waitForWsConnected(wsserver);
+        // slight delay to let onopen to be triggered
+        await serviceHelper.delay(100);
+
+        sinon.assert.calledOnceWithExactly(verifyOriginalFluxBroadcastStub, message, undefined, sinon.match.number);
+        sinon.assert.calledOnceWithExactly(storeAppTemporaryMessageStub, JSON.parse(message).data, true);
+      });
+    }
+
+    const appRunningMessageList = ['zelapprunning', 'fluxapprunning'];
+    // eslint-disable-next-line no-restricted-syntax
+    for (const command of appRunningMessageList) {
+      // eslint-disable-next-line no-loop-func
+      it(`should handle the ${command} message properly`, async () => {
+        const message = JSON.stringify({
+          pubKey: '1234asd',
+          data: {
+            type: `${command}`,
+          },
+        });
+        const waitForWsConnected = (wss) => new Promise((resolve, reject) => {
+          wss.on('connection', (ws) => {
+            ws.send(message);
+            resolve();
+          });
+          // eslint-disable-next-line no-param-reassign
+          wss.onerror = (err) => {
+            reject(err);
+          };
+        });
+        const ip = '127.0.0.2';
+        wsserver = new WebSocket.Server({ host: '127.0.0.2', port: '16127' });
+        checkRateLimitStub.returns(true);
+        sinon.stub(LRU.prototype, 'has').returns(false);
+        const verifyOriginalFluxBroadcastStub = sinon.stub(fluxCommunicationUtils, 'verifyOriginalFluxBroadcast').returns(true);
+        const storeAppRunningMessageStub = sinon.stub(appsService, 'storeAppRunningMessage').returns(false);
+
+        await fluxCommunication.initiateAndHandleConnection(ip);
+
+        await waitForWsConnected(wsserver);
+        // slight delay to let onopen to be triggered
+        await serviceHelper.delay(100);
+
+        sinon.assert.calledOnceWithExactly(verifyOriginalFluxBroadcastStub, message, undefined, sinon.match.number);
+        sinon.assert.calledOnceWithExactly(storeAppRunningMessageStub, JSON.parse(message).data);
+      });
+    }
   });
 });
