@@ -337,10 +337,10 @@ describe('fluxCommunication tests', () => {
       const wsuri = 'wss://api.runonflux.io/ws/flux/';
       const wsuri2 = 'wss://api.runonflux.io/ws/flux2/';
       const wsOutgoing1 = await connectWs(wsuri);
-      wsOutgoing1._socket = { remoteAddress: '127.8.8.1' };
+      wsOutgoing1._socket = { remoteAddress: '127.8.8.1', end: sinon.fake(() => true) };
       outgoingConnections.push(wsOutgoing1);
       const wsOutgoing2 = await connectWs(wsuri2);
-      wsOutgoing2._socket = { remoteAddress: '127.8.8.2' };
+      wsOutgoing2._socket = { remoteAddress: '127.8.8.2', end: sinon.fake(() => true) };
       outgoingConnections.push(wsOutgoing2);
       const expectedResult = { status: 'success', data: ['127.8.8.1', '127.8.8.2'] };
 
@@ -1261,7 +1261,7 @@ describe('fluxCommunication tests', () => {
     });
   });
 
-  describe.only('fluxDiscovery tests', () => {
+  describe('fluxDiscovery tests', () => {
     let logSpy;
     let daemonServiceStub;
     beforeEach(() => {
@@ -1310,27 +1310,43 @@ describe('fluxCommunication tests', () => {
       sinon.assert.calledOnceWithExactly(logSpy, 'Node not confirmed. Flux discovery is awaiting.');
     });
 
-    it('should return warning if ip is not on the flux node list', async () => {
-      const fluxNodeList = [{
-        collateral: 'COutPoint(43c9ae0313fc128d0fb4327f5babc7868fe557135b58e0a7cb475cdd8819f8c8, 0)',
-        txhash: '43c9ae0313fc128d0fb4327f5babc7868fe557135b58e0a7cb475cdd8819f8c8',
-        outidx: '0',
-        ip: '44.192.51.11:16128',
-        network: '',
-        added_height: 123456,
-        confirmed_height: 1234567,
-        last_confirmed_height: 123456,
-        last_paid_height: 0,
-        tier: 'CUMULUS',
-        payment_address: 't1UHecyqtF7PMb6WiSJXs4ZZJK7q5UvVdRD',
-        pubkey: '04d50620a31f045c61be42bad44b7a9424ffb6de37bf256b88f00e118e59736165255f2f4585b36c7e1f8f3e20db4fa4e55e61cc01dc7a5cd2b2ed0153627588dc',
-        activesince: '1647572455',
-        lastpaid: '1516980000',
-        amount: '2000.00',
-        rank: 1,
-      }];
+    it('should start connecting nodes if everything is set up properly', async () => {
+      const fluxNodeList = [
+        {
+          ip: '44.192.51.11:16128',
+        },
+        {
+          ip: '44.192.51.12:16128',
+        },
+        {
+          ip: '44.192.51.13:16128',
+        },
+        {
+          ip: '44.192.51.14:16128',
+        },
+        {
+          ip: '44.192.51.15:16128',
+        },
+        {
+          ip: '44.192.51.16:16128',
+        },
+        {
+          ip: '44.192.51.17:16128',
+        },
+        {
+          ip: '44.192.51.18:16128',
+        },
+        {
+          ip: '44.192.51.19:16128',
+        },
+        {
+          ip: '44.192.51.20:16128',
+        },
+      ];
       sinon.stub(fluxNetworkHelper, 'getMyFluxIPandPort').returns('44.192.51.11:16128');
       sinon.stub(fluxCommunicationUtils, 'deterministicFluxList').returns(fluxNodeList);
+      sinon.stub(serviceHelper, 'delay').resolves(() => new Promise((resolve) => setTimeout(resolve, 50)));
+      const infoSpy = sinon.spy(log, 'info');
       daemonServiceStub.returns({
         data: {
           synced: true,
@@ -1339,7 +1355,12 @@ describe('fluxCommunication tests', () => {
 
       await fluxCommunication.fluxDiscovery();
 
-      sinon.assert.calledOnceWithExactly(logSpy, 'Node not confirmed. Flux discovery is awaiting.');
+      sinon.assert.calledWith(infoSpy, 'Current number of outgoing connections:0');
+      sinon.assert.calledWith(infoSpy, 'Current number of incoming connections:0');
+      // eslint-disable-next-line no-restricted-syntax
+      for (const node of fluxNodeList) {
+        sinon.assert.calledWith(infoSpy, `Adding Flux peer: ${node.ip}`);
+      }
     });
   });
 });

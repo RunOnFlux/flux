@@ -1504,7 +1504,7 @@ describe('fluxNetworkHelper tests', () => {
 
       expect(result.status).to.eql(true);
       expect(result.message).to.eql('Rules updated\nRules updated (v6)\nRules updated\nRules updated (v6)\n');
-    });
+    }).timeout(5000);
 
     it('should properly enable a new port in number format', async () => {
       await fluxNetworkHelper.denyPort(port);
@@ -1513,7 +1513,7 @@ describe('fluxNetworkHelper tests', () => {
 
       expect(result.status).to.eql(true);
       expect(result.message).to.eql('Rules updated\nRules updated (v6)\nRules updated\nRules updated (v6)\n');
-    });
+    }).timeout(5000);
 
     it('should skip updating if policy already exists', async () => {
       await fluxNetworkHelper.allowPort(port);
@@ -1522,7 +1522,7 @@ describe('fluxNetworkHelper tests', () => {
 
       expect(result.status).to.eql(true);
       expect(result.message).to.eql('Skipping adding existing rule\nSkipping adding existing rule (v6)\nSkipping adding existing rule\nSkipping adding existing rule (v6)\n');
-    });
+    }).timeout(5000);
 
     it('should throw error if the parameter is not a proper number', async () => {
       await expect(fluxNetworkHelper.allowPort('test')).to.eventually.be.rejectedWith('ERROR: Could not find a profile matching \'test\'');
@@ -1534,7 +1534,7 @@ describe('fluxNetworkHelper tests', () => {
       const result = await fluxNetworkHelper.allowPort(12345);
 
       expect(result.status).to.eql(false);
-    });
+    }).timeout(5000);
   });
 
   describe('denyPort tests', () => {
@@ -1553,14 +1553,14 @@ describe('fluxNetworkHelper tests', () => {
 
       expect(result.status).to.eql(true);
       expect(result.message).to.eql('Rules updated\nRules updated (v6)\nRules updated\nRules updated (v6)\n');
-    });
+    }).timeout(5000);
 
     it('should deny port given in a number format', async () => {
       const result = await fluxNetworkHelper.denyPort(+port);
 
       expect(result.status).to.eql(true);
       expect(result.message).to.eql('Rules updated\nRules updated (v6)\nRules updated\nRules updated (v6)\n');
-    });
+    }).timeout(5000);
 
     it('should skip updating if policy already exists', async () => {
       await fluxNetworkHelper.denyPort(port);
@@ -1569,7 +1569,7 @@ describe('fluxNetworkHelper tests', () => {
 
       expect(result.status).to.eql(true);
       expect(result.message).to.eql('Skipping adding existing rule\nSkipping adding existing rule (v6)\nSkipping adding existing rule\nSkipping adding existing rule (v6)\n');
-    });
+    }).timeout(5000);
 
     it('should throw error if the parameter is not a proper number', async () => {
       await expect(fluxNetworkHelper.denyPort('test')).to.eventually.be.rejectedWith('ERROR: Could not find a profile matching \'test\'');
@@ -1581,7 +1581,7 @@ describe('fluxNetworkHelper tests', () => {
       const result = await fluxNetworkHelper.denyPort(12345);
 
       expect(result.status).to.eql(false);
-    });
+    }).timeout(5000);
   });
 
   describe('allowPortApi tests', () => {
