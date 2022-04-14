@@ -78,7 +78,7 @@ export default {
       required: false,
       default: '',
     },
-    sharedNodeZelIDs: {
+    sharednodezelids: {
       type: Array,
       required: true,
     },
@@ -108,7 +108,7 @@ export default {
       });
     });
 
-    const canViewSharedNodes = () => props.sharedNodeZelIDs.includes(userZelid.value);
+    const canViewSharedNodes = () => props.sharednodezelids.includes(userZelid.value);
 
     const nodeActions = canViewSharedNodes() ? [
       /* {

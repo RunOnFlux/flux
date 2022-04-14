@@ -180,7 +180,7 @@
       <category-sidebar
         :class="{'show': showDetailSidebar}"
         :zelid="zelid"
-        :sharedNodeZelIDs="sharedNodeZelIDs"
+        :sharednodezelids="sharedNodeZelIDs"
         @close-left-sidebar="showDetailSidebar = false"
         @close-app-view="isAppViewActive = false; isSharedNodesViewActive = false;"
         @open-shared-nodes="isSharedNodesViewActive = true"
@@ -256,7 +256,12 @@ export default {
     const zelid = ref(null);
     const tier = ref('');
 
-    const sharedNodeZelIDs = ref(['1CYcLWeUHqgbHefa78M9TYzQou2peRnmiF']);
+    const sharedNodeZelIDs = ref(
+      [
+        '1CYcLWeUHqgbHefa78M9TYzQou2peRnmiF',
+        '1B5eD62QLez9in89zMZiiUNVSg5f3R4KNK',
+      ],
+    );
 
     // Use toast
     const toast = useToast();
