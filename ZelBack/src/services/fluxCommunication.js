@@ -382,16 +382,13 @@ async function addPeer(req, res) {
   }
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
 
-  if (authorized === true) {
-    initiateAndHandleConnection(ip);
-    const message = messageHelper.createSuccessMessage(`Outgoing connection to ${ip} initiated`);
-    response = message;
-    console.log(response);
-  } else {
-    response = messageHelper.errUnauthorizedMessage();
+  if (authorized !== true) {
+    const message = messageHelper.errUnauthorizedMessage();
+    return res.json(message);
   }
-  console.log(response);
-  return res.json(response);
+  initiateAndHandleConnection(ip);
+  const message = messageHelper.createSuccessMessage(`Outgoing connection to ${ip} initiated`);
+  return res.json(message);
 }
 
 async function fluxDiscovery() {

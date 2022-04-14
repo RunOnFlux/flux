@@ -10,6 +10,7 @@ const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper'
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
+const daemonService = require('../../ZelBack/src/services/daemonService');
 const appsService = require('../../ZelBack/src/services/appsService');
 const generalService = require('../../ZelBack/src/services/generalService');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
@@ -1122,5 +1123,223 @@ describe('fluxCommunication tests', () => {
         sinon.assert.calledOnceWithExactly(storeAppRunningMessageStub, JSON.parse(message).data);
       });
     }
+  });
+
+  describe('addPeer tests', () => {
+    const generateResponse = () => {
+      const res = { test: 'testing' };
+      res.status = sinon.stub().returns(res);
+      res.json = sinon.fake((param) => param);
+      return res;
+    };
+
+    beforeEach(() => {
+      outgoingConnections.length = 0;
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should return an error message if ip is undefined', async () => {
+      const req = {
+        params: {
+          test: 'test',
+        },
+        query: {
+          test2: 'test2',
+        },
+      };
+      const res = generateResponse();
+      const expectedMessage = {
+        status: 'error',
+        data: {
+          code: undefined,
+          message: 'No IP address specified.',
+          name: undefined,
+        },
+      };
+
+      const result = await fluxCommunication.addPeer(req, res);
+
+      expect(result).to.eql(expectedMessage);
+    });
+
+    it('should return an error message if ip is null', async () => {
+      const req = {
+        params: {
+          ip: null,
+        },
+        query: {
+          ip: null,
+        },
+      };
+      const res = generateResponse();
+      const expectedMessage = {
+        status: 'error',
+        data: {
+          code: undefined,
+          message: 'No IP address specified.',
+          name: undefined,
+        },
+      };
+
+      const result = await fluxCommunication.addPeer(req, res);
+
+      expect(result).to.eql(expectedMessage);
+    });
+
+    it('should return error message if peer is already added', async () => {
+      const ip = '123.4.1.1';
+      const req = {
+        params: {
+          ip,
+        },
+      };
+      const res = generateResponse();
+      const expectedMessage = {
+        status: 'error',
+        data: {
+          code: undefined,
+          message: `Already connected to ${ip}`,
+          name: undefined,
+        },
+      };
+      outgoingConnections.push({ _socket: { remoteAddress: ip } });
+
+      const result = await fluxCommunication.addPeer(req, res);
+
+      expect(result).to.eql(expectedMessage);
+    });
+
+    it('should return error message if user is unauthorized', async () => {
+      const ip = '123.4.1.1';
+      const req = {
+        params: {
+          ip,
+        },
+      };
+      const res = generateResponse();
+      const expectedMessage = {
+        status: 'error',
+        data: {
+          code: 401,
+          message: 'Unauthorized. Access denied.',
+          name: 'Unauthorized',
+        },
+      };
+      const verificationStub = sinon.stub(verificationHelper, 'verifyPrivilege').returns(false);
+
+      const result = await fluxCommunication.addPeer(req, res);
+
+      expect(result).to.eql(expectedMessage);
+      sinon.assert.calledOnceWithExactly(verificationStub, 'adminandfluxteam', req);
+    });
+
+    it('should return success message if connection can be initiated', async () => {
+      const ip = '123.4.1.1';
+      const req = {
+        params: {
+          ip,
+        },
+      };
+      const res = generateResponse();
+      const expectedMessage = {
+        status: 'success',
+        data: {
+          code: undefined,
+          message: 'Outgoing connection to 123.4.1.1 initiated',
+          name: undefined,
+        },
+      };
+      const verificationStub = sinon.stub(verificationHelper, 'verifyPrivilege').returns(true);
+
+      const result = await fluxCommunication.addPeer(req, res);
+
+      expect(result).to.eql(expectedMessage);
+      sinon.assert.calledOnceWithExactly(verificationStub, 'adminandfluxteam', req);
+    });
+  });
+
+  describe.only('fluxDiscovery tests', () => {
+    let logSpy;
+    let daemonServiceStub;
+    beforeEach(() => {
+      logSpy = sinon.spy(log, 'warn');
+      daemonServiceStub = sinon.stub(daemonService, 'isDaemonSynced');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should send warning if deamon is not synced', async () => {
+      daemonServiceStub.returns({
+        data: {
+          synced: false,
+        },
+      });
+      await fluxCommunication.fluxDiscovery();
+
+      sinon.assert.calledOnceWithExactly(logSpy, 'Daemon not yet synced. Flux discovery is awaiting.');
+    });
+
+    it('should return warning if ip cannot be detected', async () => {
+      sinon.stub(fluxNetworkHelper, 'getMyFluxIPandPort').returns(null);
+      daemonServiceStub.returns({
+        data: {
+          synced: true,
+        },
+      });
+
+      await fluxCommunication.fluxDiscovery();
+
+      sinon.assert.calledOnceWithExactly(logSpy, 'Flux IP not detected. Flux discovery is awaiting.');
+    });
+
+    it('should return warning if ip is not on the flux node list', async () => {
+      sinon.stub(fluxNetworkHelper, 'getMyFluxIPandPort').returns('127.1.1.1');
+      daemonServiceStub.returns({
+        data: {
+          synced: true,
+        },
+      });
+
+      await fluxCommunication.fluxDiscovery();
+
+      sinon.assert.calledOnceWithExactly(logSpy, 'Node not confirmed. Flux discovery is awaiting.');
+    });
+
+    it('should return warning if ip is not on the flux node list', async () => {
+      const fluxNodeList = [{
+        collateral: 'COutPoint(43c9ae0313fc128d0fb4327f5babc7868fe557135b58e0a7cb475cdd8819f8c8, 0)',
+        txhash: '43c9ae0313fc128d0fb4327f5babc7868fe557135b58e0a7cb475cdd8819f8c8',
+        outidx: '0',
+        ip: '44.192.51.11:16128',
+        network: '',
+        added_height: 123456,
+        confirmed_height: 1234567,
+        last_confirmed_height: 123456,
+        last_paid_height: 0,
+        tier: 'CUMULUS',
+        payment_address: 't1UHecyqtF7PMb6WiSJXs4ZZJK7q5UvVdRD',
+        pubkey: '04d50620a31f045c61be42bad44b7a9424ffb6de37bf256b88f00e118e59736165255f2f4585b36c7e1f8f3e20db4fa4e55e61cc01dc7a5cd2b2ed0153627588dc',
+        activesince: '1647572455',
+        lastpaid: '1516980000',
+        amount: '2000.00',
+        rank: 1,
+      }];
+      sinon.stub(fluxNetworkHelper, 'getMyFluxIPandPort').returns('44.192.51.11:16128');
+      sinon.stub(fluxCommunicationUtils, 'deterministicFluxList').returns(fluxNodeList);
+      daemonServiceStub.returns({
+        data: {
+          synced: true,
+        },
+      });
+
+      await fluxCommunication.fluxDiscovery();
+
+      sinon.assert.calledOnceWithExactly(logSpy, 'Node not confirmed. Flux discovery is awaiting.');
+    });
   });
 });
