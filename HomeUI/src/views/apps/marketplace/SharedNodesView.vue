@@ -432,7 +432,7 @@
                 </h4>
               </div>
               <div
-                v-b-tooltip.hover.bottom="totalReward <= titanConfig.redeemFee ? 'Available balance is less than the redeem fee' : ''"
+                v-b-tooltip.hover.bottom="totalReward <= (titanConfig ? titanConfig.redeemFee : 0) ? 'Available balance is less than the redeem fee' : ''"
                 class="float-right"
                 style="display: inline-block;"
               >
@@ -442,7 +442,7 @@
                   variant="danger"
                   size="sm"
                   pill
-                  :disabled="totalReward <= titanConfig.redeemFee"
+                  :disabled="totalReward <= (titanConfig ? titanConfig.redeemFee : 0)"
                   @click="showRedeemDialog()"
                 >
                   Redeem
