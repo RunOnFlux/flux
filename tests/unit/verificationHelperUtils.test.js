@@ -19,9 +19,9 @@ const verificationHelperUtils = proxyquire('../../ZelBack/src/services/verificat
 const insertUsers = [
   {
     _id: ObjectId('6108fbb9f04dfe1ef624b819'),
-    zelid: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37', // regular user
+    zelid: '1E1NSwDHtvCziYP4CtgiDMcgvgZL64PhkR', // regular user
     loginPhrase: '162797868130153vt9r89dzjjjfg6kf34ntf1d8aa5zqlk04j3zy8z40ni',
-    signature: 'H9oD/ZA7mEVQMWYWNIGDF7T2J++R/EG8tYPfB+fQ+XvQIbOXIcBEhxZwPYmh0HRj531oMc/HfcXPAYjWlN9wCn4=',
+    signature: 'IIwyGekXKejWRCnBKMb5Zn2ufi5ylnl3r/wmonoTDm7QCUoe5vZL0SXIwqxO7F8U3Q+kUJapRS2xlUe53KNmC9k=',
   },
   {
     _id: ObjectId('60cad0767247ac0a779fb3f0'),
@@ -31,9 +31,9 @@ const insertUsers = [
   },
   {
     _id: ObjectId('620bbc40c04b4966674013a8'),
-    zelid: '1LZe3AUYQC4aT5YWLhgEcH1nLLdoKNBi9t', // app owner
+    zelid: '1KPKzyp9VyB9ouAA4spZ48x8g32sxLVK6W', // app owner
     loginPhrase: '1644935889016mtmbo4uah32tvvwrmzg4j8qzv04ba8g8n56cevn6b',
-    signature: 'H4bL1HhNXiYiHywCnUeptHtLQY/YiGmLt14N+BBNXRIKd6BkP+kFr9CvaGLELQxN1A31OXoy3SMBoHj2/OqiK6c=',
+    signature: 'H7xcWjpSt8jiAaPbkUsfY3ZutJJmI35MWkGsgWBj/fJHfk7ZKRoggzigdaESLGMDMb2MHlxAapr1sMYDbJkL/H4=',
   },
   {
     _id: ObjectId('61967125f3178f082a296100'),
@@ -47,7 +47,7 @@ const insertApp = {
   _id: ObjectId('6147045cd774409b374d253d'),
   name: 'PolkadotNode',
   description: 'Polkadot is a heterogeneous multi-chain interchange.',
-  owner: '1LZe3AUYQC4aT5YWLhgEcH1nLLdoKNBi9t',
+  owner: '1KPKzyp9VyB9ouAA4spZ48x8g32sxLVK6W',
 };
 
 describe('verificationHelperUtils tests', () => {
@@ -71,6 +71,7 @@ describe('verificationHelperUtils tests', () => {
       const headers = {
         zelidauth: {
           zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+          loginPhrase: '16125160820394ddsh5skgwv0ipodku92y0jbwvpyj17bh68lzrjlxq9',
           signature: 'IH9d68fk/dYQtuMlNN7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc=',
         },
       };
@@ -83,8 +84,9 @@ describe('verificationHelperUtils tests', () => {
     it('should return false when requested by regular user', async () => {
       const headers = {
         zelidauth: {
-          zelid: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
-          signature: 'H9oD/ZA7mEVQMWYWNIGDF7T2J++R/EG8tYPfB+fQ+XvQIbOXIcBEhxZwPYmh0HRj531oMc/HfcXPAYjWlN9wCn4=',
+          zelid: '1E1NSwDHtvCziYP4CtgiDMcgvgZL64PhkR',
+          loginPhrase: '162797868130153vt9r89dzjjjfg6kf34ntf1d8aa5zqlk04j3zy8z40ni',
+          signature: 'IIwyGekXKejWRCnBKMb5Zn2ufi5ylnl3r/wmonoTDm7QCUoe5vZL0SXIwqxO7F8U3Q+kUJapRS2xlUe53KNmC9k=',
         },
       };
 
@@ -110,6 +112,7 @@ describe('verificationHelperUtils tests', () => {
       const headers = {
         zelidauth: {
           zelid: '2CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+          loginPhrase: '16125160820394ddsh5skgwv0ipodku92y0jbwvpyj17bh68lzrjlxq9',
           signature: 'IH9d68fk/dYQtuMlNN7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc=',
         },
       };
@@ -122,6 +125,7 @@ describe('verificationHelperUtils tests', () => {
       const headers = {
         zelidauth: {
           zelid: '',
+          loginPhrase: '',
           signature: '',
         },
       };
@@ -159,8 +163,9 @@ describe('verificationHelperUtils tests', () => {
     it('should return true when requested by a logged user', async () => {
       const headers = {
         zelidauth: {
-          zelid: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
-          signature: 'H9oD/ZA7mEVQMWYWNIGDF7T2J++R/EG8tYPfB+fQ+XvQIbOXIcBEhxZwPYmh0HRj531oMc/HfcXPAYjWlN9wCn4=',
+          zelid: '1E1NSwDHtvCziYP4CtgiDMcgvgZL64PhkR',
+          loginPhrase: '162797868130153vt9r89dzjjjfg6kf34ntf1d8aa5zqlk04j3zy8z40ni',
+          signature: 'IIwyGekXKejWRCnBKMb5Zn2ufi5ylnl3r/wmonoTDm7QCUoe5vZL0SXIwqxO7F8U3Q+kUJapRS2xlUe53KNmC9k=',
         },
       };
 
@@ -172,7 +177,8 @@ describe('verificationHelperUtils tests', () => {
     it('should return false if called with a wrong zelid', async () => {
       const headers = {
         zelidauth: {
-          zelid: '1LZe3AUYQC4aT5YWLhgEcH1nLLdoKNBu9t',
+          zelid: '1KPKzyp9VyB9ouAA4spZ48x8g32sxLVK6a',
+          loginPhrase: '1644935889016mtmbo4uah32tvvwrmzg4j8qzv04ba8g8n56cevn6b',
           signature: 'IMDMG1GuDasjPMkrGaRQhkLpFO0saBV+v+N6h3wP6/QlF3J9ymLAPZy7DCBd/RnOSzUxmTHruenVeR7LghzRnHA=',
         },
       };
@@ -185,7 +191,8 @@ describe('verificationHelperUtils tests', () => {
     it('should return false if called with a wrong signature', async () => {
       const headers = {
         zelidauth: {
-          zelid: '1LZe3AUYQC4aT5YWLhgEcH1nLLdoKNBi9t',
+          zelid: '1KPKzyp9VyB9ouAA4spZ48x8g32sxLVK6W',
+          loginPhrase: '1644935889016mtmbo4uah32tvvwrmzg4j8qzv04ba8g8n56cevn6b',
           signature: 'IMDMG1GuDasjPMkrGaRQhkLpFO0saBZ+v+N6h3wP6/QlF3J9ymLAPZy7DCBd/RnOSzUxmTHruenVeR7LghzRnHA=',
         },
       };
@@ -204,6 +211,7 @@ describe('verificationHelperUtils tests', () => {
       const headers = {
         zelidauth: {
           zelid: '',
+          loginPhrase: '',
           signature: '',
         },
       };
@@ -234,6 +242,7 @@ describe('verificationHelperUtils tests', () => {
       const headers = {
         zelidauth: {
           zelid: '1NH9BP155Rp3HSf5ef6NpUbE8JcyLRruAM',
+          loginPhrase: '1623904359736pja76q7y68deb4264olbml6o8gyhot2yvj5oevgv9k2',
           signature: 'H4lWS4PcrR1tMo8RCLzeYYrd042tsJC9PteIKZvn091ZAYE4K9ydfri8M1KKWe905NHdS4LPPsClqvA4nY/G+II=',
         },
       };
@@ -246,8 +255,9 @@ describe('verificationHelperUtils tests', () => {
     it('should return false when zelid is not the flux team', async () => {
       const headers = {
         zelidauth: {
-          zelid: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
-          signature: 'H9oD/ZA7mEVQMWYWNIGDF7T2J++R/EG8tYPfB+fQ+XvQIbOXIcBEhxZwPYmh0HRj531oMc/HfcXPAYjWlN9wCn4=',
+          zelid: '1E1NSwDHtvCziYP4CtgiDMcgvgZL64PhkR',
+          loginPhrase: '162797868130153vt9r89dzjjjfg6kf34ntf1d8aa5zqlk04j3zy8z40ni',
+          signature: 'IIwyGekXKejWRCnBKMb5Zn2ufi5ylnl3r/wmonoTDm7QCUoe5vZL0SXIwqxO7F8U3Q+kUJapRS2xlUe53KNmC9k=',
         },
       };
 
@@ -260,6 +270,7 @@ describe('verificationHelperUtils tests', () => {
       const headers = {
         zelidauth: {
           zelid: '1NH9BP155Rp3HSf5ef6NpUbE8JcyLRruAM',
+          loginPhrase: '1623904359736pja76q7y68deb4264olbml6o8gyhot2yvj5oevgv9k2',
           signature: 'N4lWS4PcrR1tMo8RCLzeYYrd042tsJC9PteIKZvn091ZAYE4K9ydfri8M1KKWe905NHdS4LPPsClqvA4nY/G+II=',
         },
       };
@@ -273,6 +284,7 @@ describe('verificationHelperUtils tests', () => {
       const headers = {
         zelidauth: {
           zelid: '1NH9BP1z5Rp3HSf5ef6NpUbE8JcyLRruAM',
+          loginPhrase: '1623904359736pja76q7y68deb4264olbml6o8gyhot2yvj5oevgv9k2',
           signature: 'H4lWS4PcrR1tMo8RCLzeYYrd042tsJC9PteIKZvn091ZAYE4K9ydfri8M1KKWe905NHdS4LPPsClqvA4nY/G+II=',
         },
       };
@@ -286,6 +298,7 @@ describe('verificationHelperUtils tests', () => {
       const headers = {
         zelidauth: {
           zelid: '',
+          loginPhrase: '',
           signature: '',
         },
       };
@@ -299,6 +312,7 @@ describe('verificationHelperUtils tests', () => {
       const headers = {
         zelidauth: {
           zelid: true,
+          loginPhrase: true,
           signature: true,
         },
       };
@@ -343,6 +357,7 @@ describe('verificationHelperUtils tests', () => {
       const headers = {
         zelidauth: {
           zelid: '1NH9BP155Rp3HSf5ef6NpUbE8JcyLRruAM',
+          loginPhrase: '1623904359736pja76q7y68deb4264olbml6o8gyhot2yvj5oevgv9k2',
           signature: 'H4lWS4PcrR1tMo8RCLzeYYrd042tsJC9PteIKZvn091ZAYE4K9ydfri8M1KKWe905NHdS4LPPsClqvA4nY/G+II=',
         },
       };
@@ -356,6 +371,7 @@ describe('verificationHelperUtils tests', () => {
       const headers = {
         zelidauth: {
           zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+          loginPhrase: '16125160820394ddsh5skgwv0ipodku92y0jbwvpyj17bh68lzrjlxq9',
           signature: 'IH9d68fk/dYQtuMlNN7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc=',
         },
       };
@@ -368,8 +384,9 @@ describe('verificationHelperUtils tests', () => {
     it('should return false when zelid is not the flux team', async () => {
       const headers = {
         zelidauth: {
-          zelid: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
-          signature: 'H9oD/ZA7mEVQMWYWNIGDF7T2J++R/EG8tYPfB+fQ+XvQIbOXIcBEhxZwPYmh0HRj531oMc/HfcXPAYjWlN9wCn4=',
+          zelid: '1E1NSwDHtvCziYP4CtgiDMcgvgZL64PhkR',
+          loginPhrase: '162797868130153vt9r89dzjjjfg6kf34ntf1d8aa5zqlk04j3zy8z40ni',
+          signature: 'IIwyGekXKejWRCnBKMb5Zn2ufi5ylnl3r/wmonoTDm7QCUoe5vZL0SXIwqxO7F8U3Q+kUJapRS2xlUe53KNmC9k=',
         },
       };
 
@@ -382,6 +399,7 @@ describe('verificationHelperUtils tests', () => {
       const headers = {
         zelidauth: {
           zelid: '1NH9BP155Rp3HSf5ef6NpUbE8JcyLRruAM',
+          loginPhrase: '1623904359736pja76q7y68deb4264olbml6o8gyhot2yvj5oevgv9k2',
           signature: 'N4lWS4PcrR1tMo8RCLzeYYrd042tsJC9PteIKZvn091ZAYE4K9ydfri8M1KKWe905NHdS4LPPsClqvA4nY/G+II=',
         },
       };
@@ -395,6 +413,7 @@ describe('verificationHelperUtils tests', () => {
       const headers = {
         zelidauth: {
           zelid: '1NH9BP1z5Rp3HSf5ef6NpUbE8JcyLRruAM',
+          loginPhrase: '1623904359736pja76q7y68deb4264olbml6o8gyhot2yvj5oevgv9k2',
           signature: 'H4lWS4PcrR1tMo8RCLzeYYrd042tsJC9PteIKZvn091ZAYE4K9ydfri8M1KKWe905NHdS4LPPsClqvA4nY/G+II=',
         },
       };
@@ -408,6 +427,7 @@ describe('verificationHelperUtils tests', () => {
       const headers = {
         zelidauth: {
           zelid: '',
+          loginPhrase: '',
           signature: '',
         },
       };
@@ -421,6 +441,7 @@ describe('verificationHelperUtils tests', () => {
       const headers = {
         zelidauth: {
           zelid: true,
+          loginPhrase: true,
           signature: true,
         },
       };
@@ -474,7 +495,8 @@ describe('verificationHelperUtils tests', () => {
     it('should return true when requested by the app owner', async () => {
       const headers = {
         zelidauth: {
-          zelid: '1LZe3AUYQC4aT5YWLhgEcH1nLLdoKNBi9t',
+          zelid: '1KPKzyp9VyB9ouAA4spZ48x8g32sxLVK6W',
+          loginPhrase: '1644935889016mtmbo4uah32tvvwrmzg4j8qzv04ba8g8n56cevn6b',
           signature: 'H4bL1HhNXiYiHywCnUeptHtLQY/YiGmLt14N+BBNXRIKd6BkP+kFr9CvaGLELQxN1A31OXoy3SMBoHj2/OqiK6c=',
         },
       };
@@ -488,6 +510,7 @@ describe('verificationHelperUtils tests', () => {
       const headers = {
         zelidauth: {
           zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+          loginPhrase: '16125160820394ddsh5skgwv0ipodku92y0jbwvpyj17bh68lzrjlxq9',
           signature: 'IH9d68fk/dYQtuMlNN7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc=',
         },
       };
@@ -500,7 +523,8 @@ describe('verificationHelperUtils tests', () => {
     it('should return false when requested by the owner with a wrong signature', async () => {
       const headers = {
         zelidauth: {
-          zelid: '1LZe3AUYQC4aT5YWLhgEcH1nLLdoKNBi9t',
+          zelid: '1KPKzyp9VyB9ouAA4spZ48x8g32sxLVK6W',
+          loginPhrase: '1644935889016mtmbo4uah32tvvwrmzg4j8qzv04ba8g8n56cevn6b',
           signature: 'IH9d68fk/dYQtuMlNN7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc=',
         },
       };
@@ -514,6 +538,7 @@ describe('verificationHelperUtils tests', () => {
       const headers = {
         zelidauth: {
           zelid: '',
+          loginPhrase: '',
           signature: '',
         },
       };
@@ -535,7 +560,8 @@ describe('verificationHelperUtils tests', () => {
     it('should return true when requested with an empty app name', async () => {
       const headers = {
         zelidauth: {
-          zelid: '1LZe3AUYQC4aT5YWLhgEcH1nLLdoKNBi9t',
+          zelid: '1KPKzyp9VyB9ouAA4spZ48x8g32sxLVK6W',
+          loginPhrase: '1644935889016mtmbo4uah32tvvwrmzg4j8qzv04ba8g8n56cevn6b',
           signature: 'H4bL1HhNXiYiHywCnUeptHtLQY/YiGmLt14N+BBNXRIKd6BkP+kFr9CvaGLELQxN1A31OXoy3SMBoHj2/OqiK6c=',
         },
       };
@@ -575,7 +601,8 @@ describe('verificationHelperUtils tests', () => {
     it('should return true when requested by the app owner', async () => {
       const headers = {
         zelidauth: {
-          zelid: '1LZe3AUYQC4aT5YWLhgEcH1nLLdoKNBi9t',
+          zelid: '1KPKzyp9VyB9ouAA4spZ48x8g32sxLVK6W',
+          loginPhrase: '1644935889016mtmbo4uah32tvvwrmzg4j8qzv04ba8g8n56cevn6b',
           signature: 'H4bL1HhNXiYiHywCnUeptHtLQY/YiGmLt14N+BBNXRIKd6BkP+kFr9CvaGLELQxN1A31OXoy3SMBoHj2/OqiK6c=',
         },
       };
@@ -589,6 +616,7 @@ describe('verificationHelperUtils tests', () => {
       const headers = {
         zelidauth: {
           zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+          loginPhrase: '16125160820394ddsh5skgwv0ipodku92y0jbwvpyj17bh68lzrjlxq9',
           signature: 'IH9d68fk/dYQtuMlNN7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc=',
         },
       };
@@ -602,6 +630,7 @@ describe('verificationHelperUtils tests', () => {
       const headers = {
         zelidauth: {
           zelid: '1NH9BP155Rp3HSf5ef6NpUbE8JcyLRruAM',
+          loginPhrase: '1623904359736pja76q7y68deb4264olbml6o8gyhot2yvj5oevgv9k2',
           signature: 'H4lWS4PcrR1tMo8RCLzeYYrd042tsJC9PteIKZvn091ZAYE4K9ydfri8M1KKWe905NHdS4LPPsClqvA4nY/G+II=',
         },
       };
@@ -614,8 +643,9 @@ describe('verificationHelperUtils tests', () => {
     it('should return false when requested by a regular user', async () => {
       const headers = {
         zelidauth: {
-          zelid: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
-          signature: 'H9oD/ZA7mEVQMWYWNIGDF7T2J++R/EG8tYPfB+fQ+XvQIbOXIcBEhxZwPYmh0HRj531oMc/HfcXPAYjWlN9wCn4=',
+          zelid: '1E1NSwDHtvCziYP4CtgiDMcgvgZL64PhkR',
+          loginPhrase: '162797868130153vt9r89dzjjjfg6kf34ntf1d8aa5zqlk04j3zy8z40ni',
+          signature: 'IIwyGekXKejWRCnBKMb5Zn2ufi5ylnl3r/wmonoTDm7QCUoe5vZL0SXIwqxO7F8U3Q+kUJapRS2xlUe53KNmC9k=',
         },
       };
       const appName = 'PolkadotNode';
@@ -627,7 +657,8 @@ describe('verificationHelperUtils tests', () => {
     it('should return false when requested by the owner with a wrong signature', async () => {
       const headers = {
         zelidauth: {
-          zelid: '1LZe3AUYQC4aT5YWLhgEcH1nLLdoKNBi9t',
+          zelid: '1KPKzyp9VyB9ouAA4spZ48x8g32sxLVK6W',
+          loginPhrase: '1644935889016mtmbo4uah32tvvwrmzg4j8qzv04ba8g8n56cevn6b',
           signature: 'IH9d68fk/dYQtuMlNN7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc=',
         },
       };
@@ -641,6 +672,7 @@ describe('verificationHelperUtils tests', () => {
       const headers = {
         zelidauth: {
           zelid: '',
+          loginPhrase: '',
           signature: '',
         },
       };
@@ -662,7 +694,8 @@ describe('verificationHelperUtils tests', () => {
     it('should return true when requested with an empty app name', async () => {
       const headers = {
         zelidauth: {
-          zelid: '1LZe3AUYQC4aT5YWLhgEcH1nLLdoKNBi9t',
+          zelid: '1KPKzyp9VyB9ouAA4spZ48x8g32sxLVK6W',
+          loginPhrase: '1644935889016mtmbo4uah32tvvwrmzg4j8qzv04ba8g8n56cevn6b',
           signature: 'H4bL1HhNXiYiHywCnUeptHtLQY/YiGmLt14N+BBNXRIKd6BkP+kFr9CvaGLELQxN1A31OXoy3SMBoHj2/OqiK6c=',
         },
       };

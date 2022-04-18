@@ -19,13 +19,13 @@ const userconfig = require('../../../config/userconfig');
 async function verifyAdminSession(headers) {
   if (!headers || !headers.zelidauth) return false;
   const auth = serviceHelper.ensureObject(headers.zelidauth);
-  if (!auth.zelid || !auth.signature) return false;
+  if (!auth.zelid || !auth.signature || !auth.loginPhrase) return false;
   if (auth.zelid !== userconfig.initial.zelid) return false;
 
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.local.database);
   const collection = config.database.local.collections.loggedUsers;
-  const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
+  const query = { $and: [{ loginPhrase: auth.loginPhrase }, { zelid: auth.zelid }] };
   const projection = {};
   const loggedUser = await dbHelper.findOneInDatabase(database, collection, query, projection);
   if (!loggedUser) return false;
@@ -53,12 +53,12 @@ async function verifyAdminSession(headers) {
 async function verifyUserSession(headers) {
   if (!headers || !headers.zelidauth) return false;
   const auth = serviceHelper.ensureObject(headers.zelidauth);
-  if (!auth.zelid || !auth.signature) return false;
+  if (!auth.zelid || !auth.signature || !auth.loginPhrase) return false;
 
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.local.database);
   const collection = config.database.local.collections.loggedUsers;
-  const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
+  const query = { $and: [{ loginPhrase: auth.loginPhrase }, { zelid: auth.zelid }] };
   const projection = {};
   const loggedUser = await dbHelper.findOneInDatabase(database, collection, query, projection);
   if (!loggedUser) return false;
@@ -87,13 +87,13 @@ async function verifyUserSession(headers) {
 async function verifyFluxTeamSession(headers) {
   if (!headers || !headers.zelidauth) return false;
   const auth = serviceHelper.ensureObject(headers.zelidauth);
-  if (!auth.zelid || !auth.signature) return false;
+  if (!auth.zelid || !auth.signature || !auth.loginPhrase) return false;
   if (auth.zelid !== config.fluxTeamZelId) return false;
 
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.local.database);
   const collection = config.database.local.collections.loggedUsers;
-  const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
+  const query = { $and: [{ loginPhrase: auth.loginPhrase }, { zelid: auth.zelid }] };
   const projection = {};
   const result = await dbHelper.findOneInDatabase(database, collection, query, projection);
   const loggedUser = result;
@@ -121,13 +121,13 @@ async function verifyFluxTeamSession(headers) {
 async function verifyAdminAndFluxTeamSession(headers) {
   if (!headers || !headers.zelidauth) return false;
   const auth = serviceHelper.ensureObject(headers.zelidauth);
-  if (!auth.zelid || !auth.signature) return false;
+  if (!auth.zelid || !auth.signature || !auth.loginPhrase) return false;
   if (auth.zelid !== config.fluxTeamZelId && auth.zelid !== userconfig.initial.zelid) return false; // admin is considered as fluxTeam
 
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.local.database);
   const collection = config.database.local.collections.loggedUsers;
-  const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
+  const query = { $and: [{ loginPhrase: auth.loginPhrase }, { zelid: auth.zelid }] };
   const projection = {};
   const loggedUser = await dbHelper.findOneInDatabase(database, collection, query, projection);
   if (!loggedUser) return false;
@@ -155,14 +155,14 @@ async function verifyAdminAndFluxTeamSession(headers) {
 async function verifyAppOwnerSession(headers, appName) {
   if (!headers || !headers.zelidauth || !appName) return false;
   const auth = serviceHelper.ensureObject(headers.zelidauth);
-  if (!auth.zelid || !auth.signature) return false;
+  if (!auth.zelid || !auth.signature || !auth.loginPhrase) return false;
   const ownerZelID = await serviceHelper.getApplicationOwner(appName);
   if (auth.zelid !== ownerZelID) return false;
 
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.local.database);
   const collection = config.database.local.collections.loggedUsers;
-  const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
+  const query = { $and: [{ loginPhrase: auth.loginPhrase }, { zelid: auth.zelid }] };
   const projection = {};
   const loggedUser = await dbHelper.findOneInDatabase(database, collection, query, projection);
   if (!loggedUser) return false;
@@ -189,14 +189,14 @@ async function verifyAppOwnerSession(headers, appName) {
 async function verifyAppOwnerOrHigherSession(headers, appName) {
   if (!headers || !headers.zelidauth || !appName) return false;
   const auth = serviceHelper.ensureObject(headers.zelidauth);
-  if (!auth.zelid || !auth.signature) return false;
+  if (!auth.zelid || !auth.signature || !auth.loginPhrase) return false;
   const ownerZelID = await serviceHelper.getApplicationOwner(appName);
   if (auth.zelid !== ownerZelID && auth.zelid !== config.fluxTeamZelId && auth.zelid !== userconfig.initial.zelid) return false;
 
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.local.database);
   const collection = config.database.local.collections.loggedUsers;
-  const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
+  const query = { $and: [{ loginPhrase: auth.loginPhrase }, { zelid: auth.zelid }] };
   const projection = {};
   const loggedUser = await dbHelper.findOneInDatabase(database, collection, query, projection);
   if (!loggedUser) return false;
