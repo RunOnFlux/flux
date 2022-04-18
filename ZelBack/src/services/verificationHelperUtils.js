@@ -61,7 +61,15 @@ async function verifyUserSession(headers) {
   const query = { $and: [{ loginPhrase: auth.loginPhrase }, { zelid: auth.zelid }] };
   const projection = {};
   const loggedUser = await dbHelper.findOneInDatabase(database, collection, query, projection);
-  if (!loggedUser) return false;
+  // if not logged, check if not older than 16 hours
+  if (!loggedUser) {
+    const timestamp = new Date().getTime();
+    const message = auth.loginPhrase;
+    const sixteenHours = 16 * 60 * 60 * 1000;
+    if (Number(message.substring(0, 13)) < (timestamp - sixteenHours) || Number(message.substring(0, 13)) > timestamp || message.length > 70 || message.length < 40) {
+      return false;
+    }
+  }
 
   // check if signature corresponds to message with that zelid
   let valid = false;
@@ -165,7 +173,15 @@ async function verifyAppOwnerSession(headers, appName) {
   const query = { $and: [{ loginPhrase: auth.loginPhrase }, { zelid: auth.zelid }] };
   const projection = {};
   const loggedUser = await dbHelper.findOneInDatabase(database, collection, query, projection);
-  if (!loggedUser) return false;
+  // if not logged, check if not older than 2 hours
+  if (!loggedUser) {
+    const timestamp = new Date().getTime();
+    const message = auth.loginPhrase;
+    const sixteenHours = 2 * 60 * 60 * 1000;
+    if (Number(message.substring(0, 13)) < (timestamp - sixteenHours) || Number(message.substring(0, 13)) > timestamp || message.length > 70 || message.length < 40) {
+      return false;
+    }
+  }
   // check if signature corresponds to message with that zelid
   let valid = false;
   try {
@@ -199,7 +215,15 @@ async function verifyAppOwnerOrHigherSession(headers, appName) {
   const query = { $and: [{ loginPhrase: auth.loginPhrase }, { zelid: auth.zelid }] };
   const projection = {};
   const loggedUser = await dbHelper.findOneInDatabase(database, collection, query, projection);
-  if (!loggedUser) return false;
+  // if not logged, check if not older than 2 hours
+  if (!loggedUser) {
+    const timestamp = new Date().getTime();
+    const message = auth.loginPhrase;
+    const sixteenHours = 2 * 60 * 60 * 1000;
+    if (Number(message.substring(0, 13)) < (timestamp - sixteenHours) || Number(message.substring(0, 13)) > timestamp || message.length > 70 || message.length < 40) {
+      return false;
+    }
+  }
 
   // check if signature corresponds to message with that zelid
   let valid = false;

@@ -770,9 +770,13 @@ async function checkLoggedUser(req, res) {
     try {
       const processedBody = serviceHelper.ensureObject(body);
       const { zelid } = processedBody;
+      const loggedPhrase = processedBody.loginPhrase;
       const { signature } = processedBody;
       if (!zelid) {
         throw new Error('No user ZelID specificed');
+      }
+      if (!zelid) {
+        throw new Error('No user loginPhrase specificed');
       }
       if (!signature) {
         throw new Error('No user ZelID signature specificed');
@@ -781,6 +785,7 @@ async function checkLoggedUser(req, res) {
         headers: {
           zelidauth: {
             zelid,
+            loginPhrase: loggedPhrase,
             signature,
           },
         },
