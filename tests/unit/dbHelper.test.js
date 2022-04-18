@@ -130,7 +130,7 @@ describe('dbHelper tests', () => {
           _id: new ObjectId('5fa25bf73ba9312a4d83712d'),
           name: 'App1',
           description: 'Test',
-          owner: '1KPKzyp9VyB9ouAA4spZ48x8g32sxLVK6g',
+          owner: '1KPKzyp9VyB9ouAA4spZ48x8g32sxLVK6d',
         },
       ];
 
@@ -155,7 +155,7 @@ describe('dbHelper tests', () => {
         },
         {
           name: 'App1',
-          owner: '1KPKzyp9VyB9ouAA4spZ48x8g32sxLVK6u',
+          owner: '1KPKzyp9VyB9ouAA4spZ48x8g32sxLVK6d',
         },
       ];
 

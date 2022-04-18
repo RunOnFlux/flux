@@ -497,7 +497,7 @@ describe('verificationHelperUtils tests', () => {
         zelidauth: {
           zelid: '1KPKzyp9VyB9ouAA4spZ48x8g32sxLVK6W',
           loginPhrase: '1644935889016mtmbo4uah32tvvwrmzg4j8qzv04ba8g8n56cevn6b',
-          signature: 'H4bL1HhNXiYiHywCnUeptHtLQY/YiGmLt14N+BBNXRIKd6BkP+kFr9CvaGLELQxN1A31OXoy3SMBoHj2/OqiK6c=',
+          signature: 'H7xcWjpSt8jiAaPbkUsfY3ZutJJmI35MWkGsgWBj/fJHfk7ZKRoggzigdaESLGMDMb2MHlxAapr1sMYDbJkL/H4=',
         },
       };
       const appName = 'PolkadotNode';
@@ -598,12 +598,12 @@ describe('verificationHelperUtils tests', () => {
       await dbHelper.insertOneToDatabase(databaseGlobal, collectionApps, insertApp);
     });
 
-    it('should return true when requested by the app owner', async () => {
+    it('should return true when requested by the app owner or higher', async () => {
       const headers = {
         zelidauth: {
           zelid: '1KPKzyp9VyB9ouAA4spZ48x8g32sxLVK6W',
           loginPhrase: '1644935889016mtmbo4uah32tvvwrmzg4j8qzv04ba8g8n56cevn6b',
-          signature: 'H4bL1HhNXiYiHywCnUeptHtLQY/YiGmLt14N+BBNXRIKd6BkP+kFr9CvaGLELQxN1A31OXoy3SMBoHj2/OqiK6c=',
+          signature: 'H7xcWjpSt8jiAaPbkUsfY3ZutJJmI35MWkGsgWBj/fJHfk7ZKRoggzigdaESLGMDMb2MHlxAapr1sMYDbJkL/H4=',
         },
       };
       const appName = 'PolkadotNode';
