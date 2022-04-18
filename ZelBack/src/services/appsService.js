@@ -69,7 +69,7 @@ async function listRunningApps(req, res) {
   try {
     let apps = await dockerService.dockerListContainers(false);
     if (apps.length > 0) {
-      apps = apps.filter((app) => (app.Names[0].substr(1, 3) === 'zel' || app.Names[0].substr(1, 4) === 'flux'));
+      apps = apps.filter((app) => (app.Names[0].slice(1, 4) === 'zel' || app.Names[0].slice(1, 5) === 'flux'));
     }
     const modifiedApps = [];
     apps.forEach((app) => {
@@ -104,7 +104,7 @@ async function listAllApps(req, res) {
   try {
     let apps = await dockerService.dockerListContainers(true);
     if (apps.length > 0) {
-      apps = apps.filter((app) => (app.Names[0].substr(1, 3) === 'zel' || app.Names[0].substr(1, 4) === 'flux'));
+      apps = apps.filter((app) => (app.Names[0].slice(1, 4) === 'zel' || app.Names[0].slice(1, 5) === 'flux'));
     }
     const modifiedApps = [];
     apps.forEach((app) => {
@@ -1787,9 +1787,9 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
   if (appSpecifications.ports) {
     const firewallActive = await fluxCommunication.isFirewallActive();
     if (firewallActive) {
-    // eslint-disable-next-line no-restricted-syntax
+      // eslint-disable-next-line no-restricted-syntax
       for (const port of appSpecifications.ports) {
-      // eslint-disable-next-line no-await-in-loop
+        // eslint-disable-next-line no-await-in-loop
         await fluxCommunication.denyPort(serviceHelper.ensureNumber(port));
       }
     }
@@ -2400,7 +2400,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
         const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(port));
         if (portResponse.status === true) {
           const portStatus = {
-            status: `'Port ${port} OK'`,
+            status: `Port ${port} OK`,
           };
           log.info(portStatus);
           if (res) {
@@ -2436,7 +2436,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
   } else if (appSpecifications.port) {
     const firewallActive = await fluxCommunication.isFirewallActive();
     if (firewallActive) {
-    // v1 compatibility
+      // v1 compatibility
       const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(appSpecifications.port));
       if (portResponse.status === true) {
         const portStatus = {
@@ -2747,41 +2747,41 @@ function appPricePerMonth(dataForAppRegistration, height) {
  */
 function checkHWParameters(appSpecs) {
   // check specs parameters. JS precision
-  if ((appSpecs.cpu * 10) % 1 !== 0 || (appSpecs.cpu * 10) > (config.fluxSpecifics.cpu.bamf - config.lockedSystemResources.cpu) || appSpecs.cpu < 0.1) {
+  if ((appSpecs.cpu * 10) % 1 !== 0 || (appSpecs.cpu * 10) > (config.fluxSpecifics.cpu.stratus - config.lockedSystemResources.cpu) || appSpecs.cpu < 0.1) {
     throw new Error(`CPU badly assigned for ${appSpecs.name}`);
   }
-  if (appSpecs.ram % 100 !== 0 || appSpecs.ram > (config.fluxSpecifics.ram.bamf - config.lockedSystemResources.ram) || appSpecs.ram < 100) {
+  if (appSpecs.ram % 100 !== 0 || appSpecs.ram > (config.fluxSpecifics.ram.stratus - config.lockedSystemResources.ram) || appSpecs.ram < 100) {
     throw new Error(`RAM badly assigned for ${appSpecs.name}`);
   }
-  if (appSpecs.hdd % 1 !== 0 || appSpecs.hdd > (config.fluxSpecifics.hdd.bamf - config.lockedSystemResources.hdd) || appSpecs.hdd < 1) {
+  if (appSpecs.hdd % 1 !== 0 || appSpecs.hdd > (config.fluxSpecifics.hdd.stratus - config.lockedSystemResources.hdd) || appSpecs.hdd < 1) {
     throw new Error(`SSD badly assigned for ${appSpecs.name}`);
   }
   if (appSpecs.tiered) {
-    if ((appSpecs.cpubasic * 10) % 1 !== 0 || (appSpecs.cpubasic * 10) > (config.fluxSpecifics.cpu.basic - config.lockedSystemResources.cpu) || appSpecs.cpubasic < 0.1) {
+    if ((appSpecs.cpubasic * 10) % 1 !== 0 || (appSpecs.cpubasic * 10) > (config.fluxSpecifics.cpu.cumulus - config.lockedSystemResources.cpu) || appSpecs.cpubasic < 0.1) {
       throw new Error(`CPU for Cumulus badly assigned for ${appSpecs.name}`);
     }
-    if (appSpecs.rambasic % 100 !== 0 || appSpecs.rambasic > (config.fluxSpecifics.ram.basic - config.lockedSystemResources.ram) || appSpecs.rambasic < 100) {
+    if (appSpecs.rambasic % 100 !== 0 || appSpecs.rambasic > (config.fluxSpecifics.ram.cumulus - config.lockedSystemResources.ram) || appSpecs.rambasic < 100) {
       throw new Error(`RAM for Cumulus badly assigned for ${appSpecs.name}`);
     }
-    if (appSpecs.hddbasic % 1 !== 0 || appSpecs.hddbasic > (config.fluxSpecifics.hdd.basic - config.lockedSystemResources.hdd) || appSpecs.hddbasic < 1) {
+    if (appSpecs.hddbasic % 1 !== 0 || appSpecs.hddbasic > (config.fluxSpecifics.hdd.cumulus - config.lockedSystemResources.hdd) || appSpecs.hddbasic < 1) {
       throw new Error(`SSD for Cumulus badly assigned for ${appSpecs.name}`);
     }
-    if ((appSpecs.cpusuper * 10) % 1 !== 0 || (appSpecs.cpusuper * 10) > (config.fluxSpecifics.cpu.super - config.lockedSystemResources.cpu) || appSpecs.cpusuper < 0.1) {
+    if ((appSpecs.cpusuper * 10) % 1 !== 0 || (appSpecs.cpusuper * 10) > (config.fluxSpecifics.cpu.nimbus - config.lockedSystemResources.cpu) || appSpecs.cpusuper < 0.1) {
       throw new Error(`CPU for Nimbus badly assigned for ${appSpecs.name}`);
     }
-    if (appSpecs.ramsuper % 100 !== 0 || appSpecs.ramsuper > (config.fluxSpecifics.ram.super - config.lockedSystemResources.ram) || appSpecs.ramsuper < 100) {
+    if (appSpecs.ramsuper % 100 !== 0 || appSpecs.ramsuper > (config.fluxSpecifics.ram.nimbus - config.lockedSystemResources.ram) || appSpecs.ramsuper < 100) {
       throw new Error(`RAM for Nimbus badly assigned for ${appSpecs.name}`);
     }
-    if (appSpecs.hddsuper % 1 !== 0 || appSpecs.hddsuper > (config.fluxSpecifics.hdd.super - config.lockedSystemResources.hdd) || appSpecs.hddsuper < 1) {
+    if (appSpecs.hddsuper % 1 !== 0 || appSpecs.hddsuper > (config.fluxSpecifics.hdd.nimbus - config.lockedSystemResources.hdd) || appSpecs.hddsuper < 1) {
       throw new Error(`SSD for Nimbus badly assigned for ${appSpecs.name}`);
     }
-    if ((appSpecs.cpubamf * 10) % 1 !== 0 || (appSpecs.cpubamf * 10) > (config.fluxSpecifics.cpu.bamf - config.lockedSystemResources.cpu) || appSpecs.cpubamf < 0.1) {
+    if ((appSpecs.cpubamf * 10) % 1 !== 0 || (appSpecs.cpubamf * 10) > (config.fluxSpecifics.cpu.stratus - config.lockedSystemResources.cpu) || appSpecs.cpubamf < 0.1) {
       throw new Error(`CPU for Stratus badly assigned for ${appSpecs.name}`);
     }
-    if (appSpecs.rambamf % 100 !== 0 || appSpecs.rambamf > (config.fluxSpecifics.ram.bamf - config.lockedSystemResources.ram) || appSpecs.rambamf < 100) {
+    if (appSpecs.rambamf % 100 !== 0 || appSpecs.rambamf > (config.fluxSpecifics.ram.stratus - config.lockedSystemResources.ram) || appSpecs.rambamf < 100) {
       throw new Error(`RAM for Stratus badly assigned for ${appSpecs.name}`);
     }
-    if (appSpecs.hddbamf % 1 !== 0 || appSpecs.hddbamf > (config.fluxSpecifics.hdd.bamf - config.lockedSystemResources.hdd) || appSpecs.hddbamf < 1) {
+    if (appSpecs.hddbamf % 1 !== 0 || appSpecs.hddbamf > (config.fluxSpecifics.hdd.stratus - config.lockedSystemResources.hdd) || appSpecs.hddbamf < 1) {
       throw new Error(`SSD for Stratus badly assigned for ${appSpecs.name}`);
     }
   }
@@ -2826,41 +2826,41 @@ function checkComposeHWParameters(appSpecsComposed) {
     }
   });
   // check specs parameters. JS precision
-  if (totalCpu > (config.fluxSpecifics.cpu.bamf - config.lockedSystemResources.cpu)) {
+  if (totalCpu > (config.fluxSpecifics.cpu.stratus - config.lockedSystemResources.cpu)) {
     throw new Error(`Too much CPU resources assigned for ${appSpecsComposed.name}`);
   }
-  if (totalRam > (config.fluxSpecifics.ram.bamf - config.lockedSystemResources.ram)) {
+  if (totalRam > (config.fluxSpecifics.ram.stratus - config.lockedSystemResources.ram)) {
     throw new Error(`Too much RAM resources assigned for ${appSpecsComposed.name}`);
   }
-  if (totalHdd > (config.fluxSpecifics.hdd.bamf - config.lockedSystemResources.hdd)) {
+  if (totalHdd > (config.fluxSpecifics.hdd.stratus - config.lockedSystemResources.hdd)) {
     throw new Error(`Too much SSD resources assigned for ${appSpecsComposed.name}`);
   }
   if (isTiered) {
-    if (totalCpuBasic > (config.fluxSpecifics.cpu.basic - config.lockedSystemResources.cpu)) {
+    if (totalCpuBasic > (config.fluxSpecifics.cpu.cumulus - config.lockedSystemResources.cpu)) {
       throw new Error(`Too much CPU for Cumulus resources assigned for ${appSpecsComposed.name}`);
     }
-    if (totalRamBasic > (config.fluxSpecifics.ram.basic - config.lockedSystemResources.ram)) {
+    if (totalRamBasic > (config.fluxSpecifics.ram.cumulus - config.lockedSystemResources.ram)) {
       throw new Error(`Too much RAM for Cumulus resources assigned for ${appSpecsComposed.name}`);
     }
-    if (totalHddBasic > (config.fluxSpecifics.hdd.basic - config.lockedSystemResources.hdd)) {
+    if (totalHddBasic > (config.fluxSpecifics.hdd.cumulus - config.lockedSystemResources.hdd)) {
       throw new Error(`Too much SSD for Cumulus resources assigned for ${appSpecsComposed.name}`);
     }
-    if (totalCpuSuper > (config.fluxSpecifics.cpu.super - config.lockedSystemResources.cpu)) {
+    if (totalCpuSuper > (config.fluxSpecifics.cpu.nimbus - config.lockedSystemResources.cpu)) {
       throw new Error(`Too much CPU for Nimbus resources assigned for ${appSpecsComposed.name}`);
     }
-    if (totalRamSuper > (config.fluxSpecifics.ram.super - config.lockedSystemResources.ram)) {
+    if (totalRamSuper > (config.fluxSpecifics.ram.nimbus - config.lockedSystemResources.ram)) {
       throw new Error(`Too much RAM for Nimbus resources assigned for ${appSpecsComposed.name}`);
     }
-    if (totalHddSuper > (config.fluxSpecifics.hdd.super - config.lockedSystemResources.hdd)) {
+    if (totalHddSuper > (config.fluxSpecifics.hdd.nimbus - config.lockedSystemResources.hdd)) {
       throw new Error(`Too much SSD for Nimbus resources assigned for ${appSpecsComposed.name}`);
     }
-    if (totalCpuBamf > (config.fluxSpecifics.cpu.bamf - config.lockedSystemResources.cpu)) {
+    if (totalCpuBamf > (config.fluxSpecifics.cpu.stratus - config.lockedSystemResources.cpu)) {
       throw new Error(`Too much CPU for Stratus resources assigned for ${appSpecsComposed.name}`);
     }
-    if (totalRamBamf > (config.fluxSpecifics.ram.bamf - config.lockedSystemResources.ram)) {
+    if (totalRamBamf > (config.fluxSpecifics.ram.stratus - config.lockedSystemResources.ram)) {
       throw new Error(`Too much RAM for Stratus resources assigned for ${appSpecsComposed.name}`);
     }
-    if (totalHddBamf > (config.fluxSpecifics.hdd.bamf - config.lockedSystemResources.hdd)) {
+    if (totalHddBamf > (config.fluxSpecifics.hdd.stratus - config.lockedSystemResources.hdd)) {
       throw new Error(`Too much SSD for Stratus resources assigned for ${appSpecsComposed.name}`);
     }
   }
@@ -3176,6 +3176,38 @@ async function verifyRepository(repotag) {
 }
 
 /**
+ * To check compliance of app images (including images for each component if a Docker Compose app). Checks Flux OS's GitHub repository for list of blocked Docker Hub repositories.
+ * @param {object} appSpecs App specifications.
+ * @returns {boolean} True if no errors are thrown.
+ */
+async function checkApplicationImagesComplience(appSpecs) {
+  const resBlockedRepo = await serviceHelper.axiosGet('https://raw.githubusercontent.com/runonflux/flux/master/helpers/blockedrepositories.json');
+
+  if (!resBlockedRepo) {
+    throw new Error('Unable to communicate with Flux Services! Try again later.');
+  }
+
+  const repos = resBlockedRepo.data;
+
+  const images = [];
+  if (appSpecs.version <= 3) {
+    images.push(appSpecs.repotag);
+  } else {
+    appSpecs.compose.forEach((component) => {
+      images.push(component.repotag);
+    });
+  }
+
+  images.forEach((image) => {
+    if (repos.includes(image)) {
+      throw new Error(`Repository ${image} is blocked. Application ${appSpecs.name} connot be spawned.`);
+    }
+  });
+
+  return true;
+}
+
+/**
  * To verify correctness of attribute values within an app specification object. Checks for types and that required attributes exist.
  * @param {object} appSpecification App specifications.
  * @returns {boolean} True if no errors are thrown.
@@ -3465,8 +3497,9 @@ function ensureAppUniquePorts(appSpecFormatted) {
  * To verify app specifications. Checks the attribute values of the appSpecifications object.
  * @param {object} appSpecifications App specifications.
  * @param {number} height Block height.
+ * @param {boolean} checkDockerAndWhitelist Defaults to false.
  */
-async function verifyAppSpecifications(appSpecifications, height) {
+async function verifyAppSpecifications(appSpecifications, height, checkDockerAndWhitelist = false) {
   if (!appSpecifications) {
     throw new Error('Invalid Flux App Specifications');
   }
@@ -3550,11 +3583,13 @@ async function verifyAppSpecifications(appSpecifications, height) {
       throw new Error('Flux App container data folder not specified. If no data folder is whished, use /tmp');
     }
 
-    // check repotag if available for download
-    await verifyRepository(appSpecifications.repotag);
+    if (checkDockerAndWhitelist) {
+      // check repository whitelisted
+      await generalService.checkWhitelistedRepository(appSpecifications.repotag);
 
-    // check repository whitelisted
-    await generalService.checkWhitelistedRepository(appSpecifications.repotag);
+      // check repotag if available for download
+      await verifyRepository(appSpecifications.repotag);
+    }
   } else {
     console.log(appSpecifications);
     if (!Array.isArray(appSpecifications.compose)) {
@@ -3633,13 +3668,15 @@ async function verifyAppSpecifications(appSpecifications, height) {
 
       checkComposeHWParameters(appSpecifications);
 
-      // check repotag if available for download
-      // eslint-disable-next-line no-await-in-loop
-      await verifyRepository(appComponent.repotag);
+      if (checkDockerAndWhitelist) {
+        // check repository whitelisted
+        // eslint-disable-next-line no-await-in-loop
+        await generalService.checkWhitelistedRepository(appComponent.repotag);
 
-      // check repository whitelisted
-      // eslint-disable-next-line no-await-in-loop
-      await generalService.checkWhitelistedRepository(appComponent.repotag);
+        // check repotag if available for download
+        // eslint-disable-next-line no-await-in-loop
+        await verifyRepository(appComponent.repotag);
+      }
     }
   }
 
@@ -3749,9 +3786,9 @@ async function verifyAppSpecifications(appSpecifications, height) {
       });
     });
   }
-  if (height < 1004000) {
-    // check ZelID whitelisted
-    await generalService.checkWhitelistedZelID(appSpecifications.owner);
+
+  if (checkDockerAndWhitelist) {
+    await checkApplicationImagesComplience(appSpecifications); // check blacklist
   }
 }
 
@@ -3813,6 +3850,9 @@ async function assignedPortsGlobalApps(appNames) {
       name: app,
     });
   });
+  if (!appsQuery.length) {
+    return [];
+  }
   const query = {
     $or: appsQuery,
   };
@@ -3858,7 +3898,7 @@ async function assignedPortsGlobalApps(appNames) {
  */
 async function ensureApplicationPortsNotUsed(appSpecFormatted, globalCheckedApps) {
   let currentAppsPorts = await assignedPortsInstalledApps();
-  if (globalCheckedApps) {
+  if (globalCheckedApps && globalCheckedApps.length) {
     const globalAppsPorts = await assignedPortsGlobalApps(globalCheckedApps);
     currentAppsPorts = currentAppsPorts.concat(globalAppsPorts);
   }
@@ -4743,8 +4783,8 @@ async function registerAppGlobalyApi(req, res) {
       }
       const daemonHeight = syncStatus.data.height;
 
-      // parameters are now proper format and assigned. Check for their validity, if they are within limits, have proper ports, repotag exists, string lengths, specs are ok
-      await verifyAppSpecifications(appSpecFormatted, daemonHeight);
+      // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
+      await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
 
       // check if name is not yet registered
       await checkApplicationRegistrationNameConflicts(appSpecFormatted);
@@ -4860,8 +4900,8 @@ async function updateAppGlobalyApi(req, res) {
       }
       const daemonHeight = syncStatus.data.height;
 
-      // parameters are now proper format and assigned. Check for their validity, if they are within limits, have proper ports, repotag exists, string lengths, specs are ok
-      await verifyAppSpecifications(appSpecFormatted, daemonHeight);
+      // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
+      await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
 
       // verify that app exists, does not change repotag and is signed by app owner.
       const db = dbHelper.databaseConnection();
@@ -6028,38 +6068,6 @@ async function getApplicationOwnerAPI(req, res) {
 }
 
 /**
- * To check compliance of app images (including images for each component if a Docker Compose app). Checks Flux OS's GitHub repository for list of blocked Docker Hub repositories.
- * @param {object} appSpecs App specifications.
- * @returns {boolean} True if no errors are thrown.
- */
-async function checkApplicationImagesComplience(appSpecs) {
-  const resBlockedRepo = await serviceHelper.axiosGet('https://raw.githubusercontent.com/runonflux/flux/master/helpers/blockedrepositories.json');
-
-  if (!resBlockedRepo) {
-    throw new Error('Unable to communicate with Flux Services! Try again later.');
-  }
-
-  const repos = resBlockedRepo.data;
-
-  const images = [];
-  if (appSpecs.version <= 3) {
-    images.push(appSpecs.repotag);
-  } else {
-    appSpecs.compose.forEach((component) => {
-      images.push(component.repotag);
-    });
-  }
-
-  images.forEach((image) => {
-    if (repos.includes(image)) {
-      throw new Error(`Repository ${image} is blocked. Application ${appSpecs.name} connot be spawned.`);
-    }
-  });
-
-  return true;
-}
-
-/**
  * To try spawning a global application. Performs various checks before the app is spawned. Checks that app is not already running on the FluxNode/IP address. Checks if app already has the required number of instances deployed. Checks that application image is not blacklisted. Checks that ports not already in use.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
@@ -6141,7 +6149,7 @@ async function trySpawningGlobalApplication() {
     if (runningApps.status !== 'success') {
       throw new Error('Unable to check running apps on this Flux');
     }
-    if (runningApps.data.find((app) => app.Names[0].substr(5, app.Names[0].length) === randomApp)) {
+    if (runningApps.data.find((app) => app.Names[0].slice(5) === randomApp)) {
       log.info(`${randomApp} application is already running on this Flux`);
       await serviceHelper.delay(adjustedDelay);
       trySpawningGlobalAppCache.set(randomApp, randomApp);
@@ -6207,9 +6215,16 @@ async function trySpawningGlobalApplication() {
           }
         }
       }
+      // check repository whitelisted
+      // eslint-disable-next-line no-await-in-loop
+      await generalService.checkWhitelistedRepository(componentToInstall.repotag);
+
+      // check repotag if available for download
+      // eslint-disable-next-line no-await-in-loop
+      await verifyRepository(componentToInstall.repotag);
     }
 
-    // check if application image is not blacklisted
+    // verify app compliance
     await checkApplicationImagesComplience(appSpecifications).catch((error) => {
       log.error(error);
       trySpawningGlobalAppCache.set(randomApp, randomApp);
@@ -6308,9 +6323,9 @@ async function checkAndNotifyPeersOfRunningApps() {
     // kadena and folding is old naming scheme having /zel.  all global application start with /flux
     const runningAppsNames = runningApps.map((app) => {
       if (app.Names[0].startsWith('/zel')) {
-        return app.Names[0].substr(4, app.Names[0].length);
+        return app.Names[0].slice(4);
       }
-      return app.Names[0].substr(5, app.Names[0].length);
+      return app.Names[0].slice(5);
     });
     // installed always is bigger array than running
     const runningSet = new Set(runningAppsNames);
@@ -6409,11 +6424,6 @@ async function checkAndNotifyPeersOfRunningApps() {
 async function expireGlobalApplications() {
   // check if synced
   try {
-    const synced = await generalService.checkSynced();
-    if (synced !== true) {
-      log.info('Application expiration paused. Not yet synced');
-      return;
-    }
     // get current height
     const dbopen = dbHelper.databaseConnection();
     const database = dbopen.db(config.database.daemon.database);
@@ -6945,8 +6955,8 @@ async function verifyAppRegistrationParameters(req, res) {
       }
       const daemonHeight = syncStatus.data.height;
 
-      // parameters are now proper format and assigned. Check for their validity, if they are within limits, have proper ports, repotag exists, string lengths, specs are ok
-      await verifyAppSpecifications(appSpecFormatted, daemonHeight);
+      // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
+      await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
 
       // check if name is not yet registered
       await checkApplicationRegistrationNameConflicts(appSpecFormatted);
@@ -6992,8 +7002,8 @@ async function verifyAppUpdateParameters(req, res) {
       }
       const daemonHeight = syncStatus.data.height;
 
-      // parameters are now proper format and assigned. Check for their validity, if they are within limits, have proper ports, repotag exists, string lengths, specs are ok
-      await verifyAppSpecifications(appSpecFormatted, daemonHeight);
+      // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
+      await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
 
       // check if name is not yet registered
       const timestamp = new Date().getTime();
@@ -7116,7 +7126,7 @@ async function stopAllNonFluxRunningApps() {
   try {
     log.info('Running non Flux apps check...');
     let apps = await dockerService.dockerListContainers(false);
-    apps = apps.filter((app) => (app.Names[0].substr(1, 3) !== 'zel' && app.Names[0].substr(1, 4) !== 'flux'));
+    apps = apps.filter((app) => (app.Names[0].slice(1, 4) !== 'zel' && app.Names[0].slice(1, 5) !== 'flux'));
     if (apps.length > 0) {
       log.info(`Found ${apps.length} apps to be stopped...`);
       // eslint-disable-next-line no-restricted-syntax

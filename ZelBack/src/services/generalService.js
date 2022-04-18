@@ -23,14 +23,14 @@ let storedCollateral = null;
 function getCollateralInfo(collateralOutpoint) {
   const a = collateralOutpoint;
   const b = a.split(', ');
-  const txhash = b[0].substr(10, b[0].length);
+  const txhash = b[0].slice(10);
   const txindex = serviceHelper.ensureNumber(b[1].split(')')[0]);
   return { txhash, txindex };
 }
 
 /**
- * To return the tier of a node.
- * @returns {string} Name of the node tier.
+ * To return the tier of a node in old naming scheme
+ * @returns {string} Name of the node tier in old naming scheme
  */
 async function nodeTier() {
   if (storedTier) {
@@ -87,6 +87,21 @@ async function nodeTier() {
     return storedTier;
   }
   throw new Error('Unrecognised Flux Node tier');
+}
+
+/**
+ * To return the tier of a node.
+ * @returns {string} Name of the node tier.
+ */
+async function getNewNodeTier() {
+  const tier = await nodeTier();
+  if (tier === 'bamf') {
+    return 'stratus';
+  }
+  if (tier === 'super') {
+    return 'nimbus';
+  }
+  return 'cumulus';
 }
 
 /**
@@ -307,6 +322,7 @@ async function messageHash(message) {
 module.exports = {
   getCollateralInfo,
   nodeTier,
+  getNewNodeTier,
   isNodeStatusConfirmed,
   checkSynced,
   checkWhitelistedRepository,

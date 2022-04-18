@@ -27,23 +27,53 @@ async function verifyUPNPsupport(apiport = config.apiport) {
   try {
     // run test on apiport + 1
     await client.getPublicIp();
+  } catch (error) {
+    log.error(error);
+    log.error('VerifyUPNPsupport - Failed get public ip');
+    upnpMachine = false;
+    return false;
+  }
+  try {
     await client.getGateway();
+  } catch (error) {
+    log.error(error);
+    log.error('VerifyUPNPsupport - Failed get Gateway');
+    upnpMachine = false;
+    return false;
+  }
+  try {
     await client.createMapping({
       public: +apiport + 1,
       private: +apiport + 1,
       ttl: 0,
     });
-    await client.removeMapping({
-      public: +apiport + 1,
-    });
-    await client.getMappings();
-    upnpMachine = true;
-    return true;
   } catch (error) {
     log.error(error);
+    log.error('VerifyUPNPsupport - Failed Create Mapping');
     upnpMachine = false;
     return false;
   }
+  try {
+    await client.getMappings();
+  } catch (error) {
+    log.error(error);
+    log.error('VerifyUPNPsupport - Failed get Mappings');
+    upnpMachine = false;
+    return false;
+  }
+  try {
+    await client.removeMapping({
+      public: +apiport + 1,
+    });
+  } catch (error) {
+    log.error(error);
+    log.error('VerifyUPNPsupport - Failed Remove Mapping');
+    upnpMachine = false;
+    return false;
+  }
+
+  upnpMachine = true;
+  return true;
 }
 
 /**

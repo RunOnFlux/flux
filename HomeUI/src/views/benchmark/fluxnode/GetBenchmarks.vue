@@ -24,8 +24,13 @@
       :data="callResponse.data.ipaddress"
     />
     <list-entry
-      v-if="callResponse.data.cores"
+      v-if="callResponse.data.real_cores"
       title="CPU Cores"
+      :number="callResponse.data.real_cores"
+    />
+    <list-entry
+      v-if="callResponse.data.cores"
+      title="CPU Threads"
       :number="callResponse.data.cores"
     />
     <list-entry
@@ -52,6 +57,21 @@
       v-if="callResponse.data.eps"
       title="CPU Speed"
       :data="`${callResponse.data.eps.toFixed(2)} eps`"
+    />
+    <list-entry
+      v-if="callResponse.data.download_speed"
+      title="Download Speed"
+      :data="`${callResponse.data.download_speed.toFixed(2)} Mb/s`"
+    />
+    <list-entry
+      v-if="callResponse.data.upload_speed"
+      title="Upload Speed"
+      :data="`${callResponse.data.upload_speed.toFixed(2)} Mb/s`"
+    />
+    <list-entry
+      v-if="callResponse.data.ping"
+      title="Ping"
+      :data="`${callResponse.data.ping.toFixed(2)} ms`"
     />
     <list-entry
       v-if="callResponse.data.error"
@@ -113,5 +133,4 @@ export default {
 </script>
 
 <style>
-
 </style>
