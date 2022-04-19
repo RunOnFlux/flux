@@ -254,18 +254,15 @@ async function verifyLogin(req, res) {
             throw new Error('Invalid signature');
           }
           if (valid) {
-            // Third associate that address, signature and message with our database
-            // TODO signature hijacking? What if middleware guy knows all of this?
-            // TODO do we want to have some timelimited logins? not needed now
-            // Do we want to store sighash too? Nope we are verifying if provided signature is ok. In localStorage we are storing zelid, message, signature
-            // const sighash = crypto
-            //   .createHash('sha256')
-            //   .update(signature)
-            //   .digest('hex')
+            // Third associate address with message in our database
+            const createdAt = new Date(result.loginPhrase.substring(0, 13));
+            const validTill = +result.loginPhrase.substring(0, 13) + (14 * 24 * 60 * 60 * 1000); // valid for 14 days
+            const expireAt = new Date(validTill);
             const newLogin = {
               zelid: address,
               loginPhrase: message,
-              signature,
+              createdAt,
+              expireAt,
             };
             let privilage = 'user';
             if (address === config.fluxTeamZelId) {
@@ -282,6 +279,8 @@ async function verifyLogin(req, res) {
               loginPhrase: message,
               signature,
               privilage,
+              createdAt,
+              expireAt,
             };
             const resMessage = messageHelper.createDataMessage(resData);
             res.json(resMessage);
@@ -419,7 +418,11 @@ async function loggedUsers(req, res) {
       const database = db.db(config.database.local.database);
       const collection = config.database.local.collections.loggedUsers;
       const query = {};
-      const projection = { projection: { _id: 0, zelid: 1, loginPhrase: 1 } };
+      const projection = {
+        projection: {
+          _id: 0, zelid: 1, loginPhrase: 1, createdAt: 1, expireAt: 1,
+        },
+      };
       const results = await dbHelper.findInDatabase(database, collection, query, projection);
       const resultsResponse = messageHelper.createDataMessage(results);
       res.json(resultsResponse);
@@ -450,7 +453,11 @@ async function loggedSessions(req, res) {
       const database = db.db(config.database.local.database);
       const collection = config.database.local.collections.loggedUsers;
       const query = { zelid: queryZelID };
-      const projection = { projection: { _id: 0, zelid: 1, loginPhrase: 1 } };
+      const projection = {
+        projection: {
+          _id: 0, zelid: 1, loginPhrase: 1, createdAt: 1, expireAt: 1,
+        },
+      };
       const results = await dbHelper.findInDatabase(database, collection, query, projection);
       const resultsResponse = messageHelper.createDataMessage(results);
       res.json(resultsResponse);
@@ -478,7 +485,7 @@ async function logoutCurrentSession(req, res) {
       const db = dbHelper.databaseConnection();
       const database = db.db(config.database.local.database);
       const collection = config.database.local.collections.loggedUsers;
-      const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
+      const query = { $and: [{ loginPhrase: auth.loginPhrase }, { zelid: auth.zelid }] };
       const projection = {};
       await dbHelper.findOneAndDeleteInDatabase(database, collection, query, projection);
       // console.log(results)
@@ -642,6 +649,8 @@ async function wsRespondLoginPhrase(ws, req) {
           loginPhrase: result.loginPhrase,
           signature: result.signature,
           privilage,
+          createdAt: result.createdAt,
+          expireAt: result.expireAt,
         };
         const message = messageHelper.createDataMessage(resData);
         if (!connclosed) {
@@ -761,9 +770,13 @@ async function checkLoggedUser(req, res) {
     try {
       const processedBody = serviceHelper.ensureObject(body);
       const { zelid } = processedBody;
+      const loggedPhrase = processedBody.loginPhrase;
       const { signature } = processedBody;
       if (!zelid) {
         throw new Error('No user ZelID specificed');
+      }
+      if (!zelid) {
+        throw new Error('No user loginPhrase specificed');
       }
       if (!signature) {
         throw new Error('No user ZelID signature specificed');
@@ -772,6 +785,7 @@ async function checkLoggedUser(req, res) {
         headers: {
           zelidauth: {
             zelid,
+            loginPhrase: loggedPhrase,
             signature,
           },
         },
