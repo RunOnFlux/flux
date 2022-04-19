@@ -15,7 +15,7 @@ const rpcpassword = fnconfig.rpcpassword() || 'rpcpassword';
 const rpcport = fnconfig.rpcport() || (isTestnet === true ? config.daemon.rpcporttestnet : config.daemon.rpcport);
 
 let currentDaemonHeight = 0;
-let currentDaemonHeader = isTestnet === true ? 58494 : 1060453;
+let currentDaemonHeader = isTestnet === true ? 249187 : 1102828;
 let isDaemonInsightExplorer = null;
 
 const client = new daemonrpc.Client({
@@ -99,7 +99,13 @@ async function executeCall(rpc, params) {
     if (!data) {
       daemonCallRunning = true;
       data = await client[rpc](...rpcparameters);
-      blockCache.set(rpc + serviceHelper.ensureString(rpcparameters), data);
+      if (rpc === 'getBlock') {
+        data = blockCache.set(rpc + serviceHelper.ensureString(rpcparameters), data);
+      } else if (rpc === 'getRawTransaction') {
+        data = rawTxCache.set(rpc + serviceHelper.ensureString(rpcparameters), data);
+      } else {
+        data = cache.set(rpc + serviceHelper.ensureString(rpcparameters), data);
+      }
       daemonCallRunning = false;
     }
     const successResponse = messageHelper.createDataMessage(data);
@@ -2623,7 +2629,7 @@ async function getWalletInfo(req, res) {
 
 /**
  * To import address. Address, label and whether to rescan (defaults to true) required as parameters for RPC call. Only accessible by admins.
- * @param {object} req Request. 
+ * @param {object} req Request.
  * @param {object} res Response.
  * @returns {object} Message.
  */
