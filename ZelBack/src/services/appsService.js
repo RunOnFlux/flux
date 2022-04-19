@@ -1243,7 +1243,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
       // eslint-disable-next-line no-restricted-syntax
       for (const port of appSpecifications.ports) {
         // eslint-disable-next-line no-await-in-loop
-        await upnpService.removeMapUpnpPort(serviceHelper.ensureNumber(port));
+        await upnpService.removeMapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${appName}_${appSpecifications.name}`);
       }
     }
     // v1 compatibility
@@ -1254,7 +1254,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
     }
     const isUPNP = upnpService.isUPNP();
     if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
-      await upnpService.removeMapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port));
+      await upnpService.removeMapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port), `Flux_App_${appName}_${appSpecifications.name}`);
     }
   }
   const portStatus2 = {
@@ -1662,7 +1662,7 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
       // eslint-disable-next-line no-restricted-syntax
       for (const port of appSpecifications.ports) {
         // eslint-disable-next-line no-await-in-loop
-        await upnpService.removeMapUpnpPort(serviceHelper.ensureNumber(port));
+        await upnpService.removeMapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${appName}_${appSpecifications.name}`);
       }
     }
     // v1 compatibility
@@ -1673,7 +1673,7 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
     }
     const isUPNP = upnpService.isUPNP();
     if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
-      await upnpService.removeMapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port));
+      await upnpService.removeMapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port), `Flux_App_${appName}_${appSpecifications.name}`);
     }
   }
   const portStatus2 = {
@@ -1954,7 +1954,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
       // eslint-disable-next-line no-restricted-syntax
       for (const port of appSpecifications.ports) {
         // eslint-disable-next-line no-await-in-loop
-        const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port));
+        const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${appName}_${appSpecifications.name}`);
         if (portResponse === true) {
           const portStatus = {
             status: `Port ${port} mapped OK`,
@@ -1990,7 +1990,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
     const isUPNP = upnpService.isUPNP();
     if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
       log.info('Custom port specified, mapping ports');
-      const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port));
+      const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port), `Flux_App_${appName}_${appSpecifications.name}`);
       if (portResponse === true) {
         const portStatus = {
           status: `Port ${appSpecifications.port} mapped OK`,
@@ -2240,7 +2240,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
       // eslint-disable-next-line no-restricted-syntax
       for (const port of appSpecifications.ports) {
         // eslint-disable-next-line no-await-in-loop
-        const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port));
+        const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${appName}_${appSpecifications.name}`);
         if (portResponse === true) {
           const portStatus = {
             status: `Port ${port} mapped OK`,
@@ -2276,7 +2276,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
     const isUPNP = upnpService.isUPNP();
     if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
       log.info('Custom port specified, mapping ports');
-      const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port));
+      const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port), `Flux_App_${appName}_${appSpecifications.name}`);
       if (portResponse === true) {
         const portStatus = {
           status: `Port ${appSpecifications.port} mapped OK`,
