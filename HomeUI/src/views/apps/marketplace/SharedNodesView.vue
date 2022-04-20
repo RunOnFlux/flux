@@ -146,6 +146,7 @@
                     size="24"
                     variant="primary"
                     button
+                    @click="showAPRInfoDialog()"
                   >
                     <v-icon
                       scale="0.9"
@@ -497,6 +498,24 @@
             </b-button>
           </b-col>
         </b-row>
+      </b-card>
+    </b-modal>
+
+    <b-modal
+      v-model="aprModalShowing"
+      title="Lockup APR"
+      size="md"
+      centered
+      button-size="sm"
+      ok-only
+      @ok="() => aprModalShowing = false"
+    >
+      <b-card
+        title="APR Calculations"
+      >
+        <p>
+          The APR for a Titan Shared Nodes lockup is dependant on the number of active Stratus nodes on the Flux network.
+        </p>
       </b-card>
     </b-modal>
 
@@ -1145,6 +1164,7 @@ export default {
     const confirmStakeDialogFinishShowing = ref(false);
     const paymentDetailsDialogShowing = ref(false);
     const nodeModalShowing = ref(false);
+    const aprModalShowing = ref(false);
     const redeemModalShowing = ref(false);
 
     const perfectScrollbarSettings = {
@@ -1223,7 +1243,6 @@ export default {
         const now = Date.now() / 1000;
         totalReward.value = 0;
         response.data.forEach((stake) => {
-          console.log(`Stake: ${stake.expiry} Now: ${now}`);
           if (stake.expiry < now) {
             expiredStakes.push(stake);
           } else {
@@ -1275,7 +1294,6 @@ export default {
 
     const fetchData = async () => {
       nodeCount.value = await getNodeCount();
-      console.log(nodeCount.value);
       const response = await axios.get(`${apiURL}/config`);
       titanConfig.value = response.data;
       titanConfig.value.lockups.sort((a, b) => a.blocks - b.blocks);
@@ -1290,7 +1308,6 @@ export default {
     };
     fetchData();
 
-    console.log('Setting up refresh interval');
     setInterval(() => {
       fetchData();
     }, 2 * 60 * 1000);
@@ -1322,6 +1339,10 @@ export default {
 
     const showNodeInfoDialog = () => {
       nodeModalShowing.value = true;
+    };
+
+    const showAPRInfoDialog = () => {
+      aprModalShowing.value = true;
     };
 
     const showRedeemDialog = () => {
@@ -1507,6 +1528,9 @@ export default {
       showNodeInfoDialog,
       nodeModalShowing,
       visitNode,
+
+      showAPRInfoDialog,
+      aprModalShowing,
 
       stakeModalShowing,
       showStakeDialog,
