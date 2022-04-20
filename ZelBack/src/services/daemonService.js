@@ -4,6 +4,7 @@ const messageHelper = require('./messageHelper');
 const verificationHelper = require('./verificationHelper');
 const daemonServiceUtils = require('./daemonServiceUtils');
 const client = require('./utils/daemonrpcClient').default;
+
 const log = require('../lib/log');
 const userconfig = require('../../../config/userconfig');
 
@@ -11,7 +12,7 @@ const fnconfig = new fullnode.Config();
 const isTestnet = userconfig.initial.testnet;
 
 let currentDaemonHeight = 0;
-let currentDaemonHeader = isTestnet === true ? 58494 : 1060453;
+let currentDaemonHeader = isTestnet === true ? 249187 : 1102828;
 let isDaemonInsightExplorer = null;
 
 let response = messageHelper.createErrorMessage();
@@ -2269,6 +2270,12 @@ async function zValidateAddress(req, res) {
 }
 
 // == Wallet == Admin Privilage. Benchmark fluxteam privilage
+/**
+ * To add a multi-signature address (requires multiple keys to authorize a transaction). Number of addresses/keys and keys object required as parameters for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function addMultiSigAddress(req, res) {
   let { n } = req.params;
   n = n || req.query.n;
@@ -2291,6 +2298,12 @@ async function addMultiSigAddress(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To add a multi-signature address (requires multiple keys to authorize a transaction) after data is processed. Number of addresses/keys and keys object required as parameters for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function addMultiSigAddressPost(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -2318,6 +2331,12 @@ async function addMultiSigAddressPost(req, res) {
   });
 }
 
+/**
+ * To backup wallet. Backup destination/directory required as parameter for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function backupWallet(req, res) {
   let { destination } = req.params;
   destination = destination || req.query.destination;
@@ -2336,6 +2355,12 @@ async function backupWallet(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To dump private key. Address required as parameter for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function dumpPrivKey(req, res) {
   let { taddr } = req.params;
   taddr = taddr || req.query.taddr;
@@ -2354,6 +2379,12 @@ async function dumpPrivKey(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get balance. Min conf (defaults to value of 1) and whether to include watch only (defaults to false) required as parameters for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getBalance(req, res) {
   let { minconf } = req.params;
   minconf = minconf || req.query.minconf || 1;
@@ -2373,6 +2404,12 @@ async function getBalance(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get a new address. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getNewAddress(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
@@ -2385,6 +2422,12 @@ async function getNewAddress(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get raw change address. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getRawChangeAddress(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
@@ -2397,6 +2440,12 @@ async function getRawChangeAddress(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get received by address. Address and min conf (defaults to value of 1) required as parameters for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getReceivedByAddress(req, res) {
   let { zelcashaddress } = req.params;
   zelcashaddress = zelcashaddress || req.query.zelcashaddress;
@@ -2418,6 +2467,12 @@ async function getReceivedByAddress(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get a transaction. Transaction ID and whether to include watch only (defaults to false) required as parameters for RPC call.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getTransaction(req, res) {
   let { txid } = req.params;
   txid = txid || req.query.txid;
@@ -2435,6 +2490,12 @@ async function getTransaction(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get unconfirmed balance. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getUnconfirmedBalance(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
@@ -2447,6 +2508,12 @@ async function getUnconfirmedBalance(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get wallet info. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getWalletInfo(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
@@ -2459,6 +2526,12 @@ async function getWalletInfo(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To import address. Address, label and whether to rescan (defaults to true) required as parameters for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function importAddress(req, res) {
   let { address } = req.params;
   address = address || req.query.address;
@@ -2482,6 +2555,12 @@ async function importAddress(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To import private key. Private key, label and whether to rescan (defaults to true) required as parameters for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function importPrivKey(req, res) {
   let { zelcashprivkey } = req.params;
   zelcashprivkey = zelcashprivkey || req.query.zelcashprivkey;
@@ -2505,6 +2584,12 @@ async function importPrivKey(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To import wallet. File name required as parameter for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function importWallet(req, res) {
   let { filename } = req.params;
   filename = filename || req.query.filename;
@@ -2523,6 +2608,12 @@ async function importWallet(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To refill key pool. New size (defaults to value of 100) required as parameter for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function keyPoolRefill(req, res) {
   let { newsize } = req.params;
   newsize = newsize || req.query.newsize || 100;
@@ -2539,6 +2630,12 @@ async function keyPoolRefill(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To list address groupings. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function listAddressGroupings(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
@@ -2551,6 +2648,12 @@ async function listAddressGroupings(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To list lock unspent. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function listLockUnspent(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
@@ -2563,6 +2666,12 @@ async function listLockUnspent(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To rescan the blockchain. Start height (defaults to value of 0) required as parameter for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function rescanBlockchain(req, res) {
   let { startheight } = req.params;
   startheight = startheight || req.query.startheight || 0;
@@ -2579,6 +2688,12 @@ async function rescanBlockchain(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To list received transactions by address. Min conf (defaults to value of 1), whether to include empty (defaults to false) and whether to include watch only (defaults to false) required as parameters for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function listReceivedByAddress(req, res) {
   let { minconf } = req.params;
   minconf = minconf || req.query.minconf || 1;
@@ -2601,6 +2716,12 @@ async function listReceivedByAddress(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To list since a specified block. Block hash, target confirmations (defaults to value of 1) and whether to include watch only (defaults to false) required as parameters for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function listSinceBlock(req, res) {
   let { blockhash } = req.params;
   blockhash = blockhash || req.query.blockhash || '';
@@ -2622,6 +2743,12 @@ async function listSinceBlock(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To list transactions. Account, count (defaults to value of 10), from (defaults to value of 0) and whether to include watch only (defaults to false) required as parameters for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function listTransactions(req, res) {
   const account = '*';
   let { count } = req.params;
@@ -2645,6 +2772,12 @@ async function listTransactions(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To list unspent. Min conf (defaults to value of 1), max conf (defaults to value of 9999999) and address required as parameters for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function listUnspent(req, res) {
   let { minconf } = req.params;
   minconf = minconf || req.query.minconf || 1;
@@ -2671,6 +2804,12 @@ async function listUnspent(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To lock unspent. Whether unlocked and transactions required as parameters for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function lockUnspent(req, res) {
   let { unlock } = req.params;
   unlock = unlock || req.query.unlock;
@@ -2694,6 +2833,12 @@ async function lockUnspent(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To send transaction from address. Sender account, recipient address, amount, min conf (defaults to value of 1), comment and comment for recipient required as parameters for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function sendFrom(req, res) {
   const account = '';
   let { tozelcashaddress } = req.params;
@@ -2724,6 +2869,12 @@ async function sendFrom(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To send transaction from address after data is processed. Sender account, recipient address, amount, min conf (defaults to value of 1), comment and comment for recipient required as parameters for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function sendFromPost(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -2759,6 +2910,12 @@ async function sendFromPost(req, res) {
   });
 }
 
+/**
+ * To send multiple transactions. Sender account, amounts, min conf (defaults to value of 1), comment and fee to substract from amount required as parameters for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function sendMany(req, res) {
   const fromaccount = '';
   let { amounts } = req.params;
@@ -2791,6 +2948,12 @@ async function sendMany(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To send multiple transactions after data is processed. Sender account, amounts, min conf (defaults to value of 1), comment and fee to substract from amount required as parameters for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function sendManyPost(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -2828,6 +2991,12 @@ async function sendManyPost(req, res) {
   });
 }
 
+/**
+ * To send transaction to address. Recipient address, amount, comment, comment for recipient and fee to substract from amount (defaults to false) required as parameters for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function sendToAddress(req, res) {
   let { zelcashaddress } = req.params;
   zelcashaddress = zelcashaddress || req.query.zelcashaddress;
@@ -2857,6 +3026,12 @@ async function sendToAddress(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To send transaction to address after data is processed. Recipient address, amount, comment, comment for recipient and fee to substract from amount (defaults to false) required as parameters for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function sendToAddressPost(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -2891,6 +3066,12 @@ async function sendToAddressPost(req, res) {
   });
 }
 
+/**
+ * To set transaction fee. Amount required as parameter for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function setTxFee(req, res) {
   let { amount } = req.params;
   amount = amount || req.query.amount;
@@ -2911,6 +3092,12 @@ async function setTxFee(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To sign message. Address and message required as parameters for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function signMessage(req, res) {
   let { taddr } = req.params;
   taddr = taddr || req.query.taddr;
@@ -2932,6 +3119,12 @@ async function signMessage(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To sign message after data is processed. Address and message required as parameters for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function signMessagePost(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -2959,6 +3152,12 @@ async function signMessagePost(req, res) {
   });
 }
 
+/**
+ * To export key. Address required as parameter for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function zExportKey(req, res) {
   let { zaddr } = req.params;
   zaddr = zaddr || req.query.zaddr;
@@ -2978,6 +3177,12 @@ async function zExportKey(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To export viewing key. Address required as parameter for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function zExportViewingKey(req, res) {
   let { zaddr } = req.params;
   zaddr = zaddr || req.query.zaddr;
@@ -2997,6 +3202,12 @@ async function zExportViewingKey(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get account balance. Address and min conf (defaults to value of 1) required as parameters for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function zGetBalance(req, res) {
   let { address } = req.params;
   address = address || req.query.address;
@@ -3019,6 +3230,12 @@ async function zGetBalance(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get migration status. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function zGetMigrationStatus(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
@@ -3032,6 +3249,12 @@ async function zGetMigrationStatus(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get new address. Type (defaults to sapling) required as parameter for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function zGetNewAddress(req, res) {
   let { type } = req.params;
   type = type || req.query.type || 'sapling';
@@ -3048,6 +3271,12 @@ async function zGetNewAddress(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get operation result. Operation ID required as parameter for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function zGetOperationResult(req, res) {
   let { operationid } = req.params;
   operationid = operationid || req.query.operationid || [];
@@ -3065,6 +3294,12 @@ async function zGetOperationResult(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get operation status. Operation ID required as parameter for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function zGetOperationStatus(req, res) {
   let { operationid } = req.params;
   operationid = operationid || req.query.operationid || [];
@@ -3082,6 +3317,12 @@ async function zGetOperationStatus(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get total balance. Min conf (defaults to value of 1) and whether to include watch only (defaults to false) required as parameters for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function zGetTotalBalance(req, res) {
   let { minconf } = req.params;
   minconf = minconf || req.query.minconf || 1;
@@ -3102,6 +3343,12 @@ async function zGetTotalBalance(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To import key. Key, rescan configuration (defaults to when key is new) and start height (defaults to value of 0) required as parameters for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function zImportKey(req, res) {
   let { zkey } = req.params;
   zkey = zkey || req.query.zkey;
@@ -3126,6 +3373,12 @@ async function zImportKey(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To import viewing key. Viewing key, rescan configuration (defaults to when key is new) and start height (defaults to value of 0) required as parameters for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function zImportViewingKey(req, res) {
   let { vkey } = req.params;
   vkey = vkey || req.query.vkey;
@@ -3150,6 +3403,12 @@ async function zImportViewingKey(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To import wallet. File name required as parameter for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function zImportWallet(req, res) {
   let { filename } = req.params;
   filename = filename || req.query.filename;
@@ -3169,6 +3428,12 @@ async function zImportWallet(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To list addresses. Whether to include watch only (defaults to false) required as parameters for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function zListAddresses(req, res) {
   let { includewatchonly } = req.params;
   includewatchonly = includewatchonly || req.query.includewatchonly || false;
@@ -3186,6 +3451,12 @@ async function zListAddresses(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To list Operation IDs. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function zListOperationIds(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
@@ -3199,6 +3470,12 @@ async function zListOperationIds(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To list received by address. Address and min conf (defaults to value of 1) required as parameters for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function zListReceivedByAddress(req, res) {
   let { address } = req.params;
   address = address || req.query.address;
@@ -3221,6 +3498,12 @@ async function zListReceivedByAddress(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To list unspent. Min conf (defaults to value of 1), max conf (defaults to value of 9999999), whether to include watch only (defaults to false) and addresses required as parameters for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function zListUnspent(req, res) {
   let { minconf } = req.params;
   minconf = minconf || req.query.minconf || 1;
@@ -3250,6 +3533,12 @@ async function zListUnspent(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To merge to address. Sender address, recipient address, fee (defaults to a value of 0.0001), transparent limit (defaults to a value of 50), shielded limit (defaults to a value of 20) and memo required as parameters for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function zMergeToAddress(req, res) {
   let { fromaddresses } = req.params;
   fromaddresses = fromaddresses || req.query.fromaddresses;
@@ -3282,6 +3571,12 @@ async function zMergeToAddress(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To send multiple transactions. Sender account, amounts, min conf (defaults to value of 1) and fee (defaults to a value of 0.0001) required as parameters for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function zSendMany(req, res) {
   let { fromaddress } = req.params;
   fromaddress = fromaddress || req.query.fromaddress;
@@ -3309,6 +3604,12 @@ async function zSendMany(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To send multiple transactions after data is processed. Sender account, amounts, min conf (defaults to value of 1) and fee (defaults to a value of 0.0001) required as parameters for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function zSendManyPost(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -3341,6 +3642,12 @@ async function zSendManyPost(req, res) {
   });
 }
 
+/**
+ * To set migration. Enabled configuration required as parameter for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function zSetMigration(req, res) {
   let { enabled } = req.params;
   enabled = enabled || req.query.enabled;
@@ -3360,6 +3667,12 @@ async function zSetMigration(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To shield coin base. Sender address, recipient address, fee (defaults to a value of 0.0001) and limit (defaults to a value of 50) required as parameters for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function zShieldCoinBase(req, res) {
   let { fromaddress } = req.params;
   fromaddress = fromaddress || req.query.fromaddress; // '*' for all
@@ -3386,6 +3699,12 @@ async function zShieldCoinBase(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To perform benchmark. Benchmark type and sample count required as parameters for RPC call. Only accessible by admins and flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function zcBenchmark(req, res) {
   let { benchmarktype } = req.params;
   benchmarktype = benchmarktype || req.query.benchmarktype;
@@ -3407,6 +3726,12 @@ async function zcBenchmark(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To perform a raw join split. Raw transaction, inputs, outputs, old vpub and new vpub required as parameters for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function zcRawJoinSplit(req, res) {
   let { rawtx } = req.params;
   rawtx = rawtx || req.query.rawtx;
@@ -3435,6 +3760,12 @@ async function zcRawJoinSplit(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To perform a raw join split after data is processed. Raw transaction, inputs, outputs, old vpub and new vpub required as parameters for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function zcRawJoinSplitPost(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -3466,6 +3797,12 @@ async function zcRawJoinSplitPost(req, res) {
   });
 }
 
+/**
+ * To generate a raw key. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function zcRawKeygen(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
@@ -3478,6 +3815,12 @@ async function zcRawKeygen(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To receive raw transaction. Secret key and encrypted note required as parameters for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function zcRawReceive(req, res) {
   let { zcsecretkey } = req.params;
   zcsecretkey = zcsecretkey || req.query.zcsecretkey;
@@ -3498,6 +3841,12 @@ async function zcRawReceive(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To receive raw transaction after data is processed. Secret key and encrypted note required as parameters for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function zcRawReceivePost(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -3524,6 +3873,12 @@ async function zcRawReceivePost(req, res) {
   });
 }
 
+/**
+ * To perform a sample join split. Only accessible by admins and flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function zcSampleJoinSplit(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
@@ -3536,6 +3891,12 @@ async function zcSampleJoinSplit(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To create confirmation transaction.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function createConfirmationTransaction(req, res) {
   const rpccall = 'createconfirmationtransaction';
 
