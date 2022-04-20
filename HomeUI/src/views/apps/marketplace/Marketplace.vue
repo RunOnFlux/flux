@@ -263,6 +263,12 @@ export default {
       ],
     );
 
+    const validSharedNodeZelID = () => sharedNodeZelIDs.value.includes(zelid.value);
+
+    const { route, router } = useRouter();
+    const isAppViewActive = ref(false);
+    const isSharedNodesViewActive = ref(false);
+
     // Use toast
     const toast = useToast();
 
@@ -270,6 +276,7 @@ export default {
       const zelidauth = localStorage.getItem('zelidauth');
       const auth = qs.parse(zelidauth);
       zelid.value = auth.zelid;
+      isSharedNodesViewActive.value = validSharedNodeZelID() && route.value.path === '/apps/shared-nodes';
     });
 
     const resolveCpu = (app) => app.compose.reduce((total, component) => total + component.cpu, 0);
@@ -279,7 +286,6 @@ export default {
     const resolveHdd = (app) => app.compose.reduce((total, component) => total + component.hdd, 0);
 
     const { showDetailSidebar } = useResponsiveAppLeftSidebarVisibility();
-    const { route, router } = useRouter();
     const routeSortBy = computed(() => route.value.query.sort);
     const routeQuery = computed(() => route.value.query.q);
     const routeParams = computed(() => route.value.params);
@@ -432,12 +438,6 @@ export default {
       fetchApps();
     };
     getZelNodeStatus();
-
-    const validSharedNodeZelID = () => sharedNodeZelIDs.value.includes(zelid.value);
-
-    const isAppViewActive = ref(false);
-    // const isManagedServicesViewActive = ref(route.value.path === '/apps/managed-nodes');
-    const isSharedNodesViewActive = ref(validSharedNodeZelID() && route.value.path === '/apps/shared-nodes');
 
     const handleAppClick = (appData) => {
       app.value = appData;
