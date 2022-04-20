@@ -100,11 +100,11 @@ async function executeCall(rpc, params) {
       daemonCallRunning = true;
       data = await client[rpc](...rpcparameters);
       if (rpc === 'getBlock') {
-        data = blockCache.set(rpc + serviceHelper.ensureString(rpcparameters), data);
+        blockCache.set(rpc + serviceHelper.ensureString(rpcparameters), data);
       } else if (rpc === 'getRawTransaction') {
-        data = rawTxCache.set(rpc + serviceHelper.ensureString(rpcparameters), data);
+        rawTxCache.set(rpc + serviceHelper.ensureString(rpcparameters), data);
       } else {
-        data = cache.set(rpc + serviceHelper.ensureString(rpcparameters), data);
+        cache.set(rpc + serviceHelper.ensureString(rpcparameters), data);
       }
       daemonCallRunning = false;
     }
