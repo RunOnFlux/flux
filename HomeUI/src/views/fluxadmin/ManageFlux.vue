@@ -525,7 +525,7 @@ export default {
       if (response.data.status === 'success' && response.data.data) {
         const acc = response.data.data.split('?chainid=');
         const chainID = acc.pop();
-        const account = acc.join('?chainid=').substr(7);
+        const account = acc.join('?chainid=').slice(7);
         this.kadenaAccountInput = account;
         this.kadenaChainIDInput = Number(chainID);
       }

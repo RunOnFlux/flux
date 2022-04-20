@@ -42,6 +42,11 @@ async function startFluxFunctions() {
     log.info('Preparing local database...');
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.local.database);
+    await dbHelper.dropCollection(database, config.database.local.collections.loggedUsers).catch((error) => { // drop currently logged users
+      if (error.message !== 'ns not found') {
+        log.error(error);
+      }
+    });
     await dbHelper.dropCollection(database, config.database.local.collections.activeLoginPhrases).catch((error) => {
       if (error.message !== 'ns not found') {
         log.error(error);
@@ -52,6 +57,7 @@ async function startFluxFunctions() {
         log.error(error);
       }
     });
+    await database.collection(config.database.local.collections.loggedUsers).createIndex({ createdAt: 1 }, { expireAfterSeconds: 14 * 24 * 60 * 60 }); // 2days
     await database.collection(config.database.local.collections.activeLoginPhrases).createIndex({ createdAt: 1 }, { expireAfterSeconds: 900 });
     await database.collection(config.database.local.collections.activeSignatures).createIndex({ createdAt: 1 }, { expireAfterSeconds: 900 });
     log.info('Local database prepared');

@@ -92,8 +92,8 @@ export default {
       let i;
       let l;
       for (i = 0, l = arr.length; i < l; i += 1) {
-        arr[i] = arr[i].substr(0, 1).toUpperCase()
-                 + (arr[i].length > 1 ? arr[i].substr(1).toLowerCase() : '');
+        arr[i] = arr[i].slice(0, 1).toUpperCase()
+                 + (arr[i].length > 1 ? arr[i].slice(1).toLowerCase() : '');
       }
       return arr.join(' ');
     },
