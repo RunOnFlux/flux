@@ -1,116 +1,20 @@
-const daemonrpc = require('daemonrpc');
 const fullnode = require('fullnode');
-const LRU = require('lru-cache');
-const config = require('config');
 const serviceHelper = require('./serviceHelper');
 const messageHelper = require('./messageHelper');
 const verificationHelper = require('./verificationHelper');
+const daemonServiceUtils = require('./daemonServiceUtils');
+const client = require('./utils/daemonrpcClient').default;
 const log = require('../lib/log');
 const userconfig = require('../../../config/userconfig');
 
 const fnconfig = new fullnode.Config();
 const isTestnet = userconfig.initial.testnet;
-const rpcuser = fnconfig.rpcuser() || 'rpcuser';
-const rpcpassword = fnconfig.rpcpassword() || 'rpcpassword';
-const rpcport = fnconfig.rpcport() || (isTestnet === true ? config.daemon.rpcporttestnet : config.daemon.rpcport);
 
 let currentDaemonHeight = 0;
 let currentDaemonHeader = isTestnet === true ? 58494 : 1060453;
 let isDaemonInsightExplorer = null;
 
-const client = new daemonrpc.Client({
-  port: rpcport,
-  user: rpcuser,
-  pass: rpcpassword,
-  timeout: 60000,
-});
-let daemonCallRunning = false;
-
-// default cache
-const LRUoptions = {
-  max: 500, // store 500 values for up to 20 seconds of other daemon calls
-  maxAge: 1000 * 20, // 20 seconds
-};
-
-const cache = new LRU(LRUoptions);
-
-const LRUoptionsBlocks = {
-  max: 1500, // store 500 values for up to 1 hour of other daemon calls
-  maxAge: 1000 * 60 * 60, // 1 hour
-};
-
-const blockCache = new LRU(LRUoptionsBlocks); // store 1.5k blocks in cache
-
-const LRUoptionsTxs = {
-  max: 30000, // store 500 values for up to 1 hour of other daemon calls
-  maxAge: 1000 * 60 * 60, // 1 hour
-};
-
-const rawTxCache = new LRU(LRUoptionsTxs); // store 30k txs in cache
-
 let response = messageHelper.createErrorMessage();
-
-/**
- * To execute a remote procedure call (RPC).
- * @param {string} rpc Remote procedure call.
- * @param {string[]} params RPC parameters.
- * @returns {object} Message.
- */
-async function executeCall(rpc, params) {
-  let callResponse;
-  const rpcparameters = params || [];
-  try {
-    let data;
-    if (daemonCallRunning) {
-      const randomDelay = Math.floor((Math.random() * 250)) + 60;
-      await serviceHelper.delay(randomDelay);
-    }
-    if (daemonCallRunning) {
-      const randomDelay = Math.floor((Math.random() * 200)) + 50;
-      await serviceHelper.delay(randomDelay);
-    }
-    if (daemonCallRunning) {
-      const randomDelay = Math.floor((Math.random() * 150)) + 40;
-      await serviceHelper.delay(randomDelay);
-    }
-    if (daemonCallRunning) {
-      const randomDelay = Math.floor((Math.random() * 100)) + 30;
-      await serviceHelper.delay(randomDelay);
-    }
-    if (daemonCallRunning) {
-      const randomDelay = Math.floor((Math.random() * 75)) + 25;
-      await serviceHelper.delay(randomDelay);
-    }
-    if (daemonCallRunning) {
-      const randomDelay = Math.floor((Math.random() * 50)) + 20;
-      await serviceHelper.delay(randomDelay);
-    }
-    if (daemonCallRunning) {
-      const randomDelay = Math.floor((Math.random() * 25)) + 10;
-      await serviceHelper.delay(randomDelay);
-    }
-    if (rpc === 'getBlock') {
-      data = blockCache.get(rpc + serviceHelper.ensureString(rpcparameters));
-    } else if (rpc === 'getRawTransaction') {
-      data = rawTxCache.get(rpc + serviceHelper.ensureString(rpcparameters));
-    } else {
-      data = cache.get(rpc + serviceHelper.ensureString(rpcparameters));
-    }
-    if (!data) {
-      daemonCallRunning = true;
-      data = await client[rpc](...rpcparameters);
-      blockCache.set(rpc + serviceHelper.ensureString(rpcparameters), data);
-      daemonCallRunning = false;
-    }
-    const successResponse = messageHelper.createDataMessage(data);
-    callResponse = successResponse;
-  } catch (error) {
-    const daemonError = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    callResponse = daemonError;
-  }
-
-  return callResponse;
-}
 
 /**
  * To get a value for a specified key from the configuration file.
@@ -153,7 +57,7 @@ async function help(req, res) {
   const rpccall = 'help';
   const rpcparameters = [command];
 
-  response = await executeCall(rpccall, rpcparameters);
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -167,7 +71,7 @@ async function help(req, res) {
 async function getInfo(req, res) {
   const rpccall = 'getInfo';
 
-  response = await executeCall(rpccall);
+  response = await daemonServiceUtils.executeCall(rpccall);
   if (res) {
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
     if (authorized !== true) {
@@ -191,7 +95,7 @@ async function stop(req, res) { // practically useless
   if (authorized === true) {
     const rpccall = 'stop';
 
-    response = await executeCall(rpccall);
+    response = await daemonServiceUtils.executeCall(rpccall);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -209,7 +113,7 @@ async function stop(req, res) { // practically useless
 async function getZelNodeStatus(req, res) {
   const rpccall = 'getzelnodestatus';
 
-  response = await executeCall(rpccall);
+  response = await daemonServiceUtils.executeCall(rpccall);
 
   return res ? res.json(response) : response;
 }
@@ -229,7 +133,7 @@ async function listZelNodes(req, res) {
     rpcparameters.push(filter);
   }
 
-  response = await executeCall(rpccall, rpcparameters);
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -251,7 +155,7 @@ async function listZelNodeConf(req, res) { // practically useless
       rpcparameters.push(filter);
     }
 
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -270,7 +174,7 @@ async function createZelNodeKey(req, res) { // practically useless
   if (authorized === true) {
     const rpccall = 'createzelnodekey';
 
-    response = await executeCall(rpccall);
+    response = await daemonServiceUtils.executeCall(rpccall);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -291,14 +195,14 @@ async function znsync(req, res) {
     const rpccall = 'znsync';
     const rpcparameters = [mode];
 
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
     if (authorized === true) {
       const rpccall = 'znsync';
       const rpcparameters = [mode];
 
-      response = await executeCall(rpccall, rpcparameters);
+      response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
     } else {
       response = messageHelper.errUnauthorizedMessage();
     }
@@ -323,7 +227,7 @@ async function createZelNodeBroadcast(req, res) {
     const rpccall = 'createzelnodebroadcast';
     const rpcparameters = [command, alias];
 
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -347,7 +251,7 @@ async function decodeZelNodeBroadcast(req, res) {
     rpcparameters.push(hexstring);
   }
 
-  response = await executeCall(rpccall, rpcparameters);
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -361,7 +265,7 @@ async function decodeZelNodeBroadcast(req, res) {
 async function getZelNodeCount(req, res) {
   const rpccall = 'getzelnodecount';
 
-  response = await executeCall(rpccall);
+  response = await daemonServiceUtils.executeCall(rpccall);
 
   return res ? res.json(response) : response;
 }
@@ -375,7 +279,7 @@ async function getZelNodeCount(req, res) {
 async function getDOSList(req, res) {
   const rpccall = 'getdoslist';
 
-  response = await executeCall(rpccall);
+  response = await daemonServiceUtils.executeCall(rpccall);
 
   return res ? res.json(response) : response;
 }
@@ -389,7 +293,7 @@ async function getDOSList(req, res) {
 async function getStartList(req, res) {
   const rpccall = 'getstartlist';
 
-  response = await executeCall(rpccall);
+  response = await daemonServiceUtils.executeCall(rpccall);
 
   return res ? res.json(response) : response;
 }
@@ -405,7 +309,7 @@ async function getZelNodeOutputs(req, res) {
   if (authorized === true) {
     const rpccall = 'getzelnodeoutputs';
 
-    response = await executeCall(rpccall);
+    response = await daemonServiceUtils.executeCall(rpccall);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -427,7 +331,7 @@ async function getZelNodeScores(req, res) {
   const rpcparameters = [];
   rpcparameters.push(blocks);
 
-  response = await executeCall(rpccall, rpcparameters);
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -451,13 +355,13 @@ async function getZelNodeWinners(req, res) {
     rpcparameters.push(filter);
   }
 
-  response = await executeCall(rpccall, rpcparameters);
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
 
 /**
- * To relay node broadcast. Optional hex string can be included as a parameter for RPC call. 
+ * To relay node broadcast. Optional hex string can be included as a parameter for RPC call.
  * @param {object} req Request.
  * @param {object} res Response.
  * @returns {object} Message.
@@ -472,7 +376,7 @@ async function relayZelNodeBroadcast(req, res) {
     rpcparameters.push(hexstring);
   }
 
-  response = await executeCall(rpccall, rpcparameters);
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -497,7 +401,7 @@ async function spork(req, res) {
     rpcparameters.push(value);
   }
 
-  response = await executeCall(rpccall, rpcparameters);
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -523,7 +427,7 @@ async function startDeterministicZelNode(req, res) {
       rpcparameters.push(lockwallet);
     }
 
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -554,7 +458,7 @@ async function startZelNode(req, res) {
       rpcparameters.push(alias);
     }
 
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -577,7 +481,7 @@ async function viewDeterministicZelNodeList(req, res) {
     rpcparameters.push(filter);
   }
 
-  response = await executeCall(rpccall, rpcparameters);
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -591,7 +495,7 @@ async function viewDeterministicZelNodeList(req, res) {
 async function zelNodeCurrentWinner(req, res) {
   const rpccall = 'zelnodecurrentwinner';
 
-  response = await executeCall(rpccall);
+  response = await daemonServiceUtils.executeCall(rpccall);
 
   return res ? res.json(response) : response;
 }
@@ -605,7 +509,7 @@ async function zelNodeCurrentWinner(req, res) {
 async function zelNodeDebug(req, res) {
   const rpccall = 'zelnodedebug';
 
-  response = await executeCall(rpccall);
+  response = await daemonServiceUtils.executeCall(rpccall);
 
   return res ? res.json(response) : response;
 }
@@ -620,7 +524,7 @@ async function zelNodeDebug(req, res) {
 async function getBestBlockHash(req, res) {
   const rpccall = 'getBestBlockHash';
 
-  response = await executeCall(rpccall);
+  response = await daemonServiceUtils.executeCall(rpccall);
 
   return res ? res.json(response) : response;
 }
@@ -642,7 +546,7 @@ async function getBlock(req, res) {
   const rpccall = 'getBlock';
   const rpcparameters = [hashheight, verbosity];
 
-  response = await executeCall(rpccall, rpcparameters);
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -656,7 +560,7 @@ async function getBlock(req, res) {
 async function getBlockchainInfo(req, res) {
   const rpccall = 'getBlockchainInfo';
 
-  response = await executeCall(rpccall);
+  response = await daemonServiceUtils.executeCall(rpccall);
 
   return res ? res.json(response) : response;
 }
@@ -670,7 +574,7 @@ async function getBlockchainInfo(req, res) {
 async function getBlockCount(req, res) {
   const rpccall = 'getBlockCount';
 
-  response = await executeCall(rpccall);
+  response = await daemonServiceUtils.executeCall(rpccall);
 
   return res ? res.json(response) : response;
 }
@@ -692,7 +596,7 @@ async function getBlockHash(req, res) {
     rpcparameters.push(index);
   }
 
-  response = await executeCall(rpccall, rpcparameters);
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -713,7 +617,7 @@ async function getBlockDeltas(req, res) {
     rpcparameters.push(hash);
   }
 
-  response = await executeCall(rpccall, rpcparameters);
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -755,7 +659,7 @@ async function getBlockHashes(req, res) {
     rpcparameters.push(options);
   }
 
-  response = await executeCall(rpccall, rpcparameters);
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -780,7 +684,7 @@ async function getBlockHashesPost(req, res) {
     if (options) {
       rpcparameters.push(options);
     }
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
     return res.json(response);
   });
@@ -806,7 +710,7 @@ async function getBlockHeader(req, res) {
     rpcparameters.push(verbose);
   }
 
-  response = await executeCall(rpccall, rpcparameters);
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -820,7 +724,7 @@ async function getBlockHeader(req, res) {
 async function getChainTips(req, res) {
   const rpccall = 'getChainTips';
 
-  response = await executeCall(rpccall);
+  response = await daemonServiceUtils.executeCall(rpccall);
 
   return res ? res.json(response) : response;
 }
@@ -834,7 +738,7 @@ async function getChainTips(req, res) {
 async function getDifficulty(req, res) {
   const rpccall = 'getDifficulty';
 
-  response = await executeCall(rpccall);
+  response = await daemonServiceUtils.executeCall(rpccall);
 
   return res ? res.json(response) : response;
 }
@@ -848,7 +752,7 @@ async function getDifficulty(req, res) {
 async function getMempoolInfo(req, res) {
   const rpccall = 'getMempoolInfo';
 
-  response = await executeCall(rpccall);
+  response = await daemonServiceUtils.executeCall(rpccall);
 
   return res ? res.json(response) : response;
 }
@@ -868,7 +772,7 @@ async function getRawMemPool(req, res) {
   const rpccall = 'getRawMemPool';
   const rpcparameters = [verbose];
 
-  response = await executeCall(rpccall, rpcparameters);
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -897,7 +801,7 @@ async function getTxOut(req, res) {
     rpcparameters.push(includemempool);
   }
 
-  response = await executeCall(rpccall, rpcparameters);
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -924,7 +828,7 @@ async function getTxOutProof(req, res) {
     rpcparameters.push(txidsarray);
   }
 
-  response = await executeCall(rpccall, rpcparameters);
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -938,7 +842,7 @@ async function getTxOutProof(req, res) {
 async function getTxOutSetInfo(req, res) {
   const rpccall = 'getTxOutSetInfo';
 
-  response = await executeCall(rpccall);
+  response = await daemonServiceUtils.executeCall(rpccall);
 
   return res ? res.json(response) : response;
 }
@@ -961,7 +865,7 @@ async function verifyChain(req, res) {
     const rpccall = 'verifyChain';
     const rpcparameters = [checklevel, numblocks];
 
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -985,7 +889,7 @@ async function verifyTxOutProof(req, res) {
     rpcparameters.push(proof);
   }
 
-  response = await executeCall(rpccall, rpcparameters);
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -1009,7 +913,7 @@ async function getSpentInfo(req, res) {
   };
   const rpcparameters = [options];
 
-  response = await executeCall(rpccall, rpcparameters);
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -1036,7 +940,7 @@ async function getSpentInfoPost(req, res) {
     const rpccall = 'getspentinfo';
     const rpcparameters = [options];
 
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
     return res.json(response);
   });
@@ -1067,7 +971,7 @@ async function getAddressTxids(req, res) {
     const rpccall = 'getaddresstxids';
     const rpcparameters = [options];
 
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
     return res.json(response);
   });
@@ -1096,7 +1000,7 @@ async function getSingleAddresssTxids(req, res) {
   const rpccall = 'getaddresstxids';
   const rpcparameters = [options];
 
-  response = await executeCall(rpccall, rpcparameters);
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -1123,7 +1027,7 @@ async function getAddressBalance(req, res) {
     const rpccall = 'getaddressbalance';
     const rpcparameters = [options];
 
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
     return res.json(response);
   });
@@ -1146,7 +1050,7 @@ async function getSingleAddressBalance(req, res) {
   const rpccall = 'getaddressbalance';
   const rpcparameters = [options];
 
-  response = await executeCall(rpccall, rpcparameters);
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -1178,7 +1082,7 @@ async function getAddressDeltas(req, res) {
     const rpccall = 'getaddressdeltas';
     const rpcparameters = [options];
 
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
     return res.json(response);
   });
@@ -1210,7 +1114,7 @@ async function getSingleAddressDeltas(req, res) {
   const rpccall = 'getaddressdeltas';
   const rpcparameters = [options];
 
-  response = await executeCall(rpccall, rpcparameters);
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -1240,7 +1144,7 @@ async function getAddressUtxos(req, res) {
     const rpccall = 'getaddressutxos';
     const rpcparameters = [options];
 
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
     return res.json(response);
   });
@@ -1266,7 +1170,7 @@ async function getSingleAddressUtxos(req, res) {
   const rpccall = 'getaddressutxos';
   const rpcparameters = [options];
 
-  response = await executeCall(rpccall, rpcparameters);
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -1295,7 +1199,7 @@ async function getAddressMempool(req, res) {
     const rpccall = 'getaddressmempool';
     const rpcparameters = [options];
 
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
     return res.json(response);
   });
@@ -1318,7 +1222,7 @@ async function getSingleAddressMempool(req, res) {
   const rpccall = 'getaddressmempool';
   const rpcparameters = [options];
 
-  response = await executeCall(rpccall, rpcparameters);
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -1341,7 +1245,7 @@ async function getBlockSubsidy(req, res) {
     rpcparameters.push(height);
   }
 
-  response = await executeCall(rpccall, rpcparameters);
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -1363,7 +1267,7 @@ async function getBlockTemplate(req, res) {
     rpcparameters.push(jsonrequestobject);
   }
 
-  response = await executeCall(rpccall, rpcparameters);
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -1377,7 +1281,7 @@ async function getBlockTemplate(req, res) {
 async function getLocalSolPs(req, res) {
   const rpccall = 'getLocalSolPs';
 
-  response = await executeCall(rpccall);
+  response = await daemonServiceUtils.executeCall(rpccall);
 
   return res ? res.json(response) : response;
 }
@@ -1391,7 +1295,7 @@ async function getLocalSolPs(req, res) {
 async function getMiningInfo(req, res) {
   const rpccall = 'getMiningInfo';
 
-  response = await executeCall(rpccall);
+  response = await daemonServiceUtils.executeCall(rpccall);
 
   return res ? res.json(response) : response;
 }
@@ -1414,7 +1318,7 @@ async function getNetworkHashPs(req, res) {
   const rpccall = 'getNetworkHashPs';
   const rpcparameters = [blocks, height];
 
-  response = await executeCall(rpccall, rpcparameters);
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -1436,13 +1340,13 @@ async function getNetworkSolPs(req, res) {
   const rpccall = 'getNetworkSolPs';
   const rpcparameters = [blocks, height];
 
-  response = await executeCall(rpccall, rpcparameters);
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
 
 /**
- * To prioritise transaction. Transaction ID, priority delta and fee delta required as parameters for RPC call. Only accessible by users. 
+ * To prioritise transaction. Transaction ID, priority delta and fee delta required as parameters for RPC call. Only accessible by users.
  * @param {object} req Request.
  * @param {object} res Response.
  * @returns {object} Message.
@@ -1464,7 +1368,7 @@ async function prioritiseTransaction(req, res) {
       rpcparameters = [txid, prioritydelta, feedelta];
     }
 
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -1494,7 +1398,7 @@ async function submitBlock(req, res) {
       rpcparameters = [hexdata];
     }
 
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -1529,7 +1433,7 @@ async function submitBlockPost(req, res) {
         rpcparameters = [hexdata];
       }
 
-      response = await executeCall(rpccall, rpcparameters);
+      response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
     } else {
       response = messageHelper.errUnauthorizedMessage();
     }
@@ -1558,7 +1462,7 @@ async function addNode(req, res) {
       rpcparameters = [node, command];
     }
 
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -1577,7 +1481,7 @@ async function clearBanned(req, res) {
   if (authorized === true) {
     const rpccall = 'clearBanned';
 
-    response = await executeCall(rpccall);
+    response = await daemonServiceUtils.executeCall(rpccall);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -1602,7 +1506,7 @@ async function disconnectNode(req, res) {
       rpcparameters = [node];
     }
 
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -1633,7 +1537,7 @@ async function getAddedNodeInfo(req, res) {
       }
     }
 
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -1650,7 +1554,7 @@ async function getAddedNodeInfo(req, res) {
 async function getConnectionCount(req, res) {
   const rpccall = 'getConnectionCount';
 
-  response = await executeCall(rpccall);
+  response = await daemonServiceUtils.executeCall(rpccall);
 
   return res ? res.json(response) : response;
 }
@@ -1664,7 +1568,7 @@ async function getConnectionCount(req, res) {
 async function getDeprecationInfo(req, res) {
   const rpccall = 'getDeprecationInfo';
 
-  response = await executeCall(rpccall);
+  response = await daemonServiceUtils.executeCall(rpccall);
 
   return res ? res.json(response) : response;
 }
@@ -1678,7 +1582,7 @@ async function getDeprecationInfo(req, res) {
 async function getNetTotals(req, res) {
   const rpccall = 'getNetTotals';
 
-  response = await executeCall(rpccall);
+  response = await daemonServiceUtils.executeCall(rpccall);
 
   return res ? res.json(response) : response;
 }
@@ -1692,7 +1596,7 @@ async function getNetTotals(req, res) {
 async function getNetworkInfo(req, res) {
   const rpccall = 'getNetworkInfo';
 
-  response = await executeCall(rpccall);
+  response = await daemonServiceUtils.executeCall(rpccall);
 
   return res ? res.json(response) : response;
 }
@@ -1706,7 +1610,7 @@ async function getNetworkInfo(req, res) {
 async function getPeerInfo(req, res) {
   const rpccall = 'getPeerInfo';
 
-  response = await executeCall(rpccall);
+  response = await daemonServiceUtils.executeCall(rpccall);
 
   return res ? res.json(response) : response;
 }
@@ -1720,7 +1624,7 @@ async function getPeerInfo(req, res) {
 async function listBanned(req, res) {
   const rpccall = 'listBanned';
 
-  response = await executeCall(rpccall);
+  response = await daemonServiceUtils.executeCall(rpccall);
 
   return res ? res.json(response) : response;
 }
@@ -1736,7 +1640,7 @@ async function ping(req, res) {
   if (authorized === true) {
     const rpccall = 'ping';
 
-    response = await executeCall(rpccall);
+    response = await daemonServiceUtils.executeCall(rpccall);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -1776,7 +1680,7 @@ async function setBan(req, res) {
       }
     }
 
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -1816,7 +1720,7 @@ async function createRawTransaction(req, res) {
     addresses = serviceHelper.ensureObject(addresses);
     rpcparameters = [transactions, addresses, locktime, expiryheight];
   }
-  response = await executeCall(rpccall, rpcparameters);
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -1856,7 +1760,7 @@ async function createRawTransactionPost(req, res) {
       addresses = serviceHelper.ensureObject(addresses);
       rpcparameters = [transactions, addresses, locktime, expiryheight];
     }
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
     return res.json(response);
   });
@@ -1877,7 +1781,7 @@ async function decodeRawTransaction(req, res) {
   if (hexstring) {
     rpcparameters = [hexstring];
   }
-  response = await executeCall(rpccall, rpcparameters);
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -1902,7 +1806,7 @@ async function decodeRawTransactionPost(req, res) {
     if (hexstring) {
       rpcparameters = [hexstring];
     }
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
     return res.json(response);
   });
@@ -1923,7 +1827,7 @@ async function decodeScript(req, res) {
   if (hex) {
     rpcparameters = [hex];
   }
-  response = await executeCall(rpccall, rpcparameters);
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -1948,7 +1852,7 @@ async function decodeScriptPost(req, res) {
     if (hex) {
       rpcparameters = [hex];
     }
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
     return res.json(response);
   });
@@ -1969,7 +1873,7 @@ async function fundRawTransaction(req, res) {
   if (hexstring) {
     rpcparameters = [hexstring];
   }
-  response = await executeCall(rpccall, rpcparameters);
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -1994,7 +1898,7 @@ async function fundRawTransactionPost(req, res) {
     if (hexstring) {
       rpcparameters = [hexstring];
     }
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
     return res.json(response);
   });
@@ -2018,7 +1922,7 @@ async function getRawTransaction(req, res) {
     verbose = serviceHelper.ensureNumber(verbose);
     rpcparameters = [txid, verbose];
   }
-  response = await executeCall(rpccall, rpcparameters);
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -2041,7 +1945,7 @@ async function sendRawTransaction(req, res) {
     allowhighfees = serviceHelper.ensureBoolean(allowhighfees);
     rpcparameters = [hexstring, allowhighfees];
   }
-  response = await executeCall(rpccall, rpcparameters);
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -2069,7 +1973,7 @@ async function sendRawTransactionPost(req, res) {
       allowhighfees = serviceHelper.ensureBoolean(allowhighfees);
       rpcparameters = [hexstring, allowhighfees];
     }
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
     return res.json(response);
   });
@@ -2111,7 +2015,7 @@ async function signRawTransaction(req, res) {
         }
       }
     }
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -2157,7 +2061,7 @@ async function signRawTransactionPost(req, res) {
           }
         }
       }
-      response = await executeCall(rpccall, rpcparameters);
+      response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
     } else {
       response = messageHelper.errUnauthorizedMessage();
     }
@@ -2185,7 +2089,7 @@ async function createMultiSig(req, res) {
     keys = serviceHelper.ensureObject(keys);
     rpcparameters = [n, keys];
   }
-  response = await executeCall(rpccall, rpcparameters);
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -2213,7 +2117,7 @@ async function createMultiSigPost(req, res) {
       keys = serviceHelper.ensureObject(keys);
       rpcparameters = [n, keys];
     }
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
     return res.json(response);
   });
@@ -2235,7 +2139,7 @@ async function estimateFee(req, res) {
     nblocks = serviceHelper.ensureNumber(nblocks);
     rpcparameters = [nblocks];
   }
-  response = await executeCall(rpccall, rpcparameters);
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -2256,7 +2160,7 @@ async function estimatePriority(req, res) {
     nblocks = serviceHelper.ensureNumber(nblocks);
     rpcparameters = [nblocks];
   }
-  response = await executeCall(rpccall, rpcparameters);
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -2276,7 +2180,7 @@ async function validateAddress(req, res) {
   if (zelcashaddress) {
     rpcparameters = [zelcashaddress];
   }
-  response = await executeCall(rpccall, rpcparameters);
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   if (res) {
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
@@ -2311,7 +2215,7 @@ async function verifyMessage(req, res) {
   if (zelcashaddress && signature && message) {
     rpcparameters = [zelcashaddress, signature, message];
   }
-  response = await executeCall(rpccall, rpcparameters);
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -2338,7 +2242,7 @@ async function verifyMessagePost(req, res) {
     if (zelcashaddress && signature && message) {
       rpcparameters = [zelcashaddress, signature, message];
     }
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
     return res.json(response);
   });
@@ -2359,7 +2263,7 @@ async function zValidateAddress(req, res) {
   if (zaddr) {
     rpcparameters = [zaddr];
   }
-  response = await executeCall(rpccall, rpcparameters);
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -2379,7 +2283,7 @@ async function addMultiSigAddress(req, res) {
       keysobject = serviceHelper.ensureObject(keysobject);
       rpcparameters = [n, keysobject];
     }
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -2405,7 +2309,7 @@ async function addMultiSigAddressPost(req, res) {
         keysobject = serviceHelper.ensureObject(keysobject);
         rpcparameters = [n, keysobject];
       }
-      response = await executeCall(rpccall, rpcparameters);
+      response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
     } else {
       response = messageHelper.errUnauthorizedMessage();
     }
@@ -2424,7 +2328,7 @@ async function backupWallet(req, res) {
     if (destination) {
       rpcparameters = [destination];
     }
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -2442,7 +2346,7 @@ async function dumpPrivKey(req, res) {
     if (taddr) {
       rpcparameters = [taddr];
     }
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -2461,7 +2365,7 @@ async function getBalance(req, res) {
     minconf = serviceHelper.ensureNumber(minconf);
     includewatchonly = serviceHelper.ensureBoolean(includewatchonly);
     const rpcparameters = ['', minconf, includewatchonly];
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -2473,7 +2377,7 @@ async function getNewAddress(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'getNewAddress';
-    response = await executeCall(rpccall);
+    response = await daemonServiceUtils.executeCall(rpccall);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -2485,7 +2389,7 @@ async function getRawChangeAddress(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'getRawChangeAddress';
-    response = await executeCall(rpccall);
+    response = await daemonServiceUtils.executeCall(rpccall);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -2506,7 +2410,7 @@ async function getReceivedByAddress(req, res) {
       minconf = serviceHelper.ensureNumber(minconf);
       rpcparameters = [zelcashaddress, minconf];
     }
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -2526,7 +2430,7 @@ async function getTransaction(req, res) {
     includewatchonly = serviceHelper.ensureBoolean(includewatchonly);
     rpcparameters = [txid, includewatchonly];
   }
-  response = await executeCall(rpccall, rpcparameters);
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -2535,7 +2439,7 @@ async function getUnconfirmedBalance(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'getUnconfirmedBalance';
-    response = await executeCall(rpccall);
+    response = await daemonServiceUtils.executeCall(rpccall);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -2547,7 +2451,7 @@ async function getWalletInfo(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'getWalletInfo';
-    response = await executeCall(rpccall);
+    response = await daemonServiceUtils.executeCall(rpccall);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -2570,7 +2474,7 @@ async function importAddress(req, res) {
       rescan = serviceHelper.ensureBoolean(rescan);
       rpcparameters = [address, label, rescan];
     }
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -2593,7 +2497,7 @@ async function importPrivKey(req, res) {
       rescan = serviceHelper.ensureBoolean(rescan);
       rpcparameters = [zelcashprivkey, label, rescan];
     }
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -2611,7 +2515,7 @@ async function importWallet(req, res) {
     if (filename) {
       rpcparameters = [filename];
     }
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -2627,7 +2531,7 @@ async function keyPoolRefill(req, res) {
     const rpccall = 'keyPoolRefill';
     newsize = serviceHelper.ensureNumber(newsize);
     const rpcparameters = [newsize];
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -2639,7 +2543,7 @@ async function listAddressGroupings(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'listAddressGroupings';
-    response = await executeCall(rpccall);
+    response = await daemonServiceUtils.executeCall(rpccall);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -2651,7 +2555,7 @@ async function listLockUnspent(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'listLockUnspent';
-    response = await executeCall(rpccall);
+    response = await daemonServiceUtils.executeCall(rpccall);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -2667,7 +2571,7 @@ async function rescanBlockchain(req, res) {
     startheight = serviceHelper.ensureNumber(startheight);
     const rpccall = 'rescanblockchain';
     const rpcparameters = [startheight];
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -2689,7 +2593,7 @@ async function listReceivedByAddress(req, res) {
     includewatchonly = serviceHelper.ensureBoolean(includewatchonly);
     const rpccall = 'listReceivedByAddress';
     const rpcparameters = [minconf, includeempty, includewatchonly];
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -2710,7 +2614,7 @@ async function listSinceBlock(req, res) {
     includewatchonly = serviceHelper.ensureBoolean(includewatchonly);
     const rpccall = 'listSinceBlock';
     const rpcparameters = [blockhash, targetconfirmations, includewatchonly];
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -2733,7 +2637,7 @@ async function listTransactions(req, res) {
     includewatchonly = serviceHelper.ensureBoolean(includewatchonly);
     const rpccall = 'listTransactions';
     const rpcparameters = [account, count, from, includewatchonly];
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -2759,7 +2663,7 @@ async function listUnspent(req, res) {
       rpcparameters.push(addresses);
     }
 
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -2782,7 +2686,7 @@ async function lockUnspent(req, res) {
       rpcparameters = [unlock, transactions];
     }
 
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -2812,7 +2716,7 @@ async function sendFrom(req, res) {
       rpcparameters = [account, tozelcashaddress, amount, minconf, comment, commentto];
     }
 
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -2846,7 +2750,7 @@ async function sendFromPost(req, res) {
         rpcparameters = [account, tozelcashaddress, amount, minconf, comment, commentto];
       }
 
-      response = await executeCall(rpccall, rpcparameters);
+      response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
     } else {
       response = messageHelper.errUnauthorizedMessage();
     }
@@ -2879,7 +2783,7 @@ async function sendMany(req, res) {
       }
     }
 
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -2915,7 +2819,7 @@ async function sendManyPost(req, res) {
         }
       }
 
-      response = await executeCall(rpccall, rpcparameters);
+      response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
     } else {
       response = messageHelper.errUnauthorizedMessage();
     }
@@ -2945,7 +2849,7 @@ async function sendToAddress(req, res) {
       rpcparameters = [zelcashaddress, amount, comment, commentto, substractfeefromamount];
     }
 
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -2978,7 +2882,7 @@ async function sendToAddressPost(req, res) {
         rpcparameters = [zelcashaddress, amount, comment, commentto, substractfeefromamount];
       }
 
-      response = await executeCall(rpccall, rpcparameters);
+      response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
     } else {
       response = messageHelper.errUnauthorizedMessage();
     }
@@ -2999,7 +2903,7 @@ async function setTxFee(req, res) {
       rpcparameters = [amount];
     }
 
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -3020,7 +2924,7 @@ async function signMessage(req, res) {
       rpcparameters = [taddr, message];
     }
 
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -3046,7 +2950,7 @@ async function signMessagePost(req, res) {
         rpcparameters = [taddr, message];
       }
 
-      response = await executeCall(rpccall, rpcparameters);
+      response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
     } else {
       response = messageHelper.errUnauthorizedMessage();
     }
@@ -3066,7 +2970,7 @@ async function zExportKey(req, res) {
       rpcparameters = [zaddr];
     }
 
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -3085,7 +2989,7 @@ async function zExportViewingKey(req, res) {
       rpcparameters = [zaddr];
     }
 
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -3107,7 +3011,7 @@ async function zGetBalance(req, res) {
       rpcparameters = [address, minconf];
     }
 
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -3120,7 +3024,7 @@ async function zGetMigrationStatus(req, res) {
   if (authorized === true) {
     const rpccall = 'z_getmigrationstatus';
 
-    response = await executeCall(rpccall);
+    response = await daemonServiceUtils.executeCall(rpccall);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -3136,7 +3040,7 @@ async function zGetNewAddress(req, res) {
     const rpccall = 'z_getnewaddress';
     const rpcparameters = [type];
 
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -3153,7 +3057,7 @@ async function zGetOperationResult(req, res) {
     const rpccall = 'z_getoperationresult';
     const rpcparameters = [operationid];
 
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -3170,7 +3074,7 @@ async function zGetOperationStatus(req, res) {
     const rpccall = 'z_getoperationstatus';
     const rpcparameters = [operationid];
 
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -3190,7 +3094,7 @@ async function zGetTotalBalance(req, res) {
     const rpccall = 'z_gettotalbalance';
     const rpcparameters = [minconf, includewatchonly];
 
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -3214,7 +3118,7 @@ async function zImportKey(req, res) {
       rpcparameters = [zkey, rescan, startheight];
     }
 
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -3238,7 +3142,7 @@ async function zImportViewingKey(req, res) {
       rpcparameters = [vkey, rescan, startheight];
     }
 
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -3257,7 +3161,7 @@ async function zImportWallet(req, res) {
       rpcparameters = [filename];
     }
 
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -3274,7 +3178,7 @@ async function zListAddresses(req, res) {
     const rpccall = 'z_listaddresses';
     const rpcparameters = [includewatchonly];
 
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -3287,7 +3191,7 @@ async function zListOperationIds(req, res) {
   if (authorized === true) {
     const rpccall = 'z_listoperationids';
 
-    response = await executeCall(rpccall);
+    response = await daemonServiceUtils.executeCall(rpccall);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -3309,7 +3213,7 @@ async function zListReceivedByAddress(req, res) {
       rpcparameters = [address, minconf];
     }
 
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -3338,7 +3242,7 @@ async function zListUnspent(req, res) {
       rpcparameters.push(addresses);
     }
 
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -3370,7 +3274,7 @@ async function zMergeToAddress(req, res) {
       shieldedlimit = serviceHelper.ensureNumber(shieldedlimit);
       rpcparameters = [fromaddresses, toaddress, fee, transparentlimit, shieldedlimit, memo];
     }
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -3397,7 +3301,7 @@ async function zSendMany(req, res) {
       fee = serviceHelper.ensureNumber(fee);
       rpcparameters = [fromaddress, amounts, minconf, fee];
     }
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -3428,7 +3332,7 @@ async function zSendManyPost(req, res) {
         fee = serviceHelper.ensureNumber(fee);
         rpcparameters = [fromaddress, amounts, minconf, fee];
       }
-      response = await executeCall(rpccall, rpcparameters);
+      response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
     } else {
       response = messageHelper.errUnauthorizedMessage();
     }
@@ -3448,7 +3352,7 @@ async function zSetMigration(req, res) {
       enabled = serviceHelper.ensureBoolean(enabled);
       rpcparameters = [enabled];
     }
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -3474,7 +3378,7 @@ async function zShieldCoinBase(req, res) {
       limit = serviceHelper.ensureNumber(limit);
       rpcparameters = [fromaddress, toaddress, fee, limit];
     }
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -3495,7 +3399,7 @@ async function zcBenchmark(req, res) {
       samplecount = serviceHelper.ensureNumber(samplecount);
       rpcparameters = [benchmarktype, samplecount];
     }
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -3523,7 +3427,7 @@ async function zcRawJoinSplit(req, res) {
       outputs = serviceHelper.ensureObject(outputs);
       rpcparameters = [rawtx, inputs, outputs, vpubold, vpubnew];
     }
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -3553,7 +3457,7 @@ async function zcRawJoinSplitPost(req, res) {
         outputs = serviceHelper.ensureObject(outputs);
         rpcparameters = [rawtx, inputs, outputs, vpubold, vpubnew];
       }
-      response = await executeCall(rpccall, rpcparameters);
+      response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
     } else {
       response = messageHelper.errUnauthorizedMessage();
     }
@@ -3566,7 +3470,7 @@ async function zcRawKeygen(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'zcrawkeygen';
-    response = await executeCall(rpccall);
+    response = await daemonServiceUtils.executeCall(rpccall);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -3586,7 +3490,7 @@ async function zcRawReceive(req, res) {
     if (zcsecretkey && encryptednote) {
       rpcparameters = [zcsecretkey, encryptednote];
     }
-    response = await executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -3611,7 +3515,7 @@ async function zcRawReceivePost(req, res) {
       if (zcsecretkey && encryptednote) {
         rpcparameters = [zcsecretkey, encryptednote];
       }
-      response = await executeCall(rpccall, rpcparameters);
+      response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
     } else {
       response = messageHelper.errUnauthorizedMessage();
     }
@@ -3624,7 +3528,7 @@ async function zcSampleJoinSplit(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
     const rpccall = 'zcsamplejoinsplit';
-    response = await executeCall(rpccall);
+    response = await daemonServiceUtils.executeCall(rpccall);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -3635,7 +3539,7 @@ async function zcSampleJoinSplit(req, res) {
 async function createConfirmationTransaction(req, res) {
   const rpccall = 'createconfirmationtransaction';
 
-  response = await executeCall(rpccall);
+  response = await daemonServiceUtils.executeCall(rpccall);
 
   return res ? res.json(response) : response;
 }
@@ -3650,7 +3554,7 @@ async function createConfirmationTransaction(req, res) {
 async function getBenchmarks(req, res) {
   const rpccall = 'getbenchmarks';
 
-  response = await executeCall(rpccall);
+  response = await daemonServiceUtils.executeCall(rpccall);
 
   return res ? res.json(response) : response;
 }
@@ -3664,7 +3568,7 @@ async function getBenchmarks(req, res) {
 async function getBenchStatus(req, res) {
   const rpccall = 'getbenchstatus';
 
-  response = await executeCall(rpccall);
+  response = await daemonServiceUtils.executeCall(rpccall);
 
   return res ? res.json(response) : response;
 }
@@ -3679,7 +3583,7 @@ async function startBenchmarkD(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
     const rpccall = 'startzelbenchd';
-    response = await executeCall(rpccall);
+    response = await daemonServiceUtils.executeCall(rpccall);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -3697,7 +3601,7 @@ async function stopBenchmarkD(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
     const rpccall = 'stopzelbenchd';
-    response = await executeCall(rpccall);
+    response = await daemonServiceUtils.executeCall(rpccall);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
