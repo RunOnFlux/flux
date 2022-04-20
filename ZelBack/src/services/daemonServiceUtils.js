@@ -34,7 +34,6 @@ let daemonCallRunning = false;
  * @returns {object} Message.
  */
 async function executeCall(rpc, params) {
-  let callResponse;
   const rpcparameters = params || [];
   try {
     let data;
@@ -86,13 +85,11 @@ async function executeCall(rpc, params) {
       daemonCallRunning = false;
     }
     const successResponse = messageHelper.createDataMessage(data);
-    callResponse = successResponse;
+    return successResponse;
   } catch (error) {
     const daemonError = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    callResponse = daemonError;
+    return daemonError;
   }
-
-  return callResponse;
 }
 
 /**

@@ -6,7 +6,7 @@ const client = require('../../ZelBack/src/services/utils/daemonrpcClient').defau
 
 const { expect } = chai;
 
-describe.only('daemonServiceUtils tests', () => {
+describe('daemonServiceUtils tests', () => {
   describe('executeCall tests', () => {
     let getSpy;
     beforeEach(() => {
@@ -52,7 +52,7 @@ describe.only('daemonServiceUtils tests', () => {
     });
 
     it('should return data from cache if it exists', async () => {
-      const rpc = 'testing';
+      const rpc = 'getInfo';
       const params = ['testing3', 'testing4'];
       const key = rpc + JSON.stringify(params);
       const data = 'testvalue';
@@ -85,6 +85,62 @@ describe.only('daemonServiceUtils tests', () => {
       sinon.assert.calledOnceWithExactly(getSpy, key);
       sinon.assert.calledOnceWithExactly(daemonRpcClientStub, ...params);
       expect(daemonServiceUtils.getBlockCache(key)).to.eql(data);
+    });
+
+    it('should call rpc client if getRawTransaction data is not cached ', async () => {
+      const rpc = 'getRawTransaction';
+      const params = ['getRawTransactionParam'];
+      const key = rpc + JSON.stringify(params);
+      const data = 'testvalue';
+      const expectedSuccessMessage = {
+        status: 'success',
+        data,
+      };
+      const daemonRpcClientStub = sinon.stub(client, rpc).returns(data);
+
+      const result = await daemonServiceUtils.executeCall(rpc, params);
+
+      expect(result).to.eql(expectedSuccessMessage);
+      sinon.assert.calledOnceWithExactly(getSpy, key);
+      sinon.assert.calledOnceWithExactly(daemonRpcClientStub, ...params);
+      expect(daemonServiceUtils.getRawTxCacheCache(key)).to.eql(data);
+    });
+
+    it('should call rpc client if any other rpc call data is not cached ', async () => {
+      const rpc = 'getInfo';
+      const params = ['testingcallParam'];
+      const key = rpc + JSON.stringify(params);
+      const data = 'testvalue';
+      const expectedSuccessMessage = {
+        status: 'success',
+        data,
+      };
+      const daemonRpcClientStub = sinon.stub(client, rpc).returns(data);
+
+      const result = await daemonServiceUtils.executeCall(rpc, params);
+
+      expect(result).to.eql(expectedSuccessMessage);
+      sinon.assert.calledOnceWithExactly(getSpy, key);
+      sinon.assert.calledOnceWithExactly(daemonRpcClientStub, ...params);
+      expect(daemonServiceUtils.getStandardCache(key)).to.eql(data);
+    });
+
+    it('should return an error message if rpc call throws an error', async () => {
+      const rpc = 'getInfo';
+      const params = ['someParameterGetinfo'];
+      const expectedErrorMessage = {
+        status: 'error',
+        data: {
+          code: undefined,
+          message: 'Error',
+          name: 'Error',
+        },
+      };
+      sinon.stub(client, rpc).throws();
+
+      const result = await daemonServiceUtils.executeCall(rpc, params);
+
+      expect(result).to.eql(expectedErrorMessage);
     });
   });
 });
