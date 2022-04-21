@@ -1,4 +1,5 @@
 const cmd = require('node-cmd');
+const axios = require('axios');
 const path = require('path');
 const config = require('config');
 const fullnode = require('fullnode');
@@ -18,6 +19,9 @@ const appsService = require('./appsService');
 const generalService = require('./generalService');
 const fluxCommunication = require('./fluxCommunication');
 const userconfig = require('../../../config/userconfig');
+
+let storedGeolocation = null;
+let storedIp = null;
 
 /**
  * To show the directory on the node machine where FluxOS files are stored.
@@ -982,6 +986,72 @@ async function InstallFluxWatchTower() {
   }
 }
 
+/**
+ * Method responsable for setting node geolocation information
+ */
+async function setNodeGeolocation() {
+  try {
+    const myIP = await fluxCommunication.getMyFluxIPandPort();
+    if (myIP) {
+      if (storedGeolocation && myIP === storedIp) {
+        setTimeout(() => { // executes again in 12h
+          setNodeGeolocation();
+        }, 12 * 60 * 60 * 1000);
+        return;
+      }
+      storedIp = myIP;
+      const { CancelToken } = axios;
+      const source = CancelToken.source();
+      let isResolved = false;
+      setTimeout(() => {
+        if (!isResolved) {
+          source.cancel('Operation canceled by the user.');
+        }
+      }, 10 * 1000);
+      const ipApiUrl = `http://ip-api.com/json/${myIP.split(':')[0]}?fields=status,continent,continentCode,country,countryCode,region,regionName,lat,lon,query,org`;
+      const ipRes = await axios.get(ipApiUrl);
+      isResolved = true;
+      if (ipRes.data.status === 'success') {
+        storedGeolocation = {
+          ip: ipRes.data.query,
+          continent: ipRes.data.continent,
+          continentCode: ipRes.data.continentCode,
+          country: ipRes.data.country,
+          countryCode: ipRes.data.countryCode,
+          region: ipRes.data.region,
+          regionName: ipRes.data.regionName,
+          lat: ipRes.data.lat,
+          lon: ipRes.data.lon,
+          org: ipRes.data.org,
+        };
+        log.warn(`Geolocation of Node ${myIP} is ${storedGeolocation.stringify()}`);
+        setTimeout(() => { // executes again in 12h
+          setNodeGeolocation();
+        }, 12 * 60 * 60 * 1000);
+        return;
+      }
+      log.warn(`Geolocation of IP ${myIP} is unavailable`);
+      setTimeout(() => { // waits two minutes and trys again
+        setNodeGeolocation();
+      }, 2 * 60 * 1000);
+      return;
+    }
+    throw new Error('Flux IP not detected. Flux discovery is awaiting.');
+  } catch (e) {
+    log.error(`Failed to get Geolocation of Node error ${e}`);
+    setTimeout(() => { // waits two minutes and trys again
+      setNodeGeolocation();
+    }, 2 * 60 * 1000);
+  }
+}
+
+/**
+ * Method responsable for getting stored node geolocation information
+ */
+function getNodeGeolocation() {
+  return storedGeolocation;
+}
+
 module.exports = {
   startDaemon,
   updateFlux,
@@ -1019,4 +1089,6 @@ module.exports = {
   fluxBackendFolder,
   getNodeTier,
   InstallFluxWatchTower,
+  setNodeGeolocation,
+  getNodeGeolocation,
 };

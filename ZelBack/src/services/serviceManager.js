@@ -99,6 +99,10 @@ async function startFluxFunctions() {
     setTimeout(() => {
       appsService.stopAllNonFluxRunningApps();
     }, 1 * 60 * 1000);
+    setTimeout(() => {
+      log.info('Starting setting Node Geolocation');
+      fluxService.setNodeGeolocation();
+    }, 2 * 60 * 1000);
   } catch (e) {
     log.error(e);
     setTimeout(() => {
