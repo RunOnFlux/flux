@@ -7,6 +7,7 @@ const dbHelper = require('./dbHelper');
 const verificationHelper = require('./verificationHelper');
 const messageHelper = require('./messageHelper');
 const daemonService = require('./daemonService');
+const daemonServiceAddressRpcs = require('./daemonServiceAddressRpcs');
 const appsService = require('./appsService');
 
 const coinbaseFusionIndexCollection = config.database.daemon.collections.coinbaseFusionIndex; // fusion
@@ -1109,7 +1110,7 @@ async function getAddressUtxos(req, res) {
         },
         query: {},
       };
-      const insightResult = await daemonService.getSingleAddressUtxos(daemonRequest);
+      const insightResult = await daemonServiceAddressRpcs.getSingleAddressUtxos(daemonRequest);
       const syncStatus = daemonService.isDaemonSynced();
       const curHeight = syncStatus.data.height;
       const utxos = [];
@@ -1268,7 +1269,7 @@ async function getAddressTransactions(req, res) {
         },
         query: {},
       };
-      const insightResult = await daemonService.getSingleAddresssTxids(daemonRequest);
+      const insightResult = await daemonServiceAddressRpcs.getSingleAddresssTxids(daemonRequest);
       const txids = insightResult.data.reverse();
       const txidsOK = [];
       txids.forEach((txid) => {
@@ -1531,7 +1532,7 @@ async function getAddressBalance(req, res) {
         },
         query: {},
       };
-      const insightResult = await daemonService.getSingleAddressBalance(daemonRequest);
+      const insightResult = await daemonServiceAddressRpcs.getSingleAddressBalance(daemonRequest);
       const { balance } = insightResult.data;
       const resMessage = messageHelper.createDataMessage(balance);
       res.json(resMessage);

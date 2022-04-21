@@ -1,6 +1,7 @@
 const apicache = require('apicache');
 
 const daemonService = require('./services/daemonService');
+const daemonServiceAddressRpcs = require('./services/daemonServiceAddressRpcs');
 const benchmarkService = require('./services/benchmarkService');
 const idService = require('./services/idService');
 const fluxService = require('./services/fluxService');
@@ -599,19 +600,19 @@ module.exports = (app, expressWs) => {
     daemonService.zcSampleJoinSplit(req, res);
   });
   app.get('/daemon/getaddresstxids/:address?/:start?/:end?', (req, res) => {
-    daemonService.getSingleAddresssTxids(req, res);
+    daemonServiceAddressRpcs.getSingleAddresssTxids(req, res);
   });
   app.get('/daemon/getaddressbalance/:address?', (req, res) => {
-    daemonService.getSingleAddressBalance(req, res);
+    daemonServiceAddressRpcs.getSingleAddressBalance(req, res);
   });
   app.get('/daemon/getaddressdeltas/:address?/:start?/:end?/:chaininfo?', (req, res) => {
-    daemonService.getSingleAddressDeltas(req, res);
+    daemonServiceAddressRpcs.getSingleAddressDeltas(req, res);
   });
   app.get('/daemon/getaddressutxos/:address?/:chaininfo?', (req, res) => {
-    daemonService.getSingleAddressUtxos(req, res);
+    daemonServiceAddressRpcs.getSingleAddressUtxos(req, res);
   });
   app.get('/daemon/getaddressmempool/:address?', (req, res) => {
-    daemonService.getSingleAddressMempool(req, res);
+    daemonServiceAddressRpcs.getSingleAddressMempool(req, res);
   });
 
   app.get('/id/loggedusers', (req, res) => {
@@ -912,19 +913,19 @@ module.exports = (app, expressWs) => {
     daemonService.getSpentInfoPost(req, res);
   });
   app.post('/daemon/getaddresstxids', (req, res) => {
-    daemonService.getAddressTxids(req, res);
+    daemonServiceAddressRpcs.getAddressTxids(req, res);
   });
   app.post('/daemon/getaddressbalance', (req, res) => {
-    daemonService.getAddressBalance(req, res);
+    daemonServiceAddressRpcs.getAddressBalance(req, res);
   });
   app.post('/daemon/getaddressdeltas', (req, res) => {
-    daemonService.getAddressDeltas(req, res);
+    daemonServiceAddressRpcs.getAddressDeltas(req, res);
   });
   app.post('/daemon/getaddressutxos', (req, res) => {
-    daemonService.getAddressUtxos(req, res);
+    daemonServiceAddressRpcs.getAddressUtxos(req, res);
   });
   app.post('/daemon/getaddressmempool', (req, res) => {
-    daemonService.getAddressMempool(req, res);
+    daemonServiceAddressRpcs.getAddressMempool(req, res);
   });
 
   // POST PROTECTED API - USER LEVEL
