@@ -74,6 +74,45 @@
                 placeholder="ZelID of Application Owner"
               />
             </b-form-group>
+            <b-form-group
+              label-cols="2"
+              label-cols-lg="1"
+              label="Contacts"
+              label-for="contacts"
+            >
+              <b-form-input
+                id="contacs"
+                v-model="appRegistrationSpecification.contacts"
+                placeholder="Array of strings of Emails contacts to get app information"
+              />
+            </b-form-group>
+            <b-form-group
+              label-cols="2"
+              label-cols-lg="1"
+              label="Continent"
+              label-for="Continent"
+            >
+              <b-form-select
+                id="continent"
+                v-model="selectedContinent"
+                :options="continentsOptions"
+                @change="continentChanged"
+              />
+            </b-form-group>
+            <b-form-group
+              v-if="selectedContinent"
+              label-cols="2"
+              label-cols-lg="1"
+              label="Country"
+              label-for="Country"
+            >
+              <b-form-select
+                id="country"
+                v-model="selectedCountry"
+                :options="countriesOptions.filter((x)=> x.continentCode === selectedContinent.continentCode)"
+                @change="countryChanged"
+              />
+            </b-form-group>
             <br>
             <b-form-group
               v-if="appRegistrationSpecification.version >= 3"
@@ -295,6 +334,7 @@
                     v-model="component.tiered"
                     switch
                     class="custom-control-primary inline"
+                    :disabled="selectedContinent != null"
                   />
                 </h6>
               </b-card-title>
@@ -1003,6 +1043,7 @@ import {
   BFormCheckbox,
   BFormGroup,
   BFormInput,
+  BFormSelect,
   BFormTextarea,
   BLink,
   VBTooltip,
@@ -1028,6 +1069,7 @@ export default {
     BFormCheckbox,
     BFormGroup,
     BFormInput,
+    BFormSelect,
     BFormTextarea,
     BLink,
     // eslint-disable-next-line vue/no-unused-components
@@ -1110,6 +1152,42 @@ export default {
           },
         ],
       },
+      appRegistrationSpecificationv5template: {
+        version: 5,
+        name: '',
+        description: '',
+        owner: '',
+        instances: 3,
+        continent: null,
+        country: null,
+        contacts: '[]',
+        compose: [
+          {
+            name: '',
+            description: '',
+            repotag: '',
+            ports: '[]',
+            domains: '[]',
+            environmentParameters: '[]',
+            commands: '[]',
+            containerPorts: '[]',
+            containerData: '',
+            cpu: 0.5,
+            ram: 2000,
+            hdd: 40,
+            tiered: false,
+            cpubasic: 0.5,
+            rambasic: 500,
+            hddbasic: 10,
+            cpusuper: 1.5,
+            ramsuper: 2500,
+            hddsuper: 60,
+            cpubamf: 3.5,
+            rambamf: 14000,
+            hddbamf: 285,
+          },
+        ],
+      },
       composeTemplate: {
         name: '',
         description: '',
@@ -1139,6 +1217,83 @@ export default {
       deploymentAddress: '',
       minInstances: 3,
       maxInstances: 100,
+      continentsOptions: [{
+        value: null, text: 'All',
+      },
+      {
+        value: { continentCode: 'AS', nodeTier: 'Cumulus', maxInstances: 5 }, text: 'Asia',
+      },
+      {
+        value: { continentCode: 'EU', nodeTier: 'Stratus', maxInstances: 20 }, text: 'Europe',
+      },
+      {
+        value: { continentCode: 'NA', nodeTier: 'Stratus', maxInstances: 20 }, text: 'North America',
+      },
+      {
+        value: { continentCode: 'OC', nodeTier: 'Cumulus', maxInstances: 3 }, text: 'Oceania',
+      }],
+      countriesOptions: [{
+        value: null, text: 'All', continentCode: 'AS',
+      },
+      {
+        value: { countryCode: 'SG', nodeTier: 'Cumulus', maxInstances: 3 }, continentCode: 'AS', text: 'Singapore',
+      },
+      {
+        value: { countryCode: 'TW', nodeTier: 'Cumulus', maxInstances: 3 }, continentCode: 'AS', text: 'Taiwan',
+      },
+      {
+        value: { countryCode: 'TH', nodeTier: 'Cumulus', maxInstances: 5 }, continentCode: 'AS', text: 'Thailand',
+      },
+      {
+        value: null, text: 'All', continentCode: 'EU',
+      },
+      {
+        value: { countryCode: 'BE', nodeTier: 'Cumulus', maxInstances: 3 }, continentCode: 'EU', text: 'Belgium',
+      },
+      {
+        value: { countryCode: 'CZ', nodeTier: 'Cumulus', maxInstances: 3 }, continentCode: 'EU', text: 'Czechia',
+      },
+      {
+        value: { countryCode: 'FI', nodeTier: 'Stratus', maxInstances: 10 }, continentCode: 'EU', text: 'Finland',
+      },
+      {
+        value: { countryCode: 'FR', nodeTier: 'Stratus', maxInstances: 5 }, continentCode: 'EU', text: 'France',
+      },
+      {
+        value: { countryCode: 'DE', nodeTier: 'Stratus', maxInstances: 15 }, continentCode: 'EU', text: 'Germany',
+      },
+      {
+        value: { countryCode: 'LT', nodeTier: 'Cumulus', maxInstances: 5 }, continentCode: 'EU', text: 'Lithuania',
+      },
+      {
+        value: { countryCode: 'NL', nodeTier: 'Cumulus', maxInstances: 3 }, continentCode: 'EU', text: 'Netherlands',
+      },
+      {
+        value: { countryCode: 'PL', nodeTier: 'Stratus', maxInstances: 10 }, continentCode: 'EU', text: 'Poland',
+      },
+      {
+        value: { countryCode: 'RU', nodeTier: 'Nimbus', maxInstances: 5 }, continentCode: 'EU', text: 'Russia',
+      },
+      {
+        value: { countryCode: 'SI', nodeTier: 'Stratus', maxInstances: 3 }, continentCode: 'EU', text: 'Slovenia',
+      },
+      {
+        value: { countryCode: 'ES', nodeTier: 'Cumulus', maxInstances: 3 }, continentCode: 'EU', text: 'Spain',
+      },
+      {
+        value: { countryCode: 'GB', nodeTier: 'Stratus', maxInstances: 3 }, continentCode: 'EU', text: 'United Kingdom',
+      },
+      {
+        value: null, text: 'All', continentCode: 'NA',
+      },
+      {
+        value: { countryCode: 'US', nodeTier: 'Stratus', maxInstances: 10 }, continentCode: 'NA', text: 'United States',
+      },
+      {
+        value: { countryCode: 'CA', nodeTier: 'Stratus', maxInstances: 10 }, continentCode: 'NA', text: 'Canada',
+      }],
+      selectedContinent: null,
+      selectedCountry: null,
     };
   },
   computed: {
@@ -1197,8 +1352,8 @@ export default {
       deep: true,
     },
   },
-  beforeMount() {
-    this.appRegistrationSpecification = this.appRegistrationSpecificationv4template;
+  beforeMount() { // TODO - revert to v4
+    this.appRegistrationSpecification = this.appRegistrationSpecificationv5template;
   },
   mounted() {
     this.getDaemonInfo();
@@ -1245,9 +1400,17 @@ export default {
         this.appRegistrationSpecification = this.appRegistrationSpecificationv3template;
         const ports = this.getRandomPort();
         this.appRegistrationSpecification.ports = ports;
-      } else {
+      } else if (this.currentHeight < 1110000) { // TODO - define fork height for spec v5
         this.specificationVersion = 4;
-        this.appRegistrationSpecification = this.appRegistrationSpecificationv4template;
+        this.appRegistrationSpecification = this.appRegistrationSpecificationv5template; // TODO - revert to v4
+        this.appRegistrationSpecification.compose.forEach((component) => {
+          const ports = this.getRandomPort();
+          // eslint-disable-next-line no-param-reassign
+          component.ports = ports;
+        });
+      } else {
+        this.specificationVersion = 5;
+        this.appRegistrationSpecification = this.appRegistrationSpecificationv5template;
         this.appRegistrationSpecification.compose.forEach((component) => {
           const ports = this.getRandomPort();
           // eslint-disable-next-line no-param-reassign
@@ -1403,6 +1566,14 @@ export default {
           variant,
         },
       });
+    },
+
+    continentChanged() { // TODO
+      this.selectedCountry = null;
+    },
+
+    countryChanged() { // TODO
+
     },
   },
 };
