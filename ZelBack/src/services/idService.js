@@ -261,6 +261,7 @@ async function verifyLogin(req, res) {
             const newLogin = {
               zelid: address,
               loginPhrase: message,
+              signature,
               createdAt,
               expireAt,
             };
@@ -285,6 +286,17 @@ async function verifyLogin(req, res) {
             const resMessage = messageHelper.createDataMessage(resData);
             res.json(resMessage);
             serviceHelper.deleteLoginPhrase(message); // delete so it cannot be used again
+            setTimeout(async () => {
+              // after 1 minute remove signature from database
+              const updatedDocument = {
+                signature: '',
+              };
+              const update = { $unset: updatedDocument };
+              const options = {
+                upsert: false,
+              };
+              await serviceHelper.updateOneInDatabase(database, loggedUsersCollection, query, update, options);
+            }, 60000);
           } else {
             throw new Error('Invalid signature');
           }
@@ -647,7 +659,7 @@ async function wsRespondLoginPhrase(ws, req) {
           message: 'Successfully logged in',
           zelid: result.zelid,
           loginPhrase: result.loginPhrase,
-          signature: result.signature,
+          signature: result.signature, // THIS IS NOW UNDEFINED
           privilage,
           createdAt: result.createdAt,
           expireAt: result.expireAt,
@@ -775,7 +787,7 @@ async function checkLoggedUser(req, res) {
       if (!zelid) {
         throw new Error('No user ZelID specificed');
       }
-      if (!zelid) {
+      if (!loggedPhrase) {
         throw new Error('No user loginPhrase specificed');
       }
       if (!signature) {
