@@ -227,7 +227,7 @@ async function verifyLogin(req, res) {
         throw new Error('Signed message is not valid');
       }
 
-      if (message.substring(0, 13) < (timestamp - 900000) || message.substring(0, 13) > timestamp) {
+      if (+message.substring(0, 13) < (timestamp - 900000) || +message.substring(0, 13) > timestamp) {
         throw new Error('Signed message is not valid');
       }
 
@@ -245,7 +245,7 @@ async function verifyLogin(req, res) {
 
       if (result) {
         // It is present in our database
-        if (result.loginPhrase.substring(0, 13) < timestamp) {
+        if (+result.loginPhrase.substring(0, 13) < timestamp) {
           // Second verify that this address signed this message
           let valid = false;
           try {
@@ -255,7 +255,7 @@ async function verifyLogin(req, res) {
           }
           if (valid) {
             // Third associate address with message in our database
-            const createdAt = new Date(result.loginPhrase.substring(0, 13));
+            const createdAt = new Date(+result.loginPhrase.substring(0, 13));
             const validTill = +result.loginPhrase.substring(0, 13) + (14 * 24 * 60 * 60 * 1000); // valid for 14 days
             const expireAt = new Date(validTill);
             const newLogin = {
@@ -295,7 +295,7 @@ async function verifyLogin(req, res) {
               const options = {
                 upsert: false,
               };
-              await serviceHelper.updateOneInDatabase(database, loggedUsersCollection, query, update, options);
+              await dbHelper.updateOneInDatabase(database, loggedUsersCollection, query, update, options);
             }, 60000);
           } else {
             throw new Error('Invalid signature');
@@ -659,7 +659,7 @@ async function wsRespondLoginPhrase(ws, req) {
           message: 'Successfully logged in',
           zelid: result.zelid,
           loginPhrase: result.loginPhrase,
-          signature: result.signature, // THIS IS NOW UNDEFINED
+          signature: result.signature,
           privilage,
           createdAt: result.createdAt,
           expireAt: result.expireAt,
