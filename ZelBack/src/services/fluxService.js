@@ -752,6 +752,7 @@ async function getFluxInfo(req, res) {
       benchmark: {},
       flux: {},
       apps: {},
+      geolocation: storedGeolocation,
     };
     const versionRes = await getFluxVersion();
     if (versionRes.status === 'error') {
