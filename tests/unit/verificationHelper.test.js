@@ -13,7 +13,8 @@ const req = {
   headers: {
     zelidauth: {
       zelid: 'testing1',
-      signature: 'testing2',
+      loginPhrase: 'testing2',
+      signature: 'testing3',
     },
   },
 };
