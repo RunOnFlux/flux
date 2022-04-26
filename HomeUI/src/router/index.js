@@ -77,7 +77,7 @@ router.beforeEach(async (to, from, next) => {
   const zelidauth = localStorage.getItem('zelidauth');
   const auth = qs.parse(zelidauth);
   store.commit('flux/setPrivilege', 'none');
-  if (auth && auth.zelid && auth.signature) {
+  if (auth && auth.zelid && auth.signature && auth.loginPhrase) {
     try {
       const response = await IDService.checkUserLogged(auth.zelid, auth.signature);
       const privilege = response.data.data.message;

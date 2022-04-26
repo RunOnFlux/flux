@@ -120,6 +120,7 @@ module.exports = {
     expireFluxAppsPeriod: 100, // every 100 blocks we run a check that deletes apps specifications and stops/removes the application from existence if it has been lastly updated more than 22k blocks ago
     updateFluxAppsPeriod: 9, // every 9 blocks we check for reinstalling of old application versions
     removeFluxAppsPeriod: 11, // every 11 blocks we check for more than maximum number of instances of an application
+    restorePortsSupportPeriod: 25, // every 25 blocks we try to setup ufw and upnp
   },
   lockedSystemResources: {
     cpu: 10, // 1 cpu core
@@ -133,9 +134,9 @@ module.exports = {
       stratus: 160, // 150 available for apps
     },
     ram: {
-      cumulus: 7500, // 5550 available for apps
-      nimbus: 15000, // 13000 available for apps
-      stratus: 62000, // available 60000 for apps
+      cumulus: 7000, // 5000 available for apps
+      nimbus: 30000, // 28000 available for apps
+      stratus: 61000, // available 59000 for apps
     },
     hdd: {
       cumulus: 220, // 180 for apps
