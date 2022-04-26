@@ -3,6 +3,7 @@ const { PassThrough } = require('stream');
 const { expect } = require('chai');
 const daemonServiceUtils = require('../../ZelBack/src/services/daemonServiceUtils');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const daemonServiceTransactionRpcs = require('../../ZelBack/src/services/daemonServiceTransactionRpcs');
 const client = require('../../ZelBack/src/services/utils/daemonrpcClient').default;
 
@@ -13,7 +14,7 @@ const generateResponse = () => {
   return res;
 };
 
-describe.only('daemonServiceTransactionRpcs tests', () => {
+describe('daemonServiceTransactionRpcs tests', () => {
   describe('createRawTransaction tests', () => {
     let daemonServiceUtilsStub;
     let clientStub;
@@ -765,6 +766,697 @@ describe.only('daemonServiceTransactionRpcs tests', () => {
       expect(result).to.eql('Response: NoParams');
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendRawTransaction', []);
       sinon.assert.calledOnceWithExactly(res.json, 'NoParams');
+    });
+  });
+
+  describe('fundRawTransactionPost tests', () => {
+    let daemonServiceUtilsStub;
+
+    beforeEach(() => {
+      daemonServiceUtilsStub = sinon.stub(daemonServiceUtils, 'executeCall');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should call decodeRawTransaction rpc', async () => {
+      daemonServiceUtilsStub.resolves('success');
+      const params = {
+        hexstring: '0x412368904412378BAF',
+        allowhighfees: true,
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(params));
+      mockStream.end();
+      const res = generateResponse();
+
+      await daemonServiceTransactionRpcs.sendRawTransactionPost(mockStream, res);
+
+      // await because of the async nature of the request processing
+      await serviceHelper.delay(150);
+
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendRawTransaction', [params.hexstring, params.allowhighfees]);
+      sinon.assert.calledOnceWithExactly(res.json, 'success');
+    });
+
+    it('should call decodeRawTransaction rpc - hallowhighfees not passed', async () => {
+      daemonServiceUtilsStub.resolves('success');
+      const params = {
+        hexstring: '0x412368904412378BAF',
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(params));
+      mockStream.end();
+      const res = generateResponse();
+
+      await daemonServiceTransactionRpcs.sendRawTransactionPost(mockStream, res);
+
+      // await because of the async nature of the request processing
+      await serviceHelper.delay(150);
+
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendRawTransaction', [params.hexstring, false]);
+      sinon.assert.calledOnceWithExactly(res.json, 'success');
+    });
+
+    it('should call rpc even without parameters', async () => {
+      daemonServiceUtilsStub.resolves('NoParamsGiven');
+      const params = {
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(params));
+      mockStream.end();
+      const res = generateResponse();
+
+      await daemonServiceTransactionRpcs.sendRawTransactionPost(mockStream, res);
+
+      // await because of the async nature of the request processing
+      await serviceHelper.delay(150);
+
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendRawTransaction', []);
+      sinon.assert.calledOnceWithExactly(res.json, 'NoParamsGiven');
+    });
+  });
+
+  describe('getRawTransaction tests', () => {
+    let daemonServiceUtilsStub;
+
+    beforeEach(() => {
+      daemonServiceUtilsStub = sinon.stub(daemonServiceUtils, 'executeCall');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should execute RPC if parameters are passed in params, no response passed', async () => {
+      const req = {
+        params: {
+          txid: '0x412368904412378BAF',
+          verbose: 1,
+        },
+      };
+      daemonServiceUtilsStub.returns('success');
+      const expectedParams = [req.params.txid, req.params.verbose];
+
+      const result = await daemonServiceTransactionRpcs.getRawTransaction(req);
+
+      expect(result).to.eql('success');
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getRawTransaction', expectedParams);
+    });
+
+    it('should execute RPC if parameters are passed in query, no verbose param, no response passed', async () => {
+      const req = {
+        params: {
+          test: 'test',
+        },
+        query: {
+          txid: '0x412368904412378BAF',
+        },
+      };
+      daemonServiceUtilsStub.returns('success');
+      const expectedParams = [req.query.txid, 0];
+
+      const result = await daemonServiceTransactionRpcs.getRawTransaction(req);
+
+      expect(result).to.eql('success');
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getRawTransaction', expectedParams);
+    });
+
+    it('should execute RPC if parameters are passed in query, response passed', async () => {
+      const req = {
+        params: {
+          test: 'test',
+        },
+        query: {
+          txid: '0x412368904412378BAF',
+          verbose: 1,
+        },
+      };
+      daemonServiceUtilsStub.returns('success');
+      const expectedParams = [req.query.txid, req.query.verbose];
+      const res = generateResponse();
+
+      const result = await daemonServiceTransactionRpcs.getRawTransaction(req, res);
+
+      expect(result).to.eql('Response: success');
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getRawTransaction', expectedParams);
+      sinon.assert.calledOnceWithExactly(res.json, 'success');
+    });
+
+    it('should execute RPC if no params are given', async () => {
+      const req = {
+        params: {
+          test: 'test',
+        },
+        query: {
+          test2: 'test2',
+        },
+      };
+      daemonServiceUtilsStub.returns('NoParams');
+      const res = generateResponse();
+
+      const result = await daemonServiceTransactionRpcs.getRawTransaction(req, res);
+
+      expect(result).to.eql('Response: NoParams');
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getRawTransaction', []);
+      sinon.assert.calledOnceWithExactly(res.json, 'NoParams');
+    });
+  });
+
+  describe('signRawTransaction tests', () => {
+    let daemonServiceUtilsStub;
+    let verifyPrivilegeStub;
+
+    beforeEach(() => {
+      daemonServiceUtilsStub = sinon.stub(daemonServiceUtils, 'executeCall');
+      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should throw error if user is unauthorized, no response passed', async () => {
+      verifyPrivilegeStub.returns(false);
+      const req = {
+        params: {
+          hexstring: '0x412368904412378BAF',
+          prevtxs: {
+            t1: 'test12',
+            t2: 'test34',
+          },
+          privatekeys: {
+            k1: 'key1',
+            k2: 'key2',
+          },
+          sighashtype: 'some',
+          branchid: '12345',
+        },
+      };
+      const expectedResponse = {
+        data: {
+          code: 401,
+          message: 'Unauthorized. Access denied.',
+          name: 'Unauthorized',
+        },
+        status: 'error',
+      };
+
+      const result = await daemonServiceTransactionRpcs.signRawTransaction(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.notCalled(daemonServiceUtilsStub);
+    });
+
+    it('should throw error if user is unauthorized, response passed', async () => {
+      verifyPrivilegeStub.returns(false);
+      const req = {
+        params: {
+          hexstring: '0x412368904412378BAF',
+          prevtxs: {
+            t1: 'test12',
+            t2: 'test34',
+          },
+          privatekeys: {
+            k1: 'key1',
+            k2: 'key2',
+          },
+          sighashtype: 'some',
+          branchid: '12345',
+        },
+      };
+      const expectedResponse = {
+        data: {
+          code: 401,
+          message: 'Unauthorized. Access denied.',
+          name: 'Unauthorized',
+        },
+        status: 'error',
+      };
+      const res = generateResponse();
+
+      const result = await daemonServiceTransactionRpcs.signRawTransaction(req, res);
+
+      expect(result).to.eql(`Response: ${expectedResponse}`);
+      sinon.assert.notCalled(daemonServiceUtilsStub);
+    });
+
+    it('should trigger rpc, all parameters passed in params, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          hexstring: '0x412368904412378BAF',
+          prevtxs: {
+            t1: 'test12',
+            t2: 'test34',
+          },
+          privatekeys: {
+            k1: 'key1',
+            k2: 'key2',
+          },
+          sighashtype: 'some',
+          branchid: '12345',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceTransactionRpcs.signRawTransaction(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub,
+        'signRawTransaction', [
+          '0x412368904412378BAF',
+          { t1: 'test12', t2: 'test34' },
+          { k1: 'key1', k2: 'key2' },
+          'some',
+          '12345',
+        ]);
+    });
+
+    it('should trigger rpc, all parameters passed in query, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          test: 'test',
+        },
+        query: {
+          hexstring: '0x412368904412378BAF',
+          prevtxs: {
+            t1: 'test12',
+            t2: 'test34',
+          },
+          privatekeys: {
+            k1: 'key1',
+            k2: 'key2',
+          },
+          sighashtype: 'some',
+          branchid: '12345',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceTransactionRpcs.signRawTransaction(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub,
+        'signRawTransaction', [
+          '0x412368904412378BAF',
+          { t1: 'test12', t2: 'test34' },
+          { k1: 'key1', k2: 'key2' },
+          'some',
+          '12345',
+        ]);
+    });
+
+    it('should trigger rpc, parameters passed in params no sighashtype, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          hexstring: '0x412368904412378BAF',
+          prevtxs: {
+            t1: 'test12',
+            t2: 'test34',
+          },
+          privatekeys: {
+            k1: 'key1',
+            k2: 'key2',
+          },
+          branchid: '12345',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceTransactionRpcs.signRawTransaction(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub,
+        'signRawTransaction', [
+          '0x412368904412378BAF',
+          { t1: 'test12', t2: 'test34' },
+          { k1: 'key1', k2: 'key2' },
+          'ALL',
+          '12345',
+        ]);
+    });
+
+    it('should trigger rpc, no hexstring passed, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          test: 'test',
+        },
+        query: {
+          prevtxs: {
+            t1: 'test12',
+            t2: 'test34',
+          },
+          privatekeys: {
+            k1: 'key1',
+            k2: 'key2',
+          },
+          sighashtype: 'some',
+          branchid: '12345',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceTransactionRpcs.signRawTransaction(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub,
+        'signRawTransaction', []);
+    });
+
+    it('should trigger rpc, no prevtxs passed, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          test: 'test',
+        },
+        query: {
+          hexstring: '0x412368904412378BAF',
+          privatekeys: {
+            k1: 'key1',
+            k2: 'key2',
+          },
+          sighashtype: 'some',
+          branchid: '12345',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceTransactionRpcs.signRawTransaction(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub,
+        'signRawTransaction', ['0x412368904412378BAF']);
+    });
+
+    it('should trigger rpc, no privatekeys passed, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          test: 'test',
+        },
+        query: {
+          hexstring: '0x412368904412378BAF',
+          prevtxs: {
+            t1: 'test12',
+            t2: 'test34',
+          },
+          sighashtype: 'some',
+          branchid: '12345',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceTransactionRpcs.signRawTransaction(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub,
+        'signRawTransaction', ['0x412368904412378BAF', { t1: 'test12', t2: 'test34' }]);
+    });
+
+    it('should trigger rpc, no branchid passed, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          test: 'test',
+        },
+        query: {
+          hexstring: '0x412368904412378BAF',
+          prevtxs: {
+            t1: 'test12',
+            t2: 'test34',
+          },
+          privatekeys: {
+            k1: 'key1',
+            k2: 'key2',
+          },
+          sighashtype: 'some',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceTransactionRpcs.signRawTransaction(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub,
+        'signRawTransaction', [
+          '0x412368904412378BAF',
+          { t1: 'test12', t2: 'test34' },
+          { k1: 'key1', k2: 'key2' },
+          'some',
+        ]);
+    });
+  });
+
+  describe('signRawTransactionPost tests', () => {
+    let daemonServiceUtilsStub;
+    let verifyPrivilegeStub;
+
+    beforeEach(() => {
+      daemonServiceUtilsStub = sinon.stub(daemonServiceUtils, 'executeCall');
+      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should call signRawTransaction rpc', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.resolves('success');
+      const params = {
+        hexstring: '0x412368904412378BAF',
+        prevtxs: {
+          t1: 'test12',
+          t2: 'test34',
+        },
+        privatekeys: {
+          k1: 'key1',
+          k2: 'key2',
+        },
+        sighashtype: 'some',
+        branchid: '12345',
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(params));
+      mockStream.end();
+      const res = generateResponse();
+
+      await daemonServiceTransactionRpcs.signRawTransactionPost(mockStream, res);
+
+      // await because of the async nature of the request processing
+      await serviceHelper.delay(150);
+
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'signRawTransaction', [
+        '0x412368904412378BAF',
+        { t1: 'test12', t2: 'test34' },
+        { k1: 'key1', k2: 'key2' },
+        'some',
+        '12345',
+      ]);
+      sinon.assert.calledOnceWithExactly(res.json, 'success');
+    });
+
+    it('should call signRawTransaction rpc no branchid passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.resolves('success');
+      const params = {
+        hexstring: '0x412368904412378BAF',
+        prevtxs: {
+          t1: 'test12',
+          t2: 'test34',
+        },
+        privatekeys: {
+          k1: 'key1',
+          k2: 'key2',
+        },
+        sighashtype: 'some',
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(params));
+      mockStream.end();
+      const res = generateResponse();
+
+      await daemonServiceTransactionRpcs.signRawTransactionPost(mockStream, res);
+
+      // await because of the async nature of the request processing
+      await serviceHelper.delay(150);
+
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'signRawTransaction', [
+        '0x412368904412378BAF',
+        { t1: 'test12', t2: 'test34' },
+        { k1: 'key1', k2: 'key2' },
+        'some',
+      ]);
+      sinon.assert.calledOnceWithExactly(res.json, 'success');
+    });
+
+    it('should call signRawTransaction rpc no privatekeys passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.resolves('success');
+      const params = {
+        hexstring: '0x412368904412378BAF',
+        prevtxs: {
+          t1: 'test12',
+          t2: 'test34',
+        },
+        sighashtype: 'some',
+        branchid: '12345',
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(params));
+      mockStream.end();
+      const res = generateResponse();
+
+      await daemonServiceTransactionRpcs.signRawTransactionPost(mockStream, res);
+
+      // await because of the async nature of the request processing
+      await serviceHelper.delay(150);
+
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'signRawTransaction', [
+        '0x412368904412378BAF',
+        { t1: 'test12', t2: 'test34' },
+      ]);
+      sinon.assert.calledOnceWithExactly(res.json, 'success');
+    });
+
+    it('should call signRawTransaction rpc no prevtxs passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.resolves('success');
+      const params = {
+        hexstring: '0x412368904412378BAF',
+        privatekeys: {
+          k1: 'key1',
+          k2: 'key2',
+        },
+        sighashtype: 'some',
+        branchid: '12345',
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(params));
+      mockStream.end();
+      const res = generateResponse();
+
+      await daemonServiceTransactionRpcs.signRawTransactionPost(mockStream, res);
+
+      // await because of the async nature of the request processing
+      await serviceHelper.delay(150);
+
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'signRawTransaction', ['0x412368904412378BAF']);
+      sinon.assert.calledOnceWithExactly(res.json, 'success');
+    });
+
+    it('should call signRawTransaction rpc no hexstring passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.resolves('success');
+      const params = {
+        prevtxs: {
+          t1: 'test12',
+          t2: 'test34',
+        },
+        privatekeys: {
+          k1: 'key1',
+          k2: 'key2',
+        },
+        sighashtype: 'some',
+        branchid: '12345',
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(params));
+      mockStream.end();
+      const res = generateResponse();
+
+      await daemonServiceTransactionRpcs.signRawTransactionPost(mockStream, res);
+
+      // await because of the async nature of the request processing
+      await serviceHelper.delay(150);
+
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'signRawTransaction', []);
+      sinon.assert.calledOnceWithExactly(res.json, 'success');
+    });
+
+    it('should call signRawTransaction rpc, so sighashtype given', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.resolves('success');
+      const params = {
+        hexstring: '0x412368904412378BAF',
+        prevtxs: {
+          t1: 'test12',
+          t2: 'test34',
+        },
+        privatekeys: {
+          k1: 'key1',
+          k2: 'key2',
+        },
+        branchid: '12345',
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(params));
+      mockStream.end();
+      const res = generateResponse();
+
+      await daemonServiceTransactionRpcs.signRawTransactionPost(mockStream, res);
+
+      // await because of the async nature of the request processing
+      await serviceHelper.delay(150);
+
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'signRawTransaction', [
+        '0x412368904412378BAF',
+        { t1: 'test12', t2: 'test34' },
+        { k1: 'key1', k2: 'key2' },
+        'ALL',
+        '12345',
+      ]);
+      sinon.assert.calledOnceWithExactly(res.json, 'success');
+    });
+
+    it('should return error if user is unauthorized', async () => {
+      verifyPrivilegeStub.returns(false);
+      const params = {
+        hexstring: '0x412368904412378BAF',
+        prevtxs: {
+          t1: 'test12',
+          t2: 'test34',
+        },
+        privatekeys: {
+          k1: 'key1',
+          k2: 'key2',
+        },
+        branchid: '12345',
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(params));
+      mockStream.end();
+      const res = generateResponse();
+      const expectedResponse = {
+        status: 'error',
+        data: {
+          code: 401,
+          name: 'Unauthorized',
+          message: 'Unauthorized. Access denied.',
+        },
+      };
+      await daemonServiceTransactionRpcs.signRawTransactionPost(mockStream, res);
+
+      // await because of the async nature of the request processing
+      await serviceHelper.delay(150);
+
+      sinon.assert.notCalled(daemonServiceUtilsStub);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
     });
   });
 });

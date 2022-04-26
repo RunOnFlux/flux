@@ -8,7 +8,8 @@ let response = messageHelper.createErrorMessage();
 
 // == Rawtransactions ==
 /**
- * To create raw transaction. Transactions, addresses, lock time (defaults to value of 0) and expiry height (defaults to block count + 20) required as parameters for RPC call.
+ * To create raw transaction. Transactions, addresses, lock time (defaults to value of 0) and
+ * expiry height (defaults to block count + 20) required as parameters for RPC call.
  * @param {object} req Request.
  * @param {object} res Response.
  * @returns {object} Message.
@@ -46,7 +47,8 @@ async function createRawTransaction(req, res) {
 }
 
 /**
- * To create raw transaction after data is processed. Transactions, addresses, lock time (defaults to value of 0) and expiry height (defaults to block count + 20) required as parameters for RPC call.
+ * To create raw transaction after data is processed. Transactions, addresses,
+ * lock time (defaults to value of 0) and expiry height (defaults to block count + 20) required as parameters for RPC call.
  * @param {object} req Request.
  * @param {object} res Response.
  * @returns {object} Message.
@@ -302,24 +304,69 @@ async function sendRawTransactionPost(req, res) {
 }
 
 /**
- * To sign raw transaction. Hex string, previous transactions, private keys, signature hash type (defaults to ALL) and branch ID required as parameters for RPC call. Only accessible by admins.
+ * To sign raw transaction. Hex string, previous transactions, private keys,
+ * signature hash type (defaults to ALL) and branch ID required as parameters for RPC call. Only accessible by admins.
  * @param {object} req Request.
  * @param {object} res Response.
  * @returns {object} Message.
  */
 async function signRawTransaction(req, res) {
-  let { hexstring } = req.params;
+  let {
+    hexstring, prevtxs, privatekeys, sighashtype, branchid,
+  } = req.params;
   hexstring = hexstring || req.query.hexstring;
-  let { prevtxs } = req.params;
   prevtxs = prevtxs || req.query.prevtxs;
-  let { privatekeys } = req.params;
   privatekeys = privatekeys || req.query.privatekeys;
-  let { sighashtype } = req.params;
   sighashtype = sighashtype || req.query.sighashtype || 'ALL';
-  let { branchid } = req.params;
   branchid = branchid || req.query.branchid;
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
-  if (authorized === true) {
+  if (authorized !== true) {
+    response = messageHelper.errUnauthorizedMessage();
+    return res ? res.json(response) : response;
+  }
+  const rpccall = 'signRawTransaction';
+  const rpcparameters = [];
+  if (hexstring) {
+    rpcparameters.push(hexstring);
+    if (prevtxs) {
+      prevtxs = serviceHelper.ensureObject(prevtxs);
+      rpcparameters.push(prevtxs);
+      if (privatekeys) {
+        privatekeys = serviceHelper.ensureObject(privatekeys);
+        rpcparameters.push(privatekeys);
+        rpcparameters.push(sighashtype);
+        if (branchid) {
+          rpcparameters.push(branchid);
+        }
+      }
+    }
+  }
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
+  return res ? res.json(response) : response;
+}
+
+/**
+ * To sign raw transaction after data is processed. Hex string, previous transactions, private keys,
+ *  signature hash type (defaults to all) and branch ID required as parameters for RPC call. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
+async function signRawTransactionPost(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const { hexstring, branchid } = processedBody;
+    let { prevtxs, privatekeys, sighashtype } = processedBody;
+    sighashtype = sighashtype || 'ALL';
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
+    if (authorized !== true) {
+      response = messageHelper.errUnauthorizedMessage();
+      return res.json(response);
+    }
     const rpccall = 'signRawTransaction';
     const rpcparameters = [];
     if (hexstring) {
@@ -338,55 +385,6 @@ async function signRawTransaction(req, res) {
       }
     }
     response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
-  } else {
-    response = messageHelper.errUnauthorizedMessage();
-  }
-
-  return res ? res.json(response) : response;
-}
-
-/**
- * To sign raw transaction after data is processed. Hex string, previous transactions, private keys, signature hash type (defaults to all) and branch ID required as parameters for RPC call. Only accessible by admins.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message.
- */
-async function signRawTransactionPost(req, res) {
-  let body = '';
-  req.on('data', (data) => {
-    body += data;
-  });
-  req.on('end', async () => {
-    const processedBody = serviceHelper.ensureObject(body);
-    const { hexstring } = processedBody;
-    let { prevtxs } = processedBody;
-    let { privatekeys } = processedBody;
-    let { sighashtype } = processedBody;
-    sighashtype = sighashtype || 'ALL';
-    const { branchid } = processedBody;
-    const authorized = await verificationHelper.verifyPrivilege('admin', req);
-    if (authorized === true) {
-      const rpccall = 'signRawTransaction';
-      const rpcparameters = [];
-      if (hexstring) {
-        rpcparameters.push(hexstring);
-        if (prevtxs) {
-          prevtxs = serviceHelper.ensureObject(prevtxs);
-          rpcparameters.push(prevtxs);
-          if (privatekeys) {
-            privatekeys = serviceHelper.ensureObject(privatekeys);
-            rpcparameters.push(privatekeys);
-            rpcparameters.push(sighashtype);
-            if (branchid) {
-              rpcparameters.push(branchid);
-            }
-          }
-        }
-      }
-      response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
-    } else {
-      response = messageHelper.errUnauthorizedMessage();
-    }
     return res.json(response);
   });
 }
