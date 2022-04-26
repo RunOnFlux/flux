@@ -5,6 +5,7 @@ const log = require('../lib/log');
 
 const serviceHelper = require('./serviceHelper');
 const daemonService = require('./daemonService');
+const daemonServiceTransactionRpcs = require('./daemonServiceTransactionRpcs');
 const messageHelper = require('./messageHelper');
 const dbHelper = require('./dbHelper');
 
@@ -50,7 +51,7 @@ async function nodeTier() {
       verbose: 1,
     },
   };
-  const txInformation = await daemonService.getRawTransaction(request);
+  const txInformation = await daemonServiceTransactionRpcs.getRawTransaction(request);
   if (txInformation.status === 'error') {
     throw txInformation.data;
   }
@@ -126,7 +127,7 @@ async function nodeCollateral() {
       verbose: 1,
     },
   };
-  const txInformation = await daemonService.getRawTransaction(request);
+  const txInformation = await daemonServiceTransactionRpcs.getRawTransaction(request);
   if (txInformation.status === 'error') {
     throw txInformation.data;
   }

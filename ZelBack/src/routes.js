@@ -2,6 +2,7 @@ const apicache = require('apicache');
 
 const daemonService = require('./services/daemonService');
 const daemonServiceAddressRpcs = require('./services/daemonServiceAddressRpcs');
+const daemonServiceTransactionRpcs = require('./services/daemonServiceTransactionRpcs');
 const benchmarkService = require('./services/benchmarkService');
 const idService = require('./services/idService');
 const fluxService = require('./services/fluxService');
@@ -160,22 +161,22 @@ module.exports = (app, expressWs) => {
     daemonService.listBanned(req, res);
   });
   app.get('/daemon/createrawtransaction/:transactions?/:addresses?/:locktime?/:expiryheight?', (req, res) => {
-    daemonService.createRawTransaction(req, res);
+    daemonServiceTransactionRpcs.createRawTransaction(req, res);
   });
   app.get('/daemon/decoderawtransaction/:hexstring?', cache('30 seconds'), (req, res) => {
-    daemonService.decodeRawTransaction(req, res);
+    daemonServiceTransactionRpcs.decodeRawTransaction(req, res);
   });
   app.get('/daemon/decodescript/:hex?', cache('30 seconds'), (req, res) => {
-    daemonService.decodeScript(req, res);
+    daemonServiceTransactionRpcs.decodeScript(req, res);
   });
   app.get('/daemon/fundrawtransaction/:hexstring?', (req, res) => {
-    daemonService.fundRawTransaction(req, res);
+    daemonServiceTransactionRpcs.fundRawTransaction(req, res);
   });
   app.get('/daemon/getrawtransaction/:txid?/:verbose?', (req, res) => {
-    daemonService.getRawTransaction(req, res);
+    daemonServiceTransactionRpcs.getRawTransaction(req, res);
   });
   app.get('/daemon/sendrawtransaction/:hexstring?/:allowhighfees?', (req, res) => {
-    daemonService.sendRawTransaction(req, res);
+    daemonServiceTransactionRpcs.sendRawTransaction(req, res);
   });
   app.get('/daemon/createmultisig/:n?/:keys?', (req, res) => {
     daemonService.createMultiSig(req, res);
@@ -450,7 +451,7 @@ module.exports = (app, expressWs) => {
     daemonService.setBan(req, res);
   });
   app.get('/daemon/signrawtransaction/:hexstring?/:prevtxs?/:privatekeys?/:sighashtype?/:branchid?', (req, res) => {
-    daemonService.signRawTransaction(req, res);
+    daemonServiceTransactionRpcs.signRawTransaction(req, res);
   });
   app.get('/daemon/addmultisigaddress/:n?/:keysobject?', (req, res) => {
     daemonService.addMultiSigAddress(req, res);
@@ -886,19 +887,19 @@ module.exports = (app, expressWs) => {
   });
 
   app.post('/daemon/createrawtransaction', (req, res) => {
-    daemonService.createRawTransactionPost(req, res);
+    daemonServiceTransactionRpcs.createRawTransactionPost(req, res);
   });
   app.post('/daemon/decoderawtransaction', (req, res) => {
-    daemonService.decodeRawTransactionPost(req, res);
+    daemonServiceTransactionRpcs.decodeRawTransactionPost(req, res);
   });
   app.post('/daemon/decodescript', (req, res) => {
-    daemonService.decodeScriptPost(req, res);
+    daemonServiceTransactionRpcs.decodeScriptPost(req, res);
   });
   app.post('/daemon/fundrawtransaction', (req, res) => {
-    daemonService.fundRawTransactionPost(req, res);
+    daemonServiceTransactionRpcs.fundRawTransactionPost(req, res);
   });
   app.post('/daemon/sendrawtransaction', (req, res) => {
-    daemonService.sendRawTransactionPost(req, res);
+    daemonServiceTransactionRpcs.sendRawTransactionPost(req, res);
   });
   app.post('/daemon/createmultisig', (req, res) => {
     daemonService.createMultiSigPost(req, res);
@@ -952,7 +953,7 @@ module.exports = (app, expressWs) => {
 
   // POST PROTECTED API - ZelNode owner level
   app.post('/daemon/signrawtransaction', (req, res) => {
-    daemonService.signRawTransactionPost(req, res);
+    daemonServiceTransactionRpcs.signRawTransactionPost(req, res);
   });
   app.post('/daemon/addmultisigaddress', (req, res) => {
     daemonService.addMultiSigAddressPost(req, res);

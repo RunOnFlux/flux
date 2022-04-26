@@ -8,6 +8,7 @@ const verificationHelper = require('./verificationHelper');
 const messageHelper = require('./messageHelper');
 const daemonService = require('./daemonService');
 const daemonServiceAddressRpcs = require('./daemonServiceAddressRpcs');
+const daemonServiceTransactionRpcs = require('./daemonServiceTransactionRpcs');
 const appsService = require('./appsService');
 
 const coinbaseFusionIndexCollection = config.database.daemon.collections.coinbaseFusionIndex; // fusion
@@ -44,7 +45,7 @@ async function getSenderTransactionFromDaemon(txid) {
     },
   };
 
-  const txContent = await daemonService.getRawTransaction(req);
+  const txContent = await daemonServiceTransactionRpcs.getRawTransaction(req);
   if (txContent.status === 'success') {
     const sender = txContent.data;
     return sender;
@@ -89,7 +90,7 @@ async function getSenderForFluxTxInsight(txid, vout) {
         verbose,
       },
     };
-    const transaction = await daemonService.getRawTransaction(req);
+    const transaction = await daemonServiceTransactionRpcs.getRawTransaction(req);
     if (transaction.status === 'success' && transaction.data.vout && transaction.data.vout[0]) {
       const transactionOutput = transaction.data.vout.find((txVout) => +txVout.n === +vout);
       if (transactionOutput) {

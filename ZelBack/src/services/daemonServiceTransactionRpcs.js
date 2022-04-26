@@ -319,6 +319,7 @@ async function signRawTransaction(req, res) {
   privatekeys = privatekeys || req.query.privatekeys;
   sighashtype = sighashtype || req.query.sighashtype || 'ALL';
   branchid = branchid || req.query.branchid;
+
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
