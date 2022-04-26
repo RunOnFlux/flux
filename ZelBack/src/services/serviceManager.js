@@ -21,8 +21,8 @@ async function startFluxFunctions() {
       log.error(`Flux port ${apiPort} is not supported. Shutting down.`);
       process.exit();
     }
+    const verifyUpnp = await upnpService.verifyUPNPsupport(apiPort);
     if (userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) {
-      const verifyUpnp = await upnpService.verifyUPNPsupport(apiPort);
       if (verifyUpnp !== true) {
         log.error(`Flux port ${userconfig.initial.apiport} specified but UPnP failed to verify support. Shutting down.`);
         process.exit();
@@ -104,6 +104,7 @@ async function startFluxFunctions() {
     }, 14 * 60 * 1000);
     setTimeout(() => {
       appsService.stopAllNonFluxRunningApps();
+      appsService.restoreAppsPortsSupport();
     }, 1 * 60 * 1000);
   } catch (e) {
     log.error(e);
