@@ -181,7 +181,7 @@ export default {
         const adjustedFluxList = [];
         fluxList.forEach((node) => {
           const adjustedNode = node;
-          adjustedNode.location = locations.find((location) => location.ip === adjustedNode.ip);
+          adjustedNode.location = locations.find((location) => location.ip === adjustedNode.ip.split(':')[0]);
           adjustedFluxList.push(adjustedNode);
         });
         this.items = adjustedFluxList.filter((node) => node.ip);

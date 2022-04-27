@@ -21,8 +21,8 @@ async function startFluxFunctions() {
       log.error(`Flux port ${apiPort} is not supported. Shutting down.`);
       process.exit();
     }
+    const verifyUpnp = await upnpService.verifyUPNPsupport(apiPort);
     if (userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) {
-      const verifyUpnp = await upnpService.verifyUPNPsupport(apiPort);
       if (verifyUpnp !== true) {
         log.error(`Flux port ${userconfig.initial.apiport} specified but UPnP failed to verify support. Shutting down.`);
         process.exit();
@@ -41,6 +41,11 @@ async function startFluxFunctions() {
     log.info('Preparing local database...');
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.local.database);
+    await dbHelper.dropCollection(database, config.database.local.collections.loggedUsers).catch((error) => { // drop currently logged users
+      if (error.message !== 'ns not found') {
+        log.error(error);
+      }
+    });
     await dbHelper.dropCollection(database, config.database.local.collections.activeLoginPhrases).catch((error) => {
       if (error.message !== 'ns not found') {
         log.error(error);
@@ -51,6 +56,7 @@ async function startFluxFunctions() {
         log.error(error);
       }
     });
+    await database.collection(config.database.local.collections.loggedUsers).createIndex({ createdAt: 1 }, { expireAfterSeconds: 14 * 24 * 60 * 60 }); // 2days
     await database.collection(config.database.local.collections.activeLoginPhrases).createIndex({ createdAt: 1 }, { expireAfterSeconds: 900 });
     await database.collection(config.database.local.collections.activeSignatures).createIndex({ createdAt: 1 }, { expireAfterSeconds: 900 });
     log.info('Local database prepared');
@@ -98,6 +104,7 @@ async function startFluxFunctions() {
     }, 14 * 60 * 1000);
     setTimeout(() => {
       appsService.stopAllNonFluxRunningApps();
+      appsService.restoreAppsPortsSupport();
     }, 1 * 60 * 1000);
   } catch (e) {
     log.error(e);
