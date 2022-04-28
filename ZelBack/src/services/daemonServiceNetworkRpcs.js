@@ -81,9 +81,8 @@ async function disconnectNode(req, res) {
  * @returns {object} Message.
  */
 async function getAddedNodeInfo(req, res) {
-  let { dns } = req.params;
+  let { dns, node } = req.params;
   dns = dns || req.query.dns;
-  let { node } = req.params;
   node = node || req.query.node;
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
@@ -197,13 +196,12 @@ async function listBanned(req, res) {
  */
 async function ping(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-  if (authorized === true) {
-    const rpccall = 'ping';
-
-    response = await daemonServiceUtils.executeCall(rpccall);
-  } else {
+  if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
+    return res ? res.json(response) : response;
   }
+  const rpccall = 'ping';
+  response = await daemonServiceUtils.executeCall(rpccall);
 
   return res ? res.json(response) : response;
 }
@@ -215,13 +213,12 @@ async function ping(req, res) {
  * @returns {object} Message.
  */
 async function setBan(req, res) {
-  let { ip } = req.params;
+  let {
+    ip, command, bantime, absolute,
+  } = req.params;
   ip = ip || req.query.ip;
-  let { command } = req.params;
   command = command || req.query.command;
-  let { bantime } = req.params;
   bantime = bantime || req.query.bantime;
-  let { absolute } = req.params;
   absolute = absolute || req.query.absolute;
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
