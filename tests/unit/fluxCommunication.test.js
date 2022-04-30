@@ -303,11 +303,17 @@ describe('fluxCommunication tests', () => {
       const wsuri2 = 'wss://api.runonflux.io/ws/flux2/';
 
       const wsOutgoing = await connectWs(wsuri);
-      wsOutgoing._socket = { remoteAddress: '127.8.8.1' };
+      wsOutgoing._socket = {
+        remoteAddress: '127.8.8.1',
+        end: sinon.fake(() => true),
+      };
       outgoingConnections.push(wsOutgoing);
 
       const wsIncoming = await connectWs(wsuri2);
-      wsIncoming._socket = { remoteAddress: '::ffff:127.8.8.1' };
+      wsIncoming._socket = {
+        remoteAddress: '::ffff:127.8.8.1',
+        end: sinon.fake(() => true),
+      };
       incomingConnections.push(wsIncoming);
 
       await fluxCommunication.handleAppRunningMessage(message, fromIp);

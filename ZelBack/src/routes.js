@@ -3,6 +3,8 @@ const apicache = require('apicache');
 const daemonService = require('./services/daemonService');
 const daemonServiceAddressRpcs = require('./services/daemonServiceAddressRpcs');
 const daemonServiceTransactionRpcs = require('./services/daemonServiceTransactionRpcs');
+const daemonServiceMiningRpcs = require('./services/daemonServiceMiningRpcs');
+const daemonServiceNetworkRpcs = require('./services/daemonServiceNetworkRpcs');
 const benchmarkService = require('./services/benchmarkService');
 const idService = require('./services/idService');
 const fluxService = require('./services/fluxService');
@@ -125,40 +127,40 @@ module.exports = (app, expressWs) => {
     daemonService.getSpentInfo(req, res);
   });
   app.get('/daemon/getblocksubsidy/:height?', cache('30 seconds'), (req, res) => {
-    daemonService.getBlockSubsidy(req, res);
+    daemonServiceMiningRpcs.getBlockSubsidy(req, res);
   });
   app.get('/daemon/getblocktemplate/:jsonrequestobject?', cache('30 seconds'), (req, res) => {
-    daemonService.getBlockTemplate(req, res);
+    daemonServiceMiningRpcs.getBlockTemplate(req, res);
   });
   app.get('/daemon/getlocalsolps', cache('30 seconds'), (req, res) => {
-    daemonService.getLocalSolPs(req, res);
+    daemonServiceMiningRpcs.getLocalSolPs(req, res);
   });
   app.get('/daemon/getmininginfo', cache('30 seconds'), (req, res) => {
-    daemonService.getMiningInfo(req, res);
+    daemonServiceMiningRpcs.getMiningInfo(req, res);
   });
   app.get('/daemon/getnetworkhashps/:blocks?/:height?', cache('30 seconds'), (req, res) => {
-    daemonService.getNetworkHashPs(req, res);
+    daemonServiceMiningRpcs.getNetworkHashPs(req, res);
   });
   app.get('/daemon/getnetworksolps/:blocks?/:height?', cache('30 seconds'), (req, res) => {
-    daemonService.getNetworkSolPs(req, res);
+    daemonServiceMiningRpcs.getNetworkSolPs(req, res);
   });
   app.get('/daemon/getconnectioncount', cache('30 seconds'), (req, res) => {
-    daemonService.getConnectionCount(req, res);
+    daemonServiceNetworkRpcs.getConnectionCount(req, res);
   });
   app.get('/daemon/getdeprecationinfo', cache('30 seconds'), (req, res) => {
-    daemonService.getDeprecationInfo(req, res);
+    daemonServiceNetworkRpcs.getDeprecationInfo(req, res);
   });
   app.get('/daemon/getnettotals', cache('30 seconds'), (req, res) => {
-    daemonService.getNetTotals(req, res);
+    daemonServiceNetworkRpcs.getNetTotals(req, res);
   });
   app.get('/daemon/getnetworkinfo', cache('30 seconds'), (req, res) => {
-    daemonService.getNetworkInfo(req, res);
+    daemonServiceNetworkRpcs.getNetworkInfo(req, res);
   });
   app.get('/daemon/getpeerinfo', cache('30 seconds'), (req, res) => {
-    daemonService.getPeerInfo(req, res);
+    daemonServiceNetworkRpcs.getPeerInfo(req, res);
   });
   app.get('/daemon/listbanned', cache('30 seconds'), (req, res) => {
-    daemonService.listBanned(req, res);
+    daemonServiceNetworkRpcs.listBanned(req, res);
   });
   app.get('/daemon/createrawtransaction/:transactions?/:addresses?/:locktime?/:expiryheight?', (req, res) => {
     daemonServiceTransactionRpcs.createRawTransaction(req, res);
@@ -369,10 +371,10 @@ module.exports = (app, expressWs) => {
 
   // GET PROTECTED API - User level
   app.get('/daemon/prioritisetransaction/:txid?/:prioritydelta?/:feedelta?', cache('30 seconds'), (req, res) => {
-    daemonService.prioritiseTransaction(req, res);
+    daemonServiceMiningRpcs.prioritiseTransaction(req, res);
   });
   app.get('/daemon/submitblock/:hexdata?/:jsonparametersobject?', cache('30 seconds'), (req, res) => {
-    daemonService.submitBlock(req, res);
+    daemonServiceMiningRpcs.submitBlock(req, res);
   });
 
   app.get('/id/loggedsessions', cache('30 seconds'), (req, res) => {
@@ -436,19 +438,19 @@ module.exports = (app, expressWs) => {
     daemonService.verifyChain(req, res);
   });
   app.get('/daemon/addnode/:node?/:command?', (req, res) => {
-    daemonService.addNode(req, res);
+    daemonServiceNetworkRpcs.addNode(req, res);
   });
   app.get('/daemon/clearbanned', (req, res) => {
-    daemonService.clearBanned(req, res);
+    daemonServiceNetworkRpcs.clearBanned(req, res);
   });
   app.get('/daemon/disconnectnode/:node?', (req, res) => {
-    daemonService.disconnectNode(req, res);
+    daemonServiceNetworkRpcs.disconnectNode(req, res);
   });
   app.get('/daemon/getaddednodeinfo/:dns?/:node?', (req, res) => {
-    daemonService.getAddedNodeInfo(req, res);
+    daemonServiceNetworkRpcs.getAddedNodeInfo(req, res);
   });
   app.get('/daemon/setban/:ip?/:command?/:bantime?/:absolute?', (req, res) => {
-    daemonService.setBan(req, res);
+    daemonServiceNetworkRpcs.setBan(req, res);
   });
   app.get('/daemon/signrawtransaction/:hexstring?/:prevtxs?/:privatekeys?/:sighashtype?/:branchid?', (req, res) => {
     daemonServiceTransactionRpcs.signRawTransaction(req, res);
@@ -660,7 +662,7 @@ module.exports = (app, expressWs) => {
     fluxService.restartDaemon(req, res);
   });
   app.get('/daemon/ping', (req, res) => { // we do not want this to be issued by anyone.
-    daemonService.ping(req, res);
+    daemonServiceNetworkRpcs.ping(req, res);
   });
   app.get('/daemon/zcbenchmark/:benchmarktype?/:samplecount?', (req, res) => {
     daemonService.zcBenchmark(req, res);
@@ -938,7 +940,7 @@ module.exports = (app, expressWs) => {
   });
 
   app.post('/daemon/submitblock', (req, res) => {
-    daemonService.submitBlockPost(req, res);
+    daemonServiceMiningRpcs.submitBlockPost(req, res);
   });
 
   app.post('/apps/checkdockerexistance', async (req, res) => {
