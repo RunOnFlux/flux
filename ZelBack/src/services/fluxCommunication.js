@@ -155,7 +155,7 @@ async function getMyFluxIPandPort() {
 /**
  * To get deterministc Flux list from cache.
  * @param {string} filter Filter. Can only be a publicKey.
- * @returns {(*|*[])} Value of any type or an empty array of any type.
+ * @returns {(*|*)} Value of any type or an empty array of any type.
  */
 async function deterministicFluxList(filter) {
   try {
