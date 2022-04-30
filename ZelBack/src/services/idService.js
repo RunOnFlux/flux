@@ -227,7 +227,7 @@ async function verifyLogin(req, res) {
         throw new Error('Signed message is not valid');
       }
 
-      if (message.substring(0, 13) < (timestamp - 900000) || message.substring(0, 13) > timestamp) {
+      if (+message.substring(0, 13) < (timestamp - 900000) || +message.substring(0, 13) > timestamp) {
         throw new Error('Signed message is not valid');
       }
 
@@ -245,7 +245,7 @@ async function verifyLogin(req, res) {
 
       if (result) {
         // It is present in our database
-        if (result.loginPhrase.substring(0, 13) < timestamp) {
+        if (+result.loginPhrase.substring(0, 13) < timestamp) {
           // Second verify that this address signed this message
           let valid = false;
           try {
@@ -255,12 +255,13 @@ async function verifyLogin(req, res) {
           }
           if (valid) {
             // Third associate address with message in our database
-            const createdAt = new Date(result.loginPhrase.substring(0, 13));
+            const createdAt = new Date(+result.loginPhrase.substring(0, 13));
             const validTill = +result.loginPhrase.substring(0, 13) + (14 * 24 * 60 * 60 * 1000); // valid for 14 days
             const expireAt = new Date(validTill);
             const newLogin = {
               zelid: address,
               loginPhrase: message,
+              signature,
               createdAt,
               expireAt,
             };
@@ -285,6 +286,17 @@ async function verifyLogin(req, res) {
             const resMessage = messageHelper.createDataMessage(resData);
             res.json(resMessage);
             serviceHelper.deleteLoginPhrase(message); // delete so it cannot be used again
+            setTimeout(async () => {
+              // after 1 minute remove signature from database
+              const updatedDocument = {
+                signature: '',
+              };
+              const update = { $unset: updatedDocument };
+              const options = {
+                upsert: false,
+              };
+              await dbHelper.updateOneInDatabase(database, loggedUsersCollection, query, update, options);
+            }, 60000);
           } else {
             throw new Error('Invalid signature');
           }
@@ -775,7 +787,7 @@ async function checkLoggedUser(req, res) {
       if (!zelid) {
         throw new Error('No user ZelID specificed');
       }
-      if (!zelid) {
+      if (!loggedPhrase) {
         throw new Error('No user loginPhrase specificed');
       }
       if (!signature) {

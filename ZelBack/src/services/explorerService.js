@@ -602,23 +602,29 @@ async function processBlock(blockHeight, isInsightExplorer) {
       }
       const resultC = await dbHelper.collectionStats(database, fluxTransactionCollection);
       log.info(`FLUX documents: ${resultC.size}, ${resultC.count}, ${resultC.avgObjSize}`);
-      if (blockDataVerbose.height >= config.fluxapps.epochstart) {
-        appsService.expireGlobalApplications();
-      }
     }
-    if (blockHeight % config.fluxapps.removeFluxAppsPeriod === 0) {
-      if (blockDataVerbose.height >= config.fluxapps.epochstart) {
-        appsService.checkAndRemoveApplicationInstance();
+    // this should run only when node is synced
+    const isSynced = !(blockDataVerbose.confirmations >= 2);
+    if (isSynced) {
+      if (blockHeight % config.fluxapps.expireFluxAppsPeriod === 0) {
+        if (blockDataVerbose.height >= config.fluxapps.epochstart) {
+          appsService.expireGlobalApplications();
+        }
       }
-    }
-    if (blockHeight % config.fluxapps.updateFluxAppsPeriod === 0) {
-      if (blockDataVerbose.height >= config.fluxapps.epochstart) {
-        appsService.reinstallOldApplications();
+      if (blockHeight % config.fluxapps.removeFluxAppsPeriod === 0) {
+        if (blockDataVerbose.height >= config.fluxapps.epochstart) {
+          appsService.checkAndRemoveApplicationInstance();
+        }
       }
-    }
-    if (blockHeight % config.fluxapps.restorePortsSupportPeriod === 0) {
-      if (blockDataVerbose.height >= config.fluxapps.epochstart) {
-        appsService.restorePortsSupport();
+      if (blockHeight % config.fluxapps.updateFluxAppsPeriod === 0) {
+        if (blockDataVerbose.height >= config.fluxapps.epochstart) {
+          appsService.reinstallOldApplications();
+        }
+      }
+      if (blockHeight % config.fluxapps.restorePortsSupportPeriod === 0) {
+        if (blockDataVerbose.height >= config.fluxapps.epochstart) {
+          appsService.restorePortsSupport();
+        }
       }
     }
     const scannedHeight = blockDataVerbose.height;

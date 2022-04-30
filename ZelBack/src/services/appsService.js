@@ -3606,16 +3606,8 @@ async function assignedPortsGlobalApps(appNames) {
   return apps;
 }
 
-async function restorePortsSupport() {
+async function restoreFluxPortsSupport() {
   try {
-    // if not synced skip
-    const synced = await generalService.checkSynced();
-    if (synced !== true) {
-      log.info('Ports adjustment skipped. Not yet synced');
-      return;
-    }
-
-    const currentAppsPorts = await assignedPortsInstalledApps();
     const isUPNP = upnpService.isUPNP();
 
     const apiPort = userconfig.initial.apiport || config.server.apiport;
@@ -3624,6 +3616,21 @@ async function restorePortsSupport() {
     // setup UFW if active
     await fluxCommunication.allowPort(serviceHelper.ensureNumber(apiPort));
     await fluxCommunication.allowPort(serviceHelper.ensureNumber(homePort));
+
+    // UPNP
+    if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
+      // map our Flux API and UI port
+      await upnpService.setupUPNP(apiPort);
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+async function restoreAppsPortsSupport() {
+  try {
+    const currentAppsPorts = await assignedPortsInstalledApps();
+    const isUPNP = upnpService.isUPNP();
 
     // setup UFW for apps
     // eslint-disable-next-line no-restricted-syntax
@@ -3637,8 +3644,6 @@ async function restorePortsSupport() {
 
     // UPNP
     if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
-      // map our Flux API and UI port
-      await upnpService.setupUPNP(apiPort);
       // map application ports
       // eslint-disable-next-line no-restricted-syntax
       for (const application of currentAppsPorts) {
@@ -3649,6 +3654,15 @@ async function restorePortsSupport() {
         }
       }
     }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+async function restorePortsSupport() {
+  try {
+    await restoreFluxPortsSupport();
+    await restoreAppsPortsSupport();
   } catch (error) {
     log.error(error);
   }
@@ -6716,4 +6730,6 @@ module.exports = {
   reconstructAppMessagesHashCollectionAPI,
   stopAllNonFluxRunningApps,
   restorePortsSupport,
+  restoreFluxPortsSupport,
+  restoreAppsPortsSupport,
 };

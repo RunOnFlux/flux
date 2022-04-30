@@ -79,7 +79,7 @@ router.beforeEach(async (to, from, next) => {
   store.commit('flux/setPrivilege', 'none');
   if (auth && auth.zelid && auth.signature && auth.loginPhrase) {
     try {
-      const response = await IDService.checkUserLogged(auth.zelid, auth.signature);
+      const response = await IDService.checkUserLogged(auth.zelid, auth.signature, auth.loginPhrase);
       const privilege = response.data.data.message;
       store.commit('flux/setPrivilege', privilege);
       if (privilege === 'none') {
