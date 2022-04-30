@@ -52,6 +52,17 @@
                         title="Hash"
                         :data="row.item.hash"
                       />
+                      <div v-if="row.item.version >= 5">
+                        <list-entry
+                          title="Continent"
+                          :data="row.item.continents.length > 0 ? getContinent(row.item.continents) : 'All'"
+                        />
+                        <list-entry
+                          v-if="row.item.continents.length > 0"
+                          title="Country"
+                          :data="row.item.countries.length > 0 ? getCountry(getrow.item.countries) : 'All'"
+                        />
+                      </div>
                       <list-entry
                         v-if="row.item.instances"
                         title="Instances"
@@ -687,6 +698,84 @@ export default {
         },
       },
       allApps: [],
+      continentsOptions: [{
+        value: null, text: 'All',
+      },
+      {
+        value: 'AS', nodeTier: 'Cumulus', maxInstances: 5, text: 'Asia',
+      },
+      {
+        value: 'EU', nodeTier: 'Stratus', maxInstances: 20, text: 'Europe',
+      },
+      {
+        value: 'NA', nodeTier: 'Stratus', maxInstances: 20, text: 'North America',
+      },
+      {
+        value: 'OC', nodeTier: 'Cumulus', maxInstances: 3, text: 'Oceania',
+      }],
+      countriesOptions: [{
+        value: null, text: 'All', continentCode: 'AS',
+      },
+      {
+        value: 'SG', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'AS', text: 'Singapore',
+      },
+      {
+        value: 'TW', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'AS', text: 'Taiwan',
+      },
+      {
+        value: 'TH', nodeTier: 'Cumulus', maxInstances: 5, continentCode: 'AS', text: 'Thailand',
+      },
+      {
+        value: null, text: 'All', continentCode: 'EU',
+      },
+      {
+        value: 'BE', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'EU', text: 'Belgium',
+      },
+      {
+        value: 'CZ', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'EU', text: 'Czechia',
+      },
+      {
+        value: 'FI', nodeTier: 'Stratus', maxInstances: 10, continentCode: 'EU', text: 'Finland',
+      },
+      {
+        value: 'FR', nodeTier: 'Stratus', maxInstances: 5, continentCode: 'EU', text: 'France',
+      },
+      {
+        value: 'DE', nodeTier: 'Stratus', maxInstances: 15, continentCode: 'EU', text: 'Germany',
+      },
+      {
+        value: 'LT', nodeTier: 'Cumulus', maxInstances: 5, continentCode: 'EU', text: 'Lithuania',
+      },
+      {
+        value: 'NL', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'EU', text: 'Netherlands',
+      },
+      {
+        value: 'PL', nodeTier: 'Stratus', maxInstances: 10, continentCode: 'EU', text: 'Poland',
+      },
+      {
+        value: 'RU', nodeTier: 'Nimbus', maxInstances: 5, continentCode: 'EU', text: 'Russia',
+      },
+      {
+        value: 'SI', nodeTier: 'Stratus', maxInstances: 3, continentCode: 'EU', text: 'Slovenia',
+      },
+      {
+        value: 'ES', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'EU', text: 'Spain',
+      },
+      {
+        value: 'GB', nodeTier: 'Stratus', maxInstances: 3, continentCode: 'EU', text: 'United Kingdom',
+      },
+      {
+        value: null, text: 'All', continentCode: 'NA',
+      },
+      {
+        value: 'US', nodeTier: 'Stratus', maxInstances: 10, continentCode: 'NA', text: 'United States',
+      },
+      {
+        value: 'CA', nodeTier: 'Stratus', maxInstances: 10, continentCode: 'NA', text: 'Canada',
+      },
+      {
+        value: null, text: 'All', continentCode: 'OC',
+      }],
     };
   },
   computed: {
@@ -841,6 +930,14 @@ export default {
         return `${name.substring(0, name.length - 13)} - ${new Date(possibleDate).toLocaleString()}`;
       }
       return name;
+    },
+    getContinent(item) {
+      const continent = this.continentsOptions.filter((x) => x.value === item[0])[0];
+      return continent.text;
+    },
+    getCountry(item) {
+      const country = this.countriesOptions.filter((x) => x.value === item[0])[0];
+      return country.text;
     },
   },
 };

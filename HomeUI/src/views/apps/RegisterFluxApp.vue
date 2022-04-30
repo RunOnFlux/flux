@@ -74,45 +74,51 @@
                 placeholder="ZelID of Application Owner"
               />
             </b-form-group>
-            <b-form-group
-              label-cols="2"
-              label-cols-lg="1"
-              label="Contacts"
-              label-for="contacts"
-            >
-              <b-form-input
-                id="contacs"
-                v-model="appRegistrationSpecification.contacts"
-                placeholder="Array of strings of Emails contacts to get app information"
-              />
-            </b-form-group>
-            <b-form-group
-              label-cols="2"
-              label-cols-lg="1"
-              label="Continent"
-              label-for="Continent"
-            >
-              <b-form-select
-                id="continent"
-                v-model="selectedContinent"
-                :options="continentsOptions"
-                @change="continentChanged"
-              />
-            </b-form-group>
-            <b-form-group
-              v-if="selectedContinent"
-              label-cols="2"
-              label-cols-lg="1"
-              label="Country"
-              label-for="Country"
-            >
-              <b-form-select
-                id="country"
-                v-model="selectedCountry"
-                :options="countriesOptions.filter((x)=> x.continentCode === selectedContinent.continentCode)"
-                @change="countryChanged"
-              />
-            </b-form-group>
+            <div v-if="specificationVersion >= 5">
+              <div class="form-row form-group">
+                <label class="col-1 col-form-label">
+                  Contacts
+                  <v-icon
+                    v-b-tooltip.hover.top="'Array of strings of emails Contacts to get notifications in future, ex. app about to expire.'"
+                    name="info-circle"
+                    class="mr-1"
+                  />
+                </label>
+                <div class="col">
+                  <b-form-input
+                    id="contacs"
+                    v-model="appRegistrationSpecification.contacts"
+                  />
+                </div>
+              </div>
+              <b-form-group
+                label-cols="2"
+                label-cols-lg="1"
+                label="Continent"
+                label-for="Continent"
+              >
+                <b-form-select
+                  id="continent"
+                  v-model="selectedContinent"
+                  :options="continentsOptions"
+                  @change="continentChanged"
+                />
+              </b-form-group>
+              <b-form-group
+                v-if="selectedContinent"
+                label-cols="2"
+                label-cols-lg="1"
+                label="Country"
+                label-for="Country"
+              >
+                <b-form-select
+                  id="country"
+                  v-model="selectedCountry"
+                  :options="countriesOptions.filter((x)=> x.continentCode === selectedContinent)"
+                  @change="countryChanged"
+                />
+              </b-form-group>
+            </div>
             <br>
             <b-form-group
               v-if="appRegistrationSpecification.version >= 3"
@@ -334,7 +340,6 @@
                     v-model="component.tiered"
                     switch
                     class="custom-control-primary inline"
-                    :disabled="selectedContinent != null"
                   />
                 </h6>
               </b-card-title>
@@ -1158,9 +1163,9 @@ export default {
         description: '',
         owner: '',
         instances: 3,
-        continent: null,
-        country: null,
         contacts: '[]',
+        continents: [],
+        countries: [],
         compose: [
           {
             name: '',
@@ -1221,76 +1226,79 @@ export default {
         value: null, text: 'All',
       },
       {
-        value: { continentCode: 'AS', nodeTier: 'Cumulus', maxInstances: 5 }, text: 'Asia',
+        value: 'AS', nodeTier: 'Cumulus', maxInstances: 5, text: 'Asia',
       },
       {
-        value: { continentCode: 'EU', nodeTier: 'Stratus', maxInstances: 20 }, text: 'Europe',
+        value: 'EU', nodeTier: 'Stratus', maxInstances: 20, text: 'Europe',
       },
       {
-        value: { continentCode: 'NA', nodeTier: 'Stratus', maxInstances: 20 }, text: 'North America',
+        value: 'NA', nodeTier: 'Stratus', maxInstances: 20, text: 'North America',
       },
       {
-        value: { continentCode: 'OC', nodeTier: 'Cumulus', maxInstances: 3 }, text: 'Oceania',
+        value: 'OC', nodeTier: 'Cumulus', maxInstances: 3, text: 'Oceania',
       }],
       countriesOptions: [{
         value: null, text: 'All', continentCode: 'AS',
       },
       {
-        value: { countryCode: 'SG', nodeTier: 'Cumulus', maxInstances: 3 }, continentCode: 'AS', text: 'Singapore',
+        value: 'SG', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'AS', text: 'Singapore',
       },
       {
-        value: { countryCode: 'TW', nodeTier: 'Cumulus', maxInstances: 3 }, continentCode: 'AS', text: 'Taiwan',
+        value: 'TW', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'AS', text: 'Taiwan',
       },
       {
-        value: { countryCode: 'TH', nodeTier: 'Cumulus', maxInstances: 5 }, continentCode: 'AS', text: 'Thailand',
+        value: 'TH', nodeTier: 'Cumulus', maxInstances: 5, continentCode: 'AS', text: 'Thailand',
       },
       {
         value: null, text: 'All', continentCode: 'EU',
       },
       {
-        value: { countryCode: 'BE', nodeTier: 'Cumulus', maxInstances: 3 }, continentCode: 'EU', text: 'Belgium',
+        value: 'BE', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'EU', text: 'Belgium',
       },
       {
-        value: { countryCode: 'CZ', nodeTier: 'Cumulus', maxInstances: 3 }, continentCode: 'EU', text: 'Czechia',
+        value: 'CZ', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'EU', text: 'Czechia',
       },
       {
-        value: { countryCode: 'FI', nodeTier: 'Stratus', maxInstances: 10 }, continentCode: 'EU', text: 'Finland',
+        value: 'FI', nodeTier: 'Stratus', maxInstances: 10, continentCode: 'EU', text: 'Finland',
       },
       {
-        value: { countryCode: 'FR', nodeTier: 'Stratus', maxInstances: 5 }, continentCode: 'EU', text: 'France',
+        value: 'FR', nodeTier: 'Stratus', maxInstances: 5, continentCode: 'EU', text: 'France',
       },
       {
-        value: { countryCode: 'DE', nodeTier: 'Stratus', maxInstances: 15 }, continentCode: 'EU', text: 'Germany',
+        value: 'DE', nodeTier: 'Stratus', maxInstances: 15, continentCode: 'EU', text: 'Germany',
       },
       {
-        value: { countryCode: 'LT', nodeTier: 'Cumulus', maxInstances: 5 }, continentCode: 'EU', text: 'Lithuania',
+        value: 'LT', nodeTier: 'Cumulus', maxInstances: 5, continentCode: 'EU', text: 'Lithuania',
       },
       {
-        value: { countryCode: 'NL', nodeTier: 'Cumulus', maxInstances: 3 }, continentCode: 'EU', text: 'Netherlands',
+        value: 'NL', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'EU', text: 'Netherlands',
       },
       {
-        value: { countryCode: 'PL', nodeTier: 'Stratus', maxInstances: 10 }, continentCode: 'EU', text: 'Poland',
+        value: 'PL', nodeTier: 'Stratus', maxInstances: 10, continentCode: 'EU', text: 'Poland',
       },
       {
-        value: { countryCode: 'RU', nodeTier: 'Nimbus', maxInstances: 5 }, continentCode: 'EU', text: 'Russia',
+        value: 'RU', nodeTier: 'Nimbus', maxInstances: 5, continentCode: 'EU', text: 'Russia',
       },
       {
-        value: { countryCode: 'SI', nodeTier: 'Stratus', maxInstances: 3 }, continentCode: 'EU', text: 'Slovenia',
+        value: 'SI', nodeTier: 'Stratus', maxInstances: 3, continentCode: 'EU', text: 'Slovenia',
       },
       {
-        value: { countryCode: 'ES', nodeTier: 'Cumulus', maxInstances: 3 }, continentCode: 'EU', text: 'Spain',
+        value: 'ES', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'EU', text: 'Spain',
       },
       {
-        value: { countryCode: 'GB', nodeTier: 'Stratus', maxInstances: 3 }, continentCode: 'EU', text: 'United Kingdom',
+        value: 'GB', nodeTier: 'Stratus', maxInstances: 3, continentCode: 'EU', text: 'United Kingdom',
       },
       {
         value: null, text: 'All', continentCode: 'NA',
       },
       {
-        value: { countryCode: 'US', nodeTier: 'Stratus', maxInstances: 10 }, continentCode: 'NA', text: 'United States',
+        value: 'US', nodeTier: 'Stratus', maxInstances: 10, continentCode: 'NA', text: 'United States',
       },
       {
-        value: { countryCode: 'CA', nodeTier: 'Stratus', maxInstances: 10 }, continentCode: 'NA', text: 'Canada',
+        value: 'CA', nodeTier: 'Stratus', maxInstances: 10, continentCode: 'NA', text: 'Canada',
+      },
+      {
+        value: null, text: 'All', continentCode: 'OC',
       }],
       selectedContinent: null,
       selectedCountry: null,
@@ -1367,6 +1375,16 @@ export default {
       try {
         // formation, pre verificaiton
         const appSpecification = this.appRegistrationSpecification;
+        if (appSpecification.version >= 5) {
+          if (this.selectedContinent) {
+            appSpecification.continents = [];
+            appSpecification.continents.push(this.selectedContinent);
+            if (this.selectedCountry) {
+              appSpecification.countries = [];
+              appSpecification.countries.push(this.selectedCountry);
+            }
+          }
+        }
         // call api for verification of app registration specifications that returns formatted specs
         const responseAppSpecs = await AppsService.appRegistrationVerificaiton(appSpecification);
         if (responseAppSpecs.data.status === 'error') {
@@ -1568,12 +1586,37 @@ export default {
       });
     },
 
-    continentChanged() { // TODO
+    continentChanged() {
       this.selectedCountry = null;
+      if (this.selectedContinent) {
+        const continent = this.continentsOptions.filter((x) => x.value === this.selectedContinent)[0];
+        this.maxInstances = continent.maxInstances;
+        if (this.appRegistrationSpecification.instances > this.maxInstances) {
+          this.appRegistrationSpecification.instances = this.maxInstances;
+        }
+        this.showToast('warning', `On ${continent.text} continent you can deploy a maximum of ${this.maxInstances} instances and the node hardware available is ${continent.nodeTier}. If your app specs are higher the dapp might not install.`);
+      } else {
+        this.maxInstances = this.appRegistrationSpecificationv5template.maxInstances;
+        this.showToast('info', 'No geolocation set you can define up to maximum of 100 instances and up to the maximum hardware specs available on Flux network to your app.');
+      }
     },
 
-    countryChanged() { // TODO
-
+    countryChanged() {
+      if (this.selectedCountry) {
+        const country = this.countriesOptions.filter((x) => x.value === this.selectedCountry)[0];
+        this.maxInstances = country.maxInstances;
+        if (this.appRegistrationSpecification.instances > this.maxInstances) {
+          this.appRegistrationSpecification.instances = this.maxInstances;
+        }
+        this.showToast('warning', `On ${country.text} country you can deploy a maximum of ${this.maxInstances} instances and the node hardware available is ${country.nodeTier}. If your app specs are higher the dapp might not spawn on the network.`);
+      } else {
+        const continent = this.continentsOptions.filter((x) => x.value === this.selectedContinent)[0];
+        this.maxInstances = continent.maxInstances;
+        if (this.appRegistrationSpecification.instances > this.maxInstances) {
+          this.appRegistrationSpecification.instances = this.maxInstances;
+        }
+        this.showToast('warning', `On ${continent.text} continent you can deploy a maximum of ${this.maxInstances} instances and the node hardware available is ${continent.nodeTier}. If your app specs are higher the dapp might not spawn on the network.`);
+      }
     },
   },
 };

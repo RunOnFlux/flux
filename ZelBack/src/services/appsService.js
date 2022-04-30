@@ -3486,7 +3486,7 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
         throw new Error('Unsupported parameter for v3 app specifications');
       }
     });
-  } else {
+  } else if (appSpecifications.version === 4) {
     const specifications = [
       'version', 'name', 'description', 'owner', 'compose', 'instances',
     ];
@@ -3505,6 +3505,28 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
       specsKeysComponent.forEach((sKey) => {
         if (!componentSpecifications.includes((sKey))) {
           throw new Error('Unsupported parameter for v4 app specifications');
+        }
+      });
+    });
+  } else {
+    const specifications = [
+      'version', 'name', 'description', 'owner', 'compose', 'instances', 'contacts', 'continents', 'countries',
+    ];
+    const componentSpecifications = [
+      'name', 'description', 'repotag', 'ports', 'containerPorts', 'environmentParameters', 'commands', 'containerData', 'domains',
+      'cpu', 'ram', 'hdd', 'tiered', 'cpubasic', 'rambasic', 'hddbasic', 'cpusuper', 'ramsuper', 'hddsuper', 'cpubamf', 'rambamf', 'hddbamf',
+    ];
+    const specsKeys = Object.keys(appSpecifications);
+    specsKeys.forEach((sKey) => {
+      if (!specifications.includes((sKey))) {
+        throw new Error('Unsupported parameter for v5 app specifications');
+      }
+    });
+    appSpecifications.compose.forEach((appComponent) => {
+      const specsKeysComponent = Object.keys(appComponent);
+      specsKeysComponent.forEach((sKey) => {
+        if (!componentSpecifications.includes((sKey))) {
+          throw new Error('Unsupported parameter for v5 app specifications');
         }
       });
     });
@@ -4096,6 +4118,9 @@ function specificationFormatter(appSpecification) {
   let { ram } = appSpecification;
   let { hdd } = appSpecification;
   const { tiered } = appSpecification;
+  let { contacts } = appSpecification;
+  let { continents } = appSpecification;
+  let { countries } = appSpecification;
 
   if (!version) {
     throw new Error('Missing Flux App specification parameter');
@@ -4234,6 +4259,47 @@ function specificationFormatter(appSpecification) {
       appSpecFormatted.hddbamf = hddbamf;
     }
   } else { // v4+
+    if (version >= 5) {
+      if (!contacts || !continents || !countries) {
+        throw new Error('Missing Flux App specification parameter');
+      }
+      contacts = serviceHelper.ensureObject(contacts);
+      const contactsCorrect = [];
+      if (Array.isArray(contacts)) {
+        contacts.forEach((parameter) => {
+          const param = serviceHelper.ensureString(parameter); // string
+          contactsCorrect.push(param);
+        });
+      } else {
+        throw new Error('Contacts for Flux App are invalid');
+      }
+      appSpecFormatted.contacts = contactsCorrect;
+
+      continents = serviceHelper.ensureObject(continents);
+      const continentsCorrect = [];
+      if (Array.isArray(continents)) {
+        continents.forEach((parameter) => {
+          const param = serviceHelper.ensureString(parameter); // string
+          continentsCorrect.push(param);
+        });
+      } else {
+        throw new Error('Continents for Flux App are invalid');
+      }
+      appSpecFormatted.continents = continentsCorrect;
+
+      countries = serviceHelper.ensureObject(countries);
+      const countriesCorrect = [];
+      if (Array.isArray(countries)) {
+        countries.forEach((parameter) => {
+          const param = serviceHelper.ensureString(parameter); // string
+          countriesCorrect.push(param);
+        });
+      } else {
+        throw new Error('Countries for Flux App are invalid');
+      }
+      appSpecFormatted.countries = countriesCorrect;
+    }
+
     if (!compose) {
       throw new Error('Missing Flux App specification parameter');
     }
