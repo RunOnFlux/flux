@@ -3097,6 +3097,19 @@ export default {
           this.appUpdateSpecification.commands = this.ensureString(specs.commands);
           this.appUpdateSpecification.containerPorts = specs.containerPort || this.ensureString(specs.containerPorts); // v1 compatibility
         } else {
+          if (this.appUpdateSpecification.version >= 5) {
+            this.appUpdateSpecification.contacts = this.ensureString(specs.contacs);
+            this.selectedContinent = null;
+            this.selectedCountry = null;
+            if (specs.continents && specs.continents.length > 0) {
+              this.selectedContinent = this.continentsOptions.filter((x) => x.value === specs.continents[0])[0];
+            }
+            if (specs.countries && specs.countries.length > 0) {
+              this.selectedCountry = this.countriesOptions.filter((x) => x.value === specs.countries[0])[0];
+            }
+            this.appUpdateSpecification.continents = this.ensureString(specs.continents);
+            this.appUpdateSpecification.countries = this.ensureString(specs.countries);
+          }
           this.appUpdateSpecification.compose.forEach((component) => {
             // eslint-disable-next-line no-param-reassign
             component.ports = this.ensureString(component.ports);
