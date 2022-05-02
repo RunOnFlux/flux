@@ -3103,9 +3103,9 @@ export default {
             this.selectedCountry = null;
             if (specs.continents && specs.continents.length > 0) {
               this.selectedContinent = this.continentsOptions.filter((x) => x.value === specs.continents[0])[0];
-            }
-            if (specs.countries && specs.countries.length > 0) {
-              this.selectedCountry = this.countriesOptions.filter((x) => x.value === specs.countries[0])[0];
+              if (specs.countries && specs.countries.length > 0) {
+                this.selectedCountry = this.countriesOptions.filter((x) => x.value === specs.countries[0])[0];
+              }
             }
             this.appUpdateSpecification.continents = this.ensureString(specs.continents);
             this.appUpdateSpecification.countries = this.ensureString(specs.countries);
