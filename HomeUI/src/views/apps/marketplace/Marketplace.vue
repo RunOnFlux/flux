@@ -258,8 +258,14 @@ export default {
 
     const sharedNodeZelIDs = ref(
       [
-        '1CYcLWeUHqgbHefa78M9TYzQou2peRnmiF',
-        '1B5eD62QLez9in89zMZiiUNVSg5f3R4KNK',
+        '1CYcLWeUHqgbHefa78M9TYzQou2peRnmiF', // JeffVader
+        '1B5eD62QLez9in89zMZiiUNVSg5f3R4KNK', // Jefke
+        '1N54T5rnmagTk93giHGpsLPZacHAK3WLLN', // blondfrogs
+        '1CQwTrsqAp2JyjsV2xBLzcb7LZDTux1Ezo', // PorterhouseGamer
+        '1CYByzee6xgKLAMFBKS9y2LqZq2zLGyoUE', // GreggyBear
+        '1AZKSb3jeGa99Uaoi1pwDAA6pYdQ4SDHtR', // w2vy
+        '1BeXmrAVprWxzcK72i2DoMLWXhR9KazJhN', // Parker
+        '1NT9VL5yeBUGZfNaoZExZ6hf7vwbVqkZVP', // Ali Malik
       ],
     );
 
