@@ -18,6 +18,7 @@ const benchmarkService = require('./benchmarkService');
 const dockerService = require('./dockerService');
 const generalService = require('./generalService');
 const upnpService = require('./upnpService');
+const fluxService = require('./fluxService');
 const log = require('../lib/log');
 const userconfig = require('../../../config/userconfig');
 
@@ -1856,6 +1857,39 @@ function totalAppHWRequirements(appSpecifications, myNodeTier) {
 }
 
 async function checkAppRequirements(appSpecs) {
+  // check geolocation
+  if (appSpecs.version >= 5) {
+    const nodeGeo = fluxService.getNodeGeolocation();
+    if (!nodeGeo) {
+      throw new Error('Node Geolocation not set. Aborting.');
+    }
+    let findCountry = false;
+    let findContinent = false;
+    if (appSpecs.countries && appSpecs.countries.length > 0) {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const country in appSpecs.countries) {
+        if (country === nodeGeo.countryCode) {
+          findCountry = true;
+          break;
+        }
+      }
+      if (!findCountry) {
+        throw new Error('App specs with countries geolocation set not matching node geolocation. Aborting.');
+      }
+    } else if (appSpecs.continents && appSpecs.continents.length > 0) {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const continent in appSpecs.continents) {
+        if (continent === nodeGeo.continentCode) {
+          findContinent = true;
+          break;
+        }
+      }
+      if (!findContinent) {
+        throw new Error('App specs with continents geolocation set not matching node geolocation. Aborting.');
+      }
+    }
+  }
+
   // appSpecs has hdd, cpu and ram assigned to correct tier
   const tier = await generalService.nodeTier();
   const resourcesLocked = await appsResources();
