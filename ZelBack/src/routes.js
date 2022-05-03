@@ -3,6 +3,7 @@ const apicache = require('apicache');
 const daemonService = require('./services/daemonService');
 const daemonServiceAddressRpcs = require('./services/daemonServiceAddressRpcs');
 const daemonServiceTransactionRpcs = require('./services/daemonServiceTransactionRpcs');
+const daemonServiceBlockchainRpcs = require('./services/daemonServiceBlockchainRpcs');
 const daemonServiceMiningRpcs = require('./services/daemonServiceMiningRpcs');
 const daemonServiceNetworkRpcs = require('./services/daemonServiceNetworkRpcs');
 const benchmarkService = require('./services/benchmarkService');
@@ -76,55 +77,55 @@ module.exports = (app, expressWs) => {
     daemonService.zelNodeDebug(req, res);
   });
   app.get('/daemon/getbestblockhash', cache('30 seconds'), (req, res) => {
-    daemonService.getBestBlockHash(req, res);
+    daemonServiceBlockchainRpcs.getBestBlockHash(req, res);
   });
   app.get('/daemon/getblock/:hashheight?/:verbosity?', cache('30 seconds'), (req, res) => {
-    daemonService.getBlock(req, res);
+    daemonServiceBlockchainRpcs.getBlock(req, res);
   });
   app.get('/daemon/getblockchaininfo', cache('30 seconds'), (req, res) => {
-    daemonService.getBlockchainInfo(req, res);
+    daemonServiceBlockchainRpcs.getBlockchainInfo(req, res);
   });
   app.get('/daemon/getblockcount', cache('30 seconds'), (req, res) => {
-    daemonService.getBlockCount(req, res);
+    daemonServiceBlockchainRpcs.getBlockCount(req, res);
   });
   app.get('/daemon/getblockdeltas/:hash?', cache('30 seconds'), (req, res) => {
-    daemonService.getBlockDeltas(req, res);
+    daemonServiceBlockchainRpcs.getBlockDeltas(req, res);
   });
   app.get('/daemon/getblockhashes/:high?/:low?/:noorphans?/:logicaltimes?', cache('30 seconds'), (req, res) => {
-    daemonService.getBlockHashes(req, res);
+    daemonServiceBlockchainRpcs.getBlockHashes(req, res);
   });
   app.get('/daemon/getblockhash/:index?', cache('30 seconds'), (req, res) => {
-    daemonService.getBlockHash(req, res);
+    daemonServiceBlockchainRpcs.getBlockHash(req, res);
   });
   app.get('/daemon/getblockheader/:hash?/:verbose?', cache('30 seconds'), (req, res) => {
-    daemonService.getBlockHeader(req, res);
+    daemonServiceBlockchainRpcs.getBlockHeader(req, res);
   });
   app.get('/daemon/getchaintips', cache('30 seconds'), (req, res) => {
-    daemonService.getChainTips(req, res);
+    daemonServiceBlockchainRpcs.getChainTips(req, res);
   });
   app.get('/daemon/getdifficulty', cache('30 seconds'), (req, res) => {
-    daemonService.getDifficulty(req, res);
+    daemonServiceBlockchainRpcs.getDifficulty(req, res);
   });
   app.get('/daemon/getmempoolinfo', cache('30 seconds'), (req, res) => {
-    daemonService.getMempoolInfo(req, res);
+    daemonServiceBlockchainRpcs.getMempoolInfo(req, res);
   });
   app.get('/daemon/getrawmempool/:verbose?', cache('30 seconds'), (req, res) => {
-    daemonService.getRawMemPool(req, res);
+    daemonServiceBlockchainRpcs.getRawMemPool(req, res);
   });
   app.get('/daemon/gettxout/:txid?/:n?/:includemempool?', cache('30 seconds'), (req, res) => {
-    daemonService.getTxOut(req, res);
+    daemonServiceBlockchainRpcs.getTxOut(req, res);
   });
   app.get('/daemon/gettxoutproof/:txids?/:blockhash?', cache('30 seconds'), (req, res) => { // comma separated list of txids. For example: /gettxoutproof/abc,efg,asd/blockhash
-    daemonService.getTxOutProof(req, res);
+    daemonServiceBlockchainRpcs.getTxOutProof(req, res);
   });
   app.get('/daemon/gettxoutsetinfo', cache('30 seconds'), (req, res) => {
-    daemonService.getTxOutSetInfo(req, res);
+    daemonServiceBlockchainRpcs.getTxOutSetInfo(req, res);
   });
   app.get('/daemon/verifytxoutproof/:proof?', cache('30 seconds'), (req, res) => {
-    daemonService.verifyTxOutProof(req, res);
+    daemonServiceBlockchainRpcs.verifyTxOutProof(req, res);
   });
   app.get('/daemon/getspentinfo/:txid?/:index?', cache('30 seconds'), (req, res) => {
-    daemonService.getSpentInfo(req, res);
+    daemonServiceBlockchainRpcs.getSpentInfo(req, res);
   });
   app.get('/daemon/getblocksubsidy/:height?', cache('30 seconds'), (req, res) => {
     daemonServiceMiningRpcs.getBlockSubsidy(req, res);
@@ -435,7 +436,7 @@ module.exports = (app, expressWs) => {
     daemonService.startDeterministicZelNode(req, res);
   });
   app.get('/daemon/verifychain/:checklevel?/:numblocks?', (req, res) => {
-    daemonService.verifyChain(req, res);
+    daemonServiceBlockchainRpcs.verifyChain(req, res);
   });
   app.get('/daemon/addnode/:node?/:command?', (req, res) => {
     daemonServiceNetworkRpcs.addNode(req, res);
@@ -910,10 +911,10 @@ module.exports = (app, expressWs) => {
     daemonService.verifyMessagePost(req, res);
   });
   app.post('/daemon/getblockhashes', (req, res) => {
-    daemonService.getBlockHashesPost(req, res);
+    daemonServiceBlockchainRpcs.getBlockHashesPost(req, res);
   });
   app.post('/daemon/getspentinfo', (req, res) => {
-    daemonService.getSpentInfoPost(req, res);
+    daemonServiceBlockchainRpcs.getSpentInfoPost(req, res);
   });
   app.post('/daemon/getaddresstxids', (req, res) => {
     daemonServiceAddressRpcs.getAddressTxids(req, res);

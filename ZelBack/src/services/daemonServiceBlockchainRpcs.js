@@ -342,16 +342,16 @@ async function verifyChain(req, res) {
   checklevel = checklevel || req.query.checklevel || 3;
   numblocks = numblocks || req.query.numblocks || 288;
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
-  if (authorized === true) {
-    checklevel = serviceHelper.ensureNumber(checklevel);
-    numblocks = serviceHelper.ensureNumber(numblocks);
-    const rpccall = 'verifyChain';
-    const rpcparameters = [checklevel, numblocks];
-
-    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
-  } else {
+  if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
+    return res ? res.json(response) : response;
   }
+  checklevel = serviceHelper.ensureNumber(checklevel);
+  numblocks = serviceHelper.ensureNumber(numblocks);
+  const rpccall = 'verifyChain';
+  const rpcparameters = [checklevel, numblocks];
+
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }

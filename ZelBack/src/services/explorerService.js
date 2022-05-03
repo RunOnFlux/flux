@@ -9,6 +9,7 @@ const messageHelper = require('./messageHelper');
 const daemonService = require('./daemonService');
 const daemonServiceAddressRpcs = require('./daemonServiceAddressRpcs');
 const daemonServiceTransactionRpcs = require('./daemonServiceTransactionRpcs');
+const daemonServiceBlockchainRpcs = require('./daemonServiceBlockchainRpcs');
 const appsService = require('./appsService');
 
 const coinbaseFusionIndexCollection = config.database.daemon.collections.coinbaseFusionIndex; // fusion
@@ -330,7 +331,7 @@ async function getVerboseBlock(heightOrHash, verbosity = 2) {
       verbosity,
     },
   };
-  const blockInfo = await daemonService.getBlock(req);
+  const blockInfo = await daemonServiceBlockchainRpcs.getBlock(req);
   if (blockInfo.status === 'success') {
     return blockInfo.data;
   }
@@ -877,7 +878,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
           throw e;
         }
       } else if (scannedBlockHeight > config.daemon.chainValidHeight) {
-        const daemonGetChainTips = await daemonService.getChainTips();
+        const daemonGetChainTips = await daemonServiceBlockchainRpcs.getChainTips();
         if (daemonGetChainTips.status !== 'success') {
           throw new Error(daemonGetChainTips.data.message || daemonGetInfo.data);
         }
