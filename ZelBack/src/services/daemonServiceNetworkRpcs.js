@@ -82,7 +82,7 @@ async function disconnectNode(req, res) {
  */
 async function getAddedNodeInfo(req, res) {
   let { dns, node } = req.params;
-  dns = dns || req.query.dns;
+  dns = dns ?? req.query.dns;
   node = node || req.query.node;
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
@@ -219,7 +219,7 @@ async function setBan(req, res) {
   ip = ip || req.query.ip;
   command = command || req.query.command;
   bantime = bantime || req.query.bantime;
-  absolute = absolute || req.query.absolute;
+  absolute = absolute ?? req.query.absolute;
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'setBan';

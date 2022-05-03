@@ -1414,7 +1414,7 @@ async function reindexExplorer(req, res) {
     // stop block processing
     const i = 0;
     let { reindexapps } = req.params;
-    reindexapps = reindexapps || req.query.rescanapps || false;
+    reindexapps = reindexapps ?? req.query.rescanapps ?? false;
     reindexapps = serviceHelper.ensureBoolean(reindexapps);
     checkBlockProcessingStopped(i, async (response) => {
       if (response.status === 'error') {
@@ -1488,7 +1488,7 @@ async function rescanExplorer(req, res) {
         throw new Error('BlockHeight lower than 0');
       }
       let { rescanapps } = req.params;
-      rescanapps = rescanapps || req.query.rescanapps || false;
+      rescanapps = rescanapps ?? req.query.rescanapps ?? false;
       rescanapps = serviceHelper.ensureBoolean(rescanapps);
       // stop block processing
       const i = 0;

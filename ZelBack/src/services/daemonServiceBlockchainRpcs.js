@@ -123,8 +123,8 @@ async function getBlockHashes(req, res) {
   } = req.params;
   high = high || req.query.high;
   low = low || req.query.low;
-  noOrphans = noOrphans || req.query.noOrphans;
-  logicalTimes = logicalTimes || req.query.logicalTimes;
+  noOrphans = noOrphans ?? req.query.noOrphans;
+  logicalTimes = logicalTimes ?? req.query.logicalTimes;
 
   const rpccall = 'getblockhashes';
   const rpcparameters = [];
@@ -187,8 +187,7 @@ async function getBlockHashesPost(req, res) {
 async function getBlockHeader(req, res) {
   let { hash, verbose } = req.params;
   hash = hash || req.query.hash;
-  verbose = verbose == null ? req.query.verbose : verbose;
-  verbose = verbose == null ? true : verbose;
+  verbose = verbose ?? req.query.verbose ?? true;
 
   const rpccall = 'getBlockHeader';
   const rpcparameters = [];
@@ -253,7 +252,7 @@ async function getMempoolInfo(req, res) {
  */
 async function getRawMemPool(req, res) {
   let { verbose } = req.params;
-  verbose = verbose || req.query.verbose || false;
+  verbose = verbose ?? req.query.verbose ?? false;
 
   verbose = serviceHelper.ensureBoolean(verbose);
 
@@ -275,8 +274,7 @@ async function getTxOut(req, res) {
   let { txid, n, includemempool } = req.params;
   txid = txid || req.query.txid;
   n = n || req.query.n;
-  includemempool = includemempool == null ? req.query.includemempool : includemempool;
-  includemempool = includemempool == null ? true : includemempool;
+  includemempool = includemempool ?? req.query.includemempool ?? true;
 
   const rpccall = 'getTxOut';
   const rpcparameters = [];

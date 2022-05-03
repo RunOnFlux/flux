@@ -417,7 +417,7 @@ async function startDeterministicZelNode(req, res) {
   let { alias } = req.params;
   alias = alias || req.query.alias;
   let { lockwallet } = req.params;
-  lockwallet = lockwallet || req.query.lockwallet || false;
+  lockwallet = lockwallet ?? req.query.lockwallet ?? false;
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'startdeterministiczelnode';
@@ -836,7 +836,7 @@ async function getBalance(req, res) {
   let { minconf } = req.params;
   minconf = minconf || req.query.minconf || 1;
   let { includewatchonly } = req.params;
-  includewatchonly = includewatchonly || req.query.includewatchonly || false;
+  includewatchonly = includewatchonly ?? req.query.includewatchonly ?? false;
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'getBalance';
@@ -924,7 +924,7 @@ async function getTransaction(req, res) {
   let { txid } = req.params;
   txid = txid || req.query.txid;
   let { includewatchonly } = req.params;
-  includewatchonly = includewatchonly || req.query.includewatchonly || false;
+  includewatchonly = includewatchonly ?? req.query.includewatchonly ?? false;
 
   const rpccall = 'getTransaction';
   let rpcparameters = [];
@@ -985,8 +985,7 @@ async function importAddress(req, res) {
   let { label } = req.params;
   label = label || req.query.label || '';
   let { rescan } = req.params;
-  rescan = rescan == null ? req.query.rescan : rescan;
-  rescan = rescan == null ? true : rescan;
+  rescan = rescan ?? req.query.rescan ?? true;
 
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
@@ -1016,7 +1015,7 @@ async function importPrivKey(req, res) {
   let { label } = req.params;
   label = label || req.query.label || '';
   let { rescan } = req.params;
-  rescan = rescan || req.query.rescan || true;
+  rescan = rescan ?? req.query.rescan ?? true;
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'importPrivKey';
@@ -1147,9 +1146,9 @@ async function listReceivedByAddress(req, res) {
   let { minconf } = req.params;
   minconf = minconf || req.query.minconf || 1;
   let { includeempty } = req.params;
-  includeempty = includeempty || req.query.includeempty || false;
+  includeempty = includeempty ?? req.query.includeempty ?? false;
   let { includewatchonly } = req.params;
-  includewatchonly = includewatchonly || req.query.includewatchonly || false;
+  includewatchonly = includewatchonly ?? req.query.includewatchonly ?? false;
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     minconf = serviceHelper.ensureNumber(minconf);
@@ -1177,7 +1176,7 @@ async function listSinceBlock(req, res) {
   let { targetconfirmations } = req.params;
   targetconfirmations = targetconfirmations || req.query.targetconfirmations || 1;
   let { includewatchonly } = req.params;
-  includewatchonly = includewatchonly || req.query.includewatchonly || false;
+  includewatchonly = includewatchonly ?? req.query.includewatchonly ?? false;
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     targetconfirmations = serviceHelper.ensureNumber(targetconfirmations);
@@ -1205,7 +1204,7 @@ async function listTransactions(req, res) {
   let { from } = req.params;
   from = from || req.query.from || 0;
   let { includewatchonly } = req.params;
-  includewatchonly = includewatchonly || req.query.includewatchonly || false;
+  includewatchonly = includewatchonly ?? req.query.includewatchonly ?? false;
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     count = serviceHelper.ensureNumber(count);
@@ -1261,7 +1260,7 @@ async function listUnspent(req, res) {
  */
 async function lockUnspent(req, res) {
   let { unlock } = req.params;
-  unlock = unlock || req.query.unlock;
+  unlock = unlock ?? req.query.unlock;
   let { transactions } = req.params;
   transactions = transactions || req.query.transactions;
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
@@ -1456,7 +1455,7 @@ async function sendToAddress(req, res) {
   let { commentto } = req.params;
   commentto = commentto || req.query.commentto || '';
   let { substractfeefromamount } = req.params;
-  substractfeefromamount = substractfeefromamount || req.query.substractfeefromamount || false;
+  substractfeefromamount = substractfeefromamount ?? req.query.substractfeefromamount ?? false;
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'sendToAddress';
@@ -1495,7 +1494,7 @@ async function sendToAddressPost(req, res) {
     let { substractfeefromamount } = processedBody;
     comment = comment || '';
     commentto = commentto || '';
-    substractfeefromamount = substractfeefromamount || false;
+    substractfeefromamount = substractfeefromamount ?? false;
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
     if (authorized === true) {
       const rpccall = 'sendToAddress';
@@ -1776,7 +1775,7 @@ async function zGetTotalBalance(req, res) {
   let { minconf } = req.params;
   minconf = minconf || req.query.minconf || 1;
   let { includewatchonly } = req.params;
-  includewatchonly = includewatchonly || req.query.includewatchonly || false;
+  includewatchonly = includewatchonly ?? req.query.includewatchonly ?? false;
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     minconf = serviceHelper.ensureNumber(minconf);
@@ -1885,7 +1884,7 @@ async function zImportWallet(req, res) {
  */
 async function zListAddresses(req, res) {
   let { includewatchonly } = req.params;
-  includewatchonly = includewatchonly || req.query.includewatchonly || false;
+  includewatchonly = includewatchonly ?? req.query.includewatchonly ?? false;
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     includewatchonly = serviceHelper.ensureBoolean(includewatchonly);
@@ -1959,7 +1958,7 @@ async function zListUnspent(req, res) {
   let { maxconf } = req.params;
   maxconf = maxconf || req.query.maxconf || 9999999;
   let { includewatchonly } = req.params;
-  includewatchonly = includewatchonly || req.query.includewatchonly || false;
+  includewatchonly = includewatchonly ?? req.query.includewatchonly ?? false;
   let { addresses } = req.params;
   addresses = addresses || req.query.addresses;
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
@@ -2099,7 +2098,7 @@ async function zSendManyPost(req, res) {
  */
 async function zSetMigration(req, res) {
   let { enabled } = req.params;
-  enabled = enabled || req.query.enabled;
+  enabled = enabled ?? req.query.enabled;
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'z_setmigration';

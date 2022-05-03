@@ -261,7 +261,7 @@ async function sendRawTransaction(req, res) {
   let { hexstring } = req.params;
   hexstring = hexstring || req.query.hexstring;
   let { allowhighfees } = req.params;
-  allowhighfees = allowhighfees || req.query.allowhighfees || false;
+  allowhighfees = allowhighfees ?? req.query.allowhighfees ?? false;
 
   const rpccall = 'sendRawTransaction';
   let rpcparameters = [];
@@ -289,7 +289,7 @@ async function sendRawTransactionPost(req, res) {
     const processedBody = serviceHelper.ensureObject(body);
     const { hexstring } = processedBody;
     let { allowhighfees } = processedBody;
-    allowhighfees = allowhighfees || false;
+    allowhighfees = allowhighfees ?? false;
 
     const rpccall = 'sendRawTransaction';
     let rpcparameters = [];

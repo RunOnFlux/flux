@@ -476,7 +476,7 @@ describe('daemonServiceBlockchainRpcs tests', () => {
         params: {
           high: '99',
           low: '1',
-          noOrphans: 'true',
+          noOrphans: false,
         },
         query: {
           test2: 'test2',
@@ -487,7 +487,7 @@ describe('daemonServiceBlockchainRpcs tests', () => {
       const result = await daemonServiceBlockchainRpcs.getBlockHashes(req);
 
       expect(result).to.equal(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getblockhashes', [+req.params.high, +req.params.low, { noOrphans: true }]);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getblockhashes', [+req.params.high, +req.params.low, { noOrphans: false }]);
     });
 
     it('should trigger rpc, data passed in params, no noOrphans param, no response passed', async () => {
@@ -496,7 +496,7 @@ describe('daemonServiceBlockchainRpcs tests', () => {
         params: {
           high: '99',
           low: '1',
-          logicalTimes: 'false',
+          logicalTimes: false,
         },
         query: {
           test2: 'test2',
