@@ -1025,7 +1025,7 @@ async function setNodeGeolocation() {
           lon: ipRes.data.lon,
           org: ipRes.data.org,
         };
-        log.warn(`Geolocation of Node ${myIP} is ${storedGeolocation.stringify()}`);
+        log.info(`Geolocation of Node ${myIP} is ${storedGeolocation.stringify()}`);
         setTimeout(() => { // executes again in 12h
           setNodeGeolocation();
         }, 12 * 60 * 60 * 1000);
