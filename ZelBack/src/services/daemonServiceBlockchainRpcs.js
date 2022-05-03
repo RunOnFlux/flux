@@ -187,7 +187,8 @@ async function getBlockHashesPost(req, res) {
 async function getBlockHeader(req, res) {
   let { hash, verbose } = req.params;
   hash = hash || req.query.hash;
-  verbose = verbose || req.query.verbose || true;
+  verbose = verbose == null ? req.query.verbose : verbose;
+  verbose = verbose == null ? true : verbose;
 
   const rpccall = 'getBlockHeader';
   const rpcparameters = [];
@@ -271,12 +272,11 @@ async function getRawMemPool(req, res) {
  * @returns {object} Message.
  */
 async function getTxOut(req, res) {
-  let { txid } = req.params;
+  let { txid, n, includemempool } = req.params;
   txid = txid || req.query.txid;
-  let { n } = req.params;
   n = n || req.query.n;
-  let { includemempool } = req.params;
-  includemempool = includemempool || req.query.includemempool || true;
+  includemempool = includemempool == null ? req.query.includemempool : includemempool;
+  includemempool = includemempool == null ? true : includemempool;
 
   const rpccall = 'getTxOut';
   const rpcparameters = [];
@@ -300,11 +300,10 @@ async function getTxOut(req, res) {
  * @returns {object} Message.
  */
 async function getTxOutProof(req, res) {
-  let { txids } = req.params;
+  let { txids, blockhash } = req.params;
   txids = txids || req.query.txids;
-  let { blockhash } = req.params;
   blockhash = blockhash || req.query.blockhash;
-  const txidsarray = txids.split(',');
+  const txidsarray = txids ? txids.split(',') : undefined;
 
   const rpccall = 'getTxOutProof';
   const rpcparameters = [];
@@ -341,9 +340,8 @@ async function getTxOutSetInfo(req, res) {
  * @returns {object} Message.
  */
 async function verifyChain(req, res) {
-  let { checklevel } = req.params;
+  let { checklevel, numblocks } = req.params;
   checklevel = checklevel || req.query.checklevel || 3;
-  let { numblocks } = req.params;
   numblocks = numblocks || req.query.numblocks || 288;
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
@@ -388,9 +386,8 @@ async function verifyTxOutProof(req, res) {
  * @returns {object} Message.
  */
 async function getSpentInfo(req, res) {
-  let { txid } = req.params;
+  let { txid, index } = req.params;
   txid = txid || req.query.txid;
-  let { index } = req.params;
   index = index || req.query.index;
 
   const rpccall = 'getspentinfo';
@@ -420,8 +417,8 @@ async function getSpentInfoPost(req, res) {
     const processedBody = serviceHelper.ensureObject(body);
     const { txid, index } = processedBody;
     const options = {
-      txid,
-      index,
+      txid: serviceHelper.ensureString(txid),
+      index: serviceHelper.ensureNumber(index),
     };
 
     const rpccall = 'getspentinfo';

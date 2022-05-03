@@ -985,7 +985,9 @@ async function importAddress(req, res) {
   let { label } = req.params;
   label = label || req.query.label || '';
   let { rescan } = req.params;
-  rescan = rescan || req.query.rescan || true;
+  rescan = rescan == null ? req.query.rescan : rescan;
+  rescan = rescan == null ? true : rescan;
+
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'importAddress';
