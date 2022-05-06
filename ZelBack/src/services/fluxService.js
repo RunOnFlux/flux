@@ -14,6 +14,7 @@ const verificationHelper = require('./verificationHelper');
 const messageHelper = require('./messageHelper');
 const daemonService = require('./daemonService');
 const daemonServiceZelnodeRpcs = require('./daemonServiceZelnodeRpcs');
+const daemonServiceBenchmarkRpcs = require('./daemonServiceBenchmarkRpcs');
 const benchmarkService = require('./benchmarkService');
 const appsService = require('./appsService');
 const generalService = require('./generalService');
@@ -372,7 +373,7 @@ function getFluxVersion(req, res) {
  * @returns {object} Message.
  */
 async function getFluxIP(req, res) {
-  const benchmarkResponse = await daemonService.getBenchmarks();
+  const benchmarkResponse = await daemonServiceBenchmarkRpcs.getBenchmarks();
   let myIP = null;
   if (benchmarkResponse.status === 'success') {
     const benchmarkResponseData = JSON.parse(benchmarkResponse.data);

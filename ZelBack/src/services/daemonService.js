@@ -1940,71 +1940,6 @@ async function createConfirmationTransaction(req, res) {
   return res ? res.json(response) : response;
 }
 
-// == Benchmarks ==
-/**
- * To get benchmarks.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message.
- */
-async function getBenchmarks(req, res) {
-  const rpccall = 'getbenchmarks';
-
-  response = await daemonServiceUtils.executeCall(rpccall);
-
-  return res ? res.json(response) : response;
-}
-
-/**
- * To get benchmark status.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message.
- */
-async function getBenchStatus(req, res) {
-  const rpccall = 'getbenchstatus';
-
-  response = await daemonServiceUtils.executeCall(rpccall);
-
-  return res ? res.json(response) : response;
-}
-
-/**
- * To start benchmark daemon. Only accessible by admins and flux team members.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message.
- */
-async function startBenchmarkD(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-  if (authorized === true) {
-    const rpccall = 'startzelbenchd';
-    response = await daemonServiceUtils.executeCall(rpccall);
-  } else {
-    response = messageHelper.errUnauthorizedMessage();
-  }
-
-  return res ? res.json(response) : response;
-}
-
-/**
- * To stop benchmark daemon. Only accessible by admins and flux team members.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message.
- */
-async function stopBenchmarkD(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-  if (authorized === true) {
-    const rpccall = 'stopzelbenchd';
-    response = await daemonServiceUtils.executeCall(rpccall);
-  } else {
-    response = messageHelper.errUnauthorizedMessage();
-  }
-
-  return res ? res.json(response) : response;
-}
-
 // == NON Daemon ==
 /**
  * To check if daemon is synced.
@@ -2148,12 +2083,6 @@ module.exports = {
   zcRawReceivePost, // == available but DEPRECATED ==
   zcSampleJoinSplit,
   createConfirmationTransaction,
-
-  // == Benchmarks ==
-  getBenchmarks,
-  getBenchStatus,
-  startBenchmarkD,
-  stopBenchmarkD,
 
   // == NON Daemon ==
   isDaemonSynced,

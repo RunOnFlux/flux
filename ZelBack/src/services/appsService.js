@@ -16,6 +16,7 @@ const dbHelper = require('./dbHelper');
 const verificationHelper = require('./verificationHelper');
 const messageHelper = require('./messageHelper');
 const daemonService = require('./daemonService');
+const daemonServiceBenchmarkRpcs = require('./daemonServiceBenchmarkRpcs');
 const benchmarkService = require('./benchmarkService');
 const dockerService = require('./dockerService');
 const generalService = require('./generalService');
@@ -901,7 +902,7 @@ async function getNodeSpecs() {
     }
     if (nodeSpecs.ssdStorage === 0) {
       // get my external IP and check that it is longer than 5 in length.
-      const benchmarkResponse = await daemonService.getBenchmarks();
+      const benchmarkResponse = await daemonServiceBenchmarkRpcs.getBenchmarks();
       if (benchmarkResponse.status === 'success') {
         const benchmarkResponseData = JSON.parse(benchmarkResponse.data);
         log.info(`Gathered ssdstorage ${benchmarkResponseData.ssd}`);
@@ -5686,7 +5687,7 @@ async function trySpawningGlobalApplication() {
     const adjustedDelay = delay / probLn;
 
     // get my external IP and check that it is longer than 5 in length.
-    const benchmarkResponse = await daemonService.getBenchmarks();
+    const benchmarkResponse = await daemonServiceBenchmarkRpcs.getBenchmarks();
     let myIP = null;
     if (benchmarkResponse.status === 'success') {
       const benchmarkResponseData = JSON.parse(benchmarkResponse.data);
@@ -5846,7 +5847,7 @@ async function trySpawningGlobalApplication() {
 async function checkAndNotifyPeersOfRunningApps() {
   try {
     // get my external IP and check that it is longer than 5 in length.
-    const benchmarkResponse = await daemonService.getBenchmarks();
+    const benchmarkResponse = await daemonServiceBenchmarkRpcs.getBenchmarks();
     let myIP = null;
     if (benchmarkResponse.status === 'success') {
       const benchmarkResponseData = JSON.parse(benchmarkResponse.data);

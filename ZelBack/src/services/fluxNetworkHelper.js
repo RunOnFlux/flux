@@ -11,6 +11,7 @@ const serviceHelper = require('./serviceHelper');
 const messageHelper = require('./messageHelper');
 const daemonService = require('./daemonService');
 const daemonServiceZelnodeRpcs = require('./daemonServiceZelnodeRpcs');
+const daemonServiceBenchmarkRpcs = require('./daemonServiceBenchmarkRpcs');
 const benchmarkService = require('./benchmarkService');
 const verificationHelper = require('./verificationHelper');
 const fluxCommunicationUtils = require('./fluxCommunicationUtils');
@@ -159,7 +160,7 @@ function getDosStateValue() {
 }
 
 async function getMyFluxIPandPort() {
-  const benchmarkResponse = await daemonService.getBenchmarks();
+  const benchmarkResponse = await daemonServiceBenchmarkRpcs.getBenchmarks();
   let myIP = null;
   if (benchmarkResponse.status === 'success') {
     const benchmarkResponseData = JSON.parse(benchmarkResponse.data);

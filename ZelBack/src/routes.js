@@ -4,6 +4,7 @@ const daemonService = require('./services/daemonService');
 const daemonServiceAddressRpcs = require('./services/daemonServiceAddressRpcs');
 const daemonServiceTransactionRpcs = require('./services/daemonServiceTransactionRpcs');
 const daemonServiceBlockchainRpcs = require('./services/daemonServiceBlockchainRpcs');
+const daemonServiceBenchmarkRpcs = require('./services/daemonServiceBenchmarkRpcs');
 const daemonServiceMiningRpcs = require('./services/daemonServiceMiningRpcs');
 const daemonServiceNetworkRpcs = require('./services/daemonServiceNetworkRpcs');
 const daemonServiceZelnodeRpcs = require('./services/daemonServiceZelnodeRpcs');
@@ -204,10 +205,10 @@ module.exports = (app, expressWs) => {
     daemonService.zValidateAddress(req, res);
   });
   app.get('/daemon/getbenchmarks', cache('30 seconds'), (req, res) => {
-    daemonService.getBenchmarks(req, res);
+    daemonServiceBenchmarkRpcs.getBenchmarks(req, res);
   });
   app.get('/daemon/getbenchstatus', cache('30 seconds'), (req, res) => {
-    daemonService.getBenchStatus(req, res);
+    daemonServiceBenchmarkRpcs.getBenchStatus(req, res);
   });
 
   app.get('/id/loginphrase', (req, res) => {
@@ -670,10 +671,10 @@ module.exports = (app, expressWs) => {
     daemonService.zcBenchmark(req, res);
   });
   app.get('/daemon/startbenchmark', (req, res) => {
-    daemonService.startBenchmarkD(req, res);
+    daemonServiceBenchmarkRpcs.startBenchmarkD(req, res);
   });
   app.get('/daemon/stopbenchmark', (req, res) => {
-    daemonService.stopBenchmarkD(req, res);
+    daemonServiceBenchmarkRpcs.stopBenchmarkD(req, res);
   });
 
   app.get('/flux/startbenchmark', (req, res) => {

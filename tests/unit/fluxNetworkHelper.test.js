@@ -10,6 +10,7 @@ const util = require('util');
 const log = require('../../ZelBack/src/lib/log');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const daemonService = require('../../ZelBack/src/services/daemonService');
+const daemonServiceBenchmarkRpcs = require('../../ZelBack/src/services/daemonServiceBenchmarkRpcs');
 const daemonServiceZelnodeRpcs = require('../../ZelBack/src/services/daemonServiceZelnodeRpcs');
 const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
 const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
@@ -185,7 +186,7 @@ describe('fluxNetworkHelper tests', () => {
     let daemonStub;
 
     beforeEach(() => {
-      daemonStub = sinon.stub(daemonService, 'getBenchmarks');
+      daemonStub = sinon.stub(daemonServiceBenchmarkRpcs, 'getBenchmarks');
     });
 
     afterEach(() => {
@@ -1300,7 +1301,7 @@ describe('fluxNetworkHelper tests', () => {
           amount: '1000.00',
           rank: 0,
         }];
-      getBenchmarksStub = sinon.stub(daemonService, 'getBenchmarks');
+      getBenchmarksStub = sinon.stub(daemonServiceBenchmarkRpcs, 'getBenchmarks');
       isDaemonSyncedStub = sinon.stub(daemonService, 'isDaemonSynced');
       deterministicFluxListStub = sinon.stub(fluxCommunicationUtils, 'deterministicFluxList');
       getZelNodeStatusStub = sinon.stub(daemonServiceZelnodeRpcs, 'getZelNodeStatus');
