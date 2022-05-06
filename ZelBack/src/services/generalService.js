@@ -5,6 +5,7 @@ const log = require('../lib/log');
 
 const serviceHelper = require('./serviceHelper');
 const daemonService = require('./daemonService');
+const daemonServiceZelnodeRpcs = require('./daemonServiceZelnodeRpcs');
 const daemonServiceTransactionRpcs = require('./daemonServiceTransactionRpcs');
 const messageHelper = require('./messageHelper');
 const dbHelper = require('./dbHelper');
@@ -39,7 +40,7 @@ async function nodeTier() {
   }
   // get our collateral information to decide if app specifications are basic, super, bamf
   // getzlenodestatus.collateral
-  const nodeStatus = await daemonService.getZelNodeStatus();
+  const nodeStatus = await daemonServiceZelnodeRpcs.getZelNodeStatus();
   if (nodeStatus.status === 'error') {
     throw nodeStatus.data;
   }
@@ -115,7 +116,7 @@ async function nodeCollateral() {
   }
   // get our collateral information to decide if app specifications are basic, super, bamf
   // getzlenodestatus.collateral
-  const nodeStatus = await daemonService.getZelNodeStatus();
+  const nodeStatus = await daemonServiceZelnodeRpcs.getZelNodeStatus();
   if (nodeStatus.status === 'error') {
     throw nodeStatus.data;
   }
@@ -172,7 +173,7 @@ async function nodeCollateral() {
  */
 async function isNodeStatusConfirmed() {
   try {
-    const response = await daemonService.getZelNodeStatus();
+    const response = await daemonServiceZelnodeRpcs.getZelNodeStatus();
     if (response.status === 'error') {
       throw response.data;
     }

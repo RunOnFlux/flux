@@ -1,9 +1,7 @@
 const sinon = require('sinon');
-const { PassThrough } = require('stream');
 const { expect } = require('chai');
 const daemonServiceUtils = require('../../ZelBack/src/services/daemonServiceUtils');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
-const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const daemonServiceZelnodeRpcs = require('../../ZelBack/src/services/daemonServiceZelnodeRpcs');
 
 const generateResponse = () => {
@@ -13,7 +11,7 @@ const generateResponse = () => {
   return res;
 };
 
-describe.only('daemonServiceZelnodeRpcs tests', () => {
+describe('daemonServiceZelnodeRpcs tests', () => {
   describe('getZelNodeStatus tests', () => {
     let daemonServiceUtilsStub;
 
@@ -942,6 +940,749 @@ describe.only('daemonServiceZelnodeRpcs tests', () => {
       expect(result).to.equal(`Response: ${expectedResponse}`);
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listzelnodeconf', [req.params.filter]);
+    });
+  });
+
+  describe('createZelNodeKey tests', () => {
+    let daemonServiceUtilsStub;
+    let verifyPrivilegeStub;
+
+    beforeEach(() => {
+      daemonServiceUtilsStub = sinon.stub(daemonServiceUtils, 'executeCall');
+      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should throw error if user is unauthorized, no response passed', async () => {
+      verifyPrivilegeStub.returns(false);
+      const expectedResponse = {
+        data: {
+          code: 401,
+          message: 'Unauthorized. Access denied.',
+          name: 'Unauthorized',
+        },
+        status: 'error',
+      };
+
+      const result = await daemonServiceZelnodeRpcs.createZelNodeKey(undefined);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.notCalled(daemonServiceUtilsStub);
+    });
+
+    it('should trigger rpc, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          filter: 'testfilter',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZelnodeRpcs.createZelNodeKey(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'createzelnodekey');
+    });
+
+    it('should trigger rpc,response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const expectedResponse = 'success';
+      const res = generateResponse();
+
+      const result = await daemonServiceZelnodeRpcs.createZelNodeKey(undefined, res);
+
+      expect(result).to.equal(`Response: ${expectedResponse}`);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'createzelnodekey');
+    });
+  });
+
+  describe('znsync tests', () => {
+    let daemonServiceUtilsStub;
+    let verifyPrivilegeStub;
+
+    beforeEach(() => {
+      daemonServiceUtilsStub = sinon.stub(daemonServiceUtils, 'executeCall');
+      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should throw error if user is unauthorized, no response passed', async () => {
+      verifyPrivilegeStub.returns(false);
+      const req = {
+        params: {
+          mode: 'testmode',
+        },
+      };
+      const expectedResponse = {
+        data: {
+          code: 401,
+          message: 'Unauthorized. Access denied.',
+          name: 'Unauthorized',
+        },
+        status: 'error',
+      };
+
+      const result = await daemonServiceZelnodeRpcs.znsync(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.notCalled(daemonServiceUtilsStub);
+    });
+
+    it('should trigger rpc, all parameters passed in params, mode = status, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          mode: 'status',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZelnodeRpcs.znsync(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.notCalled(verifyPrivilegeStub);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'znsync', [req.params.mode]);
+    });
+
+    it('should trigger rpc, user authorized, mode = testmode, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          mode: 'testmode',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZelnodeRpcs.znsync(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnce(verifyPrivilegeStub);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'znsync', [req.params.mode]);
+    });
+
+    it('should trigger rpc, all parameters passed in query, mode = status, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          test: 'test',
+        },
+        query: {
+          mode: 'status',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZelnodeRpcs.znsync(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.notCalled(verifyPrivilegeStub);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'znsync', [req.query.mode]);
+    });
+
+    it('should trigger rpc, no parameters passed, mode = status by default, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          test: 'test',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZelnodeRpcs.znsync(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.notCalled(verifyPrivilegeStub);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'znsync', ['status']);
+    });
+
+    it('should trigger rpc, all parameters passed in query, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          test: 'test',
+        },
+        query: {
+          filter: 'status',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZelnodeRpcs.znsync(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'znsync', [req.query.filter]);
+    });
+
+    it('should trigger rpc, all parameters passed in params, response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          mode: 'status',
+        },
+      };
+      const expectedResponse = 'success';
+      const res = generateResponse();
+
+      const result = await daemonServiceZelnodeRpcs.znsync(req, res);
+
+      expect(result).to.equal(`Response: ${expectedResponse}`);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'znsync', [req.params.mode]);
+    });
+  });
+
+  describe('createZelNodeBroadcast tests', () => {
+    let daemonServiceUtilsStub;
+    let verifyPrivilegeStub;
+
+    beforeEach(() => {
+      daemonServiceUtilsStub = sinon.stub(daemonServiceUtils, 'executeCall');
+      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should throw error if user is unauthorized, no response passed', async () => {
+      verifyPrivilegeStub.returns(false);
+      const req = {
+        params: {
+          command: 'testcommand',
+          alias: 'alias1',
+        },
+      };
+      const expectedResponse = {
+        data: {
+          code: 401,
+          message: 'Unauthorized. Access denied.',
+          name: 'Unauthorized',
+        },
+        status: 'error',
+      };
+
+      const result = await daemonServiceZelnodeRpcs.createZelNodeBroadcast(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.notCalled(daemonServiceUtilsStub);
+    });
+
+    it('should trigger rpc, all parameters passed in params, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          command: 'testcommand',
+          alias: 'alias1',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZelnodeRpcs.createZelNodeBroadcast(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'createzelnodebroadcast', [req.params.command, req.params.alias]);
+    });
+
+    it('should trigger rpc, no commands param, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          alias: 'alias1',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZelnodeRpcs.createZelNodeBroadcast(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'createzelnodebroadcast', ['', req.params.alias]);
+    });
+
+    it('should trigger rpc, no alias param, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          command: 'testcommand',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZelnodeRpcs.createZelNodeBroadcast(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'createzelnodebroadcast', [req.params.command, '']);
+    });
+
+    it('should trigger rpc, all parameters passed in query, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          test: 'test',
+        },
+        query: {
+          command: 'testcommand',
+          alias: 'alias1',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZelnodeRpcs.createZelNodeBroadcast(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'createzelnodebroadcast', [req.query.command, req.query.alias]);
+    });
+
+    it('should trigger rpc, even without params', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          test1: 'node1',
+          test2: 'myCommand',
+        },
+        query: {
+          test: 'test2',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZelnodeRpcs.createZelNodeBroadcast(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'createzelnodebroadcast', ['', '']);
+    });
+
+    it('should trigger rpc, all parameters passed in params, response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          command: 'testcommand',
+          alias: 'alias1',
+        },
+      };
+      const expectedResponse = 'success';
+      const res = generateResponse();
+
+      const result = await daemonServiceZelnodeRpcs.createZelNodeBroadcast(req, res);
+
+      expect(result).to.equal(`Response: ${expectedResponse}`);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'createzelnodebroadcast', [req.params.command, req.params.alias]);
+    });
+  });
+
+  describe('getZelNodeOutputs tests', () => {
+    let daemonServiceUtilsStub;
+    let verifyPrivilegeStub;
+
+    beforeEach(() => {
+      daemonServiceUtilsStub = sinon.stub(daemonServiceUtils, 'executeCall');
+      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should throw error if user is unauthorized, no response passed', async () => {
+      verifyPrivilegeStub.returns(false);
+      const expectedResponse = {
+        data: {
+          code: 401,
+          message: 'Unauthorized. Access denied.',
+          name: 'Unauthorized',
+        },
+        status: 'error',
+      };
+
+      const result = await daemonServiceZelnodeRpcs.getZelNodeOutputs();
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.notCalled(daemonServiceUtilsStub);
+    });
+
+    it('should trigger rpc, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZelnodeRpcs.getZelNodeOutputs();
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getzelnodeoutputs');
+    });
+
+    it('should trigger rpc, response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+
+      const expectedResponse = 'success';
+      const res = generateResponse();
+
+      const result = await daemonServiceZelnodeRpcs.getZelNodeOutputs(undefined, res);
+
+      expect(result).to.equal(`Response: ${expectedResponse}`);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getzelnodeoutputs');
+    });
+  });
+
+  describe('startDeterministicZelNode tests', () => {
+    let daemonServiceUtilsStub;
+    let verifyPrivilegeStub;
+
+    beforeEach(() => {
+      daemonServiceUtilsStub = sinon.stub(daemonServiceUtils, 'executeCall');
+      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should throw error if user is unauthorized, no response passed', async () => {
+      verifyPrivilegeStub.returns(false);
+      const req = {
+        params: {
+          lockwallet: 'false',
+          alias: 'alias1',
+        },
+      };
+      const expectedResponse = {
+        data: {
+          code: 401,
+          message: 'Unauthorized. Access denied.',
+          name: 'Unauthorized',
+        },
+        status: 'error',
+      };
+
+      const result = await daemonServiceZelnodeRpcs.startDeterministicZelNode(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.notCalled(daemonServiceUtilsStub);
+    });
+
+    it('should trigger rpc, all parameters passed in params, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          lockwallet: 'false',
+          alias: 'alias1',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZelnodeRpcs.startDeterministicZelNode(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'startdeterministiczelnode', ['alias1', false]);
+    });
+
+    it('should trigger rpc, no lockwallet param, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          alias: 'alias1',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZelnodeRpcs.startDeterministicZelNode(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'startdeterministiczelnode', ['alias1', false]);
+    });
+
+    it('should trigger rpc, no alias param, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          lockwallet: 'true',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZelnodeRpcs.startDeterministicZelNode(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'startdeterministiczelnode', [undefined, true]);
+    });
+
+    it('should trigger rpc, all parameters passed in query, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          test: 'test',
+        },
+        query: {
+          lockwallet: true,
+          alias: 'alias1',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZelnodeRpcs.startDeterministicZelNode(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'startdeterministiczelnode', ['alias1', true]);
+    });
+
+    it('should trigger rpc, even without params', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          test1: 'node1',
+          test2: 'myCommand',
+        },
+        query: {
+          test: 'test2',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZelnodeRpcs.startDeterministicZelNode(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'startdeterministiczelnode', [undefined, false]);
+    });
+
+    it('should trigger rpc, all parameters passed in params, response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          lockwallet: false,
+          alias: 'alias1',
+        },
+      };
+      const expectedResponse = 'success';
+      const res = generateResponse();
+
+      const result = await daemonServiceZelnodeRpcs.startDeterministicZelNode(req, res);
+
+      expect(result).to.equal(`Response: ${expectedResponse}`);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'startdeterministiczelnode', ['alias1', false]);
+    });
+  });
+
+  describe('startZelNode tests', () => {
+    let daemonServiceUtilsStub;
+    let verifyPrivilegeStub;
+
+    beforeEach(() => {
+      daemonServiceUtilsStub = sinon.stub(daemonServiceUtils, 'executeCall');
+      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should throw error if user is unauthorized, no response passed', async () => {
+      verifyPrivilegeStub.returns(false);
+      const req = {
+        params: {
+          lockwallet: 'false',
+          alias: 'alias1',
+          set: 'set1',
+        },
+      };
+      const expectedResponse = {
+        data: {
+          code: 401,
+          message: 'Unauthorized. Access denied.',
+          name: 'Unauthorized',
+        },
+        status: 'error',
+      };
+
+      const result = await daemonServiceZelnodeRpcs.startZelNode(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.notCalled(daemonServiceUtilsStub);
+    });
+
+    it('should trigger rpc, all parameters passed in params, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          lockwallet: false,
+          alias: 'alias1',
+          set: 'set1',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZelnodeRpcs.startZelNode(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'startzelnode', ['set1', false, 'alias1']);
+    });
+
+    it('should trigger rpc, no lockwallet param, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          alias: 'alias1',
+          set: 'set1',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZelnodeRpcs.startZelNode(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'startzelnode', ['set1', undefined, 'alias1']);
+    });
+
+    it('should trigger rpc, no set param, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          alias: 'alias1',
+          lockwallet: false,
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZelnodeRpcs.startZelNode(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'startzelnode', [undefined, false, 'alias1']);
+    });
+
+    it('should trigger rpc, no alias param, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          lockwallet: 'true',
+          set: 'set1',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZelnodeRpcs.startZelNode(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'startzelnode', ['set1', 'true']);
+    });
+
+    it('should trigger rpc, all parameters passed in query, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          test: 'test',
+        },
+        query: {
+          lockwallet: false,
+          alias: 'alias1',
+          set: 'set1',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZelnodeRpcs.startZelNode(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'startzelnode', ['set1', false, 'alias1']);
+    });
+
+    it('should trigger rpc, even without params', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          test1: 'node1',
+          test2: 'myCommand',
+        },
+        query: {
+          test: 'test2',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZelnodeRpcs.startZelNode(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'startzelnode', [undefined, undefined]);
+    });
+
+    it('should trigger rpc, all parameters passed in params, response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          lockwallet: false,
+          alias: 'alias1',
+          set: 'set1',
+        },
+      };
+      const expectedResponse = 'success';
+      const res = generateResponse();
+
+      const result = await daemonServiceZelnodeRpcs.startZelNode(req, res);
+
+      expect(result).to.equal(`Response: ${expectedResponse}`);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'startzelnode', ['set1', false, 'alias1']);
     });
   });
 });

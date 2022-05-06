@@ -92,22 +92,19 @@ async function createZelNodeKey(req, res) { // practically useless
 async function znsync(req, res) {
   let { mode } = req.params; // we accept both znsync/status and znsync?mode=status
   mode = mode || req.query.mode || 'status'; // default to status
+  const rpccall = 'znsync';
+  const rpcparameters = [mode];
   if (mode === 'status') {
-    const rpccall = 'znsync';
-    const rpcparameters = [mode];
-
     response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
-  } else {
-    const authorized = await verificationHelper.verifyPrivilege('admin', req);
-    if (authorized === true) {
-      const rpccall = 'znsync';
-      const rpcparameters = [mode];
-
-      response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
-    } else {
-      response = messageHelper.errUnauthorizedMessage();
-    }
+    return res ? res.json(response) : response;
   }
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
+  if (authorized !== true) {
+    response = messageHelper.errUnauthorizedMessage();
+    return res ? res.json(response) : response;
+  }
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
+
   return res ? res.json(response) : response;
 }
 
@@ -206,13 +203,12 @@ async function getStartList(req, res) {
  */
 async function getZelNodeOutputs(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
-  if (authorized === true) {
-    const rpccall = 'getzelnodeoutputs';
-
-    response = await daemonServiceUtils.executeCall(rpccall);
-  } else {
+  if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
+    return res ? res.json(response) : response;
   }
+  const rpccall = 'getzelnodeoutputs';
+  response = await daemonServiceUtils.executeCall(rpccall);
 
   return res ? res.json(response) : response;
 }
@@ -314,15 +310,13 @@ async function startDeterministicZelNode(req, res) {
   let { alias, lockwallet } = req.params;
   alias = alias || req.query.alias;
   lockwallet = lockwallet ?? req.query.lockwallet ?? false;
+  lockwallet = serviceHelper.ensureBoolean(lockwallet);
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'startdeterministiczelnode';
     const rpcparameters = [];
     rpcparameters.push(alias);
-    if (lockwallet) {
-      lockwallet = serviceHelper.ensureBoolean(lockwallet);
-      rpcparameters.push(lockwallet);
-    }
+    rpcparameters.push(lockwallet);
 
     response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
   } else {
@@ -341,7 +335,7 @@ async function startDeterministicZelNode(req, res) {
 async function startZelNode(req, res) {
   let { set, lockwallet, alias } = req.params;
   set = set || req.query.set;
-  lockwallet = lockwallet || req.query.lockwallet;
+  lockwallet = lockwallet ?? req.query.lockwallet;
   alias = alias || req.query.alias;
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {

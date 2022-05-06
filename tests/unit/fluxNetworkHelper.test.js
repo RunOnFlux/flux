@@ -10,6 +10,7 @@ const util = require('util');
 const log = require('../../ZelBack/src/lib/log');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const daemonService = require('../../ZelBack/src/services/daemonService');
+const daemonServiceZelnodeRpcs = require('../../ZelBack/src/services/daemonServiceZelnodeRpcs');
 const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
 const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
@@ -1302,7 +1303,7 @@ describe('fluxNetworkHelper tests', () => {
       getBenchmarksStub = sinon.stub(daemonService, 'getBenchmarks');
       isDaemonSyncedStub = sinon.stub(daemonService, 'isDaemonSynced');
       deterministicFluxListStub = sinon.stub(fluxCommunicationUtils, 'deterministicFluxList');
-      getZelNodeStatusStub = sinon.stub(daemonService, 'getZelNodeStatus');
+      getZelNodeStatusStub = sinon.stub(daemonServiceZelnodeRpcs, 'getZelNodeStatus');
       fluxNetworkHelper.setDosMessage(null);
       fluxNetworkHelper.setDosStateValue(0);
     });
