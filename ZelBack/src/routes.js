@@ -8,6 +8,7 @@ const daemonServiceBenchmarkRpcs = require('./services/daemonServiceBenchmarkRpc
 const daemonServiceMiningRpcs = require('./services/daemonServiceMiningRpcs');
 const daemonServiceNetworkRpcs = require('./services/daemonServiceNetworkRpcs');
 const daemonServiceZelnodeRpcs = require('./services/daemonServiceZelnodeRpcs');
+const daemonServiceUtilityRpcs = require('./services/daemonServiceUtilityRpcs');
 const benchmarkService = require('./services/benchmarkService');
 const idService = require('./services/idService');
 const fluxService = require('./services/fluxService');
@@ -184,25 +185,25 @@ module.exports = (app, expressWs) => {
     daemonServiceTransactionRpcs.sendRawTransaction(req, res);
   });
   app.get('/daemon/createmultisig/:n?/:keys?', (req, res) => {
-    daemonService.createMultiSig(req, res);
+    daemonServiceUtilityRpcs.createMultiSig(req, res);
   });
   app.get('/daemon/estimatefee/:nblocks?', cache('30 seconds'), (req, res) => {
-    daemonService.estimateFee(req, res);
+    daemonServiceUtilityRpcs.estimateFee(req, res);
   });
   app.get('/daemon/estimatepriority/:nblocks?', cache('30 seconds'), (req, res) => {
-    daemonService.estimatePriority(req, res);
+    daemonServiceUtilityRpcs.estimatePriority(req, res);
   });
   app.get('/daemon/validateaddress/:zelcashaddress?', cache('30 seconds'), (req, res) => {
-    daemonService.validateAddress(req, res);
+    daemonServiceUtilityRpcs.validateAddress(req, res);
   });
   app.get('/daemon/verifymessage/:zelcashaddress?/:signature?/:message?', cache('30 seconds'), (req, res) => {
-    daemonService.verifyMessage(req, res);
+    daemonServiceUtilityRpcs.verifyMessage(req, res);
   });
   app.get('/daemon/gettransaction/:txid?/:includewatchonly?', cache('30 seconds'), (req, res) => {
     daemonService.getTransaction(req, res);
   });
   app.get('/daemon/zvalidateaddress/:zaddr?', cache('30 seconds'), (req, res) => {
-    daemonService.zValidateAddress(req, res);
+    daemonServiceUtilityRpcs.zValidateAddress(req, res);
   });
   app.get('/daemon/getbenchmarks', cache('30 seconds'), (req, res) => {
     daemonServiceBenchmarkRpcs.getBenchmarks(req, res);
@@ -907,10 +908,10 @@ module.exports = (app, expressWs) => {
     daemonServiceTransactionRpcs.sendRawTransactionPost(req, res);
   });
   app.post('/daemon/createmultisig', (req, res) => {
-    daemonService.createMultiSigPost(req, res);
+    daemonServiceUtilityRpcs.createMultiSigPost(req, res);
   });
   app.post('/daemon/verifymessage', (req, res) => {
-    daemonService.verifyMessagePost(req, res);
+    daemonServiceUtilityRpcs.verifyMessagePost(req, res);
   });
   app.post('/daemon/getblockhashes', (req, res) => {
     daemonServiceBlockchainRpcs.getBlockHashesPost(req, res);

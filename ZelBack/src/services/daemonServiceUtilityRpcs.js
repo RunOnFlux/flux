@@ -115,13 +115,15 @@ async function validateAddress(req, res) {
   }
   response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  if (res) {
-    const authorized = await verificationHelper.verifyPrivilege('admin', req);
-    if (authorized !== true) {
-      delete response.data.ismine;
-      delete response.data.iswatchonly;
-    }
-  } else {
+  if (!res) {
+    delete response.data.ismine;
+    delete response.data.iswatchonly;
+
+    return res ? res.json(response) : response;
+  }
+
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
+  if (authorized !== true) {
     delete response.data.ismine;
     delete response.data.iswatchonly;
   }
@@ -206,5 +208,4 @@ module.exports = {
   verifyMessage,
   verifyMessagePost,
   zValidateAddress,
-
 };
