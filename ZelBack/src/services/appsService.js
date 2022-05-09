@@ -9,6 +9,8 @@ const systemcrontab = require('crontab');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
 const fluxCommunication = require('./fluxCommunication');
+const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
+const fluxNetworkHelper = require('./fluxNetworkHelper');
 const serviceHelper = require('./serviceHelper');
 const dbHelper = require('./dbHelper');
 const verificationHelper = require('./verificationHelper');
@@ -1356,12 +1358,12 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
     res.write(serviceHelper.ensureString(portStatus));
   }
   if (appSpecifications.ports) {
-    const firewallActive = await fluxCommunication.isFirewallActive();
+    const firewallActive = await fluxNetworkHelper.isFirewallActive();
     if (firewallActive) {
       // eslint-disable-next-line no-restricted-syntax
       for (const port of appSpecifications.ports) {
         // eslint-disable-next-line no-await-in-loop
-        await fluxCommunication.denyPort(serviceHelper.ensureNumber(port));
+        await fluxNetworkHelper.denyPort(serviceHelper.ensureNumber(port));
       }
     }
     const isUPNP = upnpService.isUPNP();
@@ -1374,9 +1376,9 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
     }
     // v1 compatibility
   } else if (appSpecifications.port) {
-    const firewallActive = await fluxCommunication.isFirewallActive();
+    const firewallActive = await fluxNetworkHelper.isFirewallActive();
     if (firewallActive) {
-      await fluxCommunication.denyPort(serviceHelper.ensureNumber(appSpecifications.port));
+      await fluxNetworkHelper.denyPort(serviceHelper.ensureNumber(appSpecifications.port));
     }
     const isUPNP = upnpService.isUPNP();
     if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
@@ -1785,12 +1787,12 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
     res.write(serviceHelper.ensureString(portStatus));
   }
   if (appSpecifications.ports) {
-    const firewallActive = await fluxCommunication.isFirewallActive();
+    const firewallActive = await fluxNetworkHelper.isFirewallActive();
     if (firewallActive) {
       // eslint-disable-next-line no-restricted-syntax
       for (const port of appSpecifications.ports) {
         // eslint-disable-next-line no-await-in-loop
-        await fluxCommunication.denyPort(serviceHelper.ensureNumber(port));
+        await fluxNetworkHelper.denyPort(serviceHelper.ensureNumber(port));
       }
     }
     const isUPNP = upnpService.isUPNP();
@@ -1803,9 +1805,9 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
     }
     // v1 compatibility
   } else if (appSpecifications.port) {
-    const firewallActive = await fluxCommunication.isFirewallActive();
+    const firewallActive = await fluxNetworkHelper.isFirewallActive();
     if (firewallActive) {
-      await fluxCommunication.denyPort(serviceHelper.ensureNumber(appSpecifications.port));
+      await fluxNetworkHelper.denyPort(serviceHelper.ensureNumber(appSpecifications.port));
     }
     const isUPNP = upnpService.isUPNP();
     if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
@@ -2091,12 +2093,12 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
     res.write(serviceHelper.ensureString(portStatusInitial));
   }
   if (appSpecifications.ports) {
-    const firewallActive = await fluxCommunication.isFirewallActive();
+    const firewallActive = await fluxNetworkHelper.isFirewallActive();
     if (firewallActive) {
       // eslint-disable-next-line no-restricted-syntax
       for (const port of appSpecifications.ports) {
         // eslint-disable-next-line no-await-in-loop
-        const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(port));
+        const portResponse = await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(port));
         if (portResponse.status === true) {
           const portStatus = {
             status: `Port ${port} OK`,
@@ -2134,9 +2136,9 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
     }
   } else if (appSpecifications.port) {
     // v1 compatibility
-    const firewallActive = await fluxCommunication.isFirewallActive();
+    const firewallActive = await fluxNetworkHelper.isFirewallActive();
     if (firewallActive) {
-      const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(appSpecifications.port));
+      const portResponse = await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(appSpecifications.port));
       if (portResponse.status === true) {
         const portStatus = {
           status: `Port ${appSpecifications.port} OK`,
@@ -2392,12 +2394,12 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
     res.write(serviceHelper.ensureString(portStatusInitial));
   }
   if (appSpecifications.ports) {
-    const firewallActive = await fluxCommunication.isFirewallActive();
+    const firewallActive = await fluxNetworkHelper.isFirewallActive();
     if (firewallActive) {
       // eslint-disable-next-line no-restricted-syntax
       for (const port of appSpecifications.ports) {
         // eslint-disable-next-line no-await-in-loop
-        const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(port));
+        const portResponse = await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(port));
         if (portResponse.status === true) {
           const portStatus = {
             status: `Port ${port} OK`,
@@ -2434,10 +2436,10 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
       }
     }
   } else if (appSpecifications.port) {
-    const firewallActive = await fluxCommunication.isFirewallActive();
+    const firewallActive = await fluxNetworkHelper.isFirewallActive();
     if (firewallActive) {
-      // v1 compatibility
-      const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(appSpecifications.port));
+    // v1 compatibility
+      const portResponse = await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(appSpecifications.port));
       if (portResponse.status === true) {
         const portStatus = {
           status: 'Port OK',
@@ -4483,9 +4485,9 @@ async function requestAppMessage(hash) {
     version: 1,
     hash,
   };
-  await fluxCommunication.broadcastMessageToOutgoing(message);
+  await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(message);
   await serviceHelper.delay(100);
-  await fluxCommunication.broadcastMessageToIncoming(message);
+  await fluxCommunicationMessagesSender.broadcastMessageToIncoming(message);
 }
 
 /**
@@ -4869,7 +4871,7 @@ async function registerAppGlobalyApi(req, res) {
         timestamp,
         signature,
       };
-      await fluxCommunication.broadcastTemporaryAppMessage(temporaryAppMessage);
+      await fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage);
       // above takes 2-3 seconds
       await serviceHelper.delay(1200); // it takes receiving node at least 1 second to process the message. Add 1200 ms mas for processing
       // this operations takes 2.5-3.5 seconds and is heavy, message gets verified again.
@@ -5002,7 +5004,7 @@ async function updateAppGlobalyApi(req, res) {
       };
       // verify that app exists, does not change repotag (for v1-v3), does not change name and does not change component names
       await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, temporaryAppMessage.timestamp);
-      await fluxCommunication.broadcastTemporaryAppMessage(temporaryAppMessage);
+      await fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage);
       // above takes 2-3 seconds
       await serviceHelper.delay(1200); // it takes receiving node at least 1 second to process the message. Add 1200 ms mas for processing
       // this operations takes 2.5-3.5 seconds and is heavy, message gets verified again.
@@ -6463,11 +6465,11 @@ async function checkAndNotifyPeersOfRunningApps() {
         // eslint-disable-next-line no-await-in-loop
         await storeAppRunningMessage(newAppRunningMessage);
         // eslint-disable-next-line no-await-in-loop
-        await fluxCommunication.broadcastMessageToOutgoing(newAppRunningMessage);
+        await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newAppRunningMessage);
         // eslint-disable-next-line no-await-in-loop
         await serviceHelper.delay(500);
         // eslint-disable-next-line no-await-in-loop
-        await fluxCommunication.broadcastMessageToIncoming(newAppRunningMessage);
+        await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newAppRunningMessage);
         // broadcast messages about running apps to all peers
       } catch (err) {
         log.error(err);

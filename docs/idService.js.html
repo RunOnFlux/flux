@@ -39,7 +39,7 @@ const dbHelper = require('./dbHelper');
 const verificationHelper = require('./verificationHelper');
 const generalService = require('./generalService');
 const dockerService = require('./dockerService');
-const fluxCommunication = require('./fluxCommunication');
+const fluxNetworkHelper = require('./fluxNetworkHelper');
 
 const goodchars = /^[1-9a-km-zA-HJ-NP-Z]+$/;
 
@@ -128,7 +128,7 @@ async function loginPhrase(req, res) {
       throw new Error('Node hardware requirements not met');
     }
     // check DOS state (contains daemon checks)
-    const dosState = await fluxCommunication.getDOSState();
+    const dosState = await fluxNetworkHelper.getDOSState();
     if (dosState.status === 'error') {
       const errorMessage = 'Unable to check DOS state';
       const errMessage = messageHelper.createErrorMessage(errorMessage);

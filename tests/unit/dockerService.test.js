@@ -1,10 +1,11 @@
 const chai = require('chai');
+const chaiAsPromised = require('chai-as-promised');
 const Dockerode = require('dockerode');
 const sinon = require('sinon');
 const path = require('path');
-
 const dockerService = require('../../ZelBack/src/services/dockerService');
 
+chai.use(chaiAsPromised);
 const { expect } = chai;
 
 describe('dockerService tests', () => {
@@ -219,9 +220,9 @@ describe('dockerService tests', () => {
     });
 
     it('should throw error if the container does not exist', async () => {
-      const containerName = 'website';
+      const containerName = 'testing1234';
 
-      expect(async () => { await dockerService.dockerContainerInspect(containerName); }).to.throw;
+      await expect(dockerService.dockerContainerInspect(containerName)).to.eventually.be.rejectedWith('Cannot read property \'Id\' of undefined');
     });
   });
 
@@ -241,7 +242,7 @@ describe('dockerService tests', () => {
     it('should throw error if the container does not exist', async () => {
       const containerName = 'test';
 
-      expect(async () => { await dockerService.dockerContainerStats(containerName); }).to.throw;
+      await expect(dockerService.dockerContainerStats(containerName)).to.eventually.be.rejectedWith('Cannot read property \'Id\' of undefined');
     });
   });
 
@@ -259,7 +260,7 @@ describe('dockerService tests', () => {
     it('should throw error if the container does not exist', async () => {
       const containerName = 'test';
 
-      expect(async () => { await dockerService.dockerContainerChanges(containerName); }).to.throw;
+      await expect(dockerService.dockerContainerChanges(containerName)).to.eventually.be.rejectedWith('Cannot read property \'Id\' of undefined');
     });
   });
 
@@ -289,7 +290,7 @@ describe('dockerService tests', () => {
     it('should throw an error if container does not exist', async () => {
       const appName = 'testing1234';
 
-      expect(async () => { await dockerService.dockerContainerLogs(appName, 2); }).to.throw;
+      await expect(dockerService.dockerContainerLogs(appName, 2)).to.eventually.be.rejectedWith('Cannot read property \'Id\' of undefined');
     });
   });
 
@@ -317,7 +318,7 @@ describe('dockerService tests', () => {
     });
 
     it('should throw error if app name is not correct or app does not exist', async () => {
-      expect(async () => { await dockerService.appDockerStart('testing123'); }).to.throw;
+      await expect(dockerService.appDockerStart('testing123')).to.eventually.be.rejectedWith('Cannot read property \'Id\' of undefined');
     });
   });
 
@@ -345,7 +346,7 @@ describe('dockerService tests', () => {
     });
 
     it('should throw error if app name is not correct or app does not exist', async () => {
-      expect(async () => { await dockerService.appDockerStop('testing123'); }).to.throw;
+      await expect(dockerService.appDockerStop('testing123')).to.eventually.be.rejectedWith('Cannot read property \'Id\' of undefined');
     });
   });
 
@@ -373,7 +374,7 @@ describe('dockerService tests', () => {
     });
 
     it('should throw error if app name is not correct or app does not exist', async () => {
-      expect(async () => { await dockerService.appDockerRestart('testing123'); }).to.throw;
+      await expect(dockerService.appDockerRestart('testing123')).to.eventually.be.rejectedWith('Cannot read property \'Id\' of undefined');
     });
   });
 
@@ -401,7 +402,7 @@ describe('dockerService tests', () => {
     });
 
     it('should throw error if app name is not correct or app does not exist', async () => {
-      expect(async () => { await dockerService.appDockerKill('testing123'); }).to.throw;
+      await expect(dockerService.appDockerKill('testing123')).to.eventually.be.rejectedWith('Cannot read property \'Id\' of undefined');
     });
   });
 
@@ -429,7 +430,7 @@ describe('dockerService tests', () => {
     });
 
     it('should throw error if app name is not correct or app does not exist', async () => {
-      expect(async () => { await dockerService.appDockerRemove('testing123'); }).to.throw;
+      await expect(dockerService.appDockerRemove('testing123')).to.eventually.be.rejectedWith('Cannot read property \'Id\' of undefined');
     });
   });
 
@@ -457,7 +458,7 @@ describe('dockerService tests', () => {
     });
 
     it('should throw error if app name is not correct or app does not exist', async () => {
-      expect(async () => { await dockerService.appDockerPause('testing123'); }).to.throw;
+      await expect(dockerService.appDockerPause('testing123')).to.eventually.be.rejectedWith('Cannot read property \'Id\' of undefined');
     });
   });
 
@@ -485,7 +486,7 @@ describe('dockerService tests', () => {
     });
 
     it('should throw error if app name is not correct or app does not exist', async () => {
-      expect(async () => { await dockerService.appDockerUnpause('testing123'); }).to.throw;
+      await expect(dockerService.appDockerUnpause('testing123')).to.eventually.be.rejectedWith('Cannot read property \'Id\' of undefined');
     });
   });
 
@@ -511,10 +512,6 @@ describe('dockerService tests', () => {
       sinon.assert.calledOnceWithExactly(getImageSpy, appName);
       expect(removeResult).to.equal('Flux App website image successfully removed.');
     });
-
-    it('should throw error if app name is not correct or app does not exist', async () => {
-      expect(async () => { await dockerService.appDockerImageRemove('testing123'); }).to.throw;
-    });
   });
 
   describe('appDockerTop tests', () => {
@@ -530,7 +527,7 @@ describe('dockerService tests', () => {
     });
 
     it('should throw error if app name is not correct or app does not exist', async () => {
-      expect(async () => { await dockerService.appDockerTop('testing123'); }).to.throw;
+      await expect(dockerService.appDockerTop('testing123')).to.eventually.be.rejectedWith('Cannot read property \'Id\' of undefined');
     });
   });
 
@@ -774,7 +771,7 @@ describe('dockerService tests', () => {
         testing: 'testing',
       };
 
-      expect(async () => { await dockerService.appDockerCreate(nodeApp, appName, true); }).to.throw;
+      await expect(dockerService.appDockerCreate(nodeApp, appName, true)).to.eventually.be.rejectedWith('Cannot read property \'forEach\' of undefined');
     });
   });
 });
