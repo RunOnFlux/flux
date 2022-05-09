@@ -34,14 +34,14 @@ jobs:
         CI: true
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v2
-    - name: Push to other repo # Push services directory to another GitHub repo to build JSDocs separately from RunOnFlux/flux repo
-      uses: cpina/github-action-push-to-another-repository@main # https://github.com/cpina/github-action-push-to-another-repository
+    - name: Push to other repo # Push services directory from RunOnFlux/flux to RunOnFlux/fluxjsdocs repo to build JSDocs separately.
+      uses: cpina/github-action-push-to-another-repository@main
       env:
-        API_TOKEN_GITHUB: ${{ secrets.API_TOKEN_GITHUB }} # Trunk/BlondFrogs to create secret (https://github.com/settings/tokens)
+        API_TOKEN_GITHUB: ${{ secrets.API_TOKEN_GITHUB }}
       with:
         source-directory: 'ZelBack/src/services'
         destination-github-username: 'RunOnFlux'
-        destination-repository-name: 'fluxjsdocs' # Repo to be created by TheTrunk/BlondFrogs
-        user-email: tadeas@zel.network # TheTrunk/BlondFrogs email address
+        destination-repository-name: 'fluxjsdocs'
+        user-email: runonfluxbot@gmail.com
         target-branch: master
-        target-directory: services/ # This directory needs to be created when the repo is set up. There should be a specific directory for these files to be overwritten on each push. The Actions .yml file (for building the JSDocs) will be kept outside this directory so it is not overwritten on each push.
+        target-directory: services/
