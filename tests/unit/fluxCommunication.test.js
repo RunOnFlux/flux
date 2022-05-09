@@ -14,10 +14,9 @@ const daemonService = require('../../ZelBack/src/services/daemonService');
 const appsService = require('../../ZelBack/src/services/appsService');
 const generalService = require('../../ZelBack/src/services/generalService');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
-const { outgoingConnections } = require('../../ZelBack/src/services/utils/outgoingConnections');
-const { outgoingPeers } = require('../../ZelBack/src/services/utils/outgoingPeers');
-const { incomingPeers } = require('../../ZelBack/src/services/utils/incomingPeers');
-const { incomingConnections } = require('../../ZelBack/src/services/utils/incomingConnections');
+const {
+  outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
+} = require('../../ZelBack/src/services/utils/establishedConnections');
 
 const connectWs = (address) => new Promise((resolve, reject) => {
   const server = new WebSocket(address);

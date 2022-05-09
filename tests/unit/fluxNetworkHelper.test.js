@@ -13,10 +13,9 @@ const daemonService = require('../../ZelBack/src/services/daemonService');
 const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
 const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
-const { outgoingConnections } = require('../../ZelBack/src/services/utils/outgoingConnections');
-const { incomingConnections } = require('../../ZelBack/src/services/utils/incomingConnections');
-const { outgoingPeers } = require('../../ZelBack/src/services/utils/outgoingPeers');
-const { incomingPeers } = require('../../ZelBack/src/services/utils/incomingPeers');
+const {
+  outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
+} = require('../../ZelBack/src/services/utils/establishedConnections');
 
 const userconfig = {
   initial: {

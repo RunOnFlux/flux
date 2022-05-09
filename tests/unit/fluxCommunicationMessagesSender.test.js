@@ -12,10 +12,9 @@ const appsService = require('../../ZelBack/src/services/appsService');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const generalService = require('../../ZelBack/src/services/generalService');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
-const { outgoingConnections } = require('../../ZelBack/src/services/utils/outgoingConnections');
-const { incomingConnections } = require('../../ZelBack/src/services/utils/incomingConnections');
-const { outgoingPeers } = require('../../ZelBack/src/services/utils/outgoingPeers');
-const { incomingPeers } = require('../../ZelBack/src/services/utils/incomingPeers');
+const {
+  outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
+} = require('../../ZelBack/src/services/utils/establishedConnections');
 
 chai.use(chaiAsPromised);
 const { expect } = chai;

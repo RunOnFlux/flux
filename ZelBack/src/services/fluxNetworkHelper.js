@@ -14,10 +14,9 @@ const benchmarkService = require('./benchmarkService');
 const verificationHelper = require('./verificationHelper');
 const fluxCommunicationUtils = require('./fluxCommunicationUtils');
 const userconfig = require('../../../config/userconfig');
-const { outgoingConnections } = require('./utils/outgoingConnections');
-const { incomingConnections } = require('./utils/incomingConnections');
-const { outgoingPeers } = require('./utils/outgoingPeers');
-const { incomingPeers } = require('./utils/incomingPeers');
+const {
+  outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
+} = require('./utils/establishedConnections');
 
 let dosState = 0; // we can start at bigger number later
 let dosMessage = null;

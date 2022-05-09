@@ -10,10 +10,9 @@ const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSend
 const fluxCommunicationUtils = require('./fluxCommunicationUtils');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const messageHelper = require('./messageHelper');
-const { outgoingConnections } = require('./utils/outgoingConnections');
-const { incomingConnections } = require('./utils/incomingConnections');
-const { outgoingPeers } = require('./utils/outgoingPeers');
-const { incomingPeers } = require('./utils/incomingPeers');
+const {
+  outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
+} = require('./utils/establishedConnections');
 
 let response = messageHelper.createErrorMessage();
 // default cache
@@ -474,13 +473,10 @@ module.exports = {
   removePeer,
   removeIncomingPeer,
   connectedPeersInfo,
-  outgoingPeers,
-  incomingPeers,
   isCommunicationEstablished,
   keepConnectionsAlive,
   fluxDiscovery,
   handleAppMessages,
-  outgoingConnections,
   addPeer,
   handleAppRunningMessage,
   initiateAndHandleConnection,
