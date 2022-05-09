@@ -6,10 +6,9 @@ const serviceHelper = require('./serviceHelper');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const verificationHelper = require('./verificationHelper');
 const messageHelper = require('./messageHelper');
-const { outgoingConnections } = require('./utils/outgoingConnections');
-const { incomingConnections } = require('./utils/incomingConnections');
-const { outgoingPeers } = require('./utils/outgoingPeers');
-const { incomingPeers } = require('./utils/incomingPeers');
+const {
+  outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
+} = require('./utils/establishedConnections');
 
 const myMessageCache = new LRU(250);
 
