@@ -12,6 +12,7 @@ ZelApps
 appvolumes
 .nyc_output/
 coverage/
+test.js
 
 # Editor directories and files
 .idea

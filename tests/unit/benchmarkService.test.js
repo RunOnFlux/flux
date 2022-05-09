@@ -128,6 +128,7 @@ describe('benchmarkService tests', () => {
         headers: {
           zelidauth: {
             zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+            loginPhrase: '16125160820394ddsh5skgwv0ipodku92y0jbwvpyj17bh68lzrjlxq9',
             signature: 'IH9d68fk/dYQtuMlNN7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc=',
           },
         },
@@ -147,6 +148,7 @@ describe('benchmarkService tests', () => {
         headers: {
           zelidauth: {
             zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+            loginPhrase: '16125160820394ddsh5skgwv0ipodku92y0jbwvpyj17bh68lzrjlxq9',
             signature: 'IH9d68fk/dYQtuMlNN7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc=',
           },
         },
@@ -173,6 +175,7 @@ describe('benchmarkService tests', () => {
         headers: {
           zelidauth: {
             zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uV',
+            loginPhrase: '16125160820394ddsh5skgwv0ipodku92y0jbwvpyj17bh68lzrjlxq9',
             signature: 'IH9d68fk/dYQtuMlNN7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBx=',
           },
         },
@@ -205,6 +208,7 @@ describe('benchmarkService tests', () => {
         headers: {
           zelidauth: {
             zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+            loginPhrase: '16125160820394ddsh5skgwv0ipodku92y0jbwvpyj17bh68lzrjlxq9',
             signature: 'IH9d68fk/dYQtuMlNN7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc=',
           },
         },
@@ -228,6 +232,7 @@ describe('benchmarkService tests', () => {
         headers: {
           zelidauth: {
             zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uZ',
+            loginPhrase: '16125160820394ddsh5skgwv0ipodku92y0jbwvpyj17bh68lzrjlxq9',
             signature: 'IH9d68fk/dYQtuMlNx7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc=',
           },
         },
@@ -258,6 +263,7 @@ describe('benchmarkService tests', () => {
         headers: {
           zelidauth: {
             zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+            loginPhrase: '16125160820394ddsh5skgwv0ipodku92y0jbwvpyj17bh68lzrjlxq9',
             signature: 'IH9d68fk/dYQtuMlNN7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc=',
           },
         },
@@ -296,6 +302,7 @@ describe('benchmarkService tests', () => {
         headers: {
           zelidauth: {
             zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+            loginPhrase: '16125160820394ddsh5skgwv0ipodku92y0jbwvpyj17bh68lzrjlxq9',
             signature: 'IH9d68fk/dYQtuMlNN7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc=',
           },
         },
@@ -439,6 +446,7 @@ describe('benchmarkService tests', () => {
         headers: {
           zelidauth: {
             zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+            loginPhrase: '16125160820394ddsh5skgwv0ipodku92y0jbwvpyj17bh68lzrjlxq9',
             signature: 'IH9d68fk/dYQtuMlNN7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc=',
           },
         },
@@ -459,6 +467,7 @@ describe('benchmarkService tests', () => {
         headers: {
           zelidauth: {
             zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uZ',
+            loginPhrase: '16125160820394ddsh5skgwv0ipodku92y0jbwvpyj17bh68lzrjlxq9',
             signature: 'IH9d68fk/dYQtuMlNx7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc=',
           },
         },
@@ -485,6 +494,7 @@ describe('benchmarkService tests', () => {
         headers: {
           zelidauth: {
             zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+            loginPhrase: '16125160820394ddsh5skgwv0ipodku92y0jbwvpyj17bh68lzrjlxq9',
             signature: 'IH9d68fk/dYQtuMlNN7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc=',
           },
         },
