@@ -1,6 +1,7 @@
 module.exports = {
   server: {
     apiport: 16127, // homeport is -1, ssl port is +1
+    allowedPorts: [11, 13],
   },
   database: {
     url: '127.0.0.1',

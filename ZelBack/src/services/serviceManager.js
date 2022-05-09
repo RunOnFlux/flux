@@ -4,6 +4,7 @@ const log = require('../lib/log');
 const dbHelper = require('./dbHelper');
 const explorerService = require('./explorerService');
 const fluxCommunication = require('./fluxCommunication');
+const fluxNetworkHelper = require('./fluxNetworkHelper');
 const appsService = require('./appsService');
 const daemonService = require('./daemonService');
 const fluxService = require('./fluxService');
@@ -69,14 +70,14 @@ async function startFluxFunctions() {
     // more than 1 hour. Meaning we have not received status message for a long time. So that node is no longer on a network or app is down.
     await databaseTemp.collection(config.database.appsglobal.collections.appsLocations).createIndex({ broadcastedAt: 1 }, { expireAfterSeconds: 3900 });
     log.info('Flux Apps locations prepared');
-    fluxCommunication.adjustFirewall();
+    fluxNetworkHelper.adjustFirewall();
     log.info('Firewalls checked');
     fluxCommunication.keepConnectionsAlive();
     log.info('Connections polling prepared');
     daemonService.daemonBlockchainInfoService();
     log.info('Flux Daemon Info Service Started');
     fluxService.InstallFluxWatchTower();
-    fluxCommunication.checkDeterministicNodesCollisions();
+    fluxNetworkHelper.checkDeterministicNodesCollisions();
     log.info('Flux checks operational');
     fluxCommunication.fluxDiscovery();
     log.info('Flux Discovery started');
