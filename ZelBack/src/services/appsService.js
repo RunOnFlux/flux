@@ -63,7 +63,7 @@ async function listRunningApps(req, res) {
   try {
     let apps = await dockerService.dockerListContainers(false);
     if (apps.length > 0) {
-      apps = apps.filter((app) => (app.Names[0].substr(1, 3) === 'zel' || app.Names[0].substr(1, 4) === 'flux'));
+      apps = apps.filter((app) => (app.Names[0].slice(1, 4) === 'zel' || app.Names[0].slice(1, 5) === 'flux'));
     }
     const modifiedApps = [];
     apps.forEach((app) => {
@@ -93,7 +93,7 @@ async function listAllApps(req, res) {
   try {
     let apps = await dockerService.dockerListContainers(true);
     if (apps.length > 0) {
-      apps = apps.filter((app) => (app.Names[0].substr(1, 3) === 'zel' || app.Names[0].substr(1, 4) === 'flux'));
+      apps = apps.filter((app) => (app.Names[0].slice(1, 4) === 'zel' || app.Names[0].slice(1, 5) === 'flux'));
     }
     const modifiedApps = [];
     apps.forEach((app) => {
@@ -1243,7 +1243,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
       // eslint-disable-next-line no-restricted-syntax
       for (const port of appSpecifications.ports) {
         // eslint-disable-next-line no-await-in-loop
-        await upnpService.removeMapUpnpPort(serviceHelper.ensureNumber(port));
+        await upnpService.removeMapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${appName}`);
       }
     }
     // v1 compatibility
@@ -1254,7 +1254,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
     }
     const isUPNP = upnpService.isUPNP();
     if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
-      await upnpService.removeMapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port));
+      await upnpService.removeMapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port), `Flux_App_${appName}`);
     }
   }
   const portStatus2 = {
@@ -1662,7 +1662,7 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
       // eslint-disable-next-line no-restricted-syntax
       for (const port of appSpecifications.ports) {
         // eslint-disable-next-line no-await-in-loop
-        await upnpService.removeMapUpnpPort(serviceHelper.ensureNumber(port));
+        await upnpService.removeMapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${appName}`);
       }
     }
     // v1 compatibility
@@ -1673,7 +1673,7 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
     }
     const isUPNP = upnpService.isUPNP();
     if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
-      await upnpService.removeMapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port));
+      await upnpService.removeMapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port), `Flux_App_${appName}`);
     }
   }
   const portStatus2 = {
@@ -1954,7 +1954,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
       // eslint-disable-next-line no-restricted-syntax
       for (const port of appSpecifications.ports) {
         // eslint-disable-next-line no-await-in-loop
-        const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port));
+        const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${appName}`);
         if (portResponse === true) {
           const portStatus = {
             status: `Port ${port} mapped OK`,
@@ -1990,7 +1990,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
     const isUPNP = upnpService.isUPNP();
     if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
       log.info('Custom port specified, mapping ports');
-      const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port));
+      const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port), `Flux_App_${appName}`);
       if (portResponse === true) {
         const portStatus = {
           status: `Port ${appSpecifications.port} mapped OK`,
@@ -2240,7 +2240,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
       // eslint-disable-next-line no-restricted-syntax
       for (const port of appSpecifications.ports) {
         // eslint-disable-next-line no-await-in-loop
-        const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port));
+        const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${appName}`);
         if (portResponse === true) {
           const portStatus = {
             status: `Port ${port} mapped OK`,
@@ -2276,7 +2276,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
     const isUPNP = upnpService.isUPNP();
     if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
       log.info('Custom port specified, mapping ports');
-      const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port));
+      const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port), `Flux_App_${appName}`);
       if (portResponse === true) {
         const portStatus = {
           status: `Port ${appSpecifications.port} mapped OK`,
@@ -3602,6 +3602,68 @@ async function assignedPortsGlobalApps(appNames) {
     }
   });
   return apps;
+}
+
+async function restoreFluxPortsSupport() {
+  try {
+    const isUPNP = upnpService.isUPNP();
+
+    const apiPort = userconfig.initial.apiport || config.server.apiport;
+    const homePort = +apiPort - 1;
+
+    // setup UFW if active
+    await fluxCommunication.allowPort(serviceHelper.ensureNumber(apiPort));
+    await fluxCommunication.allowPort(serviceHelper.ensureNumber(homePort));
+
+    // UPNP
+    if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
+      // map our Flux API and UI port
+      await upnpService.setupUPNP(apiPort);
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+async function restoreAppsPortsSupport() {
+  try {
+    const currentAppsPorts = await assignedPortsInstalledApps();
+    const isUPNP = upnpService.isUPNP();
+
+    // setup UFW for apps
+    // eslint-disable-next-line no-restricted-syntax
+    for (const application of currentAppsPorts) {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const port of application.ports) {
+        // eslint-disable-next-line no-await-in-loop
+        await fluxCommunication.allowPort(serviceHelper.ensureNumber(port));
+      }
+    }
+
+    // UPNP
+    if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
+      // map application ports
+      // eslint-disable-next-line no-restricted-syntax
+      for (const application of currentAppsPorts) {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const port of application.ports) {
+          // eslint-disable-next-line no-await-in-loop
+          await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${application.name}`);
+        }
+      }
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+async function restorePortsSupport() {
+  try {
+    await restoreFluxPortsSupport();
+    await restoreAppsPortsSupport();
+  } catch (error) {
+    log.error(error);
+  }
 }
 
 async function ensureApplicationPortsNotUsed(appSpecFormatted, globalCheckedApps) {
@@ -5648,7 +5710,7 @@ async function trySpawningGlobalApplication() {
     if (runningApps.status !== 'success') {
       throw new Error('Unable to check running apps on this Flux');
     }
-    if (runningApps.data.find((app) => app.Names[0].substr(5, app.Names[0].length) === randomApp)) {
+    if (runningApps.data.find((app) => app.Names[0].slice(5) === randomApp)) {
       log.info(`${randomApp} application is already running on this Flux`);
       await serviceHelper.delay(adjustedDelay);
       trySpawningGlobalAppCache.set(randomApp, randomApp);
@@ -5819,9 +5881,9 @@ async function checkAndNotifyPeersOfRunningApps() {
     // kadena and folding is old naming scheme having /zel.  all global application start with /flux
     const runningAppsNames = runningApps.map((app) => {
       if (app.Names[0].startsWith('/zel')) {
-        return app.Names[0].substr(4, app.Names[0].length);
+        return app.Names[0].slice(4);
       }
-      return app.Names[0].substr(5, app.Names[0].length);
+      return app.Names[0].slice(5);
     });
     // installed always is bigger array than running
     const runningSet = new Set(runningAppsNames);
@@ -6560,7 +6622,7 @@ async function stopAllNonFluxRunningApps() {
   try {
     log.info('Running non Flux apps check...');
     let apps = await dockerService.dockerListContainers(false);
-    apps = apps.filter((app) => (app.Names[0].substr(1, 3) !== 'zel' && app.Names[0].substr(1, 4) !== 'flux'));
+    apps = apps.filter((app) => (app.Names[0].slice(1, 4) !== 'zel' && app.Names[0].slice(1, 5) !== 'flux'));
     if (apps.length > 0) {
       log.info(`Found ${apps.length} apps to be stopped...`);
       // eslint-disable-next-line no-restricted-syntax
@@ -6665,4 +6727,7 @@ module.exports = {
   reconstructAppMessagesHashCollection,
   reconstructAppMessagesHashCollectionAPI,
   stopAllNonFluxRunningApps,
+  restorePortsSupport,
+  restoreFluxPortsSupport,
+  restoreAppsPortsSupport,
 };
