@@ -516,6 +516,13 @@
         <p>
           The APR for a Titan Shared Nodes lockup is dependant on the number of active Stratus nodes on the Flux network.
         </p>
+        <p>
+          APR is calculated using this basic formula:
+        </p>
+        <p>
+          Per block reward (22.5) x Blocks per day (720) x 365 /<br>
+          &nbsp;(Number of Stratus nodes * 40,000)
+        </p>
       </b-card>
     </b-modal>
 
