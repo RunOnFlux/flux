@@ -111,12 +111,6 @@ export default {
     const canViewSharedNodes = () => props.sharednodezelids.includes(userZelid.value);
 
     const nodeActions = canViewSharedNodes() ? [
-      /* {
-        title: 'Managed Services',
-        icon: 'server',
-        event: 'open-managed-services',
-        route: { name: 'apps-marketplace-managedservices' },
-      }, */
       {
         title: 'Shared Nodes',
         icon: 'inbox',

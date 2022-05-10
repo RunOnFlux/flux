@@ -77,16 +77,6 @@ export default [
     },
   },
   {
-    path: '/apps/managed-nodes',
-    name: 'apps-marketplace-managedservices',
-    component: () => import('@/views/apps/marketplace/Marketplace.vue'),
-    meta: {
-      contentRenderer: 'sidebar-left',
-      contentClass: 'marketplace-application',
-      navActiveLink: 'apps-marketplace',
-    },
-  },
-  {
     path: '/apps/shared-nodes',
     name: 'apps-marketplace-sharednodes',
     component: () => import('@/views/apps/marketplace/Marketplace.vue'),
