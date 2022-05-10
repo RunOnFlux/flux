@@ -24,7 +24,7 @@
       class="marketplace-app-list scroll-area"
     >
       <b-card bg-variant="transparent">
-        <b-row class="match-height">
+        <b-row class="match-height d-xxl-flex d-none">
           <b-col xl="4">
             <b-card
               border-variant="primary"
@@ -158,10 +158,158 @@
             </b-card>
           </b-col>
         </b-row>
+        <b-row class="match-height d-xxl-none d-xl-flex d-lg-flex d-md-flex d-sm-flex">
+          <b-col sm="12">
+            <b-card
+              border-variant="primary"
+              no-body
+            >
+              <b-card-title
+                class="text-white text-uppercase"
+                style="padding-left: 1.5rem; padding-top: 1rem; margin-bottom: 0;"
+              >
+                Active Nodes
+              </b-card-title>
+              <b-row class="match-height">
+                <b-col cols="6">
+                  <h1 class="active-node-value-xl">
+                    {{ nodes.length }}
+                  </h1>
+                </b-col>
+                <b-col cols="6">
+                  <h4
+                    class="text-center"
+                    style="padding-top: 2rem"
+                  >
+                    Total: {{ totalCollateral.toLocaleString() }} Flux
+                  </h4>
+                  <h4 class="text-center">
+                    <b-avatar
+                      size="24"
+                      variant="primary"
+                      button
+                      @click="showNodeInfoDialog()"
+                    >
+                      <v-icon
+                        scale="0.9"
+                        name="info"
+                      />
+                    </b-avatar>
+                  </h4>
+                </b-col>
+              </b-row>
+            </b-card>
+          </b-col>
+          <b-col sm="12">
+            <b-row class="match-height">
+              <b-col sm="6">
+                <b-card
+                  border-variant="primary"
+                  no-body
+                >
+                  <b-card-title class="text-white text-uppercase shared-node-info-title-xl">
+                    Staking Stats
+                  </b-card-title>
+                  <b-card-body class="shared-node-info-body-xl">
+                    <div class="d-flex flex-column">
+                      <div class="d-flex flex-row">
+                        <h5 class="flex-grow-1">
+                          My Staking Total
+                        </h5>
+                        <h4>
+                          {{ myStakes ? toFixedLocaleString(myStakes.reduce((total, stake) => total + stake.collateral, 0), 0) : 0 }}
+                        </h4>
+                      </div>
+                      <div class="d-flex flex-row">
+                        <h5 class="flex-grow-1">
+                          Titan Staking Total
+                        </h5>
+                        <h4>
+                          {{ titanStats ? toFixedLocaleString(titanStats.total) : '...' }}
+                        </h4>
+                      </div>
+                      <div class="d-flex flex-row">
+                        <h5 class="flex-grow-1">
+                          Current Supply
+                        </h5>
+                        <h4>
+                          {{ titanStats ? toFixedLocaleString(titanStats.currentsupply) : '...' }}
+                        </h4>
+                      </div>
+                      <div class="d-flex flex-row">
+                        <h5 class="flex-grow-1">
+                          Max Supply
+                        </h5>
+                        <h4>
+                          {{ titanStats ? toFixedLocaleString(titanStats.maxsupply) : '...' }}
+                        </h4>
+                      </div>
+                      <div>
+                        <hr>
+                      </div>
+                      <div class="d-flex flex-row">
+                        <b-button
+                          v-if="userZelid"
+                          class="flex-grow-1 .btn-relief-primary"
+                          variant="gradient-primary"
+                          @click="showStakeDialog"
+                        >
+                          Stake Flux
+                        </b-button>
+                      </div>
+                    </div>
+                  </b-card-body>
+                </b-card>
+              </b-col>
+              <b-col sm="6">
+                <b-card
+                  border-variant="primary"
+                  no-body
+                >
+                  <b-card-title class="text-white text-uppercase shared-node-info-title-xl">
+                    Lockup Period APR
+                  </b-card-title>
+                  <b-card-body
+                    v-if="titanConfig"
+                    class="shared-node-info-body-xl"
+                  >
+                    <div
+                      v-for="lockup in titanConfig.lockups"
+                      :key="lockup.time"
+                      class="lockup"
+                    >
+                      <div class="d-flex flex-row">
+                        <h4 class="flex-grow-1">
+                          {{ lockup.name }}
+                        </h4>
+                        <h4>
+                          ~{{ (lockup.apr*100).toFixed(2) }}%
+                        </h4>
+                      </div>
+                    </div>
+                    <div class="float-right">
+                      <b-avatar
+                        size="24"
+                        variant="primary"
+                        button
+                        @click="showAPRInfoDialog()"
+                      >
+                        <v-icon
+                          scale="0.9"
+                          name="info"
+                        />
+                      </b-avatar>
+                    </div>
+                  </b-card-body>
+                </b-card>
+              </b-col>
+            </b-row>
+          </b-col>
+        </b-row>
       </b-card>
       <b-card
         v-if="!userZelid"
-        title="My Seats"
+        title="My Stakes"
       >
         <h5>
           Please login using your ZelID to view your node stakes
@@ -171,7 +319,7 @@
         v-else
         class=""
       >
-        <b-col xl="9">
+        <b-col xxl="9">
           <b-card
             class="sharednodes-container"
             no-body
@@ -407,7 +555,7 @@
           </b-card>
         </b-col>
         <b-col
-          xl="3"
+          xxl="3"
         >
           <b-card no-body>
             <b-card-title
@@ -1056,7 +1204,6 @@ export default {
 
     const apiURL = 'http://titantest.runonflux.io:54978';
     const apiURL = 'http://192.168.68.144:1234';
-    // const apiURL = 'http://titantest.runonflux.io:54978';
 
     const totalReward = ref(0);
     const stakeAmount = ref(50);
@@ -1658,12 +1805,26 @@ a:hover img {
   text-align: center;
   padding-bottom: 1.5rem;
 }
+.active-node-value-xl {
+  font-size: 6em;
+  text-align: center;
+  padding-bottom: 0;
+  margin-bottom: 0;
+}
 .shared-node-info-title {
   padding: 1.5rem;
 }
 .shared-node-info-body {
   padding-top: 0;
   padding-bottom: 0.3rem;
+}
+.shared-node-info-title-xl {
+  padding: 1.5rem;
+  padding-bottom: 1rem;
+}
+.shared-node-info-body-xl {
+  padding-top: 0;
+  padding-bottom: 0.1rem;
 }
 
 .lockup {
