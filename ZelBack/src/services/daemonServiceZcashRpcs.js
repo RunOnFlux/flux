@@ -64,7 +64,7 @@ async function zExportViewingKey(req, res) {
 async function zGetBalance(req, res) {
   let { address, minconf } = req.params;
   address = address || req.query.address;
-  minconf = minconf || req.query.minconf || 1;
+  minconf = minconf ?? req.query.minconf ?? 1;
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
@@ -133,15 +133,15 @@ async function zGetOperationResult(req, res) {
   let { operationid } = req.params;
   operationid = operationid || req.query.operationid || [];
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
-  if (authorized === true) {
-    operationid = serviceHelper.ensureObject(operationid);
-    const rpccall = 'z_getoperationresult';
-    const rpcparameters = [operationid];
-
-    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
-  } else {
+  if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
+    return res ? res.json(response) : response;
   }
+  operationid = serviceHelper.ensureObject(operationid);
+  const rpccall = 'z_getoperationresult';
+  const rpcparameters = [operationid];
+
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -156,15 +156,15 @@ async function zGetOperationStatus(req, res) {
   let { operationid } = req.params;
   operationid = operationid || req.query.operationid || [];
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
-  if (authorized === true) {
-    operationid = serviceHelper.ensureObject(operationid);
-    const rpccall = 'z_getoperationstatus';
-    const rpcparameters = [operationid];
-
-    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
-  } else {
+  if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
+    return res ? res.json(response) : response;
   }
+  operationid = serviceHelper.ensureObject(operationid);
+  const rpccall = 'z_getoperationstatus';
+  const rpcparameters = [operationid];
+
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -176,21 +176,20 @@ async function zGetOperationStatus(req, res) {
  * @returns {object} Message.
  */
 async function zGetTotalBalance(req, res) {
-  let { minconf } = req.params;
-  minconf = minconf || req.query.minconf || 1;
-  let { includewatchonly } = req.params;
+  let { minconf, includewatchonly } = req.params;
+  minconf = minconf ?? req.query.minconf ?? 1;
   includewatchonly = includewatchonly ?? req.query.includewatchonly ?? false;
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
-  if (authorized === true) {
-    minconf = serviceHelper.ensureNumber(minconf);
-    includewatchonly = serviceHelper.ensureBoolean(includewatchonly);
-    const rpccall = 'z_gettotalbalance';
-    const rpcparameters = [minconf, includewatchonly];
-
-    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
-  } else {
+  if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
+    return res ? res.json(response) : response;
   }
+  minconf = serviceHelper.ensureNumber(minconf);
+  includewatchonly = serviceHelper.ensureBoolean(includewatchonly);
+  const rpccall = 'z_gettotalbalance';
+  const rpcparameters = [minconf, includewatchonly];
+
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -202,25 +201,23 @@ async function zGetTotalBalance(req, res) {
  * @returns {object} Message.
  */
 async function zImportKey(req, res) {
-  let { zkey } = req.params;
+  let { zkey, rescan, startheight } = req.params;
   zkey = zkey || req.query.zkey;
-  let { rescan } = req.params;
   rescan = rescan || req.query.rescan || 'whenkeyisnew';
-  let { startheight } = req.params;
   startheight = startheight || req.query.startheight || 0;
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
-  if (authorized === true) {
-    const rpccall = 'z_importkey';
-    let rpcparameters = [];
-    if (zkey) {
-      startheight = serviceHelper.ensureNumber(startheight);
-      rpcparameters = [zkey, rescan, startheight];
-    }
-
-    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
-  } else {
+  if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
+    return res ? res.json(response) : response;
   }
+  const rpccall = 'z_importkey';
+  let rpcparameters = [];
+  if (zkey) {
+    startheight = serviceHelper.ensureNumber(startheight);
+    rpcparameters = [zkey, rescan, startheight];
+  }
+
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -232,25 +229,23 @@ async function zImportKey(req, res) {
  * @returns {object} Message.
  */
 async function zImportViewingKey(req, res) {
-  let { vkey } = req.params;
+  let { vkey, rescan, startheight } = req.params;
   vkey = vkey || req.query.vkey;
-  let { rescan } = req.params;
   rescan = rescan || req.query.rescan || 'whenkeyisnew';
-  let { startheight } = req.params;
   startheight = startheight || req.query.startheight || 0;
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
-  if (authorized === true) {
-    const rpccall = 'z_importviewingkey';
-    let rpcparameters = [];
-    if (vkey) {
-      startheight = serviceHelper.ensureNumber(startheight);
-      rpcparameters = [vkey, rescan, startheight];
-    }
-
-    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
-  } else {
+  if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
+    return res ? res.json(response) : response;
   }
+  const rpccall = 'z_importviewingkey';
+  let rpcparameters = [];
+  if (vkey) {
+    startheight = serviceHelper.ensureNumber(startheight);
+    rpcparameters = [vkey, rescan, startheight];
+  }
+
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -265,17 +260,17 @@ async function zImportWallet(req, res) {
   let { filename } = req.params;
   filename = filename || req.query.filename;
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
-  if (authorized === true) {
-    const rpccall = 'z_importwallet';
-    let rpcparameters = [];
-    if (filename) {
-      rpcparameters = [filename];
-    }
-
-    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
-  } else {
+  if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
+    return res ? res.json(response) : response;
   }
+  const rpccall = 'z_importwallet';
+  let rpcparameters = [];
+  if (filename) {
+    rpcparameters = [filename];
+  }
+
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -290,15 +285,15 @@ async function zListAddresses(req, res) {
   let { includewatchonly } = req.params;
   includewatchonly = includewatchonly ?? req.query.includewatchonly ?? false;
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
-  if (authorized === true) {
-    includewatchonly = serviceHelper.ensureBoolean(includewatchonly);
-    const rpccall = 'z_listaddresses';
-    const rpcparameters = [includewatchonly];
-
-    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
-  } else {
+  if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
+    return res ? res.json(response) : response;
   }
+  includewatchonly = serviceHelper.ensureBoolean(includewatchonly);
+  const rpccall = 'z_listaddresses';
+  const rpcparameters = [includewatchonly];
+
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -311,13 +306,13 @@ async function zListAddresses(req, res) {
  */
 async function zListOperationIds(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
-  if (authorized === true) {
-    const rpccall = 'z_listoperationids';
-
-    response = await daemonServiceUtils.executeCall(rpccall);
-  } else {
+  if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
+    return res ? res.json(response) : response;
   }
+  const rpccall = 'z_listoperationids';
+
+  response = await daemonServiceUtils.executeCall(rpccall);
 
   return res ? res.json(response) : response;
 }
@@ -329,23 +324,22 @@ async function zListOperationIds(req, res) {
  * @returns {object} Message.
  */
 async function zListReceivedByAddress(req, res) {
-  let { address } = req.params;
+  let { address, minconf } = req.params;
   address = address || req.query.address;
-  let { minconf } = req.params;
-  minconf = minconf || req.query.minconf || 1;
+  minconf = minconf ?? req.query.minconf ?? 1;
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
-  if (authorized === true) {
-    const rpccall = 'z_listreceivedbyaddress';
-    let rpcparameters = [];
-    if (address) {
-      minconf = serviceHelper.ensureNumber(minconf);
-      rpcparameters = [address, minconf];
-    }
-
-    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
-  } else {
+  if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
+    return res ? res.json(response) : response;
   }
+  const rpccall = 'z_listreceivedbyaddress';
+  let rpcparameters = [];
+  if (address) {
+    minconf = serviceHelper.ensureNumber(minconf);
+    rpcparameters = [address, minconf];
+  }
+
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -357,30 +351,30 @@ async function zListReceivedByAddress(req, res) {
  * @returns {object} Message.
  */
 async function zListUnspent(req, res) {
-  let { minconf } = req.params;
-  minconf = minconf || req.query.minconf || 1;
-  let { maxconf } = req.params;
+  let {
+    minconf, maxconf, includewatchonly, addresses,
+  } = req.params;
+  minconf = minconf ?? req.query.minconf ?? 1;
   maxconf = maxconf || req.query.maxconf || 9999999;
-  let { includewatchonly } = req.params;
   includewatchonly = includewatchonly ?? req.query.includewatchonly ?? false;
-  let { addresses } = req.params;
   addresses = addresses || req.query.addresses;
-  const authorized = await verificationHelper.verifyPrivilege('admin', req);
-  if (authorized === true) {
-    const rpccall = 'z_listunspent';
-    minconf = serviceHelper.ensureNumber(minconf);
-    maxconf = serviceHelper.ensureNumber(maxconf);
-    includewatchonly = serviceHelper.ensureBoolean(includewatchonly);
-    const rpcparameters = [minconf, maxconf, includewatchonly];
-    if (addresses) {
-      addresses = serviceHelper.ensureObject(addresses);
-      rpcparameters.push(addresses);
-    }
 
-    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
-  } else {
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
+  if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
+    return res ? res.json(response) : response;
   }
+  const rpccall = 'z_listunspent';
+  minconf = serviceHelper.ensureNumber(minconf);
+  maxconf = serviceHelper.ensureNumber(maxconf);
+  includewatchonly = serviceHelper.ensureBoolean(includewatchonly);
+  const rpcparameters = [minconf, maxconf, includewatchonly];
+  if (addresses) {
+    addresses = serviceHelper.ensureObject(addresses);
+    rpcparameters.push(addresses);
+  }
+
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -392,17 +386,14 @@ async function zListUnspent(req, res) {
  * @returns {object} Message.
  */
 async function zMergeToAddress(req, res) {
-  let { fromaddresses } = req.params;
+  let {
+    fromaddresses, toaddress, fee, transparentlimit, shieldedlimit, memo,
+  } = req.params;
   fromaddresses = fromaddresses || req.query.fromaddresses;
-  let { toaddress } = req.params;
   toaddress = toaddress || req.query.toaddress;
-  let { fee } = req.params;
   fee = fee || req.query.fee || 0.0001;
-  let { transparentlimit } = req.params;
-  transparentlimit = transparentlimit || req.query.transparentlimit || 50; // 0 for as many as can fit
-  let { shieldedlimit } = req.params;
-  shieldedlimit = shieldedlimit || req.query.shieldedlimit || 20; // 0 for as many as can fit
-  let { memo } = req.params;
+  transparentlimit = transparentlimit ?? req.query.transparentlimit ?? 50; // 0 for as many as can fit
+  shieldedlimit = shieldedlimit ?? req.query.shieldedlimit ?? 20; // 0 for as many as can fit
   memo = memo || req.query.memo || '';
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
@@ -435,7 +426,7 @@ async function zSendMany(req, res) {
   let { amounts } = req.params;
   amounts = amounts || req.query.amounts;
   let { minconf } = req.params;
-  minconf = minconf || req.query.minconf || 1;
+  minconf = minconf ?? req.query.minconf ?? 1;
   let { fee } = req.params;
   fee = fee || req.query.fee || 0.0001;
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
