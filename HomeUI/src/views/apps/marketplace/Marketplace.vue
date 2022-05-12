@@ -251,7 +251,7 @@ export default {
     const sharedNodeZelIDs = ref(
       [
         '1CYcLWeUHqgbHefa78M9TYzQou2peRnmiF',
-        '1B5eD62QLez9in89zMZiiUNVSg5f3R4KNK',
+        '12Wat1DgnKJTconMw6sqnZDDhWhmeX1DL2',
         '1N54T5rnmagTk93giHGpsLPZacHAK3WLLN',
         '1CQwTrsqAp2JyjsV2xBLzcb7LZDTux1Ezo',
         '1CYByzee6xgKLAMFBKS9y2LqZq2zLGyoUE',
