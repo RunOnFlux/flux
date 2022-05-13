@@ -258,6 +258,7 @@ export default {
         '1AZKSb3jeGa99Uaoi1pwDAA6pYdQ4SDHtR',
         '1BeXmrAVprWxzcK72i2DoMLWXhR9KazJhN',
         '1NT9VL5yeBUGZfNaoZExZ6hf7vwbVqkZVP',
+        '1BKh6A6tAddDdVkP6BA63nopiTDJcPvRS9',
       ],
     );
 
