@@ -155,7 +155,7 @@ async function listAppsImages(req, res) {
 
 /**
  * To start an app. Starts each component if the app is using Docker Compose. Only accessible by app owner, admins and flux team members.
- * @param {object} req Request. 
+ * @param {object} req Request.
  * @param {object} res Response.
  * @returns {object} Message.
  */
@@ -969,15 +969,18 @@ async function appsResources(req, res) {
             appsRamLocked += serviceHelper.ensureNumber(component.ram) || 0;
             appsHddLocked += serviceHelper.ensureNumber(component.hdd) || 0;
           }
+          appsHddLocked += 2; // 2gb per image
         });
       } else if (app.tiered && tier) {
         appsCpusLocked += serviceHelper.ensureNumber(app[cpuTier] || app.cpu) || 0;
         appsRamLocked += serviceHelper.ensureNumber(app[ramTier] || app.ram) || 0;
         appsHddLocked += serviceHelper.ensureNumber(app[hddTier] || app.hdd) || 0;
+        appsHddLocked += 2; // 2gb per image
       } else {
         appsCpusLocked += serviceHelper.ensureNumber(app.cpu) || 0;
         appsRamLocked += serviceHelper.ensureNumber(app.ram) || 0;
         appsHddLocked += serviceHelper.ensureNumber(app.hdd) || 0;
+        appsHddLocked += 2; // 2gb per image
       }
     });
     const appsUsage = {
@@ -2493,7 +2496,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
 
 /**
  * To soft register an app locally (with data volume already in existence). Performs pre-installation checks - database in place, Flux Docker network in place and if app already installed. Then registers app in database and performs soft install. If registration fails, the app is removed locally.
- * @param {object} appSpecs App specifications. 
+ * @param {object} appSpecs App specifications.
  * @param {object} componentSpecs Component specifications.
  * @param {object} res Response.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
@@ -4474,7 +4477,7 @@ async function storeAppRunningMessage(message) {
 
 /**
  * To request app message.
- * @param {string} hash Message hash. 
+ * @param {string} hash Message hash.
  */
 async function requestAppMessage(hash) {
   // some message type request app message, message hash
@@ -6132,7 +6135,8 @@ async function getApplicationOwnerAPI(req, res) {
 }
 
 /**
- * To try spawning a global application. Performs various checks before the app is spawned. Checks that app is not already running on the FluxNode/IP address. Checks if app already has the required number of instances deployed. Checks that application image is not blacklisted. Checks that ports not already in use.
+ * To try spawning a global application. Performs various checks before the app is spawned. Checks that app is not already running on the FluxNode/IP address.
+ * Checks if app already has the required number of instances deployed. Checks that application image is not blacklisted. Checks that ports not already in use.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
 async function trySpawningGlobalApplication() {

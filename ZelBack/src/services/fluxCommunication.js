@@ -197,7 +197,7 @@ function handleIncomingConnection(ws, req, expressWS) {
 
 /**
  * To get IP addresses for all outgoing connected peers.
- * @param {object} req Request. 
+ * @param {object} req Request.
  * @param {object} res Response.
  */
 function connectedPeers(req, res) {
@@ -282,7 +282,7 @@ async function removeIncomingPeer(req, res, expressWS) {
 }
 
 /**
- * To check if sufficient communication is established. Minimum number of outgoing and incoming peers must be met. 
+ * To check if sufficient communication is established. Minimum number of outgoing and incoming peers must be met.
  * @param {object} req Request.
  * @param {object} res Response.
  */
