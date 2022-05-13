@@ -64,12 +64,12 @@
             <div v-if="callResponse.data.version >= 5">
               <list-entry
                 title="Continent"
-                :data="callResponse.data.continents.length > 0 ? getContinent(callResponse.data.continents) : 'All'"
+                :data="callResponse.data.geolocation.length > 0 ? getContinent(callResponse.data.geolocation) : 'All'"
               />
               <list-entry
-                v-if="callResponse.data.continents.length > 0"
+                v-if="callResponse.data.geolocation.length > 0"
                 title="Country"
-                :data="callResponse.data.countries.length > 0 ? getCountry(getcallResponse.data.countries) : 'All'"
+                :data="callResponse.data.geolocation.length > 0 ? getCountry(getcallResponse.data.geolocation) : 'All'"
               />
             </div>
             <list-entry
@@ -313,12 +313,11 @@
             <div v-if="callBResponse.data.version >= 5">
               <list-entry
                 title="Continent"
-                :data="callBResponse.data.continents.length > 0 ? getContinent(callBResponse.data.continents) : 'All'"
+                :data="callBResponse.data.geolocation.length > 0 ? getContinent(callBResponse.data.geolocation) : 'All'"
               />
               <list-entry
-                v-if="callBResponse.data.continents.length > 0"
                 title="Country"
-                :data="callBResponse.data.countries.length > 0 ? getCountry(callBResponse.data.countries) : 'All'"
+                :data="callBResponse.data.geolocation.length > 0 ? getCountry(callBResponse.data.geolocation) : 'All'"
               />
             </div>
             <list-entry
@@ -1159,12 +1158,11 @@
               />
               <list-entry
                 title="Continent"
-                :data="callBResponse.data.continents.length > 0 ? getContinent(callBResponse.data.continents) : 'All'"
+                :data="callBResponse.data.geolocation.length > 0 ? getContinent(callBResponse.data.geolocation) : 'All'"
               />
               <list-entry
-                v-if="callBResponse.data.continents.length > 0"
                 title="Country"
-                :data="callBResponse.data.countries.length > 0 ? getCountry(callBResponse.data.countries) : 'All'"
+                :data="callBResponse.data.geolocation.length > 0 ? getCountry(callBResponse.data.geolocation) : 'All'"
               />
             </div>
             <list-entry
@@ -3101,14 +3099,17 @@ export default {
             this.appUpdateSpecification.contacts = this.ensureString(specs.contacs);
             this.selectedContinent = null;
             this.selectedCountry = null;
-            if (specs.continents && specs.continents.length > 0) {
-              this.selectedContinent = this.continentsOptions.filter((x) => x.value === specs.continents[0])[0];
-              if (specs.countries && specs.countries.length > 0) {
-                this.selectedCountry = this.countriesOptions.filter((x) => x.value === specs.countries[0])[0];
+            if (specs.geolocation && specs.geolocation.length > 0) {
+              const appContinent = specs.geolocation.find((x) => x.startsWith('a'));
+              if (appContinent) {
+                this.selectedContinent = this.continentsOptions.find((x) => x.value === appContinent) || null;
+              }
+              const appCountry = specs.geolocation.find((x) => x.startsWith('b'));
+              if (appCountry) {
+                this.selectedCountry = this.countriesOptions.find((x) => x.value === appCountry) || null;
               }
             }
-            this.appUpdateSpecification.continents = this.ensureString(specs.continents);
-            this.appUpdateSpecification.countries = this.ensureString(specs.countries);
+            this.appUpdateSpecification.geolocation = this.ensureString(specs.geolocation);
           }
           this.appUpdateSpecification.compose.forEach((component) => {
             // eslint-disable-next-line no-param-reassign
@@ -3165,11 +3166,10 @@ export default {
         const appSpecification = this.appUpdateSpecification;
         if (appSpecification.version >= 5) {
           if (this.selectedContinent) {
-            appSpecification.continents = [];
-            appSpecification.continents.push(this.selectedContinent);
+            appSpecification.geolocation = [];
+            appSpecification.continents.push(`a${this.selectedContinent}`);
             if (this.selectedCountry) {
-              appSpecification.countries = [];
-              appSpecification.countries.push(this.selectedCountry);
+              appSpecification.countries.push(`b${this.selectedCountry}`);
             }
           }
         }
@@ -3692,17 +3692,31 @@ export default {
       return '';
     },
     getContinent(item) {
-      const continent = this.continentsOptions.filter((x) => x.value === item[0])[0];
-      return continent.text;
+      const appContinent = item.find((x) => x.startsWith('a'));
+      if (appContinent) {
+        const appContinentAux = this.continentsOptions.find((x) => x.value === appContinent);
+        if (appContinentAux) {
+          return appContinentAux.text;
+        }
+        return 'All';
+      }
+      return 'All';
     },
     getCountry(item) {
-      const country = this.countriesOptions.filter((x) => x.value === item[0])[0];
-      return country.text;
+      const appCountry = item.find((x) => x.startsWith('b'));
+      if (appCountry) {
+        const appCountryAux = this.countriesOptions.find((x) => x.value === appCountry);
+        if (appCountryAux) {
+          return appCountryAux.text;
+        }
+        return 'All';
+      }
+      return 'All';
     },
     continentChanged() {
       this.selectedCountry = null;
       if (this.selectedContinent) {
-        const continent = this.continentsOptions.filter((x) => x.value === this.selectedContinent)[0];
+        const continent = this.continentsOptions.find((x) => x.value === this.selectedContinent);
         this.maxInstances = continent.maxInstances;
         if (this.appUpdateSpecification.instances > this.maxInstances) {
           this.appUpdateSpecification.instances = this.maxInstances;
@@ -3715,14 +3729,14 @@ export default {
     },
     countryChanged() {
       if (this.selectedCountry) {
-        const country = this.countriesOptions.filter((x) => x.value === this.selectedCountry)[0];
+        const country = this.countriesOptions.find((x) => x.value === this.selectedCountry);
         this.maxInstances = country.maxInstances;
         if (this.appUpdateSpecification.instances > this.maxInstances) {
           this.appUpdateSpecification.instances = this.maxInstances;
         }
         this.showToast('warning', `On ${country.text} country you can deploy a maximum of ${this.maxInstances} instances and the node hardware available is ${country.nodeTier}. If your app specs are higher the dapp might not spawn on the network.`);
       } else {
-        const continent = this.continentsOptions.filter((x) => x.value === this.selectedContinent)[0];
+        const continent = this.continentsOptions.find((x) => x.value === this.selectedContinent);
         this.maxInstances = continent.maxInstances;
         if (this.appUpdateSpecification.instances > this.maxInstances) {
           this.appUpdateSpecification.instances = this.maxInstances;

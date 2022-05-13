@@ -1863,29 +1863,19 @@ async function checkAppRequirements(appSpecs) {
     if (!nodeGeo) {
       throw new Error('Node Geolocation not set. Aborting.');
     }
-    let findCountry = false;
-    let findContinent = false;
-    if (appSpecs.countries && appSpecs.countries.length > 0) {
-      // eslint-disable-next-line no-restricted-syntax
-      for (const country in appSpecs.countries) {
-        if (country === nodeGeo.countryCode) {
-          findCountry = true;
-          break;
+    if (appSpecs.geolocation && appSpecs.geolocation.length > 0) {
+      const appContinent = appSpecs.geolocation.find((x) => x.startsWith('a'));
+      if (appContinent) {
+        if (appContinent.substr(1) !== nodeGeo.continentCode) {
+          throw new Error('App specs with continents geolocation set not matching node geolocation. Aborting.');
         }
-      }
-      if (!findCountry) {
-        throw new Error('App specs with countries geolocation set not matching node geolocation. Aborting.');
-      }
-    } else if (appSpecs.continents && appSpecs.continents.length > 0) {
-      // eslint-disable-next-line no-restricted-syntax
-      for (const continent in appSpecs.continents) {
-        if (continent === nodeGeo.continentCode) {
-          findContinent = true;
-          break;
+
+        const appCountry = appSpecs.geolocation.find((x) => x.startsWith('b'));
+        if (appCountry) {
+          if (appCountry.substr(1) !== nodeGeo.countryCode) {
+            throw new Error('App specs with countries geolocation set not matching node geolocation. Aborting.');
+          }
         }
-      }
-      if (!findContinent) {
-        throw new Error('App specs with continents geolocation set not matching node geolocation. Aborting.');
       }
     }
   }
@@ -3544,7 +3534,7 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
     });
   } else {
     const specifications = [
-      'version', 'name', 'description', 'owner', 'compose', 'instances', 'contacts', 'continents', 'countries',
+      'version', 'name', 'description', 'owner', 'compose', 'instances', 'contacts', 'geolocation',
     ];
     const componentSpecifications = [
       'name', 'description', 'repotag', 'ports', 'containerPorts', 'environmentParameters', 'commands', 'containerData', 'domains',
@@ -4153,8 +4143,7 @@ function specificationFormatter(appSpecification) {
   let { hdd } = appSpecification;
   const { tiered } = appSpecification;
   let { contacts } = appSpecification;
-  let { continents } = appSpecification;
-  let { countries } = appSpecification;
+  let { geolocation } = appSpecification;
 
   if (!version) {
     throw new Error('Missing Flux App specification parameter');
@@ -4294,7 +4283,7 @@ function specificationFormatter(appSpecification) {
     }
   } else { // v4+
     if (version >= 5) {
-      if (!contacts || !continents || !countries) {
+      if (!contacts || !geolocation) {
         throw new Error('Missing Flux App specification parameter');
       }
       contacts = serviceHelper.ensureObject(contacts);
@@ -4309,29 +4298,17 @@ function specificationFormatter(appSpecification) {
       }
       appSpecFormatted.contacts = contactsCorrect;
 
-      continents = serviceHelper.ensureObject(continents);
-      const continentsCorrect = [];
-      if (Array.isArray(continents)) {
-        continents.forEach((parameter) => {
+      geolocation = serviceHelper.ensureObject(geolocation);
+      const geolocationCorrect = [];
+      if (Array.isArray(geolocation)) {
+        geolocation.forEach((parameter) => {
           const param = serviceHelper.ensureString(parameter); // string
-          continentsCorrect.push(param);
+          geolocationCorrect.push(param);
         });
       } else {
-        throw new Error('Continents for Flux App are invalid');
+        throw new Error('Geolocation for Flux App are invalid');
       }
-      appSpecFormatted.continents = continentsCorrect;
-
-      countries = serviceHelper.ensureObject(countries);
-      const countriesCorrect = [];
-      if (Array.isArray(countries)) {
-        countries.forEach((parameter) => {
-          const param = serviceHelper.ensureString(parameter); // string
-          countriesCorrect.push(param);
-        });
-      } else {
-        throw new Error('Countries for Flux App are invalid');
-      }
-      appSpecFormatted.countries = countriesCorrect;
+      appSpecFormatted.geolocation = geolocationCorrect;
     }
 
     if (!compose) {

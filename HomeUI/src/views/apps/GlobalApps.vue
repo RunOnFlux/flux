@@ -55,12 +55,11 @@
                       <div v-if="row.item.version >= 5">
                         <list-entry
                           title="Continent"
-                          :data="row.item.continents.length > 0 ? getContinent(row.item.continents) : 'All'"
+                          :data="row.item.geolocation.length > 0 ? getContinent(row.item.geolocation) : 'All'"
                         />
                         <list-entry
-                          v-if="row.item.continents.length > 0"
                           title="Country"
-                          :data="row.item.countries.length > 0 ? getCountry(getrow.item.countries) : 'All'"
+                          :data="row.item.geolocation.length > 0 ? getCountry(getrow.item.geolocation) : 'All'"
                         />
                       </div>
                       <list-entry
@@ -932,12 +931,26 @@ export default {
       return name;
     },
     getContinent(item) {
-      const continent = this.continentsOptions.filter((x) => x.value === item[0])[0];
-      return continent.text;
+      const appContinent = item.find((x) => x.startsWith('a'));
+      if (appContinent) {
+        const appContinentAux = this.continentsOptions.find((x) => x.value === appContinent);
+        if (appContinentAux) {
+          return appContinentAux.text;
+        }
+        return 'All';
+      }
+      return 'All';
     },
     getCountry(item) {
-      const country = this.countriesOptions.filter((x) => x.value === item[0])[0];
-      return country.text;
+      const appCountry = item.find((x) => x.startsWith('b'));
+      if (appCountry) {
+        const appCountryAux = this.countriesOptions.find((x) => x.value === appCountry);
+        if (appCountryAux) {
+          return appCountryAux.text;
+        }
+        return 'All';
+      }
+      return 'All';
     },
   },
 };

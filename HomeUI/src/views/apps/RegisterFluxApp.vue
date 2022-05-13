@@ -1164,8 +1164,7 @@ export default {
         owner: '',
         instances: 3,
         contacts: '[]',
-        continents: [],
-        countries: [],
+        geolocation: [],
         compose: [
           {
             name: '',
@@ -1377,11 +1376,10 @@ export default {
         const appSpecification = this.appRegistrationSpecification;
         if (appSpecification.version >= 5) {
           if (this.selectedContinent) {
-            appSpecification.continents = [];
-            appSpecification.continents.push(this.selectedContinent);
+            appSpecification.geolocation = [];
+            appSpecification.continents.push(`a${this.selectedContinent}`);
             if (this.selectedCountry) {
-              appSpecification.countries = [];
-              appSpecification.countries.push(this.selectedCountry);
+              appSpecification.countries.push(`b${this.selectedCountry}`);
             }
           }
         }
