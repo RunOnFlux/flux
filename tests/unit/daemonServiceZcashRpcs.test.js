@@ -1,8 +1,10 @@
 const sinon = require('sinon');
+const { PassThrough } = require('stream');
 const { expect } = require('chai');
 const daemonServiceUtils = require('../../ZelBack/src/services/daemonServiceUtils');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const daemonServiceZcashRpcs = require('../../ZelBack/src/services/daemonServiceZcashRpcs');
+const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 
 const generateResponse = () => {
   const res = { test: 'testing' };
@@ -2807,6 +2809,2058 @@ describe('daemonServiceZcashRpcs tests', () => {
       expect(result).to.eql(expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'z_mergetoaddress', [req.query.fromaddresses, req.query.toaddress, req.query.fee, req.query.transparentlimit,
         req.query.shieldedlimit, req.query.memo]);
+    });
+  });
+
+  describe('zSendMany tests', () => {
+    let daemonServiceUtilsStub;
+    let verifyPrivilegeStub;
+
+    beforeEach(() => {
+      daemonServiceUtilsStub = sinon.stub(daemonServiceUtils, 'executeCall');
+      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should throw error if user is unauthorized, no response passed', async () => {
+      verifyPrivilegeStub.returns(false);
+      const req = {
+        params: {
+          fromaddresses: {
+            addr1: '1ZASC123455',
+            addr2: '1ZASC123455',
+          },
+          toaddress: '1SASC123453',
+          transparentlimit: 0,
+          shieldedlimit: 0,
+          fee: 0.1,
+          memo: 'somememo',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = {
+        data: {
+          code: 401,
+          message: 'Unauthorized. Access denied.',
+          name: 'Unauthorized',
+        },
+        status: 'error',
+      };
+
+      const result = await daemonServiceZcashRpcs.zSendMany(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.notCalled(daemonServiceUtilsStub);
+    });
+
+    it('should throw error if user is unauthorized,  response passed', async () => {
+      verifyPrivilegeStub.returns(false);
+      const res = generateResponse();
+      const req = {
+        params: {
+          fromaddress: '1ZASC123455',
+          amounts: {
+            amount1: '12345566',
+            amount2: '756543',
+          },
+          minconf: 3,
+          fee: 0.1,
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = {
+        data: {
+          code: 401,
+          message: 'Unauthorized. Access denied.',
+          name: 'Unauthorized',
+        },
+        status: 'error',
+      };
+
+      const result = await daemonServiceZcashRpcs.zSendMany(req, res);
+
+      expect(result).to.equal(`Response: ${expectedResponse}`);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+      sinon.assert.notCalled(daemonServiceUtilsStub);
+    });
+
+    it('should trigger rpc, no params, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          test: 'test',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZcashRpcs.zSendMany(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'z_sendmany', []);
+    });
+
+    it('should trigger rpc, no params, response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          test: 'test',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+      const res = generateResponse();
+
+      const result = await daemonServiceZcashRpcs.zSendMany(req, res);
+
+      expect(result).to.equal(`Response: ${expectedResponse}`);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'z_sendmany', []);
+    });
+
+    it('should trigger rpc, data in params, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          fromaddress: '1ZASC123455',
+          amounts: {
+            amount1: '12345566',
+            amount2: '756543',
+          },
+          minconf: '3',
+          fee: '0.1',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZcashRpcs.zSendMany(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'z_sendmany', [req.params.fromaddress, req.params.amounts, +req.params.minconf, +req.params.fee]);
+    });
+
+    it('should trigger rpc, no fromaddress in params, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          amounts: {
+            amount1: '12345566',
+            amount2: '756543',
+          },
+          minconf: 3,
+          fee: 0.1,
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZcashRpcs.zSendMany(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'z_sendmany', []);
+    });
+
+    it('should trigger rpc, no amounts in params, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          fromaddress: '1ZASC123455',
+          minconf: 3,
+          fee: 0.1,
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZcashRpcs.zSendMany(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'z_sendmany', []);
+    });
+
+    it('should trigger rpc, no fee in params, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          fromaddress: '1ZASC123455',
+          amounts: {
+            amount1: '12345566',
+            amount2: '756543',
+          },
+          minconf: 3,
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZcashRpcs.zSendMany(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'z_sendmany', [req.params.fromaddress, req.params.amounts, req.params.minconf, 0.0001]);
+    });
+
+    it('should trigger rpc, no minconf in params, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          fromaddress: '1ZASC123455',
+          amounts: {
+            amount1: '12345566',
+            amount2: '756543',
+          },
+          fee: 0.1,
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZcashRpcs.zSendMany(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'z_sendmany', [req.params.fromaddress, req.params.amounts, 1, req.params.fee]);
+    });
+
+    it('should trigger rpc, data in query, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        query: {
+          fromaddress: '1ZASC123455',
+          amounts: {
+            amount1: '12345566',
+            amount2: '756543',
+          },
+          minconf: 3,
+          fee: 0.1,
+        },
+        params: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZcashRpcs.zSendMany(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'z_sendmany', [req.query.fromaddress, req.query.amounts, req.query.minconf, req.query.fee]);
+    });
+  });
+
+  describe('zSendManyPost tests', () => {
+    let daemonServiceUtilsStub;
+    let verifyPrivilegeStub;
+    const execCallResult = 'RPC call executed';
+
+    beforeEach(() => {
+      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+      daemonServiceUtilsStub = sinon.stub(daemonServiceUtils, 'executeCall').resolves(execCallResult);
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should throw error if user is unauthorized, no response passed', async () => {
+      verifyPrivilegeStub.returns(false);
+      const params = {
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(params));
+      mockStream.end();
+      const res = generateResponse();
+      const expectedResponse = {
+        data: {
+          code: 401,
+          message: 'Unauthorized. Access denied.',
+          name: 'Unauthorized',
+        },
+        status: 'error',
+      };
+
+      await daemonServiceZcashRpcs.zSendManyPost(mockStream, res);
+      // await because of the async nature of the request processing
+      await serviceHelper.delay(150);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+      sinon.assert.notCalled(daemonServiceUtilsStub);
+    });
+
+    it('should call rpc if no params are given', async () => {
+      verifyPrivilegeStub.returns(true);
+      const params = {
+      };
+      const expectedCallParams = [];
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(params));
+      mockStream.end();
+      const res = generateResponse();
+
+      await daemonServiceZcashRpcs.zSendManyPost(mockStream, res);
+      // await because of the async nature of the request processing
+      await serviceHelper.delay(150);
+
+      sinon.assert.calledOnceWithExactly(res.json, execCallResult);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'z_sendmany', expectedCallParams);
+    });
+
+    it('should call rpc with all params', async () => {
+      verifyPrivilegeStub.returns(true);
+      const params = {
+        fromaddress: '1ZASC123455',
+        amounts: {
+          amount1: '12345566',
+          amount2: '756543',
+        },
+        minconf: 3,
+        fee: 0.1,
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(params));
+      mockStream.end();
+      const res = generateResponse();
+
+      await daemonServiceZcashRpcs.zSendManyPost(mockStream, res);
+      // await because of the async nature of the request processing
+      await serviceHelper.delay(150);
+
+      sinon.assert.calledOnceWithExactly(res.json, execCallResult);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'z_sendmany', [params.fromaddress, params.amounts, params.minconf, params.fee]);
+    });
+
+    it('should call rpc with no fromaddress param', async () => {
+      verifyPrivilegeStub.returns(true);
+      const params = {
+        amounts: {
+          amount1: '12345566',
+          amount2: '756543',
+        },
+        minconf: 3,
+        fee: 0.1,
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(params));
+      mockStream.end();
+      const res = generateResponse();
+
+      await daemonServiceZcashRpcs.zSendManyPost(mockStream, res);
+      // await because of the async nature of the request processing
+      await serviceHelper.delay(150);
+
+      sinon.assert.calledOnceWithExactly(res.json, execCallResult);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'z_sendmany', []);
+    });
+
+    it('should call rpc with no amounts param', async () => {
+      verifyPrivilegeStub.returns(true);
+      const params = {
+        fromaddress: '1ZASC123455',
+        minconf: 3,
+        fee: 0.1,
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(params));
+      mockStream.end();
+      const res = generateResponse();
+
+      await daemonServiceZcashRpcs.zSendManyPost(mockStream, res);
+      // await because of the async nature of the request processing
+      await serviceHelper.delay(150);
+
+      sinon.assert.calledOnceWithExactly(res.json, execCallResult);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'z_sendmany', []);
+    });
+
+    it('should call rpc with no minconf param', async () => {
+      verifyPrivilegeStub.returns(true);
+      const params = {
+        fromaddress: '1ZASC123455',
+        amounts: {
+          amount1: '12345566',
+          amount2: '756543',
+        },
+        fee: 0.1,
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(params));
+      mockStream.end();
+      const res = generateResponse();
+
+      await daemonServiceZcashRpcs.zSendManyPost(mockStream, res);
+      // await because of the async nature of the request processing
+      await serviceHelper.delay(150);
+
+      sinon.assert.calledOnceWithExactly(res.json, execCallResult);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'z_sendmany', [params.fromaddress, params.amounts, 1, params.fee]);
+    });
+
+    it('should call rpc with no fee param', async () => {
+      verifyPrivilegeStub.returns(true);
+      const params = {
+        fromaddress: '1ZASC123455',
+        amounts: {
+          amount1: '12345566',
+          amount2: '756543',
+        },
+        minconf: 3,
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(params));
+      mockStream.end();
+      const res = generateResponse();
+
+      await daemonServiceZcashRpcs.zSendManyPost(mockStream, res);
+      // await because of the async nature of the request processing
+      await serviceHelper.delay(150);
+
+      sinon.assert.calledOnceWithExactly(res.json, execCallResult);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'z_sendmany', [params.fromaddress, params.amounts, params.minconf, 0.0001]);
+    });
+  });
+
+  describe('zSetMigration tests', () => {
+    let daemonServiceUtilsStub;
+    let verifyPrivilegeStub;
+
+    beforeEach(() => {
+      daemonServiceUtilsStub = sinon.stub(daemonServiceUtils, 'executeCall');
+      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should throw error if user is unauthorized, no response passed', async () => {
+      verifyPrivilegeStub.returns(false);
+      const req = {
+        params: {
+          address: '1ZASC123455',
+          minconf: '1',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = {
+        data: {
+          code: 401,
+          message: 'Unauthorized. Access denied.',
+          name: 'Unauthorized',
+        },
+        status: 'error',
+      };
+
+      const result = await daemonServiceZcashRpcs.zSetMigration(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.notCalled(daemonServiceUtilsStub);
+    });
+
+    it('should throw error if user is unauthorized,  response passed', async () => {
+      verifyPrivilegeStub.returns(false);
+      const res = generateResponse();
+      const req = {
+        params: {
+          address: '1ZASC123455',
+          minconf: '1',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = {
+        data: {
+          code: 401,
+          message: 'Unauthorized. Access denied.',
+          name: 'Unauthorized',
+        },
+        status: 'error',
+      };
+
+      const result = await daemonServiceZcashRpcs.zSetMigration(req, res);
+
+      expect(result).to.equal(`Response: ${expectedResponse}`);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+      sinon.assert.notCalled(daemonServiceUtilsStub);
+    });
+
+    it('should trigger rpc, no params, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          test: 'test',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZcashRpcs.zSetMigration(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'z_setmigration', []);
+    });
+
+    it('should trigger rpc, no params, response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          test: 'test',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+      const res = generateResponse();
+
+      const result = await daemonServiceZcashRpcs.zSetMigration(req, res);
+
+      expect(result).to.equal(`Response: ${expectedResponse}`);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'z_setmigration', []);
+    });
+
+    it('should trigger rpc, data in params, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          enabled: 'true',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZcashRpcs.zSetMigration(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'z_setmigration', [true]);
+    });
+
+    it('should trigger rpc, data in query, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        query: {
+          enabled: false,
+        },
+        params: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZcashRpcs.zSetMigration(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'z_setmigration', [false]);
+    });
+  });
+
+  describe('zShieldCoinBase tests', () => {
+    let daemonServiceUtilsStub;
+    let verifyPrivilegeStub;
+
+    beforeEach(() => {
+      daemonServiceUtilsStub = sinon.stub(daemonServiceUtils, 'executeCall');
+      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should throw error if user is unauthorized, no response passed', async () => {
+      verifyPrivilegeStub.returns(false);
+      const req = {
+        params: {
+          fromaddress: '1ZASC123455',
+          toaddress: '1SASC123453',
+          limit: 0,
+          fee: 0.1,
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = {
+        data: {
+          code: 401,
+          message: 'Unauthorized. Access denied.',
+          name: 'Unauthorized',
+        },
+        status: 'error',
+      };
+
+      const result = await daemonServiceZcashRpcs.zShieldCoinBase(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.notCalled(daemonServiceUtilsStub);
+    });
+
+    it('should throw error if user is unauthorized,  response passed', async () => {
+      verifyPrivilegeStub.returns(false);
+      const res = generateResponse();
+      const req = {
+        params: {
+          fromaddress: '1ZASC123455',
+          toaddress: '1SASC123453',
+          limit: 0,
+          fee: 0.1,
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = {
+        data: {
+          code: 401,
+          message: 'Unauthorized. Access denied.',
+          name: 'Unauthorized',
+        },
+        status: 'error',
+      };
+
+      const result = await daemonServiceZcashRpcs.zShieldCoinBase(req, res);
+
+      expect(result).to.equal(`Response: ${expectedResponse}`);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+      sinon.assert.notCalled(daemonServiceUtilsStub);
+    });
+
+    it('should trigger rpc, no params, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          test: 'test',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZcashRpcs.zShieldCoinBase(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'z_shieldcoinbase', []);
+    });
+
+    it('should trigger rpc, no params, response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          test: 'test',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+      const res = generateResponse();
+
+      const result = await daemonServiceZcashRpcs.zShieldCoinBase(req, res);
+
+      expect(result).to.equal(`Response: ${expectedResponse}`);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'z_shieldcoinbase', []);
+    });
+
+    it('should trigger rpc, data in params, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          fromaddress: '1ZASC123455',
+          toaddress: '1SASC123453',
+          limit: 0,
+          fee: '0.1',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZcashRpcs.zShieldCoinBase(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'z_shieldcoinbase', [req.params.fromaddress, req.params.toaddress, +req.params.fee, +req.params.limit]);
+    });
+
+    it('should trigger rpc, no fromaddress in params, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          toaddress: '1SASC123453',
+          limit: 0,
+          fee: 0.1,
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZcashRpcs.zShieldCoinBase(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'z_shieldcoinbase', []);
+    });
+
+    it('should trigger rpc, no toaddress in params, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          fromaddress: '1ZASC123455',
+          limit: 0,
+          fee: 0.1,
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZcashRpcs.zShieldCoinBase(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'z_shieldcoinbase', []);
+    });
+
+    it('should trigger rpc, no limit in params, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          fromaddress: '1ZASC123455',
+          toaddress: '1SASC123453',
+          fee: 0.1,
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZcashRpcs.zShieldCoinBase(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'z_shieldcoinbase', [req.params.fromaddress, req.params.toaddress, +req.params.fee, 50]);
+    });
+
+    it('should trigger rpc, no fee in params, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          fromaddress: '1ZASC123455',
+          toaddress: '1SASC123453',
+          limit: '12',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZcashRpcs.zShieldCoinBase(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'z_shieldcoinbase', [req.params.fromaddress, req.params.toaddress, 0.0001, +req.params.limit]);
+    });
+
+    it('should trigger rpc, data in query, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        query: {
+          fromaddress: '1ZASC123455',
+          toaddress: '1SASC123453',
+          limit: 0,
+          fee: 0.1,
+        },
+        params: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZcashRpcs.zShieldCoinBase(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'z_shieldcoinbase', [req.query.fromaddress, req.query.toaddress, req.query.fee, req.query.limit]);
+    });
+  });
+
+  describe('zcBenchmark tests', () => {
+    let daemonServiceUtilsStub;
+    let verifyPrivilegeStub;
+
+    beforeEach(() => {
+      daemonServiceUtilsStub = sinon.stub(daemonServiceUtils, 'executeCall');
+      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should throw error if user is unauthorized, no response passed', async () => {
+      verifyPrivilegeStub.returns(false);
+      const req = {
+        params: {
+          fromaddress: '1ZASC123455',
+          toaddress: '1SASC123453',
+          limit: 0,
+          fee: 0.1,
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = {
+        data: {
+          code: 401,
+          message: 'Unauthorized. Access denied.',
+          name: 'Unauthorized',
+        },
+        status: 'error',
+      };
+
+      const result = await daemonServiceZcashRpcs.zcBenchmark(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.notCalled(daemonServiceUtilsStub);
+    });
+
+    it('should throw error if user is unauthorized,  response passed', async () => {
+      verifyPrivilegeStub.returns(false);
+      const res = generateResponse();
+      const req = {
+        params: {
+          benchmarktype: 'sometype',
+          samplecount: '42',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = {
+        data: {
+          code: 401,
+          message: 'Unauthorized. Access denied.',
+          name: 'Unauthorized',
+        },
+        status: 'error',
+      };
+
+      const result = await daemonServiceZcashRpcs.zcBenchmark(req, res);
+
+      expect(result).to.equal(`Response: ${expectedResponse}`);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+      sinon.assert.notCalled(daemonServiceUtilsStub);
+    });
+
+    it('should trigger rpc, no params, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          test: 'test',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZcashRpcs.zcBenchmark(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'zcbenchmark', []);
+    });
+
+    it('should trigger rpc, no params, response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          test: 'test',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+      const res = generateResponse();
+
+      const result = await daemonServiceZcashRpcs.zcBenchmark(req, res);
+
+      expect(result).to.equal(`Response: ${expectedResponse}`);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'zcbenchmark', []);
+    });
+
+    it('should trigger rpc, data in params, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          benchmarktype: 'sometype',
+          samplecount: '42',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZcashRpcs.zcBenchmark(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'zcbenchmark', [req.params.benchmarktype, +req.params.samplecount]);
+    });
+
+    it('should trigger rpc, no benchmarktype in params, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          samplecount: '42',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZcashRpcs.zcBenchmark(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'zcbenchmark', []);
+    });
+
+    it('should trigger rpc, no samplecount in params, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          benchmarktype: 'sometype',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZcashRpcs.zcBenchmark(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'zcbenchmark', []);
+    });
+
+    it('should trigger rpc, data in query, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        query: {
+          benchmarktype: 'sometype',
+          samplecount: '42',
+        },
+        params: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZcashRpcs.zcBenchmark(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'zcbenchmark', [req.query.benchmarktype, +req.query.samplecount]);
+    });
+  });
+
+  describe('zcRawJoinSplit tests', () => {
+    let daemonServiceUtilsStub;
+    let verifyPrivilegeStub;
+
+    beforeEach(() => {
+      daemonServiceUtilsStub = sinon.stub(daemonServiceUtils, 'executeCall');
+      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should throw error if user is unauthorized, no response passed', async () => {
+      verifyPrivilegeStub.returns(false);
+      const req = {
+        params: {
+          rawtx: '0x2311241231231ZASC123455',
+          inputs: {
+            input1: 'test2',
+            input2: 'input2',
+          },
+          outputs: {
+            test1: 'test',
+            output2: 'output2',
+          },
+          vpubnew: 'param1',
+          vpubold: 'param2',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = {
+        data: {
+          code: 401,
+          message: 'Unauthorized. Access denied.',
+          name: 'Unauthorized',
+        },
+        status: 'error',
+      };
+
+      const result = await daemonServiceZcashRpcs.zcRawJoinSplit(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.notCalled(daemonServiceUtilsStub);
+    });
+
+    it('should throw error if user is unauthorized,  response passed', async () => {
+      verifyPrivilegeStub.returns(false);
+      const res = generateResponse();
+      const req = {
+        params: {
+          rawtx: '0x2311241231231ZASC123455',
+          inputs: {
+            input1: 'test2',
+            input2: 'input2',
+          },
+          outputs: {
+            test1: 'test',
+            output2: 'output2',
+          },
+          vpubnew: 'param1',
+          vpubold: 'param2',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = {
+        data: {
+          code: 401,
+          message: 'Unauthorized. Access denied.',
+          name: 'Unauthorized',
+        },
+        status: 'error',
+      };
+
+      const result = await daemonServiceZcashRpcs.zcRawJoinSplit(req, res);
+
+      expect(result).to.equal(`Response: ${expectedResponse}`);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+      sinon.assert.notCalled(daemonServiceUtilsStub);
+    });
+
+    it('should trigger rpc, no params, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          test: 'test',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZcashRpcs.zcRawJoinSplit(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'zcrawjoinsplit', []);
+    });
+
+    it('should trigger rpc, no params, response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          test: 'test',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+      const res = generateResponse();
+
+      const result = await daemonServiceZcashRpcs.zcRawJoinSplit(req, res);
+
+      expect(result).to.equal(`Response: ${expectedResponse}`);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'zcrawjoinsplit', []);
+    });
+
+    it('should trigger rpc, data in params, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          rawtx: '0x2311241231231ZASC123455',
+          inputs: JSON.stringify({
+            input1: 'test2',
+            input2: 'input2',
+          }),
+          outputs: JSON.stringify({
+            test1: 'test',
+            output2: 'output2',
+          }),
+          vpubnew: 'param1',
+          vpubold: 'param2',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZcashRpcs.zcRawJoinSplit(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'zcrawjoinsplit', [req.params.rawtx, JSON.parse(req.params.inputs),
+        JSON.parse(req.params.outputs), req.params.vpubold, req.params.vpubnew]);
+    });
+
+    it('should trigger rpc, no rawtx in params, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          inputs: {
+            input1: 'test2',
+            input2: 'input2',
+          },
+          outputs: {
+            test1: 'test',
+            output2: 'output2',
+          },
+          vpubnew: 'param1',
+          vpubold: 'param2',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZcashRpcs.zcRawJoinSplit(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'zcrawjoinsplit', []);
+    });
+
+    it('should trigger rpc, no inputs in params, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          rawtx: '0x2311241231231ZASC123455',
+          outputs: {
+            test1: 'test',
+            output2: 'output2',
+          },
+          vpubnew: 'param1',
+          vpubold: 'param2',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZcashRpcs.zcRawJoinSplit(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'zcrawjoinsplit', []);
+    });
+
+    it('should trigger rpc, no outputs in params, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          rawtx: '0x2311241231231ZASC123455',
+          inputs: {
+            input1: 'test2',
+            input2: 'input2',
+          },
+          vpubnew: 'param1',
+          vpubold: 'param2',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZcashRpcs.zcRawJoinSplit(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'zcrawjoinsplit', []);
+    });
+
+    it('should trigger rpc, no vpubnew in params, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          rawtx: '0x2311241231231ZASC123455',
+          inputs: {
+            input1: 'test2',
+            input2: 'input2',
+          },
+          outputs: {
+            test1: 'test',
+            output2: 'output2',
+          },
+          vpubold: 'param2',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZcashRpcs.zcRawJoinSplit(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'zcrawjoinsplit', []);
+    });
+
+    it('should trigger rpc, no vpubold in params, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          rawtx: '0x2311241231231ZASC123455',
+          inputs: {
+            input1: 'test2',
+            input2: 'input2',
+          },
+          outputs: {
+            test1: 'test',
+            output2: 'output2',
+          },
+          vpubnew: 'param1',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZcashRpcs.zcRawJoinSplit(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'zcrawjoinsplit', []);
+    });
+
+    it('should trigger rpc, data in query, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        query: {
+          rawtx: '0x2311241231231ZASC123455',
+          inputs: {
+            input1: 'test2',
+            input2: 'input2',
+          },
+          outputs: {
+            test1: 'test',
+            output2: 'output2',
+          },
+          vpubnew: 'param1',
+          vpubold: 'param2',
+        },
+        params: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZcashRpcs.zcRawJoinSplit(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'zcrawjoinsplit', [req.query.rawtx, req.query.inputs, req.query.outputs, req.query.vpubold, req.query.vpubnew]);
+    });
+  });
+
+  describe('zcRawJoinSplitPost tests', () => {
+    let daemonServiceUtilsStub;
+    let verifyPrivilegeStub;
+    const execCallResult = 'RPC call executed';
+
+    beforeEach(() => {
+      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+      daemonServiceUtilsStub = sinon.stub(daemonServiceUtils, 'executeCall').resolves(execCallResult);
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should throw error if user is unauthorized, no response passed', async () => {
+      verifyPrivilegeStub.returns(false);
+      const params = {
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(params));
+      mockStream.end();
+      const res = generateResponse();
+      const expectedResponse = {
+        data: {
+          code: 401,
+          message: 'Unauthorized. Access denied.',
+          name: 'Unauthorized',
+        },
+        status: 'error',
+      };
+
+      await daemonServiceZcashRpcs.zcRawJoinSplitPost(mockStream, res);
+      // await because of the async nature of the request processing
+      await serviceHelper.delay(150);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+      sinon.assert.notCalled(daemonServiceUtilsStub);
+    });
+
+    it('should call rpc if no params are given', async () => {
+      verifyPrivilegeStub.returns(true);
+      const params = {
+      };
+      const expectedCallParams = [];
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(params));
+      mockStream.end();
+      const res = generateResponse();
+
+      await daemonServiceZcashRpcs.zcRawJoinSplitPost(mockStream, res);
+      // await because of the async nature of the request processing
+      await serviceHelper.delay(150);
+
+      sinon.assert.calledOnceWithExactly(res.json, execCallResult);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'zcrawjoinsplit', expectedCallParams);
+    });
+
+    it('should call rpc with all params', async () => {
+      verifyPrivilegeStub.returns(true);
+      const params = {
+        rawtx: '0x2311241231231ZASC123455',
+        inputs: JSON.stringify({
+          input1: 'test2',
+          input2: 'input2',
+        }),
+        outputs: JSON.stringify({
+          test1: 'test',
+          output2: 'output2',
+        }),
+        vpubnew: 'param1',
+        vpubold: 'param2',
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(params));
+      mockStream.end();
+      const res = generateResponse();
+
+      await daemonServiceZcashRpcs.zcRawJoinSplitPost(mockStream, res);
+      // await because of the async nature of the request processing
+      await serviceHelper.delay(150);
+
+      sinon.assert.calledOnceWithExactly(res.json, execCallResult);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'zcrawjoinsplit', [params.rawtx, JSON.parse(params.inputs), JSON.parse(params.outputs),
+        params.vpubold, params.vpubnew]);
+    });
+
+    it('should call rpc with no rawtx param', async () => {
+      verifyPrivilegeStub.returns(true);
+      const params = {
+        inputs: JSON.stringify({
+          input1: 'test2',
+          input2: 'input2',
+        }),
+        outputs: JSON.stringify({
+          test1: 'test',
+          output2: 'output2',
+        }),
+        vpubnew: 'param1',
+        vpubold: 'param2',
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(params));
+      mockStream.end();
+      const res = generateResponse();
+
+      await daemonServiceZcashRpcs.zcRawJoinSplitPost(mockStream, res);
+      // await because of the async nature of the request processing
+      await serviceHelper.delay(150);
+
+      sinon.assert.calledOnceWithExactly(res.json, execCallResult);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'zcrawjoinsplit', []);
+    });
+
+    it('should call rpc with no inputs param', async () => {
+      verifyPrivilegeStub.returns(true);
+      const params = {
+        rawtx: '0x2311241231231ZASC123455',
+        outputs: JSON.stringify({
+          test1: 'test',
+          output2: 'output2',
+        }),
+        vpubnew: 'param1',
+        vpubold: 'param2',
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(params));
+      mockStream.end();
+      const res = generateResponse();
+
+      await daemonServiceZcashRpcs.zcRawJoinSplitPost(mockStream, res);
+      // await because of the async nature of the request processing
+      await serviceHelper.delay(150);
+
+      sinon.assert.calledOnceWithExactly(res.json, execCallResult);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'zcrawjoinsplit', []);
+    });
+
+    it('should call rpc with no outputs param', async () => {
+      verifyPrivilegeStub.returns(true);
+      const params = {
+        rawtx: '0x2311241231231ZASC123455',
+        inputs: JSON.stringify({
+          input1: 'test2',
+          input2: 'input2',
+        }),
+        vpubnew: 'param1',
+        vpubold: 'param2',
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(params));
+      mockStream.end();
+      const res = generateResponse();
+
+      await daemonServiceZcashRpcs.zcRawJoinSplitPost(mockStream, res);
+      // await because of the async nature of the request processing
+      await serviceHelper.delay(150);
+
+      sinon.assert.calledOnceWithExactly(res.json, execCallResult);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'zcrawjoinsplit', []);
+    });
+
+    it('should call rpc with no vpubnew param', async () => {
+      verifyPrivilegeStub.returns(true);
+      const params = {
+        rawtx: '0x2311241231231ZASC123455',
+        inputs: JSON.stringify({
+          input1: 'test2',
+          input2: 'input2',
+        }),
+        outputs: JSON.stringify({
+          test1: 'test',
+          output2: 'output2',
+        }),
+        vpubold: 'param2',
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(params));
+      mockStream.end();
+      const res = generateResponse();
+
+      await daemonServiceZcashRpcs.zcRawJoinSplitPost(mockStream, res);
+      // await because of the async nature of the request processing
+      await serviceHelper.delay(150);
+
+      sinon.assert.calledOnceWithExactly(res.json, execCallResult);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'zcrawjoinsplit', []);
+    });
+
+    it('should call rpc with no vpubold param', async () => {
+      verifyPrivilegeStub.returns(true);
+      const params = {
+        rawtx: '0x2311241231231ZASC123455',
+        inputs: JSON.stringify({
+          input1: 'test2',
+          input2: 'input2',
+        }),
+        outputs: JSON.stringify({
+          test1: 'test',
+          output2: 'output2',
+        }),
+        vpubnew: 'param1',
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(params));
+      mockStream.end();
+      const res = generateResponse();
+
+      await daemonServiceZcashRpcs.zcRawJoinSplitPost(mockStream, res);
+      // await because of the async nature of the request processing
+      await serviceHelper.delay(150);
+
+      sinon.assert.calledOnceWithExactly(res.json, execCallResult);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'zcrawjoinsplit', []);
+    });
+  });
+
+  describe('zcRawKeygen tests', () => {
+    let daemonServiceUtilsStub;
+    let verifyPrivilegeStub;
+
+    beforeEach(() => {
+      daemonServiceUtilsStub = sinon.stub(daemonServiceUtils, 'executeCall');
+      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should throw error if user is unauthorized, no response passed', async () => {
+      verifyPrivilegeStub.returns(false);
+      const req = {
+        params: {
+          zaddr: '1ZASC123455',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = {
+        data: {
+          code: 401,
+          message: 'Unauthorized. Access denied.',
+          name: 'Unauthorized',
+        },
+        status: 'error',
+      };
+
+      const result = await daemonServiceZcashRpcs.zcRawKeygen(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.notCalled(daemonServiceUtilsStub);
+    });
+
+    it('should throw error if user is unauthorized,  response passed', async () => {
+      verifyPrivilegeStub.returns(false);
+      const res = generateResponse();
+      const req = {
+        params: {
+          zaddr: '1ZASC123455',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = {
+        data: {
+          code: 401,
+          message: 'Unauthorized. Access denied.',
+          name: 'Unauthorized',
+        },
+        status: 'error',
+      };
+
+      const result = await daemonServiceZcashRpcs.zcRawKeygen(req, res);
+
+      expect(result).to.equal(`Response: ${expectedResponse}`);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+      sinon.assert.notCalled(daemonServiceUtilsStub);
+    });
+
+    it('should trigger rpc, no params, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          test: 'test',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZcashRpcs.zcRawKeygen(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'zcrawkeygen');
+    });
+
+    it('should trigger rpc, no params, response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          test: 'test',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+      const res = generateResponse();
+
+      const result = await daemonServiceZcashRpcs.zcRawKeygen(req, res);
+
+      expect(result).to.equal(`Response: ${expectedResponse}`);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'zcrawkeygen');
+    });
+  });
+
+  describe('zcRawReceive tests', () => {
+    let daemonServiceUtilsStub;
+    let verifyPrivilegeStub;
+
+    beforeEach(() => {
+      daemonServiceUtilsStub = sinon.stub(daemonServiceUtils, 'executeCall');
+      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should throw error if user is unauthorized, no response passed', async () => {
+      verifyPrivilegeStub.returns(false);
+      const req = {
+        params: {
+          zaddr: '1ZASC123455',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = {
+        data: {
+          code: 401,
+          message: 'Unauthorized. Access denied.',
+          name: 'Unauthorized',
+        },
+        status: 'error',
+      };
+
+      const result = await daemonServiceZcashRpcs.zcRawReceive(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.notCalled(daemonServiceUtilsStub);
+    });
+
+    it('should throw error if user is unauthorized,  response passed', async () => {
+      verifyPrivilegeStub.returns(false);
+      const res = generateResponse();
+      const req = {
+        params: {
+          zaddr: '1ZASC123455',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = {
+        data: {
+          code: 401,
+          message: 'Unauthorized. Access denied.',
+          name: 'Unauthorized',
+        },
+        status: 'error',
+      };
+
+      const result = await daemonServiceZcashRpcs.zcRawReceive(req, res);
+
+      expect(result).to.equal(`Response: ${expectedResponse}`);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+      sinon.assert.notCalled(daemonServiceUtilsStub);
+    });
+
+    it('should trigger rpc, no params, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          test: 'test',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZcashRpcs.zcRawReceive(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'zcrawreceive', []);
+    });
+
+    it('should trigger rpc, no params, response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          test: 'test',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+      const res = generateResponse();
+
+      const result = await daemonServiceZcashRpcs.zcRawReceive(req, res);
+
+      expect(result).to.equal(`Response: ${expectedResponse}`);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'zcrawreceive', []);
+    });
+
+    it('should trigger rpc, data in params, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          zcsecretkey: '1ZASC123455',
+          encryptednote: 'someencryptednote',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZcashRpcs.zcRawReceive(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'zcrawreceive', [req.params.zcsecretkey, req.params.encryptednote]);
+    });
+
+    it('should trigger rpc, no zcsecretkey, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          encryptednote: 'someencryptednote',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZcashRpcs.zcRawReceive(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'zcrawreceive', []);
+    });
+
+    it('should trigger rpc, no encryptednote, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          zcsecretkey: '1ZASC123455',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZcashRpcs.zcRawReceive(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'zcrawreceive', []);
+    });
+
+    it('should trigger rpc, data in query, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        query: {
+          zcsecretkey: '1ZASC123455',
+          encryptednote: 'someencryptednote',
+        },
+        params: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZcashRpcs.zcRawReceive(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'zcrawreceive', [req.query.zcsecretkey, req.query.encryptednote]);
+    });
+  });
+
+  describe('zcRawReceivePost tests', () => {
+    let daemonServiceUtilsStub;
+    let verifyPrivilegeStub;
+    const execCallResult = 'RPC call executed';
+
+    beforeEach(() => {
+      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+      daemonServiceUtilsStub = sinon.stub(daemonServiceUtils, 'executeCall').resolves(execCallResult);
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should throw error if user is unauthorized, no response passed', async () => {
+      verifyPrivilegeStub.returns(false);
+      const params = {
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(params));
+      mockStream.end();
+      const res = generateResponse();
+      const expectedResponse = {
+        data: {
+          code: 401,
+          message: 'Unauthorized. Access denied.',
+          name: 'Unauthorized',
+        },
+        status: 'error',
+      };
+
+      await daemonServiceZcashRpcs.zcRawReceivePost(mockStream, res);
+      // await because of the async nature of the request processing
+      await serviceHelper.delay(150);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+      sinon.assert.notCalled(daemonServiceUtilsStub);
+    });
+
+    it('should call rpc if no params are given', async () => {
+      verifyPrivilegeStub.returns(true);
+      const params = {
+      };
+      const expectedCallParams = [];
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(params));
+      mockStream.end();
+      const res = generateResponse();
+
+      await daemonServiceZcashRpcs.zcRawReceivePost(mockStream, res);
+      // await because of the async nature of the request processing
+      await serviceHelper.delay(150);
+
+      sinon.assert.calledOnceWithExactly(res.json, execCallResult);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'zcrawreceive', expectedCallParams);
+    });
+
+    it('should call rpc with all params', async () => {
+      verifyPrivilegeStub.returns(true);
+      const params = {
+        zcsecretkey: '1ZASC123455',
+        encryptednote: 'someencryptednote',
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(params));
+      mockStream.end();
+      const res = generateResponse();
+
+      await daemonServiceZcashRpcs.zcRawReceivePost(mockStream, res);
+      // await because of the async nature of the request processing
+      await serviceHelper.delay(150);
+
+      sinon.assert.calledOnceWithExactly(res.json, execCallResult);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'zcrawreceive', [params.zcsecretkey, params.encryptednote]);
+    });
+
+    it('should call rpc with no zcsecretkey param', async () => {
+      verifyPrivilegeStub.returns(true);
+      const params = {
+        encryptednote: 'someencryptednote',
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(params));
+      mockStream.end();
+      const res = generateResponse();
+
+      await daemonServiceZcashRpcs.zcRawReceivePost(mockStream, res);
+      // await because of the async nature of the request processing
+      await serviceHelper.delay(150);
+
+      sinon.assert.calledOnceWithExactly(res.json, execCallResult);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'zcrawreceive', []);
+    });
+
+    it('should call rpc with no encryptednote param', async () => {
+      verifyPrivilegeStub.returns(true);
+      const params = {
+        zcsecretkey: '1ZASC123455',
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(params));
+      mockStream.end();
+      const res = generateResponse();
+
+      await daemonServiceZcashRpcs.zcRawReceivePost(mockStream, res);
+      // await because of the async nature of the request processing
+      await serviceHelper.delay(150);
+
+      sinon.assert.calledOnceWithExactly(res.json, execCallResult);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'zcrawreceive', []);
+    });
+  });
+
+  describe('zcSampleJoinSplit tests', () => {
+    let daemonServiceUtilsStub;
+    let verifyPrivilegeStub;
+
+    beforeEach(() => {
+      daemonServiceUtilsStub = sinon.stub(daemonServiceUtils, 'executeCall');
+      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should throw error if user is unauthorized, no response passed', async () => {
+      verifyPrivilegeStub.returns(false);
+      const req = {
+        params: {
+          zaddr: '1ZASC123455',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = {
+        data: {
+          code: 401,
+          message: 'Unauthorized. Access denied.',
+          name: 'Unauthorized',
+        },
+        status: 'error',
+      };
+
+      const result = await daemonServiceZcashRpcs.zcSampleJoinSplit(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.notCalled(daemonServiceUtilsStub);
+    });
+
+    it('should throw error if user is unauthorized,  response passed', async () => {
+      verifyPrivilegeStub.returns(false);
+      const res = generateResponse();
+      const req = {
+        params: {
+          zaddr: '1ZASC123455',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = {
+        data: {
+          code: 401,
+          message: 'Unauthorized. Access denied.',
+          name: 'Unauthorized',
+        },
+        status: 'error',
+      };
+
+      const result = await daemonServiceZcashRpcs.zcSampleJoinSplit(req, res);
+
+      expect(result).to.equal(`Response: ${expectedResponse}`);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+      sinon.assert.notCalled(daemonServiceUtilsStub);
+    });
+
+    it('should trigger rpc, no params, no response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          test: 'test',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+
+      const result = await daemonServiceZcashRpcs.zcSampleJoinSplit(req);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'zcsamplejoinsplit');
+    });
+
+    it('should trigger rpc, no params, response passed', async () => {
+      verifyPrivilegeStub.returns(true);
+      daemonServiceUtilsStub.returns('success');
+      const req = {
+        params: {
+          test: 'test',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+      const expectedResponse = 'success';
+      const res = generateResponse();
+
+      const result = await daemonServiceZcashRpcs.zcSampleJoinSplit(req, res);
+
+      expect(result).to.equal(`Response: ${expectedResponse}`);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'zcsamplejoinsplit');
     });
   });
 });

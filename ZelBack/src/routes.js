@@ -9,6 +9,7 @@ const daemonServiceMiningRpcs = require('./services/daemonServiceMiningRpcs');
 const daemonServiceNetworkRpcs = require('./services/daemonServiceNetworkRpcs');
 const daemonServiceZelnodeRpcs = require('./services/daemonServiceZelnodeRpcs');
 const daemonServiceUtilityRpcs = require('./services/daemonServiceUtilityRpcs');
+const daemonServiceZcashRpcs = require('./services/daemonServiceZcashRpcs');
 const benchmarkService = require('./services/benchmarkService');
 const idService = require('./services/idService');
 const fluxService = require('./services/fluxService');
@@ -538,73 +539,73 @@ module.exports = (app, expressWs) => {
     daemonService.signMessage(req, res);
   });
   app.get('/daemon/zexportkey/:zaddr?', (req, res) => {
-    daemonService.zExportKey(req, res);
+    daemonServiceZcashRpcs.zExportKey(req, res);
   });
   app.get('/daemon/zexportviewingkey/:zaddr?', (req, res) => {
-    daemonService.zExportViewingKey(req, res);
+    daemonServiceZcashRpcs.zExportViewingKey(req, res);
   });
   app.get('/daemon/zgetbalance/:address?/:minconf?', (req, res) => {
-    daemonService.zGetBalance(req, res);
+    daemonServiceZcashRpcs.zGetBalance(req, res);
   });
   app.get('/daemon/zgetmigrationstatus', (req, res) => {
-    daemonService.zGetMigrationStatus(req, res);
+    daemonServiceZcashRpcs.zGetMigrationStatus(req, res);
   });
   app.get('/daemon/zgetnewaddress/:type?', (req, res) => {
-    daemonService.zGetNewAddress(req, res);
+    daemonServiceZcashRpcs.zGetNewAddress(req, res);
   });
   app.get('/daemon/zgetoperationresult/:operationid?', (req, res) => {
-    daemonService.zGetOperationResult(req, res);
+    daemonServiceZcashRpcs.zGetOperationResult(req, res);
   });
   app.get('/daemon/zgetoperationstatus/:operationid?', (req, res) => {
-    daemonService.zGetOperationStatus(req, res);
+    daemonServiceZcashRpcs.zGetOperationStatus(req, res);
   });
   app.get('/daemon/zgettotalbalance/:minconf?/:includewatchonly?', (req, res) => {
-    daemonService.zGetTotalBalance(req, res);
+    daemonServiceZcashRpcs.zGetTotalBalance(req, res);
   });
   app.get('/daemon/zimportkey/:zkey?/:rescan?/:startheight?', (req, res) => {
-    daemonService.zImportKey(req, res);
+    daemonServiceZcashRpcs.zImportKey(req, res);
   });
   app.get('/daemon/zimportviewingkey/:vkey?/:rescan?/:startheight?', (req, res) => {
-    daemonService.zImportViewingKey(req, res);
+    daemonServiceZcashRpcs.zImportViewingKey(req, res);
   });
   app.get('/daemon/zimportwallet/:filename?', (req, res) => {
-    daemonService.zImportWallet(req, res);
+    daemonServiceZcashRpcs.zImportWallet(req, res);
   });
   app.get('/daemon/zlistaddresses/:includewatchonly?', (req, res) => {
-    daemonService.zListAddresses(req, res);
+    daemonServiceZcashRpcs.zListAddresses(req, res);
   });
   app.get('/daemon/zlistoperationids', (req, res) => {
-    daemonService.zListOperationIds(req, res);
+    daemonServiceZcashRpcs.zListOperationIds(req, res);
   });
   app.get('/daemon/zlistreceivedbyaddress/:address?/:minconf?', (req, res) => {
-    daemonService.zListReceivedByAddress(req, res);
+    daemonServiceZcashRpcs.zListReceivedByAddress(req, res);
   });
   app.get('/daemon/zlistunspent/:minconf?/:maxonf?/:includewatchonly?/:addresses?', (req, res) => {
-    daemonService.zListUnspent(req, res);
+    daemonServiceZcashRpcs.zListUnspent(req, res);
   });
   app.get('/daemon/zmergetoaddress/:fromaddresses?/:toaddress?/:fee?/:transparentlimit?/:shieldedlimit?/:memo?', (req, res) => {
-    daemonService.zMergeToAddress(req, res);
+    daemonServiceZcashRpcs.zMergeToAddress(req, res);
   });
   app.get('/daemon/zsendmany/:fromaddress?/:amounts?/:minconf?/:fee?', (req, res) => {
-    daemonService.zSendMany(req, res);
+    daemonServiceZcashRpcs.zSendMany(req, res);
   });
   app.get('/daemon/zsetmigration/:enabled?', (req, res) => {
-    daemonService.zSetMigration(req, res);
+    daemonServiceZcashRpcs.zSetMigration(req, res);
   });
   app.get('/daemon/zshieldcoinbase/:fromaddress?/:toaddress?/:fee?/:limit?', (req, res) => {
-    daemonService.zShieldCoinBase(req, res);
+    daemonServiceZcashRpcs.zShieldCoinBase(req, res);
   });
   app.get('/daemon/zcrawjoinsplit/:rawtx?/:inputs?/:outputs?/:vpubold?/:vpubnew?', (req, res) => {
-    daemonService.zcRawJoinSplit(req, res);
+    daemonServiceZcashRpcs.zcRawJoinSplit(req, res);
   });
   app.get('/daemon/zcrawkeygen', (req, res) => {
-    daemonService.zcRawKeygen(req, res);
+    daemonServiceZcashRpcs.zcRawKeygen(req, res);
   });
   app.get('/daemon/zcrawreceive/:zcsecretkey?/:encryptednote?', (req, res) => {
-    daemonService.zcRawReceive(req, res);
+    daemonServiceZcashRpcs.zcRawReceive(req, res);
   });
   app.get('/daemon/zcsamplejoinsplit', (req, res) => {
-    daemonService.zcSampleJoinSplit(req, res);
+    daemonServiceZcashRpcs.zcSampleJoinSplit(req, res);
   });
   app.get('/daemon/getaddresstxids/:address?/:start?/:end?', (req, res) => {
     daemonServiceAddressRpcs.getSingleAddresssTxids(req, res);
@@ -669,7 +670,7 @@ module.exports = (app, expressWs) => {
     daemonServiceNetworkRpcs.ping(req, res);
   });
   app.get('/daemon/zcbenchmark/:benchmarktype?/:samplecount?', (req, res) => {
-    daemonService.zcBenchmark(req, res);
+    daemonServiceZcashRpcs.zcBenchmark(req, res);
   });
   app.get('/daemon/startbenchmark', (req, res) => {
     daemonServiceBenchmarkRpcs.startBenchmarkD(req, res);
@@ -977,13 +978,13 @@ module.exports = (app, expressWs) => {
     daemonService.signMessagePost(req, res);
   });
   app.post('/daemon/zsendmany', (req, res) => {
-    daemonService.zSendManyPost(req, res);
+    daemonServiceZcashRpcs.zSendManyPost(req, res);
   });
   app.post('/daemon/zcrawjoinsplit', (req, res) => {
-    daemonService.zcRawJoinSplitPost(req, res);
+    daemonServiceZcashRpcs.zcRawJoinSplitPost(req, res);
   });
   app.post('/daemon/zcrawreceive', (req, res) => {
-    daemonService.zcRawReceivePost(req, res);
+    daemonServiceZcashRpcs.zcRawReceivePost(req, res);
   });
 
   app.post('/benchmark/signzelnodetransaction', (req, res) => {
