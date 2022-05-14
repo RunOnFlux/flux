@@ -1,6 +1,6 @@
 {
   "name": "flux",
-  "version": "3.16.0",
+  "version": "3.17.0",
   "description": "Flux, Your Gateway to a Decentralized World",
   "repository": {
     "type": "git",
@@ -117,6 +117,7 @@
     "babel-plugin-component": "^1.1.1",
     "bootstrap-vue": "^2.21.2",
     "chai": "^4.3.4",
+    "chai-as-promised": "^7.1.1",
     "concurrently": "^6.3.0",
     "copy-webpack-plugin": "^6.4.1",
     "eslint": "^6.8.0",

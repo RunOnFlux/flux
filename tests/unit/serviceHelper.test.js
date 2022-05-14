@@ -144,9 +144,15 @@ describe('serviceHelper tests', () => {
       expect(ensureObjectOutput).to.eql(testArr);
     });
 
-    const otherTypes = [1, true];
+    it('parameter of type null should return null', () => {
+      const ensureObjectOutput = serviceHelper.ensureObject(null);
+
+      expect(ensureObjectOutput).to.be.null;
+    });
+
+    const otherTypes = [1, true, undefined];
     for (const param of otherTypes) {
-      it(`parameter of type ${typeof param} should return undefined`, () => {
+      it(`parameter of type ${typeof param} should return empty object`, () => {
         expect(serviceHelper.ensureObject(param)).to.be.an('object').that.is.empty;
       });
     }
