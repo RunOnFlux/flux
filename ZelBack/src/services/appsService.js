@@ -2441,7 +2441,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
   } else if (appSpecifications.port) {
     const firewallActive = await fluxNetworkHelper.isFirewallActive();
     if (firewallActive) {
-    // v1 compatibility
+      // v1 compatibility
       const portResponse = await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(appSpecifications.port));
       if (portResponse.status === true) {
         const portStatus = {
@@ -6320,11 +6320,18 @@ async function trySpawningGlobalApplication() {
     });
 
     // ensure images exists for platform
-    await ensureApplicationImagesExistsForPlatform(appSpecifications).catch((error) => {
+    const imagesArchitectureMatches = await ensureApplicationImagesExistsForPlatform(appSpecifications).catch((error) => {
       log.error(error);
       trySpawningGlobalAppCache.set(randomApp, randomApp);
       throw error;
     });
+    if (imagesArchitectureMatches !== true) {
+      log.info(`Application ${randomApp} does not support our node architecture, installation aborted.`);
+      trySpawningGlobalAppCache.set(randomApp, randomApp);
+      await serviceHelper.delay(adjustedDelay);
+      trySpawningGlobalApplication();
+      return;
+    }
 
     // if all ok Check hashes comparison if its out turn to start the app. 1% probability.
     const randomNumber = Math.floor((Math.random() * (config.fluxapps.installation.probability / probLn))); // higher probability for more apps on network
