@@ -1,6 +1,7 @@
 module.exports = {
   server: {
     apiport: 16127, // homeport is -1, ssl port is +1
+    allowedPorts: [11, 13],
   },
   database: {
     url: '127.0.0.1',
@@ -96,7 +97,7 @@ module.exports = {
     publicepochstart: 705000,
     portMin: 31000, // ports 30000 - 30999 are reserved for local applications
     portMax: 39999,
-    maxImageSize: 500000000, // 500mb possibly increase later
+    maxImageSize: 2000000000, // 2000mb
     minimumInstances: 3,
     maximumInstances: 100,
     maximumAdditionalInstances: 1, // max instances above subscribed amount. In case of min instances, this is minimumInstances + maximumAdditionalInstances

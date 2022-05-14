@@ -5,11 +5,13 @@ const benchmarkService = require('./services/benchmarkService');
 const idService = require('./services/idService');
 const fluxService = require('./services/fluxService');
 const fluxCommunication = require('./services/fluxCommunication');
+const fluxCommunicationMessagesSender = require('./services/fluxCommunicationMessagesSender');
 const appsService = require('./services/appsService');
 const explorerService = require('./services/explorerService');
 const fluxshareService = require('./services/fluxshareService');
 const generalService = require('./services/generalService');
 const upnpService = require('./services/upnpService');
+const fluxNetworkHelper = require('./services/fluxNetworkHelper');
 
 function isLocal(req, res, next) {
   const remote = req.ip || req.connection.remoteAddress || req.socket.remoteAddress || req.headers['x-forwarded-for'];
@@ -243,7 +245,7 @@ module.exports = (app, expressWs) => {
     fluxService.getFluxKadena(req, res);
   });
   app.get('/flux/dosstate', cache('30 seconds'), (req, res) => {
-    fluxCommunication.getDOSState(req, res);
+    fluxNetworkHelper.getDOSState(req, res);
   });
   app.get('/flux/connectedpeers', cache('30 seconds'), (req, res) => {
     fluxCommunication.connectedPeers(req, res);
@@ -252,13 +254,13 @@ module.exports = (app, expressWs) => {
     fluxCommunication.connectedPeersInfo(req, res);
   });
   app.get('/flux/incomingconnections', cache('30 seconds'), (req, res) => {
-    fluxCommunication.getIncomingConnections(req, res, expressWs.getWss('/ws/flux'));
+    fluxNetworkHelper.getIncomingConnections(req, res, expressWs.getWss('/ws/flux'));
   });
   app.get('/flux/incomingconnectionsinfo', cache('30 seconds'), (req, res) => {
-    fluxCommunication.getIncomingConnectionsInfo(req, res, expressWs.getWss('/ws/flux'));
+    fluxNetworkHelper.getIncomingConnectionsInfo(req, res, expressWs.getWss('/ws/flux'));
   });
   app.get('/flux/checkfluxavailability/:ip?/:port?', cache('30 seconds'), (req, res) => {
-    fluxCommunication.checkFluxAvailability(req, res);
+    fluxNetworkHelper.checkFluxAvailability(req, res);
   });
 
   app.get('/apps/listrunningapps', cache('30 seconds'), (req, res) => {
@@ -739,13 +741,13 @@ module.exports = (app, expressWs) => {
   });
 
   app.get('/flux/broadcastmessage/:data?', (req, res) => {
-    fluxCommunication.broadcastMessageFromUser(req, res);
+    fluxCommunicationMessagesSender.broadcastMessageFromUser(req, res);
   });
   app.get('/flux/broadcastmessagetooutgoing/:data?', (req, res) => {
-    fluxCommunication.broadcastMessageToOutgoingFromUser(req, res);
+    fluxCommunicationMessagesSender.broadcastMessageToOutgoingFromUser(req, res);
   });
   app.get('/flux/broadcastmessagetoincoming/:data?', (req, res) => {
-    fluxCommunication.broadcastMessageToIncomingFromUser(req, res);
+    fluxCommunicationMessagesSender.broadcastMessageToIncomingFromUser(req, res);
   });
   app.get('/flux/addpeer/:ip?', (req, res) => {
     fluxCommunication.addPeer(req, res);
@@ -757,7 +759,7 @@ module.exports = (app, expressWs) => {
     fluxCommunication.removeIncomingPeer(req, res, expressWs.getWss('/ws/flux'));
   });
   app.get('/flux/allowport/:port?', (req, res) => {
-    fluxCommunication.allowPortApi(req, res);
+    fluxNetworkHelper.allowPortApi(req, res);
   });
   app.get('/flux/checkcommunication', (req, res) => {
     fluxCommunication.isCommunicationEstablished(req, res);
@@ -982,13 +984,13 @@ module.exports = (app, expressWs) => {
 
   // POST PROTECTED API - FluxTeam
   app.post('/flux/broadcastmessage', (req, res) => {
-    fluxCommunication.broadcastMessageFromUserPost(req, res);
+    fluxCommunicationMessagesSender.broadcastMessageFromUserPost(req, res);
   });
   app.post('/flux/broadcastmessagetooutgoing', (req, res) => {
-    fluxCommunication.broadcastMessageToOutgoingFromUserPost(req, res);
+    fluxCommunicationMessagesSender.broadcastMessageToOutgoingFromUserPost(req, res);
   });
   app.post('/flux/broadcastmessagetoincoming', (req, res) => {
-    fluxCommunication.broadcastMessageToIncomingFromUserPost(req, res);
+    fluxCommunicationMessagesSender.broadcastMessageToIncomingFromUserPost(req, res);
   });
 
   // WebSockets PUBLIC

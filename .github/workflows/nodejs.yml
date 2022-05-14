@@ -34,3 +34,14 @@ jobs:
         CI: true
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v2
+    - name: Push to other repo # Push services directory from RunOnFlux/flux to RunOnFlux/fluxjsdocs repo to build JSDocs separately.
+      uses: cpina/github-action-push-to-another-repository@main
+      env:
+        API_TOKEN_GITHUB: ${{ secrets.API_TOKEN_GITHUB }}
+      with:
+        source-directory: 'ZelBack/src/services'
+        destination-github-username: 'RunOnFlux'
+        destination-repository-name: 'fluxjsdocs'
+        user-email: runonfluxbot@gmail.com
+        target-branch: master
+        target-directory: services/
