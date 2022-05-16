@@ -3194,18 +3194,23 @@ async function checkApplicationImagesComplience(appSpecs) {
 
   const repos = resBlockedRepo.data;
 
+  const pureImagesRepos = [];
+  repos.forEach((repo) => {
+    pureImagesRepos.push(repo.split(':')[0]);
+  });
+
   const images = [];
   if (appSpecs.version <= 3) {
-    images.push(appSpecs.repotag);
+    images.push(appSpecs.repotag.splt(':')[0]);
   } else {
     appSpecs.compose.forEach((component) => {
-      images.push(component.repotag);
+      images.push(component.repotag.splt(':')[0]);
     });
   }
 
   images.forEach((image) => {
-    if (repos.includes(image)) {
-      throw new Error(`Repository ${image} is blocked. Application ${appSpecs.name} connot be spawned.`);
+    if (pureImagesRepos.includes(image)) {
+      throw new Error(`Image ${image} is blocked. Application ${appSpecs.name} connot be spawned.`);
     }
   });
 

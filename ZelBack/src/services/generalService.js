@@ -239,9 +239,14 @@ async function checkWhitelistedRepository(repotag) {
       throw new Error('Unable to communicate with Flux Services! Try again later.');
     }
 
-    const repos = resWhitelistRepo.data;
-    const whitelisted = repos.includes(repotag);
-    if (!whitelisted) {
+    const imageTags = resWhitelistRepo.data;
+    const pureImages = [];
+    imageTags.forEach((imageTag) => {
+      const pureImage = imageTag.split(':')[0];
+      pureImages.push(pureImage);
+    });
+    const whitelisted = pureImages.includes(splittedRepo[0]);
+    if (!whitelisted) { // not exact match and general image not whitelisted either
       throw new Error('Repository is not whitelisted. Please contact Flux Team.');
     }
   } else {
