@@ -3261,7 +3261,7 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
     const errorMessage = typeCheckVerification;
     throw new Error(errorMessage);
   }
-  if (appSpecifications.version !== 1 && appSpecifications.version !== 2 && appSpecifications.version !== 3 && appSpecifications.version !== 4) {
+  if (appSpecifications.version !== 1 && appSpecifications.version !== 2 && appSpecifications.version !== 3 && appSpecifications.version !== 4 && appSpecifications.version !== 5) {
     throw new Error('Flux App message version specification is invalid');
   }
   if (height < config.fluxapps.appSpecsEnforcementHeights[appSpecifications.version]) {
