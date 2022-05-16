@@ -53,5 +53,11 @@ module.exports = {
         mocha: true,
       },
     },
+    {
+      files: ['*.html'],
+      rules: {
+        'vue/comment-directive': 'off'
+      }
+    }
   ],
 };

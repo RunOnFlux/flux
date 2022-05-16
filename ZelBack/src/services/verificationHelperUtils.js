@@ -19,13 +19,13 @@ const userconfig = require('../../../config/userconfig');
 async function verifyAdminSession(headers) {
   if (!headers || !headers.zelidauth) return false;
   const auth = serviceHelper.ensureObject(headers.zelidauth);
-  if (!auth.zelid || !auth.signature) return false;
+  if (!auth.zelid || !auth.signature || !auth.loginPhrase) return false;
   if (auth.zelid !== userconfig.initial.zelid) return false;
 
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.local.database);
   const collection = config.database.local.collections.loggedUsers;
-  const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
+  const query = { $and: [{ loginPhrase: auth.loginPhrase }, { zelid: auth.zelid }] };
   const projection = {};
   const loggedUser = await dbHelper.findOneInDatabase(database, collection, query, projection);
   if (!loggedUser) return false;
@@ -53,15 +53,23 @@ async function verifyAdminSession(headers) {
 async function verifyUserSession(headers) {
   if (!headers || !headers.zelidauth) return false;
   const auth = serviceHelper.ensureObject(headers.zelidauth);
-  if (!auth.zelid || !auth.signature) return false;
+  if (!auth.zelid || !auth.signature || !auth.loginPhrase) return false;
 
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.local.database);
   const collection = config.database.local.collections.loggedUsers;
-  const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
+  const query = { $and: [{ loginPhrase: auth.loginPhrase }, { zelid: auth.zelid }] };
   const projection = {};
   const loggedUser = await dbHelper.findOneInDatabase(database, collection, query, projection);
-  if (!loggedUser) return false;
+  // if not logged, check if not older than 16 hours
+  if (!loggedUser) {
+    const timestamp = new Date().getTime();
+    const message = auth.loginPhrase;
+    const sixteenHours = 16 * 60 * 60 * 1000;
+    if (Number(message.substring(0, 13)) < (timestamp - sixteenHours) || Number(message.substring(0, 13)) > timestamp || message.length > 70 || message.length < 40) {
+      return false;
+    }
+  }
 
   // check if signature corresponds to message with that zelid
   let valid = false;
@@ -87,13 +95,13 @@ async function verifyUserSession(headers) {
 async function verifyFluxTeamSession(headers) {
   if (!headers || !headers.zelidauth) return false;
   const auth = serviceHelper.ensureObject(headers.zelidauth);
-  if (!auth.zelid || !auth.signature) return false;
+  if (!auth.zelid || !auth.signature || !auth.loginPhrase) return false;
   if (auth.zelid !== config.fluxTeamZelId) return false;
 
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.local.database);
   const collection = config.database.local.collections.loggedUsers;
-  const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
+  const query = { $and: [{ loginPhrase: auth.loginPhrase }, { zelid: auth.zelid }] };
   const projection = {};
   const result = await dbHelper.findOneInDatabase(database, collection, query, projection);
   const loggedUser = result;
@@ -121,13 +129,13 @@ async function verifyFluxTeamSession(headers) {
 async function verifyAdminAndFluxTeamSession(headers) {
   if (!headers || !headers.zelidauth) return false;
   const auth = serviceHelper.ensureObject(headers.zelidauth);
-  if (!auth.zelid || !auth.signature) return false;
+  if (!auth.zelid || !auth.signature || !auth.loginPhrase) return false;
   if (auth.zelid !== config.fluxTeamZelId && auth.zelid !== userconfig.initial.zelid) return false; // admin is considered as fluxTeam
 
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.local.database);
   const collection = config.database.local.collections.loggedUsers;
-  const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
+  const query = { $and: [{ loginPhrase: auth.loginPhrase }, { zelid: auth.zelid }] };
   const projection = {};
   const loggedUser = await dbHelper.findOneInDatabase(database, collection, query, projection);
   if (!loggedUser) return false;
@@ -155,17 +163,25 @@ async function verifyAdminAndFluxTeamSession(headers) {
 async function verifyAppOwnerSession(headers, appName) {
   if (!headers || !headers.zelidauth || !appName) return false;
   const auth = serviceHelper.ensureObject(headers.zelidauth);
-  if (!auth.zelid || !auth.signature) return false;
+  if (!auth.zelid || !auth.signature || !auth.loginPhrase) return false;
   const ownerZelID = await serviceHelper.getApplicationOwner(appName);
   if (auth.zelid !== ownerZelID) return false;
 
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.local.database);
   const collection = config.database.local.collections.loggedUsers;
-  const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
+  const query = { $and: [{ loginPhrase: auth.loginPhrase }, { zelid: auth.zelid }] };
   const projection = {};
   const loggedUser = await dbHelper.findOneInDatabase(database, collection, query, projection);
-  if (!loggedUser) return false;
+  // if not logged, check if not older than 2 hours
+  if (!loggedUser) {
+    const timestamp = new Date().getTime();
+    const message = auth.loginPhrase;
+    const sixteenHours = 2 * 60 * 60 * 1000;
+    if (Number(message.substring(0, 13)) < (timestamp - sixteenHours) || Number(message.substring(0, 13)) > timestamp || message.length > 70 || message.length < 40) {
+      return false;
+    }
+  }
   // check if signature corresponds to message with that zelid
   let valid = false;
   try {
@@ -189,17 +205,25 @@ async function verifyAppOwnerSession(headers, appName) {
 async function verifyAppOwnerOrHigherSession(headers, appName) {
   if (!headers || !headers.zelidauth || !appName) return false;
   const auth = serviceHelper.ensureObject(headers.zelidauth);
-  if (!auth.zelid || !auth.signature) return false;
+  if (!auth.zelid || !auth.signature || !auth.loginPhrase) return false;
   const ownerZelID = await serviceHelper.getApplicationOwner(appName);
   if (auth.zelid !== ownerZelID && auth.zelid !== config.fluxTeamZelId && auth.zelid !== userconfig.initial.zelid) return false;
 
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.local.database);
   const collection = config.database.local.collections.loggedUsers;
-  const query = { $and: [{ signature: auth.signature }, { zelid: auth.zelid }] };
+  const query = { $and: [{ loginPhrase: auth.loginPhrase }, { zelid: auth.zelid }] };
   const projection = {};
   const loggedUser = await dbHelper.findOneInDatabase(database, collection, query, projection);
-  if (!loggedUser) return false;
+  // if not logged, check if not older than 2 hours
+  if (!loggedUser) {
+    const timestamp = new Date().getTime();
+    const message = auth.loginPhrase;
+    const sixteenHours = 2 * 60 * 60 * 1000;
+    if (Number(message.substring(0, 13)) < (timestamp - sixteenHours) || Number(message.substring(0, 13)) > timestamp || message.length > 70 || message.length < 40) {
+      return false;
+    }
+  }
 
   // check if signature corresponds to message with that zelid
   let valid = false;
