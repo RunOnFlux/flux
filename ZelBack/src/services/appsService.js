@@ -3339,6 +3339,36 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
     }
   } else {
     console.log(appSpecifications);
+    if (appSpecifications.version > 4) {
+      if (!Array.isArray(appSpecifications.contacts)) {
+        throw new Error('Invalid Flux App Specifications.');
+      }
+      if (appSpecifications.contacts.length > 5) {
+        throw new Error('Too many contacts defined. Maximum of 5 allowed.');
+      }
+      appSpecifications.contacts.forEach((contact) => {
+        if (contact.length > 75) {
+          throw new Error(`Contact ${contact} is too long. Maximum of 75 characters is allowed.`);
+        }
+        if (contact.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) {
+          throw new Error(`Contact ${contact} is not a valid email address.`);
+        }
+      });
+      if (!Array.isArray(appSpecifications.geolocation)) {
+        throw new Error('Invalid Flux App Specifications.');
+      }
+      if (appSpecifications.geolocation.length > 2) {
+        throw new Error('Invalid geolocation submited.'); // for now we are only accepting continent and country.
+      }
+      appSpecifications.geolocation.forEach((geo) => {
+        if (!geo.startsWith('a') && !geo.startsWith('b')) {
+          throw new Error(`Geolocation ${geo} is not valid.`); // a for continent and b for country (codes)
+        }
+        if (geo.length > 3) {
+          throw new Error(`Geolocation ${geo} is not valid.`); // firt letter for what represents and next two for the code
+        }
+      });
+    }
     if (!Array.isArray(appSpecifications.compose)) {
       throw new Error('Invalid Flux App Specifications');
     }
