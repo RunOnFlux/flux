@@ -3201,10 +3201,10 @@ async function checkApplicationImagesComplience(appSpecs) {
 
   const images = [];
   if (appSpecs.version <= 3) {
-    images.push(appSpecs.repotag.splt(':')[0]);
+    images.push(appSpecs.repotag.split(':')[0]);
   } else {
     appSpecs.compose.forEach((component) => {
-      images.push(component.repotag.splt(':')[0]);
+      images.push(component.repotag.split(':')[0]);
     });
   }
 
