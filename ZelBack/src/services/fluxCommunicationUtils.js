@@ -4,7 +4,6 @@ const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const verificationHelper = require('./verificationHelper');
 const daemonService = require('./daemonService');
-const { outgoingConnections } = require('./utils/establishedConnections');
 
 // default cache
 const LRUoptions = {
@@ -132,7 +131,6 @@ async function verifyOriginalFluxBroadcast(data, obtainedFluxNodeList, currentTi
 module.exports = {
   verifyTimestampInFluxBroadcast,
   verifyOriginalFluxBroadcast,
-  outgoingConnections,
   deterministicFluxList,
   verifyFluxBroadcast,
 };

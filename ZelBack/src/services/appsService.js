@@ -3903,8 +3903,8 @@ async function restoreFluxPortsSupport() {
     const homePort = +apiPort - 1;
 
     // setup UFW if active
-    await fluxCommunication.allowPort(serviceHelper.ensureNumber(apiPort));
-    await fluxCommunication.allowPort(serviceHelper.ensureNumber(homePort));
+    await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(apiPort));
+    await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(homePort));
 
     // UPNP
     if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
@@ -3927,7 +3927,7 @@ async function restoreAppsPortsSupport() {
       // eslint-disable-next-line no-restricted-syntax
       for (const port of application.ports) {
         // eslint-disable-next-line no-await-in-loop
-        await fluxCommunication.allowPort(serviceHelper.ensureNumber(port));
+        await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(port));
       }
     }
 
