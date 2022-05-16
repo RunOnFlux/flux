@@ -3409,14 +3409,55 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
       }
       usedNames.push(appComponent.name);
       if (appComponent.description.length > 256) {
-        throw new Error('Description is too long. Maximum of 256 characters is allowed');
+        throw new Error('Description is too long. Maximum of 256 characters is allowed.');
       }
       appComponent.ports.forEach((port) => {
         if (port < config.fluxapps.portMin || port > config.fluxapps.portMax) {
           throw new Error(`Assigned port ${port} is not within Flux Apps range ${config.fluxapps.portMin}-${config.fluxapps.portMax}`);
         }
       });
-
+      if (appComponent.repotag.length > 100) {
+        throw new Error('Flux App Repository is too long. Maximum of 100 characters is allowed.');
+      }
+      if (appComponent.containerData.length > 100) {
+        throw new Error('Flux App Container Data is too long. Maximum of 100 characters is allowed');
+      }
+      if (!Array.isArray(appComponent.enviromentParameters)) {
+        throw new Error('Invalid Flux App Specifications.');
+      }
+      if (appComponent.enviromentParameters.length > 10) {
+        throw new Error(`App component ${appComponent.name} environment invalid. Maximum of 10 environment variables allowed.`);
+      }
+      appComponent.enviromentParameters.forEach((env) => {
+        if (env.length > 50) {
+          throw new Error(`App component ${appComponent.name} environment ${env} is too long. Maximum of 50 characters is allowed`);
+        }
+      });
+      if (!Array.isArray(appComponent.commands)) {
+        throw new Error('Invalid Flux App Specifications.');
+      }
+      if (appComponent.commands.length > 5) {
+        throw new Error(`App component ${appComponent.name} commands invalid. Maximum of 10 commands allowed.`);
+      }
+      appComponent.commands.forEach((com) => {
+        if (com.length > 50) {
+          throw new Error(`App component ${appComponent.name} command ${com} is too long. Maximum of 50 characters is allowed`);
+        }
+      });
+      if (!Array.isArray(appComponent.containerPorts)) {
+        throw new Error('Invalid Flux App Specifications.');
+      }
+      if (!Array.isArray(appComponent.ports)) {
+        throw new Error('Invalid Flux App Specifications.');
+      }
+      if (!Array.isArray(appComponent.domains)) {
+        throw new Error('Invalid Flux App Specifications.');
+      }
+      appComponent.domains.forEach((dom) => {
+        if (dom.length > 50) {
+          throw new Error(`App component ${appComponent.name} domain ${dom} is too long. Maximum of 50 characters is allowed`);
+        }
+      });
       // check if containerPort makes sense
       appComponent.containerPorts.forEach((port) => {
         if (port < 0 || port > 65535) {
