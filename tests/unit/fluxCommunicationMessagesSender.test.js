@@ -323,17 +323,17 @@ describe('fluxCommunicationMessagesSender tests', () => {
       expect(JSON.parse(signedData).data).to.eql(data);
     });
 
-    it('should return serialised empty message without signature when no public key is provided', async () => {
+    it('should fall back to zelnode private key config if empty', async () => {
       const privateKey = '';
       const data = '';
 
       const signedData = await fluxCommunicationMessagesSender.serialiseAndSignFluxBroadcast(data, privateKey);
 
       expect(signedData).to.be.a('string');
-      expect(JSON.parse(signedData).signature).to.be.empty;
+      expect(JSON.parse(signedData).signature).to.be.a('string');
       expect(JSON.parse(signedData).version).to.eql(1);
       expect(JSON.parse(signedData).data).to.eql(data);
-      expect(JSON.parse(signedData).pubKey).to.eql({});
+      expect(JSON.parse(signedData).pubKey).to.eql('0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab');
     });
   });
 
