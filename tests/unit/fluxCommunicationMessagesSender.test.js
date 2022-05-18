@@ -324,7 +324,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
     });
 
     it('should fall back to zelnode private key config if empty', async () => {
-      const privateKey = '';
+      const privateKey = ''; // falls back to 5J2Hf3T8LpjKEkY46qhPLFF8DjQfCSBh6aWRfeDwQSMJKomvHFa as thats in sample config.
       const data = '';
 
       const signedData = await fluxCommunicationMessagesSender.serialiseAndSignFluxBroadcast(data, privateKey);
@@ -333,7 +333,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
       expect(JSON.parse(signedData).signature).to.be.a('string');
       expect(JSON.parse(signedData).version).to.eql(1);
       expect(JSON.parse(signedData).data).to.eql(data);
-      expect(JSON.parse(signedData).pubKey).to.eql('0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab');
+      expect(JSON.parse(signedData).pubKey).to.eql('04e3f3c95621419fac3ffaaf4545b686469c6535b015c843ad6df9fc862df62b0cc55ce6e7be31dbd07d359626df860145789732fc2dc318afdd7605482da0549f');
     });
   });
 
