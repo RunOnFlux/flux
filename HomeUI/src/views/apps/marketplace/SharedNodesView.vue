@@ -1572,7 +1572,7 @@ export default {
         showToast('success', response.data.message || response.data);
       } else {
         stakeRegisterFailed.value = true;
-        showToast('danger', response.data.message || response.data);
+        showToast('danger', (response.data.data ? response.data.data.message : response.data.message) || response.data);
       }
     };
 
@@ -1614,7 +1614,7 @@ export default {
         fetchData();
       } else {
         requestFailed.value = true;
-        showToast('danger', response.data.message || response.data);
+        showToast('danger', (response.data.data ? response.data.data.message : response.data.message) || response.data);
       }
     };
 

@@ -76,9 +76,7 @@
         :settings="perfectScrollbarSettings"
         class="marketplace-app-list scroll-area"
       >
-        <ul
-          class="marketplace-media-list"
-        >
+        <ul class="marketplace-media-list">
           <b-media
             v-for="singleApp in filteredApps"
             :key="singleApp.hash"
@@ -90,7 +88,9 @@
               <div class="app-title-wrapper">
                 <div class="app-title-area">
                   <div class="title-wrapper">
-                    <span class="app-title"><h4>{{ singleApp.name }}</h4></span>
+                    <span class="app-title">
+                      <h4>{{ singleApp.name }}</h4>
+                    </span>
                   </div>
                 </div>
                 <div class="app-item-action">
@@ -259,6 +259,9 @@ export default {
         '1BeXmrAVprWxzcK72i2DoMLWXhR9KazJhN',
         '1NT9VL5yeBUGZfNaoZExZ6hf7vwbVqkZVP',
         '1BKh6A6tAddDdVkP6BA63nopiTDJcPvRS9',
+        '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+        '12hbuDGzfnndXP4NbrS3xdVXUcC6L7N2ag',
+        '196GJWyLxzAw3MirTT7Bqs2iGpUQio29GH',
       ],
     );
 
@@ -312,7 +315,7 @@ export default {
 
       delete currentRouteQuery.sort;
 
-      router.replace({ name: route.name, query: currentRouteQuery }).catch(() => {});
+      router.replace({ name: route.name, query: currentRouteQuery }).catch(() => { });
     };
 
     const app = ref({});
