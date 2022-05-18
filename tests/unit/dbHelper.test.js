@@ -330,7 +330,7 @@ describe('dbHelper tests', () => {
       expect(getOneFromDatabase).to.eql(documentToInsert);
     });
 
-    it('should return error if key exists', async () => {
+    it('should return undefined if the key already exists', async () => {
       const documentToInsert = {
         _id: ObjectId('5fa25bf73ba9312a4d83712d'),
         name: 'App5',
@@ -338,7 +338,7 @@ describe('dbHelper tests', () => {
         owner: '1SZe3AUYQC4aT5Y0LhgEcH2nLLdoKNSi9e',
       };
 
-      expect(async () => { await dbHelper.insertOneToDatabase(database, collection, documentToInsert); }).to.throw;
+      expect(await dbHelper.insertOneToDatabase(database, collection, documentToInsert)).to.be.undefined;
     });
   });
 
@@ -455,7 +455,7 @@ describe('dbHelper tests', () => {
       expect(findInDatabaseResult).to.eql(expectedResult);
     });
 
-    it('should return error if there are duplicate keys', async () => {
+    it('should return undefined if there are duplicate keys', async () => {
       const documentsToInsert = [{
         _id: ObjectId('4f99562a09aef92cd1afbe93'),
         name: 'App5',
@@ -468,7 +468,7 @@ describe('dbHelper tests', () => {
         owner: '1SZe3AUYQC4aT5Y0LhgEcH2nLLsoKNSi6e',
       }];
 
-      expect(async () => { await dbHelper.insertManyToDatabase(database, collection, documentsToInsert); }).to.throw;
+      expect(await dbHelper.insertManyToDatabase(database, collection, documentsToInsert)).to.be.undefined;
     });
   });
 
