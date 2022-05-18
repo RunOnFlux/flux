@@ -177,8 +177,8 @@ async function verifyAppOwnerSession(headers, appName) {
   if (!loggedUser) {
     const timestamp = new Date().getTime();
     const message = auth.loginPhrase;
-    const sixteenHours = 2 * 60 * 60 * 1000;
-    if (Number(message.substring(0, 13)) < (timestamp - sixteenHours) || Number(message.substring(0, 13)) > timestamp || message.length > 70 || message.length < 40) {
+    const twoHours = 2 * 60 * 60 * 1000;
+    if (Number(message.substring(0, 13)) < (timestamp - twoHours) || Number(message.substring(0, 13)) > timestamp || message.length > 70 || message.length < 40) {
       return false;
     }
   }
